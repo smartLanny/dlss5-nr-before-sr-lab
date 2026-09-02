@@ -5,7 +5,8 @@ orders around a game's ordinary DLSS Super Resolution call:
 
 - Mode 1: game DLSS SR, then output-resolution neural rendering (`SR -> NR`).
 - Mode 2: render-resolution neural rendering at 1:1, then the game's original
-  DLSS SR (`NR -> SR`).
+  DLSS SR (`NR -> SR`). Mode 2 is the beta0.3 default performance path; Mode 1
+  remains the complete full-resolution quality/reference path.
 
 This is a research project, not an NVIDIA product and not an official joint
 DLSS NR/SR implementation. NVIDIA, DLSS, GeForce, and related names are
@@ -42,6 +43,12 @@ This code injects into a game process and hooks graphics API entry points. Use i
 only in offline/single-player environments that allow ReShade add-ons. Do not use
 it with anti-cheat-protected or competitive multiplayer software.
 
+The scope is intentionally modular: this add-on concentrates on native D3D12
+DLSS Feature 1 games and the two `SR -> NR` / `NR -> native game SR` orders.
+DX11, Vulkan, games without native DLSS SR, and runtime portability for older
+GPUs remain separate Bridge/Feeder/ShortFuse concerns rather than duplicate
+implementations inside this project.
+
 ## Included source
 
 - `src/nr_before_sr.cpp`: ReShade add-on, NGX observation/substitution, HDR proxy
@@ -50,6 +57,10 @@ it with anti-cheat-protected or competitive multiplayer software.
 - `config/nr_before_sr.ini`: conservative default settings.
 - `third_party/minhook`: minimal x64 MinHook source subset required by the build.
 - `docs/TEST_EVIDENCE.md`: sanitized, non-authoritative runtime observations.
+- `docs/BETA_0_3_RELEASE_NOTES.md`: current behavior and safety changes.
+- `docs/BETA_0_3_TEST_MATRIX.md`: release qualification checklist.
+- `scripts/validate-codec-shader.ps1`: compiles all embedded HLSL entry points
+  with the same Shader Model 5.1 compiler contract used at runtime.
 
 ## Build prerequisites
 
@@ -83,11 +94,13 @@ active regions, low-resolution depth/motion guides, and high-resolution motion
 conversion. Results are engine- and runtime-dependent. Important unresolved
 areas are documented in [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
-The 2026-09-02 tree is an **early bug-fix candidate**, not a universal release.
-It compiles cleanly in the maintained local toolchain and has received a focused
-P0/P1 source review. Its newest command-list lifetime, RR exclusion, and extent
-resolution changes still require fresh in-game stress testing before a public
-binary release.
+The 2026-09-03 tree is a **beta0.3 stabilization candidate**, not a universal
+release. It compiles cleanly in the maintained local toolchain and has received
+focused P0/P1 source reviews. Its immutable submission batches, context-level
+queue/fence proof, reset-success gate, output-format conversion, RR exclusion, and
+extent resolution still require the fresh in-game stress matrix before a public
+binary release. beta0.3 uses the smaller three-title gate documented in the test
+matrix; the seven-title 600-frame/20-cycle matrix is reserved for RC.
 
 The project should not claim exact visual equivalence between Mode 1 and Mode 2:
 Mode 2 gives the neural model fewer source pixels and then asks the game's SR to

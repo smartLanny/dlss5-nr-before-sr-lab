@@ -17,17 +17,19 @@ contracts and validates physical bounds, but some fallbacks infer an active size
 from physical allocation size. That can be semantically wrong for padded or
 dynamic resources even when it remains in bounds.
 
-NR contexts are keyed by exact `(game feature, mode, width, height)` and the
+NR contexts are keyed by exact `(game feature generation, mode, width, height)` and the
 current pool is finite. A title that exposes many distinct dynamic-resolution
 sizes during one feature lifetime may exhaust the pool and is failed closed to
 native SR. Current retirement tracks marked command lists through the real
 queue submission. The native submit hook pins the matching slot before the real
 `ExecuteCommandLists` call, then signals a private fence on that same submitting
-queue before allowing descriptor rebinding or object destruction. A slot seen on
-more than one queue, a failed signal, an unprovable hook state, or an ambiguous
-submission is conservatively failed closed and quarantined until process exit.
-This still needs current-build stress testing with repeated command-list submits,
-resets, feature recreation, resolution changes, and multiple queues.
+queue before allowing descriptor rebinding or object destruction. Feature 18's
+context is tracked with the slots: same-queue work may remain ordered without a
+stall, but an unresolved queue change is not bridged with a private GPU Wait and
+is failed closed. A failed signal, an unprovable hook state, or an ambiguous
+submission is conservatively quarantined until process exit. This still needs current-build
+stress testing with repeated command-list submits, resets, feature recreation,
+resolution changes, and multiple queues.
 
 ## Motion vectors and depth
 
@@ -59,6 +61,13 @@ luminance estimate can reduce broad drift in one scene, but may also change
 faces, edges, and local contrast. It cannot restore source detail that the
 lower-resolution model never observed.
 
+ColorDiag is a sparse, bounded display-linear diagnostic, not a colorimeter or
+an HDR mastering measurement. Hashes are meaningful only with the same active
+extent, sample grid and settings. In `NR -> SR`, its `composited` stage is the
+render-resolution image handed to the game's native SR; the subsequent screen
+result is assessed by the fixed-scene capture group rather than by reading an
+unknown game output state from the add-on.
+
 ## Runtime and GPU support
 
 This source does not contain a Feature 18 implementation. Runtime acceptance is
@@ -85,10 +94,16 @@ exclusion, not a joint RR + NR -> SR implementation.
 Mode 1 records the final post-SR codec/composition dispatch on the game's command
 list. D3D12 provides no generic way for this add-on to query and restore every
 compute root signature, pipeline state, and descriptor heap previously selected
-by the title. Mode 1 is therefore an experimental, per-title path even where its
-Feature 18 contract succeeds. Mode 2 and the master-off native-SR bypass have a
-smaller state-interference surface. A universal fix requires either reliable
-state shadowing or work recorded on an independently synchronized command list.
+by the title. Mode 1 therefore remains experimental even where its live resource
+contract succeeds. Admission is based on current format/view/subrect/exposure/
+guide contracts, not an executable-name list. Mode 2 and the master-off native-SR
+bypass have a smaller state-interference surface. A universal fix requires either
+reliable state shadowing or work recorded on an independently synchronized
+command list.
+
+FP16 and R11 output storage can be adapted automatically when the live resource
+contract passes. R8 UNORM additionally needs a confirmed linear-versus-sRGB
+semantic contract; unknown encoding is deliberately bypassed.
 
 ## Post-SR guides
 

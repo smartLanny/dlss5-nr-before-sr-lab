@@ -216,9 +216,56 @@ bool IsSupportedSceneColorFormat(DXGI_FORMAT format) {
            format == DXGI_FORMAT_R11G11B10_FLOAT;
 }
 
+enum class BypassReason : int {
+    None = 0,
+    MasterDisabled,
+    WaitingForFeature1,
+    UnsupportedInputFormat,
+    UnsupportedOutputFormat,
+    OutputColorContractUnverified,
+    ExposureTextureUnverified,
+    RayReconstructionGuard,
+    RuntimeRejected,
+    ShortFuseOwnsNr,
+    LifecycleIsolation,
+    FailedCreateQuarantine,
+};
+
+std::atomic<int> g_last_bypass_reason{
+    static_cast<int>(BypassReason::WaitingForFeature1)};
+std::atomic<unsigned int> g_last_output_format{DXGI_FORMAT_UNKNOWN};
+std::atomic<unsigned long long> g_nr_transferred_frames{0};
+std::atomic<unsigned long long> g_nr_identity_or_warmup_frames{0};
+std::atomic<unsigned long long> g_nr_delta_sampled_frames{0};
+std::atomic<unsigned long long> g_nr_delta_near_zero_frames{0};
+std::atomic<unsigned long long> g_nr_delta_visible_frames{0};
+std::atomic<float> g_last_sampled_nr_delta{0.0f};
+std::atomic<unsigned long long> g_lifecycle_safe_bypass_frames{0};
+constexpr unsigned int kDiagnosticStageCount = 4;
+constexpr unsigned int kDiagnosticStatsUintCount = 24;
+constexpr unsigned int kDiagnosticStatsBytes =
+    kDiagnosticStatsUintCount * sizeof(std::uint32_t);
+std::atomic<float> g_last_diagnostic_r[kDiagnosticStageCount] = {};
+std::atomic<float> g_last_diagnostic_g[kDiagnosticStageCount] = {};
+std::atomic<float> g_last_diagnostic_b[kDiagnosticStageCount] = {};
+std::atomic<float> g_last_diagnostic_luma[kDiagnosticStageCount] = {};
+std::atomic<std::uint32_t> g_last_diagnostic_hash[kDiagnosticStageCount] = {};
+std::atomic<unsigned int> g_last_diagnostic_sample_count{0};
+std::atomic<unsigned int> g_last_diagnostic_invalid_count{0};
+
+void SetBypassReason(BypassReason reason) {
+    g_last_bypass_reason.store(static_cast<int>(reason),
+                               std::memory_order_relaxed);
+}
+
 struct FeatureRecord {
     const NgxHandle *handle = nullptr;
     int feature_id = -1;
+    // Every successful outermost Feature 1 Create receives a new generation,
+    // even if NGX reuses the same handle and dimensions. Engines commonly
+    // rebuild DLSS when HDR, create flags or presentation contracts change;
+    // carrying a Feature 18 context across that boundary is unsafe.
+    unsigned long long generation = 0;
     unsigned int width = 0;
     unsigned int height = 0;
     unsigned int out_width = 0;
@@ -229,6 +276,7 @@ struct FeatureRecord {
 
 FeatureRecord g_features[64] = {};
 SRWLOCK g_feature_lock = SRWLOCK_INIT;
+std::atomic<unsigned long long> g_feature_generation{1};
 // If ownership bookkeeping ever becomes incomplete, fail closed for Feature 1
 // rather than risk submitting our Feature 18 beside an untracked RR feature.
 std::atomic<bool> g_feature_tracking_uncertain{false};
@@ -250,6 +298,14 @@ void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *p
     FeatureRecord record = {};
     record.handle = handle;
     record.feature_id = feature_id;
+    if (feature_id == 1) {
+        record.generation =
+            g_feature_generation.fetch_add(1, std::memory_order_relaxed);
+        if (record.generation == 0) {
+            record.generation =
+                g_feature_generation.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
     GetUInt(params, "Width", &record.width);
     GetUInt(params, "Height", &record.height);
     GetUInt(params, "OutWidth", &record.out_width);
@@ -287,6 +343,13 @@ void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *p
         }
     }
     ReleaseSRWLockExclusive(&g_feature_lock);
+    if (feature_id == 1 && slot < 64) {
+        Log("Feature 1 contract generation=%llu handle=%p create=%ux%u -> "
+            "%ux%u flags=%d quality=%d; all NR contracts will be rebuilt.",
+            record.generation, static_cast<const void *>(handle),
+            record.width, record.height, record.out_width, record.out_height,
+            record.create_flags, record.perf_quality);
+    }
 }
 
 FeatureRecord FindFeature(const NgxHandle *handle) {
@@ -366,9 +429,11 @@ void DumpCreate(const NgxParams *params) {
 
 void DumpEvaluate(const NgxParams *params, const FeatureRecord &feature,
                   unsigned long long evaluation) {
-    Log("--- %s Evaluate #%llu handle=%p create=%ux%u -> %ux%u ---",
+    Log("--- %s Evaluate #%llu handle=%p generation=%llu "
+        "create=%ux%u -> %ux%u ---",
         FeatureName(feature.feature_id), evaluation,
         static_cast<const void *>(feature.handle),
+        feature.generation,
         feature.width, feature.height, feature.out_width, feature.out_height);
     LogResource(params, "Color");
     LogResource(params, "MotionVectors");
@@ -400,7 +465,7 @@ void DumpEvaluate(const NgxParams *params, const FeatureRecord &feature,
 
 struct ChainConfig {
     bool enabled = false;
-    int mode = 1;
+    int mode = 2;
     bool identity_use_original = false;
     float transfer_strength = 0.0f;
     float post_transfer_strength = 1.0f;
@@ -419,6 +484,10 @@ struct ChainConfig {
     unsigned int style = 0;
     bool ui_correction = false;
     int perf_epoch = 0;
+    // 0 = unknown/fail closed, 1 = verified linear UNORM, 2 = verified
+    // sRGB-encoded values stored through an UNORM view. This is a profile
+    // contract, not a general user image-tuning option.
+    int r8_output_encoding = 0;
 };
 
 ChainConfig g_config = {};
@@ -448,6 +517,7 @@ std::atomic<unsigned long long> g_exposure_texture_bypasses{0};
 std::atomic<bool> g_pre_sr_runtime_rejected{false};
 std::atomic<bool> g_post_sr_runtime_rejected{false};
 std::atomic<unsigned int> g_last_nr_create_result{kNgxSuccess};
+std::atomic<bool> g_nr_failed_create_process_latched{false};
 std::atomic<bool> g_shortfuse_loaded{false};
 std::atomic<bool> g_shortfuse_nr_enabled{false};
 
@@ -520,6 +590,7 @@ bool MustBypassUnverifiedExposureTexture(const ColorContract &contract,
     g_unverified_exposure_texture_bypass.store(blocked,
                                                 std::memory_order_relaxed);
     if (blocked) {
+        SetBypassReason(BypassReason::ExposureTextureUnverified);
         const unsigned long long count =
             g_exposure_texture_bypasses.fetch_add(1,
                                                    std::memory_order_relaxed) + 1;
@@ -560,6 +631,7 @@ void NormalizeConfig(ChainConfig &config) {
     config.local_structure = std::clamp(config.local_structure, 0.0f, 2.0f);
     config.skin_structure = std::clamp(config.skin_structure, -1.0f, 2.0f);
     config.style = std::min(config.style, 2u);
+    config.r8_output_encoding = std::clamp(config.r8_output_encoding, 0, 2);
 }
 
 bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
@@ -582,7 +654,8 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.auto_mask == b.auto_mask &&
            a.style == b.style &&
            a.ui_correction == b.ui_correction &&
-           a.perf_epoch == b.perf_epoch;
+           a.perf_epoch == b.perf_epoch &&
+           a.r8_output_encoding == b.r8_output_encoding;
 }
 
 void ReloadConfig(bool force = false) {
@@ -593,7 +666,20 @@ void ReloadConfig(bool force = false) {
 
     ChainConfig next = {};
     next.enabled = GetPrivateProfileIntW(L"NRBeforeSR", L"Enabled", 0, g_ini_path) != 0;
-    next.mode = GetPrivateProfileIntW(L"NRBeforeSR", L"Mode", 1, g_ini_path);
+    const int config_version = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"ConfigVersion", 0, g_ini_path);
+    next.mode = GetPrivateProfileIntW(L"NRBeforeSR", L"Mode", 2, g_ini_path);
+    if (config_version < 3) {
+        // beta0.2 shipped Mode 1 as the default.  Migrate that persisted value
+        // once so installing beta0.3 cannot silently keep users on the
+        // comparison-only full-resolution path.
+        next.mode = 2;
+        WritePrivateProfileStringW(L"NRBeforeSR", L"Mode", L"2", g_ini_path);
+        WritePrivateProfileStringW(L"NRBeforeSR", L"ConfigVersion", L"3",
+                                   g_ini_path);
+        Log("Migrated legacy beta0.2 configuration to beta0.3: default mode is "
+            "now render-resolution NR -> SR.");
+    }
     next.identity_use_original = GetPrivateProfileIntW(
         L"NRBeforeSR", L"IdentityUseOriginalColor", 0, g_ini_path) != 0;
     const float legacy_pre_transfer = ReadIniFloat(L"TransferStrength", 1.0f);
@@ -623,6 +709,8 @@ void ReloadConfig(bool force = false) {
         L"NRBeforeSR", L"UICorrection", 0, g_ini_path) != 0;
     next.perf_epoch = GetPrivateProfileIntW(
         L"NRBeforeSR", L"PerfEpoch", 0, g_ini_path);
+    next.r8_output_encoding = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"R8OutputEncoding", 0, g_ini_path);
     NormalizeConfig(next);
 
     const bool shortfuse_loaded =
@@ -690,6 +778,7 @@ void WriteIniFloat(const wchar_t *key, float value) {
 }
 
 void SaveConfig(const ChainConfig &config) {
+    WriteIniInt(L"ConfigVersion", 3);
     WriteIniInt(L"Enabled", config.enabled ? 1 : 0);
     WriteIniInt(L"Mode", config.mode);
     WriteIniInt(L"IdentityUseOriginalColor", config.identity_use_original ? 1 : 0);
@@ -710,6 +799,7 @@ void SaveConfig(const ChainConfig &config) {
     WriteIniInt(L"Style", static_cast<int>(config.style));
     WriteIniInt(L"UICorrection", config.ui_correction ? 1 : 0);
     WriteIniInt(L"PerfEpoch", config.perf_epoch);
+    WriteIniInt(L"R8OutputEncoding", config.r8_output_encoding);
     // Remove the obsolete option from configs created by older builds.
     WritePrivateProfileStringW(L"NRBeforeSR", L"NRPreset", nullptr, g_ini_path);
     WritePrivateProfileStringW(nullptr, nullptr, nullptr, g_ini_path);
@@ -750,6 +840,9 @@ bool ApplyConfig(ChainConfig next, const char *source) {
                                   std::memory_order_relaxed);
     g_enabled_fast.store(g_config.enabled, std::memory_order_release);
     g_config_generation.fetch_add(1, std::memory_order_relaxed);
+    SetBypassReason(g_config.enabled
+        ? BypassReason::WaitingForFeature1
+        : BypassReason::MasterDisabled);
     SaveConfig(g_config);
     const ChainConfig applied = g_config;
     LeaveCriticalSection(&g_chain_cs);
@@ -899,6 +992,17 @@ struct NrApi {
 };
 
 NrApi g_nr_api = {};
+SRWLOCK g_nr_api_lock = SRWLOCK_INIT;
+
+struct ScopedSrwExclusive {
+    explicit ScopedSrwExclusive(SRWLOCK *value) : lock(value) {
+        AcquireSRWLockExclusive(lock);
+    }
+    ~ScopedSrwExclusive() { ReleaseSRWLockExclusive(lock); }
+    ScopedSrwExclusive(const ScopedSrwExclusive &) = delete;
+    ScopedSrwExclusive &operator=(const ScopedSrwExclusive &) = delete;
+    SRWLOCK *lock;
+};
 
 void AddonDirectory(wchar_t (&directory)[MAX_PATH]) {
     wcsncpy_s(directory, g_log_path, _TRUNCATE);
@@ -907,6 +1011,7 @@ void AddonDirectory(wchar_t (&directory)[MAX_PATH]) {
 }
 
 bool EnsureNrApi(ID3D12Device *device) {
+    ScopedSrwExclusive api_guard(&g_nr_api_lock);
     if (g_nr_api.initialized) return true;
     if (g_nr_api.failed || device == nullptr) return false;
 
@@ -1006,6 +1111,7 @@ Texture2D<float2> MotionSource  : register(t3);
 RWTexture2D<float4> ProxyOut    : register(u0);
 RWTexture2D<float4> ResultOut   : register(u1);
 RWTexture2D<float2> MotionOut   : register(u2);
+RWByteAddressBuffer DeltaStats  : register(u3);
 
 cbuffer Constants : register(b0) {
     uint Width;
@@ -1052,31 +1158,102 @@ float3 ClampAP1(float3 color) {
     return mul(ap1ToBt709, max(mul(bt709ToAp1, color), 0.0.xxx));
 }
 
-[numthreads(8, 8, 1)]
-void EncodeCS(uint3 tid : SV_DispatchThreadID) {
-    if (tid.x >= Width || tid.y >= Height) return;
-    uint2 sourceCoord = tid.xy + uint2(SourceBaseX, SourceBaseY);
-    float4 source = OriginalColor.Load(int3(sourceCoord, 0));
-    float3 frame = max(source.rgb, 0.0.xxx);
-    if ((Passthrough & 1u) != 0u) {
-        ProxyOut[tid.xy] = float4(frame, source.a);
-        return;
-    }
-
+float3 HdrSourceToModelLinear(float3 source) {
     float colorScale = max(SourceToCanonical, 0.0009765625);
-    float3 display = frame * (max(ProxyScale, 0.001) * colorScale);
+    float3 display = max(source, 0.0.xxx) *
+        (max(ProxyScale, 0.001) * colorScale);
     float displayLuma = dot(display, kLuma);
     if (displayLuma > 0.75) {
         float rolled = 0.75 + 0.25 *
             (1.0 - exp(-(displayLuma - 0.75) / 0.25));
         display *= rolled / max(displayLuma, 0.000001);
     }
-    // The luminance shoulder can still leave a highly saturated channel above
-    // one. LinearToSRGB would clamp each channel independently and rotate its
-    // hue. Scale all channels together so the peak reaches one instead.
+    // Preserve hue when a saturated HDR channel exceeds the model range.
     float displayPeak = max(display.r, max(display.g, display.b));
-    display *= rcp(max(displayPeak, 1.0));
-    ProxyOut[tid.xy] = float4(LinearToSRGB(display), source.a);
+    return saturate(display * rcp(max(displayPeak, 1.0)));
+}
+
+float3 SourceToDiagnosticLinear(float3 stored) {
+    const bool modelEncodedInput = (Passthrough & 1u) != 0u;
+    const bool linearSdrStorage = (Passthrough & 16u) != 0u;
+    const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
+    if (linearSdrStorage) return saturate(stored);
+    if (modelEncodedInput || srgbSdrStorage)
+        return SRGBToLinear(stored);
+    return HdrSourceToModelLinear(stored);
+}
+
+float3 ModelToDiagnosticLinear(float3 stored) {
+    // Feature 18 consumes and produces the encoded proxy. Decode only for the
+    // diagnostic so all four stages share a bounded display-linear domain.
+    return SRGBToLinear(stored);
+}
+
+uint DiagnosticHash(uint value) {
+    value ^= value >> 16;
+    value *= 0x7feb352du;
+    value ^= value >> 15;
+    value *= 0x846ca68bu;
+    return value ^ (value >> 16);
+}
+
+void RecordDiagnosticStage(uint stage, float3 color, uint2 coord) {
+    uint4 q = uint4(round(saturate(color) * 65535.0),
+                   round(saturate(dot(color, kLuma)) * 65535.0));
+    uint ignored = 0;
+    uint baseOffset = 16u + stage * 20u;
+    DeltaStats.InterlockedAdd(baseOffset + 0u, q.x, ignored);
+    DeltaStats.InterlockedAdd(baseOffset + 4u, q.y, ignored);
+    DeltaStats.InterlockedAdd(baseOffset + 8u, q.z, ignored);
+    DeltaStats.InterlockedAdd(baseOffset + 12u, q.w, ignored);
+    uint hash = DiagnosticHash(coord.x ^ (coord.y * 0x9e3779b9u) ^
+        (stage * 0x85ebca6bu) ^ q.x ^ (q.y << 5) ^
+        (q.z << 11) ^ (q.w << 17));
+    DeltaStats.InterlockedXor(baseOffset + 16u, hash, ignored);
+}
+
+void RecordDiagnostics(uint2 coord, float3 original, float3 proxy,
+                       float3 neural, float3 finalResult,
+                       float sampledDelta, bool invalid) {
+    if ((Passthrough & 8u) == 0u ||
+        (coord.x & 31u) != 0u || (coord.y & 31u) != 0u) return;
+    uint ignored = 0;
+    uint quantized = (uint)min(max(sampledDelta, 0.0) * 1048576.0,
+                               4294967040.0);
+    DeltaStats.InterlockedMax(0u, quantized, ignored);
+    DeltaStats.InterlockedAdd(4u, 1u, ignored);
+    if (sampledDelta >= (1.0 / 4096.0))
+        DeltaStats.InterlockedAdd(8u, 1u, ignored);
+    if (invalid)
+        DeltaStats.InterlockedAdd(12u, 1u, ignored);
+    RecordDiagnosticStage(0u, original, coord);
+    RecordDiagnosticStage(1u, proxy, coord);
+    RecordDiagnosticStage(2u, neural, coord);
+    RecordDiagnosticStage(3u, finalResult, coord);
+}
+
+[numthreads(8, 8, 1)]
+void EncodeCS(uint3 tid : SV_DispatchThreadID) {
+    if (tid.x >= Width || tid.y >= Height) return;
+    uint2 sourceCoord = tid.xy + uint2(SourceBaseX, SourceBaseY);
+    float4 source = OriginalColor.Load(int3(sourceCoord, 0));
+    float3 frame = max(source.rgb, 0.0.xxx);
+    const bool modelEncodedInput = (Passthrough & 1u) != 0u;
+    const bool linearSdrStorage = (Passthrough & 16u) != 0u;
+    const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
+    if (modelEncodedInput || srgbSdrStorage) {
+        ProxyOut[tid.xy] = float4(frame, source.a);
+        return;
+    }
+    if (linearSdrStorage) {
+        // A verified linear UNORM output must be encoded into the model's sRGB
+        // proxy domain without applying the HDR exposure/shoulder transform.
+        ProxyOut[tid.xy] = float4(LinearToSRGB(frame), source.a);
+        return;
+    }
+
+    ProxyOut[tid.xy] = float4(
+        LinearToSRGB(HdrSourceToModelLinear(frame)), source.a);
 }
 
 [numthreads(8, 8, 1)]
@@ -1085,25 +1262,46 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     uint2 sourceCoord = tid.xy + uint2(SourceBaseX, SourceBaseY);
     uint2 destinationCoord = tid.xy +
         uint2(DestinationBaseX, DestinationBaseY);
-    float4 original = OriginalColor.Load(int3(sourceCoord, 0));
-    if (TransferStrength <= 0.000001) {
-        ResultOut[destinationCoord] = original;
+    float4 storedOriginal = OriginalColor.Load(int3(sourceCoord, 0));
+    float3 storedProxy = ProxyColor.Load(int3(tid.xy, 0)).rgb;
+    float3 storedNeural = NeuralColor.Load(int3(tid.xy, 0)).rgb;
+    bool finiteInputs = all(storedOriginal.rgb == storedOriginal.rgb) &&
+        all(storedProxy == storedProxy) && all(storedNeural == storedNeural) &&
+        all(abs(storedOriginal.rgb) <= 65504.0.xxx) &&
+        all(abs(storedProxy) <= 65504.0.xxx) &&
+        all(abs(storedNeural) <= 65504.0.xxx);
+    if (!finiteInputs) {
+        // A malformed temporal sample must not poison the game's HDR target.
+        ResultOut[destinationCoord] = storedOriginal;
+        RecordDiagnostics(tid.xy, 0.0.xxx, 0.0.xxx, 0.0.xxx,
+                          0.0.xxx, 0.0, true);
         return;
     }
 
-    float3 proxy = ProxyColor.Load(int3(tid.xy, 0)).rgb;
-    float3 neural = NeuralColor.Load(int3(tid.xy, 0)).rgb;
-    bool finiteInputs = all(original.rgb == original.rgb) &&
-        all(proxy == proxy) && all(neural == neural) &&
-        all(abs(original.rgb) <= 65504.0.xxx) &&
-        all(abs(proxy) <= 65504.0.xxx) &&
-        all(abs(neural) <= 65504.0.xxx);
-    if (!finiteInputs) {
-        // A malformed temporal sample must not poison the game's HDR target.
-        ResultOut[destinationCoord] = original;
+    float3 diagnosticOriginal =
+        SourceToDiagnosticLinear(storedOriginal.rgb);
+    float3 diagnosticProxy = ModelToDiagnosticLinear(storedProxy);
+    float3 diagnosticNeural = ModelToDiagnosticLinear(storedNeural);
+    float diagnosticDelta = max(abs(diagnosticNeural.r - diagnosticProxy.r),
+        max(abs(diagnosticNeural.g - diagnosticProxy.g),
+            abs(diagnosticNeural.b - diagnosticProxy.b)));
+    if (TransferStrength <= 0.000001) {
+        ResultOut[destinationCoord] = storedOriginal;
+        RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+                          diagnosticNeural, diagnosticOriginal,
+                          diagnosticDelta, false);
         return;
     }
-    if ((Passthrough & 1u) == 0u) {
+
+    const bool modelEncodedInput = (Passthrough & 1u) != 0u;
+    const bool linearSdrStorage = (Passthrough & 16u) != 0u;
+    const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
+    float3 original = srgbSdrStorage
+        ? SRGBToLinear(storedOriginal.rgb)
+        : storedOriginal.rgb;
+    float3 proxy = storedProxy;
+    float3 neural = storedNeural;
+    if (!modelEncodedInput) {
         proxy = SRGBToLinear(proxy);
         neural = SRGBToLinear(neural);
     }
@@ -1114,7 +1312,10 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         // A no-op neural result must be a strict per-pixel identity. Avoiding
         // any colour-space round-trip here also makes the diagnostic contract
         // independent of FP16 matrix precision.
-        ResultOut[destinationCoord] = original;
+        ResultOut[destinationCoord] = storedOriginal;
+        RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+                          diagnosticNeural, diagnosticOriginal,
+                          diagnosticDelta, false);
         return;
     }
 
@@ -1138,7 +1339,7 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
                     ProxyColor.Load(int3(sampleCoord, 0)).rgb;
                 float3 neuralSample =
                     NeuralColor.Load(int3(sampleCoord, 0)).rgb;
-                if ((Passthrough & 1u) == 0u) {
+                if (!modelEncodedInput) {
                     proxySample = SRGBToLinear(proxySample);
                     neuralSample = SRGBToLinear(neuralSample);
                 }
@@ -1152,10 +1353,10 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         }
     }
 
-    float normalizer = (Passthrough & 1u) != 0u
+    float normalizer = (modelEncodedInput || linearSdrStorage || srgbSdrStorage)
         ? 1.0
         : max(ProxyScale * SourceToCanonical, 0.000001);
-    float3 source = original.rgb * normalizer;
+    float3 source = original * normalizer;
     float sourceLuma = dot(source, kLuma);
     float proxyLuma = dot(proxy, kLuma);
     float neuralLuma = dot(neural, kLuma);
@@ -1179,7 +1380,14 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         result *= boundedLuma / resultLuma;
     }
     result = clamp(result / normalizer, -65504.0.xxx, 65504.0.xxx);
-    ResultOut[destinationCoord] = float4(result, original.a);
+    if (srgbSdrStorage)
+        result = LinearToSRGB(result);
+    else if (linearSdrStorage)
+        result = saturate(result);
+    ResultOut[destinationCoord] = float4(result, storedOriginal.a);
+    RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+                      diagnosticNeural, SourceToDiagnosticLinear(result),
+                      diagnosticDelta, false);
 }
 
 [numthreads(8, 8, 1)]
@@ -1239,7 +1447,7 @@ bool EnsureCodec(ID3D12Device *device) {
     ranges[0].RegisterSpace = 0;
     ranges[0].OffsetInDescriptorsFromTableStart = 0;
     ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[1].NumDescriptors = 3;
+    ranges[1].NumDescriptors = 4;
     ranges[1].BaseShaderRegister = 0;
     ranges[1].RegisterSpace = 0;
     ranges[1].OffsetInDescriptorsFromTableStart = 4;
@@ -1351,6 +1559,15 @@ bool EnsureCodec(ID3D12Device *device) {
 
 struct LifecycleQueue;
 
+// Describes the storage-to-model colour transform selected by a verified live
+// resource contract. Automatic preserves the existing DLSS HDR/non-HDR path;
+// the two SDR modes are used only after R8 encoding has been confirmed.
+enum class CodecColorMode : unsigned int {
+    Automatic = 0,
+    LinearSdr,
+    SrgbEncodedSdr,
+};
+
 struct NrSlot {
     ID3D12Resource *key = nullptr;
     ID3D12Resource *source = nullptr;
@@ -1359,9 +1576,16 @@ struct NrSlot {
     ID3D12Resource *result = nullptr;
     ID3D12Resource *motion_source = nullptr;
     ID3D12Resource *motion_proxy = nullptr;
+    ID3D12Resource *delta_stats = nullptr;
+    ID3D12Resource *delta_stats_readback = nullptr;
     ID3D12DescriptorHeap *heap = nullptr;
+    ID3D12DescriptorHeap *snapshot_heap = nullptr;
     DXGI_FORMAT source_format = DXGI_FORMAT_UNKNOWN;
+    DXGI_FORMAT result_format = DXGI_FORMAT_UNKNOWN;
+    DXGI_FORMAT result_uav_format = DXGI_FORMAT_UNKNOWN;
+    CodecColorMode codec_color_mode = CodecColorMode::Automatic;
     bool converts_source_format = false;
+    bool snapshots_native_output = false;
     bool owns_source = false;
     bool owns_result = true;
     D3D12_RESOURCE_STATES source_state = D3D12_RESOURCE_STATE_COMMON;
@@ -1369,16 +1593,25 @@ struct NrSlot {
     D3D12_RESOURCE_STATES neural_state = D3D12_RESOURCE_STATE_COMMON;
     D3D12_RESOURCE_STATES result_state = D3D12_RESOURCE_STATE_COMMON;
     D3D12_RESOURCE_STATES motion_proxy_state = D3D12_RESOURCE_STATE_COMMON;
+    D3D12_RESOURCE_STATES delta_stats_state = D3D12_RESOURCE_STATE_COMMON;
     unsigned long long last_used_serial = 0;
     unsigned int recording_command_lists = 0;
     LifecycleQueue *last_submission_queue = nullptr;
     unsigned long long completion_fence_value = 0;
     bool awaiting_fence_signal = false;
+    bool delta_stats_pending = false;
+    bool delta_stats_capture_armed = false;
+    int diagnostic_mode = 0;
+    unsigned long long diagnostic_feature_generation = 0;
+    unsigned int diagnostic_width = 0;
+    unsigned int diagnostic_height = 0;
 };
 
 struct NrContext {
     const NgxHandle *sr_handle = nullptr;
+    unsigned long long feature_generation = 0;
     NgxHandle *nr_handle = nullptr;
+    NgxHandle *quarantined_create_handle = nullptr;
     NgxParams *params = nullptr;
     unsigned int width = 0;
     unsigned int height = 0;
@@ -1403,12 +1636,24 @@ struct NrContext {
     int bound_perf_quality = 5;
     bool create_variant_selected = false;
     bool retired = false;
+    bool create_dependencies_quarantined = false;
+    // Feature 18 Create/Evaluate is temporal state, not merely a collection of
+    // textures. Keep one recording owner and one proof fence for the complete
+    // context so initialization and later evaluations cannot overtake each
+    // other on different command lists or queues.
+    unsigned long long recording_token = 0;
+    LifecycleQueue *last_submission_queue = nullptr;
+    unsigned long long completion_fence_value = 0;
+    bool awaiting_fence_signal = false;
     int mode = 0;
     bool failed = false;
     NrSlot slots[8] = {};
 };
 
 NrContext g_contexts[16] = {};
+// Ready contexts are detached from the live table under g_chain_cs, then their
+// NGX and COM objects are released after all lifecycle locks have been dropped.
+NrContext g_pending_destroy_contexts[16] = {};
 
 // GPU lifetime tracking is deliberately fixed-size and fail-closed.  The
 // command-list marker survives the ReShade proxy and can therefore be read
@@ -1416,6 +1661,9 @@ NrContext g_contexts[16] = {};
 constexpr GUID kLifecycleCommandListGuid = {
     0x8c113f2d, 0xe73b, 0x48dd,
     {0x99, 0x21, 0x9f, 0x0b, 0x47, 0xa4, 0xd5, 0x6c}};
+constexpr GUID kLastSubmissionQueueGuid = {
+    0x2f90ef4a, 0x3aa3, 0x4de5,
+    {0xb5, 0x27, 0x91, 0x52, 0x31, 0xe2, 0x8c, 0x6a}};
 constexpr std::size_t kLifecycleCommandListCount = 128;
 constexpr std::size_t kLifecycleUsesPerCommandList = 16;
 constexpr std::size_t kLifecycleQueueCount = 8;
@@ -1424,13 +1672,36 @@ struct LifecycleCommandList {
     unsigned long long token = 0;
     NrSlot *slots[kLifecycleUsesPerCommandList] = {};
     unsigned int slot_count = 0;
-    unsigned int pending_execute_callbacks = 0;
+    NrContext *contexts[kLifecycleUsesPerCommandList] = {};
+    unsigned int context_count = 0;
+    unsigned int in_flight_submissions = 0;
+    bool detached = false;
 };
 
 struct LifecycleQueue {
     ID3D12CommandQueue *queue = nullptr;
     ID3D12Fence *fence = nullptr;
     unsigned long long next_fence_value = 1;
+    // Every hooked ExecuteCommandLists call on this concrete queue is kept
+    // adjacent to the retirement Signal that proves completion of that exact
+    // submission. Static zero initialization is a valid unlocked SRW lock.
+    SRWLOCK submission_lock = {};
+};
+
+constexpr std::size_t kLifecycleBatchRecords =
+    kLifecycleCommandListCount;
+constexpr std::size_t kLifecycleBatchSlots = 16 * 8;
+
+struct SubmissionBatch {
+    LifecycleQueue *queue_state = nullptr;
+    LifecycleCommandList *records[kLifecycleBatchRecords] = {};
+    unsigned int record_count = 0;
+    NrSlot *slots[kLifecycleBatchSlots] = {};
+    unsigned int slot_count = 0;
+    NrContext *contexts[kLifecycleBatchSlots] = {};
+    unsigned int context_count = 0;
+    unsigned long long fence_value = 0;
+    bool active = false;
 };
 
 LifecycleCommandList g_lifecycle_command_lists[kLifecycleCommandListCount] = {};
@@ -1452,6 +1723,9 @@ void MarkLifecycleUncertain(const char *reason) {
 }
 
 void DestroySlot(NrSlot &slot) {
+    ReleaseCom(slot.delta_stats_readback);
+    ReleaseCom(slot.delta_stats);
+    ReleaseCom(slot.snapshot_heap);
     ReleaseCom(slot.heap);
     ReleaseCom(slot.result);
     ReleaseCom(slot.neural);
@@ -1463,16 +1737,29 @@ void DestroySlot(NrSlot &slot) {
 }
 
 void DestroyContext(NrContext &context) {
-    if (context.nr_handle != nullptr && g_nr_api.initialized &&
-        g_nr_api.bridge_release != nullptr) {
-        const NgxResult result = g_nr_api.bridge_release(
-            g_nr_api.signed_release, context.nr_handle);
-        Log("NR ReleaseFeature handle=%p result=0x%08X", context.nr_handle, result);
+    if (context.create_dependencies_quarantined) {
+        // A failed Create returned a non-null handle after recording unknown
+        // initialization work. Its complete dependency closure intentionally
+        // survives to process exit; releasing only part of it is not safe.
+        return;
     }
-    context.nr_handle = nullptr;
-    if (context.params != nullptr && g_nr_api.destroy != nullptr) {
-        g_nr_api.destroy(context.params);
-        context.params = nullptr;
+    {
+        // NGX explicitly does not provide general method-level thread safety.
+        // Pending destruction runs outside g_chain_cs, so serialize it with
+        // init/allocate/create/evaluate without reintroducing release-under-lock.
+        ScopedSrwExclusive api_guard(&g_nr_api_lock);
+        if (context.nr_handle != nullptr && g_nr_api.initialized &&
+            g_nr_api.bridge_release != nullptr) {
+            const NgxResult result = g_nr_api.bridge_release(
+                g_nr_api.signed_release, context.nr_handle);
+            Log("NR ReleaseFeature handle=%p result=0x%08X",
+                context.nr_handle, result);
+        }
+        context.nr_handle = nullptr;
+        if (context.params != nullptr && g_nr_api.destroy != nullptr) {
+            g_nr_api.destroy(context.params);
+            context.params = nullptr;
+        }
     }
     for (auto &slot : context.slots) DestroySlot(slot);
     context = {};
@@ -1489,6 +1776,16 @@ bool IsSlotFenceCompleteLocked(const NrSlot &slot) {
     return completed != UINT64_MAX && completed >= slot.completion_fence_value;
 }
 
+bool IsContextFenceCompleteLocked(const NrContext &context) {
+    if (context.completion_fence_value == 0) return true;
+    if (context.last_submission_queue == nullptr ||
+        context.last_submission_queue->fence == nullptr) return false;
+    const unsigned long long completed = ID3D12Fence_GetCompletedValue(
+        context.last_submission_queue->fence);
+    return completed != UINT64_MAX &&
+           completed >= context.completion_fence_value;
+}
+
 bool CanMutateSlotLocked(const NrSlot &slot) {
     return !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) &&
            slot.recording_command_lists == 0 &&
@@ -1496,25 +1793,147 @@ bool CanMutateSlotLocked(const NrSlot &slot) {
 }
 
 bool CanDestroyContextLocked(const NrContext &context) {
+    if (context.create_dependencies_quarantined) return false;
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))
         return false;
+    if (context.recording_token != 0 || context.awaiting_fence_signal ||
+        !IsContextFenceCompleteLocked(context)) return false;
     for (const auto &slot : context.slots) {
         if (slot.key != nullptr && !CanMutateSlotLocked(slot)) return false;
     }
     return true;
 }
 
+void CollectSlotDeltaStatsLocked(NrSlot &slot) {
+    if (!slot.delta_stats_pending || slot.delta_stats_readback == nullptr ||
+        !CanMutateSlotLocked(slot)) return;
+    const D3D12_RANGE read_range = {0, kDiagnosticStatsBytes};
+    void *mapped = nullptr;
+    const HRESULT mapped_result = ID3D12Resource_Map(
+        slot.delta_stats_readback, 0, &read_range, &mapped);
+    if (FAILED(mapped_result) || mapped == nullptr) return;
+    const auto *values = static_cast<const std::uint32_t *>(mapped);
+    const std::uint32_t max_quantized = values[0];
+    const std::uint32_t sample_count = values[1];
+    const std::uint32_t changed_count = values[2];
+    const std::uint32_t invalid_count = values[3];
+    const D3D12_RANGE written_range = {0, 0};
+    ID3D12Resource_Unmap(slot.delta_stats_readback, 0, &written_range);
+    slot.delta_stats_pending = false;
+
+    if (sample_count == 0) return;
+    const float max_delta = static_cast<float>(max_quantized) / 1048576.0f;
+    g_last_sampled_nr_delta.store(max_delta, std::memory_order_relaxed);
+    const unsigned long long sampled_frame =
+        g_nr_delta_sampled_frames.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (changed_count == 0 || max_delta < 1.0f / 4096.0f)
+        g_nr_delta_near_zero_frames.fetch_add(1, std::memory_order_relaxed);
+    else
+        g_nr_delta_visible_frames.fetch_add(1, std::memory_order_relaxed);
+    g_last_diagnostic_sample_count.store(sample_count,
+                                         std::memory_order_relaxed);
+    g_last_diagnostic_invalid_count.store(invalid_count,
+                                          std::memory_order_relaxed);
+    for (unsigned int stage = 0; stage < kDiagnosticStageCount; ++stage) {
+        const unsigned int base = 4 + stage * 5;
+        const float denominator =
+            static_cast<float>(sample_count) * 65535.0f;
+        g_last_diagnostic_r[stage].store(
+            static_cast<float>(values[base + 0]) / denominator,
+            std::memory_order_relaxed);
+        g_last_diagnostic_g[stage].store(
+            static_cast<float>(values[base + 1]) / denominator,
+            std::memory_order_relaxed);
+        g_last_diagnostic_b[stage].store(
+            static_cast<float>(values[base + 2]) / denominator,
+            std::memory_order_relaxed);
+        g_last_diagnostic_luma[stage].store(
+            static_cast<float>(values[base + 3]) / denominator,
+            std::memory_order_relaxed);
+        g_last_diagnostic_hash[stage].store(values[base + 4],
+                                            std::memory_order_relaxed);
+    }
+    if (sampled_frame <= 3 || (sampled_frame % 120) == 0) {
+        static const char *const stage_names[kDiagnosticStageCount] = {
+            "original", "proxy", "nr-output", "composited"};
+        Log("ColorDiag #%llu mode=%d featureGeneration=%llu extent=%ux%u "
+            "samples=%u invalid=%u maxNrDelta=%.6f changed=%u.",
+            sampled_frame, slot.diagnostic_mode,
+            slot.diagnostic_feature_generation,
+            slot.diagnostic_width, slot.diagnostic_height,
+            sample_count, invalid_count, static_cast<double>(max_delta),
+            changed_count);
+        for (unsigned int stage = 0; stage < kDiagnosticStageCount; ++stage) {
+            Log("    %-10s meanRGB=(%.6f,%.6f,%.6f) luma=%.6f hash=%08X",
+                stage_names[stage],
+                static_cast<double>(
+                    g_last_diagnostic_r[stage].load(std::memory_order_relaxed)),
+                static_cast<double>(
+                    g_last_diagnostic_g[stage].load(std::memory_order_relaxed)),
+                static_cast<double>(
+                    g_last_diagnostic_b[stage].load(std::memory_order_relaxed)),
+                static_cast<double>(g_last_diagnostic_luma[stage].load(
+                    std::memory_order_relaxed)),
+                g_last_diagnostic_hash[stage].load(
+                    std::memory_order_relaxed));
+        }
+    }
+}
+
+void CollectCompletedDeltaStatsLocked() {
+    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) return;
+    for (auto &context : g_contexts) {
+        for (auto &slot : context.slots)
+            CollectSlotDeltaStatsLocked(slot);
+    }
+}
+
 void CollectRetiredContextsLocked() {
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) return;
+    CollectCompletedDeltaStatsLocked();
     for (auto &context : g_contexts) {
         if (context.sr_handle != nullptr && context.retired &&
             CanDestroyContextLocked(context)) {
+            NrContext *pending = nullptr;
+            for (auto &candidate : g_pending_destroy_contexts) {
+                if (candidate.sr_handle == nullptr) {
+                    pending = &candidate;
+                    break;
+                }
+            }
+            if (pending == nullptr) {
+                MarkLifecycleUncertain(
+                    "deferred context destruction queue exhausted");
+                return;
+            }
             Log("GPU retirement fence completed for SR handle=%p mode=%d "
-                "extent=%ux%u; releasing Feature 18 context.",
+                "extent=%ux%u; scheduling Feature 18 release outside locks.",
                 static_cast<const void *>(context.sr_handle), context.mode,
                 context.width, context.height);
-            DestroyContext(context);
+            *pending = context;
+            context = {};
         }
+    }
+}
+
+void DrainPendingContextDestructions() {
+    for (;;) {
+        NrContext pending = {};
+        EnterCriticalSection(&g_chain_cs);
+        NrContext *source = nullptr;
+        for (auto &candidate : g_pending_destroy_contexts) {
+            if (candidate.sr_handle != nullptr) {
+                source = &candidate;
+                break;
+            }
+        }
+        if (source != nullptr) {
+            pending = *source;
+            *source = {};
+        }
+        LeaveCriticalSection(&g_chain_cs);
+        if (source == nullptr) break;
+        DestroyContext(pending);
     }
 }
 
@@ -1549,17 +1968,35 @@ bool ReadLifecycleToken(ID3D12GraphicsCommandList *command_list,
         size == sizeof(token) && token != 0;
 }
 
-void ClearLifecycleToken(ID3D12GraphicsCommandList *command_list) {
-    if (command_list != nullptr) {
-        ID3D12GraphicsCommandList_SetPrivateData(
-            command_list, kLifecycleCommandListGuid, 0, nullptr);
-    }
+ID3D12CommandQueue *ReadLastSubmissionQueue(
+    ID3D12GraphicsCommandList *command_list) {
+    if (command_list == nullptr) return nullptr;
+    std::uintptr_t value = 0;
+    UINT size = sizeof(value);
+    if (FAILED(ID3D12GraphicsCommandList_GetPrivateData(
+            command_list, kLastSubmissionQueueGuid, &size, &value)) ||
+        size != sizeof(value)) return nullptr;
+    return reinterpret_cast<ID3D12CommandQueue *>(value);
 }
 
-bool RecordSlotUseLocked(ID3D12GraphicsCommandList *command_list,
-                         NrSlot &slot) {
+void RememberLastSubmissionQueue(ID3D12GraphicsCommandList *command_list,
+                                 ID3D12CommandQueue *queue) {
+    if (command_list == nullptr || queue == nullptr) return;
+    const std::uintptr_t value = reinterpret_cast<std::uintptr_t>(queue);
+    ID3D12GraphicsCommandList_SetPrivateData(
+        command_list, kLastSubmissionQueueGuid, sizeof(value), &value);
+}
+
+bool ClearLifecycleToken(ID3D12GraphicsCommandList *command_list) {
+    return command_list != nullptr && SUCCEEDED(
+        ID3D12GraphicsCommandList_SetPrivateData(
+            command_list, kLifecycleCommandListGuid, 0, nullptr));
+}
+
+LifecycleCommandList *FindOrCreateLifecycleCommandListLocked(
+    ID3D12GraphicsCommandList *command_list) {
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))
-        return false;
+        return nullptr;
 
     unsigned long long token = 0;
     LifecycleCommandList *record = nullptr;
@@ -1567,7 +2004,7 @@ bool RecordSlotUseLocked(ID3D12GraphicsCommandList *command_list,
         record = FindLifecycleCommandListLocked(token);
         if (record == nullptr) {
             MarkLifecycleUncertain("stale command-list lifetime marker");
-            return false;
+            return nullptr;
         }
     } else {
         for (auto &candidate : g_lifecycle_command_lists) {
@@ -1578,7 +2015,7 @@ bool RecordSlotUseLocked(ID3D12GraphicsCommandList *command_list,
         }
         if (record == nullptr) {
             MarkLifecycleUncertain("command-list lifetime table exhausted");
-            return false;
+            return nullptr;
         }
         token = g_lifecycle_token.fetch_add(1, std::memory_order_relaxed);
         if (token == 0)
@@ -1587,11 +2024,79 @@ bool RecordSlotUseLocked(ID3D12GraphicsCommandList *command_list,
             command_list, kLifecycleCommandListGuid, sizeof(token), &token);
         if (FAILED(marked)) {
             MarkLifecycleUncertain("could not mark D3D12 command list");
-            return false;
+            return nullptr;
         }
         record->token = token;
         g_lifecycle_active_command_lists.fetch_add(1,
                                                    std::memory_order_release);
+    }
+    return record;
+}
+
+bool CanBeginContextUseLocked(ID3D12GraphicsCommandList *command_list,
+                              const NrContext &context) {
+    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
+        context.awaiting_fence_signal) {
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        g_lifecycle_safe_bypass_frames.fetch_add(1,
+                                                  std::memory_order_relaxed);
+        return false;
+    }
+    if (!IsContextFenceCompleteLocked(context)) {
+        // Same-queue submissions are ordered by D3D12, so a previously used
+        // command list that is known to return to the context's queue can keep
+        // temporal NR continuous without a GPU Wait or a CPU fence stall.
+        // Unknown/new lists and queue changes bypass until the proof fence is
+        // complete. Capture validates the actual queue again before Execute.
+        ID3D12CommandQueue *expected_queue =
+            ReadLastSubmissionQueue(command_list);
+        if (expected_queue == nullptr ||
+            context.last_submission_queue == nullptr ||
+            expected_queue != context.last_submission_queue->queue) {
+            SetBypassReason(BypassReason::LifecycleIsolation);
+            g_lifecycle_safe_bypass_frames.fetch_add(
+                1, std::memory_order_relaxed);
+            return false;
+        }
+    }
+    if (context.recording_token == 0) return true;
+    unsigned long long token = 0;
+    // Reusing the same token is legal only before that recording has ever been
+    // submitted. Once a proof fence exists the list must Reset successfully
+    // before the context can be recorded again.
+    return ReadLifecycleToken(command_list, token) &&
+           token == context.recording_token &&
+           context.completion_fence_value == 0;
+}
+
+bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
+                       NrContext &context, NrSlot &slot) {
+    if (!CanBeginContextUseLocked(command_list, context)) return false;
+    LifecycleCommandList *record =
+        FindOrCreateLifecycleCommandListLocked(command_list);
+    if (record == nullptr) return false;
+
+    bool has_context = false;
+    for (unsigned int i = 0; i < record->context_count; ++i) {
+        if (record->contexts[i] == &context) {
+            has_context = true;
+            break;
+        }
+    }
+    if (!has_context) {
+        if (record->context_count >= kLifecycleUsesPerCommandList) {
+            MarkLifecycleUncertain("too many NR contexts on one command list");
+            return false;
+        }
+        if (context.recording_token != 0 &&
+            context.recording_token != record->token) {
+            SetBypassReason(BypassReason::LifecycleIsolation);
+            g_lifecycle_safe_bypass_frames.fetch_add(
+                1, std::memory_order_relaxed);
+            return false;
+        }
+        record->contexts[record->context_count++] = &context;
+        context.recording_token = record->token;
     }
 
     for (unsigned int i = 0; i < record->slot_count; ++i) {
@@ -1606,17 +2111,21 @@ bool RecordSlotUseLocked(ID3D12GraphicsCommandList *command_list,
     return true;
 }
 
-void DiscardLifecycleCommandListLocked(
-    ID3D12GraphicsCommandList *command_list) {
-    unsigned long long token = 0;
-    if (!ReadLifecycleToken(command_list, token)) return;
+void DetachLifecycleCommandListTokenLocked(
+    ID3D12GraphicsCommandList *command_list, unsigned long long token,
+    const char *reason) {
+    if (token == 0) return;
     LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
     if (record == nullptr) {
         MarkLifecycleUncertain("unknown command-list marker during reset");
         return;
     }
-    if (record->pending_execute_callbacks != 0) {
-        MarkLifecycleUncertain("command list reset while submission was in progress");
+    if (record->detached) {
+        MarkLifecycleUncertain("command-list lifetime record detached twice");
+        return;
+    }
+    if (!ClearLifecycleToken(command_list)) {
+        MarkLifecycleUncertain("could not clear command-list lifetime marker");
         return;
     }
     for (unsigned int i = 0; i < record->slot_count; ++i) {
@@ -1627,8 +2136,16 @@ void DiscardLifecycleCommandListLocked(
         }
         --slot->recording_command_lists;
     }
-    ClearLifecycleToken(command_list);
-    *record = {};
+    for (unsigned int i = 0; i < record->context_count; ++i) {
+        NrContext *context = record->contexts[i];
+        if (context == nullptr || context->recording_token != record->token) {
+            MarkLifecycleUncertain(
+                "command-list context ownership token mismatch");
+            continue;
+        }
+        context->recording_token = 0;
+    }
+    record->detached = true;
     const unsigned int active =
         g_lifecycle_active_command_lists.load(std::memory_order_relaxed);
     if (active == 0) {
@@ -1637,6 +2154,21 @@ void DiscardLifecycleCommandListLocked(
         g_lifecycle_active_command_lists.fetch_sub(1,
                                                    std::memory_order_release);
     }
+    if (record->in_flight_submissions == 0) {
+        *record = {};
+    } else {
+        Log("Command-list lifetime detached after successful %s with %u "
+            "submission(s) still fenced; immutable batch retains ownership.",
+            reason != nullptr ? reason : "reset",
+            record->in_flight_submissions);
+    }
+}
+
+void DetachLifecycleCommandListLocked(
+    ID3D12GraphicsCommandList *command_list, const char *reason) {
+    unsigned long long token = 0;
+    if (!ReadLifecycleToken(command_list, token)) return;
+    DetachLifecycleCommandListTokenLocked(command_list, token, reason);
 }
 
 LifecycleQueue *FindOrCreateLifecycleQueueLocked(
@@ -1676,92 +2208,186 @@ LifecycleQueue *FindOrCreateLifecycleQueueLocked(
     return empty;
 }
 
-void MarkLifecycleCommandListSubmittedLocked(
-    ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *command_list) {
-    unsigned long long token = 0;
-    if (!ReadLifecycleToken(command_list, token)) return;
-    LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
-    if (record == nullptr) {
-        MarkLifecycleUncertain("unknown command-list marker after submission");
-        return;
+template <typename T, std::size_t N>
+bool AppendUnique(T *value, T *(&values)[N], unsigned int &count) {
+    for (unsigned int i = 0; i < count; ++i) {
+        if (values[i] == value) return true;
     }
-    // A direct native submission may bypass ReShade's pre-submit event while
-    // still reaching this post-submit hook.  The post-call observation is the
-    // actual ordering proof, so the pre-event count is only used to catch a
-    // concurrent Reset race when it is available.
-    if (record->pending_execute_callbacks != 0)
-        --record->pending_execute_callbacks;
-    LifecycleQueue *queue_state = FindOrCreateLifecycleQueueLocked(queue);
-    if (queue_state == nullptr) return;
+    if (count >= N) return false;
+    values[count++] = value;
+    return true;
+}
 
-    for (unsigned int i = 0; i < record->slot_count; ++i) {
-        NrSlot *slot = record->slots[i];
-        if (slot == nullptr) continue;
-        if (slot->last_submission_queue != nullptr &&
-            slot->last_submission_queue != queue_state &&
-            (!IsSlotFenceCompleteLocked(*slot) ||
-             slot->awaiting_fence_signal)) {
-            MarkLifecycleUncertain(
-                "an NR descriptor set crossed queues before completion");
+bool CaptureSubmissionBatchLocked(
+    LifecycleQueue *queue_state, UINT count,
+    ID3D12CommandList *const *command_lists, SubmissionBatch &batch) {
+    batch.queue_state = queue_state;
+    if (queue_state == nullptr || command_lists == nullptr) return true;
+
+    for (UINT i = 0; i < count; ++i) {
+        if (command_lists[i] == nullptr) continue;
+        ID3D12GraphicsCommandList *graphics = nullptr;
+        if (FAILED(ID3D12CommandList_QueryInterface(
+                command_lists[i], IID_ID3D12GraphicsCommandList,
+                reinterpret_cast<void **>(&graphics))) ||
+            graphics == nullptr) {
             continue;
         }
+        unsigned long long token = 0;
+        const bool has_token = ReadLifecycleToken(graphics, token);
+        ReleaseCom(graphics);
+        if (!has_token) continue;
+
+        LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
+        if (record == nullptr || record->detached) {
+            MarkLifecycleUncertain(
+                "unknown or detached command-list marker before submission");
+            return false;
+        }
+        if (!AppendUnique(record, batch.records, batch.record_count)) {
+            MarkLifecycleUncertain("submission record batch exhausted");
+            return false;
+        }
+
+        for (unsigned int slot_index = 0;
+             slot_index < record->slot_count; ++slot_index) {
+            NrSlot *slot = record->slots[slot_index];
+            if (slot == nullptr) continue;
+            if (!AppendUnique(slot, batch.slots, batch.slot_count)) {
+                MarkLifecycleUncertain("submission resource batch exhausted");
+                return false;
+            }
+        }
+        for (unsigned int context_index = 0;
+             context_index < record->context_count; ++context_index) {
+            NrContext *context = record->contexts[context_index];
+            if (context == nullptr) continue;
+            if (!AppendUnique(context, batch.contexts, batch.context_count)) {
+                MarkLifecycleUncertain("submission context batch exhausted");
+                return false;
+            }
+        }
+    }
+
+    if (batch.record_count == 0) return true;
+    // Validate the entire immutable batch before taking any ownership pins.
+    // No private cross-queue Wait is injected: it could form a cycle with a
+    // game's future-fence waits. The recording gate ensures a context can only
+    // reach this point after its previous proof fence has completed.
+    for (unsigned int i = 0; i < batch.context_count; ++i) {
+        NrContext *context = batch.contexts[i];
+        if (context == nullptr || context->awaiting_fence_signal ||
+            context->recording_token == 0 ||
+            (!IsContextFenceCompleteLocked(*context) &&
+             context->last_submission_queue != queue_state)) {
+            MarkLifecycleUncertain(
+                "Feature 18 context reached submission without a completed "
+                "single-in-flight proof");
+            return false;
+        }
+    }
+    for (unsigned int i = 0; i < batch.slot_count; ++i) {
+        NrSlot *slot = batch.slots[i];
+        if (slot == nullptr || slot->awaiting_fence_signal ||
+            (!IsSlotFenceCompleteLocked(*slot) &&
+             slot->last_submission_queue != queue_state)) {
+            MarkLifecycleUncertain(
+                "submission resource lacks a completed single-in-flight proof");
+            return false;
+        }
+    }
+
+    batch.fence_value = queue_state->next_fence_value++;
+    if (batch.fence_value == 0) {
+        MarkLifecycleUncertain("retirement fence value wrapped to zero");
+        return false;
+    }
+    for (unsigned int i = 0; i < batch.record_count; ++i)
+        ++batch.records[i]->in_flight_submissions;
+    for (unsigned int i = 0; i < batch.context_count; ++i) {
+        NrContext *context = batch.contexts[i];
+        context->last_submission_queue = queue_state;
+        context->completion_fence_value = batch.fence_value;
+        context->awaiting_fence_signal = true;
+    }
+    for (unsigned int i = 0; i < batch.slot_count; ++i) {
+        NrSlot *slot = batch.slots[i];
         slot->last_submission_queue = queue_state;
+        // Publish the reserved value before Execute. A later queue can then
+        // enqueue an explicit GPU wait on this exact transaction.
+        slot->completion_fence_value = batch.fence_value;
+        // This pre-Execute pin is the important transaction boundary: Reset,
+        // descriptor rebinding and context destruction cannot race the native
+        // submission while the post-call Signal has not yet been recorded.
         slot->awaiting_fence_signal = true;
     }
+    batch.active = true;
+    return true;
 }
 
-void SignalLifecycleQueueAndCollectLocked(ID3D12CommandQueue *queue) {
-    LifecycleQueue *queue_state = nullptr;
-    for (auto &candidate : g_lifecycle_queues) {
-        if (candidate.queue == queue) {
-            queue_state = &candidate;
-            break;
+void CompleteSubmissionBatchLocked(SubmissionBatch &batch) {
+    if (!batch.active || batch.queue_state == nullptr ||
+        batch.fence_value == 0) return;
+    LifecycleQueue *queue_state = batch.queue_state;
+
+    for (unsigned int i = 0; i < batch.context_count; ++i) {
+        NrContext *context = batch.contexts[i];
+        if (context == nullptr ||
+            context->last_submission_queue != queue_state ||
+            context->completion_fence_value != batch.fence_value ||
+            !context->awaiting_fence_signal) {
+            MarkLifecycleUncertain(
+                "Feature 18 context lost its pre-Execute ownership pin");
+            continue;
         }
+        context->awaiting_fence_signal = false;
     }
-    if (queue_state != nullptr &&
-        !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
-        bool has_pending = false;
-        for (const auto &context : g_contexts) {
-            for (const auto &slot : context.slots) {
-                if (slot.last_submission_queue == queue_state &&
-                    slot.awaiting_fence_signal) {
-                    has_pending = true;
-                    break;
-                }
-            }
-            if (has_pending) break;
+    for (unsigned int i = 0; i < batch.slot_count; ++i) {
+        NrSlot *slot = batch.slots[i];
+        if (slot == nullptr || slot->last_submission_queue != queue_state ||
+            slot->completion_fence_value != batch.fence_value ||
+            !slot->awaiting_fence_signal) {
+            MarkLifecycleUncertain(
+                "submission resource lost its pre-Execute ownership pin");
+            continue;
         }
-        if (has_pending) {
-            const unsigned long long value = queue_state->next_fence_value++;
-            const HRESULT signaled = ID3D12CommandQueue_Signal(
-                queue_state->queue, queue_state->fence, value);
-            if (FAILED(signaled)) {
-                MarkLifecycleUncertain("D3D12 retirement fence signal failed");
-            } else {
-                for (auto &context : g_contexts) {
-                    for (auto &slot : context.slots) {
-                        if (slot.last_submission_queue == queue_state &&
-                            slot.awaiting_fence_signal) {
-                            slot.completion_fence_value = value;
-                            slot.awaiting_fence_signal = false;
-                        }
-                    }
-                }
-            }
-        }
+        slot->awaiting_fence_signal = false;
     }
-    CollectRetiredContextsLocked();
+    for (unsigned int i = 0; i < batch.record_count; ++i) {
+        LifecycleCommandList *record = batch.records[i];
+        if (record == nullptr || record->in_flight_submissions == 0) {
+            MarkLifecycleUncertain("submission lifetime reference underflow");
+            continue;
+        }
+        --record->in_flight_submissions;
+        if (record->detached && record->in_flight_submissions == 0)
+            *record = {};
+    }
 }
 
-NrContext *FindOrCreateContext(const NgxHandle *sr_handle, int mode,
-                               unsigned int width, unsigned int height) {
+NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
+                               unsigned long long feature_generation,
+                               int mode, unsigned int width,
+                               unsigned int height) {
     CollectRetiredContextsLocked();
-    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))
+    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
+        g_nr_failed_create_process_latched.load(std::memory_order_acquire))
         return nullptr;
     NrContext *empty = nullptr;
     for (auto &context : g_contexts) {
-        if (context.sr_handle == sr_handle && context.retired) return nullptr;
-        if (context.sr_handle == sr_handle && context.mode == mode &&
+        if (context.sr_handle == sr_handle && !context.retired &&
+            context.feature_generation != feature_generation) {
+            context.retired = true;
+            Log("Feature 1 contract changed for handle=%p: generation %llu -> "
+                "%llu. Retiring mode=%d extent=%ux%u after its exact GPU fence.",
+                static_cast<const void *>(sr_handle),
+                context.feature_generation, feature_generation,
+                context.mode, context.width, context.height);
+            continue;
+        }
+        if (context.sr_handle == sr_handle && !context.retired &&
+            context.feature_generation == feature_generation &&
+            context.mode == mode &&
             context.width == width && context.height == height) {
             return &context;
         }
@@ -1769,6 +2395,7 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle, int mode,
     }
     if (empty != nullptr) {
         empty->sr_handle = sr_handle;
+        empty->feature_generation = feature_generation;
         empty->mode = mode;
         empty->width = width;
         empty->height = height;
@@ -1810,13 +2437,150 @@ bool CreateTexture(ID3D12Device *device, unsigned int width, unsigned int height
     return true;
 }
 
+bool CreateDeltaStatsBuffers(ID3D12Device *device, NrSlot &slot) {
+    D3D12_HEAP_PROPERTIES default_heap = {};
+    default_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+    default_heap.CreationNodeMask = 1;
+    default_heap.VisibleNodeMask = 1;
+    D3D12_RESOURCE_DESC buffer = {};
+    buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer.Width = kDiagnosticStatsBytes;
+    buffer.Height = 1;
+    buffer.DepthOrArraySize = 1;
+    buffer.MipLevels = 1;
+    buffer.Format = DXGI_FORMAT_UNKNOWN;
+    buffer.SampleDesc.Count = 1;
+    buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    buffer.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    HRESULT result = ID3D12Device_CreateCommittedResource(
+        device, &default_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+        D3D12_RESOURCE_STATE_COMMON, nullptr, IID_ID3D12Resource,
+        reinterpret_cast<void **>(&slot.delta_stats));
+    if (FAILED(result) || slot.delta_stats == nullptr) return false;
+    ID3D12Resource_SetName(slot.delta_stats, L"NRChain.DeltaStats");
+
+    D3D12_HEAP_PROPERTIES readback_heap = {};
+    readback_heap.Type = D3D12_HEAP_TYPE_READBACK;
+    readback_heap.CreationNodeMask = 1;
+    readback_heap.VisibleNodeMask = 1;
+    buffer.Flags = D3D12_RESOURCE_FLAG_NONE;
+    result = ID3D12Device_CreateCommittedResource(
+        device, &readback_heap, D3D12_HEAP_FLAG_NONE, &buffer,
+        D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_ID3D12Resource,
+        reinterpret_cast<void **>(&slot.delta_stats_readback));
+    if (FAILED(result) || slot.delta_stats_readback == nullptr) return false;
+    ID3D12Resource_SetName(slot.delta_stats_readback,
+                           L"NRChain.DeltaStatsReadback");
+    return true;
+}
+
+enum class PostSrStorageContract {
+    Unsupported,
+    Fp16,
+    R11Float,
+    R8LinearProfiled,
+    R8SrgbProfiled,
+    R8EncodingUnknown,
+};
+
+PostSrStorageContract ClassifyPostSrStorage(DXGI_FORMAT format) {
+    if (format == DXGI_FORMAT_R16G16B16A16_FLOAT)
+        return PostSrStorageContract::Fp16;
+    if (format == DXGI_FORMAT_R11G11B10_FLOAT)
+        return PostSrStorageContract::R11Float;
+    if (format == DXGI_FORMAT_R8G8B8A8_UNORM) {
+        if (g_config.r8_output_encoding == 1)
+            return PostSrStorageContract::R8LinearProfiled;
+        if (g_config.r8_output_encoding == 2)
+            return PostSrStorageContract::R8SrgbProfiled;
+        return PostSrStorageContract::R8EncodingUnknown;
+    }
+    // A typed sRGB resource cannot be assumed to permit the required UNORM
+    // UAV write-back view. A future profile may accept a typeless resource
+    // discovered through a stronger engine contract; the generic path does not.
+    if (format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)
+        return PostSrStorageContract::R8EncodingUnknown;
+    return PostSrStorageContract::Unsupported;
+}
+
+bool IsUsablePostSrStorage(PostSrStorageContract contract) {
+    return contract == PostSrStorageContract::Fp16 ||
+           contract == PostSrStorageContract::R11Float ||
+           contract == PostSrStorageContract::R8LinearProfiled ||
+           contract == PostSrStorageContract::R8SrgbProfiled;
+}
+
+CodecColorMode PostSrCodecColorMode(PostSrStorageContract contract) {
+    if (contract == PostSrStorageContract::R8LinearProfiled)
+        return CodecColorMode::LinearSdr;
+    if (contract == PostSrStorageContract::R8SrgbProfiled)
+        return CodecColorMode::SrgbEncodedSdr;
+    return CodecColorMode::Automatic;
+}
+
+DXGI_FORMAT PostSrUavFormat(DXGI_FORMAT format) {
+    // Profiled R8 currently accepts only an UNORM resource, so the UAV view is
+    // identical. Typed sRGB resources are intentionally rejected above.
+    return format;
+}
+
+bool SupportsPostSrStorage(ID3D12Device *device,
+                           const D3D12_RESOURCE_DESC &desc,
+                           PostSrStorageContract contract) {
+    if (device == nullptr || !IsUsablePostSrStorage(contract) ||
+        desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+        desc.DepthOrArraySize != 1 || desc.MipLevels != 1 ||
+        desc.SampleDesc.Count != 1 ||
+        (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0)
+        return false;
+
+    const bool snapshot = contract != PostSrStorageContract::Fp16;
+    if (snapshot &&
+        (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) != 0)
+        return false;
+
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {};
+    support.Format = desc.Format;
+    if (FAILED(ID3D12Device_CheckFeatureSupport(
+            device, D3D12_FEATURE_FORMAT_SUPPORT, &support,
+            sizeof(support))))
+        return false;
+    if ((support.Support1 &
+         D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) == 0 ||
+        (support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE) == 0)
+        return false;
+    if (snapshot &&
+        ((support.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE2D) == 0 ||
+         (support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD) == 0))
+        return false;
+    return true;
+}
+
 bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
                 unsigned int width, unsigned int height, bool post_sr,
                 NrSlot &slot) {
+    const D3D12_RESOURCE_DESC external_desc =
+        ID3D12Resource_GetDesc(external);
     slot.key = external;
     slot.owns_source = post_sr;
     slot.owns_result = !post_sr;
     if (post_sr) {
+        const PostSrStorageContract contract =
+            ClassifyPostSrStorage(external_desc.Format);
+        if (!SupportsPostSrStorage(device, external_desc, contract)) {
+            Log("CreateSlot rejected post-SR output contract format=%u (%s) "
+                "flags=0x%X profileEncoding=%d.",
+                static_cast<unsigned int>(external_desc.Format),
+                FormatName(external_desc.Format),
+                static_cast<unsigned int>(external_desc.Flags),
+                g_config.r8_output_encoding);
+            return false;
+        }
+        slot.result_format = external_desc.Format;
+        slot.result_uav_format = PostSrUavFormat(external_desc.Format);
+        slot.codec_color_mode = PostSrCodecColorMode(contract);
+        slot.snapshots_native_output =
+            contract != PostSrStorageContract::Fp16;
         ID3D12Resource_AddRef(external);
         slot.result = external;
         // This is the game's DLSS Output resource at the Evaluate boundary.
@@ -1836,6 +2600,8 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
         // not emit a fabricated COMMON -> SRV barrier against an external
         // resource whose exact previous state we do not own.
         slot.source_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        slot.result_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        slot.result_uav_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     }
     const D3D12_RESOURCE_DESC source_desc =
         ID3D12Resource_GetDesc(slot.source);
@@ -1852,14 +2618,15 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     if (!CreateTexture(device, width, height, L"NRChain.Proxy", &slot.proxy) ||
         !CreateTexture(device, width, height, L"NRChain.NeuralOutput", &slot.neural) ||
         (!post_sr && !CreateTexture(device, width, height, L"NRChain.Result",
-                                    &slot.result))) {
+                                    &slot.result)) ||
+        !CreateDeltaStatsBuffers(device, slot)) {
         DestroySlot(slot);
         return false;
     }
 
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 7;
+    heap_desc.NumDescriptors = 8;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     HRESULT hr = ID3D12Device_CreateDescriptorHeap(
         device, &heap_desc, IID_ID3D12DescriptorHeap,
@@ -1897,6 +2664,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     cpu.ptr += g_codec.descriptor_size;
     ID3D12Device_CreateUnorderedAccessView(device, slot.proxy, nullptr, &uav, cpu);
     cpu.ptr += g_codec.descriptor_size;
+    uav.Format = slot.result_uav_format;
     ID3D12Device_CreateUnorderedAccessView(device, slot.result, nullptr, &uav, cpu);
     cpu.ptr += g_codec.descriptor_size;
     D3D12_UNORDERED_ACCESS_VIEW_DESC motion_uav = {};
@@ -1904,6 +2672,55 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     motion_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
     ID3D12Device_CreateUnorderedAccessView(device, nullptr, nullptr,
                                            &motion_uav, cpu);
+    cpu.ptr += g_codec.descriptor_size;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC stats_uav = {};
+    stats_uav.Format = DXGI_FORMAT_R32_TYPELESS;
+    stats_uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    stats_uav.Buffer.FirstElement = 0;
+    stats_uav.Buffer.NumElements = kDiagnosticStatsUintCount;
+    stats_uav.Buffer.StructureByteStride = 0;
+    stats_uav.Buffer.CounterOffsetInBytes = 0;
+    stats_uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+    ID3D12Device_CreateUnorderedAccessView(
+        device, slot.delta_stats, nullptr, &stats_uav, cpu);
+    if (slot.snapshots_native_output) {
+        D3D12_DESCRIPTOR_HEAP_DESC snapshot_desc = heap_desc;
+        hr = ID3D12Device_CreateDescriptorHeap(
+            device, &snapshot_desc, IID_ID3D12DescriptorHeap,
+            reinterpret_cast<void **>(&slot.snapshot_heap));
+        if (FAILED(hr) || slot.snapshot_heap == nullptr) {
+            Log("CreateDescriptorHeap for native post-SR snapshot failed: "
+                "0x%08X", static_cast<unsigned int>(hr));
+            DestroySlot(slot);
+            return false;
+        }
+        D3D12_CPU_DESCRIPTOR_HANDLE snapshot_cpu =
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
+                slot.snapshot_heap);
+        const D3D12_CPU_DESCRIPTOR_HANDLE main_cpu =
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
+        ID3D12Device_CopyDescriptorsSimple(
+            device, 8, snapshot_cpu, main_cpu,
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        D3D12_SHADER_RESOURCE_VIEW_DESC external_srv = {};
+        external_srv.Format = slot.result_format;
+        external_srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        external_srv.Shader4ComponentMapping =
+            D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        external_srv.Texture2D.MipLevels = 1;
+        ID3D12Device_CreateShaderResourceView(
+            device, slot.result, &external_srv, snapshot_cpu);
+        snapshot_cpu.ptr +=
+            static_cast<SIZE_T>(g_codec.descriptor_size) * 5;
+        D3D12_UNORDERED_ACCESS_VIEW_DESC source_uav = {};
+        source_uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        source_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        ID3D12Device_CreateUnorderedAccessView(
+            device, slot.source, nullptr, &source_uav, snapshot_cpu);
+        Log("Post-SR native output snapshot enabled: %s active=%ux%u -> "
+            "controlled FP16 intermediate.",
+            FormatName(slot.result_format), width, height);
+    }
     if (slot.converts_source_format) {
         Log("SceneColor format conversion enabled: %s -> "
             "R16G16B16A16_FLOAT (typed SRV + FP16 codec pass).",
@@ -1977,22 +2794,43 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
         ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
 
     if (post_sr) {
+        const PostSrStorageContract contract =
+            ClassifyPostSrStorage(external_desc.Format);
+        const bool snapshot = contract != PostSrStorageContract::Fp16;
+        const CodecColorMode codec_color_mode = PostSrCodecColorMode(contract);
         if (!slot.owns_source || slot.owns_result ||
-            external_desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT ||
-            (external_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0)
+            !SupportsPostSrStorage(device, external_desc, contract) ||
+            slot.snapshots_native_output != snapshot ||
+            slot.result_format != external_desc.Format)
             return false;
 
         ID3D12Resource_AddRef(external);
         ReleaseCom(slot.result);
         slot.key = external;
         slot.result = external;
+        slot.result_format = external_desc.Format;
+        slot.result_uav_format = PostSrUavFormat(external_desc.Format);
+        slot.codec_color_mode = codec_color_mode;
         slot.result_state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) * 5;
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-        uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        uav.Format = slot.result_uav_format;
         uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         ID3D12Device_CreateUnorderedAccessView(
             device, slot.result, nullptr, &uav, cpu);
+        if (slot.snapshots_native_output && slot.snapshot_heap != nullptr) {
+            D3D12_CPU_DESCRIPTOR_HANDLE snapshot_cpu =
+                ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
+                    slot.snapshot_heap);
+            D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
+            srv.Format = slot.result_format;
+            srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srv.Shader4ComponentMapping =
+                D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srv.Texture2D.MipLevels = 1;
+            ID3D12Device_CreateShaderResourceView(
+                device, slot.result, &srv, snapshot_cpu);
+        }
         slot.last_submission_queue = nullptr;
         slot.completion_fence_value = 0;
         slot.awaiting_fence_signal = false;
@@ -2029,6 +2867,24 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
     NrSlot *empty = nullptr;
     for (auto &slot : context.slots) {
         if (slot.key == external) {
+            if (post_sr) {
+                const D3D12_RESOURCE_DESC desc =
+                    ID3D12Resource_GetDesc(external);
+                const PostSrStorageContract contract =
+                    ClassifyPostSrStorage(desc.Format);
+                const CodecColorMode current_mode =
+                    PostSrCodecColorMode(contract);
+                if (!SupportsPostSrStorage(device, desc, contract))
+                    return nullptr;
+                if (slot.codec_color_mode != current_mode) {
+                    Log("Post-SR color contract changed on a reused Output: "
+                        "codec mode %u -> %u. The current live R8 contract "
+                        "replaces the cached shader flag.",
+                        static_cast<unsigned int>(slot.codec_color_mode),
+                        static_cast<unsigned int>(current_mode));
+                    slot.codec_color_mode = current_mode;
+                }
+            }
             slot.last_used_serial = serial;
             return &slot;
         }
@@ -2076,6 +2932,18 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
     return oldest;
 }
 
+void ArmDeltaStatsCaptureLocked(NrSlot &slot, const NrContext &context) {
+    CollectSlotDeltaStatsLocked(slot);
+    if (!slot.delta_stats_pending && slot.delta_stats != nullptr &&
+        slot.delta_stats_readback != nullptr) {
+        slot.delta_stats_capture_armed = true;
+        slot.diagnostic_mode = context.mode;
+        slot.diagnostic_feature_generation = context.feature_generation;
+        slot.diagnostic_width = context.width;
+        slot.diagnostic_height = context.height;
+    }
+}
+
 void Transition(ID3D12GraphicsCommandList *command_list, ID3D12Resource *resource,
                 D3D12_RESOURCE_STATES &state, D3D12_RESOURCE_STATES target) {
     if (state == target) return;
@@ -2121,15 +2989,38 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    bool hdr_input, unsigned int source_base_x = 0,
                    unsigned int source_base_y = 0,
                    unsigned int destination_base_x = 0,
-                   unsigned int destination_base_y = 0) {
+                   unsigned int destination_base_y = 0,
+                   CodecColorMode color_mode = CodecColorMode::Automatic) {
     ID3D12DescriptorHeap *heaps[] = {slot.heap};
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, heaps);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, g_codec.root);
     const D3D12_GPU_DESCRIPTOR_HANDLE gpu =
         ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.heap);
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu);
-    const unsigned int codec_flags = (hdr_input ? 0u : 1u) |
-        ((g_config.mode == 2 && g_config.preserve_lighting) ? 2u : 0u);
+    const bool capture_delta = pipeline == g_codec.combine &&
+        slot.delta_stats_capture_armed && !slot.delta_stats_pending &&
+        slot.delta_stats != nullptr && slot.delta_stats_readback != nullptr;
+    if (capture_delta) {
+        Transition(command_list, slot.delta_stats, slot.delta_stats_state,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        D3D12_GPU_DESCRIPTOR_HANDLE stats_gpu = gpu;
+        stats_gpu.ptr += static_cast<UINT64>(g_codec.descriptor_size) * 7;
+        D3D12_CPU_DESCRIPTOR_HANDLE stats_cpu =
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
+        stats_cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) * 7;
+        const UINT clear_values[4] = {};
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(
+            command_list, stats_gpu, stats_cpu, slot.delta_stats,
+            clear_values, 0, nullptr);
+    }
+    unsigned int source_flags = hdr_input ? 0u : 1u;
+    if (color_mode == CodecColorMode::LinearSdr)
+        source_flags = 16u;
+    else if (color_mode == CodecColorMode::SrgbEncodedSdr)
+        source_flags = 32u;
+    const unsigned int codec_flags = source_flags |
+        ((g_config.mode == 2 && g_config.preserve_lighting) ? 2u : 0u) |
+        (capture_delta ? 8u : 0u);
     const CodecConstants constants = {
         width, height, g_config.proxy_scale, ActiveTransferStrength(g_config),
         color_contract.source_to_canonical, g_config.color_strength,
@@ -2142,6 +3033,16 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
     ID3D12GraphicsCommandList_Dispatch(
         command_list, (width + 7) / 8, (height + 7) / 8, 1);
+    if (capture_delta) {
+        UavBarrier(command_list, slot.delta_stats);
+        Transition(command_list, slot.delta_stats, slot.delta_stats_state,
+                   D3D12_RESOURCE_STATE_COPY_SOURCE);
+        ID3D12GraphicsCommandList_CopyBufferRegion(
+            command_list, slot.delta_stats_readback, 0,
+            slot.delta_stats, 0, kDiagnosticStatsBytes);
+        slot.delta_stats_pending = true;
+        slot.delta_stats_capture_armed = false;
+    }
 }
 
 void DispatchMotionResample(ID3D12GraphicsCommandList *command_list,
@@ -2179,6 +3080,79 @@ bool TextureContainsRegion(ID3D12Resource *resource, unsigned int base_x,
     const std::uint64_t right = static_cast<std::uint64_t>(base_x) + width;
     const std::uint64_t bottom = static_cast<std::uint64_t>(base_y) + height;
     return right <= desc.Width && bottom <= desc.Height;
+}
+
+bool ResolveRenderExtentFromEvaluate(const NgxParams *params,
+                                     const FeatureRecord &feature,
+                                     ID3D12Resource *color,
+                                     unsigned int base_x,
+                                     unsigned int base_y,
+                                     unsigned int &width,
+                                     unsigned int &height) {
+    width = 0;
+    height = 0;
+    unsigned int active_width = 0, active_height = 0;
+    const bool has_active_width = GetUInt(
+        params, "DLSS.Render.Subrect.Dimensions.Width", &active_width);
+    const bool has_active_height = GetUInt(
+        params, "DLSS.Render.Subrect.Dimensions.Height", &active_height);
+    if (active_width != 0 || active_height != 0) {
+        // A partially published subrect is not a safe invitation to combine a
+        // live value with a stale Create scalar.
+        if (!has_active_width || !has_active_height ||
+            active_width == 0 || active_height == 0 ||
+            !TextureContainsRegion(color, base_x, base_y,
+                                   active_width, active_height)) {
+            return false;
+        }
+        width = active_width;
+        height = active_height;
+        const bool matches_create =
+            (width == feature.width && height == feature.height) ||
+            (width == feature.out_width && height == feature.out_height);
+        if (!matches_create) {
+            static unsigned int stale_create_scalars = 0;
+            ++stale_create_scalars;
+            if (stale_create_scalars <= 3 ||
+                (stale_create_scalars % 600) == 0) {
+                Log("Per-Evaluate render subrect %ux%u@%u,%u overrides stale "
+                    "Feature 1 generation=%llu Create scalars %ux%u -> %ux%u.",
+                    width, height, base_x, base_y, feature.generation,
+                    feature.width, feature.height,
+                    feature.out_width, feature.out_height);
+            }
+        }
+        return true;
+    }
+
+    // Create dimensions are only a fallback. They must fit the resource bound
+    // on this exact Evaluate call; if both orientations fit, the smaller one is
+    // the render side (or both are identical in DLAA).
+    const bool first_fits = TextureContainsRegion(
+        color, base_x, base_y, feature.width, feature.height);
+    const bool second_fits = TextureContainsRegion(
+        color, base_x, base_y, feature.out_width, feature.out_height);
+    if (!first_fits && !second_fits) return false;
+    if (first_fits && second_fits) {
+        const std::uint64_t first_area =
+            static_cast<std::uint64_t>(feature.width) * feature.height;
+        const std::uint64_t second_area =
+            static_cast<std::uint64_t>(feature.out_width) * feature.out_height;
+        if (first_area <= second_area) {
+            width = feature.width;
+            height = feature.height;
+        } else {
+            width = feature.out_width;
+            height = feature.out_height;
+        }
+    } else if (first_fits) {
+        width = feature.width;
+        height = feature.height;
+    } else {
+        width = feature.out_width;
+        height = feature.out_height;
+    }
+    return width != 0 && height != 0;
 }
 
 bool ResolveSrOutputExtent(const FeatureRecord &feature,
@@ -2229,6 +3203,72 @@ bool ResolveSrOutputExtent(const FeatureRecord &feature,
     if (first_is_physical && second_is_physical) {
         output_width = available_width;
         output_height = available_height;
+        return true;
+    }
+    return false;
+}
+
+bool ResolveOutputExtentFromEvaluate(const NgxParams *params,
+                                     const FeatureRecord &feature,
+                                     ID3D12Resource *output,
+                                     unsigned int base_x,
+                                     unsigned int base_y,
+                                     unsigned int render_width,
+                                     unsigned int render_height,
+                                     unsigned int &output_width,
+                                     unsigned int &output_height) {
+    output_width = 0;
+    output_height = 0;
+    if (output == nullptr) return false;
+
+    // Some integrations publish these optional per-frame keys. When present,
+    // they outrank both Create scalars and the physical allocation size.
+    unsigned int active_width = 0, active_height = 0;
+    const bool has_active_width = GetUInt(
+        params, "DLSS.Output.Subrect.Dimensions.Width", &active_width);
+    const bool has_active_height = GetUInt(
+        params, "DLSS.Output.Subrect.Dimensions.Height", &active_height);
+    if (active_width != 0 || active_height != 0) {
+        if (!has_active_width || !has_active_height ||
+            active_width == 0 || active_height == 0 ||
+            !TextureContainsRegion(output, base_x, base_y,
+                                   active_width, active_height)) {
+            return false;
+        }
+        output_width = active_width;
+        output_height = active_height;
+        return true;
+    }
+
+    const D3D12_RESOURCE_DESC desc = ID3D12Resource_GetDesc(output);
+    const unsigned int available_width = desc.Width > base_x
+        ? static_cast<unsigned int>(desc.Width - base_x) : 0;
+    const unsigned int available_height = desc.Height > base_y
+        ? desc.Height - base_y : 0;
+    if (ResolveSrOutputExtent(feature, render_width, render_height,
+                              available_width, available_height,
+                              output_width, output_height)) {
+        return true;
+    }
+
+    // A zero-based texture bound on this Evaluate call is a stronger live
+    // contract than stale menu-preview Create scalars. Non-zero-base atlases
+    // remain ambiguous and fail closed unless explicit dimensions are present.
+    if (base_x == 0 && base_y == 0 &&
+        available_width != 0 && available_height != 0) {
+        output_width = available_width;
+        output_height = available_height;
+        static unsigned int live_output_fallbacks = 0;
+        ++live_output_fallbacks;
+        if (live_output_fallbacks <= 3 ||
+            (live_output_fallbacks % 600) == 0) {
+            Log("Live Feature 1 Output resource %ux%u overrides ambiguous "
+                "generation=%llu Create scalars %ux%u -> %ux%u; render=%ux%u.",
+                output_width, output_height, feature.generation,
+                feature.width, feature.height,
+                feature.out_width, feature.out_height,
+                render_width, render_height);
+        }
         return true;
     }
     return false;
@@ -2511,8 +3551,13 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
            context.bound_create_flags);
     SetInt(context.params, "PerfQualityValue", context.bound_perf_quality);
     void *handle = nullptr;
-    const NgxResult result = g_nr_api.bridge_create(
-        g_nr_api.signed_create, command_list, 18, context.params, &handle);
+    NgxResult result = 0xBAD00005u;
+    {
+        ScopedSrwExclusive api_guard(&g_nr_api_lock);
+        result = g_nr_api.bridge_create(
+            g_nr_api.signed_create, command_list, 18,
+            context.params, &handle);
+    }
     if (result == kNgxSuccess && handle != nullptr) {
         context.create_variant_selected = true;
         *out_handle = handle;
@@ -2521,9 +3566,17 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
         // this command list. Releasing the returned object immediately is not
         // fence-safe. This exceptional handle is deliberately quarantined
         // until process exit rather than risking a GPU use-after-free.
-        Log("Feature 18 Create failed but returned handle=%p; quarantined until "
-            "process exit instead of releasing before command-list completion.",
-            handle);
+        context.quarantined_create_handle =
+            static_cast<NgxHandle *>(handle);
+        context.create_dependencies_quarantined = true;
+        context.failed = true;
+        g_nr_failed_create_process_latched.store(true,
+                                                  std::memory_order_release);
+        SetBypassReason(BypassReason::FailedCreateQuarantine);
+        Log("Feature 18 Create failed but returned handle=%p. The handle, "
+            "parameter block, descriptor heaps and all dependent textures are "
+            "quarantined until process exit; every later Feature 18 attempt is "
+            "disabled for this process.", handle);
     }
     return result;
 }
@@ -2546,20 +3599,19 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
     ID3D12Resource *color = nullptr;
     if (!GetResource(sr_params, "Color", &color) || color == nullptr) return substitution;
-    unsigned int width = 0, height = 0;
-    GetUInt(sr_params, "DLSS.Render.Subrect.Dimensions.Width", &width);
-    GetUInt(sr_params, "DLSS.Render.Subrect.Dimensions.Height", &height);
-    if (width == 0) width = feature.width;
-    if (height == 0) height = feature.height;
     unsigned int color_x = 0, color_y = 0;
     GetUInt(sr_params, "DLSS.Input.Color.Subrect.Base.X", &color_x);
     GetUInt(sr_params, "DLSS.Input.Color.Subrect.Base.Y", &color_y);
+    unsigned int width = 0, height = 0;
+    const bool render_extent_valid = ResolveRenderExtentFromEvaluate(
+        sr_params, feature, color, color_x, color_y, width, height);
     const D3D12_RESOURCE_DESC color_desc = ID3D12Resource_GetDesc(color);
     g_last_pre_sr_color_format.store(
         static_cast<unsigned int>(color_desc.Format), std::memory_order_relaxed);
-    if (width == 0 || height == 0 ||
+    if (!render_extent_valid || width == 0 || height == 0 ||
         !TextureContainsRegion(color, color_x, color_y, width, height) ||
         !IsSupportedSceneColorFormat(color_desc.Format)) {
+        SetBypassReason(BypassReason::UnsupportedInputFormat);
         static bool logged = false;
         if (!logged) {
             logged = true;
@@ -2598,7 +3650,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         return substitution;
     }
 
-    NrContext *context = FindOrCreateContext(sr_handle, 2, width, height);
+    NrContext *context = FindOrCreateContext(
+        sr_handle, feature.generation, 2, width, height);
     if (context == nullptr) {
         Log("No free NR context for the Before-SR chain; original SR retained.");
         ReleaseCom(device);
@@ -2616,12 +3669,17 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         }
         context->next_create_retry_frame = 0;
     }
+    if (!CanBeginContextUseLocked(command_list, *context)) {
+        ReleaseCom(device);
+        return substitution;
+    }
 
     NrSlot *slot = FindOrCreateSlot(*context, device, color);
     if (slot == nullptr || context->failed) {
         ReleaseCom(device);
         return substitution;
     }
+    ArmDeltaStatsCaptureLocked(*slot, *context);
     bool lifecycle_recorded = false;
 
     ID3D12Resource *motion_override = nullptr;
@@ -2652,18 +3710,18 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             unsigned int output_x = 0, output_y = 0;
             GetUInt(sr_params, "DLSS.Output.Subrect.Base.X", &output_x);
             GetUInt(sr_params, "DLSS.Output.Subrect.Base.Y", &output_y);
-            const D3D12_RESOURCE_DESC game_output_desc =
-                ID3D12Resource_GetDesc(game_output);
-            const unsigned int output_width = game_output_desc.Width > output_x
-                ? static_cast<unsigned int>(game_output_desc.Width - output_x) : 0;
-            const unsigned int output_height = game_output_desc.Height > output_y
-                ? game_output_desc.Height - output_y : 0;
             unsigned int logical_output_width = 0;
             unsigned int logical_output_height = 0;
-            if (!ResolveSrOutputExtent(feature, width, height,
-                                       output_width, output_height,
-                                       logical_output_width,
-                                       logical_output_height)) {
+            if (!ResolveOutputExtentFromEvaluate(
+                    sr_params, feature, game_output, output_x, output_y,
+                    width, height, logical_output_width,
+                    logical_output_height)) {
+                const D3D12_RESOURCE_DESC game_output_desc =
+                    ID3D12Resource_GetDesc(game_output);
+                const unsigned int output_width = game_output_desc.Width > output_x
+                    ? static_cast<unsigned int>(game_output_desc.Width - output_x) : 0;
+                const unsigned int output_height = game_output_desc.Height > output_y
+                    ? game_output_desc.Height - output_y : 0;
                 static unsigned int ambiguous_motion_extents = 0;
                 ++ambiguous_motion_extents;
                 if (ambiguous_motion_extents <= 3 ||
@@ -2698,7 +3756,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                 ReleaseCom(device);
                 return substitution;
             }
-            if (!RecordSlotUseLocked(command_list, *slot)) {
+            if (!RecordNrUseLocked(command_list, *context, *slot)) {
                 ReleaseCom(device);
                 return substitution;
             }
@@ -2731,7 +3789,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             }
         }
     }
-    if (!lifecycle_recorded && !RecordSlotUseLocked(command_list, *slot)) {
+    if (!lifecycle_recorded &&
+        !RecordNrUseLocked(command_list, *context, *slot)) {
         ReleaseCom(device);
         return substitution;
     }
@@ -2749,7 +3808,11 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     if (context->params == nullptr) {
-        const NgxResult allocated = g_nr_api.allocate(&context->params);
+        NgxResult allocated = 0xBAD00005u;
+        {
+            ScopedSrwExclusive api_guard(&g_nr_api_lock);
+            allocated = g_nr_api.allocate(&context->params);
+        }
         if (allocated != kNgxSuccess || context->params == nullptr) {
             Log("AllocateParameters for NR failed: 0x%08X", allocated);
             context->failed = true;
@@ -2773,6 +3836,9 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         Log("signed feature 18 create %ux%u -> %ux%u result=0x%08X(%s) handle=%p",
             width, height, width, height, created, ResultName(created), handle);
         if (created != kNgxSuccess || handle == nullptr) {
+            SetBypassReason(context->create_dependencies_quarantined
+                ? BypassReason::FailedCreateQuarantine
+                : BypassReason::RuntimeRejected);
             g_pre_sr_runtime_rejected.store(
                 created == 0xBAD00001u, std::memory_order_relaxed);
             context->nr_handle = nullptr;
@@ -2787,13 +3853,18 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         context->next_create_retry_frame = 0;
     }
 
-    const NgxResult evaluated = g_nr_api.bridge_evaluate(
-        g_nr_api.signed_evaluate, command_list, context->nr_handle,
-        context->params, nullptr);
+    NgxResult evaluated = 0xBAD00005u;
+    {
+        ScopedSrwExclusive api_guard(&g_nr_api_lock);
+        evaluated = g_nr_api.bridge_evaluate(
+            g_nr_api.signed_evaluate, command_list, context->nr_handle,
+            context->params, nullptr);
+    }
     if (evaluated != kNgxSuccess) {
         if (context->evaluations < 3)
             Log("signed feature 18 evaluate failed: 0x%08X (%s)",
                 evaluated, ResultName(evaluated));
+        SetBypassReason(BypassReason::RuntimeRejected);
         return substitution;
     }
     ++context->evaluations;
@@ -2811,7 +3882,11 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
 
     if (g_config.identity_use_original ||
-        context->evaluations <= g_config.warmup_after_create) return substitution;
+        context->evaluations <= g_config.warmup_after_create) {
+        g_nr_identity_or_warmup_frames.fetch_add(1,
+                                                  std::memory_order_relaxed);
+        return substitution;
+    }
 
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -2830,6 +3905,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     SetResource(substitution.params, "Color", slot->result);
     SetUInt(substitution.params, "DLSS.Input.Color.Subrect.Base.X", 0);
     SetUInt(substitution.params, "DLSS.Input.Color.Subrect.Base.Y", 0);
+    g_nr_transferred_frames.fetch_add(1, std::memory_order_relaxed);
+    SetBypassReason(BypassReason::None);
     return substitution;
 }
 
@@ -2843,6 +3920,8 @@ void RestoreSubstitution(Substitution &substitution) {
 
 struct PostSrSubstitution {
     bool active = false;
+    bool redirected_output = false;
+    bool native_output_snapshot = false;
     NgxParams *params = nullptr;
     ID3D12Resource *original_output = nullptr;
     NrContext *context = nullptr;
@@ -2868,26 +3947,22 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     if (!GetResource(sr_params, "Output", &output) || output == nullptr)
         return substitution;
     const D3D12_RESOURCE_DESC output_desc = ID3D12Resource_GetDesc(output);
+    g_last_output_format.store(static_cast<unsigned int>(output_desc.Format),
+                               std::memory_order_relaxed);
     unsigned int output_x = 0, output_y = 0;
     GetUInt(sr_params, "DLSS.Output.Subrect.Base.X", &output_x);
     GetUInt(sr_params, "DLSS.Output.Subrect.Base.Y", &output_y);
     unsigned int guide_width = 0, guide_height = 0;
-    GetUInt(sr_params, "DLSS.Render.Subrect.Dimensions.Width", &guide_width);
-    GetUInt(sr_params, "DLSS.Render.Subrect.Dimensions.Height", &guide_height);
-    if (guide_width == 0 || guide_height == 0) {
-        ID3D12Resource *color = nullptr;
-        if (GetResource(sr_params, "Color", &color) && color != nullptr) {
-            unsigned int color_x = 0, color_y = 0;
-            GetUInt(sr_params, "DLSS.Input.Color.Subrect.Base.X", &color_x);
-            GetUInt(sr_params, "DLSS.Input.Color.Subrect.Base.Y", &color_y);
-            const D3D12_RESOURCE_DESC color_desc = ID3D12Resource_GetDesc(color);
-            if (guide_width == 0 && color_desc.Width > color_x)
-                guide_width = static_cast<unsigned int>(color_desc.Width - color_x);
-            if (guide_height == 0 && color_desc.Height > color_y)
-                guide_height = color_desc.Height - color_y;
-        }
-    }
-    if (guide_width == 0 || guide_height == 0) return substitution;
+    ID3D12Resource *color = nullptr;
+    unsigned int color_x = 0, color_y = 0;
+    if (!GetResource(sr_params, "Color", &color) || color == nullptr)
+        return substitution;
+    GetUInt(sr_params, "DLSS.Input.Color.Subrect.Base.X", &color_x);
+    GetUInt(sr_params, "DLSS.Input.Color.Subrect.Base.Y", &color_y);
+    if (!ResolveRenderExtentFromEvaluate(
+            sr_params, feature, color, color_x, color_y,
+            guide_width, guide_height))
+        return substitution;
 
     // Most NGX integrations use Width/Height for the render extent and
     // OutWidth/OutHeight for the output extent. Witcher 3's wrapper stores the
@@ -2900,8 +3975,9 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ? output_desc.Height - output_y : 0;
     unsigned int width = 0;
     unsigned int height = 0;
-    ResolveSrOutputExtent(feature, guide_width, guide_height,
-                          available_width, available_height, width, height);
+    ResolveOutputExtentFromEvaluate(
+        sr_params, feature, output, output_x, output_y,
+        guide_width, guide_height, width, height);
     if (width == 0 || height == 0) {
         static unsigned int ambiguous_contracts = 0;
         ++ambiguous_contracts;
@@ -2915,20 +3991,28 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         }
         return substitution;
     }
+    const PostSrStorageContract storage_contract =
+        ClassifyPostSrStorage(output_desc.Format);
     if (width == 0 || height == 0 ||
         !TextureContainsRegion(output, output_x, output_y, width, height) ||
-        output_desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT ||
+        !IsUsablePostSrStorage(storage_contract) ||
         (output_desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0) {
-        static bool logged = false;
-        if (!logged) {
-            logged = true;
+        const bool unknown_r8 =
+            storage_contract == PostSrStorageContract::R8EncodingUnknown;
+        SetBypassReason(unknown_r8
+            ? BypassReason::OutputColorContractUnverified
+            : BypassReason::UnsupportedOutputFormat);
+        static unsigned int rejected = 0;
+        ++rejected;
+        if (rejected <= 3 || (rejected % 600) == 0) {
             Log("Post-SR chain rejected incompatible Output contract: "
                 "physical=%llux%u active=%ux%u base=%u,%u format=%u flags=0x%X. "
-                "Original SR retained.",
+                "R8Encoding=%d; original SR retained.",
                 static_cast<unsigned long long>(output_desc.Width),
                 output_desc.Height, width, height, output_x, output_y,
                 static_cast<unsigned int>(output_desc.Format),
-                static_cast<unsigned int>(output_desc.Flags));
+                static_cast<unsigned int>(output_desc.Flags),
+                g_config.r8_output_encoding);
         }
         return substitution;
     }
@@ -2941,13 +4025,19 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     const HRESULT hr = ID3D12GraphicsCommandList_GetDevice(
         command_list, IID_ID3D12Device, reinterpret_cast<void **>(&device));
     if (FAILED(hr) || device == nullptr) return substitution;
-    const bool ready = EnsureNrApi(device) && EnsureCodec(device);
+    const bool storage_supported =
+        SupportsPostSrStorage(device, output_desc, storage_contract);
+    const bool ready = storage_supported &&
+                       EnsureNrApi(device) && EnsureCodec(device);
     if (!ready) {
+        if (!storage_supported)
+            SetBypassReason(BypassReason::UnsupportedOutputFormat);
         ReleaseCom(device);
         return substitution;
     }
 
-    NrContext *context = FindOrCreateContext(sr_handle, 1, width, height);
+    NrContext *context = FindOrCreateContext(
+        sr_handle, feature.generation, 1, width, height);
     if (context == nullptr) {
         Log("No free NR context for the post-SR chain; original SR retained.");
         ReleaseCom(device);
@@ -2964,20 +4054,23 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         }
         context->next_create_retry_frame = 0;
     }
+    if (!CanBeginContextUseLocked(command_list, *context)) {
+        ReleaseCom(device);
+        return substitution;
+    }
 
     NrSlot *slot = FindOrCreateSlot(*context, device, output, true);
     if (slot == nullptr || context->failed) {
         ReleaseCom(device);
         return substitution;
     }
-    if (!RecordSlotUseLocked(command_list, *slot)) {
+    ArmDeltaStatsCaptureLocked(*slot, *context);
+    if (!RecordNrUseLocked(command_list, *context, *slot)) {
         ReleaseCom(device);
         return substitution;
     }
     ReleaseCom(device);
 
-    Transition(command_list, slot->source, slot->source_state,
-               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     substitution.active = true;
     substitution.params = const_cast<NgxParams *>(sr_params);
     substitution.original_output = output;
@@ -2990,14 +4083,22 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     substitution.guide_width = guide_width;
     substitution.guide_height = guide_height;
     substitution.color_contract = color_contract;
-    SetResource(substitution.params, "Output", slot->source);
-    SetUInt(substitution.params, "DLSS.Output.Subrect.Base.X", 0);
-    SetUInt(substitution.params, "DLSS.Output.Subrect.Base.Y", 0);
+    substitution.native_output_snapshot = slot->snapshots_native_output;
+    if (!slot->snapshots_native_output) {
+        Transition(command_list, slot->source, slot->source_state,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        substitution.redirected_output = true;
+        SetResource(substitution.params, "Output", slot->source);
+        SetUInt(substitution.params, "DLSS.Output.Subrect.Base.X", 0);
+        SetUInt(substitution.params, "DLSS.Output.Subrect.Base.Y", 0);
+    }
+    SetBypassReason(BypassReason::None);
     return substitution;
 }
 
 void RestorePostSrParameters(PostSrSubstitution &substitution) {
-    if (!substitution.active || substitution.params == nullptr) return;
+    if (!substitution.active || !substitution.redirected_output ||
+        substitution.params == nullptr) return;
     SetResource(substitution.params, "Output", substitution.original_output);
     SetUInt(substitution.params, "DLSS.Output.Subrect.Base.X",
             substitution.output_base_x);
@@ -3017,6 +4118,63 @@ void DispatchPostSrCopy(ID3D12GraphicsCommandList *command_list,
     UavBarrier(command_list, slot.result);
 }
 
+bool DispatchPostSrNativeSnapshot(
+    ID3D12GraphicsCommandList *command_list,
+    PostSrSubstitution &substitution) {
+    if (command_list == nullptr || substitution.slot == nullptr ||
+        !substitution.native_output_snapshot || substitution.width == 0 ||
+        substitution.height == 0) return false;
+    NrSlot &slot = *substitution.slot;
+    if (slot.snapshot_heap == nullptr || slot.source == nullptr ||
+        slot.result == nullptr ||
+        !TextureContainsRegion(slot.result, substitution.output_base_x,
+                               substitution.output_base_y,
+                               substitution.width, substitution.height) ||
+        !TextureContainsRegion(slot.source, 0, 0,
+                               substitution.width, substitution.height))
+        return false;
+
+    // The native SR result remains in the game's real R11/R8 Output. Copy only
+    // its active rectangle into a controlled FP16 texture; outside pixels and
+    // Alpha semantics are not touched. If any later NR stage fails, this
+    // original output is already the correct fail-closed image.
+    Transition(command_list, slot.result, slot.result_state,
+               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    Transition(command_list, slot.source, slot.source_state,
+               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ID3D12DescriptorHeap *heaps[] = {slot.snapshot_heap};
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, heaps);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, g_codec.root);
+    const D3D12_GPU_DESCRIPTOR_HANDLE gpu =
+        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(
+            slot.snapshot_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(
+        command_list, 0, gpu);
+    const CodecConstants constants = {
+        substitution.width, substitution.height,
+        1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0,
+        substitution.output_base_x, substitution.output_base_y,
+        0, 0, 0, 0, 0, 0};
+    ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
+        command_list, 1, 16, &constants, 0);
+    ID3D12GraphicsCommandList_SetPipelineState(command_list, g_codec.copy);
+    ID3D12GraphicsCommandList_Dispatch(
+        command_list, (substitution.width + 7) / 8,
+        (substitution.height + 7) / 8, 1);
+    UavBarrier(command_list, slot.source);
+    Transition(command_list, slot.source, slot.source_state,
+               D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    Transition(command_list, slot.result, slot.result_state,
+               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    return true;
+}
+
+void PreservePostSrOnFailure(ID3D12GraphicsCommandList *command_list,
+                             PostSrSubstitution &substitution) {
+    if (substitution.redirected_output)
+        DispatchPostSrCopy(command_list, substitution);
+}
+
 bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
                    const NgxParams *sr_params, const FeatureRecord &feature,
                    PostSrSubstitution &substitution) {
@@ -3029,12 +4187,21 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     // and combine with different exposure generations.
     const ColorContract color_contract = substitution.color_contract;
 
+    if (substitution.native_output_snapshot &&
+        !DispatchPostSrNativeSnapshot(command_list, substitution)) {
+        Log("Post-SR native output snapshot contract changed before dispatch; "
+            "the current game SR output is retained without Feature 18.");
+        SetBypassReason(BypassReason::UnsupportedOutputFormat);
+        return false;
+    }
+
     Transition(command_list, slot.source, slot.source_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     Transition(command_list, slot.proxy, slot.proxy_state,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     DispatchCodec(command_list, slot, g_codec.encode, width, height,
-                  color_contract, (feature.create_flags & 1) != 0);
+                  color_contract, (feature.create_flags & 1) != 0,
+                  0, 0, 0, 0, slot.codec_color_mode);
     UavBarrier(command_list, slot.proxy);
     Transition(command_list, slot.proxy, slot.proxy_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -3042,11 +4209,15 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
     if (context.params == nullptr) {
-        const NgxResult allocated = g_nr_api.allocate(&context.params);
+        NgxResult allocated = 0xBAD00005u;
+        {
+            ScopedSrwExclusive api_guard(&g_nr_api_lock);
+            allocated = g_nr_api.allocate(&context.params);
+        }
         if (allocated != kNgxSuccess || context.params == nullptr) {
             Log("AllocateParameters for post-SR NR failed: 0x%08X", allocated);
             context.failed = true;
-            DispatchPostSrCopy(command_list, substitution);
+            PreservePostSrOnFailure(command_list, substitution);
             return false;
         }
     }
@@ -3054,7 +4225,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     if (!BindNrParameters(context, slot, sr_params, feature, width, height,
                           substitution.guide_width, substitution.guide_height,
                           color_contract, first)) {
-        DispatchPostSrCopy(command_list, substitution);
+        PreservePostSrOnFailure(command_list, substitution);
         return false;
     }
 
@@ -3069,6 +4240,9 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             width, height, substitution.guide_width, substitution.guide_height,
             created, ResultName(created), handle);
         if (created != kNgxSuccess || handle == nullptr) {
+            SetBypassReason(context.create_dependencies_quarantined
+                ? BypassReason::FailedCreateQuarantine
+                : BypassReason::RuntimeRejected);
             g_post_sr_runtime_rejected.store(
                 created == 0xBAD00001u, std::memory_order_relaxed);
             context.nr_handle = nullptr;
@@ -3077,16 +4251,20 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             Log("Post-SR Feature 18 create rejected; preserving game SR and "
                 "retrying after 300 frames or immediately after a setting "
                 "toggle (failure count=%u).", context.create_failures);
-            DispatchPostSrCopy(command_list, substitution);
+            PreservePostSrOnFailure(command_list, substitution);
             return false;
         }
         g_post_sr_runtime_rejected.store(false, std::memory_order_relaxed);
         context.next_create_retry_frame = 0;
     }
 
-    const NgxResult evaluated = g_nr_api.bridge_evaluate(
-        g_nr_api.signed_evaluate, command_list, context.nr_handle,
-        context.params, nullptr);
+    NgxResult evaluated = 0xBAD00005u;
+    {
+        ScopedSrwExclusive api_guard(&g_nr_api_lock);
+        evaluated = g_nr_api.bridge_evaluate(
+            g_nr_api.signed_evaluate, command_list, context.nr_handle,
+            context.params, nullptr);
+    }
     if (evaluated != kNgxSuccess) {
         if (evaluated == 0xBAD00001u) {
             g_post_sr_runtime_rejected.store(true, std::memory_order_relaxed);
@@ -3094,7 +4272,8 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         if (context.evaluations < 3)
             Log("post-SR feature 18 evaluate failed: 0x%08X (%s)",
                 evaluated, ResultName(evaluated));
-        DispatchPostSrCopy(command_list, substitution);
+        SetBypassReason(BypassReason::RuntimeRejected);
+        PreservePostSrOnFailure(command_list, substitution);
         return false;
     }
 
@@ -3114,14 +4293,18 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
 
     if (g_config.identity_use_original ||
         context.evaluations <= g_config.warmup_after_create) {
-        DispatchPostSrCopy(command_list, substitution);
+        g_nr_identity_or_warmup_frames.fetch_add(1,
+                                                  std::memory_order_relaxed);
+        PreservePostSrOnFailure(command_list, substitution);
         return false;
     }
     DispatchCodec(command_list, slot, g_codec.combine, width, height,
-                  color_contract, (feature.create_flags & 1) != 0,
-                  0, 0, substitution.output_base_x,
-                  substitution.output_base_y);
+                   color_contract, (feature.create_flags & 1) != 0,
+                   0, 0, substitution.output_base_x,
+                   substitution.output_base_y, slot.codec_color_mode);
     UavBarrier(command_list, slot.result);
+    g_nr_transferred_frames.fetch_add(1, std::memory_order_relaxed);
+    SetBypassReason(BypassReason::None);
     return true;
 }
 
@@ -3132,6 +4315,9 @@ using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *,
 using ReleaseFeatureFn = NgxResult (*)(NgxHandle *);
 using ExecuteCommandListsFn = void (STDMETHODCALLTYPE *)(
     ID3D12CommandQueue *, UINT, ID3D12CommandList *const *);
+using ResetCommandListFn = HRESULT (STDMETHODCALLTYPE *)(
+    ID3D12GraphicsCommandList *, ID3D12CommandAllocator *,
+    ID3D12PipelineState *);
 
 CreateFeatureFn g_original_create = nullptr;
 CreateFeatureFn g_original_core_create = nullptr;
@@ -3160,6 +4346,10 @@ ExecuteCommandListsFn g_original_queue_execute[4] = {};
 void *g_queue_execute_hook_targets[4] = {};
 std::size_t g_queue_execute_hook_count = 0;
 SRWLOCK g_queue_execute_hook_lock = SRWLOCK_INIT;
+ResetCommandListFn g_original_command_list_reset[4] = {};
+void *g_command_list_reset_hook_targets[4] = {};
+std::size_t g_command_list_reset_hook_count = 0;
+SRWLOCK g_command_list_reset_hook_lock = SRWLOCK_INIT;
 
 void ProcessSubmittedCommandLists(std::size_t hook_index,
                                   ID3D12CommandQueue *queue,
@@ -3172,41 +4362,71 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         return;
     }
 
-    // Snapshot this before the native call. A different command list may be
-    // reset immediately after submission and drop the global active count to
-    // zero while this hook is still returning. Re-reading the count only after
-    // ExecuteCommandLists would then skip the submitted list whose token and
-    // GPU work still need a retirement fence.
+    if (g_enabled_fast.load(std::memory_order_acquire) &&
+        !g_shortfuse_nr_enabled.load(std::memory_order_relaxed)) {
+        // Persist queue affinity for every graphics list seen while the add-on
+        // is enabled, including lists whose current frame took a native bypass.
+        // F6 off retains the prior near-zero-cost trampoline path.
+        for (UINT i = 0; i < count; ++i) {
+            if (command_lists == nullptr || command_lists[i] == nullptr) continue;
+            ID3D12GraphicsCommandList *graphics = nullptr;
+            if (SUCCEEDED(ID3D12CommandList_QueryInterface(
+                    command_lists[i], IID_ID3D12GraphicsCommandList,
+                    reinterpret_cast<void **>(&graphics))) &&
+                graphics != nullptr) {
+                RememberLastSubmissionQueue(graphics, queue);
+                ReleaseCom(graphics);
+            }
+        }
+    }
+
     const bool may_have_lifecycle_work =
         g_lifecycle_active_command_lists.load(std::memory_order_acquire) != 0;
-
-    // This callback is intentionally after the native call.  ReShade's
-    // execute_command_list event fires before the real submission and cannot
-    // by itself prove that a later queue fence orders after this work.
-    original(queue, count, command_lists);
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
-        !may_have_lifecycle_work)
+        !may_have_lifecycle_work) {
+        original(queue, count, command_lists);
         return;
-
-    EnterCriticalSection(&g_chain_cs);
-    for (UINT i = 0; i < count; ++i) {
-        if (command_lists == nullptr || command_lists[i] == nullptr) continue;
-        ID3D12GraphicsCommandList *graphics = nullptr;
-        if (SUCCEEDED(ID3D12CommandList_QueryInterface(
-                command_lists[i], IID_ID3D12GraphicsCommandList,
-                reinterpret_cast<void **>(&graphics))) &&
-            graphics != nullptr) {
-            MarkLifecycleCommandListSubmittedLocked(queue, graphics);
-            ReleaseCom(graphics);
-        }
-        if (g_lifecycle_tracking_uncertain.load(std::memory_order_relaxed))
-            break;
     }
-    // Fence the actual submission queue immediately. Waiting for a Present on
-    // that queue is unnecessary and can quarantine resources forever in games
-    // that run DLSS on a non-present queue.
-    SignalLifecycleQueueAndCollectLocked(queue);
+
+    LifecycleQueue *queue_state = nullptr;
+    EnterCriticalSection(&g_chain_cs);
+    queue_state = FindOrCreateLifecycleQueueLocked(queue);
     LeaveCriticalSection(&g_chain_cs);
+    if (queue_state == nullptr ||
+        g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+        original(queue, count, command_lists);
+        return;
+    }
+
+    // Queue-local serialization keeps the native Execute adjacent to the
+    // private completion Signal. Context-level single-in-flight admission has
+    // already rejected unresolved cross-queue reuse, so no private queue Wait
+    // is required (and none is injected into the game's dependency graph).
+    AcquireSRWLockExclusive(&queue_state->submission_lock);
+    SubmissionBatch batch = {};
+    EnterCriticalSection(&g_chain_cs);
+    const bool captured = CaptureSubmissionBatchLocked(
+        queue_state, count, command_lists, batch);
+    LeaveCriticalSection(&g_chain_cs);
+
+    // Even a failed capture is submitted unchanged: fail-closed means no more
+    // plugin mutation, never suppressing the game's own command list.
+    original(queue, count, command_lists);
+    bool signaled = false;
+    if (captured && batch.active) {
+        const HRESULT signal_result = ID3D12CommandQueue_Signal(
+            queue_state->queue, queue_state->fence, batch.fence_value);
+        signaled = SUCCEEDED(signal_result);
+        if (!signaled)
+            MarkLifecycleUncertain("D3D12 retirement fence signal failed");
+    }
+    if (captured && signaled && batch.active &&
+        !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+        EnterCriticalSection(&g_chain_cs);
+        CompleteSubmissionBatchLocked(batch);
+        LeaveCriticalSection(&g_chain_cs);
+    }
+    ReleaseSRWLockExclusive(&queue_state->submission_lock);
 }
 
 void STDMETHODCALLTYPE HookQueueExecute0(
@@ -3237,28 +4457,84 @@ void *const g_queue_execute_detours[4] = {
     reinterpret_cast<void *>(&HookQueueExecute3),
 };
 
-void TrackDlssResolution(const NgxParams *params, const FeatureRecord &feature) {
-    unsigned int input_width = 0, input_height = 0;
-    GetUInt(params, "DLSS.Render.Subrect.Dimensions.Width", &input_width);
-    GetUInt(params, "DLSS.Render.Subrect.Dimensions.Height", &input_height);
-    if (input_width == 0) input_width = feature.width;
-    if (input_height == 0) input_height = feature.height;
-    if (input_width == 0 || input_height == 0) {
-        ID3D12Resource *color = nullptr;
-        if (GetResource(params, "Color", &color) && color != nullptr) {
-            const D3D12_RESOURCE_DESC desc = ID3D12Resource_GetDesc(color);
-            if (input_width == 0) input_width = static_cast<unsigned int>(desc.Width);
-            if (input_height == 0) input_height = desc.Height;
-        }
+HRESULT ProcessCommandListReset(
+    std::size_t hook_index, ID3D12GraphicsCommandList *command_list,
+    ID3D12CommandAllocator *allocator, ID3D12PipelineState *initial_state) {
+    ResetCommandListFn original =
+        hook_index < std::size(g_original_command_list_reset)
+            ? g_original_command_list_reset[hook_index] : nullptr;
+    if (original == nullptr) {
+        MarkLifecycleUncertain("missing command-list Reset trampoline");
+        return E_FAIL;
     }
 
-    unsigned int output_width = feature.out_width;
-    unsigned int output_height = feature.out_height;
+    // Capture the marker before the native call. Only a successful Reset ends
+    // the recording lifetime; a failed Reset leaves both token and references
+    // intact exactly as D3D12 requires.
+    unsigned long long token = 0;
+    ReadLifecycleToken(command_list, token);
+    const HRESULT result = original(command_list, allocator, initial_state);
+    if (SUCCEEDED(result) && token != 0) {
+        EnterCriticalSection(&g_chain_cs);
+        DetachLifecycleCommandListTokenLocked(
+            command_list, token, "native Reset");
+        CollectRetiredContextsLocked();
+        LeaveCriticalSection(&g_chain_cs);
+        DrainPendingContextDestructions();
+    }
+    return result;
+}
+
+HRESULT STDMETHODCALLTYPE HookCommandListReset0(
+    ID3D12GraphicsCommandList *command_list,
+    ID3D12CommandAllocator *allocator, ID3D12PipelineState *initial_state) {
+    return ProcessCommandListReset(0, command_list, allocator, initial_state);
+}
+HRESULT STDMETHODCALLTYPE HookCommandListReset1(
+    ID3D12GraphicsCommandList *command_list,
+    ID3D12CommandAllocator *allocator, ID3D12PipelineState *initial_state) {
+    return ProcessCommandListReset(1, command_list, allocator, initial_state);
+}
+HRESULT STDMETHODCALLTYPE HookCommandListReset2(
+    ID3D12GraphicsCommandList *command_list,
+    ID3D12CommandAllocator *allocator, ID3D12PipelineState *initial_state) {
+    return ProcessCommandListReset(2, command_list, allocator, initial_state);
+}
+HRESULT STDMETHODCALLTYPE HookCommandListReset3(
+    ID3D12GraphicsCommandList *command_list,
+    ID3D12CommandAllocator *allocator, ID3D12PipelineState *initial_state) {
+    return ProcessCommandListReset(3, command_list, allocator, initial_state);
+}
+
+void *const g_command_list_reset_detours[4] = {
+    reinterpret_cast<void *>(&HookCommandListReset0),
+    reinterpret_cast<void *>(&HookCommandListReset1),
+    reinterpret_cast<void *>(&HookCommandListReset2),
+    reinterpret_cast<void *>(&HookCommandListReset3),
+};
+
+void TrackDlssResolution(const NgxParams *params, const FeatureRecord &feature) {
+    unsigned int input_width = 0, input_height = 0;
+    ID3D12Resource *color = nullptr;
+    unsigned int color_x = 0, color_y = 0;
+    if (GetResource(params, "Color", &color) && color != nullptr) {
+        GetUInt(params, "DLSS.Input.Color.Subrect.Base.X", &color_x);
+        GetUInt(params, "DLSS.Input.Color.Subrect.Base.Y", &color_y);
+        ResolveRenderExtentFromEvaluate(
+            params, feature, color, color_x, color_y,
+            input_width, input_height);
+    }
+
+    unsigned int output_width = 0;
+    unsigned int output_height = 0;
     ID3D12Resource *output = nullptr;
     if (GetResource(params, "Output", &output) && output != nullptr) {
-        const D3D12_RESOURCE_DESC desc = ID3D12Resource_GetDesc(output);
-        output_width = static_cast<unsigned int>(desc.Width);
-        output_height = desc.Height;
+        unsigned int output_x = 0, output_y = 0;
+        GetUInt(params, "DLSS.Output.Subrect.Base.X", &output_x);
+        GetUInt(params, "DLSS.Output.Subrect.Base.Y", &output_y);
+        ResolveOutputExtentFromEvaluate(
+            params, feature, output, output_x, output_y,
+            input_width, input_height, output_width, output_height);
     }
 
     if (input_width != 0 && input_height != 0) {
@@ -3350,16 +4626,28 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
         g_evaluate_target_overflow.load(std::memory_order_acquire) ||
         g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
-        g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+        g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
+        g_nr_failed_create_process_latched.load(std::memory_order_acquire)) {
+        if (!g_enabled_fast.load(std::memory_order_relaxed))
+            SetBypassReason(BypassReason::MasterDisabled);
+        else if (g_shortfuse_nr_enabled.load(std::memory_order_relaxed))
+            SetBypassReason(BypassReason::ShortFuseOwnsNr);
+        else if (g_nr_failed_create_process_latched.load(
+                     std::memory_order_relaxed))
+            SetBypassReason(BypassReason::FailedCreateQuarantine);
+        else
+            SetBypassReason(BypassReason::LifecycleIsolation);
         return original(command_list, handle, params, callback);
     }
 
     const unsigned long long all = ++g_all_evaluations;
     if (g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
+        SetBypassReason(BypassReason::LifecycleIsolation);
         return original(command_list, handle, params, callback);
     }
     const FeatureRecord feature = FindFeature(handle);
     if (feature.feature_id == 13) {
+        SetBypassReason(BypassReason::RayReconstructionGuard);
         g_last_carrier_feature.store(13, std::memory_order_relaxed);
         g_rr_guard_was_active.store(true, std::memory_order_relaxed);
         const unsigned long long rr = ++g_rr_passthrough_evaluations;
@@ -3382,6 +4670,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     const unsigned int live_rr_handles =
         g_live_rr_handles.load(std::memory_order_acquire);
     if (live_rr_handles != 0) {
+        SetBypassReason(BypassReason::RayReconstructionGuard);
         g_last_carrier_feature.store(13, std::memory_order_relaxed);
         g_rr_guard_was_active.store(true, std::memory_order_relaxed);
         const unsigned long long guarded = ++g_rr_guarded_sr_evaluations;
@@ -3419,6 +4708,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
         g_live_rr_handles.load(std::memory_order_acquire) != 0) {
         g_last_carrier_feature.store(13, std::memory_order_relaxed);
+        SetBypassReason(BypassReason::RayReconstructionGuard);
         g_rr_guard_was_active.store(true, std::memory_order_relaxed);
         LeaveCriticalSection(&g_chain_cs);
         return original(command_list, handle, params, callback);
@@ -3432,6 +4722,11 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         ActiveTransferStrength(g_config) <= 0.000001f;
     if (!g_config.enabled || zero_transfer_native ||
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed)) {
+        SetBypassReason(!g_config.enabled
+            ? BypassReason::MasterDisabled
+            : (g_shortfuse_nr_enabled.load(std::memory_order_relaxed)
+                ? BypassReason::ShortFuseOwnsNr
+                : BypassReason::None));
         if (zero_transfer_native)
             g_unverified_exposure_texture_bypass.store(false,
                                                         std::memory_order_relaxed);
@@ -3459,7 +4754,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     if (used_after_sr) {
         if (result == kNgxSuccess) {
             FinishAfterSr(command_list, params, feature, after_sr);
-        } else if (g_config.retry_original_on_sr_failure) {
+        } else if (after_sr.redirected_output &&
+                   g_config.retry_original_on_sr_failure) {
             Log("%s failed while targeting the post-upscaling intermediate: "
                 "0x%08X (%s); retrying the original Output.",
                 FeatureName(feature.feature_id), result, ResultName(result));
@@ -3661,6 +4957,65 @@ bool EnsureNativeQueueExecuteHook(reshade::api::command_queue *queue) {
     return true;
 }
 
+bool EnsureNativeCommandListResetHook(
+    reshade::api::command_list *command_list) {
+    if (command_list == nullptr || command_list->get_device() == nullptr ||
+        command_list->get_device()->get_api() !=
+            reshade::api::device_api::d3d12)
+        return true;
+    auto *native_command_list = reinterpret_cast<ID3D12GraphicsCommandList *>(
+        command_list->get_native());
+    if (native_command_list == nullptr) return false;
+    void **vtable = *reinterpret_cast<void ***>(native_command_list);
+    // ID3D12GraphicsCommandList::Reset is vtable slot 10.
+    void *target = vtable != nullptr ? vtable[10] : nullptr;
+    if (target == nullptr) return false;
+
+    AcquireSRWLockExclusive(&g_command_list_reset_hook_lock);
+    for (std::size_t i = 0; i < g_command_list_reset_hook_count; ++i) {
+        if (g_command_list_reset_hook_targets[i] == target) {
+            ReleaseSRWLockExclusive(&g_command_list_reset_hook_lock);
+            return true;
+        }
+    }
+    if (g_command_list_reset_hook_count >=
+        std::size(g_command_list_reset_hook_targets)) {
+        ReleaseSRWLockExclusive(&g_command_list_reset_hook_lock);
+        return false;
+    }
+
+    const MH_STATUS initialized = MH_Initialize();
+    if (initialized != MH_OK && initialized != MH_ERROR_ALREADY_INITIALIZED) {
+        Log("MH_Initialize for command-list Reset hook failed: status=%d",
+            static_cast<int>(initialized));
+        ReleaseSRWLockExclusive(&g_command_list_reset_hook_lock);
+        return false;
+    }
+    const std::size_t index = g_command_list_reset_hook_count;
+    const MH_STATUS created = MH_CreateHook(
+        target, g_command_list_reset_detours[index],
+        reinterpret_cast<void **>(&g_original_command_list_reset[index]));
+    if (created != MH_OK) {
+        Log("MH_CreateHook D3D12 command-list Reset target=%p failed: status=%d",
+            target, static_cast<int>(created));
+        ReleaseSRWLockExclusive(&g_command_list_reset_hook_lock);
+        return false;
+    }
+    g_command_list_reset_hook_targets[index] = target;
+    const MH_STATUS enabled = MH_EnableHook(target);
+    if (enabled != MH_OK && enabled != MH_ERROR_ENABLED) {
+        Log("MH_EnableHook D3D12 command-list Reset target=%p failed: status=%d",
+            target, static_cast<int>(enabled));
+        ReleaseSRWLockExclusive(&g_command_list_reset_hook_lock);
+        return false;
+    }
+    ++g_command_list_reset_hook_count;
+    Log("D3D12 native Reset success-gate hook active: target=%p slot=%zu.",
+        target, index);
+    ReleaseSRWLockExclusive(&g_command_list_reset_hook_lock);
+    return true;
+}
+
 void OnExecuteCommandList(reshade::api::command_queue *queue,
                           reshade::api::command_list *command_list) {
     if (queue == nullptr || command_list == nullptr ||
@@ -3675,18 +5030,6 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
         command_list->get_native());
     unsigned long long token = 0;
     if (!ReadLifecycleToken(native_command_list, token)) return;
-    // Pin the concrete record before doing any hook-management work. A Reset
-    // callback on another thread must see pending_execute_callbacks != 0 and
-    // quarantine rather than erase a record whose commands are about to submit.
-    EnterCriticalSection(&g_chain_cs);
-    LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
-    if (record == nullptr) {
-        MarkLifecycleUncertain("unknown command-list marker before submission");
-        LeaveCriticalSection(&g_chain_cs);
-        return;
-    }
-    ++record->pending_execute_callbacks;
-    LeaveCriticalSection(&g_chain_cs);
 
     // The ReShade event is before the native submission, so this is the last
     // safe point to install the post-submit proof hook. Do it only for a list
@@ -3697,7 +5040,23 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
     }
 }
 
-void OnResetOrDestroyCommandList(reshade::api::command_list *command_list) {
+void OnResetCommandList(reshade::api::command_list *command_list) {
+    if (command_list == nullptr || command_list->get_device() == nullptr ||
+        command_list->get_device()->get_api() !=
+            reshade::api::device_api::d3d12 ||
+        g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))
+        return;
+    auto *native_command_list = reinterpret_cast<ID3D12GraphicsCommandList *>(
+        command_list->get_native());
+    unsigned long long token = 0;
+    if (!ReadLifecycleToken(native_command_list, token)) return;
+    // ReShade invokes this event before the real native Reset. Install the
+    // success-gate here, but never release references from the pre-event.
+    if (!EnsureNativeCommandListResetHook(command_list))
+        MarkLifecycleUncertain("could not install native Reset success gate");
+}
+
+void OnDestroyCommandList(reshade::api::command_list *command_list) {
     if (command_list == nullptr || command_list->get_device() == nullptr ||
         command_list->get_device()->get_api() !=
             reshade::api::device_api::d3d12 ||
@@ -3706,9 +5065,10 @@ void OnResetOrDestroyCommandList(reshade::api::command_list *command_list) {
     auto *native_command_list = reinterpret_cast<ID3D12GraphicsCommandList *>(
         command_list->get_native());
     EnterCriticalSection(&g_chain_cs);
-    DiscardLifecycleCommandListLocked(native_command_list);
+    DetachLifecycleCommandListLocked(native_command_list, "destroy");
     CollectRetiredContextsLocked();
     LeaveCriticalSection(&g_chain_cs);
+    DrainPendingContextDestructions();
 }
 
 void RememberEvaluateHookTarget(void *target) {
@@ -3873,18 +5233,13 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *,
                const reshade::api::rect *, const reshade::api::rect *,
                std::uint32_t, const reshade::api::rect *) {
     EnterCriticalSection(&g_chain_cs);
-    if (queue != nullptr && queue->get_device() != nullptr &&
-        queue->get_device()->get_api() == reshade::api::device_api::d3d12) {
-        auto *native_queue = reinterpret_cast<ID3D12CommandQueue *>(
-            queue->get_native());
-        if (native_queue != nullptr)
-            SignalLifecycleQueueAndCollectLocked(native_queue);
-        else
-            CollectRetiredContextsLocked();
-    } else {
-        CollectRetiredContextsLocked();
-    }
+    // ExecuteCommandLists now owns the only Execute -> Signal transaction.
+    // Present merely observes completed fence values and can never insert a
+    // signal between another thread's native submission and proof fence.
+    (void)queue;
+    CollectRetiredContextsLocked();
     LeaveCriticalSection(&g_chain_cs);
+    DrainPendingContextDestructions();
     PollConfigFromPresent();
     // Measure presented frames instead of NGX evaluations. This keeps the
     // reference sampler alive while F6 is off and avoids counting engines that
@@ -3910,7 +5265,10 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *,
 }
 
 void DrawSettings(reshade::api::effect_runtime *) {
-    ChainConfig next = SnapshotConfig();
+    static ChainConfig pending = {};
+    static bool has_pending = false;
+    static ULONGLONG pending_tick = 0;
+    ChainConfig next = has_pending ? pending : SnapshotConfig();
     bool changed = false;
     const auto ui = [](const char *english, const char *chinese) {
         return kChineseUi ? chinese : english;
@@ -3948,10 +5306,13 @@ void DrawSettings(reshade::api::effect_runtime *) {
     }
     ImGui::TextWrapped(
         "%s", ui(
-            "Off: game SR -> output-resolution NR (original post-pass).  "
-            "On: render-resolution NR -> game SR (performance path).",
-            "关闭：游戏 SR -> 输出分辨率 NR（原始后置链路）。  "
-            "开启：渲染分辨率 NR -> 游戏 SR（性能链路）。"));
+            "Off: game SR -> full output-resolution NR (quality/reference "
+            "mode).  On: render-resolution NR -> game SR (default "
+            "performance mode). Both remain available when the live resource "
+            "contract is valid.",
+            "关闭：游戏 SR -> 全输出分辨率 NR（高画质 / 对比模式）。  "
+            "开启：渲染分辨率 NR -> 游戏 SR（默认性能模式）。实时资源合同"
+            "通过时，两种模式都会完整保留。"));
     ImGui::TextDisabled(
         "%s", ui(
             "NR -> SR reads the game's real DLSS render size. Changing the "
@@ -3995,6 +5356,47 @@ void DrawSettings(reshade::api::effect_runtime *) {
         g_last_exposure_texture_present.load(std::memory_order_relaxed);
     const bool unverified_exposure_texture_bypass =
         g_unverified_exposure_texture_bypass.load(std::memory_order_relaxed);
+    const BypassReason bypass_reason = static_cast<BypassReason>(
+        g_last_bypass_reason.load(std::memory_order_relaxed));
+    const DXGI_FORMAT output_format = static_cast<DXGI_FORMAT>(
+        g_last_output_format.load(std::memory_order_relaxed));
+    const bool failed_create_quarantine =
+        g_nr_failed_create_process_latched.load(std::memory_order_relaxed);
+    const unsigned long long lifecycle_safe_bypasses =
+        g_lifecycle_safe_bypass_frames.load(std::memory_order_relaxed);
+    const unsigned long long transferred_frames =
+        g_nr_transferred_frames.load(std::memory_order_relaxed);
+    const unsigned long long identity_frames =
+        g_nr_identity_or_warmup_frames.load(std::memory_order_relaxed);
+    const unsigned long long delta_sampled_frames =
+        g_nr_delta_sampled_frames.load(std::memory_order_relaxed);
+    const unsigned long long delta_near_zero_frames =
+        g_nr_delta_near_zero_frames.load(std::memory_order_relaxed);
+    const unsigned long long delta_visible_frames =
+        g_nr_delta_visible_frames.load(std::memory_order_relaxed);
+    const float last_sampled_delta =
+        g_last_sampled_nr_delta.load(std::memory_order_relaxed);
+    float diagnostic_r[kDiagnosticStageCount] = {};
+    float diagnostic_g[kDiagnosticStageCount] = {};
+    float diagnostic_b[kDiagnosticStageCount] = {};
+    float diagnostic_luma[kDiagnosticStageCount] = {};
+    std::uint32_t diagnostic_hash[kDiagnosticStageCount] = {};
+    for (unsigned int stage = 0; stage < kDiagnosticStageCount; ++stage) {
+        diagnostic_r[stage] =
+            g_last_diagnostic_r[stage].load(std::memory_order_relaxed);
+        diagnostic_g[stage] =
+            g_last_diagnostic_g[stage].load(std::memory_order_relaxed);
+        diagnostic_b[stage] =
+            g_last_diagnostic_b[stage].load(std::memory_order_relaxed);
+        diagnostic_luma[stage] =
+            g_last_diagnostic_luma[stage].load(std::memory_order_relaxed);
+        diagnostic_hash[stage] =
+            g_last_diagnostic_hash[stage].load(std::memory_order_relaxed);
+    }
+    const unsigned int diagnostic_sample_count =
+        g_last_diagnostic_sample_count.load(std::memory_order_relaxed);
+    const unsigned int diagnostic_invalid_count =
+        g_last_diagnostic_invalid_count.load(std::memory_order_relaxed);
     const bool safety_tracking_uncertain =
         g_feature_tracking_uncertain.load(std::memory_order_relaxed) ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_relaxed) ||
@@ -4030,6 +5432,13 @@ void DrawSettings(reshade::api::effect_runtime *) {
                  "状态：仅游戏光线重构 + SR（F6 总开关已关闭）")
             : ui("Status: pure SR (F6 master off)",
                  "状态：纯 SR（F6 总开关已关闭）"));
+    } else if (failed_create_quarantine) {
+        ImGui::TextWrapped("%s", ui(
+            "Status: a failed Feature 18 Create returned a non-null handle. "
+            "Its complete GPU dependency set is isolated and every later NR "
+            "attempt is disabled until the game restarts.",
+            "状态：Feature 18 创建失败时仍返回了非空句柄。其完整 GPU 依赖"
+            "已被隔离，本进程后续 NR 尝试全部停用；请重启游戏。"));
     } else if (safety_tracking_uncertain) {
         ImGui::TextWrapped("%s", ui(
             "Status: safety tracking became uncertain, so Feature 18 is "
@@ -4051,6 +5460,33 @@ void DrawSettings(reshade::api::effect_runtime *) {
             "original SR to prevent an exposure or colour shift.",
             "状态：检测到 HDR ExposureTexture，但其 Feature 18 合同尚未验证。"
             "为避免曝光或颜色偏移，本插件已保留游戏原始 SR。"));
+    } else if (bypass_reason == BypassReason::LifecycleIsolation) {
+        ImGui::TextWrapped(
+            ui("Status: this frame kept native SR because the Feature 18 "
+               "context/queue fence could not yet be proven safe (count %llu).",
+               "状态：本帧无法证明 Feature 18 上下文 / 队列 fence 已安全，"
+               "因此保留原生 SR（累计 %llu 帧）。"),
+            lifecycle_safe_bypasses);
+    } else if (bypass_reason == BypassReason::UnsupportedInputFormat) {
+        ImGui::TextWrapped(ui(
+            "Status: the render-resolution Color contract is unsupported "
+            "(format %u, %s). Native SR is preserved.",
+            "状态：渲染分辨率 Color 合同不支持（格式 %u，%s），已保留原生 SR。"),
+            static_cast<unsigned int>(pre_sr_color_format),
+            FormatName(pre_sr_color_format));
+    } else if (bypass_reason == BypassReason::OutputColorContractUnverified) {
+        ImGui::TextWrapped(ui(
+            "Status: the output is 8-bit (format %u), but its linear/sRGB "
+            "encoding is not verified. SR -> NR is safely bypassed.",
+            "状态：输出为 8 位格式（%u），但 linear / sRGB 编码尚未确认；"
+            "SR -> NR 已安全旁路。"),
+            static_cast<unsigned int>(output_format));
+    } else if (bypass_reason == BypassReason::UnsupportedOutputFormat) {
+        ImGui::TextWrapped(ui(
+            "Status: SR -> NR rejected the live output resource contract "
+            "(format %u, %s). Native SR is preserved.",
+            "状态：SR -> NR 拒绝了当前输出资源合同（格式 %u，%s），已保留原生 SR。"),
+            static_cast<unsigned int>(output_format), FormatName(output_format));
     } else if (before_sr && pre_sr_runtime_rejected) {
         ImGui::TextWrapped(
             ui("Status: the signed NR runtime rejected Feature 18 creation "
@@ -4084,6 +5520,46 @@ void DrawSettings(reshade::api::effect_runtime *) {
             "%s", ui(
                 "UE5 R11G11B10 SceneColor conversion to FP16 is active.",
                 "UE5 R11G11B10 SceneColor -> FP16 格式转换已启用。"));
+    }
+    if (!before_sr && output_format == DXGI_FORMAT_R11G11B10_FLOAT) {
+        ImGui::TextDisabled("%s", ui(
+            "Post-SR R11 native snapshot -> FP16 NR -> typed R11 write-back is active.",
+            "后置 R11 原生快照 -> FP16 NR -> R11 typed 写回已启用。"));
+    }
+    ImGui::TextDisabled(
+        ui("NR transfer frames: %llu | native/warm-up frames: %llu",
+           "NR 合成帧：%llu | 原生 / 预热帧：%llu"),
+        transferred_frames, identity_frames);
+    if (delta_sampled_frames == 0) {
+        ImGui::TextDisabled("%s", ui(
+            "Sampled NR delta: waiting for a completed GPU sample",
+            "NR 差值采样：等待完成的 GPU 样本"));
+    } else {
+        ImGui::TextDisabled(
+            ui("Sampled NR delta: last max %.6f | near-zero %llu | visible %llu",
+               "NR 差值采样：最近最大 %.6f | 接近零 %llu | 有效 %llu"),
+            static_cast<double>(last_sampled_delta),
+            delta_near_zero_frames, delta_visible_frames);
+        static const char *const diagnostic_stage_names_en[] = {
+            "Original", "NR proxy", "NR output", "Composited"};
+        static const char *const diagnostic_stage_names_zh[] = {
+            "原图", "NR 代理", "NR 输出", "合成结果"};
+        const char *const *diagnostic_stage_names = kChineseUi
+            ? diagnostic_stage_names_zh : diagnostic_stage_names_en;
+        ImGui::TextDisabled(
+            ui("ColorDiag (bounded display-linear): %u samples, %u invalid",
+               "颜色诊断（有界显示线性域）：%u 个样本，%u 个无效样本"),
+            diagnostic_sample_count, diagnostic_invalid_count);
+        for (unsigned int stage = 0; stage < kDiagnosticStageCount; ++stage) {
+            ImGui::TextDisabled(
+                "%s  RGB %.4f / %.4f / %.4f  Y %.4f  #%08X",
+                diagnostic_stage_names[stage],
+                static_cast<double>(diagnostic_r[stage]),
+                static_cast<double>(diagnostic_g[stage]),
+                static_cast<double>(diagnostic_b[stage]),
+                static_cast<double>(diagnostic_luma[stage]),
+                diagnostic_hash[stage]);
+        }
     }
     ImGui::TextDisabled(
         ui("HDR exposure contract: PreExposure %.3f, ExposureScale %.3f, "
@@ -4198,9 +5674,9 @@ void DrawSettings(reshade::api::effect_runtime *) {
            "诊断直通模式（丢弃 NR 颜色结果）"),
         &next.identity_use_original);
 
-    if (ImGui::Button(ui("Restore original post-SR settings",
-                         "恢复原始后置链路设置"))) {
-        next.mode = 1;
+    if (ImGui::Button(ui("Restore recommended beta0.3 settings",
+                         "恢复 beta0.3 推荐设置"))) {
+        next.mode = 2;
         next.identity_use_original = false;
         next.post_transfer_strength = 1.0f;
         next.transfer_strength = 1.0f;
@@ -4220,7 +5696,19 @@ void DrawSettings(reshade::api::effect_runtime *) {
         next.ui_correction = false;
         changed = true;
     }
-    if (changed) ApplyConfig(next, "ReShade overlay");
+    // Commit UI edits after the active control is released. This prevents one
+    // slider drag from producing hundreds of config generations, NR history
+    // resets, warm-ups and performance epochs.
+    if (changed) {
+        pending = next;
+        has_pending = true;
+        pending_tick = GetTickCount64();
+    }
+    if (has_pending &&
+        (!ImGui::IsAnyItemActive() || GetTickCount64() - pending_tick >= 500)) {
+        ApplyConfig(pending, "ReShade overlay committed edit");
+        has_pending = false;
+    }
 }
 
 } // namespace
@@ -4261,9 +5749,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::register_event<reshade::addon_event::execute_command_list>(
             OnExecuteCommandList);
         reshade::register_event<reshade::addon_event::reset_command_list>(
-            OnResetOrDestroyCommandList);
+            OnResetCommandList);
         reshade::register_event<reshade::addon_event::destroy_command_list>(
-            OnResetOrDestroyCommandList);
+            OnDestroyCommandList);
         reshade::register_event<reshade::addon_event::present>(OnPresent);
         reshade::register_overlay(nullptr, DrawSettings);
         Log("Registered ReShade overlay and F6 hotkey (API %u).",
@@ -4274,9 +5762,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             reshade::unregister_overlay(nullptr, DrawSettings);
             reshade::unregister_event<reshade::addon_event::present>(OnPresent);
             reshade::unregister_event<reshade::addon_event::destroy_command_list>(
-                OnResetOrDestroyCommandList);
+                OnDestroyCommandList);
             reshade::unregister_event<reshade::addon_event::reset_command_list>(
-                OnResetOrDestroyCommandList);
+                OnResetCommandList);
             reshade::unregister_event<reshade::addon_event::execute_command_list>(
                 OnExecuteCommandList);
             reshade::unregister_addon(module);
@@ -4287,9 +5775,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::unregister_overlay(nullptr, DrawSettings);
         reshade::unregister_event<reshade::addon_event::present>(OnPresent);
         reshade::unregister_event<reshade::addon_event::destroy_command_list>(
-            OnResetOrDestroyCommandList);
+            OnDestroyCommandList);
         reshade::unregister_event<reshade::addon_event::reset_command_list>(
-            OnResetOrDestroyCommandList);
+            OnResetCommandList);
         reshade::unregister_event<reshade::addon_event::execute_command_list>(
             OnExecuteCommandList);
         reshade::unregister_addon(module);
