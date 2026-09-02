@@ -1,0 +1,58 @@
+Third-Party Notices
+===================
+
+RenoDX
+------
+
+Project: RenoDX by clshortfuse
+Source: https://github.com/clshortfuse/renodx
+
+Parts of the HDR model-picture composition and color/gamut helpers are adapted
+from RenoDX's DLSS 5 Neural Rendering add-on.
+
+MIT License
+
+Copyright (c) 2025 Carlos Lopez Jr.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+MinHook
+-------
+
+Project: MinHook - The Minimalistic API Hooking Library for x64/x86
+Version: 1.3.4
+Pinned upstream commit: c3fcafdc10146beb5919319d0683e44e3c30d537
+Source: https://github.com/TsudaKageyu/minhook
+
+A minimal x64 source subset is vendored under `third_party/minhook`. MinHook and
+its Hacker Disassembler Engine portions retain their BSD-style terms. The full
+required notice is preserved at `third_party/minhook/LICENSE.txt`.
+
+ReShade
+-------
+
+ReShade headers and binaries are not vendored. A source checkout is supplied by
+the builder and remains governed by its own license.
+
+NVIDIA and games
+----------------
+
+No NVIDIA proprietary DLL, SDK binary/header, neural-network payload, game file,
+or game asset is included. Product names are used only to describe interoperability
+and do not imply affiliation or endorsement.
