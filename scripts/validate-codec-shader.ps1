@@ -32,7 +32,7 @@ foreach ($entryPoint in @('EncodeCS', 'CombineCS', 'CopyCS', 'ResampleMotionCS')
     $result = [NativeD3DCompiler]::D3DCompile(
         $shaderBytes, [UIntPtr]::new($shaderBytes.Length),
         'NRBeforeSR.Codec', [IntPtr]::Zero, [IntPtr]::Zero,
-        $entryPoint, 'cs_5_1', 0x4000, 0, [ref]$code, [ref]$errors)
+        $entryPoint, 'cs_5_0', 0x4000, 0, [ref]$code, [ref]$errors)
     if ($code -ne [IntPtr]::Zero) {
         [void][Runtime.InteropServices.Marshal]::Release($code)
     }

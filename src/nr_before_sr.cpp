@@ -40,7 +40,7 @@ constexpr const char *kAddonVersion = "beta0.3.3-dev";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.3.3-dev-r1";
+constexpr const char *kBuildIdentity = "beta0.3.3-dev-r2";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -268,6 +268,7 @@ enum class BypassReason : int {
     RuntimeRejected,
     ShortFuseOwnsNr,
     LifecycleIsolation,
+    Feature1TransactionBusy,
     QueueAffinityUnverified,
     FailedCreateQuarantine,
     ModuleObserverInstalling,
@@ -355,6 +356,8 @@ const char *BypassReasonName(BypassReason reason) {
     case BypassReason::RuntimeRejected: return "runtime-rejected";
     case BypassReason::ShortFuseOwnsNr: return "shortfuse-owns-nr";
     case BypassReason::LifecycleIsolation: return "lifecycle-isolation";
+    case BypassReason::Feature1TransactionBusy:
+        return "feature1-transaction-busy";
     case BypassReason::QueueAffinityUnverified:
         return "queue-affinity-unverified";
     case BypassReason::FailedCreateQuarantine: return "failed-create-quarantine";
@@ -405,11 +408,21 @@ std::atomic<unsigned long long> g_feature_generation{1};
 // If ownership bookkeeping ever becomes incomplete, fail closed for Feature 1
 // rather than risk submitting our Feature 18 beside an untracked RR feature.
 std::atomic<bool> g_feature_tracking_uncertain{false};
+std::atomic<unsigned long long> g_null_feature_evaluations{0};
 // Counts the first observable boundary of every outermost Feature 1 Create.
 // A distinct RR-capable module discovered before this counter changes is a
 // deferred startup dependency, not by itself evidence that a processed SR
 // frame raced an unobserved Feature 13 owner.
 std::atomic<unsigned long long> g_feature1_create_entries{0};
+// Brackets the opaque native Create call. The module-rescan observer samples
+// this together with the entry counter so a successful Create cannot race all
+// the way through a late lifecycle-hook transaction without being noticed.
+std::atomic<unsigned int> g_feature1_create_in_progress{0};
+// Only a successful Feature 1 Create with a non-null handle proves that
+// game-owned SR state existed before a later module observer was installed.
+// Failed/null attempts are logged separately and must not create a false
+// permanent observer gap during HDR or DLSS contract rebuilds.
+std::atomic<unsigned long long> g_feature1_successful_creates{0};
 // A live Feature 13 handle is treated as authoritative RR ownership. There is
 // no public frame token that can prove a retained handle is dormant without a
 // race, so ordinary Feature 1 processing resumes only after the game releases
@@ -423,6 +436,11 @@ std::atomic<unsigned int> g_rr_create_in_progress{0};
 // substituted against Feature 13 ownership changes. A lock-free last check is
 // insufficient: RR can begin after the check but before Feature 18 recording.
 SRWLOCK g_rr_ownership_gate = SRWLOCK_INIT;
+// 0 = free/transition, 1 = a modified Feature 1 transaction, 2 = a Feature 13
+// ownership transition. This is diagnostic state only; the SRW lock remains
+// the synchronization primitive.
+std::atomic<int> g_rr_ownership_gate_owner{0};
+std::atomic<unsigned long long> g_feature1_transaction_busy_bypasses{0};
 thread_local unsigned int g_rr_ownership_gate_depth = 0;
 thread_local bool g_inside_feature1_rr_transaction = false;
 thread_local bool g_feature1_rr_transaction_aborted = false;
@@ -457,6 +475,11 @@ public:
             g_inside_feature1_rr_transaction = true;
             g_feature1_rr_transaction_aborted = false;
         }
+        if (owns_lock_) {
+            g_rr_ownership_gate_owner.store(
+                feature1_transaction_ ? 1 : 2,
+                std::memory_order_release);
+        }
     }
 
     ~ScopedRrOwnershipGate() { Release(); }
@@ -479,8 +502,10 @@ public:
             return;
         }
         --g_rr_ownership_gate_depth;
-        if (owns_lock_)
+        if (owns_lock_) {
+            g_rr_ownership_gate_owner.store(0, std::memory_order_release);
             ReleaseSRWLockExclusive(&g_rr_ownership_gate);
+        }
     }
 
     bool acquired() const { return enabled_ && entered_; }
@@ -865,17 +890,21 @@ ColorContract ReadColorContract(const NgxParams *sr_params) {
     return contract;
 }
 
-bool IsPqDisplayExposureContract(const ColorContract &contract) {
-    // A display-referred PQ texture must not simultaneously carry a separate
-    // scene pre-exposure transform. Applying both would double-normalize it.
-    // Missing scalar keys already resolve to one and are acceptable; explicit
-    // non-unity values or a live ExposureTexture make the transfer ambiguous.
+bool IsUnityExposureContract(const ColorContract &contract) {
+    // A bounded/display-referred texture must not simultaneously carry a
+    // separate scene pre-exposure transform. Missing scalar keys already
+    // resolve to one and are acceptable; explicit non-unity values or a live
+    // ExposureTexture make the value-domain transfer ambiguous.
     constexpr float kUnityTolerance = 1.0f / 4096.0f;
     return contract.exposure_texture == nullptr &&
            (!contract.has_pre_exposure ||
             std::fabs(contract.pre_exposure - 1.0f) <= kUnityTolerance) &&
            (!contract.has_exposure_scale ||
             std::fabs(contract.exposure_scale - 1.0f) <= kUnityTolerance);
+}
+
+bool IsPqDisplayExposureContract(const ColorContract &contract) {
+    return IsUnityExposureContract(contract);
 }
 
 bool IsExposureTextureFormat(DXGI_FORMAT format) {
@@ -1131,7 +1160,7 @@ void ReloadConfig(bool force = false) {
     }
     if (changed || force) {
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
-            "postTransfer=%.3f preserveLighting=%d proxyScale=%.3f "
+            "postTransfer=%.3f colorFollowRequested=%.3f preserveLighting=%d proxyScale=%.3f "
             "paperWhiteScale=%.3f warmup=%u intensity=%.3f localTone=%.3f "
             "localStructure=%.3f skinStructure=%.3f autoMask=%d style=%u "
             "uiCorrection=%d r8OutputEncoding=%d perfEpoch=%d "
@@ -1140,6 +1169,7 @@ void ReloadConfig(bool force = false) {
             g_config.identity_use_original ? 1 : 0,
             static_cast<double>(g_config.transfer_strength),
             static_cast<double>(g_config.post_transfer_strength),
+            static_cast<double>(g_config.color_strength),
             g_config.preserve_lighting ? 1 : 0,
             static_cast<double>(g_config.proxy_scale),
             static_cast<double>(1.0f / g_config.proxy_scale),
@@ -1264,11 +1294,12 @@ bool ApplyConfig(ChainConfig next, const char *source) {
     const ChainConfig applied = g_config;
     LeaveCriticalSection(&g_chain_cs);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
-        "intensity=%.3f style=%u autoMask=%d skin=%.3f localTone=%.3f "
+        "colorFollowRequested=%.3f intensity=%.3f style=%u autoMask=%d skin=%.3f localTone=%.3f "
         "localStructure=%.3f uiCorrection=%d paperWhiteScale=%.3f "
         "epoch=%d feature18Evals=%llu",
         source, applied.enabled ? 1 : 0, applied.mode == 2 ? 1 : 0,
         static_cast<double>(ActiveTransferStrength(applied)),
+        static_cast<double>(applied.color_strength),
         static_cast<double>(applied.intensity), applied.style,
         applied.auto_mask ? 1 : 0,
         static_cast<double>(applied.skin_structure),
@@ -1950,18 +1981,29 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float lumaRatio = lerp(1.0, transferredLumaRatio, transferConfidence);
     float3 lumaOnly = source * lumaRatio;
 
-    // Full colour following is optional. Even at one, transfer only the NR
-    // delta; never replace the game's base illumination with the model proxy.
+    // Full colour following is optional. Transfer a bounded per-channel ratio
+    // around the original source, then renormalize it to the luminance-only
+    // result. This follows Feature 18 chroma without replacing game lighting
+    // or treating a compressed proxy delta as an absolute HDR RGB delta.
     float3 result = lumaOnly;
     if (ColorStrength > 0.000001) {
-        float relativeLimit = max(maxRatio - 1.0, 1.0 / 1024.0);
-        float3 relativeModelDelta = clamp(modelDelta / proxyReference,
-                                          -relativeLimit.xxx,
-                                          relativeLimit.xxx);
-        float3 fullColour = ClampAP1(max(
-            source + relativeModelDelta * max(sourceLuma, 0.0) *
-                TransferStrength * transferConfidence,
-            0.0.xxx));
+        float3 channelReference = max(proxy, (1.0 / 1024.0).xxx);
+        float3 relativeChannelDelta = (neural - proxy) / channelReference;
+        float3 channelRatio = clamp(
+            1.0.xxx + relativeChannelDelta * TransferStrength,
+            (1.0 / maxRatio).xxx, maxRatio.xxx);
+        float3 channelConfidence = smoothstep(
+            (1.0 / 65536.0).xxx, (1.0 / 1024.0).xxx,
+            max(proxy, 0.0.xxx));
+        channelRatio = lerp(1.0.xxx, channelRatio,
+                            channelConfidence * transferConfidence);
+        float3 fullColour = max(source, 0.0.xxx) * channelRatio;
+        const float targetLuma = max(dot(lumaOnly, kLuma), 0.0);
+        const float fullColourLuma = dot(fullColour, kLuma);
+        if (fullColourLuma > 1.0 / 65536.0)
+            fullColour *= targetLuma / fullColourLuma;
+        else
+            fullColour = lumaOnly;
         result = lerp(lumaOnly, fullColour, saturate(ColorStrength));
     }
     float resultLuma = dot(result, kLuma);
@@ -1973,6 +2015,8 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     }
     float3 sourceDomainResult =
         clamp(result / normalizer, -65504.0.xxx, 65504.0.xxx);
+    if (modelEncodedInput)
+        sourceDomainResult = saturate(sourceDomainResult);
     float3 storedResult = sourceDomainResult;
     if (pqEncodedHdr)
         storedResult = LinearToPQ(max(sourceDomainResult, 0.0.xxx) /
@@ -2027,7 +2071,7 @@ ID3DBlob *CompileCodecShader(const char *entry) {
     ID3DBlob *errors = nullptr;
     const HRESULT hr = D3DCompile(
         kCodecShader, sizeof(kCodecShader) - 1, "NRBeforeSR.Codec", nullptr,
-        nullptr, entry, "cs_5_1", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0,
+        nullptr, entry, "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0,
         &shader, &errors);
     if (FAILED(hr)) {
         const char *message = errors != nullptr
@@ -2165,13 +2209,16 @@ struct LifecycleQueue;
 
 // Describes the storage-to-model colour transform selected by a verified live
 // resource contract. Automatic preserves the existing DLSS HDR/non-HDR path;
-// the two SDR modes are used only after R8 encoding has been confirmed, while
-// PqEncodedHdr is selected only for an HDR-labelled R10 packed contract.
+// ModelEncodedValueDomain preserves a bounded live R8 input without trusting
+// stale Feature-Create flags; the two profiled SDR modes are used only after
+// post-SR R8 encoding has been confirmed, while PqEncodedHdr is selected only
+// for an HDR-labelled R10 packed contract.
 enum class CodecColorMode : unsigned int {
     Automatic = 0,
     LinearSdr,
     SrgbEncodedSdr,
     PqEncodedHdr,
+    ModelEncodedValueDomain,
 };
 
 struct NrSlot {
@@ -2270,6 +2317,8 @@ struct NrContext {
     unsigned int height = 0;
     unsigned int evaluations = 0;
     unsigned int config_generation = 0;
+    CodecColorMode codec_color_mode = CodecColorMode::Automatic;
+    bool codec_color_mode_initialized = false;
     NrTuningSignature tuning_signature = {};
     bool tuning_signature_initialized = false;
     unsigned long long slot_serial = 0;
@@ -2645,7 +2694,7 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
             "maxFinalRelativeDelta=%.6f meanFinalRelativeDelta=%.6f "
             "finalChanged=%u "
             "sampledExposure=%.6f sampledSourceToCanonical=%.6f "
-            "transfer=%.3f colorFollow=%.3f preserveLighting=%d.",
+            "transfer=%.3f colorFollowEffective=%.3f preserveLighting=%d.",
             sampled_frame, slot.diagnostic_mode,
             slot.diagnostic_feature_generation,
             slot.diagnostic_width, slot.diagnostic_height,
@@ -2704,11 +2753,13 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
             }
             Log("[color] mean-luma attribution=%s proxyStable=%d "
                 "neuralVsProxy=%+.2f%% finalVsOriginal=%+.2f%% "
-                "mode=%d transfer=%.3f preserveLighting=%d.",
+                "mode=%d transfer=%.3f colorFollowEffective=%.3f "
+                "preserveLighting=%d.",
                 attribution, std::fabs(proxy_bias) < 1.0f ? 1 : 0,
                 static_cast<double>(neural_bias_from_proxy),
                 static_cast<double>(final_bias), slot.diagnostic_mode,
                 static_cast<double>(slot.diagnostic_transfer_strength),
+                static_cast<double>(slot.diagnostic_color_strength),
                 slot.diagnostic_preserve_lighting ? 1 : 0);
         }
     }
@@ -3717,7 +3768,8 @@ void CompleteSubmissionBatchLocked(SubmissionBatch &batch) {
 NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                                unsigned long long feature_generation,
                                int mode, unsigned int width,
-                               unsigned int height) {
+                               unsigned int height,
+                               CodecColorMode requested_color_mode) {
     CollectRetiredContextsLocked();
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_nr_failed_create_process_latched.load(std::memory_order_acquire))
@@ -3739,6 +3791,17 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
             context.feature_generation == feature_generation &&
             context.mode == mode &&
             context.width == width && context.height == height) {
+            if (context.codec_color_mode_initialized &&
+                context.codec_color_mode != requested_color_mode) {
+                context.retired = true;
+                Log("Live Color storage contract changed for handle=%p mode=%d "
+                    "extent=%ux%u: codec mode %u -> %u without a new Feature 1 "
+                    "Create. Retiring Feature 18 after its exact GPU fence.",
+                    static_cast<const void *>(sr_handle), mode, width, height,
+                    static_cast<unsigned int>(context.codec_color_mode),
+                    static_cast<unsigned int>(requested_color_mode));
+                continue;
+            }
             if (context.tuning_signature_initialized &&
                 !SameNrTuningSignature(context.tuning_signature,
                                        requested_tuning)) {
@@ -3774,6 +3837,8 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
         empty->mode = mode;
         empty->width = width;
         empty->height = height;
+        empty->codec_color_mode = requested_color_mode;
+        empty->codec_color_mode_initialized = true;
         empty->tuning_signature = requested_tuning;
         empty->tuning_signature_initialized = true;
     }
@@ -3868,10 +3933,10 @@ enum class PreSrStorageContract {
     R11Float,
     R10PqHdr,
     R10EncodingUnknown,
-    // Feature 1 explicitly says the game Color is not HDR. Preserve the
-    // storage values byte-for-value into the model proxy instead of guessing
-    // whether the engine labels that bounded DLSS input linear or sRGB.
-    R8GameSdr,
+    // Admission is finalized from the live Evaluate resources and exposure
+    // values. Some games retain stale HDR Create flags while switching this
+    // same Feature 1 handle between FP16 and bounded R8 resources.
+    R8BoundedCandidate,
     R8EncodingUnknown,
 };
 
@@ -3887,11 +3952,8 @@ PreSrStorageContract ClassifyPreSrStorage(DXGI_FORMAT format,
             : PreSrStorageContract::R10EncodingUnknown;
     if (!IsR8SceneColorFormat(format))
         return PreSrStorageContract::Unsupported;
-    if (format == DXGI_FORMAT_R8G8B8A8_UNORM) {
-        return (feature_create_flags & 1) == 0
-            ? PreSrStorageContract::R8GameSdr
-            : PreSrStorageContract::R8EncodingUnknown;
-    }
+    if (format == DXGI_FORMAT_R8G8B8A8_UNORM)
+        return PreSrStorageContract::R8BoundedCandidate;
     // A typed sRGB resource performs implicit SRV decoding, so replacing it
     // with an FP16 resource would not preserve the game's storage contract.
     return PreSrStorageContract::R8EncodingUnknown;
@@ -3901,13 +3963,15 @@ bool IsUsablePreSrStorage(PreSrStorageContract contract) {
     return contract == PreSrStorageContract::Fp16 ||
            contract == PreSrStorageContract::R11Float ||
            contract == PreSrStorageContract::R10PqHdr ||
-           contract == PreSrStorageContract::R8GameSdr;
+           contract == PreSrStorageContract::R8BoundedCandidate;
 }
 
 CodecColorMode PreSrCodecColorMode(PreSrStorageContract contract) {
-    // R8GameSdr deliberately uses the existing automatic non-HDR bit: Encode
-    // copies the game's bounded DLSS Color values and Combine returns values
-    // in the same domain. No gamma or paper-white transform is guessed.
+    // A live R8 contract copies bounded values into the model proxy and back
+    // in the same numerical domain. This explicit mode also overrides a stale
+    // Feature 1 HDR flag without guessing gamma or paper white.
+    if (contract == PreSrStorageContract::R8BoundedCandidate)
+        return CodecColorMode::ModelEncodedValueDomain;
     if (contract == PreSrStorageContract::R10PqHdr)
         return CodecColorMode::PqEncodedHdr;
     return CodecColorMode::Automatic;
@@ -4110,7 +4174,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
          slot.source_format == DXGI_FORMAT_R10G10B10A2_UNORM &&
          slot.codec_color_mode == CodecColorMode::PqEncodedHdr) ||
         (!post_sr && slot.source_format == DXGI_FORMAT_R8G8B8A8_UNORM &&
-         slot.codec_color_mode == CodecColorMode::Automatic);
+         slot.codec_color_mode == CodecColorMode::ModelEncodedValueDomain);
     if (!source_format_supported) {
         Log("CreateSlot rejected unsupported source format=%u (%s).",
             static_cast<unsigned int>(slot.source_format),
@@ -4392,7 +4456,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
         (external_desc.Format == DXGI_FORMAT_R10G10B10A2_UNORM &&
          pre_sr_color_mode == CodecColorMode::PqEncodedHdr) ||
         (external_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
-         pre_sr_color_mode == CodecColorMode::Automatic);
+         pre_sr_color_mode == CodecColorMode::ModelEncodedValueDomain);
     if (slot.owns_source || !slot.owns_result || !pre_source_supported)
         return false;
 
@@ -4600,17 +4664,29 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         source_flags = 32u;
     else if (color_mode == CodecColorMode::PqEncodedHdr)
         source_flags = 128u;
+    else if (color_mode == CodecColorMode::ModelEncodedValueDomain)
+        source_flags = 1u;
     const unsigned int codec_flags = source_flags |
         ((g_config.mode == 2 && g_config.preserve_lighting) ? 2u : 0u) |
         (capture_delta ? 8u : 0u) |
         ((hdr_input && color_contract.exposure_texture != nullptr) ? 64u : 0u);
-    // Automatic HDR does not prove the engine working gamut. Until a profile
-    // verifies primaries, transfer only the luminance residual; profiled SDR
-    // and non-HDR model input may opt into chroma following.
-    const float effective_color_strength = hdr_input &&
+    // Automatic HDR does not normally prove the engine working gamut. The
+    // post-SR FP16 + unit-exposure contract is the one narrow exception: both
+    // proxy and result are derived from the same output pixels, so an opt-in
+    // bounded per-channel ratio can follow Feature 18 colour without guessing
+    // a source-to-display exposure transform. NR -> SR stays luminance-only.
+    const bool verified_post_sr_fp16_color = g_config.mode == 1 && hdr_input &&
+        color_mode == CodecColorMode::Automatic &&
+        slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT &&
+        IsUnityExposureContract(color_contract);
+    const bool unverified_hdr_color = hdr_input &&
         (color_mode == CodecColorMode::Automatic ||
-         color_mode == CodecColorMode::PqEncodedHdr)
+         color_mode == CodecColorMode::PqEncodedHdr) &&
+        !verified_post_sr_fp16_color;
+    const float effective_color_strength = unverified_hdr_color
         ? 0.0f : g_config.color_strength;
+    if (capture_delta)
+        slot.diagnostic_color_strength = effective_color_strength;
     const CodecConstants constants = {
         width, height, g_config.proxy_scale, ActiveTransferStrength(g_config),
         color_contract.source_to_canonical, effective_color_strength,
@@ -5024,6 +5100,11 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     SetInt(params, "DLSSNR.Upscaling", 0);
     int nr_perf_quality = 5;
     int nr_create_flags = feature.create_flags;
+    // The live bounded-R8 admission is model-encoded SDR even when the game
+    // kept an old HDR bit on its Feature 1 handle. Feature 18 sees our FP16
+    // proxy, so normalize its create contract to the proxy actually supplied.
+    if (slot.codec_color_mode == CodecColorMode::ModelEncodedValueDomain)
+        nr_create_flags &= ~1;
     // Bit 1 is the NGX "low-resolution motion vectors" flag. Normalize it to
     // this Feature 18 output, rather than blindly forwarding the game's SR
     // relationship. Depth and motion may legitimately have different extents.
@@ -5272,6 +5353,56 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
 
     const ColorContract color_contract = ReadColorContract(sr_params);
+    bool r8_live_contract_overrode_create_flags = false;
+    DXGI_FORMAT r8_live_output_format = DXGI_FORMAT_UNKNOWN;
+    if (storage_contract == PreSrStorageContract::R8BoundedCandidate) {
+        ID3D12Resource *live_output = nullptr;
+        bool live_bounded_output = false;
+        if (GetResource(sr_params, "Output", &live_output) &&
+            live_output != nullptr) {
+            const D3D12_RESOURCE_DESC output_desc =
+                ID3D12Resource_GetDesc(live_output);
+            r8_live_output_format = output_desc.Format;
+            live_bounded_output =
+                output_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+                output_desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+                output_desc.DepthOrArraySize == 1 && output_desc.MipLevels == 1 &&
+                output_desc.SampleDesc.Count == 1;
+        }
+        const bool create_declares_sdr = (feature.create_flags & 1) == 0;
+        const bool unity_exposure = IsUnityExposureContract(color_contract);
+        // Evaluate resources are authoritative. Yanyun retains one Feature 1
+        // handle and stale HDR flags while changing both live Color and Output
+        // from FP16 to bounded R8. Admit that exact, corroborated value-domain
+        // contract; do not generalize it to typed sRGB or non-unity exposure.
+        const bool live_r8_admitted = unity_exposure &&
+            (create_declares_sdr || live_bounded_output);
+        if (!live_r8_admitted) {
+            SetBypassReason(BypassReason::InputColorContractUnverified);
+            static unsigned int rejected_live_r8_contracts = 0;
+            ++rejected_live_r8_contracts;
+            if (rejected_live_r8_contracts <= 3 ||
+                (rejected_live_r8_contracts % 600) == 0) {
+                Log("Pre-SR bounded R8 live contract is incomplete: "
+                    "color=%u (%s) output=%u (%s) gameFlags=%d "
+                    "preExposure=%.6f(has=%d) exposureScale=%.6f(has=%d) "
+                    "exposureTexture=%d. Original SR retained (count=%u).",
+                    static_cast<unsigned int>(color_desc.Format),
+                    FormatName(color_desc.Format),
+                    static_cast<unsigned int>(r8_live_output_format),
+                    FormatName(r8_live_output_format), feature.create_flags,
+                    static_cast<double>(color_contract.pre_exposure),
+                    color_contract.has_pre_exposure ? 1 : 0,
+                    static_cast<double>(color_contract.exposure_scale),
+                    color_contract.has_exposure_scale ? 1 : 0,
+                    color_contract.exposure_texture != nullptr ? 1 : 0,
+                    rejected_live_r8_contracts);
+            }
+            return substitution;
+        }
+        r8_live_contract_overrode_create_flags =
+            !create_declares_sdr && live_bounded_output;
+    }
     if (storage_contract == PreSrStorageContract::R10PqHdr &&
         !IsPqDisplayExposureContract(color_contract)) {
         SetBypassReason(BypassReason::InputColorContractUnverified);
@@ -5323,16 +5454,21 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
-    if (storage_contract == PreSrStorageContract::R8GameSdr) {
+    if (storage_contract == PreSrStorageContract::R8BoundedCandidate) {
         static unsigned int accepted_r8_contracts = 0;
         ++accepted_r8_contracts;
         if (accepted_r8_contracts <= 3) {
-            Log("Pre-SR accepted game-declared SDR R8 contract: format=%u "
-                "(%s) gameFlags=%d active=%ux%u@%u,%u. Storage values are "
-                "preserved without a guessed gamma or paper-white transform.",
+            Log("Pre-SR accepted bounded R8 value-domain contract: color=%u "
+                "(%s) output=%u (%s) gameFlags=%d active=%ux%u@%u,%u "
+                "liveContractOverridesStaleHdrFlag=%d. Storage values and the "
+                "Feature 18 SDR flag are normalized without a guessed gamma "
+                "or paper-white transform.",
                 static_cast<unsigned int>(color_desc.Format),
-                FormatName(color_desc.Format), feature.create_flags,
-                width, height, color_x, color_y);
+                FormatName(color_desc.Format),
+                static_cast<unsigned int>(r8_live_output_format),
+                FormatName(r8_live_output_format), feature.create_flags,
+                width, height, color_x, color_y,
+                r8_live_contract_overrode_create_flags ? 1 : 0);
         }
     } else if (storage_contract == PreSrStorageContract::R10PqHdr) {
         static unsigned int accepted_r10_contracts = 0;
@@ -5362,8 +5498,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         return substitution;
     }
 
+    const CodecColorMode pre_sr_color_mode =
+        PreSrCodecColorMode(storage_contract);
     NrContext *context = FindOrCreateContext(
-        sr_handle, feature.generation, 2, width, height);
+        sr_handle, feature.generation, 2, width, height, pre_sr_color_mode);
     if (context == nullptr) {
         Log("No free NR context for the Before-SR chain; original SR retained.");
         ReleaseCom(device);
@@ -5386,10 +5524,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         return substitution;
     }
 
-    ID3D12Resource *exposure_source = (feature.create_flags & 1) != 0
-        ? color_contract.exposure_texture : nullptr;
-    const CodecColorMode pre_sr_color_mode =
-        PreSrCodecColorMode(storage_contract);
+    ID3D12Resource *exposure_source =
+        pre_sr_color_mode != CodecColorMode::ModelEncodedValueDomain &&
+        (feature.create_flags & 1) != 0
+            ? color_contract.exposure_texture : nullptr;
     NrSlot *slot = FindOrCreateSlot(
         *context, device, color, false, exposure_source, pre_sr_color_mode);
     if (slot == nullptr || context->failed) {
@@ -5762,6 +5900,27 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         }
         return substitution;
     }
+    if (storage_contract == PostSrStorageContract::Fp16 &&
+        (feature.create_flags & 1) != 0 && g_config.color_strength > 0.000001f) {
+        static unsigned int logged_post_color_contracts = 0;
+        ++logged_post_color_contracts;
+        if (logged_post_color_contracts <= 3) {
+            const bool color_follow_active =
+                IsUnityExposureContract(color_contract);
+            Log("Post-SR FP16 color-follow contract: requested=%.3f "
+                "effective=%.3f preExposure=%.6f exposureScale=%.6f "
+                "exposureTexture=%d. %s",
+                static_cast<double>(g_config.color_strength),
+                static_cast<double>(color_follow_active
+                    ? g_config.color_strength : 0.0f),
+                static_cast<double>(color_contract.pre_exposure),
+                static_cast<double>(color_contract.exposure_scale),
+                color_contract.exposure_texture != nullptr ? 1 : 0,
+                color_follow_active
+                    ? "Bounded RGB ratios will follow NR chroma while preserving NR luminance."
+                    : "The current non-unity exposure contract remains luminance-only.");
+        }
+    }
     ID3D12Device *device = nullptr;
     const HRESULT hr = ID3D12GraphicsCommandList_GetDevice(
         command_list, IID_ID3D12Device, reinterpret_cast<void **>(&device));
@@ -5820,8 +5979,11 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         return substitution;
     }
 
+    const CodecColorMode post_sr_color_mode =
+        PostSrCodecColorMode(storage_contract);
     NrContext *context = FindOrCreateContext(
-        sr_handle, feature.generation, 1, width, height);
+        sr_handle, feature.generation, 1, width, height,
+        post_sr_color_mode);
     if (context == nullptr) {
         Log("No free NR context for the post-SR chain; original SR retained.");
         ReleaseCom(device);
@@ -6171,10 +6333,26 @@ std::atomic<unsigned long long> g_module_rescan_count{0};
 std::atomic<ULONGLONG> g_next_module_rescan_tick{0};
 
 bool IsUnknownOutermostEvaluateHandle(const NgxHandle *handle) {
-    return !g_inside_ngx_evaluate && FindFeature(handle).handle == nullptr;
+    // A null handle commonly follows a failed game Create while switching
+    // HDR/DLSS contracts. It cannot own RR and must never poison ownership
+    // tracking; let the native runtime report the invalid call unchanged.
+    return handle != nullptr && !g_inside_ngx_evaluate &&
+           FindFeature(handle).handle == nullptr;
 }
 
-void LatchUnknownEvaluateHandle(const char *source, const char *detail) {
+void ObserveNullEvaluateHandle(const char *source) {
+    const unsigned long long count =
+        g_null_feature_evaluations.fetch_add(1,
+                                             std::memory_order_relaxed) + 1;
+    if (count <= 3 || (count % 600) == 0) {
+        Log("[module] %s received a null Feature handle (count=%llu). This "
+            "is treated as a native invalid-call path, not as RR ownership "
+            "or a lifecycle-observer gap.",
+            source != nullptr ? source : "Feature Evaluate", count);
+    }
+}
+
+void LatchUnknownFeatureHandle(const char *source, const char *detail) {
     g_module_observer_gap_detected.store(true, std::memory_order_release);
     LatchRrOwnershipUncertain(source, detail);
     SetBypassReason(BypassReason::ModuleObserverUncertain);
@@ -6446,9 +6624,14 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
             entry, feature_id, FeatureName(feature_id));
     }
     const bool outermost = g_create_hook_depth++ == 0;
-    if (outermost && feature_id == 1) {
+    const bool creating_feature1 = outermost && feature_id == 1;
+    if (creating_feature1) {
         g_feature1_create_entries.fetch_add(1, std::memory_order_release);
+        g_feature1_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
     }
+    // NGX owns this output slot. Clear any caller residue before the native
+    // call so a failed Create cannot masquerade as a returned live handle.
+    if (outermost && out_handle != nullptr) *out_handle = nullptr;
     const bool creating_rr = outermost && feature_id == 13;
     ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
     if (creating_rr && rr_gate.is_nested())
@@ -6471,6 +6654,20 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
     }
     if (result == kNgxSuccess && handle != nullptr) {
         RememberFeature(handle, feature_id, params);
+        if (feature_id == 1)
+            g_feature1_successful_creates.fetch_add(
+                1, std::memory_order_release);
+    }
+    if (creating_feature1) {
+        const unsigned int previous =
+            g_feature1_create_in_progress.fetch_sub(
+                1, std::memory_order_acq_rel);
+        if (previous == 0) {
+            g_feature1_create_in_progress.store(0, std::memory_order_release);
+            LatchRrOwnershipUncertain(
+                "Feature 1 Create",
+                "the in-progress observer counter underflowed");
+        }
     }
     if (creating_rr &&
         ((result == kNgxSuccess) != (handle != nullptr))) {
@@ -6500,9 +6697,12 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
             entry, feature_id, FeatureName(feature_id));
     }
     const bool outermost = g_create_hook_depth++ == 0;
-    if (outermost && feature_id == 1) {
+    const bool creating_feature1 = outermost && feature_id == 1;
+    if (creating_feature1) {
         g_feature1_create_entries.fetch_add(1, std::memory_order_release);
+        g_feature1_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
     }
+    if (outermost && out_handle != nullptr) *out_handle = nullptr;
     const bool creating_rr = outermost && feature_id == 13;
     ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
     if (creating_rr && rr_gate.is_nested())
@@ -6525,6 +6725,20 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
     }
     if (result == kNgxSuccess && handle != nullptr) {
         RememberFeature(handle, feature_id, params);
+        if (feature_id == 1)
+            g_feature1_successful_creates.fetch_add(
+                1, std::memory_order_release);
+    }
+    if (creating_feature1) {
+        const unsigned int previous =
+            g_feature1_create_in_progress.fetch_sub(
+                1, std::memory_order_acq_rel);
+        if (previous == 0) {
+            g_feature1_create_in_progress.store(0, std::memory_order_release);
+            LatchRrOwnershipUncertain(
+                "core Feature 1 Create",
+                "the in-progress observer counter underflowed");
+        }
     }
     if (creating_rr &&
         ((result == kNgxSuccess) != (handle != nullptr))) {
@@ -6555,9 +6769,12 @@ NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
             entry, feature_id, FeatureName(feature_id));
     }
     const bool outermost = g_create_hook_depth++ == 0;
-    if (outermost && feature_id == 1) {
+    const bool creating_feature1 = outermost && feature_id == 1;
+    if (creating_feature1) {
         g_feature1_create_entries.fetch_add(1, std::memory_order_release);
+        g_feature1_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
     }
+    if (outermost && out_handle != nullptr) *out_handle = nullptr;
     const bool creating_rr = outermost && feature_id == 13;
     ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
     if (creating_rr && rr_gate.is_nested())
@@ -6578,8 +6795,23 @@ NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
             static_cast<void *>(handle));
         if (params != nullptr) DumpCreate(params);
     }
-    if (result == kNgxSuccess && handle != nullptr)
+    if (result == kNgxSuccess && handle != nullptr) {
         RememberFeature(handle, feature_id, params);
+        if (feature_id == 1)
+            g_feature1_successful_creates.fetch_add(
+                1, std::memory_order_release);
+    }
+    if (creating_feature1) {
+        const unsigned int previous =
+            g_feature1_create_in_progress.fetch_sub(
+                1, std::memory_order_acq_rel);
+        if (previous == 0) {
+            g_feature1_create_in_progress.store(0, std::memory_order_release);
+            LatchRrOwnershipUncertain(
+                "DLSSD Feature 1 Create",
+                "the in-progress observer counter underflowed");
+        }
+    }
     if (creating_rr &&
         ((result == kNgxSuccess) != (handle != nullptr))) {
         LatchRrOwnershipUncertain(
@@ -6725,8 +6957,33 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     // and proceeds without blocking, avoiding an external cross-thread cycle.
     ScopedRrOwnershipGate rr_transaction(true, true, true);
     if (rr_transaction.acquisition_failed()) {
-        SetBypassReason(BypassReason::RayReconstructionGuard);
-        g_rr_guard_was_active.store(true, std::memory_order_relaxed);
+        const int gate_owner =
+            g_rr_ownership_gate_owner.load(std::memory_order_acquire);
+        if (gate_owner == 1) {
+            SetBypassReason(BypassReason::Feature1TransactionBusy);
+            const unsigned long long busy =
+                g_feature1_transaction_busy_bypasses.fetch_add(
+                    1, std::memory_order_relaxed) + 1;
+            if (busy <= 3 || (busy % 600) == 0) {
+                Log("Concurrent Feature 1 transaction kept this call native "
+                    "(count=%llu); this is not classified as RR and does not "
+                    "reset NR history.", busy);
+            }
+        } else if (gate_owner == 2 ||
+                   ShouldGuardFeature1ForRayReconstruction()) {
+            SetBypassReason(BypassReason::RayReconstructionGuard);
+            g_rr_guard_was_active.store(true, std::memory_order_relaxed);
+        } else {
+            SetBypassReason(BypassReason::LifecycleIsolation);
+            const unsigned long long busy =
+                g_feature1_transaction_busy_bypasses.fetch_add(
+                    1, std::memory_order_relaxed) + 1;
+            if (busy <= 3 || (busy % 600) == 0) {
+                Log("Feature 1 ownership gate was transiently busy with no "
+                    "published RR owner (count=%llu); this call stays native "
+                    "without changing RR/history state.", busy);
+            }
+        }
         return original(command_list, handle, params, callback);
     }
     if (g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
@@ -6923,15 +7180,34 @@ NgxResult DispatchEvaluate(EvaluateFeatureFn original,
     return result;
 }
 
+NgxResult CallNativeEvaluatePassThrough(EvaluateFeatureFn original,
+                                        ID3D12GraphicsCommandList *command_list,
+                                        const NgxHandle *handle,
+                                        const NgxParams *params,
+                                        void *callback) {
+    // Public NGX wrappers may forward to the separately hooked core/DLSSD
+    // export. Mark this native pass-through as nested so one unknown-handle
+    // event is classified exactly once per game call.
+    const bool previous = g_inside_ngx_evaluate;
+    g_inside_ngx_evaluate = true;
+    const NgxResult result = original(
+        command_list, handle, params, callback);
+    g_inside_ngx_evaluate = previous;
+    return result;
+}
+
 NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
                        const NgxHandle *handle, const NgxParams *params,
                        void *callback) {
+    if (!g_inside_ngx_evaluate && handle == nullptr)
+        ObserveNullEvaluateHandle("primary Feature Evaluate");
     if (IsUnknownOutermostEvaluateHandle(handle)) {
-        LatchUnknownEvaluateHandle(
+        LatchUnknownFeatureHandle(
             "primary Feature Evaluate",
-            "a handle created before the primary nvngx_dlss observer reached "
-            "its Evaluate entry point");
-        return g_original_evaluate(command_list, handle, params, callback);
+            "a non-null handle created before the primary nvngx_dlss "
+            "observer reached its Evaluate entry point");
+        return CallNativeEvaluatePassThrough(
+            g_original_evaluate, command_list, handle, params, callback);
     }
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
@@ -6947,12 +7223,15 @@ NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
 NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
                         const NgxHandle *handle, const NgxParams *params,
                         void *callback) {
+    if (!g_inside_ngx_evaluate && handle == nullptr)
+        ObserveNullEvaluateHandle("primary Feature Evaluate_C");
     if (IsUnknownOutermostEvaluateHandle(handle)) {
-        LatchUnknownEvaluateHandle(
+        LatchUnknownFeatureHandle(
             "primary Feature Evaluate_C",
-            "a handle created before the primary nvngx_dlss observer reached "
-            "its Evaluate_C entry point");
-        return g_original_evaluate_c(command_list, handle, params, callback);
+            "a non-null handle created before the primary nvngx_dlss "
+            "observer reached its Evaluate_C entry point");
+        return CallNativeEvaluatePassThrough(
+            g_original_evaluate_c, command_list, handle, params, callback);
     }
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
@@ -6969,15 +7248,17 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
     // created in the sub-second load-to-rescan interval. All post-hook game
     // creates (including Feature 11) are classified by RememberFeature, so an
     // unknown outermost core handle is concrete evidence of an observer gap.
-    if (!g_inside_ngx_evaluate &&
+    if (!g_inside_ngx_evaluate && handle == nullptr)
+        ObserveNullEvaluateHandle("direct core Feature Evaluate");
+    if (handle != nullptr && !g_inside_ngx_evaluate &&
         g_core_unknown_handle_guard.load(std::memory_order_acquire) &&
         FindFeature(handle).handle == nullptr) {
-        LatchUnknownEvaluateHandle(
+        LatchUnknownFeatureHandle(
             "direct late-core Feature Evaluate",
-            "a handle created before the late _nvngx lifecycle observer "
-            "reached its distinct Evaluate entry point");
-        return g_original_core_evaluate(
-            command_list, handle, params, callback);
+            "a non-null handle created before the late _nvngx lifecycle "
+            "observer reached its distinct Evaluate entry point");
+        return CallNativeEvaluatePassThrough(
+            g_original_core_evaluate, command_list, handle, params, callback);
     }
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
@@ -6998,13 +7279,16 @@ NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
     // concrete signal that the startup-deferred admission rule needs in order
     // to fail closed without penalizing games that merely load the module a
     // few seconds before their first Feature 1 Create.
-    if (!g_inside_ngx_evaluate && FindFeature(handle).handle == nullptr) {
-        LatchUnknownEvaluateHandle(
+    if (!g_inside_ngx_evaluate && handle == nullptr)
+        ObserveNullEvaluateHandle("direct DLSSD Feature Evaluate");
+    if (handle != nullptr && !g_inside_ngx_evaluate &&
+        FindFeature(handle).handle == nullptr) {
+        LatchUnknownFeatureHandle(
             "direct DLSSD Feature Evaluate",
-            "a handle unknown to the lifecycle observer reached the distinct "
-            "nvngx_dlssd Evaluate entry point");
-        return g_original_dlssd_evaluate(
-            command_list, handle, params, callback);
+            "a non-null handle unknown to the lifecycle observer reached "
+            "the distinct nvngx_dlssd Evaluate entry point");
+        return CallNativeEvaluatePassThrough(
+            g_original_dlssd_evaluate, command_list, handle, params, callback);
     }
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
@@ -7024,6 +7308,13 @@ NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
 NgxResult HookRelease(NgxHandle *handle) {
     const bool outermost = g_release_hook_depth++ == 0;
     const FeatureRecord feature = FindFeature(handle);
+    if (outermost && handle != nullptr && feature.handle == nullptr) {
+        LatchUnknownFeatureHandle(
+            "primary Feature Release",
+            "a non-null handle unknown to the lifecycle observer reached "
+            "Release; its feature identity and prior RR ownership cannot be "
+            "proved");
+    }
     const bool releasing_rr = outermost && feature.feature_id == 13;
     ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
     if (releasing_rr && rr_gate.is_nested())
@@ -7047,7 +7338,7 @@ NgxResult HookRelease(NgxHandle *handle) {
             LeaveCriticalSection(&g_chain_cs);
         }
         ForgetFeature(handle);
-    } else {
+    } else if (feature.handle != nullptr) {
         Log("ReleaseFeature failed for tracked handle=%p result=0x%08X (%s); "
             "ownership and derived resources retained.",
             static_cast<void *>(handle), result, ResultName(result));
@@ -7063,6 +7354,12 @@ NgxResult HookRelease(NgxHandle *handle) {
 NgxResult HookCoreRelease(NgxHandle *handle) {
     const bool outermost = g_release_hook_depth++ == 0;
     const FeatureRecord feature = FindFeature(handle);
+    if (outermost && handle != nullptr && feature.handle == nullptr) {
+        LatchUnknownFeatureHandle(
+            "direct core Feature Release",
+            "a non-null handle unknown to the lifecycle observer reached "
+            "the distinct _nvngx Release entry point");
+    }
     const bool releasing_rr = outermost && feature.feature_id == 13;
     ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
     if (releasing_rr && rr_gate.is_nested())
@@ -7083,7 +7380,7 @@ NgxResult HookCoreRelease(NgxHandle *handle) {
             LeaveCriticalSection(&g_chain_cs);
         }
         ForgetFeature(handle);
-    } else {
+    } else if (feature.handle != nullptr) {
         Log("core ReleaseFeature failed for tracked handle=%p result=0x%08X (%s); "
             "ownership and derived resources retained.",
             static_cast<void *>(handle), result, ResultName(result));
@@ -7099,6 +7396,12 @@ NgxResult HookCoreRelease(NgxHandle *handle) {
 NgxResult HookDlssdRelease(NgxHandle *handle) {
     const bool outermost = g_release_hook_depth++ == 0;
     const FeatureRecord feature = FindFeature(handle);
+    if (outermost && handle != nullptr && feature.handle == nullptr) {
+        LatchUnknownFeatureHandle(
+            "direct DLSSD Feature Release",
+            "a non-null handle unknown to the lifecycle observer reached "
+            "the distinct nvngx_dlssd Release entry point");
+    }
     const bool releasing_rr = outermost && feature.feature_id == 13;
     ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
     if (releasing_rr && rr_gate.is_nested())
@@ -7465,13 +7768,44 @@ void LogModuleObservation(const char *phase, const wchar_t *name,
         static_cast<void *>(module), path[0] != L'\0' ? path : L"<unknown>");
 }
 
-bool EnableLateHook(void *target, void *detour, void **original,
-                    const char *name) {
+bool PinHookModule(HMODULE module, const wchar_t *name) {
+    if (module == nullptr) return false;
+    HMODULE pinned = nullptr;
+    const DWORD flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                        GET_MODULE_HANDLE_EX_FLAG_PIN;
+    const BOOL pinned_ok = GetModuleHandleExW(
+        flags, reinterpret_cast<LPCWSTR>(module), &pinned);
+    if (pinned_ok == FALSE || pinned != module) {
+        Log("[module] could not pin hook owner name=%ls handle=%p error=%lu; "
+            "permanent detours are not installed into an unloadable module.",
+            name != nullptr ? name : L"<unknown>",
+            static_cast<void *>(module), GetLastError());
+        return false;
+    }
+    Log("[module] pinned hook owner name=%ls handle=%p until process exit.",
+        name != nullptr ? name : L"<unknown>", static_cast<void *>(module));
+    return true;
+}
+
+bool QueueLateHook(void *target, void *detour, void **original,
+                   const char *name, bool &queued_any) {
     if (!CreateHook(target, detour, original, name)) return false;
-    const MH_STATUS enabled = MH_EnableHook(target);
-    Log("[module] MH_EnableHook %-31s target=%p status=%d", name, target,
-        static_cast<int>(enabled));
-    return enabled == MH_OK || enabled == MH_ERROR_ENABLED;
+    const MH_STATUS queued = MH_QueueEnableHook(target);
+    Log("[module] MH_QueueEnableHook %-26s target=%p status=%d", name,
+        target, static_cast<int>(queued));
+    if (queued == MH_OK) {
+        queued_any = true;
+        return true;
+    }
+    return queued == MH_ERROR_ENABLED;
+}
+
+bool ApplyLateHookTransaction(bool queued_any, const char *module_name) {
+    if (!queued_any) return true;
+    const MH_STATUS applied = MH_ApplyQueued();
+    Log("[module] MH_ApplyQueued %-29s status=%d", module_name,
+        static_cast<int>(applied));
+    return applied == MH_OK;
 }
 
 bool InstallLateCoreHooksLocked(HMODULE core,
@@ -7487,6 +7821,7 @@ bool InstallLateCoreHooksLocked(HMODULE core,
             "_nvngx.dll was unloaded/reloaded at a different module handle");
         return false;
     }
+    if (!PinHookModule(core, L"_nvngx.dll")) return false;
 
     LogModuleObservation("late module discovered", L"_nvngx.dll", core);
     void *create = reinterpret_cast<void *>(
@@ -7515,30 +7850,40 @@ bool InstallLateCoreHooksLocked(HMODULE core,
     }
     if (introduced_new_lifecycle_entry != nullptr) {
         *introduced_new_lifecycle_entry =
-            !create_already_covered || !release_already_covered;
+            !create_already_covered || !evaluate_already_covered ||
+            !release_already_covered;
     }
-    const bool create_covered = create_already_covered ||
-        EnableLateHook(create, reinterpret_cast<void *>(&HookCoreCreate),
-                       reinterpret_cast<void **>(&g_original_core_create),
-                       "late core D3D12_CreateFeature");
-    bool evaluate_covered = evaluate_already_covered;
-    if (!evaluate_covered) {
-        evaluate_covered = EnableLateHook(
-            evaluate, reinterpret_cast<void *>(&HookCoreEvaluate),
-            reinterpret_cast<void **>(&g_original_core_evaluate),
-            "late core D3D12_EvaluateFeature");
-        if (evaluate_covered) RememberEvaluateHookTarget(evaluate);
-    }
-    const bool release_covered = release_already_covered ||
-        EnableLateHook(release, reinterpret_cast<void *>(&HookCoreRelease),
-                       reinterpret_cast<void **>(&g_original_core_release),
-                       "late core D3D12_ReleaseFeature");
+    // Create all missing detours first, queue Release before Create/Evaluate,
+    // then publish them in one MinHook transaction. This prevents an unknown
+    // Evaluate from being observed in a window where its Release is not yet
+    // covered and therefore cannot be diagnosed safely.
+    bool queued_any = false;
+    const bool release_prepared = release_already_covered || QueueLateHook(
+        release, reinterpret_cast<void *>(&HookCoreRelease),
+        reinterpret_cast<void **>(&g_original_core_release),
+        "late core D3D12_ReleaseFeature", queued_any);
+    const bool create_prepared = create_already_covered || QueueLateHook(
+        create, reinterpret_cast<void *>(&HookCoreCreate),
+        reinterpret_cast<void **>(&g_original_core_create),
+        "late core D3D12_CreateFeature", queued_any);
+    const bool evaluate_prepared = evaluate_already_covered || QueueLateHook(
+        evaluate, reinterpret_cast<void *>(&HookCoreEvaluate),
+        reinterpret_cast<void **>(&g_original_core_evaluate),
+        "late core D3D12_EvaluateFeature", queued_any);
+    const bool transaction_applied = ApplyLateHookTransaction(
+        queued_any, "late _nvngx lifecycle");
+    const bool release_covered = release_prepared && transaction_applied;
+    const bool create_covered = create_prepared && transaction_applied;
+    const bool evaluate_covered = evaluate_prepared && transaction_applied;
+    if (evaluate_covered && !evaluate_already_covered)
+        RememberEvaluateHookTarget(evaluate);
 
     g_hooked_core_module = core;
     g_core_create_target = create;
     g_core_evaluate_target = evaluate;
     g_core_release_target = release;
-    const bool lifecycle_ready = create_covered && release_covered;
+    const bool lifecycle_ready = create_covered && evaluate_covered &&
+                                 release_covered;
     g_core_lifecycle_hooks_ready.store(lifecycle_ready,
                                         std::memory_order_release);
     Log("[module] late _nvngx coverage: create=%d evaluate=%d release=%d; "
@@ -7566,6 +7911,7 @@ bool InstallLateDlssdHooksLocked(HMODULE dlssd,
             "nvngx_dlssd.dll was unloaded/reloaded at a different module handle");
         return false;
     }
+    if (!PinHookModule(dlssd, L"nvngx_dlssd.dll")) return false;
 
     LogModuleObservation("late module discovered", L"nvngx_dlssd.dll", dlssd);
     void *create = reinterpret_cast<void *>(
@@ -7586,22 +7932,26 @@ bool InstallLateDlssdHooksLocked(HMODULE dlssd,
             !create_already_covered || !evaluate_already_covered ||
             !release_already_covered;
     }
-    const bool create_covered = create_already_covered || EnableLateHook(
-        create, reinterpret_cast<void *>(&HookDlssdCreate),
-        reinterpret_cast<void **>(&g_original_dlssd_create),
-        "late DLSSD D3D12_CreateFeature");
-    bool evaluate_covered = evaluate_already_covered;
-    if (!evaluate_covered) {
-        evaluate_covered = EnableLateHook(
-            evaluate, reinterpret_cast<void *>(&HookDlssdEvaluate),
-            reinterpret_cast<void **>(&g_original_dlssd_evaluate),
-            "late DLSSD D3D12_EvaluateFeature");
-        if (evaluate_covered) RememberEvaluateHookTarget(evaluate);
-    }
-    const bool release_covered = release_already_covered || EnableLateHook(
+    bool queued_any = false;
+    const bool release_prepared = release_already_covered || QueueLateHook(
         release, reinterpret_cast<void *>(&HookDlssdRelease),
         reinterpret_cast<void **>(&g_original_dlssd_release),
-        "late DLSSD D3D12_ReleaseFeature");
+        "late DLSSD D3D12_ReleaseFeature", queued_any);
+    const bool create_prepared = create_already_covered || QueueLateHook(
+        create, reinterpret_cast<void *>(&HookDlssdCreate),
+        reinterpret_cast<void **>(&g_original_dlssd_create),
+        "late DLSSD D3D12_CreateFeature", queued_any);
+    const bool evaluate_prepared = evaluate_already_covered || QueueLateHook(
+        evaluate, reinterpret_cast<void *>(&HookDlssdEvaluate),
+        reinterpret_cast<void **>(&g_original_dlssd_evaluate),
+        "late DLSSD D3D12_EvaluateFeature", queued_any);
+    const bool transaction_applied = ApplyLateHookTransaction(
+        queued_any, "late DLSSD lifecycle");
+    const bool release_covered = release_prepared && transaction_applied;
+    const bool create_covered = create_prepared && transaction_applied;
+    const bool evaluate_covered = evaluate_prepared && transaction_applied;
+    if (evaluate_covered && !evaluate_already_covered)
+        RememberEvaluateHookTarget(evaluate);
 
     g_hooked_dlssd_module = dlssd;
     const bool lifecycle_ready = create_covered && evaluate_covered &&
@@ -7652,8 +8002,12 @@ void PollNgxLifecycleModules() {
     // lifecycle detours. Routine one-second scans do not perturb rendering.
     g_module_rescan_in_progress.store(has_new_module,
                                       std::memory_order_release);
+    const unsigned long long feature1_create_entries_before =
+        g_feature1_create_entries.load(std::memory_order_acquire);
+    const unsigned int feature1_creates_in_progress_before =
+        g_feature1_create_in_progress.load(std::memory_order_acquire);
     const bool feature1_active_before =
-        g_feature1_create_entries.load(std::memory_order_acquire) != 0 ||
+        g_feature1_successful_creates.load(std::memory_order_acquire) != 0 ||
         g_carrier_evaluations.load(std::memory_order_acquire) != 0;
     bool discovered_late = false;
     bool introduced_distinct_lifecycle_entry = false;
@@ -7674,12 +8028,21 @@ void PollNgxLifecycleModules() {
     }
     const unsigned long long feature1_create_entries =
         g_feature1_create_entries.load(std::memory_order_acquire);
+    const unsigned long long feature1_successful_creates =
+        g_feature1_successful_creates.load(std::memory_order_acquire);
+    const unsigned int feature1_creates_in_progress =
+        g_feature1_create_in_progress.load(std::memory_order_acquire);
     const unsigned long long carrier_evaluations =
         g_carrier_evaluations.load(std::memory_order_acquire);
-    const bool feature1_active_after = feature1_create_entries != 0 ||
+    const bool feature1_active_after = feature1_successful_creates != 0 ||
                                        carrier_evaluations != 0;
+    const bool feature1_create_overlapped_observer =
+        feature1_creates_in_progress_before != 0 ||
+        feature1_creates_in_progress != 0 ||
+        feature1_create_entries != feature1_create_entries_before;
     const bool feature1_activity_observed =
-        feature1_active_before || feature1_active_after;
+        feature1_active_before || feature1_active_after ||
+        feature1_create_overlapped_observer;
     if (LateLifecycleDiscoveryRequiresIsolation(
             lifecycle_coverage_failed, introduced_distinct_lifecycle_entry,
             feature1_activity_observed)) {
@@ -7688,9 +8051,12 @@ void PollNgxLifecycleModules() {
             "lazy module rescan",
             lifecycle_coverage_failed
                 ? "a late RR-capable NGX module could not be fully covered"
-                : "a late RR-capable NGX module introduced a distinct "
-                  "Create/Release entry point after Feature 1 activity; a "
-                  "pre-hook Feature 13 handle cannot be ruled out");
+                : (feature1_create_overlapped_observer
+                    ? "a Feature 1 Create overlapped publication of a late "
+                      "RR-capable lifecycle observer"
+                    : "a late RR-capable NGX module introduced a distinct "
+                      "Create/Release entry point after Feature 1 activity; "
+                      "a pre-hook Feature 13 handle cannot be ruled out"));
     } else if (introduced_distinct_lifecycle_entry && discovered_late) {
         g_startup_deferred_module_coverage.store(true,
                                                   std::memory_order_release);
@@ -7705,7 +8071,9 @@ void PollNgxLifecycleModules() {
     if (scan <= 3 || (scan % 60) == 0) {
         Log("[module] lazy rescan #%llu core=%p coreLifecycle=%d "
             "dlssd=%p dlssdLifecycle=%d observerGap=%d startupCovered=%d "
-            "feature1Creates=%llu carrierEvals=%llu.", scan,
+            "feature1CreateAttempts=%llu feature1CreateSuccess=%llu "
+            "feature1CreateInFlight=%u createObserverOverlap=%d "
+            "nullEvals=%llu carrierEvals=%llu.", scan,
             static_cast<void *>(core),
             g_core_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
             static_cast<void *>(dlssd),
@@ -7713,13 +8081,18 @@ void PollNgxLifecycleModules() {
             g_module_observer_gap_detected.load(std::memory_order_relaxed) ? 1 : 0,
             g_startup_deferred_module_coverage.load(
                 std::memory_order_relaxed) ? 1 : 0,
-            feature1_create_entries, carrier_evaluations);
+            feature1_create_entries, feature1_successful_creates,
+            feature1_creates_in_progress,
+            feature1_create_overlapped_observer ? 1 : 0,
+            g_null_feature_evaluations.load(std::memory_order_relaxed),
+            carrier_evaluations);
     }
     g_module_rescan_in_progress.store(false, std::memory_order_release);
     ReleaseSRWLockExclusive(&g_module_rescan_lock);
 }
 
 bool InstallHooks(HMODULE ngx) {
+    if (!PinHookModule(ngx, L"nvngx_dlss.dll")) return false;
     const MH_STATUS init = MH_Initialize();
     if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED) {
         Log("MH_Initialize failed: %d", static_cast<int>(init));
@@ -7731,6 +8104,7 @@ bool InstallHooks(HMODULE ngx) {
     void *evaluate_c = reinterpret_cast<void *>(GetProcAddress(ngx, "NVSDK_NGX_D3D12_EvaluateFeature_C"));
     void *release = reinterpret_cast<void *>(GetProcAddress(ngx, "NVSDK_NGX_D3D12_ReleaseFeature"));
     HMODULE core = GetModuleHandleW(L"_nvngx.dll");
+    if (core != nullptr && !PinHookModule(core, L"_nvngx.dll")) return false;
     void *core_create = core != nullptr ? reinterpret_cast<void *>(
         GetProcAddress(core, "NVSDK_NGX_D3D12_CreateFeature")) : nullptr;
     void *core_evaluate = core != nullptr ? reinterpret_cast<void *>(
@@ -7738,6 +8112,8 @@ bool InstallHooks(HMODULE ngx) {
     void *core_release = core != nullptr ? reinterpret_cast<void *>(
         GetProcAddress(core, "NVSDK_NGX_D3D12_ReleaseFeature")) : nullptr;
     HMODULE dlssd = GetModuleHandleW(L"nvngx_dlssd.dll");
+    if (dlssd != nullptr && !PinHookModule(dlssd, L"nvngx_dlssd.dll"))
+        return false;
     void *dlssd_create = dlssd != nullptr ? reinterpret_cast<void *>(
         GetProcAddress(dlssd, "NVSDK_NGX_D3D12_CreateFeature")) : nullptr;
     void *dlssd_evaluate = dlssd != nullptr ? reinterpret_cast<void *>(
@@ -8168,6 +8544,14 @@ void DrawSettings(reshade::api::effect_runtime *) {
         g_last_carrier_feature.load(std::memory_order_relaxed);
     const unsigned int live_rr_handles =
         g_live_rr_handles.load(std::memory_order_relaxed);
+    const unsigned long long feature1_create_attempts =
+        g_feature1_create_entries.load(std::memory_order_relaxed);
+    const unsigned long long feature1_create_successes =
+        g_feature1_successful_creates.load(std::memory_order_relaxed);
+    const unsigned int feature1_creates_in_progress =
+        g_feature1_create_in_progress.load(std::memory_order_relaxed);
+    const unsigned long long null_feature_evaluations =
+        g_null_feature_evaluations.load(std::memory_order_relaxed);
     const bool rr_protected = carrier_feature == 13 ||
         live_rr_handles != 0 ||
         g_rr_guard_was_active.load(std::memory_order_relaxed);
@@ -8195,6 +8579,9 @@ void DrawSettings(reshade::api::effect_runtime *) {
         g_nr_failed_create_process_latched.load(std::memory_order_relaxed);
     const unsigned long long lifecycle_safe_bypasses =
         g_lifecycle_safe_bypass_frames.load(std::memory_order_relaxed);
+    const unsigned long long feature1_busy_bypasses =
+        g_feature1_transaction_busy_bypasses.load(
+            std::memory_order_relaxed);
     const unsigned long long recorded_transfer_frames =
         g_nr_transfer_recorded_frames.load(std::memory_order_relaxed);
     const unsigned long long bound_transfer_frames =
@@ -8356,6 +8743,11 @@ void DrawSettings(reshade::api::effect_runtime *) {
         brief_status_zh = "安全预热中";
         brief_reason_en = "The command list has not yet proved stable graphics-queue affinity.";
         brief_reason_zh = "命令列表尚未证明稳定的图形队列归属。";
+    } else if (bypass_reason == BypassReason::Feature1TransactionBusy) {
+        brief_status_en = "Native frame";
+        brief_status_zh = "本帧原生旁路";
+        brief_reason_en = "Another Feature 1 transaction owns the chain; this frame stays native without being misclassified as RR.";
+        brief_reason_zh = "另一条 Feature 1 调用正占用链路；本帧保持原生，不会误判为光线重构。";
     } else if (bypass_reason == BypassReason::LifecycleIsolation ||
                safety_tracking_uncertain) {
         brief_status_en = "Safe bypass";
@@ -8376,12 +8768,15 @@ void DrawSettings(reshade::api::effect_runtime *) {
     ImGui::TextWrapped(ui("Reason: %s", "原因：%s"),
                        ui(brief_reason_en, brief_reason_zh));
     ImGui::TextDisabled(
-        ui("Module observer: rescans=%llu core=%s DLSSD=%s observer-gap=%s startup-covered=%s",
-           "模块观察器：重扫=%llu core=%s DLSSD=%s 观察缺口=%s 启动补挂=%s"),
+        ui("Module observer: rescans=%llu core=%s DLSSD=%s observer-gap=%s startup-covered=%s F1-create=%llu/%llu in-flight=%u null-evals=%llu",
+           "模块观察器：重扫=%llu core=%s DLSSD=%s 观察缺口=%s 启动补挂=%s F1创建=%llu/%llu 进行中=%u 空句柄调用=%llu"),
         module_rescans, core_observer_ready ? "ready" : "waiting",
         dlssd_observer_ready ? "ready" : "waiting",
         module_observer_uncertain ? "yes" : "no",
-        startup_deferred_covered ? "yes" : "no");
+        startup_deferred_covered ? "yes" : "no",
+        feature1_create_successes, feature1_create_attempts,
+        feature1_creates_in_progress,
+        null_feature_evaluations);
     if (input_width != 0 && input_height != 0 &&
         output_width != 0 && output_height != 0) {
         ImGui::Text(ui("Game DLSS: %ux%u -> %ux%u",
@@ -8475,6 +8870,15 @@ void DrawSettings(reshade::api::effect_runtime *) {
                "或已发生过队列迁移；本帧保留原生 SR（存活队列 %u，累计旁路 "
                "%llu 帧）。"),
             live_graphics_queues, queue_contract_bypasses);
+    } else if (bypass_reason == BypassReason::Feature1TransactionBusy) {
+        ImGui::TextWrapped(
+            ui("Status: a concurrent Feature 1 transaction already owns the "
+               "NR chain, so this call stayed native (count %llu). It was not "
+               "classified as Ray Reconstruction and NR history was not reset.",
+               "状态：另一条并发 Feature 1 调用正在使用 NR 链路，因此本次调用"
+               "保持原生（累计 %llu 次）。它不会被误判为光线重构，也不会重置 "
+               "NR 历史。"),
+            feature1_busy_bypasses);
     } else if (bypass_reason == BypassReason::LifecycleIsolation) {
         ImGui::TextWrapped(
             ui("Status: this frame kept native SR because the Feature 18 "
@@ -8492,10 +8896,13 @@ void DrawSettings(reshade::api::effect_runtime *) {
     } else if (bypass_reason == BypassReason::InputColorContractUnverified) {
         ImGui::TextWrapped(ui(
             "Status: the render-resolution Color contract is ambiguous "
-            "(format %u, %s). R8 requires game-declared SDR storage; packed "
-            "R10 requires HDR/PQ with unity exposure. NR -> SR is safely bypassed.",
-            "状态：渲染分辨率 Color 合同存在歧义（格式 %u，%s）。R8 必须由游戏"
-            "声明为 SDR；打包 R10 必须是 HDR/PQ 且曝光合同为 1；NR -> SR 已安全旁路。"),
+            "(format %u, %s). R8 requires bounded UNORM values plus a unit "
+            "exposure contract, corroborated by either current R8 Output or "
+            "the live Feature 1 SDR flag. Packed R10 requires HDR/PQ with "
+            "unit exposure. NR -> SR is safely bypassed.",
+            "状态：渲染分辨率 Color 合同存在歧义（格式 %u，%s）。R8 需要有界 "
+            "UNORM 数值、单位曝光，并由当前 R8 Output 或本次 Feature 1 的 SDR "
+            "标志佐证；打包 R10 必须是 HDR/PQ 且曝光合同为 1；NR -> SR 已安全旁路。"),
             static_cast<unsigned int>(pre_sr_color_format),
             FormatName(pre_sr_color_format));
     } else if (bypass_reason == BypassReason::OutputColorContractUnverified) {
@@ -8718,11 +9125,11 @@ void DrawSettings(reshade::api::effect_runtime *) {
         &next.color_strength, 0.0f, 1.0f, "%.2f");
     ImGui::TextDisabled(
         "%s", ui(
-            "0 keeps the game's hue while retaining NR luminance detail; 1 "
-            "also follows the model's color. Unknown HDR gamut is forced to 0 "
-            "for safety; chroma follow is enabled only by a verified color contract.",
-            "0 保留游戏原始色相并保留 NR 明暗细节；1 同时跟随模型颜色。未知 HDR "
-            "色域会为安全强制按 0 处理，只有已验证颜色合同时才启用色彩跟随。"));
+            "0 keeps the game's hue; 1 follows bounded NR chroma. It is "
+            "honoured for the FP16, unit-exposure SR -> NR comparison and "
+            "verified SDR contracts. Unverified NR -> SR HDR remains luminance-only.",
+            "0 保留游戏原始色相；1 跟随有界 NR 色彩。FP16、单位曝光的 SR -> NR "
+            "对比链路及已验证 SDR 合同会采用此值；未验证的 NR -> SR HDR 仍只传递明暗。"));
     changed |= ImGui::Checkbox(
         ui("Experimental Lighting Match (NR -> SR)",
            "实验性光照匹配（NR -> SR）"),

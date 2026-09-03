@@ -6,7 +6,7 @@ process addresses. Evidence from different binary hashes is kept separate. Curre
 builds use a stable embedded build ID rather than compile time so clean rebuilds can
 be checked for byte-for-byte reproducibility.
 
-## Current source/build qualification (2026-09-03)
+## Current source/build qualification (2026-09-04)
 
 - Chinese and English add-on variants plus the forwarding bridge build cleanly;
   all four embedded shader entry points compile successfully. Exact binary
@@ -21,13 +21,23 @@ be checked for byte-for-byte reproducibility.
   that actually contain a lifecycle token, uses a locked ColorDiag snapshot,
   and distinguishes transfer `prepared`, `recorded`, and native-queue
   `submitted` counts.
-- Two clean beta0.3.3 builds produced identical artifacts. Their SHA-256 values
-  are `BA51292FE57B7D92DB0C903AE6ED3657E02B94B468E0B284823CCBF6EB43FC3E`
-  (Chinese), `C9AAF8339A5C2070441BBD7464392AAF2006BA0244948D4E1318D30948A45EB7`
+- Two clean beta0.3.3-dev-r2 builds produced identical artifacts. Their SHA-256
+  values are `EFAEDEE32193038725D61F6E5B7FFE60827D7FF7A5A16977C14DACDACCAC2D56`
+  (Chinese), `290F6C5448736F2F9064FBCF40609050E7BB67B33F93544D3762E06B1A276433`
   (English), and
   `46041A5FF91AE2FD907E310D132AABC3C4A1ECD48DACE511B8672909D5D9C2FB`
   (bridge). This is build qualification only: these exact add-on hashes have
   not yet completed the gameplay gate.
+- The four embedded codec entry points validate with shader model 5.0, and the
+  LLVM static analyzer passes the English add-on, Chinese add-on and forwarding
+  bridge targets. The shader-model change is specifically intended for games
+  shipping an older `d3dcompiler_47.dll` that rejects `cs_5_1`.
+- A Feature 1 Create that overlaps delayed lifecycle-hook publication is now
+  detected from its entry and in-flight counters. Failed Create output slots
+  are cleared before the native call, unknown non-null Release handles fail
+  closed, and permanently detoured NGX modules are pinned until process exit.
+  These are source/build checks; the opaque-call RR transition boundary remains
+  documented and cannot be proved away by static analysis.
 
 ## Latest gameplay-tested binary runtime status
 
@@ -174,6 +184,17 @@ beta0.3 release.
   `DFC42DD29AC34B5FECEE0C17E73A46083A7EB8C6070949830C6273F5F408A4E4`.
   The four labelled PNG hashes are recorded in the local test archive and are
   intentionally not committed to the source repository.
+- A later beta0.3.3-dev-r1 HDR-toggle log isolated a separate state-machine
+  defect. The game attempted a reversed `2560x1440 -> 1707x960` Feature 1
+  Create, received `InvalidParameter` with a null handle, and evaluated that
+  failed path before successfully creating `1707x960 -> 2560x1440`. r1
+  permanently labelled the null/unknown Evaluate an RR ownership gap, so the
+  later valid handle recorded zero carrier evaluations. r2 explicitly keeps
+  null handles on the native invalid-call path, separates failed attempts from
+  successful Feature-1 activity, and publishes delayed lifecycle hooks in one
+  queued transaction. Real unknown non-null handles remain fail-closed. This is
+  deterministic log evidence for the bug and build evidence for the correction;
+  a live r2 HDR off/on transition remains required.
 
 ## Cyberpunk path tracing plus Ray Reconstruction
 

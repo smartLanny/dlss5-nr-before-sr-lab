@@ -124,7 +124,7 @@ the GPU; unsupported exposure contracts remain native-SR bypasses. Results are
 engine- and runtime-dependent. Important unresolved
 areas are documented in [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
-The 2026-09-03 tree is a **beta0.3.3 development candidate**, not a universal
+The 2026-09-04 tree is a **beta0.3.3 development candidate**, not a universal
 release. It compiles cleanly in the maintained local toolchain, all embedded
 shader entries compile, and both language builds pass focused LLVM analysis.
 The prior beta0.3.2 Chinese binary with SHA256 `4E483F...B1AF1` completed fresh Cyberpunk 2077
@@ -135,10 +135,17 @@ Chinese r2 binary (`1E717C...7F560`) separately completed an exact-hash Witcher
 gameplay run with native SR, both orders, and a Lighting Match ablation; every
 active interval exceeded 600 frames without a logged lifecycle/device failure.
 beta0.3.3 changes the Feature 18 lifetime when create-time tuning controls are
-committed, admits a live `R8G8B8A8_UNORM` render input only when Feature 1
-explicitly declares a non-HDR color contract, and adds the packed R10 PQ path
-described above. Those changes require fresh Red Desert, Yanyun and Horizon
-community logs before they become compatibility claims.
+committed, adds the packed R10 PQ path described above, and admits a live exact
+`R8G8B8A8_UNORM` render input when unity exposure plus the current Feature 1
+flag or matching current Output prove one bounded value domain. Revision r2
+also uses the broadly supported `cs_5_0` codec target, rebuilds a same-handle
+FP16/R8 contract, and prevents a failed HDR/DLSS Create with a null handle from
+permanently latching RR ownership uncertainty. Failed/null Create attempts no
+longer count as successful SR activity for late-module isolation; a genuinely
+unknown non-null pre-observer handle remains a conservative process-long bypass.
+Late lifecycle detours are published in one queued transaction. Those changes
+require fresh Red Desert, Yanyun, Horizon and
+Witcher-HDR community logs before they become compatibility claims.
 Hogwarts still requires a current-hash visual gate, and the remaining physical
 hotkey/order plus three-preset tests are open. The seven-title 600-frame/20-cycle
 matrix is reserved for RC.

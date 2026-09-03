@@ -26,23 +26,72 @@ This fixes the deterministic stale-parameter bug. It does not assert that the
 model itself produces an equally visible change across every point in its
 0–2 range; ColorDiag and labelled screenshots remain the evidence for that.
 
-### Non-HDR R8 input is no longer rejected unconditionally
+### Live bounded R8 input and older shader compilers
 
 The supplied Yanyun log reached a valid Feature 1 at 1920x1080 -> 3840x2160,
 but beta0.3.2 rejected render Color format 28 before Feature 18 and recorded
 zero successful NR evaluations.
 
-beta0.3.3 admits `R8G8B8A8_UNORM` for `NR -> SR` only when the live Feature 1
-create flags explicitly mark its Color buffer non-HDR and the exact resource
-passes texture, sample, subresource and shader-load capability checks. Encode
-copies the game's bounded DLSS input values without guessing a gamma or
-paper-white conversion; Combine returns the result in the same value domain
-through the controlled FP16 replacement texture.
+The first beta0.3.3-dev Yanyun follow-up exposed two later gates. Its local
+`d3dcompiler_47.dll` rejected the embedded `cs_5_1` target, so none of the four
+conversion shaders existed and Feature 18 could never run. It also retained an
+HDR-labelled Feature 1 handle while the live Color and Output resources changed
+from FP16 to exact `R8G8B8A8_UNORM` with unity exposure. The old flag-only check
+therefore rejected a coherent current-frame value-domain contract.
 
-Typed `R8G8B8A8_UNORM_SRGB`, an R8 input marked HDR, and any resource that
-fails the live capability contract remain safe native-SR bypasses. Post-SR R8
-write-back also remains fail-closed unless its output encoding is explicitly
-verified. Admission is contract-based, not a game-name whitelist.
+Revision r2 compiles the conversion shaders as `cs_5_0`, which uses no feature
+that requires shader model 5.1. It admits exact `R8G8B8A8_UNORM` for `NR -> SR`
+when the live texture contract and unity exposure pass and either the current
+Feature 1 flag declares SDR or the current Output independently corroborates
+the same bounded R8 format. Live Evaluate resources outrank a stale Create flag.
+Encode copies the bounded values without guessing gamma or paper white;
+Combine returns values in the same domain through the controlled FP16
+replacement texture. If the same Feature 1 handle changes FP16/R8 storage
+without another Create, its old Feature 18 context is retired at the exact GPU
+fence and rebuilt with the new codec contract.
+
+Typed `R8G8B8A8_UNORM_SRGB`, non-unity exposure, an unmatched R8 output, and
+any resource that fails the live capability contract remain safe native-SR
+bypasses. Post-SR R8 write-back also remains fail-closed unless its output
+encoding is explicitly verified. Admission is contract-based, not a game-name
+whitelist.
+
+### HDR/DLSS rebuilds no longer permanently poison ownership
+
+The supplied Witcher 3 HDR log did not fail an HDR colour contract. During the
+display-mode rebuild, the game first attempted an invalid reversed-dimension
+Feature 1 Create (`2560x1440 -> 1707x960`), received `InvalidParameter` and a
+null handle, then evaluated that failed path before creating the valid
+`1707x960 -> 2560x1440` Feature 1. Revision r1 treated that null/unknown Evaluate
+as proof that an unobserved RR handle existed and permanently disabled Feature
+18 for the process.
+
+Revision r2 treats a null handle as a native invalid-call path only. Failed/null
+Feature 1 Create attempts remain diagnostic counts but no longer count as
+successful game-owned SR activity when a delayed module is assessed. A genuinely
+unknown non-null handle still fails closed for the process because its feature
+identity cannot be proved safely. Delayed core/DLSSD Create, Evaluate and Release
+detours are prepared first and published in one queued MinHook transaction, so
+an Evaluate hook cannot become live before its matching Release observer.
+Feature 1 Create entry/in-flight counters also detect a Create that overlaps
+that publication window. Native Create output slots are cleared first so a
+failed call cannot inherit a stale caller pointer. An unknown non-null Release
+is treated as the same ownership gap, while permanent NGX detours pin their
+owning module until process exit instead of retaining an unloadable trampoline.
+
+### Post-SR colour following reports and applies its effective value
+
+In the supplied Witcher 3 fixed-camera set, our post-SR result and the RenoDX
+paper-white-4 result had nearly the same global exposure, while the larger
+visible difference was chroma. Earlier HDR code displayed/logged the requested
+Colour Follow value but silently forced its effective shader value to zero.
+
+For the narrow post-SR FP16, unity-exposure, no-ExposureTexture contract,
+revision r2 now allows the requested Colour Follow control. It transfers bounded
+per-channel neural ratios, then renormalizes them to the luminance-only result;
+this follows NR chroma without replacing the original HDR lighting. Diagnostics
+now record `colorFollowEffective`, so a log cannot claim a value the shader did
+not receive. Unknown HDR and `NR -> SR` gamut contracts remain luminance-only.
 
 ### Packed 10-bit Color uses the controlled FP16 conversion
 
@@ -72,6 +121,13 @@ native-SR bypass. No title name is consulted.
 - Parameter-labelled screenshots now include `PW` for Scene Paper-White Scale.
 - Configuration, context retirement and Feature 18 creation logs include the
   full create-time tuning signature.
+- Module-rescan summaries separately report Feature 1 create attempts,
+  successful non-null creates, in-flight creates and null-handle Evaluates. A transient failed
+  HDR/DLSS rebuild can therefore be distinguished from a real unobserved
+  non-null owner without a local reproduction.
+- Delayed `_nvngx`/DLSSD lifecycle observers log their queued hook transaction,
+  and concurrent Feature 1 calls have a dedicated one-frame native-bypass
+  reason instead of being labelled as Ray Reconstruction.
 - R8/R10 decisions log format, active subrect, Feature 1 flags, resource
   capabilities (`support1`/`support2`), format-query result and the exact
   accepted/bypass reason. Existing pipeline totals then distinguish create,
@@ -87,9 +143,12 @@ they are not a claim that native code cannot be reverse engineered.
 
 ## Still not resolved by this candidate
 
-- A first successful beta0.3.3 Yanyun run is still required. The logged format
-  rejection is fixed; a later runtime, guide or queue contract may only become
-  visible after that gate is removed.
+- A first successful beta0.3.3 r2 Yanyun run is still required. The shader-model
+  failure and stale-flag R8 rejection are fixed; a later runtime, guide or queue
+  contract may only become visible after those gates are removed.
+- Witcher 3 must repeat the HDR off/on rebuild on r2. The supplied r1 log proves
+  the false permanent latch, while source/build validation proves only the fix,
+  not the live transition.
 - Ray Reconstruction remains a strict safe bypass, not a joint RR/NR chain.
 - Unknown HDR gamut/transfer and unsupported ExposureTexture layouts remain
   fail-closed. Scene Paper-White Scale is an expert ablation, not a universal

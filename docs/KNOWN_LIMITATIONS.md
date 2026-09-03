@@ -159,13 +159,18 @@ first observed Feature-1 Create/Evaluate is admitted; discovery after Feature-1
 activity or any incomplete coverage fails closed for the process. The observer
 classifies every game-owned NGX handle it sees, including auxiliary features
 such as Feature 11 frame generation; private Feature 18 handles remain separate.
-An outermost Evaluate with an unknown handle at the public SR wrapper, a
-distinct core `_nvngx` entry, or a direct DLSSD entry is therefore treated as
-evidence of a startup/lifecycle observation gap and fails closed. The UI and
-`[module]`/`[state]` log records explain that a clean game restart is required.
-There remains no public API that can prove a late module did not create and
-retain a Feature-13 handle before its exports were observed; this is why the
-rule is conservative after carrier activity.
+A null Evaluate handle can follow a failed game Create during an HDR/DLSS
+rebuild. It is passed to the native runtime as an invalid-call path and does not
+alter ownership state. A genuinely non-null outermost handle that predates the
+public SR, distinct core `_nvngx`, or direct DLSSD observer still fails closed
+for the process. There is no public API that can safely guess its feature
+identity or dormancy. Failed/null Create attempts are not treated as successful
+Feature-1 activity, and delayed Create/Evaluate/Release hooks are prepared and
+enabled in one queued transaction. A Create overlapping that transaction is
+detected from entry/in-flight counters, unknown non-null Releases fail closed,
+and each permanently hooked NGX module is pinned until process exit. Incomplete coverage, a concurrent ownership
+race, or a late RR-capable module first discovered after real carrier activity
+also remains process-long fail-closed.
 
 ## Mode 1 command-list state
 
