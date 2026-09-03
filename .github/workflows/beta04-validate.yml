@@ -1,4 +1,4 @@
-name: Validate beta0.4 perfect-chain
+name: Validate beta0.4 perfect-chain r2
 
 on:
   workflow_dispatch:
@@ -7,69 +7,35 @@ on:
       - codex/beta0.4-perfect-chain
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: beta04-validate-${{ github.sha }}
-  cancel-in-progress: false
+  group: beta04-r2-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  shader-and-structure:
-    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[beta04-ci-report]')
+  shader-structure-and-math:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply idempotent compiler hotfixes
-        run: python scripts/fix-beta04-hlsl.py
       - name: Structural invariants
         run: python scripts/validate-beta04-structure.py
-      - name: Compile every embedded shader entry and retain report
-        id: shaders
-        continue-on-error: true
+      - name: Multiplicative and HDR math invariants
+        run: python scripts/test-beta04-math.py
+      - name: Compile every embedded Shader Model 5 entry
         shell: pwsh
-        run: |
-          $report = 'docs/BETA_0_4_SHADER_REPORT.txt'
-          Remove-Item $report -ErrorAction SilentlyContinue
-          $status = 0
-          try {
-            & ./scripts/validate-codec-shader.ps1 *>&1 | Tee-Object -FilePath $report
-            if (-not $?) { $status = 1 }
-            if ($LASTEXITCODE) { $status = $LASTEXITCODE }
-          } catch {
-            $_ | Out-String | Tee-Object -FilePath $report -Append
-            $status = 1
-          }
-          "exit_code=$status" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          exit $status
-      - name: Commit shader report
-        if: always()
-        shell: pwsh
-        run: |
-          if (-not (Test-Path docs/BETA_0_4_SHADER_REPORT.txt)) { exit 0 }
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/BETA_0_4_SHADER_REPORT.txt
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) { exit 0 }
-          git commit -m 'Record beta0.4 shader validation [beta04-ci-report]'
-          git pull --rebase origin codex/beta0.4-perfect-chain
-          git push origin HEAD:codex/beta0.4-perfect-chain
-      - name: Enforce shader result
-        if: steps.shaders.outputs.exit_code != '0'
-        run: exit 1
+        run: ./scripts/validate-codec-shader.ps1
 
-  full-build:
-    needs: shader-and-structure
+  full-build-and-package:
+    needs: shader-structure-and-math
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Apply idempotent compiler hotfixes
-        run: python scripts/fix-beta04-hlsl.py
       - name: Fetch public build inputs
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $headers = @{ 'User-Agent' = 'beta04-validator' }
+          $headers = @{ 'User-Agent' = 'beta04-r2-validator' }
           $release = Invoke-RestMethod -Headers $headers `
             'https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest'
           $asset = $release.assets | Where-Object {
@@ -83,50 +49,22 @@ jobs:
             https://github.com/crosire/reshade.git reshade-source
           "TOOLCHAIN_ROOT=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Append
           "RESHADE_ROOT=$pwd\reshade-source" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - name: Build English and Chinese add-ons and retain report
-        id: build
-        continue-on-error: true
+      - name: Build English and Chinese add-ons
+        shell: pwsh
+        run: ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
+      - name: Assemble clean test package
         shell: pwsh
         run: |
-          $report = 'docs/BETA_0_4_BUILD_REPORT.txt'
-          Remove-Item $report -ErrorAction SilentlyContinue
-          $status = 0
-          try {
-            & ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT `
-              -ReShadeSourceRoot $env:RESHADE_ROOT *>&1 | Tee-Object -FilePath $report
-            if (-not $?) { $status = 1 }
-            if ($LASTEXITCODE) { $status = $LASTEXITCODE }
-          } catch {
-            $_ | Out-String | Tee-Object -FilePath $report -Append
-            $status = 1
-          }
-          "exit_code=$status" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          exit $status
-      - name: Append hashes to report
-        if: steps.build.outputs.exit_code == '0'
-        shell: pwsh
-        run: |
-          Get-ChildItem build -File | Get-FileHash -Algorithm SHA256 |
-            Format-Table -AutoSize | Out-String |
-            Tee-Object -FilePath docs/BETA_0_4_BUILD_REPORT.txt -Append
-      - name: Commit build report
-        if: always()
-        shell: pwsh
-        run: |
-          if (-not (Test-Path docs/BETA_0_4_BUILD_REPORT.txt)) { exit 0 }
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/BETA_0_4_BUILD_REPORT.txt
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) { exit 0 }
-          git commit -m 'Record beta0.4 full-build validation [beta04-ci-report]'
-          git pull --rebase origin codex/beta0.4-perfect-chain
-          git push origin HEAD:codex/beta0.4-perfect-chain
-      - name: Enforce build result
-        if: steps.build.outputs.exit_code != '0'
-        run: exit 1
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item build/*.addon64 dist/
+          Copy-Item build/nrchain_nvngx.dll dist/
+          Copy-Item build/nr_before_sr.ini dist/
+          Copy-Item docs/BETA_0_4_TEST_MATRIX.md dist/README-TESTING.md
+          Copy-Item docs/BETA_0_4_PERFECT_CHAIN.md dist/TECHNICAL-NOTES.md
+          Get-ChildItem dist -File | Get-FileHash -Algorithm SHA256 |
+            Format-Table -AutoSize
       - uses: actions/upload-artifact@v4
         with:
-          name: beta04-perfect-chain-build
-          path: build/
+          name: beta04-perfect-chain-r2-test-package
+          path: dist/
           if-no-files-found: error
