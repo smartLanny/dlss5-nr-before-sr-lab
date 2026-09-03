@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   finalize:
+    # One final source-only run; workflow files are cleaned through the GitHub API.
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'one-shot beta0.4 r2') || contains(github.event.head_commit.message, 'Run beta0.4 r2 finalizer')
     runs-on: ubuntu-latest
     steps:
