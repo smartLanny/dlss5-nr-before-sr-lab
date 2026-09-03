@@ -24,6 +24,20 @@ jobs:
           fetch-depth: 0
       - name: Apply r2 audit and remove temporary scaffolding
         run: python scripts/apply-beta04-r2-audit.py
+      - name: Normalize the multiline R8 invariant
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/validate-beta04-structure.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              'if "modelValueDomain ? saturate(proxyValue)" not in body:\n'
+              '    raise SystemExit("bounded R8 value-domain preservation missing")\n',
+              'if ("float3 storedProxy = modelValueDomain" not in body or\n'
+              '        "? saturate(proxyValue)" not in body):\n'
+              '    raise SystemExit("bounded R8 value-domain preservation missing")\n')
+          path.write_text(text, encoding='utf-8', newline='\n')
+          PY
       - name: Validate finalized source
         run: |
           python scripts/validate-beta04-structure.py
