@@ -1,0 +1,8 @@
+Exception: D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\scripts\build.ps1:36
+Line |
+  36 |          throw "Required build input missing: $Required"
+     |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Required build input missing:
+     | D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\deps\imgui\imgui.h
+
+
