@@ -7,7 +7,7 @@ on:
       - codex/beta0.4-perfect-chain
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: beta04-validate-${{ github.ref }}
@@ -15,14 +15,45 @@ concurrency:
 
 jobs:
   shader-and-structure:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[beta04-ci-report]')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - name: Structural invariants
         run: python scripts/validate-beta04-structure.py
-      - name: Compile every embedded shader entry
+      - name: Compile every embedded shader entry and retain report
+        id: shaders
+        continue-on-error: true
         shell: pwsh
-        run: ./scripts/validate-codec-shader.ps1
+        run: |
+          $report = 'docs/BETA_0_4_SHADER_REPORT.txt'
+          Remove-Item $report -ErrorAction SilentlyContinue
+          $status = 0
+          try {
+            & ./scripts/validate-codec-shader.ps1 *>&1 | Tee-Object -FilePath $report
+            if (-not $?) { $status = 1 }
+            if ($LASTEXITCODE) { $status = $LASTEXITCODE }
+          } catch {
+            $_ | Out-String | Tee-Object -FilePath $report -Append
+            $status = 1
+          }
+          "exit_code=$status" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          exit $status
+      - name: Commit shader report
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path docs/BETA_0_4_SHADER_REPORT.txt)) { exit 0 }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/BETA_0_4_SHADER_REPORT.txt
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          git commit -m 'Record beta0.4 shader validation [beta04-ci-report]'
+          git push origin HEAD:codex/beta0.4-perfect-chain
+      - name: Enforce shader result
+        if: steps.shaders.outputs.exit_code != '0'
+        run: exit 1
 
   full-build:
     needs: shader-and-structure
