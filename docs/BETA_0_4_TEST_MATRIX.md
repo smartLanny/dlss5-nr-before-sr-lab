@@ -1,4 +1,4 @@
-# beta0.4 Perfect Chain r2 实机验证表
+# beta0.4 Perfect Chain r3 实机验证表
 
 分支：`codex/beta0.4-perfect-chain`
 

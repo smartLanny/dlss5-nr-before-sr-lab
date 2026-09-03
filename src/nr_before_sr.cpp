@@ -38,11 +38,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.4-perfect-chain-r2";
+constexpr const char *kAddonVersion = "beta0.4-perfect-chain-r3";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.4-perfect-chain-r2";
+constexpr const char *kBuildIdentity = "beta0.4-perfect-chain-r3";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -2085,6 +2085,36 @@ float3 CompressNegativeTowardNeutral(float3 color) {
     return neutral + (color - neutral) * saturate(scale);
 }
 
+// Bounded SDR cannot retain values outside [0,1]. A per-channel saturate would
+// change hue precisely when 2x-8x colour strength is most likely to leave the
+// display cube. Move the colour toward the equal-luminance neutral axis by one
+// scalar instead. HDR/PQ paths keep their positive headroom and use only the
+// negative-side guard above.
+float3 CompressBoundedTowardNeutral(float3 color) {
+    if (!all(color == color)) return 0.0.xxx;
+    float y = dot(color, kLuma);
+    if (!(y > 0.0)) return 0.0.xxx;
+    if (y > 1.0) {
+        color *= rcp(y);
+        y = 1.0;
+    }
+    float3 neutral = y.xxx;
+    float scale = 1.0;
+    if (color.r < 0.0 && neutral.r > color.r)
+        scale = min(scale, neutral.r / max(neutral.r - color.r, 0.000001));
+    if (color.g < 0.0 && neutral.g > color.g)
+        scale = min(scale, neutral.g / max(neutral.g - color.g, 0.000001));
+    if (color.b < 0.0 && neutral.b > color.b)
+        scale = min(scale, neutral.b / max(neutral.b - color.b, 0.000001));
+    if (color.r > 1.0 && color.r > neutral.r)
+        scale = min(scale, (1.0 - neutral.r) / max(color.r - neutral.r, 0.000001));
+    if (color.g > 1.0 && color.g > neutral.g)
+        scale = min(scale, (1.0 - neutral.g) / max(color.g - neutral.g, 0.000001));
+    if (color.b > 1.0 && color.b > neutral.b)
+        scale = min(scale, (1.0 - neutral.b) / max(color.b - neutral.b, 0.000001));
+    return saturate(neutral + (color - neutral) * saturate(scale));
+}
+
 float3 EncodeCompositionToStoredV2(float3 value) {
     const bool modelEncodedInput = (Passthrough & 1u) != 0u;
     const bool linearSdrStorage = (Passthrough & 16u) != 0u;
@@ -2524,7 +2554,11 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
             coloured = lumaOnly;
         result = coloured;
     }
-    result = CompressNegativeTowardNeutral(result);
+    const bool boundedSdrStorage = modelEncodedInput ||
+        linearSdrStorage || srgbSdrStorage;
+    result = boundedSdrStorage
+        ? CompressBoundedTowardNeutral(result)
+        : CompressNegativeTowardNeutral(result);
 
     float3 storedResult = EncodeCompositionToStoredV2(result);
     if (!all(storedResult == storedResult) ||
@@ -5748,6 +5782,52 @@ unsigned int AlignWorkExtent(unsigned int value, unsigned int alignment,
     return aligned != 0 ? aligned : std::min(value, alignment);
 }
 
+void SelectAlignedWorkExtent(unsigned int desired_width,
+                             unsigned int desired_height,
+                             unsigned int render_width,
+                             unsigned int render_height,
+                             unsigned int &selected_width,
+                             unsigned int &selected_height) {
+    const unsigned int width_floor = AlignWorkExtent(
+        desired_width, 32u, render_width);
+    const unsigned int height_floor = AlignWorkExtent(
+        desired_height, 8u, render_height);
+    const unsigned int width_ceil = width_floor < desired_width
+        ? std::min(render_width, width_floor + 32u) : width_floor;
+    const unsigned int height_ceil = height_floor < desired_height
+        ? std::min(render_height, height_floor + 8u) : height_floor;
+    const unsigned int widths[2] = {
+        std::max(1u, width_floor), std::max(1u, width_ceil)};
+    const unsigned int heights[2] = {
+        std::max(1u, height_floor), std::max(1u, height_ceil)};
+    const double target_aspect = static_cast<double>(render_width) /
+        std::max(render_height, 1u);
+    const double target_area = std::max(
+        static_cast<double>(desired_width) * desired_height, 1.0);
+    double best_score = std::numeric_limits<double>::infinity();
+    selected_width = widths[0];
+    selected_height = heights[0];
+    for (unsigned int candidate_width : widths) {
+        for (unsigned int candidate_height : heights) {
+            const double candidate_aspect =
+                static_cast<double>(candidate_width) / candidate_height;
+            const double candidate_area =
+                static_cast<double>(candidate_width) * candidate_height;
+            // Preserve geometry first, then stay close to the requested cost.
+            const double aspect_error = std::fabs(std::log2(
+                candidate_aspect / target_aspect));
+            const double area_error = std::fabs(std::log2(
+                candidate_area / target_area));
+            const double score = aspect_error * 12.0 + area_error;
+            if (score < best_score) {
+                best_score = score;
+                selected_width = candidate_width;
+                selected_height = candidate_height;
+            }
+        }
+    }
+}
+
 NrWorkExtent ResolveNrWorkExtent(const NgxParams *params,
                                  const FeatureRecord &feature,
                                  unsigned int render_width,
@@ -5806,13 +5886,14 @@ NrWorkExtent ResolveNrWorkExtent(const NgxParams *params,
         std::floor(render_width * desired_scale + 0.5f));
     unsigned int desired_height = static_cast<unsigned int>(
         std::floor(render_height * desired_scale + 0.5f));
-    result.work_width = AlignWorkExtent(desired_width, 32u, render_width);
-    result.work_height = AlignWorkExtent(desired_height, 8u, render_height);
-    result.work_width = std::max(1u, result.work_width);
-    result.work_height = std::max(1u, result.work_height);
-    result.linear_scale = std::min(
-        static_cast<float>(result.work_width) / render_width,
-        static_cast<float>(result.work_height) / render_height);
+    SelectAlignedWorkExtent(desired_width, desired_height,
+        render_width, render_height, result.work_width, result.work_height);
+    const double work_area = static_cast<double>(result.work_width) *
+        result.work_height;
+    const double render_area = static_cast<double>(render_width) *
+        render_height;
+    result.linear_scale = static_cast<float>(std::sqrt(
+        work_area / std::max(render_area, 1.0)));
     result.scaled = result.work_width != render_width ||
                     result.work_height != render_height;
     return result;
@@ -5839,6 +5920,8 @@ struct NrGuideBinding {
     ID3D12Resource *motion = nullptr;
     bool has_motion_scale_x = false, has_motion_scale_y = false;
     bool valid_motion_scale_x = false, valid_motion_scale_y = false;
+    float jitter_offset_x = 0.0f;
+    float jitter_offset_y = 0.0f;
     int game_reset = 0;
 };
 
@@ -5947,7 +6030,30 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
         std::isfinite(s.motion_scale_y) && std::abs(s.motion_scale_y) > 0.000001f;
     if (!binding.valid_motion_scale_x) s.motion_scale_x = 1.0f;
     if (!binding.valid_motion_scale_y) s.motion_scale_y = 1.0f;
-    // Resampling changes locations, never the units of stored vectors.
+
+    // The game's MV.Scale converts stored vectors into the game's DLSS source
+    // texel space. Mode 2 may use a smaller Feature 18 source, so convert those
+    // displacements into NR working-raster texels after spatially resampling
+    // the vector field. Reference mode remains exactly 1:1.
+    const float source_to_work_x = mode == 2 && guide_width != 0
+        ? static_cast<float>(width) / guide_width : 1.0f;
+    const float source_to_work_y = mode == 2 && guide_height != 0
+        ? static_cast<float>(height) / guide_height : 1.0f;
+    s.motion_scale_x *= source_to_work_x;
+    s.motion_scale_y *= source_to_work_y;
+
+    float jitter_x = 0.0f, jitter_y = 0.0f;
+    if (!GetFloat(params, "Jitter.Offset.X", &jitter_x) ||
+        !std::isfinite(jitter_x)) jitter_x = 0.0f;
+    if (!GetFloat(params, "Jitter.Offset.Y", &jitter_y) ||
+        !std::isfinite(jitter_y)) jitter_y = 0.0f;
+    // Jitter is also expressed in source-image pixels. Keep it in lockstep
+    // with the colour and motion coordinate system seen by Feature 18.
+    binding.jitter_offset_x = std::clamp(
+        jitter_x * source_to_work_x, -2.0f, 2.0f);
+    binding.jitter_offset_y = std::clamp(
+        jitter_y * source_to_work_y, -2.0f, 2.0f);
+
     s.normalized_create_flags = feature.create_flags;
     if (color_mode == CodecColorMode::ModelEncodedValueDomain)
         s.normalized_create_flags &= ~1;
@@ -6064,6 +6170,8 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
             reinterpret_cast<void *>(&ComputeScalingRatioCallback));
     SetFloat(params, "DLSSNR.MVecScaleX", mv_scale_x);
     SetFloat(params, "DLSSNR.MVecScaleY", mv_scale_y);
+    SetFloat(params, "Jitter.Offset.X", guides.jitter_offset_x);
+    SetFloat(params, "Jitter.Offset.Y", guides.jitter_offset_y);
 
     const int depth_inverted = s.depth_inverted;
     const unsigned int config_generation =

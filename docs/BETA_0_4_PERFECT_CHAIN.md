@@ -1,4 +1,4 @@
-# beta0.4 Perfect Chain r2 experiment
+# beta0.4 Perfect Chain r3 experiment
 
 Branch: `codex/beta0.4-perfect-chain`
 
@@ -89,3 +89,10 @@ This remains an experimental source candidate until those automated gates and li
 - Lightweight GPU delta diagnostics are sampled after changes and periodically rather than every frame.
 - Lighting-lock and edge-guard composition reduce redundant full-resolution loads.
 - Strength now reaches 8x, while the independently adjustable 1–16 maximum luminance ratio remains the hard safety ceiling.
+
+## r3 final audit fixes
+
+- Motion-vector scale and camera jitter are converted from the game's render-source pixel domain to the independent Feature 18 working raster. This keeps temporal displacements correct below 100% working resolution.
+- Width/height alignment is selected as a pair, prioritizing the original render aspect ratio before small area differences.
+- Physical guide reallocations caused by DRS reset history but no longer force a new Feature 18 context when formats, working extent and normalized flags are unchanged.
+- Extreme SDR colour follow now compresses both negative and above-one channels toward an equal-luminance neutral axis instead of hard per-channel clipping. HDR positive headroom remains untouched.

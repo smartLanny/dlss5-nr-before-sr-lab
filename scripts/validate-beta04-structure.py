@@ -10,7 +10,7 @@ guides = (root / "src" / "nr_guide_contract.h").read_text(encoding="utf-8")
 config = (root / "config" / "nr_before_sr.ini").read_text(encoding="utf-8")
 
 required = [
-    'kBuildIdentity = "beta0.4-perfect-chain-r2"',
+    'kBuildIdentity = "beta0.4-perfect-chain-r3"',
     'ID3D12PipelineState *encode_v2',
     'ID3D12PipelineState *combine_v2',
     'void EncodeV2CS(',
@@ -25,6 +25,10 @@ required = [
     'modelValueDomain',
     'Maximum luminance ratio',
     'should_sample_delta',
+    'SelectAlignedWorkExtent',
+    'source_to_work_x',
+    'Jitter.Offset.X',
+    'CompressBoundedTowardNeutral',
 ]
 missing = [item for item in required if item not in source and item not in config]
 if missing:
@@ -63,7 +67,9 @@ storage = re.search(r"SameNrGuideStorageContract[\s\S]*?\n}\n", guides)
 mapping = re.search(r"SameNrGuideMappingContract[\s\S]*?\n}\n", guides)
 if not storage or not mapping:
     raise SystemExit("guide contract comparators not found")
-for token in ("depth_width", "motion_source_width"):
+for token in ("depth_width", "motion_source_width",
+              "depth_physical_width", "motion_physical_width",
+              "color_physical_width"):
     if token in storage.group(0):
         raise SystemExit(f"{token} must not be part of storage identity")
     if token not in mapping.group(0):
@@ -82,8 +88,11 @@ if "using the full render raster" not in source:
     raise SystemExit("unresolved output extent must fall back to reference")
 if "capture_model_width" not in source:
     raise SystemExit("stage-capture model extent resolution missing")
-if "CompressNegativeTowardNeutral" not in body:
-    raise SystemExit("neutral-axis gamut protection missing")
+if ("CompressNegativeTowardNeutral" not in body or
+        "CompressBoundedTowardNeutral" not in body):
+    raise SystemExit("neutral-axis HDR/SDR gamut protection missing")
+if "source_to_work_x" not in source or "Jitter.Offset.X" not in source:
+    raise SystemExit("motion/jitter source-to-work conversion missing")
 if "FrameConfidence <= 0.000001" not in body:
     raise SystemExit("reset-frame confidence bypass missing")
 

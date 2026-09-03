@@ -26,14 +26,8 @@ struct NrGuideSignature {
 
 inline bool SameNrGuideStorageContract(const NrGuideSignature &a,
                                        const NrGuideSignature &b) {
-    return a.depth_physical_width == b.depth_physical_width &&
-           a.depth_physical_height == b.depth_physical_height &&
-           a.depth_format == b.depth_format &&
-           a.motion_physical_width == b.motion_physical_width &&
-           a.motion_physical_height == b.motion_physical_height &&
+    return a.depth_format == b.depth_format &&
            a.motion_format == b.motion_format &&
-           a.color_physical_width == b.color_physical_width &&
-           a.color_physical_height == b.color_physical_height &&
            a.color_format == b.color_format &&
            a.motion_bound_width == b.motion_bound_width &&
            a.motion_bound_height == b.motion_bound_height &&
@@ -44,6 +38,12 @@ inline bool SameNrGuideStorageContract(const NrGuideSignature &a,
 inline bool SameNrGuideMappingContract(const NrGuideSignature &a,
                                        const NrGuideSignature &b) {
     return SameNrGuideStorageContract(a, b) &&
+           a.depth_physical_width == b.depth_physical_width &&
+           a.depth_physical_height == b.depth_physical_height &&
+           a.motion_physical_width == b.motion_physical_width &&
+           a.motion_physical_height == b.motion_physical_height &&
+           a.color_physical_width == b.color_physical_width &&
+           a.color_physical_height == b.color_physical_height &&
            a.depth_width == b.depth_width && a.depth_height == b.depth_height &&
            a.motion_source_width == b.motion_source_width &&
            a.motion_source_height == b.motion_source_height &&

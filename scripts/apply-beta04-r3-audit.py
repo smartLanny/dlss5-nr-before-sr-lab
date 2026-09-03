@@ -409,7 +409,7 @@ def main() -> int:
     MATH_TEST.write_text(patch_math(MATH_TEST.read_text(encoding="utf-8")),
                          encoding="utf-8", newline="\n")
 
-    for path in (DOC, MATRIX, CONFIG, BUILD, WORKFLOW, README):
+    for path in (DOC, MATRIX, CONFIG, BUILD, README):
         path.write_text(update_versions(path.read_text(encoding="utf-8")),
                         encoding="utf-8", newline="\n")
 
