@@ -28,30 +28,26 @@ jobs:
           from pathlib import Path
           path = Path('tests/codec_gpu_harness.cpp.in')
           text = path.read_text(encoding='utf-8')
-          old = '''                const Float4 *expected[] = {
-                      &original[(source_y + sy) * source_width + source_x + sx],
-                      &proxy[model_index],
-                      &neural[model_index],
-                      &result.output[(source_y + dy) * output_width + source_x + dx]};
-          '''
-          new = '''                Float4 expected_proxy = proxy[model_index];
+          anchor = '                const Float4 *expected[] = {\n'
+          proxy_lines = ('                    &proxy[model_index],\n'
+                         '                    &neural[model_index],\n')
+          if text.count(anchor) != 1 or text.count(proxy_lines) != 1:
+              raise SystemExit(
+                  f'capture anchors: expected={text.count(anchor)} proxy={text.count(proxy_lines)}')
+          declarations = '''                Float4 expected_proxy = proxy[model_index];
                   Float4 expected_neural = neural[model_index];
-                  // The V2 stage-capture contract mirrors the actual model
-                  // resources: proxy and neural planes are always opaque. The
-                  // original and final planes still preserve the game alpha.
+                  // V2 model planes are deliberately opaque. Original and
+                  // composited planes still preserve the game's alpha.
                   if (v2) {
                       expected_proxy.w = 1.0f;
                       expected_neural.w = 1.0f;
                   }
-                  const Float4 *expected[] = {
-                      &original[(source_y + sy) * source_width + source_x + sx],
-                      &expected_proxy,
-                      &expected_neural,
-                      &result.output[(source_y + dy) * output_width + source_x + dx]};
           '''
-          if text.count(old) != 1:
-              raise SystemExit(f'capture expected block count={text.count(old)}')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+          text = text.replace(anchor, declarations + anchor, 1)
+          text = text.replace(proxy_lines,
+                              '                    &expected_proxy,\n'
+                              '                    &expected_neural,\n', 1)
+          path.write_text(text, encoding='utf-8', newline='\n')
           PY
       - name: Check generated patch
         run: git diff --check
