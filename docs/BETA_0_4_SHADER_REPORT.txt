@@ -1,43 +1,38 @@
-EncodeCS: 0x80004005
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(347,12-17): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(348,39-44): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(352,12-17): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(353,39-44): error X3000: syntax error: unexpected token 'linear'
+EncodeCS: 0x00000000
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
 
-CombineCS: 0x80004005
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(347,12-17): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(348,39-44): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(352,12-17): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(353,39-44): error X3000: syntax error: unexpected token 'linear'
+CombineCS: 0x00000000
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
 
-EncodeV2CS: 0x80004005
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(347,12-17): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(348,39-44): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(352,12-17): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(353,39-44): error X3000: syntax error: unexpected token 'linear'
+EncodeV2CS: 0x00000000
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
 
-CombineV2CS: 0x80004005
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(347,12-17): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(348,39-44): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(352,12-17): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(353,39-44): error X3000: syntax error: unexpected token 'linear'
+CombineV2CS: 0x00000000
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(66,43): warning X4000: use of potentially uninitialized variable (ResolveSourceToCanonical)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(57,5): warning X4000: use of potentially uninitialized variable (ResolveExposureScale)
 
-CopyCS: 0x80004005
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(347,12-17): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(348,39-44): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(352,12-17): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(353,39-44): error X3000: syntax error: unexpected token 'linear'
-
-ResampleMotionCS: 0x80004005
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(347,12-17): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(348,39-44): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(352,12-17): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(353,39-44): error X3000: syntax error: unexpected token 'linear'
-
-Exception: D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\scripts\validate-codec-shader.ps1:87
-Line |
-  87 |      throw ('Shader entry compilation failed: ' + ($failed -join ', ') …
-     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-     | Shader entry compilation failed: EncodeCS, CombineCS, EncodeV2CS, CombineV2CS, CopyCS, ResampleMotionCS
-
-
+CopyCS: 0x00000000
+ResampleMotionCS: 0x00000000
