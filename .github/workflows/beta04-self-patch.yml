@@ -1,4 +1,4 @@
-name: Apply beta0.4 perfect-chain source patch
+name: Finalize beta0.4 perfect-chain r2
 
 on:
   workflow_dispatch:
@@ -10,54 +10,30 @@ permissions:
   contents: write
 
 concurrency:
-  group: beta04-self-patch
+  group: beta04-r2-finalizer
   cancel-in-progress: false
 
 jobs:
-  apply:
-    if: github.event_name == 'workflow_dispatch' || (!contains(github.event.head_commit.message, '[beta04-applied]') && !contains(github.event.head_commit.message, '[beta04-ci-report]'))
+  finalize:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'one-shot beta0.4 r2') || contains(github.event.head_commit.message, 'Run beta0.4 r2 finalizer')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: codex/beta0.4-perfect-chain
           fetch-depth: 0
-      - name: Apply idempotent source patch
-        run: python scripts/apply-beta04-perfect-chain.py
-      - name: Apply compiler hotfixes
-        run: python scripts/fix-beta04-hlsl.py
-      - name: Validate structure and retain report
-        id: validate
-        continue-on-error: true
+      - name: Apply r2 audit and remove temporary scaffolding
+        run: python scripts/apply-beta04-r2-audit.py
+      - name: Validate finalized source
+        run: |
+          python scripts/validate-beta04-structure.py
+          python scripts/test-beta04-math.py
+          git diff --check
+      - name: Commit finalized branch
         shell: bash
         run: |
-          set +e
-          python scripts/validate-beta04-structure.py 2>&1 | tee docs/BETA_0_4_VALIDATION_REPORT.txt
-          status=${PIPESTATUS[0]}
-          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
-          exit $status
-      - name: Check whitespace and retain report
-        id: whitespace
-        continue-on-error: true
-        shell: bash
-        run: |
-          set +e
-          git diff --check 2>&1 | tee -a docs/BETA_0_4_VALIDATION_REPORT.txt
-          status=${PIPESTATUS[0]}
-          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
-          exit $status
-      - name: Commit generated source and validation report
-        shell: bash
-        run: |
-          if git diff --quiet; then
-            echo "No generated changes."
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src config scripts docs README.md 2>/dev/null || true
-          git commit -m "Implement beta0.4 perfect-chain V2 [beta04-applied]"
+          git add -A
+          git commit -m "Finalize beta0.4 perfect-chain r2"
           git push origin HEAD:codex/beta0.4-perfect-chain
-      - name: Enforce validation result
-        if: steps.validate.outputs.exit_code != '0' || steps.whitespace.outputs.exit_code != '0'
-        run: exit 1
