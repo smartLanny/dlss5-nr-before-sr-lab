@@ -6043,9 +6043,9 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     s.motion_scale_y *= source_to_work_y;
 
     float jitter_x = 0.0f, jitter_y = 0.0f;
-    if (!GetFloat(params, "Jitter.Offset.X", &jitter_x) ||
+    if (!GetFloat(sr_params, "Jitter.Offset.X", &jitter_x) ||
         !std::isfinite(jitter_x)) jitter_x = 0.0f;
-    if (!GetFloat(params, "Jitter.Offset.Y", &jitter_y) ||
+    if (!GetFloat(sr_params, "Jitter.Offset.Y", &jitter_y) ||
         !std::isfinite(jitter_y)) jitter_y = 0.0f;
     // Jitter is also expressed in source-image pixels. Keep it in lockstep
     // with the colour and motion coordinate system seen by Feature 18.
