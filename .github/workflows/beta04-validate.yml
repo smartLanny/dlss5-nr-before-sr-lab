@@ -1,5 +1,5 @@
 name: Validate beta0.4 perfect-chain r3
-# Source-validation trigger: beta0.4 r3 Shader scope fix at 4e0f0e7.
+# Source-validation trigger: V2 D3D12 GPU harness upgrade at 651dc0f.
 
 on:
   workflow_dispatch:
