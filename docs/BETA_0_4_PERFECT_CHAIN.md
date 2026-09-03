@@ -1,4 +1,4 @@
-# beta0.4 Perfect Chain experiment
+# beta0.4 Perfect Chain r2 experiment
 
 Branch: `codex/beta0.4-perfect-chain`
 
@@ -36,7 +36,8 @@ Output-relative buckets are aligned and intentionally stable under ordinary DRS 
 - `0`: true native-SR path; Feature 18 is bypassed by the existing zero-transfer fast path.
 - `1`: follow the model normally.
 - `2`: compound the model ratio twice.
-- `4`: deliberately exaggerated experimental result.
+- `4`: deliberately strong experimental result.
+- `8`: extreme diagnostic ceiling; keep the ratio guard conservative.
 
 The powered ratio remains bounded by `MaxLumaRatio`, finite-value checks, near-black confidence, edge confidence and the original-image fallback. Colour follow uses the same bounded log-ratio idea and can be raised independently.
 
@@ -70,7 +71,8 @@ Test Reference at strength 1 before changing more than one control. Then compare
 3. Balanced / 1.0 strength / Hybrid.
 4. Reference / 2.0 strength / Hybrid.
 5. Reference / 4.0 strength / Hybrid.
-6. Reversible proxy only in a fixed bright-light scene.
+6. Reference / 8.0 strength with MaxLumaRatio still at 4.
+7. Reversible proxy only in a fixed bright-light scene.
 
 For each run capture the displayed frame with `-`, request one raw-stage capture, and retain `nr-before-sr.log`. Required stress transitions are HDR off/on, DLSS quality changes, DRS movement, RR off/on/off, camera cuts and rapid indoor/outdoor exposure changes.
 
@@ -79,3 +81,11 @@ For each run capture the displayed frame with `-`, request one raw-stage capture
 The branch runs three separate gates: structural invariants, compilation of every embedded Shader Model 5.0 entry point, and full English/Chinese DLL builds against a clean public ReShade checkout. Compiler output is retained in the branch so a failing gate is attributable rather than hidden behind a generic HRESULT.
 
 This remains an experimental source candidate until those automated gates and live game tests both pass. A successful compile is not a claim of visual correctness or universal compatibility.
+
+## r2 audit fixes
+
+- Scaled bounded-R8 inputs remain in their verified value domain instead of receiving a second sRGB encode.
+- Output-relative presets fail safely to the full render raster when the live SR output extent cannot be proven.
+- Lightweight GPU delta diagnostics are sampled after changes and periodically rather than every frame.
+- Lighting-lock and edge-guard composition reduce redundant full-resolution loads.
+- Strength now reaches 8x, while the independently adjustable 1–16 maximum luminance ratio remains the hard safety ceiling.

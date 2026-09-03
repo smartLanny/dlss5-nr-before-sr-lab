@@ -10,7 +10,7 @@ guides = (root / "src" / "nr_guide_contract.h").read_text(encoding="utf-8")
 config = (root / "config" / "nr_before_sr.ini").read_text(encoding="utf-8")
 
 required = [
-    'kBuildIdentity = "beta0.4-perfect-chain-r1"',
+    'kBuildIdentity = "beta0.4-perfect-chain-r2"',
     'ID3D12PipelineState *encode_v2',
     'ID3D12PipelineState *combine_v2',
     'void EncodeV2CS(',
@@ -22,6 +22,9 @@ required = [
     'Original Lighting Lock',
     'AllowUnverifiedHdrColor',
     'SuppressResetFrame',
+    'modelValueDomain',
+    'Maximum luminance ratio',
+    'should_sample_delta',
 ]
 missing = [item for item in required if item not in source and item not in config]
 if missing:
@@ -70,6 +73,13 @@ if "sourceLuma > fullProxyLuma" not in body:
     raise SystemExit("HDR headroom branch missing")
 if "logRatio * TransferStrength" not in body:
     raise SystemExit("multiplicative log-ratio strength missing")
+if ("float3 storedProxy = modelValueDomain" not in body or
+        "? saturate(proxyValue)" not in body):
+    raise SystemExit("bounded R8 value-domain preservation missing")
+if "std::clamp(config.transfer_strength, 0.0f, 8.0f)" not in source:
+    raise SystemExit("8x strength ceiling missing")
+if "using the full render raster" not in source:
+    raise SystemExit("unresolved output extent must fall back to reference")
 if "CompressNegativeTowardNeutral" not in body:
     raise SystemExit("neutral-axis gamut protection missing")
 if "FrameConfidence <= 0.000001" not in body:

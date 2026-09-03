@@ -38,11 +38,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.4-perfect-chain-r1";
+constexpr const char *kAddonVersion = "beta0.4-perfect-chain-r2";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.4-perfect-chain-r1";
+constexpr const char *kBuildIdentity = "beta0.4-perfect-chain-r2";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -777,8 +777,9 @@ struct ChainConfig {
     int mode = 2;
     bool identity_use_original = false;
     // V2 composition treats this as a multiplicative log-ratio exponent.
-    // 1.0 follows the model, 2.0 compounds the model ratio twice, and 4.0 is
-    // deliberately exaggerated while the HDR and finite-value guards remain.
+    // 1.0 follows the model, 2.0 compounds the model ratio twice, 4.0 is
+    // deliberately strong, and 8.0 is an extreme diagnostic ceiling. HDR,
+    // finite-value and user-selected maximum-ratio guards remain authoritative.
     float transfer_strength = 0.0f;
     float post_transfer_strength = 1.0f;
     // Independent Feature 18 working raster for Mode 2. 0 reference,
@@ -1065,7 +1066,7 @@ bool SameHistoryConfig(const ChainConfig &a, const ChainConfig &b) {
 
 void NormalizeConfig(ChainConfig &config) {
     config.mode = config.mode == 2 ? 2 : 1;
-    config.transfer_strength = std::clamp(config.transfer_strength, 0.0f, 4.0f);
+    config.transfer_strength = std::clamp(config.transfer_strength, 0.0f, 8.0f);
     // One visible blend control owns both chains. Keeping the legacy field in
     // sync preserves compatibility with existing INI files without allowing a
     // mode switch to silently select a stale zero-strength value.
@@ -1186,7 +1187,7 @@ void ReloadConfig(bool force = false) {
     next.suppress_reset_frame = GetPrivateProfileIntW(
         L"NRBeforeSR", L"SuppressResetFrame", 1, g_ini_path) != 0;
     next.color_strength = ReadIniFloat(L"ColorStrength", 0.0f);
-    next.max_luma_ratio = ReadIniFloat(L"MaxLumaRatio", 2.0f);
+    next.max_luma_ratio = ReadIniFloat(L"MaxLumaRatio", 4.0f);
     next.preserve_lighting = GetPrivateProfileIntW(
         L"NRBeforeSR", L"PreserveLighting", 0, g_ini_path) != 0;
     next.proxy_scale = ReadIniFloat(L"ProxyScale", 1.0f);
@@ -2061,13 +2062,13 @@ float3 SampleNeuralStoredV2(float2 fullPixelCenter) {
     return (Passthrough & 1u) != 0u ? linearValue : LinearToSRGB(linearValue);
 }
 
-float ModelLogLumaRatioV2(float2 fullPixelCenter) {
+float ModelLumaRatioV2(float2 fullPixelCenter) {
     float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
         float2(max(Width, 1u), max(Height, 1u)) - 0.5;
     int2 pxy = int2(round(mapped));
     float p = max(dot(LoadProxyLinearV2(pxy), kLuma), 1.0 / 4096.0);
     float n = max(dot(LoadNeuralLinearV2(pxy), kLuma), 1.0 / 4096.0);
-    return clamp(log2(n / p), -8.0, 8.0);
+    return clamp(n / p, 1.0 / 256.0, 256.0);
 }
 
 float3 CompressNegativeTowardNeutral(float3 color) {
@@ -2106,10 +2107,13 @@ void EncodeV2CS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height ||
         SourceWidth == 0u || SourceHeight == 0u) return;
 
-    // Keep bounded encoded input exactly unchanged at 1:1; the area path below
-    // linearizes before filtering so scaled modes do not average gamma values.
-    const bool encodedStorage = (Passthrough & 1u) != 0u ||
-                                (Passthrough & 32u) != 0u;
+    // ModelEncodedValueDomain deliberately preserves the live bounded R8
+    // numbers without guessing a gamma curve. At 1:1, encoded contracts stay
+    // byte-for-byte equivalent; scaled R8 is area-filtered in that same value
+    // domain instead of being accidentally encoded a second time.
+    const bool modelValueDomain = (Passthrough & 1u) != 0u;
+    const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
+    const bool encodedStorage = modelValueDomain || srgbSdrStorage;
     if (SourceWidth == Width && SourceHeight == Height && encodedStorage) {
         float4 exact = LoadSourceStoredV2(int2(tid.xy));
         ProxyOut[tid.xy] = float4(exact.rgb, 1.0);
@@ -2133,13 +2137,18 @@ void EncodeV2CS(uint3 tid : SV_DispatchThreadID) {
             float wx = max(0.0, min(sourceEnd.x, float(x + 1)) -
                                 max(sourceStart.x, float(x)));
             float w = wx * wy;
-            total += LoadSourceLinearV2(int2(x, y)) * w;
+            float3 sampleValue = modelValueDomain
+                ? saturate(LoadSourceStoredV2(int2(x, y)).rgb)
+                : LoadSourceLinearV2(int2(x, y));
+            total += sampleValue * w;
             totalWeight += w;
         }
     }
-    float3 sourceLinear = total / max(totalWeight, 0.000001);
-    float3 proxyLinear = EncodeProxyLinearV2(sourceLinear);
-    ProxyOut[tid.xy] = float4(LinearToSRGB(proxyLinear), 1.0);
+    float3 filteredValue = total / max(totalWeight, 0.000001);
+    float3 proxyValue = EncodeProxyLinearV2(filteredValue);
+    float3 storedProxy = modelValueDomain
+        ? saturate(proxyValue) : LinearToSRGB(proxyValue);
+    ProxyOut[tid.xy] = float4(storedProxy, 1.0);
 }
 
 [numthreads(8, 8, 1)]
@@ -2444,12 +2453,17 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     // keeps this branch completely free when LightingLock is zero.
     if (LightingLock > 0.000001) {
         const float radius = 8.0;
-        float localMean = ModelLogLumaRatioV2(center);
-        localMean += ModelLogLumaRatioV2(center + float2(radius, 0.0));
-        localMean += ModelLogLumaRatioV2(center - float2(radius, 0.0));
-        localMean += ModelLogLumaRatioV2(center + float2(0.0, radius));
-        localMean += ModelLogLumaRatioV2(center - float2(0.0, radius));
-        localMean *= 0.2;
+        // The centre ratio is already available. Average four sparse
+        // neighbours in linear-ratio space, then take one logarithm. This
+        // preserves the broad-drift estimate while avoiding five extra
+        // log2 operations and a redundant centre texture pair per pixel.
+        float localRatio = 0.40 * (neuralLuma / proxyLuma);
+        localRatio += 0.15 * ModelLumaRatioV2(center + float2(radius, 0.0));
+        localRatio += 0.15 * ModelLumaRatioV2(center - float2(radius, 0.0));
+        localRatio += 0.15 * ModelLumaRatioV2(center + float2(0.0, radius));
+        localRatio += 0.15 * ModelLumaRatioV2(center - float2(0.0, radius));
+        float localMean = clamp(log2(max(localRatio, 1.0 / 256.0)),
+                                -8.0, 8.0);
         logRatio = lerp(logRatio, logRatio - localMean,
                         saturate(LightingLock));
     }
@@ -2459,11 +2473,13 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float edgeConfidence = 1.0;
     if (EdgeGuard > 0.000001) {
         int2 p = int2(tid.xy);
-        float l = dot(LoadSourceLinearV2(p + int2(-1, 0)), kLuma);
+        // Two forward taps are enough for a conservative edge guard and
+        // halve full-resolution source loads versus the old four-tap
+        // central difference. Boundary loads are clamped by the helper.
         float r = dot(LoadSourceLinearV2(p + int2(1, 0)), kLuma);
-        float u = dot(LoadSourceLinearV2(p + int2(0, -1)), kLuma);
         float d = dot(LoadSourceLinearV2(p + int2(0, 1)), kLuma);
-        float gradient = max(abs(r - l), abs(d - u)) /
+        float gradient = max(abs(r - sourceLuma),
+                             abs(d - sourceLuma)) /
             max(sourceLuma, 0.02);
         float edge = smoothstep(0.10, 1.50, gradient);
         edgeConfidence = lerp(1.0, 1.0 - edge, saturate(EdgeGuard));
@@ -2782,6 +2798,12 @@ struct NrStageCaptureInfo {
     float transfer_strength = 1.0f;
     float color_strength = 0.0f;
     float max_luma_ratio = 1.0f;
+    int work_mode = 0;
+    float work_linear_scale = 1.0f;
+    float lighting_lock = 0.0f;
+    float edge_guard = 0.0f;
+    unsigned int proxy_curve = 0;
+    float frame_confidence = 1.0f;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;
     bool has_pre_exposure = false;
@@ -5222,7 +5244,17 @@ void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
                                 const ColorContract &color_contract) {
     CollectSlotDeltaStatsLocked(context, slot);
     ArmStageCaptureLocked(context, slot);
-    if (!slot.delta_stats_pending && slot.delta_stats != nullptr &&
+    // The diagnostic UAV clear, atomics, copy and readback are valuable
+    // evidence but should not tax every rendered frame. Sample the first
+    // successful frames, every committed configuration change, and then
+    // one periodic checkpoint. One-shot stage capture remains immediate.
+    const unsigned int current_generation =
+        g_config_generation.load(std::memory_order_relaxed);
+    const bool should_sample_delta = context.evaluations < 3 ||
+        context.config_generation != current_generation ||
+        (context.evaluations % 120) == 0;
+    if (should_sample_delta && !slot.delta_stats_pending &&
+        slot.delta_stats != nullptr &&
         slot.delta_stats_readback != nullptr) {
         slot.delta_stats_capture_armed = true;
         slot.diagnostic_mode = context.mode;
@@ -5233,7 +5265,9 @@ void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
         slot.diagnostic_pre_exposure = color_contract.pre_exposure;
         slot.diagnostic_transfer_strength = ActiveTransferStrength(g_config);
         slot.diagnostic_color_strength = g_config.color_strength;
-        slot.diagnostic_preserve_lighting = g_config.preserve_lighting;
+        slot.diagnostic_preserve_lighting = context.mode == 2
+            ? g_config.lighting_lock > 0.000001f
+            : g_config.preserve_lighting;
         slot.diagnostic_has_exposure_texture =
             color_contract.exposure_texture != nullptr;
     }
@@ -5385,6 +5419,15 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.transfer_strength = ActiveTransferStrength(g_config);
         info.color_strength = effective_color_strength;
         info.max_luma_ratio = g_config.max_luma_ratio;
+        info.work_mode = g_config.work_mode;
+        info.work_linear_scale = std::min(
+            static_cast<float>(resolved_model_width) / std::max(width, 1u),
+            static_cast<float>(resolved_model_height) / std::max(height, 1u));
+        info.lighting_lock = v2_combine ? g_config.lighting_lock :
+            (g_config.preserve_lighting ? 1.0f : 0.0f);
+        info.edge_guard = v2_combine ? g_config.edge_guard : 0.0f;
+        info.proxy_curve = g_config.proxy_curve;
+        info.frame_confidence = std::clamp(frame_confidence, 0.0f, 1.0f);
         info.pre_exposure = color_contract.pre_exposure;
         info.exposure_scale = color_contract.exposure_scale;
         info.has_pre_exposure = color_contract.has_pre_exposure;
@@ -5723,8 +5766,19 @@ NrWorkExtent ResolveNrWorkExtent(const NgxParams *params,
             result.output_width, result.output_height);
     }
     if (result.output_width == 0 || result.output_height == 0) {
-        result.output_width = render_width;
-        result.output_height = render_height;
+        // Output-relative presets require an authoritative live output
+        // extent. Falling back to the render extent would silently turn a
+        // Quality bucket into 58% of *render* resolution. Keep the full
+        // render raster instead, preserving image quality and history.
+        static unsigned int unresolved_output_extents = 0;
+        ++unresolved_output_extents;
+        if (unresolved_output_extents <= 3 ||
+            (unresolved_output_extents % 600) == 0) {
+            Log("NR work preset could not prove the live SR output extent; "
+                "using the full render raster %ux%u (count=%u).",
+                render_width, render_height, unresolved_output_extents);
+        }
+        return result;
     }
 
     float desired_scale = 1.0f;
@@ -10043,7 +10097,7 @@ void DrawSettings(reshade::api::effect_runtime *) {
         0.0f, 2.0f, "%.2f");
     if (ImGui::SliderFloat(
             ui("NR Effect Strength (multiplicative)", "NR 效果强度（乘算）"),
-            &next.transfer_strength, 0.0f, 4.0f, "%.2f")) {
+            &next.transfer_strength, 0.0f, 8.0f, "%.2f")) {
         next.post_transfer_strength = next.transfer_strength;
         changed = true;
     }
@@ -10053,6 +10107,14 @@ void DrawSettings(reshade::api::effect_runtime *) {
             "space for a deliberately stronger look; HDR headroom and Max Ratio still guard it.",
             "1 为正常跟随；大于 1 会在对数域乘算叠加 NR 比例，得到更夸张效果，"
             "同时仍受 HDR 高光保护和最大比例限制。"));
+    changed |= ImGui::SliderFloat(
+        ui("Maximum luminance ratio", "最大亮度倍率"),
+        &next.max_luma_ratio, 1.0f, 16.0f, "%.2f");
+    ImGui::TextDisabled(
+        "%s", ui(
+            "Hard safety ceiling for the powered NR luminance ratio. Raise it only "
+            "for controlled extreme-strength captures.",
+            "乘算后 NR 明暗倍率的硬上限；只有在受控的极限强度对比中才建议提高。"));
     changed |= ImGui::SliderFloat(
         ui("NR Color Follow", "NR 颜色跟随强度"),
         &next.color_strength, 0.0f, 2.0f, "%.2f");
