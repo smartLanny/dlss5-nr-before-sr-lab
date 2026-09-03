@@ -106,7 +106,7 @@ jobs:
         if: steps.build.outputs.exit_code == '0'
         shell: pwsh
         run: |
-          Get-FileHash build/* -Algorithm SHA256 |
+          Get-ChildItem build -File | Get-FileHash -Algorithm SHA256 |
             Format-Table -AutoSize | Out-String |
             Tee-Object -FilePath docs/BETA_0_4_BUILD_REPORT.txt -Append
       - name: Commit build report
