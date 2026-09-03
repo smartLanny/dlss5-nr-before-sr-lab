@@ -1,4 +1,5 @@
 name: Validate beta0.4 perfect-chain r3
+# Source-validation trigger: beta0.4 r3 Shader scope fix at 4e0f0e7.
 
 on:
   workflow_dispatch:
