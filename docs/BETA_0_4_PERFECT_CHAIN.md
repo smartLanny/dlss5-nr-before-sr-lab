@@ -74,4 +74,8 @@ Test Reference at strength 1 before changing more than one control. Then compare
 
 For each run capture the displayed frame with `-`, request one raw-stage capture, and retain `nr-before-sr.log`. Required stress transitions are HDR off/on, DLSS quality changes, DRS movement, RR off/on/off, camera cuts and rapid indoor/outdoor exposure changes.
 
-This remains an experimental source candidate until the branch's shader/build workflows and live game tests both pass. A successful compile is not a claim of visual correctness or universal compatibility.
+## Automated qualification
+
+The branch runs three separate gates: structural invariants, compilation of every embedded Shader Model 5.0 entry point, and full English/Chinese DLL builds against a clean public ReShade checkout. Compiler output is retained in the branch so a failing gate is attributable rather than hidden behind a generic HRESULT.
+
+This remains an experimental source candidate until those automated gates and live game tests both pass. A successful compile is not a claim of visual correctness or universal compatibility.
