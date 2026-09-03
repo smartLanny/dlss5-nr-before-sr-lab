@@ -2554,8 +2554,8 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
             coloured = lumaOnly;
         result = coloured;
     }
-    const bool boundedSdrStorage = modelEncodedInput ||
-        linearSdrStorage || srgbSdrStorage;
+    const bool boundedSdrStorage =
+        (Passthrough & (1u | 16u | 32u)) != 0u;
     result = boundedSdrStorage
         ? CompressBoundedTowardNeutral(result)
         : CompressNegativeTowardNeutral(result);
