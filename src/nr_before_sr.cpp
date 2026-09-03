@@ -2052,13 +2052,13 @@ float3 SampleNeuralLinearV2(float2 fullPixelCenter) {
 }
 
 float3 SampleProxyStoredV2(float2 fullPixelCenter) {
-    float3 linear = SampleProxyLinearV2(fullPixelCenter);
-    return (Passthrough & 1u) != 0u ? linear : LinearToSRGB(linear);
+    float3 linearValue = SampleProxyLinearV2(fullPixelCenter);
+    return (Passthrough & 1u) != 0u ? linearValue : LinearToSRGB(linearValue);
 }
 
 float3 SampleNeuralStoredV2(float2 fullPixelCenter) {
-    float3 linear = SampleNeuralLinearV2(fullPixelCenter);
-    return (Passthrough & 1u) != 0u ? linear : LinearToSRGB(linear);
+    float3 linearValue = SampleNeuralLinearV2(fullPixelCenter);
+    return (Passthrough & 1u) != 0u ? linearValue : LinearToSRGB(linearValue);
 }
 
 float ModelLogLumaRatioV2(float2 fullPixelCenter) {
