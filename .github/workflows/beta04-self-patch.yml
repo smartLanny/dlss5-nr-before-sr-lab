@@ -38,16 +38,18 @@ jobs:
               '    raise SystemExit("bounded R8 value-domain preservation missing")\n')
           path.write_text(text, encoding='utf-8', newline='\n')
           PY
+      - name: Keep workflow files for direct GitHub cleanup
+        run: git restore --source=HEAD -- .github/workflows
       - name: Validate finalized source
         run: |
           python scripts/validate-beta04-structure.py
           python scripts/test-beta04-math.py
           git diff --check
-      - name: Commit finalized branch
+      - name: Commit finalized source and documentation
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Finalize beta0.4 perfect-chain r2"
+          git commit -m "Finalize beta0.4 perfect-chain r2 source"
           git push origin HEAD:codex/beta0.4-perfect-chain
