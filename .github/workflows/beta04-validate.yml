@@ -19,6 +19,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Apply idempotent compiler hotfixes
+        run: python scripts/fix-beta04-hlsl.py
       - name: Structural invariants
         run: python scripts/validate-beta04-structure.py
       - name: Compile every embedded shader entry and retain report
@@ -60,6 +62,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Apply idempotent compiler hotfixes
+        run: python scripts/fix-beta04-hlsl.py
       - name: Fetch public build inputs
         shell: pwsh
         run: |
