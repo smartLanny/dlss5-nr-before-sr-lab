@@ -95,12 +95,30 @@ luminance estimate can reduce broad drift in one scene, but may also change
 faces, edges, and local contrast. It cannot restore source detail that the
 lower-resolution model never observed.
 
+A Witcher 3 beta0.3.1 report measured a negative neural luminance residual
+(`-13%` to `-22%`) while proxy/original means remained matched. A subsequent
+exact-r2 fixed-scene run measured the opposite sign (`+18%` to `+20%`) and local
+regions that moved in different directions. This rules out a single global gain
+as a general correction. In the latter run, Lighting Match reduced the
+render-resolution composited mean error from about `+16%` to below `+0.4%`, and
+the matched final screenshot was within about `2%` to `5%` of native SR across
+selected static regions. It remains an explicit option until its face/edge cost
+is measured in more than one scene.
+
 ColorDiag is a sparse, bounded display-linear diagnostic, not a colorimeter or
 an HDR mastering measurement. Hashes are meaningful only with the same active
 extent, sample grid and settings. In `NR -> SR`, its `composited` stage is the
 render-resolution image handed to the game's native SR; the subsequent screen
 result is assessed by the fixed-scene capture group rather than by reading an
 unknown game output state from the add-on.
+
+The beta0.3.2 diagnostic also emits a threshold-based attribution string. It is
+a triage hint, not an automatic admission decision: `proxy-or-exposure-contract`
+means the source-to-proxy mean already shifted; `neural-luminance-residual-*`
+means the proxy stayed close but Feature 18 introduced a broad mean change; and
+`composition-or-storage-contract` means the large shift first appeared in the
+final graft. Perceptual HDR correctness still requires matched screenshots and
+display/output metadata.
 
 ## Runtime and GPU support
 
@@ -133,6 +151,21 @@ the transaction to restore parameters, quarantine that command-list dependency
 and disable future processing. It cannot retroactively erase those commands;
 the strict zero-Feature-18 guarantee therefore starts once RR ownership has been
 observed, and the transition frame remains an explicit stress-test target.
+
+Some engines load `_nvngx.dll` or `nvngx_dlssd.dll` after the public SR wrapper.
+The development observer rescans loaded modules once per second and installs
+distinct Create/Evaluate/Release hooks. Full coverage discovered before the
+first observed Feature-1 Create/Evaluate is admitted; discovery after Feature-1
+activity or any incomplete coverage fails closed for the process. The observer
+classifies every game-owned NGX handle it sees, including auxiliary features
+such as Feature 11 frame generation; private Feature 18 handles remain separate.
+An outermost Evaluate with an unknown handle at the public SR wrapper, a
+distinct core `_nvngx` entry, or a direct DLSSD entry is therefore treated as
+evidence of a startup/lifecycle observation gap and fails closed. The UI and
+`[module]`/`[state]` log records explain that a clean game restart is required.
+There remains no public API that can prove a late module did not create and
+retain a Feature-13 handle before its exports were observed; this is why the
+rule is conservative after carrier activity.
 
 ## Mode 1 command-list state
 

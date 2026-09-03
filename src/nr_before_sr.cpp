@@ -36,7 +36,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.3.1";
+constexpr const char *kAddonVersion = "beta0.3.2-dev";
+// Deliberately stable: release authenticity is carried by the signed manifest
+// and SHA-256, while this identifier makes clean source rebuilds reproducible.
+// Do not use __DATE__/__TIME__ here.
+constexpr const char *kBuildIdentity = "beta0.3.2-dev-r2";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -260,6 +264,8 @@ enum class BypassReason : int {
     LifecycleIsolation,
     QueueAffinityUnverified,
     FailedCreateQuarantine,
+    ModuleObserverInstalling,
+    ModuleObserverUncertain,
 };
 
 std::atomic<int> g_last_bypass_reason{
@@ -320,6 +326,10 @@ std::atomic<std::uint32_t> g_last_diagnostic_hash[kDiagnosticStageCount] = {};
 std::atomic<unsigned int> g_last_diagnostic_sample_count{0};
 std::atomic<unsigned int> g_last_diagnostic_invalid_count{0};
 std::atomic<unsigned long long> g_last_diagnostic_serial{0};
+std::atomic<int> g_last_diagnostic_mode{0};
+std::atomic<float> g_last_diagnostic_transfer_strength{0.0f};
+std::atomic<float> g_last_diagnostic_color_strength{0.0f};
+std::atomic<bool> g_last_diagnostic_preserve_lighting{false};
 SRWLOCK g_diagnostic_snapshot_lock = SRWLOCK_INIT;
 
 const char *BypassReasonName(BypassReason reason) {
@@ -340,6 +350,10 @@ const char *BypassReasonName(BypassReason reason) {
     case BypassReason::QueueAffinityUnverified:
         return "queue-affinity-unverified";
     case BypassReason::FailedCreateQuarantine: return "failed-create-quarantine";
+    case BypassReason::ModuleObserverInstalling:
+        return "module-observer-installing";
+    case BypassReason::ModuleObserverUncertain:
+        return "module-observer-uncertain";
     default: return "unknown";
     }
 }
@@ -355,7 +369,7 @@ void SetBypassReason(BypassReason reason) {
     // transitions and sparse long-run checkpoints so intermittent contracts can
     // be diagnosed without producing a line per frame.
     if (transition <= 12 || (transition % 600) == 0) {
-        Log("Bypass state transition #%llu: %s -> %s.", transition,
+        Log("[state] bypass transition #%llu: %s -> %s.", transition,
             BypassReasonName(static_cast<BypassReason>(previous)),
             BypassReasonName(reason));
     }
@@ -383,6 +397,11 @@ std::atomic<unsigned long long> g_feature_generation{1};
 // If ownership bookkeeping ever becomes incomplete, fail closed for Feature 1
 // rather than risk submitting our Feature 18 beside an untracked RR feature.
 std::atomic<bool> g_feature_tracking_uncertain{false};
+// Counts the first observable boundary of every outermost Feature 1 Create.
+// A distinct RR-capable module discovered before this counter changes is a
+// deferred startup dependency, not by itself evidence that a processed SR
+// frame raced an unobserved Feature 13 owner.
+std::atomic<unsigned long long> g_feature1_create_entries{0};
 // A live Feature 13 handle is treated as authoritative RR ownership. There is
 // no public frame token that can prove a retained handle is dormant without a
 // race, so ordinary Feature 1 processing resumes only after the game releases
@@ -502,10 +521,12 @@ void LatchConcurrentRrOwnershipChange(const char *operation) {
 }
 
 void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *params) {
-    // Only these two features participate in this add-on's state machine.
-    // Keeping unrelated NGX handles out of the fixed table also prevents frame
-    // generation and auxiliary features from exhausting RR bookkeeping.
-    if (handle == nullptr || (feature_id != 1 && feature_id != 13)) return;
+    // Classify every observed game-owned NGX handle so a direct call through a
+    // core export installed late can distinguish a genuinely pre-observer
+    // handle from ordinary Feature 11/auxiliary work created after coverage.
+    // Feature 18 is deliberately excluded: it is private add-on work and may
+    // be released while the chain owns its own lifecycle lock.
+    if (handle == nullptr || feature_id == 18) return;
     FeatureRecord record = {};
     record.handle = handle;
     record.feature_id = feature_id;
@@ -533,17 +554,22 @@ void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *p
         }
         if (slot == 64 && g_features[i].handle == nullptr) slot = i;
     }
+    bool identity_conflict = false;
+    int conflicting_feature_id = -1;
     if (slot < 64) {
         const int previous_id = g_features[slot].feature_id;
-        if (previous_id != 13 && feature_id == 13) {
-            g_live_rr_handles.fetch_add(1, std::memory_order_release);
-        } else if (previous_id == 13 && feature_id != 13) {
-            const unsigned int live =
-                g_live_rr_handles.load(std::memory_order_relaxed);
-            if (live != 0)
-                g_live_rr_handles.fetch_sub(1, std::memory_order_release);
+        if (g_features[slot].handle == handle && previous_id != feature_id) {
+            // Reusing one raw pointer for another feature without an observed
+            // successful Release makes RR ownership unknowable. Never silently
+            // decrement a live Feature 13 count and replace its identity.
+            identity_conflict = true;
+            conflicting_feature_id = previous_id;
+        } else {
+            if (previous_id != 13 && feature_id == 13) {
+                g_live_rr_handles.fetch_add(1, std::memory_order_release);
+            }
+            g_features[slot] = record;
         }
-        g_features[slot] = record;
     } else {
         const bool was_uncertain =
             g_feature_tracking_uncertain.exchange(true,
@@ -554,6 +580,16 @@ void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *p
         }
     }
     ReleaseSRWLockExclusive(&g_feature_lock);
+    if (identity_conflict) {
+        char detail[192] = {};
+        snprintf(detail, sizeof(detail),
+                 "raw handle %p changed feature identity %d -> %d without an "
+                 "observed successful Release",
+                 static_cast<const void *>(handle), conflicting_feature_id,
+                 feature_id);
+        LatchRrOwnershipUncertain("RememberFeature", detail);
+        return;
+    }
     if (feature_id == 1 && slot < 64) {
         Log("Feature 1 contract generation=%llu handle=%p create=%ux%u -> "
             "%ux%u flags=%d quality=%d; all NR contracts will be rebuilt.",
@@ -979,10 +1015,13 @@ void ReloadConfig(bool force = false) {
             L"NRBeforeSR", L"Mode", L"2", g_ini_path) != FALSE;
         const bool version_written = WritePrivateProfileStringW(
             L"NRBeforeSR", L"ConfigVersion", L"3", g_ini_path) != FALSE;
-        const bool flushed = WritePrivateProfileStringW(
-            nullptr, nullptr, nullptr, g_ini_path) != FALSE;
-        const bool migration_persisted =
-            mode_written && version_written && flushed;
+        // Per the Win32 contract, the all-null cache-flush form returns zero
+        // both when it flushes the cache and when it fails. It therefore must
+        // never participate in the write-success predicate. The two concrete
+        // writes above are the authoritative result.
+        (void)WritePrivateProfileStringW(
+            nullptr, nullptr, nullptr, g_ini_path);
+        const bool migration_persisted = mode_written && version_written;
         if (!migration_persisted) {
             unsigned long error = GetLastError();
             if (error == ERROR_SUCCESS) error = ERROR_WRITE_FAULT;
@@ -994,7 +1033,7 @@ void ReloadConfig(bool force = false) {
         static bool migration_logged = false;
         if (!migration_logged) {
             migration_logged = true;
-            Log("Migrated legacy beta0.2 configuration to beta0.3.1 in memory: "
+            Log("Migrated legacy beta0.2 configuration to beta0.3.2-dev in memory: "
                 "default mode is now render-resolution NR -> SR; persisted=%d.",
                 migration_persisted ? 1 : 0);
         }
@@ -1103,35 +1142,47 @@ bool WriteIniFloat(const wchar_t *key, float value) {
 bool SaveConfig(const ChainConfig &config) {
     SetLastError(ERROR_SUCCESS);
     bool ok = true;
-    ok = WriteIniInt(L"ConfigVersion", 3) && ok;
-    ok = WriteIniInt(L"Enabled", config.enabled ? 1 : 0) && ok;
-    ok = WriteIniInt(L"Mode", config.mode) && ok;
-    ok = WriteIniInt(L"IdentityUseOriginalColor", config.identity_use_original ? 1 : 0) && ok;
-    ok = WriteIniFloat(L"TransferStrength", config.transfer_strength) && ok;
-    ok = WriteIniFloat(L"PostTransferStrength", config.post_transfer_strength) && ok;
-    ok = WriteIniFloat(L"ColorStrength", config.color_strength) && ok;
-    ok = WriteIniFloat(L"MaxLumaRatio", config.max_luma_ratio) && ok;
-    ok = WriteIniInt(L"PreserveLighting", config.preserve_lighting ? 1 : 0) && ok;
-    ok = WriteIniFloat(L"ProxyScale", config.proxy_scale) && ok;
-    ok = WriteIniInt(L"WarmupAfterCreate", static_cast<int>(config.warmup_after_create)) && ok;
-    ok = WriteIniInt(L"RetryOriginalOnSRFailure", config.retry_original_on_sr_failure ? 1 : 0) && ok;
-    ok = WriteIniInt(L"DepthMode", config.depth_mode) && ok;
-    ok = WriteIniFloat(L"Intensity", config.intensity) && ok;
-    ok = WriteIniFloat(L"LocalToneStrength", config.local_tone) && ok;
-    ok = WriteIniFloat(L"LocalStructureStrength", config.local_structure) && ok;
-    ok = WriteIniFloat(L"SkinStructureStrength", config.skin_structure) && ok;
-    ok = WriteIniInt(L"AutoMask", config.auto_mask ? 1 : 0) && ok;
-    ok = WriteIniInt(L"Style", static_cast<int>(config.style)) && ok;
-    ok = WriteIniInt(L"UICorrection", config.ui_correction ? 1 : 0) && ok;
-    ok = WriteIniInt(L"PerfEpoch", config.perf_epoch) && ok;
-    ok = WriteIniInt(L"R8OutputEncoding", config.r8_output_encoding) && ok;
+    unsigned long first_error = ERROR_SUCCESS;
+    const auto record_write = [&](bool succeeded) {
+        if (!succeeded && ok) {
+            first_error = GetLastError();
+            if (first_error == ERROR_SUCCESS) first_error = ERROR_WRITE_FAULT;
+        }
+        ok = succeeded && ok;
+    };
+    record_write(WriteIniInt(L"ConfigVersion", 3));
+    record_write(WriteIniInt(L"Enabled", config.enabled ? 1 : 0));
+    record_write(WriteIniInt(L"Mode", config.mode));
+    record_write(WriteIniInt(L"IdentityUseOriginalColor", config.identity_use_original ? 1 : 0));
+    record_write(WriteIniFloat(L"TransferStrength", config.transfer_strength));
+    record_write(WriteIniFloat(L"PostTransferStrength", config.post_transfer_strength));
+    record_write(WriteIniFloat(L"ColorStrength", config.color_strength));
+    record_write(WriteIniFloat(L"MaxLumaRatio", config.max_luma_ratio));
+    record_write(WriteIniInt(L"PreserveLighting", config.preserve_lighting ? 1 : 0));
+    record_write(WriteIniFloat(L"ProxyScale", config.proxy_scale));
+    record_write(WriteIniInt(L"WarmupAfterCreate", static_cast<int>(config.warmup_after_create)));
+    record_write(WriteIniInt(L"RetryOriginalOnSRFailure", config.retry_original_on_sr_failure ? 1 : 0));
+    record_write(WriteIniInt(L"DepthMode", config.depth_mode));
+    record_write(WriteIniFloat(L"Intensity", config.intensity));
+    record_write(WriteIniFloat(L"LocalToneStrength", config.local_tone));
+    record_write(WriteIniFloat(L"LocalStructureStrength", config.local_structure));
+    record_write(WriteIniFloat(L"SkinStructureStrength", config.skin_structure));
+    record_write(WriteIniInt(L"AutoMask", config.auto_mask ? 1 : 0));
+    record_write(WriteIniInt(L"Style", static_cast<int>(config.style)));
+    record_write(WriteIniInt(L"UICorrection", config.ui_correction ? 1 : 0));
+    record_write(WriteIniInt(L"PerfEpoch", config.perf_epoch));
+    record_write(WriteIniInt(L"R8OutputEncoding", config.r8_output_encoding));
     // Remove the obsolete option from configs created by older builds.
-    ok = (WritePrivateProfileStringW(
-        L"NRBeforeSR", L"NRPreset", nullptr, g_ini_path) != FALSE) && ok;
-    ok = (WritePrivateProfileStringW(
-        nullptr, nullptr, nullptr, g_ini_path) != FALSE) && ok;
-    unsigned long error = ok ? ERROR_SUCCESS : GetLastError();
-    if (!ok && error == ERROR_SUCCESS) error = ERROR_WRITE_FAULT;
+    // Removing an already-absent legacy key is best effort and must not turn a
+    // successfully persisted current configuration into a false failure.
+    (void)WritePrivateProfileStringW(
+        L"NRBeforeSR", L"NRPreset", nullptr, g_ini_path);
+    // This special cache-flush form is documented to return zero even when it
+    // successfully flushes, so call it for visibility but deliberately ignore
+    // both its return value and LastError.
+    (void)WritePrivateProfileStringW(
+        nullptr, nullptr, nullptr, g_ini_path);
+    const unsigned long error = ok ? ERROR_SUCCESS : first_error;
     g_config_persistence_error.store(error, std::memory_order_relaxed);
     g_config_persistence_failed.store(!ok, std::memory_order_release);
     return ok;
@@ -1195,6 +1246,7 @@ bool ApplyConfig(ChainConfig next, const char *source) {
 struct PerfSignature {
     bool enabled = false;
     bool shortfuse = false;
+    bool rr_bypass = false;
     int mode = 0;
     bool identity = true;
     float transfer = 0.0f;
@@ -1204,6 +1256,7 @@ struct PerfSignature {
 struct FrameMeter {
     LARGE_INTEGER frequency = {};
     long long last_qpc = 0;
+    long long last_report_qpc = 0;
     PerfSignature signature = {};
     bool signature_valid = false;
     bool skip_next = false;
@@ -1217,13 +1270,14 @@ FrameMeter g_frame_meter = {};
 
 bool SamePerfSignature(const PerfSignature &a, const PerfSignature &b) {
     return a.enabled == b.enabled && a.shortfuse == b.shortfuse &&
-           a.mode == b.mode &&
+           a.rr_bypass == b.rr_bypass && a.mode == b.mode &&
            a.identity == b.identity && a.transfer == b.transfer &&
            a.epoch == b.epoch;
 }
 
 const char *PerfStageName(const PerfSignature &signature) {
     if (signature.shortfuse) return "D-ShortFuse-NR";
+    if (signature.rr_bypass) return "A1-native-RR-bypass";
     if (!signature.enabled) return "A-SR-only";
     if (signature.mode == 1) return "B-post-SR-NR";
     if (signature.identity) return "B1-NR-original-Color";
@@ -1237,16 +1291,23 @@ void ObserveFrameCadence() {
     }
     LARGE_INTEGER now = {};
     QueryPerformanceCounter(&now);
+    ChainConfig perf_config = {};
+    EnterCriticalSection(&g_chain_cs);
+    perf_config = g_config;
+    LeaveCriticalSection(&g_chain_cs);
     const PerfSignature current = {
-        g_config.enabled,
+        perf_config.enabled,
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed),
-        g_config.mode, g_config.identity_use_original,
-        ActiveTransferStrength(g_config), g_config.perf_epoch};
+        g_live_rr_handles.load(std::memory_order_relaxed) != 0 ||
+            g_rr_create_in_progress.load(std::memory_order_relaxed) != 0,
+        perf_config.mode, perf_config.identity_use_original,
+        ActiveTransferStrength(perf_config), perf_config.perf_epoch};
     if (!g_frame_meter.signature_valid ||
         !SamePerfSignature(current, g_frame_meter.signature)) {
         g_frame_meter.signature = current;
         g_frame_meter.signature_valid = true;
         g_frame_meter.last_qpc = now.QuadPart;
+        g_frame_meter.last_report_qpc = now.QuadPart;
         g_frame_meter.skip_next = false;
         g_frame_meter.warmup_remaining = 180;
         g_frame_meter.count = 0;
@@ -1275,6 +1336,20 @@ void ObserveFrameCadence() {
     g_frame_meter.samples_ms[g_frame_meter.count++] = frame_ms;
     g_frame_meter.sum_ms += frame_ms;
     if (g_frame_meter.count != 600) return;
+
+    // Uncapped loading screens can present well above 1,000 FPS. A raw
+    // 600-frame cadence produced several performance lines per second without
+    // adding useful evidence. Sample complete windows, but publish no more
+    // than once every five seconds for an unchanged test epoch.
+    const long long report_interval_qpc =
+        g_frame_meter.frequency.QuadPart * 5;
+    if (now.QuadPart - g_frame_meter.last_report_qpc <
+        report_interval_qpc) {
+        g_frame_meter.count = 0;
+        g_frame_meter.sum_ms = 0.0;
+        return;
+    }
+    g_frame_meter.last_report_qpc = now.QuadPart;
 
     std::sort(std::begin(g_frame_meter.samples_ms),
               std::end(g_frame_meter.samples_ms));
@@ -2029,6 +2104,9 @@ struct NrSlot {
     unsigned int diagnostic_height = 0;
     unsigned long long diagnostic_serial = 0;
     float diagnostic_pre_exposure = 1.0f;
+    float diagnostic_transfer_strength = 1.0f;
+    float diagnostic_color_strength = 0.0f;
+    bool diagnostic_preserve_lighting = false;
     bool diagnostic_has_exposure_texture = false;
 };
 
@@ -2375,6 +2453,14 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
                                         std::memory_order_relaxed);
     g_last_diagnostic_serial.store(sampled_frame,
                                    std::memory_order_relaxed);
+    g_last_diagnostic_mode.store(slot.diagnostic_mode,
+                                 std::memory_order_relaxed);
+    g_last_diagnostic_transfer_strength.store(
+        slot.diagnostic_transfer_strength, std::memory_order_relaxed);
+    g_last_diagnostic_color_strength.store(
+        slot.diagnostic_color_strength, std::memory_order_relaxed);
+    g_last_diagnostic_preserve_lighting.store(
+        slot.diagnostic_preserve_lighting, std::memory_order_relaxed);
     g_last_diagnostic_sample_count.store(sample_count,
                                          std::memory_order_relaxed);
     g_last_diagnostic_invalid_count.store(invalid_count,
@@ -2406,7 +2492,8 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
             "samples=%u invalid=%u maxNrDelta=%.6f changed=%u "
             "maxFinalRelativeDelta=%.6f meanFinalRelativeDelta=%.6f "
             "finalChanged=%u "
-            "sampledExposure=%.6f sampledSourceToCanonical=%.6f.",
+            "sampledExposure=%.6f sampledSourceToCanonical=%.6f "
+            "transfer=%.3f colorFollow=%.3f preserveLighting=%d.",
             sampled_frame, slot.diagnostic_mode,
             slot.diagnostic_feature_generation,
             slot.diagnostic_width, slot.diagnostic_height,
@@ -2414,7 +2501,10 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
             changed_count, static_cast<double>(max_final_delta),
             static_cast<double>(mean_final_delta), final_changed_count,
             static_cast<double>(sampled_exposure),
-            static_cast<double>(sampled_source_to_canonical));
+            static_cast<double>(sampled_source_to_canonical),
+            static_cast<double>(slot.diagnostic_transfer_strength),
+            static_cast<double>(slot.diagnostic_color_strength),
+            slot.diagnostic_preserve_lighting ? 1 : 0);
         for (unsigned int stage = 0; stage < kDiagnosticStageCount; ++stage) {
             const unsigned int base = 4 + stage * 5;
             const float denominator =
@@ -2426,6 +2516,48 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
                 static_cast<double>(values[base + 2]) / denominator,
                 static_cast<double>(values[base + 3]) / denominator,
                 values[base + 4]);
+        }
+        const float denominator =
+            static_cast<float>(sample_count) * 65535.0f;
+        const float original_luma =
+            static_cast<float>(values[4 + 3]) / denominator;
+        if (original_luma > 1.0f / 65536.0f) {
+            const float proxy_luma =
+                static_cast<float>(values[9 + 3]) / denominator;
+            const float nr_luma =
+                static_cast<float>(values[14 + 3]) / denominator;
+            const float final_luma =
+                static_cast<float>(values[19 + 3]) / denominator;
+            const float proxy_bias =
+                (proxy_luma / original_luma - 1.0f) * 100.0f;
+            const float nr_bias =
+                (nr_luma / original_luma - 1.0f) * 100.0f;
+            const float final_bias =
+                (final_luma / original_luma - 1.0f) * 100.0f;
+            Log("    mean-luma bias vs original: proxy=%+.2f%% NR=%+.2f%% "
+                "final=%+.2f%%.",
+                static_cast<double>(proxy_bias),
+                static_cast<double>(nr_bias),
+                static_cast<double>(final_bias));
+            const float neural_bias_from_proxy = nr_bias - proxy_bias;
+            const char *attribution = "within-mean-threshold";
+            if (std::fabs(proxy_bias) >= 1.0f) {
+                attribution = "proxy-or-exposure-contract";
+            } else if (std::fabs(neural_bias_from_proxy) >= 3.0f) {
+                attribution = std::fabs(final_bias) >= 3.0f
+                    ? "neural-luminance-residual-transferred"
+                    : "neural-luminance-residual-contained";
+            } else if (std::fabs(final_bias) >= 3.0f) {
+                attribution = "composition-or-storage-contract";
+            }
+            Log("[color] mean-luma attribution=%s proxyStable=%d "
+                "neuralVsProxy=%+.2f%% finalVsOriginal=%+.2f%% "
+                "mode=%d transfer=%.3f preserveLighting=%d.",
+                attribution, std::fabs(proxy_bias) < 1.0f ? 1 : 0,
+                static_cast<double>(neural_bias_from_proxy),
+                static_cast<double>(final_bias), slot.diagnostic_mode,
+                static_cast<double>(slot.diagnostic_transfer_strength),
+                slot.diagnostic_preserve_lighting ? 1 : 0);
         }
     }
 }
@@ -4076,6 +4208,9 @@ void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
         slot.diagnostic_height = context.height;
         slot.diagnostic_serial = slot.last_used_serial;
         slot.diagnostic_pre_exposure = color_contract.pre_exposure;
+        slot.diagnostic_transfer_strength = ActiveTransferStrength(g_config);
+        slot.diagnostic_color_strength = g_config.color_strength;
+        slot.diagnostic_preserve_lighting = g_config.preserve_lighting;
         slot.diagnostic_has_exposure_texture =
             color_contract.exposure_texture != nullptr;
     }
@@ -5511,17 +5646,22 @@ using ResetCommandListFn = HRESULT (STDMETHODCALLTYPE *)(
 
 CreateFeatureFn g_original_create = nullptr;
 CreateFeatureFn g_original_core_create = nullptr;
+CreateFeatureFn g_original_dlssd_create = nullptr;
 EvaluateFeatureFn g_original_evaluate = nullptr;
 EvaluateFeatureFn g_original_evaluate_c = nullptr;
 EvaluateFeatureFn g_original_core_evaluate = nullptr;
+EvaluateFeatureFn g_original_dlssd_evaluate = nullptr;
 ReleaseFeatureFn g_original_release = nullptr;
 ReleaseFeatureFn g_original_core_release = nullptr;
+ReleaseFeatureFn g_original_dlssd_release = nullptr;
 std::atomic<unsigned long long> g_carrier_evaluations{0};
 std::atomic<unsigned long long> g_all_evaluations{0};
 std::atomic<unsigned int> g_wrapper_calls{0};
 std::atomic<unsigned int> g_core_calls{0};
+std::atomic<unsigned int> g_dlssd_evaluate_calls{0};
 std::atomic<unsigned int> g_wrapper_create_entries{0};
 std::atomic<unsigned int> g_core_create_entries{0};
+std::atomic<unsigned int> g_dlssd_create_entries{0};
 thread_local bool g_inside_ngx_evaluate = false;
 // The public nvngx_dlss wrapper may call the identically named export in
 // _nvngx.dll. Both exports are hooked for games that call either layer, but
@@ -5542,6 +5682,34 @@ ResetCommandListFn g_original_command_list_reset[4] = {};
 void *g_command_list_reset_hook_targets[4] = {};
 std::size_t g_command_list_reset_hook_count = 0;
 SRWLOCK g_command_list_reset_hook_lock = SRWLOCK_INIT;
+SRWLOCK g_module_rescan_lock = SRWLOCK_INIT;
+SRWLOCK g_present_observer_lock = SRWLOCK_INIT;
+HMODULE g_hooked_core_module = nullptr;
+HMODULE g_hooked_dlssd_module = nullptr;
+void *g_primary_create_target = nullptr;
+void *g_primary_evaluate_target = nullptr;
+void *g_primary_release_target = nullptr;
+void *g_core_create_target = nullptr;
+void *g_core_evaluate_target = nullptr;
+void *g_core_release_target = nullptr;
+std::atomic<bool> g_core_lifecycle_hooks_ready{false};
+std::atomic<bool> g_dlssd_lifecycle_hooks_ready{false};
+std::atomic<bool> g_core_unknown_handle_guard{false};
+std::atomic<bool> g_module_observer_gap_detected{false};
+std::atomic<bool> g_startup_deferred_module_coverage{false};
+std::atomic<bool> g_module_rescan_in_progress{false};
+std::atomic<unsigned long long> g_module_rescan_count{0};
+std::atomic<ULONGLONG> g_next_module_rescan_tick{0};
+
+bool IsUnknownOutermostEvaluateHandle(const NgxHandle *handle) {
+    return !g_inside_ngx_evaluate && FindFeature(handle).handle == nullptr;
+}
+
+void LatchUnknownEvaluateHandle(const char *source, const char *detail) {
+    g_module_observer_gap_detected.store(true, std::memory_order_release);
+    LatchRrOwnershipUncertain(source, detail);
+    SetBypassReason(BypassReason::ModuleObserverUncertain);
+}
 
 void ProcessSubmittedCommandLists(std::size_t hook_index,
                                   ID3D12CommandQueue *queue,
@@ -5809,6 +5977,9 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
             entry, feature_id, FeatureName(feature_id));
     }
     const bool outermost = g_create_hook_depth++ == 0;
+    if (outermost && feature_id == 1) {
+        g_feature1_create_entries.fetch_add(1, std::memory_order_release);
+    }
     const bool creating_rr = outermost && feature_id == 13;
     ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
     if (creating_rr && rr_gate.is_nested())
@@ -5860,6 +6031,9 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
             entry, feature_id, FeatureName(feature_id));
     }
     const bool outermost = g_create_hook_depth++ == 0;
+    if (outermost && feature_id == 1) {
+        g_feature1_create_entries.fetch_add(1, std::memory_order_release);
+    }
     const bool creating_rr = outermost && feature_id == 13;
     ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
     if (creating_rr && rr_gate.is_nested())
@@ -5902,6 +6076,60 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
     return result;
 }
 
+NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
+                          int feature_id, NgxParams *params,
+                          NgxHandle **out_handle) {
+    const unsigned int entry =
+        g_dlssd_create_entries.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (entry <= 3) {
+        Log("[module] nvngx_dlssd CreateFeature entered: call=%u id=%d (%s)",
+            entry, feature_id, FeatureName(feature_id));
+    }
+    const bool outermost = g_create_hook_depth++ == 0;
+    if (outermost && feature_id == 1) {
+        g_feature1_create_entries.fetch_add(1, std::memory_order_release);
+    }
+    const bool creating_rr = outermost && feature_id == 13;
+    ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
+    if (creating_rr && rr_gate.is_nested())
+        LatchNestedRrOwnershipChange("DLSSD Feature 13 Create");
+    else if (creating_rr && rr_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("DLSSD Feature 13 Create");
+    if (creating_rr)
+        g_rr_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
+    const NgxResult result = g_original_dlssd_create(
+        command_list, feature_id, params, out_handle);
+    --g_create_hook_depth;
+    if (!outermost) return result;
+
+    NgxHandle *handle = out_handle != nullptr ? *out_handle : nullptr;
+    if (feature_id == 13 || result != kNgxSuccess) {
+        Log("DLSSD CreateFeature id=%d (%s) result=0x%08X(%s) handle=%p",
+            feature_id, FeatureName(feature_id), result, ResultName(result),
+            static_cast<void *>(handle));
+        if (params != nullptr) DumpCreate(params);
+    }
+    if (result == kNgxSuccess && handle != nullptr)
+        RememberFeature(handle, feature_id, params);
+    if (creating_rr &&
+        ((result == kNgxSuccess) != (handle != nullptr))) {
+        LatchRrOwnershipUncertain(
+            "DLSSD Feature 13 Create",
+            "the native result/handle pair was inconsistent");
+    }
+    if (creating_rr) {
+        const unsigned int previous =
+            g_rr_create_in_progress.fetch_sub(1, std::memory_order_acq_rel);
+        if (previous == 0) {
+            g_rr_create_in_progress.store(0, std::memory_order_release);
+            LatchRrOwnershipUncertain(
+                "DLSSD Feature 13 Create",
+                "the in-progress counter underflowed");
+        }
+    }
+    return result;
+}
+
 bool ShouldGuardFeature1ForRayReconstruction() {
     return g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
            g_live_rr_handles.load(std::memory_order_acquire) != 0;
@@ -5917,6 +6145,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     // GPU work; only a rate-limited bypass-state transition may be published.
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
+        g_module_rescan_in_progress.load(std::memory_order_acquire) ||
         g_evaluate_target_overflow.load(std::memory_order_acquire) ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_nr_failed_create_process_latched.load(std::memory_order_acquire)) {
@@ -5924,6 +6153,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             SetBypassReason(BypassReason::MasterDisabled);
         else if (g_shortfuse_nr_enabled.load(std::memory_order_relaxed))
             SetBypassReason(BypassReason::ShortFuseOwnsNr);
+        else if (g_module_rescan_in_progress.load(std::memory_order_relaxed))
+            SetBypassReason(BypassReason::ModuleObserverInstalling);
         else if (g_nr_failed_create_process_latched.load(
                      std::memory_order_relaxed))
             SetBypassReason(BypassReason::FailedCreateQuarantine);
@@ -5934,7 +6165,10 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
 
     const unsigned long long all = ++g_all_evaluations;
     if (g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
-        SetBypassReason(BypassReason::LifecycleIsolation);
+        SetBypassReason(g_module_observer_gap_detected.load(
+                            std::memory_order_acquire)
+            ? BypassReason::ModuleObserverUncertain
+            : BypassReason::LifecycleIsolation);
         return original(command_list, handle, params, callback);
     }
     const FeatureRecord feature = FindFeature(handle);
@@ -6223,6 +6457,13 @@ NgxResult DispatchEvaluate(EvaluateFeatureFn original,
 NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
                        const NgxHandle *handle, const NgxParams *params,
                        void *callback) {
+    if (IsUnknownOutermostEvaluateHandle(handle)) {
+        LatchUnknownEvaluateHandle(
+            "primary Feature Evaluate",
+            "a handle created before the primary nvngx_dlss observer reached "
+            "its Evaluate entry point");
+        return g_original_evaluate(command_list, handle, params, callback);
+    }
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
@@ -6237,6 +6478,13 @@ NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
 NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
                         const NgxHandle *handle, const NgxParams *params,
                         void *callback) {
+    if (IsUnknownOutermostEvaluateHandle(handle)) {
+        LatchUnknownEvaluateHandle(
+            "primary Feature Evaluate_C",
+            "a handle created before the primary nvngx_dlss observer reached "
+            "its Evaluate_C entry point");
+        return g_original_evaluate_c(command_list, handle, params, callback);
+    }
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
@@ -6248,6 +6496,20 @@ NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
 NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
                            const NgxHandle *handle, const NgxParams *params,
                            void *callback) {
+    // A core module first observed after hook startup can already own a handle
+    // created in the sub-second load-to-rescan interval. All post-hook game
+    // creates (including Feature 11) are classified by RememberFeature, so an
+    // unknown outermost core handle is concrete evidence of an observer gap.
+    if (!g_inside_ngx_evaluate &&
+        g_core_unknown_handle_guard.load(std::memory_order_acquire) &&
+        FindFeature(handle).handle == nullptr) {
+        LatchUnknownEvaluateHandle(
+            "direct late-core Feature Evaluate",
+            "a handle created before the late _nvngx lifecycle observer "
+            "reached its distinct Evaluate entry point");
+        return g_original_core_evaluate(
+            command_list, handle, params, callback);
+    }
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
@@ -6257,6 +6519,37 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
     if (call <= 3) Log("_nvngx core EvaluateFeature reached: call=%u handle=%p", call,
                        static_cast<const void *>(handle));
     return DispatchEvaluate(g_original_core_evaluate, command_list, handle, params, callback);
+}
+
+NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
+                            const NgxHandle *handle, const NgxParams *params,
+                            void *callback) {
+    // A direct call into a distinct DLSSD Evaluate export with an unknown
+    // handle proves that its Create happened outside our observer. This is the
+    // concrete signal that the startup-deferred admission rule needs in order
+    // to fail closed without penalizing games that merely load the module a
+    // few seconds before their first Feature 1 Create.
+    if (!g_inside_ngx_evaluate && FindFeature(handle).handle == nullptr) {
+        LatchUnknownEvaluateHandle(
+            "direct DLSSD Feature Evaluate",
+            "a handle unknown to the lifecycle observer reached the distinct "
+            "nvngx_dlssd Evaluate entry point");
+        return g_original_dlssd_evaluate(
+            command_list, handle, params, callback);
+    }
+    if (!g_enabled_fast.load(std::memory_order_acquire) ||
+        g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
+        g_evaluate_target_overflow.load(std::memory_order_acquire)) {
+        return g_original_dlssd_evaluate(
+            command_list, handle, params, callback);
+    }
+    const unsigned int call = ++g_dlssd_evaluate_calls;
+    if (call <= 3) {
+        Log("[module] nvngx_dlssd EvaluateFeature reached: call=%u handle=%p",
+            call, static_cast<const void *>(handle));
+    }
+    return DispatchEvaluate(
+        g_original_dlssd_evaluate, command_list, handle, params, callback);
 }
 
 NgxResult HookRelease(NgxHandle *handle) {
@@ -6276,9 +6569,14 @@ NgxResult HookRelease(NgxHandle *handle) {
             feature.feature_id, FeatureName(feature.feature_id));
     }
     if (result == kNgxSuccess || result == kNgxFeatureNotFound) {
-        EnterCriticalSection(&g_chain_cs);
-        RetireContextForHandle(handle);
-        LeaveCriticalSection(&g_chain_cs);
+        // Only Feature 1 owns an NrContext. Auxiliary handle classification is
+        // observer bookkeeping and must not make a concurrent Feature 11
+        // release contend with the render-chain critical section.
+        if (feature.feature_id == 1) {
+            EnterCriticalSection(&g_chain_cs);
+            RetireContextForHandle(handle);
+            LeaveCriticalSection(&g_chain_cs);
+        }
         ForgetFeature(handle);
     } else {
         Log("ReleaseFeature failed for tracked handle=%p result=0x%08X (%s); "
@@ -6310,9 +6608,11 @@ NgxResult HookCoreRelease(NgxHandle *handle) {
             feature.feature_id, FeatureName(feature.feature_id));
     }
     if (result == kNgxSuccess || result == kNgxFeatureNotFound) {
-        EnterCriticalSection(&g_chain_cs);
-        RetireContextForHandle(handle);
-        LeaveCriticalSection(&g_chain_cs);
+        if (feature.feature_id == 1) {
+            EnterCriticalSection(&g_chain_cs);
+            RetireContextForHandle(handle);
+            LeaveCriticalSection(&g_chain_cs);
+        }
         ForgetFeature(handle);
     } else {
         Log("core ReleaseFeature failed for tracked handle=%p result=0x%08X (%s); "
@@ -6322,6 +6622,44 @@ NgxResult HookCoreRelease(NgxHandle *handle) {
             g_feature_tracking_uncertain.store(true, std::memory_order_release);
             Log("RR handle release failed; all Feature 1 processing will remain "
                 "fail-closed for this process.");
+        }
+    }
+    return result;
+}
+
+NgxResult HookDlssdRelease(NgxHandle *handle) {
+    const bool outermost = g_release_hook_depth++ == 0;
+    const FeatureRecord feature = FindFeature(handle);
+    const bool releasing_rr = outermost && feature.feature_id == 13;
+    ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
+    if (releasing_rr && rr_gate.is_nested())
+        LatchNestedRrOwnershipChange("DLSSD Feature 13 Release");
+    else if (releasing_rr && rr_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("DLSSD Feature 13 Release");
+    const NgxResult result = g_original_dlssd_release(handle);
+    --g_release_hook_depth;
+    if (!outermost) return result;
+    if (feature.handle != nullptr) {
+        Log("DLSSD ReleaseFeature handle=%p id=%d (%s)",
+            static_cast<void *>(handle), feature.feature_id,
+            FeatureName(feature.feature_id));
+    }
+    if ((result == kNgxSuccess || result == kNgxFeatureNotFound) &&
+        feature.handle != nullptr) {
+        if (feature.feature_id == 1) {
+            EnterCriticalSection(&g_chain_cs);
+            RetireContextForHandle(handle);
+            LeaveCriticalSection(&g_chain_cs);
+        }
+        ForgetFeature(handle);
+    } else if (feature.handle != nullptr) {
+        Log("DLSSD ReleaseFeature failed for tracked handle=%p "
+            "result=0x%08X (%s); ownership retained.",
+            static_cast<void *>(handle), result, ResultName(result));
+        if (feature.feature_id == 13) {
+            LatchRrOwnershipUncertain(
+                "DLSSD Feature 13 Release",
+                "the native release failed for a tracked RR handle");
         }
     }
     return result;
@@ -6649,6 +6987,269 @@ void UpdateEvaluateHookActivation() {
     SetEvaluateHooksEnabled(true);
 }
 
+void LogModuleObservation(const char *phase, const wchar_t *name,
+                          HMODULE module) {
+    wchar_t path[MAX_PATH] = {};
+    if (module != nullptr)
+        GetModuleFileNameW(module, path, static_cast<DWORD>(std::size(path)));
+    Log("[module] %s name=%ls handle=%p path=%ls", phase, name,
+        static_cast<void *>(module), path[0] != L'\0' ? path : L"<unknown>");
+}
+
+bool EnableLateHook(void *target, void *detour, void **original,
+                    const char *name) {
+    if (!CreateHook(target, detour, original, name)) return false;
+    const MH_STATUS enabled = MH_EnableHook(target);
+    Log("[module] MH_EnableHook %-31s target=%p status=%d", name, target,
+        static_cast<int>(enabled));
+    return enabled == MH_OK || enabled == MH_ERROR_ENABLED;
+}
+
+bool InstallLateCoreHooksLocked(HMODULE core,
+                                bool *introduced_new_lifecycle_entry) {
+    if (introduced_new_lifecycle_entry != nullptr)
+        *introduced_new_lifecycle_entry = false;
+    if (core == nullptr) return false;
+    if (g_hooked_core_module == core)
+        return g_core_lifecycle_hooks_ready.load(std::memory_order_acquire);
+    if (g_hooked_core_module != nullptr && g_hooked_core_module != core) {
+        LatchRrOwnershipUncertain(
+            "lazy module rescan",
+            "_nvngx.dll was unloaded/reloaded at a different module handle");
+        return false;
+    }
+
+    LogModuleObservation("late module discovered", L"_nvngx.dll", core);
+    void *create = reinterpret_cast<void *>(
+        GetProcAddress(core, "NVSDK_NGX_D3D12_CreateFeature"));
+    void *evaluate = reinterpret_cast<void *>(
+        GetProcAddress(core, "NVSDK_NGX_D3D12_EvaluateFeature"));
+    void *release = reinterpret_cast<void *>(
+        GetProcAddress(core, "NVSDK_NGX_D3D12_ReleaseFeature"));
+
+    // A missing export is not an unobserved entry point. Likewise, an export
+    // that aliases the already-hooked public wrapper cannot have bypassed the
+    // lifecycle observer merely because this module handle appeared later.
+    const bool create_already_covered = create == nullptr ||
+        create == g_primary_create_target;
+    const bool evaluate_already_covered = evaluate == nullptr ||
+        evaluate == g_primary_evaluate_target;
+    const bool release_already_covered = release == nullptr ||
+        release == g_primary_release_target;
+    const bool distinct_core_entry = !create_already_covered ||
+        !evaluate_already_covered || !release_already_covered;
+    // Publish the guard before enabling any late detour. This closes the small
+    // window in which another thread can enter the new hook during MinHook's
+    // enable transaction with a handle created before observer coverage.
+    if (distinct_core_entry) {
+        g_core_unknown_handle_guard.store(true, std::memory_order_release);
+    }
+    if (introduced_new_lifecycle_entry != nullptr) {
+        *introduced_new_lifecycle_entry =
+            !create_already_covered || !release_already_covered;
+    }
+    const bool create_covered = create_already_covered ||
+        EnableLateHook(create, reinterpret_cast<void *>(&HookCoreCreate),
+                       reinterpret_cast<void **>(&g_original_core_create),
+                       "late core D3D12_CreateFeature");
+    bool evaluate_covered = evaluate_already_covered;
+    if (!evaluate_covered) {
+        evaluate_covered = EnableLateHook(
+            evaluate, reinterpret_cast<void *>(&HookCoreEvaluate),
+            reinterpret_cast<void **>(&g_original_core_evaluate),
+            "late core D3D12_EvaluateFeature");
+        if (evaluate_covered) RememberEvaluateHookTarget(evaluate);
+    }
+    const bool release_covered = release_already_covered ||
+        EnableLateHook(release, reinterpret_cast<void *>(&HookCoreRelease),
+                       reinterpret_cast<void **>(&g_original_core_release),
+                       "late core D3D12_ReleaseFeature");
+
+    g_hooked_core_module = core;
+    g_core_create_target = create;
+    g_core_evaluate_target = evaluate;
+    g_core_release_target = release;
+    const bool lifecycle_ready = create_covered && release_covered;
+    g_core_lifecycle_hooks_ready.store(lifecycle_ready,
+                                        std::memory_order_release);
+    Log("[module] late _nvngx coverage: create=%d evaluate=%d release=%d; "
+        "RR-lifecycle=%s.", create_covered ? 1 : 0,
+        evaluate_covered ? 1 : 0, release_covered ? 1 : 0,
+        lifecycle_ready ? "covered" : "UNCERTAIN");
+    if (!lifecycle_ready) {
+        LatchRrOwnershipUncertain(
+            "lazy module rescan",
+            "late _nvngx.dll Create/Release lifecycle hooks are incomplete");
+    }
+    return lifecycle_ready;
+}
+
+bool InstallLateDlssdHooksLocked(HMODULE dlssd,
+                                 bool *introduced_new_lifecycle_entry) {
+    if (introduced_new_lifecycle_entry != nullptr)
+        *introduced_new_lifecycle_entry = false;
+    if (dlssd == nullptr) return false;
+    if (g_hooked_dlssd_module == dlssd)
+        return g_dlssd_lifecycle_hooks_ready.load(std::memory_order_acquire);
+    if (g_hooked_dlssd_module != nullptr && g_hooked_dlssd_module != dlssd) {
+        LatchRrOwnershipUncertain(
+            "lazy module rescan",
+            "nvngx_dlssd.dll was unloaded/reloaded at a different module handle");
+        return false;
+    }
+
+    LogModuleObservation("late module discovered", L"nvngx_dlssd.dll", dlssd);
+    void *create = reinterpret_cast<void *>(
+        GetProcAddress(dlssd, "NVSDK_NGX_D3D12_CreateFeature"));
+    void *evaluate = reinterpret_cast<void *>(
+        GetProcAddress(dlssd, "NVSDK_NGX_D3D12_EvaluateFeature"));
+    void *release = reinterpret_cast<void *>(
+        GetProcAddress(dlssd, "NVSDK_NGX_D3D12_ReleaseFeature"));
+    const bool create_already_covered = create == nullptr ||
+        create == g_primary_create_target || create == g_core_create_target;
+    const bool evaluate_already_covered = evaluate == nullptr ||
+        evaluate == g_primary_evaluate_target ||
+        evaluate == g_core_evaluate_target;
+    const bool release_already_covered = release == nullptr ||
+        release == g_primary_release_target || release == g_core_release_target;
+    if (introduced_new_lifecycle_entry != nullptr) {
+        *introduced_new_lifecycle_entry =
+            !create_already_covered || !evaluate_already_covered ||
+            !release_already_covered;
+    }
+    const bool create_covered = create_already_covered || EnableLateHook(
+        create, reinterpret_cast<void *>(&HookDlssdCreate),
+        reinterpret_cast<void **>(&g_original_dlssd_create),
+        "late DLSSD D3D12_CreateFeature");
+    bool evaluate_covered = evaluate_already_covered;
+    if (!evaluate_covered) {
+        evaluate_covered = EnableLateHook(
+            evaluate, reinterpret_cast<void *>(&HookDlssdEvaluate),
+            reinterpret_cast<void **>(&g_original_dlssd_evaluate),
+            "late DLSSD D3D12_EvaluateFeature");
+        if (evaluate_covered) RememberEvaluateHookTarget(evaluate);
+    }
+    const bool release_covered = release_already_covered || EnableLateHook(
+        release, reinterpret_cast<void *>(&HookDlssdRelease),
+        reinterpret_cast<void **>(&g_original_dlssd_release),
+        "late DLSSD D3D12_ReleaseFeature");
+
+    g_hooked_dlssd_module = dlssd;
+    const bool lifecycle_ready = create_covered && evaluate_covered &&
+                                 release_covered;
+    g_dlssd_lifecycle_hooks_ready.store(lifecycle_ready,
+                                         std::memory_order_release);
+    Log("[module] late DLSSD coverage: create=%d evaluate=%d release=%d; "
+        "RR-lifecycle=%s.", create_covered ? 1 : 0,
+        evaluate_covered ? 1 : 0, release_covered ? 1 : 0,
+        lifecycle_ready ? "covered" : "UNCERTAIN");
+    if (!lifecycle_ready) {
+        LatchRrOwnershipUncertain(
+            "lazy module rescan",
+            "late nvngx_dlssd.dll Create/Release lifecycle hooks are incomplete");
+    }
+    return lifecycle_ready;
+}
+
+constexpr bool LateLifecycleDiscoveryRequiresIsolation(
+    bool coverage_failed, bool introduced_distinct_entry,
+    bool feature1_activity_observed) {
+    return coverage_failed ||
+           (introduced_distinct_entry && feature1_activity_observed);
+}
+
+static_assert(!LateLifecycleDiscoveryRequiresIsolation(false, true, false));
+static_assert(LateLifecycleDiscoveryRequiresIsolation(false, true, true));
+static_assert(LateLifecycleDiscoveryRequiresIsolation(true, false, false));
+
+void PollNgxLifecycleModules() {
+    if (!g_evaluate_hooks_ready.load(std::memory_order_acquire)) return;
+    const ULONGLONG now = GetTickCount64();
+    ULONGLONG next = g_next_module_rescan_tick.load(std::memory_order_relaxed);
+    if (now < next || !g_next_module_rescan_tick.compare_exchange_strong(
+            next, now + 1000, std::memory_order_acq_rel,
+            std::memory_order_relaxed))
+        return;
+
+    AcquireSRWLockExclusive(&g_module_rescan_lock);
+    const unsigned long long scan =
+        g_module_rescan_count.fetch_add(1, std::memory_order_relaxed) + 1;
+    HMODULE core = GetModuleHandleW(L"_nvngx.dll");
+    HMODULE dlssd = GetModuleHandleW(L"nvngx_dlssd.dll");
+    const bool has_new_module =
+        (core != nullptr && g_hooked_core_module == nullptr) ||
+        (dlssd != nullptr && g_hooked_dlssd_module == nullptr);
+    // Feature 1 remains native only while MinHook publishes newly discovered
+    // lifecycle detours. Routine one-second scans do not perturb rendering.
+    g_module_rescan_in_progress.store(has_new_module,
+                                      std::memory_order_release);
+    const bool feature1_active_before =
+        g_feature1_create_entries.load(std::memory_order_acquire) != 0 ||
+        g_carrier_evaluations.load(std::memory_order_acquire) != 0;
+    bool discovered_late = false;
+    bool introduced_distinct_lifecycle_entry = false;
+    bool lifecycle_coverage_failed = false;
+    if (core != nullptr && g_hooked_core_module == nullptr) {
+        discovered_late = true;
+        bool introduced = false;
+        const bool covered = InstallLateCoreHooksLocked(core, &introduced);
+        introduced_distinct_lifecycle_entry |= introduced;
+        lifecycle_coverage_failed |= !covered;
+    }
+    if (dlssd != nullptr && g_hooked_dlssd_module == nullptr) {
+        discovered_late = true;
+        bool introduced = false;
+        const bool covered = InstallLateDlssdHooksLocked(dlssd, &introduced);
+        introduced_distinct_lifecycle_entry |= introduced;
+        lifecycle_coverage_failed |= !covered;
+    }
+    const unsigned long long feature1_create_entries =
+        g_feature1_create_entries.load(std::memory_order_acquire);
+    const unsigned long long carrier_evaluations =
+        g_carrier_evaluations.load(std::memory_order_acquire);
+    const bool feature1_active_after = feature1_create_entries != 0 ||
+                                       carrier_evaluations != 0;
+    const bool feature1_activity_observed =
+        feature1_active_before || feature1_active_after;
+    if (LateLifecycleDiscoveryRequiresIsolation(
+            lifecycle_coverage_failed, introduced_distinct_lifecycle_entry,
+            feature1_activity_observed)) {
+        g_module_observer_gap_detected.store(true, std::memory_order_release);
+        LatchRrOwnershipUncertain(
+            "lazy module rescan",
+            lifecycle_coverage_failed
+                ? "a late RR-capable NGX module could not be fully covered"
+                : "a late RR-capable NGX module introduced a distinct "
+                  "Create/Release entry point after Feature 1 activity; a "
+                  "pre-hook Feature 13 handle cannot be ruled out");
+    } else if (introduced_distinct_lifecycle_entry && discovered_late) {
+        g_startup_deferred_module_coverage.store(true,
+                                                  std::memory_order_release);
+        Log("[module] startup-deferred RR-capable module entry points were "
+            "fully hooked before the first observed Feature 1 Create/Evaluate; "
+            "startup continues without a permanent ownership bypass.");
+    } else if (discovered_late) {
+        Log("[module] late module exports were absent or aliased lifecycle "
+            "targets already covered by the observer; no RR uncertainty was "
+            "introduced.");
+    }
+    if (scan <= 3 || (scan % 60) == 0) {
+        Log("[module] lazy rescan #%llu core=%p coreLifecycle=%d "
+            "dlssd=%p dlssdLifecycle=%d observerGap=%d startupCovered=%d "
+            "feature1Creates=%llu carrierEvals=%llu.", scan,
+            static_cast<void *>(core),
+            g_core_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
+            static_cast<void *>(dlssd),
+            g_dlssd_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
+            g_module_observer_gap_detected.load(std::memory_order_relaxed) ? 1 : 0,
+            g_startup_deferred_module_coverage.load(
+                std::memory_order_relaxed) ? 1 : 0,
+            feature1_create_entries, carrier_evaluations);
+    }
+    g_module_rescan_in_progress.store(false, std::memory_order_release);
+    ReleaseSRWLockExclusive(&g_module_rescan_lock);
+}
+
 bool InstallHooks(HMODULE ngx) {
     const MH_STATUS init = MH_Initialize();
     if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED) {
@@ -6667,6 +7268,25 @@ bool InstallHooks(HMODULE ngx) {
         GetProcAddress(core, "NVSDK_NGX_D3D12_EvaluateFeature")) : nullptr;
     void *core_release = core != nullptr ? reinterpret_cast<void *>(
         GetProcAddress(core, "NVSDK_NGX_D3D12_ReleaseFeature")) : nullptr;
+    HMODULE dlssd = GetModuleHandleW(L"nvngx_dlssd.dll");
+    void *dlssd_create = dlssd != nullptr ? reinterpret_cast<void *>(
+        GetProcAddress(dlssd, "NVSDK_NGX_D3D12_CreateFeature")) : nullptr;
+    void *dlssd_evaluate = dlssd != nullptr ? reinterpret_cast<void *>(
+        GetProcAddress(dlssd, "NVSDK_NGX_D3D12_EvaluateFeature")) : nullptr;
+    void *dlssd_release = dlssd != nullptr ? reinterpret_cast<void *>(
+        GetProcAddress(dlssd, "NVSDK_NGX_D3D12_ReleaseFeature")) : nullptr;
+    g_primary_create_target = create;
+    g_primary_evaluate_target = evaluate;
+    g_primary_release_target = release;
+    g_core_create_target = core_create;
+    g_core_evaluate_target = core_evaluate;
+    g_core_release_target = core_release;
+    // If the core Evaluate export is distinct, any outermost handle that did
+    // not pass a hooked Create is evidence that the asynchronous hook worker
+    // started after game-owned NGX state already existed.
+    g_core_unknown_handle_guard.store(
+        core_evaluate != nullptr && core_evaluate != evaluate,
+        std::memory_order_release);
     bool okay = true;
     okay &= CreateHook(create, reinterpret_cast<void *>(&HookCreate),
                        reinterpret_cast<void **>(&g_original_create), "D3D12_CreateFeature");
@@ -6686,25 +7306,98 @@ bool InstallHooks(HMODULE ngx) {
     }
     okay &= CreateHook(release, reinterpret_cast<void *>(&HookRelease),
                        reinterpret_cast<void **>(&g_original_release), "D3D12_ReleaseFeature");
-    if (CreateOptionalHook(core_evaluate,
-                           reinterpret_cast<void *>(&HookCoreEvaluate),
-                           reinterpret_cast<void **>(&g_original_core_evaluate),
-                           "core D3D12_EvaluateFeature")) {
+    bool core_evaluate_hooked = core_evaluate == nullptr ||
+        core_evaluate == evaluate;
+    if (core != nullptr && !core_evaluate_hooked && CreateOptionalHook(
+            core_evaluate, reinterpret_cast<void *>(&HookCoreEvaluate),
+            reinterpret_cast<void **>(&g_original_core_evaluate),
+            "core D3D12_EvaluateFeature")) {
+        core_evaluate_hooked = true;
         RememberEvaluateHookTarget(core_evaluate);
     }
-    CreateOptionalHook(core_create, reinterpret_cast<void *>(&HookCoreCreate),
-                       reinterpret_cast<void **>(&g_original_core_create),
-                       "core D3D12_CreateFeature");
-    CreateOptionalHook(core_release,
-                       reinterpret_cast<void *>(&HookCoreRelease),
-                       reinterpret_cast<void **>(&g_original_core_release),
-                       "core D3D12_ReleaseFeature");
+    const bool core_create_hooked = core_create == nullptr || core_create == create
+        ? true
+        : CreateOptionalHook(
+            core_create, reinterpret_cast<void *>(&HookCoreCreate),
+            reinterpret_cast<void **>(&g_original_core_create),
+            "core D3D12_CreateFeature");
+    const bool core_release_hooked = core_release == nullptr || core_release == release
+        ? true
+        : CreateOptionalHook(
+            core_release, reinterpret_cast<void *>(&HookCoreRelease),
+            reinterpret_cast<void **>(&g_original_core_release),
+            "core D3D12_ReleaseFeature");
+
+    const bool dlssd_create_already_covered = dlssd_create == nullptr ||
+        dlssd_create == create || dlssd_create == core_create;
+    const bool dlssd_evaluate_already_covered = dlssd_evaluate == nullptr ||
+        dlssd_evaluate == evaluate || dlssd_evaluate == core_evaluate;
+    const bool dlssd_release_already_covered = dlssd_release == nullptr ||
+        dlssd_release == release || dlssd_release == core_release;
+    const bool dlssd_create_hooked = dlssd_create_already_covered
+        ? true
+        : CreateOptionalHook(
+            dlssd_create, reinterpret_cast<void *>(&HookDlssdCreate),
+            reinterpret_cast<void **>(&g_original_dlssd_create),
+            "DLSSD D3D12_CreateFeature");
+    bool dlssd_evaluate_hooked = dlssd_evaluate_already_covered;
+    if (!dlssd_evaluate_hooked && CreateOptionalHook(
+            dlssd_evaluate, reinterpret_cast<void *>(&HookDlssdEvaluate),
+            reinterpret_cast<void **>(&g_original_dlssd_evaluate),
+            "DLSSD D3D12_EvaluateFeature")) {
+        dlssd_evaluate_hooked = true;
+        RememberEvaluateHookTarget(dlssd_evaluate);
+    }
+    const bool dlssd_release_hooked = dlssd_release_already_covered
+        ? true
+        : CreateOptionalHook(
+            dlssd_release, reinterpret_cast<void *>(&HookDlssdRelease),
+            reinterpret_cast<void **>(&g_original_dlssd_release),
+            "DLSSD D3D12_ReleaseFeature");
     if (!okay) return false;
     const MH_STATUS enabled = MH_EnableHook(MH_ALL_HOOKS);
     Log("MH_EnableHook all status=%d", static_cast<int>(enabled));
     if (enabled != MH_OK) return false;
     g_evaluate_hooks_enabled.store(true, std::memory_order_release);
     g_evaluate_hooks_ready.store(true, std::memory_order_release);
+    if (core != nullptr) {
+        g_hooked_core_module = core;
+        const bool core_lifecycle_ready =
+            core_create_hooked && core_release_hooked;
+        g_core_lifecycle_hooks_ready.store(core_lifecycle_ready,
+                                            std::memory_order_release);
+        LogModuleObservation("initial module", L"_nvngx.dll", core);
+        Log("[module] initial _nvngx coverage: create=%d evaluate=%d "
+            "release=%d; RR-lifecycle=%s.", core_create_hooked ? 1 : 0,
+            core_evaluate_hooked ? 1 : 0, core_release_hooked ? 1 : 0,
+            core_lifecycle_ready ? "covered" : "UNCERTAIN");
+        if (!core_lifecycle_ready) {
+            LatchRrOwnershipUncertain(
+                "initial module scan",
+                "_nvngx.dll Create/Release lifecycle hooks are incomplete");
+        }
+    }
+    if (dlssd != nullptr) {
+        g_hooked_dlssd_module = dlssd;
+        const bool dlssd_lifecycle_ready =
+            dlssd_create_hooked && dlssd_evaluate_hooked &&
+            dlssd_release_hooked;
+        g_dlssd_lifecycle_hooks_ready.store(dlssd_lifecycle_ready,
+                                             std::memory_order_release);
+        LogModuleObservation("initial module", L"nvngx_dlssd.dll", dlssd);
+        Log("[module] initial DLSSD coverage: create=%d evaluate=%d release=%d; "
+            "RR-lifecycle=%s.", dlssd_create_hooked ? 1 : 0,
+            dlssd_evaluate_hooked ? 1 : 0, dlssd_release_hooked ? 1 : 0,
+            dlssd_lifecycle_ready ? "covered" : "UNCERTAIN");
+        if (!dlssd_lifecycle_ready) {
+            LatchRrOwnershipUncertain(
+                "initial module scan",
+                "nvngx_dlssd.dll Create/Release lifecycle hooks are incomplete");
+        }
+    }
+    Log("[module] initial scan complete: sr=%p core=%p dlssd=%p.",
+        static_cast<void *>(ngx), static_cast<void *>(core),
+        static_cast<void *>(dlssd));
     UpdateEvaluateHookActivation();
     return true;
 }
@@ -6743,6 +7436,15 @@ void ToggleMasterFromHotkey() {
 void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *,
                const reshade::api::rect *, const reshade::api::rect *,
                std::uint32_t, const reshade::api::rect *) {
+    // ReShade can report Presents from more than one swapchain/thread. Module
+    // rescans have their own lock, but cadence samples and hotkey edge state are
+    // intentionally single-stream. Skip a concurrent auxiliary Present rather
+    // than racing those diagnostics or toggling F6 twice.
+    if (!TryAcquireSRWLockExclusive(&g_present_observer_lock)) return;
+    // A few engines load _nvngx.dll or nvngx_dlssd.dll only after the primary
+    // SR wrapper. A one-second in-memory rescan records that transition and
+    // installs any newly available lifecycle observers. It never scans disk.
+    PollNgxLifecycleModules();
     // No Feature 1 means there cannot be an NR context or fence to retire. Keep
     // early engine Presents away from lifecycle tables entirely.
     if (g_carrier_evaluations.load(std::memory_order_acquire) != 0) {
@@ -6776,6 +7478,7 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *,
     }
     f6_was_down = f6_is_down;
     UpdateEvaluateHookActivation();
+    ReleaseSRWLockExclusive(&g_present_observer_lock);
 }
 
 void DrawSettings(reshade::api::effect_runtime *) {
@@ -6789,8 +7492,8 @@ void DrawSettings(reshade::api::effect_runtime *) {
     };
 
     ImGui::SeparatorText(ui(
-        "DLSS 5 AI Rendering Upscaling Edition beta0.3.1",
-        "DLSS 5 AI渲染超分版 beta0.3.1"));
+        "DLSS 5 AI Rendering Upscaling Edition beta0.3.2-dev",
+        "DLSS 5 AI渲染超分版 beta0.3.2-dev"));
     ImGui::TextDisabled(
         ui("Version %s | Author %s", "版本 %s | 作者 %s"),
         kAddonVersion, kAddonAuthor);
@@ -6968,6 +7671,10 @@ void DrawSettings(reshade::api::effect_runtime *) {
     std::uint32_t diagnostic_hash[kDiagnosticStageCount] = {};
     unsigned int diagnostic_sample_count = 0;
     unsigned int diagnostic_invalid_count = 0;
+    int diagnostic_mode = 0;
+    float diagnostic_transfer_strength = 0.0f;
+    float diagnostic_color_strength = 0.0f;
+    bool diagnostic_preserve_lighting = false;
     AcquireSRWLockShared(&g_diagnostic_snapshot_lock);
     sampled_exposure_scale =
         g_last_sampled_exposure_scale.load(std::memory_order_relaxed);
@@ -6997,11 +7704,130 @@ void DrawSettings(reshade::api::effect_runtime *) {
         g_last_diagnostic_sample_count.load(std::memory_order_relaxed);
     diagnostic_invalid_count =
         g_last_diagnostic_invalid_count.load(std::memory_order_relaxed);
+    diagnostic_mode =
+        g_last_diagnostic_mode.load(std::memory_order_relaxed);
+    diagnostic_transfer_strength =
+        g_last_diagnostic_transfer_strength.load(std::memory_order_relaxed);
+    diagnostic_color_strength =
+        g_last_diagnostic_color_strength.load(std::memory_order_relaxed);
+    diagnostic_preserve_lighting =
+        g_last_diagnostic_preserve_lighting.load(std::memory_order_relaxed);
     ReleaseSRWLockShared(&g_diagnostic_snapshot_lock);
     const bool safety_tracking_uncertain =
         g_feature_tracking_uncertain.load(std::memory_order_relaxed) ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_relaxed) ||
         g_evaluate_target_overflow.load(std::memory_order_relaxed);
+    const bool module_observer_uncertain =
+        g_module_observer_gap_detected.load(std::memory_order_relaxed);
+    const bool module_observer_installing =
+        g_module_rescan_in_progress.load(std::memory_order_relaxed);
+    const bool startup_deferred_covered =
+        g_startup_deferred_module_coverage.load(std::memory_order_relaxed);
+    const unsigned long long module_rescans =
+        g_module_rescan_count.load(std::memory_order_relaxed);
+    const bool core_observer_ready =
+        g_core_lifecycle_hooks_ready.load(std::memory_order_relaxed);
+    const bool dlssd_observer_ready =
+        g_dlssd_lifecycle_hooks_ready.load(std::memory_order_relaxed);
+
+    const char *brief_status_en = "Active";
+    const char *brief_status_zh = "运行中";
+    const char *brief_reason_en = before_sr
+        ? "Render-resolution NR is feeding the game's original DLSS SR."
+        : "The full-resolution SR -> NR comparison path is active.";
+    const char *brief_reason_zh = before_sr
+        ? "渲染分辨率 NR 正在送入游戏原生 DLSS SR。"
+        : "全分辨率 SR -> NR 高画质对比链路正在运行。";
+    if (shortfuse_nr_enabled) {
+        brief_status_en = "Safe bypass";
+        brief_status_zh = "安全旁路";
+        brief_reason_en = "ShortFuse currently owns NR; double processing is blocked.";
+        brief_reason_zh = "ShortFuse 当前拥有 NR；已阻止重复处理。";
+    } else if (!next.enabled) {
+        brief_status_en = "Pure game path";
+        brief_status_zh = "纯游戏链路";
+        brief_reason_en = "F6 master switch is off; Feature 18 is not executed.";
+        brief_reason_zh = "F6 总开关已关闭；不会执行 Feature 18。";
+    } else if (module_observer_installing ||
+               bypass_reason == BypassReason::ModuleObserverInstalling) {
+        brief_status_en = "Warming up safely";
+        brief_status_zh = "安全预热中";
+        brief_reason_en = "A deferred NGX module observer is being installed; this frame stays native.";
+        brief_reason_zh = "正在补挂延迟加载的 NGX 模块观察器；本帧保持原生链路。";
+    } else if (module_observer_uncertain ||
+               bypass_reason == BypassReason::ModuleObserverUncertain) {
+        brief_status_en = "Safe bypass";
+        brief_status_zh = "安全旁路";
+        brief_reason_en = "An NGX handle or RR-capable module escaped lifecycle observation; ownership cannot be proven for this process.";
+        brief_reason_zh = "检测到 NGX 句柄或 RR 模块绕过了生命周期观察；本进程无法证明其所有权状态。";
+    } else if (failed_create_quarantine) {
+        brief_status_en = "Safe isolation";
+        brief_status_zh = "安全隔离";
+        brief_reason_en = "Feature 18 returned an invalid failure/handle pair; restart the game.";
+        brief_reason_zh = "Feature 18 返回了异常的失败/句柄组合；请重启游戏。";
+    } else if (rr_protected ||
+               bypass_reason == BypassReason::RayReconstructionGuard) {
+        brief_status_en = "Safe bypass";
+        brief_status_zh = "安全旁路";
+        brief_reason_en = "Ray Reconstruction is active; the game RR/SR chain is left untouched.";
+        brief_reason_zh = "光线重构正在运行；游戏 RR/SR 链路保持原样。";
+    } else if (unverified_exposure_texture_bypass ||
+               bypass_reason == BypassReason::ExposureTextureUnverified) {
+        brief_status_en = "Safe bypass";
+        brief_status_zh = "安全旁路";
+        brief_reason_en = "The live ExposureTexture contract is unknown or unsupported.";
+        brief_reason_zh = "当前 ExposureTexture 合同未知或不受支持。";
+    } else if (bypass_reason == BypassReason::OutputColorContractUnverified) {
+        brief_status_en = "Safe bypass";
+        brief_status_zh = "安全旁路";
+        brief_reason_en = "Unknown R8 linear/sRGB colour contract.";
+        brief_reason_zh = "未知 R8 色彩合同（无法确认 linear / sRGB）。";
+    } else if (bypass_reason == BypassReason::UnsupportedInputFormat) {
+        brief_status_en = "Safe bypass";
+        brief_status_zh = "安全旁路";
+        brief_reason_en = "The render-resolution Color format is unsupported.";
+        brief_reason_zh = "渲染分辨率 Color 格式不受支持。";
+    } else if (bypass_reason == BypassReason::UnsupportedOutputFormat) {
+        brief_status_en = "Safe bypass";
+        brief_status_zh = "安全旁路";
+        brief_reason_en = "The output Color format/usage contract is unsupported.";
+        brief_reason_zh = "输出 Color 格式或用法合同不受支持。";
+    } else if (bypass_reason == BypassReason::RuntimeRejected) {
+        brief_status_en = "Safe bypass";
+        brief_status_zh = "安全旁路";
+        brief_reason_en = "The installed NR runtime rejected Feature 18 creation.";
+        brief_reason_zh = "当前 NR 运行库拒绝创建 Feature 18。";
+    } else if (bypass_reason == BypassReason::QueueAffinityUnverified) {
+        brief_status_en = "Warming up safely";
+        brief_status_zh = "安全预热中";
+        brief_reason_en = "The command list has not yet proved stable graphics-queue affinity.";
+        brief_reason_zh = "命令列表尚未证明稳定的图形队列归属。";
+    } else if (bypass_reason == BypassReason::LifecycleIsolation ||
+               safety_tracking_uncertain) {
+        brief_status_en = "Safe bypass";
+        brief_status_zh = "安全旁路";
+        brief_reason_en = "GPU lifecycle or hook ownership is uncertain; native SR is preserved.";
+        brief_reason_zh = "GPU 生命周期或 Hook 所有权不确定；已保留原生 SR。";
+    } else if (bypass_reason == BypassReason::WaitingForFeature1 ||
+               evaluations == 0) {
+        brief_status_en = "Waiting";
+        brief_status_zh = "等待中";
+        brief_reason_en = "No compatible DLSS Super Resolution frame has been observed yet.";
+        brief_reason_zh = "尚未观察到兼容的 DLSS 超分帧。";
+    }
+
+    ImGui::SeparatorText(ui("Current status", "当前状态"));
+    ImGui::Text(ui("Current status: %s", "当前状态：%s"),
+                ui(brief_status_en, brief_status_zh));
+    ImGui::TextWrapped(ui("Reason: %s", "原因：%s"),
+                       ui(brief_reason_en, brief_reason_zh));
+    ImGui::TextDisabled(
+        ui("Module observer: rescans=%llu core=%s DLSSD=%s observer-gap=%s startup-covered=%s",
+           "模块观察器：重扫=%llu core=%s DLSSD=%s 观察缺口=%s 启动补挂=%s"),
+        module_rescans, core_observer_ready ? "ready" : "waiting",
+        dlssd_observer_ready ? "ready" : "waiting",
+        module_observer_uncertain ? "yes" : "no",
+        startup_deferred_covered ? "yes" : "no");
     if (input_width != 0 && input_height != 0 &&
         output_width != 0 && output_height != 0) {
         ImGui::Text(ui("Game DLSS: %ux%u -> %ux%u",
@@ -7046,6 +7872,24 @@ void DrawSettings(reshade::api::effect_runtime *) {
             "attempt is disabled until the game restarts.",
             "状态：Feature 18 创建失败时仍返回了非空句柄。其完整 GPU 依赖"
             "已被隔离，本进程后续 NR 尝试全部停用；请重启游戏。"));
+    } else if (module_observer_installing ||
+               bypass_reason == BypassReason::ModuleObserverInstalling) {
+        ImGui::TextWrapped("%s", ui(
+            "Status: deferred NGX lifecycle hooks are being installed. The "
+            "current frame is passed through natively; processing resumes "
+            "only after observer coverage is complete.",
+            "状态：正在补挂延迟加载的 NGX 生命周期 Hook。本帧原样旁路；"
+            "只有观察器覆盖完成后才恢复处理。"));
+    } else if (module_observer_uncertain ||
+               bypass_reason == BypassReason::ModuleObserverUncertain) {
+        ImGui::TextWrapped("%s", ui(
+            "Status: an NGX handle or RR-capable module was observed outside "
+            "the complete lifecycle hook transaction. An earlier Feature 13 "
+            "handle cannot be ruled out; native SR is preserved until restart. "
+            "See [module] and ownership lines in nr-before-sr.log.",
+            "状态：检测到 NGX 句柄或可承载 RR 的模块绕过了完整生命周期 Hook。"
+            "无法排除更早已创建 Feature 13 句柄；重启前持续保留原生 SR。"
+            "请查看 nr-before-sr.log 中的 [module] 与所有权记录。"));
     } else if (safety_tracking_uncertain) {
         ImGui::TextWrapped("%s", ui(
             "Status: safety tracking became uncertain, so Feature 18 is "
@@ -7207,6 +8051,13 @@ void DrawSettings(reshade::api::effect_runtime *) {
                "颜色诊断 #%llu（有界显示线性域）：%u 个样本，%u 个无效样本"),
             diagnostic_serial, diagnostic_sample_count,
             diagnostic_invalid_count);
+        ImGui::TextDisabled(
+            ui("Sample contract: mode %d | detail %.2f | colour %.2f | lighting match %s",
+               "采样合同：模式 %d | 细节 %.2f | 颜色 %.2f | 光照匹配 %s"),
+            diagnostic_mode,
+            static_cast<double>(diagnostic_transfer_strength),
+            static_cast<double>(diagnostic_color_strength),
+            diagnostic_preserve_lighting ? ui("on", "开") : ui("off", "关"));
         for (unsigned int stage = 0; stage < kDiagnosticStageCount; ++stage) {
             ImGui::TextDisabled(
                 "%s  RGB %.4f / %.4f / %.4f  Y %.4f  #%08X",
@@ -7216,6 +8067,29 @@ void DrawSettings(reshade::api::effect_runtime *) {
                 static_cast<double>(diagnostic_b[stage]),
                 static_cast<double>(diagnostic_luma[stage]),
                 diagnostic_hash[stage]);
+        }
+        const float original_luma = diagnostic_luma[0];
+        if (original_luma > 1.0f / 65536.0f) {
+            const float proxy_bias =
+                (diagnostic_luma[1] / original_luma - 1.0f) * 100.0f;
+            const float nr_bias =
+                (diagnostic_luma[2] / original_luma - 1.0f) * 100.0f;
+            const float final_bias =
+                (diagnostic_luma[3] / original_luma - 1.0f) * 100.0f;
+            ImGui::TextDisabled(
+                ui("Mean-luma bias vs original: proxy %+.2f%% | NR %+.2f%% | final %+.2f%%",
+                   "相对原图平均亮度偏移：代理 %+.2f%% | NR %+.2f%% | 最终 %+.2f%%"),
+                static_cast<double>(proxy_bias),
+                static_cast<double>(nr_bias),
+                static_cast<double>(final_bias));
+            if (diagnostic_mode == 2 && !diagnostic_preserve_lighting &&
+                std::fabs(final_bias) >= 3.0f) {
+                ImGui::TextWrapped("%s", ui(
+                    "A broad NR luminance bias was measured. Compare with "
+                    "Lighting Match before treating this as an exposure-contract bug.",
+                    "已测到较明显的 NR 整体亮度偏移。请先开启“光照匹配”做消融对比，"
+                    "再判断是否为曝光合同错误。"));
+            }
         }
     }
     ImGui::TextDisabled(
@@ -7339,8 +8213,8 @@ void DrawSettings(reshade::api::effect_runtime *) {
            "诊断直通模式（丢弃 NR 颜色结果）"),
         &next.identity_use_original);
 
-    if (ImGui::Button(ui("Restore recommended beta0.3.1 settings",
-                         "恢复 beta0.3.1 推荐设置"))) {
+    if (ImGui::Button(ui("Restore recommended beta0.3.2 settings",
+                         "恢复 beta0.3.2 推荐设置"))) {
         next.mode = 2;
         next.identity_use_original = false;
         next.post_transfer_strength = 1.0f;
@@ -7380,14 +8254,14 @@ void DrawSettings(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI渲染超分版 beta0.3.1 @野生的装机宅 Bilibili";
+    "DLSS 5 AI渲染超分版 beta0.3.2-dev @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
     "三种风格和实时画质调节，输入分辨率严格跟随游戏 DLSS 挡位；检测到"
     "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Upscaling Edition beta0.3.1 @野生的装机宅 Bilibili";
+    "DLSS 5 AI Rendering Upscaling Edition beta0.3.2-dev @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Switches between output-resolution NR after Super Resolution and "
     "render-resolution NR before Super Resolution. Includes an F6 master "
@@ -7430,10 +8304,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             snprintf(addon_leaf_utf8, sizeof(addon_leaf_utf8), "%s",
                      "<module-path-unavailable-or-truncated>");
         Log("DLSS 5 AI Rendering Upscaling Edition %s attached | author=%s | "
-            "official_release=%s | language=%s | file=%s | build=%s %s",
+            "official_release=%s | language=%s | file=%s | build_id=%s",
             kAddonVersion, kAddonAuthor, kOfficialReleaseUrl,
             kChineseUi ? "zh-CN" : "en",
-            addon_leaf_utf8, __DATE__, __TIME__);
+            addon_leaf_utf8, kBuildIdentity);
         ReloadConfig(true);
         if (!reshade::register_addon(module)) {
             Log("ReShade add-on registration failed.");

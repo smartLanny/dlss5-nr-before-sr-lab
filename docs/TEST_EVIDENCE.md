@@ -2,7 +2,9 @@
 
 This file contains bounded observations, not claims of universal compatibility.
 Raw logs are intentionally excluded because they contained installation paths and
-process addresses. Evidence from different build timestamps is kept separate.
+process addresses. Evidence from different binary hashes is kept separate. Current
+builds use a stable embedded build ID rather than compile time so clean rebuilds can
+be checked for byte-for-byte reproducibility.
 
 ## Current source/build qualification (2026-09-03)
 
@@ -19,23 +21,43 @@ process addresses. Evidence from different build timestamps is kept separate.
   that actually contain a lifecycle token, uses a locked ColorDiag snapshot,
   and distinguishes transfer `prepared`, `recorded`, and native-queue
   `submitted` counts.
+- Two clean builds produced identical current artifacts. Their SHA-256 values are
+  `1E717CB5D2170D36EBDAD078B052E96DBB0BDD3084F512889C82DF9A1757F560`
+  (Chinese), `9A5F6468776F8501C358FB2BB648AEB4404CF8B4CFE186C0A907EC4F65553E49`
+  (English), and
+  `DB26E486592B252072BA5734FC2B27412863B8526826225640C837D4B4D11B60`
+  (bridge).
 
-## Current-binary runtime status
+## Latest gameplay-tested binary runtime status
 
-The beta0.3.1 startup hotfix Chinese binary with SHA256
-`6460C8E367E586B648E15426B4C6C57C87BAFBC154BF67F88357392FDA706307`
-completed a fresh Cyberpunk 2077 direct-launch smoke run on 2026-09-03. The
-observed contract was `1920x1200 -> 3840x2400`; the process remained alive
-beyond 2,400 carrier evaluations and recorded 2,388 successful Feature 18
-evaluations. Transfer prepared/recorded/bound/submitted counters stayed aligned,
-and no device removal, lifecycle uncertainty, duplicate Feature 18, runtime
-rejection, or slot exhaustion appeared in the captured log.
+The beta0.3.2 development Chinese binary with SHA256
+`4E483F25DF943DE78DA8D77CB0A2ABB23C951BAEAFF7B6605A36E6A150FB1AF1`
+completed two fresh Cyberpunk 2077 direct-launch runs on 2026-09-03.
 
-This proves the confirmed beta0.3 `DllMain` stack-overflow regression is fixed
-locally and that the default `NR -> SR` path reaches sustained execution. It
-does not replace the physical F6, RR-on, mode-switch, DLSS-preset, Hogwarts, or
-Witcher gates. Earlier runtime evidence below remains regression guidance and
-is kept separate from this exact hotfix binary.
+- With RR off, the observed contract was `2560x1600 -> 3840x2400`. The default
+  `NR -> SR` path exceeded 1,800 carrier evaluations, including 1,792 Feature 18
+  successes at the 1,800 checkpoint. Transfer prepared/recorded/bound/submitted
+  were `1790/1790/1790/1790`; lifecycle bypass was zero and no actual queue
+  mismatch, device removal, runtime rejection or duplicate-list detection was
+  logged. Sanitized local evidence hash:
+  `5ED337901A40C3E47153FD62C311AB5BB448DD9ADC62C88C6F9A67F4C23156FC`.
+- With RR on, Feature 13 exceeded 1,800 evaluations and Feature 18 create/evaluate
+  count remained zero. The frame sampler changed to the explicit
+  `A1-native-RR-bypass` stage, and there was no observer uncertainty or late
+  module gap. Sanitized local evidence hash:
+  `53869AF559C2F9A0387ABF606C4188BE32D39A0F00B5C5C3961C60E897D77751`.
+
+A preceding source-equivalent build, before only the RR performance-stage label
+changed, completed five live order transitions. Another beta0.3.2 build completed
+five Enabled off/on cycles; every off interval stopped new Feature 18 work. These
+support the state transitions but are not claimed as exact-final-hash evidence.
+
+This proves the confirmed beta0.3 startup crash remains fixed locally, the
+default chain reaches sustained execution, and RR exclusion works on the exact
+tested binary. The only subsequent add-on source change is replacement of volatile
+compile date/time text with a stable build ID; that makes clean builds reproducible
+but does not transfer an exact-hash gameplay claim to them. This evidence does not
+replace the physical F6, DLSS-preset, Hogwarts, or Witcher gameplay/visual gates.
 
 ## Pre-current Cyberpunk candidate
 
@@ -104,7 +126,7 @@ beta0.3 release.
 - Same-process performance was approximately 89 FPS plain SR, 68 FPS Mode 2,
   and 27 FPS Mode 1. Cross-launch values were not used for overhead conclusions.
 
-## Witcher Mode 1 contract
+## Witcher contract and fixed-scene HDR ablation
 
 - Game SR contract observed near `1114x696 -> 1920x1200`.
 - Output-resolution Feature 18 create succeeded at `1920x1200` with
@@ -119,13 +141,45 @@ beta0.3 release.
   `0.0471` to `0.0496` (roughly +5%). The much larger per-pixel mean relative
   delta is dominated by near-black denominators and must not be read as a global
   30% exposure shift.
+- A separate beta0.3.1 HDR report used `PreExposure=1`, `ExposureScale=1`, no
+  ExposureTexture and FP16 input/output. Its original-to-proxy mean luminance was
+  approximately `-0.06%`, while Feature 18's mean output was `-13%` to `-22%`
+  and the final Mode-2 graft was `-5%` to `-7%`. `PreserveLighting` was disabled.
+  This evidence points to a broad neural luminance residual rather than the old
+  asymmetric exposure/codec bug.
+- The exact current Chinese beta0.3.2-dev-r2 add-on, SHA256
+  `1E717CB5D2170D36EBDAD078B052E96DBB0BDD3084F512889C82DF9A1757F560`,
+  completed a four-way fixed-camera gameplay capture on 2026-09-03: native SR,
+  Mode 2, Mode 2 plus Lighting Match, and Mode 1. The live contract was
+  `1114x696 -> 1920x1200`, FP16 input/output, `PreExposure=1`,
+  `ExposureScale=1`, and no ExposureTexture.
+- In the Mode-2 interval without Lighting Match, ColorDiag attributed the shift
+  to the neural residual: NR-versus-proxy mean luminance was approximately
+  `+18%` to `+20%`, and the render-resolution composited result was about
+  `+16%` to `+17%` versus the original. With Lighting Match enabled, the same
+  diagnostic reduced the composited mean error to about `+0.2%` to `+0.4%`.
+- The captured 8-bit PNGs contain no ICC or HDR metadata, so they are only a
+  matched relative comparison. Linearized screenshot means nevertheless show
+  the same direction: uncorrected Mode 2 was about `+20.5%` over native SR for
+  the full frame; Lighting Match was about `-4.1%`. Across selected static
+  regions the corrected result was about `-2.4%` to `-4.6%` versus native SR.
+  Mode 1 matched the full-frame native mean within `-0.1%`, while individual
+  sign/window regions still moved by approximately `+26%` and `-27%`. This
+  demonstrates that Feature 18 can change local lighting style even when a
+  global exposure statistic is stable.
+- No lifecycle uncertainty, device removal, queue mismatch, or failed Feature
+  18 creation was found in the captured run. The game was frame-limited near
+  60 FPS, so this capture is not performance evidence. Evidence snapshot SHA256:
+  `DFC42DD29AC34B5FECEE0C17E73A46083A7EB8C6070949830C6273F5F408A4E4`.
+  The four labelled PNG hashes are recorded in the local test archive and are
+  intentionally not committed to the source repository.
 
 ## Cyberpunk path tracing plus Ray Reconstruction
 
 - Historical evidence passed feature 13 through for more than 22,000
-  evaluations. Several pre-current beta0.3 candidates repeated the exclusion
-  test for 1,200--5,400 feature-13 evaluations with zero Feature 18 work.
-  The current hash still needs the requested RR rerun.
+  evaluations. The exact current beta0.3.2 development binary additionally
+  passed more than 1,800 feature-13 evaluations with zero Feature 18 work and
+  reported the dedicated native-RR bypass performance stage.
 
 ## RTX 4070 historical report
 

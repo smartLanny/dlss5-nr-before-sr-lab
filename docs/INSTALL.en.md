@@ -1,6 +1,6 @@
-# beta0.3.1 startup-stability hotfix quick install
+# beta0.3.2 deferred-module compatibility candidate quick install
 
-Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.3.1**
+Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.3.2-dev**
 
 Author: **@野生的装机宅 Bilibili**
 
@@ -25,11 +25,11 @@ translation layer such as OptiScaler are outside this add-on's direct scope.
 3. Remove old `nr-before-sr*.addon64` builds, the other language variant, and
    any second DLSS5/RenoDX/ShortFuse add-on that would own NR at the same time.
 4. Keep these files **together in that same directory**:
-   - `DLSS5-AI-Rendering-Upscaling-beta0.3.1-@野生的装机宅-Bilibili.en.addon64`
+   - `DLSS5-AI-Rendering-Upscaling-beta0.3.2-dev-@野生的装机宅-Bilibili.en.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - `nvngx_dlssnr.dll` from the RTX 50 package
-5. Start the game and verify that the ReShade Add-ons page shows beta0.3.1, the
+5. Start the game and verify that the ReShade Add-ons page shows beta0.3.2-dev, the
    author and official release address at the top of this add-on's panel.
 
 The add-on loads its configuration, bridge and NR runtime from its own folder.
@@ -47,10 +47,17 @@ the panel may open but every option will appear ineffective.
   `RR safe bypass` and does not stack a second NR pass.
 
 For a report, include the displayed version and bypass reason plus the smallest
-matching window from `nr-before-sr.log`. beta0.3.1 logs state changes, the first
-few diagnostics and one summary per 600 frames rather than writing every frame.
+matching window from `nr-before-sr.log`. beta0.3.2 logs state-machine changes,
+deferred-module coverage, colour-stage attribution, early diagnostics and sparse
+performance summaries rather than writing every frame.
 Remove user names, absolute paths, account data, process addresses and runtime
 binaries before sharing.
+
+For a global HDR brightness difference, hold one camera position and capture
+about 15 seconds each with F6 off, default `NR -> SR`, and `NR -> SR` plus
+Experimental Lighting Match. Do not change style, intensity or exposure during
+that ablation; the log can then separate proxy-contract, neural-model and final
+composition bias.
 
 The RTX 40 community package does not redistribute the ShortFuse runtime. Supply
 a lawfully obtained compatible runtime and keep it beside the add-on, bridge and

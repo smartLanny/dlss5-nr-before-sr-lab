@@ -92,7 +92,7 @@ product or an official joint NR/SR implementation.
   writes only state transitions, accepted/rejected contracts, errors and sparse
   summaries: the first three ColorDiag samples and then one per 600 samples;
   bypass transitions are limited to the first twelve and every 600th afterward.
-- Startup records include UI language, actual loaded filename and build date so
+- Startup records include UI language, actual loaded filename and a stable build ID so
   a report can be tied to the installed binary instead of an old copied config.
 - See [COMMUNITY_FEEDBACK_BETA03.md](COMMUNITY_FEEDBACK_BETA03.md) for the
   sanitized mapping between early reports, current mitigations and unresolved

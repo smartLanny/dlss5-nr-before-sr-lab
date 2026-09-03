@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$Version = 'beta0.3.1'
+$Version = 'beta0.3.2-dev'
 $OfficialReleaseUrl = 'https://space.bilibili.com/941799'
 $ManifestSigner = Join-Path $PSScriptRoot 'New-SignedReleaseManifest.ps1'
 $ManifestVerifier = Join-Path $PSScriptRoot 'Verify-ReleaseManifest.ps1'
@@ -33,39 +33,39 @@ if (Test-Path -LiteralPath $ReleasePath) {
 New-Item -ItemType Directory -Path $ReleasePath | Out-Null
 
 $ChineseAddon = Join-Path $BuildRoot `
-    'DLSS5-AI渲染超分版-beta0.3.1-@野生的装机宅-Bilibili.addon64'
+    'DLSS5-AI渲染超分版-beta0.3.2-dev-@野生的装机宅-Bilibili.addon64'
 $EnglishAddon = Join-Path $BuildRoot `
-    'DLSS5-AI-Rendering-Upscaling-beta0.3.1-@野生的装机宅-Bilibili.en.addon64'
+    'DLSS5-AI-Rendering-Upscaling-beta0.3.2-dev-@野生的装机宅-Bilibili.en.addon64'
 $Bridge = Join-Path $BuildRoot 'nrchain_nvngx.dll'
 $Config = Join-Path $BuildRoot 'nr_before_sr.ini'
-$ReleaseNotes = Join-Path $ProjectRoot 'docs\BETA_0_3_1_RELEASE_NOTES.md'
+$ReleaseNotes = Join-Path $ProjectRoot 'docs\BETA_0_3_2_RELEASE_NOTES.md'
 $Limitations = Join-Path $ProjectRoot 'docs\KNOWN_LIMITATIONS.md'
 $Rtx40Notes = Join-Path $ProjectRoot 'docs\RTX40_COMMUNITY_TEST.md'
 
 $Packages = @(
     [pscustomobject]@{
-        Name = 'DLSS5-AI渲染超分版-beta0.3.1-RTX50-@野生的装机宅-Bilibili-完整包'
+        Name = 'DLSS5-AI渲染超分版-beta0.3.2-dev-RTX50-@野生的装机宅-Bilibili-完整包'
         Addon = $ChineseAddon
         Readme = Join-Path $ProjectRoot 'docs\INSTALL.zh-CN.md'
         IncludeRuntime = $true
         Rtx40 = $false
     },
     [pscustomobject]@{
-        Name = 'DLSS5-AI-Rendering-Upscaling-beta0.3.1-RTX50-@野生的装机宅-Bilibili-Full'
+        Name = 'DLSS5-AI-Rendering-Upscaling-beta0.3.2-dev-RTX50-@野生的装机宅-Bilibili-Full'
         Addon = $EnglishAddon
         Readme = Join-Path $ProjectRoot 'docs\INSTALL.en.md'
         IncludeRuntime = $true
         Rtx40 = $false
     },
     [pscustomobject]@{
-        Name = 'DLSS5-AI渲染超分版-beta0.3.1-RTX40-@野生的装机宅-Bilibili-社区测试包'
+        Name = 'DLSS5-AI渲染超分版-beta0.3.2-dev-RTX40-@野生的装机宅-Bilibili-社区测试包'
         Addon = $ChineseAddon
         Readme = Join-Path $ProjectRoot 'docs\INSTALL.zh-CN.md'
         IncludeRuntime = $false
         Rtx40 = $true
     },
     [pscustomobject]@{
-        Name = 'DLSS5-AI-Rendering-Upscaling-beta0.3.1-RTX40-@野生的装机宅-Bilibili-Community-Test'
+        Name = 'DLSS5-AI-Rendering-Upscaling-beta0.3.2-dev-RTX40-@野生的装机宅-Bilibili-Community-Test'
         Addon = $EnglishAddon
         Readme = Join-Path $ProjectRoot 'docs\INSTALL.en.md'
         IncludeRuntime = $false
@@ -116,7 +116,7 @@ foreach ($Package in $Packages) {
         'Author: @野生的装机宅 Bilibili',
         "Only official release address: $OfficialReleaseUrl",
         'Authenticity: run .\Verify-ReleaseManifest.ps1 after extraction.',
-        'Status: beta0.3.1 startup-stability candidate; wider native game gates remain pending.',
+        'Status: beta0.3.2 deferred-module/diagnostic development candidate; wider native game gates remain pending.',
         "Target: $(if ($Package.Rtx40) { 'RTX 40 community test; runtime not included' } else { 'RTX 50; NVIDIA signed 310.8 runtime included' })",
         ''
     )

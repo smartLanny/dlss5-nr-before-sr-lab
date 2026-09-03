@@ -5,7 +5,7 @@ orders around a game's ordinary DLSS Super Resolution call:
 
 - Mode 1: game DLSS SR, then output-resolution neural rendering (`SR -> NR`).
 - Mode 2: render-resolution neural rendering at 1:1, then the game's original
-  DLSS SR (`NR -> SR`). Mode 2 is the beta0.3.1 default performance path; Mode 1
+  DLSS SR (`NR -> SR`). Mode 2 is the beta0.3.2 default performance path; Mode 1
   remains the complete full-resolution quality/reference path.
 
 This is a research project, not an NVIDIA product and not an official joint
@@ -66,6 +66,8 @@ implementations inside this project.
 - `docs/TEST_EVIDENCE.md`: sanitized, non-authoritative runtime observations.
 - `docs/BETA_0_3_RELEASE_NOTES.md`: current behavior and safety changes.
 - `docs/BETA_0_3_1_RELEASE_NOTES.md`: startup-stability hotfix and release gate.
+- `docs/BETA_0_3_2_RELEASE_NOTES.md`: deferred-module compatibility and
+  diagnostic changes under current testing.
 - `docs/BETA_0_3_TEST_MATRIX.md`: release qualification checklist.
 - `docs/COMMUNITY_FEEDBACK_BETA03.md`: sanitized mapping from early reports to
   current fixes, intentional bypasses, and remaining evidence gaps.
@@ -111,23 +113,27 @@ the GPU; unsupported exposure contracts remain native-SR bypasses. Results are
 engine- and runtime-dependent. Important unresolved
 areas are documented in [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
-The 2026-09-03 tree is a **beta0.3.1 startup-stability candidate**, not a universal
-release. It compiles cleanly in the maintained local toolchain and passes a
-focused static analysis. The exact rebuilt Chinese binary passed a Cyberpunk
-2077 direct-start smoke run and sustained the default `NR -> SR` path beyond
-2,400 carrier evaluations without a logged lifecycle/device failure. Runtime
-observations for the other processing order, clean Enabled cycles, and an RR
-interval with zero Feature 18 still come from the immediately preceding graphics
-candidate. Hogwarts' two orders and three live DLSS contracts plus the Witcher
-mixed-guide post-SR path are likewise prior-candidate evidence. The current
-binary still needs the remaining three-title gate, physical F6, RR-on, mode and
-preset switching. The seven-title 600-frame/20-cycle matrix is reserved for RC.
+The 2026-09-03 tree is a **beta0.3.2 development candidate**, not a universal
+release. It compiles cleanly in the maintained local toolchain, all embedded
+shader entries compile, and both language builds pass focused LLVM analysis.
+The Chinese binary with SHA256 `4E483F...B1AF1` completed fresh Cyberpunk 2077
+RR-off and RR-on runs: the default `NR -> SR` path exceeded 1,800 carrier
+evaluations without a logged lifecycle/device failure, while the RR run exceeded
+1,800 Feature-13 evaluations with zero Feature 18 work. The current reproducible
+Chinese binary (`1E717C...7F560`) has separately completed an exact-hash Witcher
+gameplay run with native SR, both orders, and a Lighting Match ablation; every
+active interval exceeded 600 frames without a logged lifecycle/device failure.
+Hogwarts still requires a current-hash visual gate, and the remaining physical
+hotkey/order plus three-preset tests are open. The seven-title 600-frame/20-cycle
+matrix is reserved for RC.
 
 The project should not claim exact visual equivalence between Mode 1 and Mode 2:
 Mode 2 gives the neural model fewer source pixels and then asks the game's SR to
-reconstruct the result. Global lighting drift is considered a correctable color
-contract problem; some local face and texture differences are inherent to the
-different processing order.
+reconstruct the result. Some local face and texture differences are inherent to
+the different processing order. A global shift can come either from a broken
+color contract or from a broad luminance residual produced by the NR model
+itself; beta0.3.2 logs the proxy, neural and composited means separately so those
+causes are not conflated.
 
 ## Contributing and security
 

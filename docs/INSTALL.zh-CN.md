@@ -1,6 +1,6 @@
-# beta0.3.1 启动稳定性热修复版快速安装
+# beta0.3.2 延迟模块兼容候选版快速安装
 
-插件名称：**DLSS 5 AI渲染超分版 beta0.3.1**
+插件名称：**DLSS 5 AI渲染超分版 beta0.3.2-dev**
 
 作者：**@野生的装机宅 Bilibili**
 
@@ -25,11 +25,11 @@ DX11、Vulkan、没有原生 DLSS SR，或被 OptiScaler 等转换层完全接�
    个 DLSS5/RenoDX/ShortFuse addon；不要同时启用两个 NR 所有者。
 4. 把压缩包中的下列文件放在 **同一个目录**，不要把 DLL 与 addon
    分开：
-   - `DLSS5-AI渲染超分版-beta0.3.1-@野生的装机宅-Bilibili.addon64`
+   - `DLSS5-AI渲染超分版-beta0.3.2-dev-@野生的装机宅-Bilibili.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - RTX 50 包内的 `nvngx_dlssnr.dll`
-5. 启动游戏，在 ReShade 的“插件”页确认界面顶部显示 beta0.3.1、作者名和官方地址。
+5. 启动游戏，在 ReShade 的“插件”页确认界面顶部显示 beta0.3.2-dev、作者名和官方地址。
 
 插件会从自身目录读取配置、桥接 DLL 和 NR runtime。因此，仅让 ReShade
 看见 `.addon64`，但把其余文件放到另一个目录，会出现界面能打开、所有
@@ -46,9 +46,14 @@ DX11、Vulkan、没有原生 DLSS SR，或被 OptiScaler 等转换层完全接�
 ## 报错时请提供
 
 请提供插件界面里的版本、当前状态/旁路原因，以及同目录下
-`nr-before-sr.log` 中匹配问题前后的最小片段。beta0.3.1 只在状态变化、
-前几次诊断和每 600 帧摘要时写日志，不会逐帧刷屏。分享前请删除用户名、
+`nr-before-sr.log` 中匹配问题前后的最小片段。beta0.3.2 会记录状态机、
+延迟模块观察、颜色阶段归因、前几次诊断和稀疏性能摘要，不会逐帧刷屏。分享前请删除用户名、
 绝对路径、账号、进程地址和运行库文件。
+
+若 HDR 画面整体偏亮或偏暗，请在同一固定机位依次记录 F6 关闭、默认
+`NR -> SR`、以及开启“实验性光照匹配”的 `NR -> SR`，每组停留约 15 秒。
+不要同时改风格、强度或曝光；这样日志才能区分代理合同、NR 模型偏差和
+最终合成偏差。
 
 RTX 40 社区测试包不包含 ShortFuse runtime。请只从合法来源自行提供与
 测试说明匹配的 runtime，并继续把 addon、bridge、配置和 runtime 放在
