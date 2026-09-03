@@ -1,0 +1,34 @@
+name: Apply beta0.4 r2 compile hotfix
+
+on:
+  push:
+    branches:
+      - codex/beta0.4-perfect-chain
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'Run beta0.4 r2 compile hotfix')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/beta0.4-perfect-chain
+          fetch-depth: 0
+      - name: Apply compile hotfix
+        run: python scripts/fix-beta04-r2-build.py
+      - name: Revalidate source invariants
+        run: |
+          python scripts/validate-beta04-structure.py
+          python scripts/test-beta04-math.py
+          git diff --check
+      - name: Commit source hotfix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix beta0.4 r2 stage-capture model extent"
+          git push origin HEAD:codex/beta0.4-perfect-chain
