@@ -21,12 +21,13 @@ be checked for byte-for-byte reproducibility.
   that actually contain a lifecycle token, uses a locked ColorDiag snapshot,
   and distinguishes transfer `prepared`, `recorded`, and native-queue
   `submitted` counts.
-- Two clean builds produced identical current artifacts. Their SHA-256 values are
-  `1E717CB5D2170D36EBDAD078B052E96DBB0BDD3084F512889C82DF9A1757F560`
-  (Chinese), `9A5F6468776F8501C358FB2BB648AEB4404CF8B4CFE186C0A907EC4F65553E49`
+- Two clean beta0.3.3 builds produced identical artifacts. Their SHA-256 values
+  are `BA51292FE57B7D92DB0C903AE6ED3657E02B94B468E0B284823CCBF6EB43FC3E`
+  (Chinese), `C9AAF8339A5C2070441BBD7464392AAF2006BA0244948D4E1318D30948A45EB7`
   (English), and
-  `DB26E486592B252072BA5734FC2B27412863B8526826225640C837D4B4D11B60`
-  (bridge).
+  `46041A5FF91AE2FD907E310D132AABC3C4A1ECD48DACE511B8672909D5D9C2FB`
+  (bridge). This is build qualification only: these exact add-on hashes have
+  not yet completed the gameplay gate.
 
 ## Latest gameplay-tested binary runtime status
 

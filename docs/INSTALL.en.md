@@ -1,6 +1,6 @@
-# beta0.3.2 deferred-module compatibility candidate quick install
+# beta0.3.3 tuning and R8 compatibility candidate quick install
 
-Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.3.2-dev**
+Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.3.3-dev**
 
 Author: **@野生的装机宅 Bilibili**
 
@@ -25,11 +25,11 @@ translation layer such as OptiScaler are outside this add-on's direct scope.
 3. Remove old `nr-before-sr*.addon64` builds, the other language variant, and
    any second DLSS5/RenoDX/ShortFuse add-on that would own NR at the same time.
 4. Keep these files **together in that same directory**:
-   - `DLSS5-AI-Rendering-Upscaling-beta0.3.2-dev-@野生的装机宅-Bilibili.en.addon64`
+   - `DLSS5-AI-Rendering-Upscaling-beta0.3.3-dev-@野生的装机宅-Bilibili.en.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - `nvngx_dlssnr.dll` from the matching GPU package
-5. Start the game and verify that the ReShade Add-ons page shows beta0.3.2-dev, the
+5. Start the game and verify that the ReShade Add-ons page shows beta0.3.3-dev, the
    author and official release address at the top of this add-on's panel.
 
 The add-on loads its configuration, bridge and NR runtime from its own folder.
@@ -44,17 +44,24 @@ the panel may open but every option will appear ineffective.
   extents, format, intensity, blend, style, mask, skin/local controls, Lighting
   Match and colour strength.
   `IN/NR/OUT` are the three extents; `F/I/B` are output format, NR intensity and
-  blend; `AM/SK/LT/LS/LM/C` are auto-mask, skin, local tone, local structure,
-  Lighting Match and colour follow.
+  blend; `AM/SK/LT/LS/LM/C/PW` are auto-mask, skin, local tone, local structure,
+  Lighting Match, colour follow and Scene Paper-White Scale.
 - The default `render-resolution NR -> SR` option follows the game's real DLSS
   render extent, then passes the result into the game's native SR.
 - Turn that option off for the full-output-resolution `SR -> NR` quality and
   performance reference path.
 - While Ray Reconstruction owns a live feature, the release candidate reports
   `RR safe bypass` and does not stack a second NR pass.
+- Committing Intensity, Style, mask, skin or local controls retires the old
+  Feature 18 after its exact GPU fence and creates a new one. A short safe
+  warm-up/bypass interval during this switch is expected.
+- `Scene Paper-White Scale` controls HDR normalization before NR; values above
+  1 feed a darker normalized scene to the model. Format-24 HDR input is first
+  PQ-decoded, uses this paper-white scale, and is symmetrically encoded back to
+  PQ. It is neither final display brightness nor NR intensity, so start at 1.
 
 For a report, include the displayed version and bypass reason plus the smallest
-matching window from `nr-before-sr.log`. beta0.3.2 logs state-machine changes,
+matching window from `nr-before-sr.log`. beta0.3.3 logs state-machine changes,
 deferred-module coverage, colour-stage attribution, early diagnostics and sparse
 performance summaries rather than writing every frame.
 Remove user names, absolute paths, account data, process addresses and runtime

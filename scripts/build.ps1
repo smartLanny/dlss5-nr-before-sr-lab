@@ -48,6 +48,7 @@ New-Item -ItemType Directory -Path $Objects -Force | Out-Null
 
 $Common = @(
     '-O2', '-DNDEBUG', '-DUNICODE', '-D_UNICODE', '-D_WIN64',
+    '-flto',
     '-finput-charset=UTF-8',
     '-ffunction-sections', '-fdata-sections',
     "-I$(Join-Path $MinHook 'include')",
@@ -86,7 +87,7 @@ $AddonBuilds = @(
         ResourceDefine = '-DNR_UI_CHINESE=0'
         Object = 'nr_before_sr.en.o'
         ResourceObject = 'nr_before_sr.en.resource.o'
-        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.3.2-dev-@野生的装机宅-Bilibili.en.addon64'
+        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.3.3-dev-@野生的装机宅-Bilibili.en.addon64'
     },
     @{
         Language = 'Simplified Chinese'
@@ -94,7 +95,7 @@ $AddonBuilds = @(
         ResourceDefine = '-DNR_UI_CHINESE=1'
         Object = 'nr_before_sr.zh-CN.o'
         ResourceObject = 'nr_before_sr.zh-CN.resource.o'
-        Output = 'DLSS5-AI渲染超分版-beta0.3.2-dev-@野生的装机宅-Bilibili.addon64'
+        Output = 'DLSS5-AI渲染超分版-beta0.3.3-dev-@野生的装机宅-Bilibili.addon64'
     }
 )
 $AddonOutputs = @()
@@ -113,7 +114,8 @@ foreach ($AddonBuild in $AddonBuilds) {
 
     $Output = Join-Path $Build $AddonBuild.Output
     $LinkArgs = @(
-        '-shared', '-static', '-Wl,--gc-sections', '-Wl,--no-insert-timestamp'
+        '-shared', '-static', '-flto', '-Wl,--gc-sections',
+        '-Wl,--strip-all', '-Wl,--no-insert-timestamp'
     ) + $ObjectFiles + @(
         $AddonObject, $ResourceObject, '-o', $Output, '-lkernel32', '-luser32', '-ld3d12',
         '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler'
@@ -125,7 +127,8 @@ foreach ($AddonBuild in $AddonBuilds) {
 
 $BridgeOutput = Join-Path $Build 'nrchain_nvngx.dll'
 $BridgeLinkArgs = @(
-    '-shared', '-static', '-Wl,--gc-sections', '-Wl,--no-insert-timestamp',
+    '-shared', '-static', '-flto', '-Wl,--gc-sections', '-Wl,--strip-all',
+    '-Wl,--no-insert-timestamp',
     $BridgeObject, '-o', $BridgeOutput, '-lkernel32', '-ld3d12', '-luuid'
 )
 & $CppCompiler @BridgeLinkArgs

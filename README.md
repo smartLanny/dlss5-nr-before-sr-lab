@@ -5,7 +5,7 @@ orders around a game's ordinary DLSS Super Resolution call:
 
 - Mode 1: game DLSS SR, then output-resolution neural rendering (`SR -> NR`).
 - Mode 2: render-resolution neural rendering at 1:1, then the game's original
-  DLSS SR (`NR -> SR`). Mode 2 is the beta0.3.2 default performance path; Mode 1
+  DLSS SR (`NR -> SR`). Mode 2 is the beta0.3.3 default performance path; Mode 1
   remains the complete full-resolution quality/reference path.
 
 Runtime hotkeys are `F6` for the master comparison switch and main keyboard `-`
@@ -19,6 +19,8 @@ trademarks of their respective owners.
 Project author: **@野生的装机宅 Bilibili**. The only official release location
 is https://space.bilibili.com/941799. Distributed archives include a signed
 manifest and offline verifier; matching filenames alone do not prove origin.
+See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for the explicit prohibition on
+unauthorized automated builds, rebranding and modified redistribution.
 
 ## Repository boundary
 
@@ -71,7 +73,9 @@ implementations inside this project.
 - `docs/BETA_0_3_RELEASE_NOTES.md`: current behavior and safety changes.
 - `docs/BETA_0_3_1_RELEASE_NOTES.md`: startup-stability hotfix and release gate.
 - `docs/BETA_0_3_2_RELEASE_NOTES.md`: deferred-module compatibility and
-  diagnostic changes under current testing.
+  diagnostic changes from the previous candidate.
+- `docs/BETA_0_3_3_RELEASE_NOTES.md`: create-time tuning reconstruction, live
+  non-HDR R8 admission and Scene Paper-White diagnostics under current testing.
 - `docs/BETA_0_3_TEST_MATRIX.md`: release qualification checklist.
 - `docs/COMMUNITY_FEEDBACK_BETA03.md`: sanitized mapping from early reports to
   current fixes, intentional bypasses, and remaining evidence gaps.
@@ -111,25 +115,30 @@ provide runtime installation instructions or download links for vendor binaries.
 The two chains have executed successfully in several D3D12 titles, including
 contracts with FP16 SceneColor, UE-style `R11G11B10_FLOAT` SceneColor, padded
 active regions, low-resolution depth/motion guides, and high-resolution motion
-conversion. The current candidate also admits a shader-loadable 1x1
+conversion. It also has a contract-gated `R10G10B10A2_UNORM` HDR path that
+symmetrically decodes and re-encodes ST.2084 PQ through a controlled FP16
+intermediate; packed R10 without the HDR/unity-exposure contract remains a
+native-SR bypass. The current candidate also admits a shader-loadable 1x1
 exposure-scale texture by sampling its red channel symmetrically on
 the GPU; unsupported exposure contracts remain native-SR bypasses. Results are
 engine- and runtime-dependent. Important unresolved
 areas are documented in [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
-The 2026-09-03 tree is a **beta0.3.2 development candidate**, not a universal
+The 2026-09-03 tree is a **beta0.3.3 development candidate**, not a universal
 release. It compiles cleanly in the maintained local toolchain, all embedded
 shader entries compile, and both language builds pass focused LLVM analysis.
-The Chinese binary with SHA256 `4E483F...B1AF1` completed fresh Cyberpunk 2077
+The prior beta0.3.2 Chinese binary with SHA256 `4E483F...B1AF1` completed fresh Cyberpunk 2077
 RR-off and RR-on runs: the default `NR -> SR` path exceeded 1,800 carrier
 evaluations without a logged lifecycle/device failure, while the RR run exceeded
 1,800 Feature-13 evaluations with zero Feature 18 work. The gameplay-validated
 Chinese r2 binary (`1E717C...7F560`) separately completed an exact-hash Witcher
 gameplay run with native SR, both orders, and a Lighting Match ablation; every
 active interval exceeded 600 frames without a logged lifecycle/device failure.
-The r3 screenshot build (`F88518...1C9D8C`) changes only ReShade screenshot/UI
-integration and packaging metadata; the NGX processing and lifetime paths are
-unchanged.
+beta0.3.3 changes the Feature 18 lifetime when create-time tuning controls are
+committed, admits a live `R8G8B8A8_UNORM` render input only when Feature 1
+explicitly declares a non-HDR color contract, and adds the packed R10 PQ path
+described above. Those changes require fresh Red Desert, Yanyun and Horizon
+community logs before they become compatibility claims.
 Hogwarts still requires a current-hash visual gate, and the remaining physical
 hotkey/order plus three-preset tests are open. The seven-title 600-frame/20-cycle
 matrix is reserved for RC.
@@ -139,7 +148,7 @@ Mode 2 gives the neural model fewer source pixels and then asks the game's SR to
 reconstruct the result. Some local face and texture differences are inherent to
 the different processing order. A global shift can come either from a broken
 color contract or from a broad luminance residual produced by the NR model
-itself; beta0.3.2 logs the proxy, neural and composited means separately so those
+itself; beta0.3.3 logs the proxy, neural and composited means separately so those
 causes are not conflated.
 
 ## Contributing and security

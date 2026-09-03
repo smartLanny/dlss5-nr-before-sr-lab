@@ -1,6 +1,6 @@
 # RTX 30/40 ShortFuse complete package
 
-The RTX 30/40 package uses the exact same beta0.3.2 add-on and configuration as
+The RTX 30/40 package uses the exact same beta0.3.3 add-on and configuration as
 the RTX 50 package. Its only difference is the bundled Feature 18 runtime:
 
 ```text
