@@ -1,4 +1,4 @@
-name: Fix beta0.4 r3 V2 capture alpha expectation
+name: Add beta0.4 r3 GPU fallback diagnostics
 
 on:
   workflow_dispatch:
@@ -10,52 +10,54 @@ permissions:
   contents: write
 
 concurrency:
-  group: beta04-r3-gpu-capture-alpha
+  group: beta04-r3-gpu-fallback-diagnostics
   cancel-in-progress: false
 
 jobs:
   apply:
-    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[r3-gpu-capture-alpha-fix-applied]')
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[r3-gpu-fallback-diag-applied]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: codex/beta0.4-perfect-chain
           fetch-depth: 0
-      - name: Match the production V2 opaque model-plane contract
+      - name: Label every fallback mismatch
         run: |
           python - <<'PY'
           from pathlib import Path
           path = Path('tests/codec_gpu_harness.cpp.in')
           text = path.read_text(encoding='utf-8')
-          anchor = '                const Float4 *expected[] = {\n'
-          proxy_lines = ('                    &proxy[model_index],\n'
-                         '                    &neural[model_index],\n')
-          if text.count(anchor) != 1 or text.count(proxy_lines) != 1:
-              raise SystemExit(
-                  f'capture anchors: expected={text.count(anchor)} proxy={text.count(proxy_lines)}')
-          declarations = '''                Float4 expected_proxy = proxy[model_index];
-                  Float4 expected_neural = neural[model_index];
-                  // V2 model planes are deliberately opaque. Original and
-                  // composited planes still preserve the game's alpha.
-                  if (v2) {
-                      expected_proxy.w = 1.0f;
-                      expected_neural.w = 1.0f;
-                  }
+          old = '''                if (variant == 1 || variant == 2 || variant == 4 ||
+                    (variant == 3 && x == dx && y == dy))
+                    Require(std::memcmp(&actual, &expected, 16) == 0,
+                            "Identity, zero-strength, reset suppression or invalid-neural fallback changed source");
           '''
-          text = text.replace(anchor, declarations + anchor, 1)
-          text = text.replace(proxy_lines,
-                              '                    &expected_proxy,\n'
-                              '                    &expected_neural,\n', 1)
-          path.write_text(text, encoding='utf-8', newline='\n')
+          new = '''                if (variant == 1 || variant == 2 || variant == 4 ||
+                    (variant == 3 && x == dx && y == dy)) {
+                    if (std::memcmp(&actual, &expected, 16) != 0) {
+                        std::fprintf(stderr,
+                            "fallback mismatch v2=%d variant=%d flags=%u frame=%ux%u model=%ux%u pixel=%u,%u actual=(%.9g,%.9g,%.9g,%.9g) expected=(%.9g,%.9g,%.9g,%.9g)\\n",
+                            v2 ? 1 : 0, variant, flags, width, height,
+                            model_width, model_height, x - dx, y - dy,
+                            actual.x, actual.y, actual.z, actual.w,
+                            expected.x, expected.y, expected.z, expected.w);
+                        throw std::runtime_error(
+                            "Identity, zero-strength, reset suppression or invalid-neural fallback changed source");
+                    }
+                }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'fallback assertion block count={text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
           PY
       - name: Check generated patch
         run: git diff --check
-      - name: Commit capture expectation fix
+      - name: Commit diagnostic labels
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add tests/codec_gpu_harness.cpp.in
-          git commit -m "Fix V2 GPU capture alpha expectation [r3-gpu-capture-alpha-fix-applied]"
+          git commit -m "Label beta0.4 r3 GPU fallback mismatches [r3-gpu-fallback-diag-applied]"
           git push origin HEAD:codex/beta0.4-perfect-chain
