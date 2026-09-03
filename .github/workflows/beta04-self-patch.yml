@@ -1,0 +1,42 @@
+name: Apply beta0.4 perfect-chain source patch
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/beta0.4-perfect-chain
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta04-self-patch
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[beta04-applied]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/beta0.4-perfect-chain
+          fetch-depth: 0
+      - name: Apply idempotent source patch
+        run: python scripts/apply-beta04-perfect-chain.py
+      - name: Validate structure
+        run: python scripts/validate-beta04-structure.py
+      - name: Check whitespace
+        run: git diff --check
+      - name: Commit generated source
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No generated changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src config scripts docs README.md 2>/dev/null || true
+          git commit -m "Implement beta0.4 perfect-chain V2 [beta04-applied]"
+          git push origin HEAD:codex/beta0.4-perfect-chain
