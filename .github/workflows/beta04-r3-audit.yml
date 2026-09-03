@@ -1,4 +1,4 @@
-name: Apply beta0.4 perfect-chain r3 source hotfix
+name: Apply beta0.4 perfect-chain r3 guide source hotfix
 
 on:
   workflow_dispatch:
@@ -10,33 +10,32 @@ permissions:
   contents: write
 
 concurrency:
-  group: beta04-r3-source-hotfix
+  group: beta04-r3-guide-source-hotfix
   cancel-in-progress: false
 
 jobs:
   apply:
-    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[r3-shader-fix-applied]')
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[r3-guide-source-fix-applied]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: codex/beta0.4-perfect-chain
           fetch-depth: 0
-      - name: Fix bounded SDR Shader scope
+      - name: Fix source-to-work Jitter parameter binding
         run: |
           python - <<'PY'
           from pathlib import Path
           path = Path('src/nr_before_sr.cpp')
           text = path.read_text(encoding='utf-8')
-          old = '''    const bool boundedSdrStorage = modelEncodedInput ||
-                  linearSdrStorage || srgbSdrStorage;
-          '''
-          new = '''    const bool boundedSdrStorage =
-                  (Passthrough & (1u | 16u | 32u)) != 0u;
-          '''
-          if old not in text:
-              raise SystemExit('bounded SDR scope pattern not found')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+          old_x = '    if (!GetFloat(params, "Jitter.Offset.X", &jitter_x) ||\n'
+          old_y = '    if (!GetFloat(params, "Jitter.Offset.Y", &jitter_y) ||\n'
+          new_x = '    if (!GetFloat(sr_params, "Jitter.Offset.X", &jitter_x) ||\n'
+          new_y = '    if (!GetFloat(sr_params, "Jitter.Offset.Y", &jitter_y) ||\n'
+          if text.count(old_x) != 1 or text.count(old_y) != 1:
+              raise SystemExit('expected Jitter parameter patterns were not found exactly once')
+          text = text.replace(old_x, new_x, 1).replace(old_y, new_y, 1)
+          path.write_text(text, encoding='utf-8', newline='\n')
           PY
       - name: Re-run source invariants
         run: |
@@ -49,5 +48,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/nr_before_sr.cpp
-          git commit -m "Fix beta0.4 r3 bounded SDR Shader scope [r3-shader-fix-applied]"
+          git commit -m "Fix beta0.4 r3 guide parameter binding [r3-guide-source-fix-applied]"
           git push origin HEAD:codex/beta0.4-perfect-chain
