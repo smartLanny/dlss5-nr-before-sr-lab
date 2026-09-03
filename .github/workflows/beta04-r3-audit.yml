@@ -1,4 +1,4 @@
-name: Apply beta0.4 r3 V2 GPU harness upgrade
+name: Fix beta0.4 r3 V2 capture alpha expectation
 
 on:
   workflow_dispatch:
@@ -10,31 +10,56 @@ permissions:
   contents: write
 
 concurrency:
-  group: beta04-r3-gpu-harness-upgrade
+  group: beta04-r3-gpu-capture-alpha
   cancel-in-progress: false
 
 jobs:
   apply:
-    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[r3-gpu-harness-fix-applied]')
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[r3-gpu-capture-alpha-fix-applied]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: codex/beta0.4-perfect-chain
           fetch-depth: 0
-      - name: Upgrade D3D12 codec harness
-        run: python scripts/upgrade-beta04-gpu-harness.py
+      - name: Match the production V2 opaque model-plane contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/codec_gpu_harness.cpp.in')
+          text = path.read_text(encoding='utf-8')
+          old = '''                const Float4 *expected[] = {
+                      &original[(source_y + sy) * source_width + source_x + sx],
+                      &proxy[model_index],
+                      &neural[model_index],
+                      &result.output[(source_y + dy) * output_width + source_x + dx]};
+          '''
+          new = '''                Float4 expected_proxy = proxy[model_index];
+                  Float4 expected_neural = neural[model_index];
+                  // The V2 stage-capture contract mirrors the actual model
+                  // resources: proxy and neural planes are always opaque. The
+                  // original and final planes still preserve the game alpha.
+                  if (v2) {
+                      expected_proxy.w = 1.0f;
+                      expected_neural.w = 1.0f;
+                  }
+                  const Float4 *expected[] = {
+                      &original[(source_y + sy) * source_width + source_x + sx],
+                      &expected_proxy,
+                      &expected_neural,
+                      &result.output[(source_y + dy) * output_width + source_x + dx]};
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'capture expected block count={text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+          PY
       - name: Check generated patch
         run: git diff --check
-      - name: Commit GPU harness upgrade
+      - name: Commit capture expectation fix
         shell: bash
         run: |
-          if git diff --quiet; then
-            echo "No generated changes."
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add tests/codec_gpu_harness.cpp.in
-          git commit -m "Execute beta0.4 r3 V2 in D3D12 GPU harness [r3-gpu-harness-fix-applied]"
+          git commit -m "Fix V2 GPU capture alpha expectation [r3-gpu-capture-alpha-fix-applied]"
           git push origin HEAD:codex/beta0.4-perfect-chain
