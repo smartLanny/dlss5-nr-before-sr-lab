@@ -80,6 +80,8 @@ if "std::clamp(config.transfer_strength, 0.0f, 8.0f)" not in source:
     raise SystemExit("8x strength ceiling missing")
 if "using the full render raster" not in source:
     raise SystemExit("unresolved output extent must fall back to reference")
+if "capture_model_width" not in source:
+    raise SystemExit("stage-capture model extent resolution missing")
 if "CompressNegativeTowardNeutral" not in body:
     raise SystemExit("neutral-axis gamut protection missing")
 if "FrameConfidence <= 0.000001" not in body:

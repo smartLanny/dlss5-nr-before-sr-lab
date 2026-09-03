@@ -5420,9 +5420,13 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.color_strength = effective_color_strength;
         info.max_luma_ratio = g_config.max_luma_ratio;
         info.work_mode = g_config.work_mode;
+        const unsigned int capture_model_width =
+            model_width != 0 ? model_width : width;
+        const unsigned int capture_model_height =
+            model_height != 0 ? model_height : height;
         info.work_linear_scale = std::min(
-            static_cast<float>(resolved_model_width) / std::max(width, 1u),
-            static_cast<float>(resolved_model_height) / std::max(height, 1u));
+            static_cast<float>(capture_model_width) / std::max(width, 1u),
+            static_cast<float>(capture_model_height) / std::max(height, 1u));
         info.lighting_lock = v2_combine ? g_config.lighting_lock :
             (g_config.preserve_lighting ? 1.0f : 0.0f);
         info.edge_guard = v2_combine ? g_config.edge_guard : 0.0f;
