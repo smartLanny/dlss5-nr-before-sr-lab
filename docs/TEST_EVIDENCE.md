@@ -1,5 +1,37 @@
 # Sanitized test evidence
 
+## r3 diagnostic candidate qualification (2026-09-04)
+
+The `beta0.3.3-dev-r3` changes are based on `015d05d`. No r3 in-game HDR,
+Spider-Man style/intensity, or Yanyun visual result is claimed here.
+
+| Check | Result |
+|---|---|
+| Actual context lookup with fence-pending A→B→A | Baseline 4 failures; patched PASS |
+| Actual guide resolver/history | PASS: MVLowRes, unchanged vector units, guide/subrect transitions, failed Reset |
+| Actual typed/untyped getter and R8 admission | 25 checks PASS; baseline defects and tiny-scalar false-unity reproduced before fix |
+| Actual observer helpers with mocked loader/MinHook | 15 scenarios PASS: aliases/load order, epoch overlap, null/failure, PIN/publication failures |
+| Actual diagnostic completion/Reset gates | PASS: frozen tuning/config, instance/frame ordering, failed Evaluate, re-warmup |
+| Capture grid and PFM exporter | 2,023 checks PASS: bounds, memory cap, raw float domain, orientation, metadata, no overwrite |
+| Actual HLSL on D3D12 WARP | 24 scenarios PASS: five codec domains, capture on/off bit identity, raw stages, subrect/alpha/invalid/identity/zero transfer |
+| Shader compiler | EncodeCS, CombineCS, CopyCS, ResampleMotionCS all `cs_5_0` PASS |
+| LLVM static analyzer | English, Chinese and bridge PASS, zero diagnostics |
+| Build | Chinese, English, bridge; two clean builds byte-identical; only existing external ReShade warnings |
+
+Final r3 binary SHA-256:
+
+- Chinese: `92AF21CB08C7BE6FAE9B9EB3BBF8133C2DB67C5AACD72604B2CF3AE428DD7734`
+- English: `B5C8231F41391A3E6903E04049D59140B236D5F63EB8803E9D9557D38B5A04BD`
+- Bridge: `46041A5FF91AE2FD907E310D132AABC3C4A1ECD48DACE511B8672909D5D9C2FB`
+
+Reproduce with `scripts/validate-observer.ps1`, `validate-resource-contracts.ps1`,
+`validate-stage-capture.ps1`, `validate-codec-shader.ps1`, `validate-codec-gpu.ps1`
+and `validate-static-analysis.ps1`. Supply `-ToolchainRoot` where required and
+`-ReShadeSourceRoot` for analysis. Run `validate-guide-history.py` and
+`validate-diagnostic-identity.py` with `--compiler` pointing to the x64 compiler.
+GPU tests use WARP, not a proprietary NR runtime; they verify composition/capture,
+not the model's visual response. See [the game procedure](BETA_0_3_3_R3_VALIDATION.md).
+
 This file contains bounded observations, not claims of universal compatibility.
 Raw logs are intentionally excluded because they contained installation paths and
 process addresses. Evidence from different binary hashes is kept separate. Current

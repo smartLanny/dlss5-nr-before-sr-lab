@@ -1,5 +1,18 @@
 # Known limitations
 
+## r3 diagnostic scope
+
+The optional raw-stage capture stops at composition. In NR→SR it does not read
+the game's native SR Output because its arrival state is not tracked. Separate
+ReShade screenshots include later rendering/FG and are not the same NR-frame
+evidence. Capture files explicitly identify storage/model domains and sampling;
+they are not photometrically interchangeable. A permanently quarantined GPU
+lifetime also quarantines an outstanding capture; no unsafe forced release is used.
+
+Natural/Cinematic and intensity 1→2 differences remain scene/runtime questions
+until controlled image tests accompany the instance/config logs. r3 adds no
+effect-priority composition, exposure-validity snapshot, or HD2 bridge.
+
 ## Exposure texture contract
 
 The codec accepts a live `ExposureTexture` only when its runtime resource

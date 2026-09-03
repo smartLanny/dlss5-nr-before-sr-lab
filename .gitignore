@@ -58,6 +58,7 @@ UserSettings*.json
 /backups/
 /test-output/
 /test-captures/
+nr-stage-captures/
 
 # Editors and operating systems
 .vs/

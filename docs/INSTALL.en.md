@@ -84,3 +84,15 @@ the add-on, bridge DLL, configuration, matching NR runtime, and this README.
 Separate signature files, verification scripts, and duplicate documents are no
 longer bundled. If the official release post publishes a ZIP SHA-256, that value
 can be used to check the downloaded archive.
+## r3 diagnostic additions
+
+This candidate adds compatibility fixes and attributable image diagnostics;
+default composition is unchanged. The panel distinguishes pending settings,
+the last applied NR intensity/style and warmup status. Visible style/intensity
+differences still require controlled scene comparisons.
+
+Optional “Capture NR stages once” exports four raw floating-point PFM images
+and metadata under `nr-stage-captures` beside the log. It is off by default.
+NR-to-SR capture stops before native SR. Use `-` for a separate displayed-image
+screenshot; it is not same-frame evidence. Wait for applied settings and warmup,
+keep the camera fixed and change one parameter at a time.

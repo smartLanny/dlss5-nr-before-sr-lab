@@ -19,12 +19,14 @@
 #include <cstring>
 #include <iterator>
 #include <limits>
+#include <new>
 
 #define ImTextureID ImU64
 #include <imgui.h>
 #include <reshade.hpp>
 
 #include "MinHook.h"
+#include "nr_guide_contract.h"
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
@@ -36,11 +38,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.3.3-dev";
+constexpr const char *kAddonVersion = "beta0.3.3-dev-r3";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.3.3-dev-r2";
+constexpr const char *kBuildIdentity = "beta0.3.3-dev-r3";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -74,8 +76,35 @@ using SetUIntFn = void (*)(NgxParams *, const char *, unsigned int);
 using SetFloatFn = void (*)(NgxParams *, const char *, float);
 
 bool GetResource(const NgxParams *params, const char *key, ID3D12Resource **value) {
-    auto fn = ParamSlot<GetD3D12Fn>(params, 9);
-    return fn != nullptr && fn(params, key, value) == kNgxSuccess;
+    if (value == nullptr) return false;
+    *value = nullptr;
+    if (key == nullptr) return false;
+
+    ID3D12Resource *typed_resource = nullptr;
+    auto typed_fn = ParamSlot<GetD3D12Fn>(params, 9);
+    if (typed_fn != nullptr &&
+        typed_fn(params, key, &typed_resource) == kNgxSuccess &&
+        typed_resource != nullptr) {
+        *value = typed_resource;
+        return true;
+    }
+
+    // Native D3D12 integrations may store these NGX resources through Set(void*)
+    // rather than the typed overload. Only fall back for known resource keys;
+    // an arbitrary NGX void pointer is not evidence of an ID3D12Resource.
+    const bool known_resource = std::strcmp(key, "Color") == 0 ||
+        std::strcmp(key, "Depth") == 0 ||
+        std::strcmp(key, "MotionVectors") == 0 ||
+        std::strcmp(key, "Output") == 0 ||
+        std::strcmp(key, "ExposureTexture") == 0;
+    if (!known_resource) return false;
+    void *untyped_resource = nullptr;
+    auto untyped_fn = ParamSlot<GetVoidFn>(params, 8);
+    if (untyped_fn == nullptr ||
+        untyped_fn(params, key, &untyped_resource) != kNgxSuccess ||
+        untyped_resource == nullptr) return false;
+    *value = static_cast<ID3D12Resource *>(untyped_resource);
+    return true;
 }
 
 bool GetInt(const NgxParams *params, const char *key, int *value) {
@@ -854,12 +883,12 @@ ColorContract ReadColorContract(const NgxParams *sr_params) {
     float value = 0.0f;
     if (GetFloat(sr_params, "DLSS.Pre.Exposure", &value)) {
         contract.pre_exposure = SanitizeExposure(value);
-        contract.has_pre_exposure = value > 0.0f && std::isfinite(value);
+        contract.has_pre_exposure = value > 0.000001f && std::isfinite(value);
     }
     value = 0.0f;
     if (GetFloat(sr_params, "DLSS.Exposure.Scale", &value)) {
         contract.exposure_scale = SanitizeExposure(value);
-        contract.has_exposure_scale = value > 0.0f && std::isfinite(value);
+        contract.has_exposure_scale = value > 0.000001f && std::isfinite(value);
     }
     GetResource(sr_params, "ExposureTexture", &contract.exposure_texture);
     if (contract.exposure_texture != nullptr) {
@@ -901,6 +930,18 @@ bool IsUnityExposureContract(const ColorContract &contract) {
             std::fabs(contract.pre_exposure - 1.0f) <= kUnityTolerance) &&
            (!contract.has_exposure_scale ||
             std::fabs(contract.exposure_scale - 1.0f) <= kUnityTolerance);
+}
+
+bool IsPreSrBoundedR8Contract(const ColorContract &contract,
+                              bool create_declares_sdr,
+                              bool live_bounded_output) {
+    if (!IsUnityExposureContract(contract)) return false;
+    if (create_declares_sdr) return true;
+    // Overriding a contradictory HDR Create flag needs positive evidence.
+    // Missing/invalid scalars sanitize to one for other paths, but that default
+    // must not be mistaken for an explicitly declared bounded R8 contract.
+    return live_bounded_output && contract.has_pre_exposure &&
+           contract.has_exposure_scale;
 }
 
 bool IsPqDisplayExposureContract(const ColorContract &contract) {
@@ -1587,13 +1628,14 @@ struct Codec {
 Codec g_codec = {};
 
 constexpr UINT kCodecSrvCount = 5;
-constexpr UINT kCodecUavCount = 4;
+constexpr UINT kCodecUavCount = 5;
 constexpr UINT kCodecDescriptorCount = kCodecSrvCount + kCodecUavCount;
 constexpr UINT kCodecExposureSrvIndex = 4;
 constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
 constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
 constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
-constexpr UINT kCodecRootConstantCount = 17;
+constexpr UINT kCodecCaptureUavIndex = kCodecSrvCount + 4;
+constexpr UINT kCodecRootConstantCount = 18;
 
 const char kCodecShader[] = R"HLSL(
 // The HDR proxy keeps a linear mid-range and applies a luminance-preserving
@@ -1611,6 +1653,7 @@ RWTexture2D<float4> ProxyOut    : register(u0);
 RWTexture2D<float4> ResultOut   : register(u1);
 RWTexture2D<float2> MotionOut   : register(u2);
 RWByteAddressBuffer DeltaStats  : register(u3);
+RWByteAddressBuffer StageCapture : register(u4);
 
 cbuffer Constants : register(b0) {
     uint Width;
@@ -1630,6 +1673,7 @@ cbuffer Constants : register(b0) {
     uint MotionSourceBaseX;
     uint MotionSourceBaseY;
     float PreExposure;
+    uint CaptureStride;
 };
 
 static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
@@ -1853,6 +1897,27 @@ void EncodeCS(uint3 tid : SV_DispatchThreadID) {
         LinearToSRGB(HdrSourceToModelLinear(frame)), source.a);
 }
 
+void WriteCombined(uint2 coord, uint2 destinationCoord, float4 result) {
+    ResultOut[destinationCoord] = result;
+    // Disabled captures do not load, convert, or store any extra pixels.
+    if (CaptureStride == 0u ||
+        (coord.x & (CaptureStride - 1u)) != 0u ||
+        (coord.y & (CaptureStride - 1u)) != 0u) return;
+    uint captureWidth = (Width + CaptureStride - 1u) / CaptureStride;
+    uint captureHeight = (Height + CaptureStride - 1u) / CaptureStride;
+    uint planeBytes = captureWidth * captureHeight * 16u;
+    uint offset = ((coord.y / CaptureStride) * captureWidth +
+                   coord.x / CaptureStride) * 16u;
+    uint2 sourceCoord = coord + uint2(SourceBaseX, SourceBaseY);
+    StageCapture.Store4(offset,
+        asuint(OriginalColor.Load(int3(sourceCoord, 0))));
+    StageCapture.Store4(planeBytes + offset,
+        asuint(ProxyColor.Load(int3(coord, 0))));
+    StageCapture.Store4(planeBytes * 2u + offset,
+        asuint(NeuralColor.Load(int3(coord, 0))));
+    StageCapture.Store4(planeBytes * 3u + offset, asuint(result));
+}
+
 [numthreads(8, 8, 1)]
 void CombineCS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height) return;
@@ -1869,7 +1934,7 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         all(abs(storedNeural) <= 65504.0.xxx);
     if (!finiteInputs) {
         // A malformed temporal sample must not poison the game's HDR target.
-        ResultOut[destinationCoord] = storedOriginal;
+        WriteCombined(tid.xy, destinationCoord, storedOriginal);
         RecordDiagnostics(tid.xy, 0.0.xxx, 0.0.xxx, 0.0.xxx,
                           0.0.xxx, 0.0, 0.0, true);
         return;
@@ -1883,7 +1948,7 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         max(abs(diagnosticNeural.g - diagnosticProxy.g),
             abs(diagnosticNeural.b - diagnosticProxy.b)));
     if (TransferStrength <= 0.000001) {
-        ResultOut[destinationCoord] = storedOriginal;
+        WriteCombined(tid.xy, destinationCoord, storedOriginal);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
                           diagnosticNeural, diagnosticOriginal,
                           diagnosticDelta, 0.0, false);
@@ -1913,7 +1978,7 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         // A no-op neural result must be a strict per-pixel identity. Avoiding
         // any colour-space round-trip here also makes the diagnostic contract
         // independent of FP16 matrix precision.
-        ResultOut[destinationCoord] = storedOriginal;
+        WriteCombined(tid.xy, destinationCoord, storedOriginal);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
                           diagnosticNeural, diagnosticOriginal,
                           diagnosticDelta, 0.0, false);
@@ -2025,7 +2090,8 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         storedResult = LinearToSRGB(sourceDomainResult);
     else if (linearSdrStorage)
         storedResult = saturate(sourceDomainResult);
-    ResultOut[destinationCoord] = float4(storedResult, storedOriginal.a);
+    WriteCombined(tid.xy, destinationCoord,
+                  float4(storedResult, storedOriginal.a));
     float originalMagnitude = max(
         max(abs(original.r), max(abs(original.g), abs(original.b))),
         1.0 / 1024.0);
@@ -2221,7 +2287,73 @@ enum class CodecColorMode : unsigned int {
     ModelEncodedValueDomain,
 };
 
+struct NrTuningSignature {
+    float intensity = 1.0f;
+    float local_tone = 1.0f;
+    float local_structure = 1.0f;
+    float skin_structure = -1.0f;
+    bool auto_mask = false;
+    unsigned int style = 0;
+    bool ui_correction = false;
+};
+
+struct NrDiagnosticIdentity {
+    unsigned long long instance_id = 0;
+    unsigned long long frame_id = 0;
+    unsigned int config_generation = 0;
+    unsigned int evaluation = 0;
+    unsigned int since_reset = 0;
+    bool warmed_up = false;
+    NrTuningSignature tuning = {};
+};
+
+// Protected by g_chain_cs. An instance means a successful, non-null Create;
+// a frame means one successful Feature 18 Evaluate, not a presented/FG frame.
+unsigned long long g_next_nr_instance_id = 0;
+unsigned long long g_next_nr_frame_id = 0;
+NrDiagnosticIdentity g_applied_nr_identity = {};
+int g_applied_nr_mode = 0;
+NrDiagnosticIdentity g_last_sample_identity = {}; // diagnostic snapshot lock
+
+struct NrStageCaptureInfo {
+    NrDiagnosticIdentity identity = {};
+    unsigned long long request_id = 0;
+    unsigned long long feature_generation = 0;
+    unsigned int width = 0;
+    unsigned int height = 0;
+    unsigned int stride = 0;
+    unsigned int source_width = 0;
+    unsigned int source_height = 0;
+    unsigned int source_base_x = 0;
+    unsigned int source_base_y = 0;
+    unsigned int destination_base_x = 0;
+    unsigned int destination_base_y = 0;
+    unsigned int codec_flags = 0;
+    unsigned int source_format = 0;
+    unsigned int result_format = 0;
+    float proxy_scale = 1.0f;
+    float transfer_strength = 1.0f;
+    float color_strength = 0.0f;
+    float max_luma_ratio = 1.0f;
+    float pre_exposure = 1.0f;
+    float exposure_scale = 1.0f;
+    bool has_pre_exposure = false;
+    bool has_exposure_scale = false;
+    int mode = 0;
+};
+
+struct NrStageCapture {
+    ID3D12Resource *buffer = nullptr;
+    ID3D12Resource *readback = nullptr;
+    D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
+    NrStageCaptureInfo info = {};
+    UINT64 bytes = 0;
+    bool armed = false;
+    bool pending = false;
+};
+
 struct NrSlot {
+    NrStageCapture stage_capture = {};
     ID3D12Resource *key = nullptr;
     ID3D12Resource *source = nullptr;
     ID3D12Resource *proxy = nullptr;
@@ -2268,22 +2400,13 @@ struct NrSlot {
     float diagnostic_color_strength = 0.0f;
     bool diagnostic_preserve_lighting = false;
     bool diagnostic_has_exposure_texture = false;
+    NrDiagnosticIdentity diagnostic_identity = {};
 };
 
 // The leaked Feature 18 runtime snapshots these controls during CreateFeature
 // (the public evaluate parameter block is not a reliable live-tuning API).
 // Keep an explicit signature so a committed UI edit retires the old temporal
 // feature after its exact fence and creates a fresh one with the new values.
-struct NrTuningSignature {
-    float intensity = 1.0f;
-    float local_tone = 1.0f;
-    float local_structure = 1.0f;
-    float skin_structure = -1.0f;
-    bool auto_mask = false;
-    unsigned int style = 0;
-    bool ui_correction = false;
-};
-
 NrTuningSignature CurrentNrTuningSignature() {
     NrTuningSignature signature = {};
     signature.intensity = g_config.intensity;
@@ -2308,6 +2431,11 @@ bool SameNrTuningSignature(const NrTuningSignature &a,
 }
 
 struct NrContext {
+    unsigned long long instance_id = 0;
+    unsigned int successful_evaluations_since_reset = 0;
+    bool diagnostic_first_sample_logged = false;
+    bool diagnostic_reset_requested = false;
+    bool reset_retry_pending = false;
     const NgxHandle *sr_handle = nullptr;
     unsigned long long feature_generation = 0;
     NgxHandle *nr_handle = nullptr;
@@ -2321,6 +2449,8 @@ struct NrContext {
     bool codec_color_mode_initialized = false;
     NrTuningSignature tuning_signature = {};
     bool tuning_signature_initialized = false;
+    NrGuideSignature guide_storage_signature = {};
+    NrGuideHistory guide_history = {};
     unsigned long long slot_serial = 0;
     unsigned int slot_recycles = 0;
     float last_source_to_canonical = 1.0f;
@@ -2368,6 +2498,29 @@ struct NrContext {
 };
 
 NrContext g_contexts[16] = {};
+
+void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
+    context.reset_retry_pending = false;
+    if (context.diagnostic_reset_requested)
+        context.successful_evaluations_since_reset = 0;
+    ++context.successful_evaluations_since_reset;
+    NrDiagnosticIdentity identity = {};
+    identity.instance_id = context.instance_id;
+    identity.frame_id = ++g_next_nr_frame_id;
+    identity.config_generation = context.config_generation;
+    identity.evaluation = context.evaluations;
+    identity.since_reset = context.successful_evaluations_since_reset;
+    identity.warmed_up = identity.since_reset > g_config.warmup_after_create;
+    identity.tuning = context.tuning_signature;
+    // This slot cannot be reused until its exact submission fence completes.
+    // Freeze the successful evaluation, including the effective Create tuning.
+    if (slot.delta_stats_capture_armed)
+        slot.diagnostic_identity = identity;
+    if (slot.stage_capture.armed)
+        slot.stage_capture.info.identity = identity;
+    g_applied_nr_identity = identity;
+    g_applied_nr_mode = context.mode;
+}
 // Ready contexts are detached from the live table under g_chain_cs, then their
 // NGX and COM objects are released after all lifecycle locks have been dropped.
 NrContext g_pending_destroy_contexts[16] = {};
@@ -2472,7 +2625,10 @@ void MarkLifecycleUncertain(const char *reason) {
     }
 }
 
+void DestroyStageCapture(NrSlot &slot);
+
 void DestroySlot(NrSlot &slot) {
+    DestroyStageCapture(slot);
     ReleaseCom(slot.delta_stats_readback);
     ReleaseCom(slot.delta_stats);
     ReleaseCom(slot.stats_clear_heap);
@@ -2545,6 +2701,8 @@ bool CanMutateSlotLocked(const NrSlot &slot) {
            !slot.awaiting_fence_signal && IsSlotFenceCompleteLocked(slot);
 }
 
+#include "nr_stage_capture.inl"
+
 bool CanDestroyContextLocked(const NrContext &context) {
     if (context.create_dependencies_quarantined ||
         context.lifecycle_dependencies_quarantined) return false;
@@ -2561,6 +2719,7 @@ bool CanDestroyContextLocked(const NrContext &context) {
 }
 
 void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
+    CollectStageCaptureLocked(slot);
     if (!slot.delta_stats_pending || slot.delta_stats_readback == nullptr ||
         !CanMutateSlotLocked(slot)) return;
     const D3D12_RANGE read_range = {0, kDiagnosticStatsBytes};
@@ -2631,8 +2790,6 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
     const float sampled_source_to_canonical = std::clamp(
         sampled_exposure / SanitizeExposure(slot.diagnostic_pre_exposure),
         1.0f / 1024.0f, 1024.0f);
-    g_last_source_to_canonical.store(sampled_source_to_canonical,
-                                     std::memory_order_relaxed);
     const unsigned long long sampled_frame =
         g_nr_delta_sampled_frames.fetch_add(1, std::memory_order_relaxed) + 1;
     if (changed_count == 0 || max_delta < 1.0f / 4096.0f)
@@ -2643,50 +2800,77 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
     // more than one submission thread, so use a real writer lock instead of a
     // single-writer seqlock assumption.
     AcquireSRWLockExclusive(&g_diagnostic_snapshot_lock);
-    g_last_sampled_nr_delta.store(max_delta, std::memory_order_relaxed);
-    g_last_sampled_final_delta.store(max_final_delta,
-                                      std::memory_order_relaxed);
-    g_last_sampled_final_mean_delta.store(mean_final_delta,
-                                           std::memory_order_relaxed);
-    g_last_sampled_final_changed.store(final_changed_count,
-                                        std::memory_order_relaxed);
-    g_last_sampled_exposure_scale.store(sampled_exposure,
-                                        std::memory_order_relaxed);
-    g_last_diagnostic_serial.store(sampled_frame,
-                                   std::memory_order_relaxed);
-    g_last_diagnostic_mode.store(slot.diagnostic_mode,
-                                 std::memory_order_relaxed);
-    g_last_diagnostic_transfer_strength.store(
-        slot.diagnostic_transfer_strength, std::memory_order_relaxed);
-    g_last_diagnostic_color_strength.store(
-        slot.diagnostic_color_strength, std::memory_order_relaxed);
-    g_last_diagnostic_preserve_lighting.store(
-        slot.diagnostic_preserve_lighting, std::memory_order_relaxed);
-    g_last_diagnostic_sample_count.store(sample_count,
+    // Collection order is not submission order across slots/contexts. Keep
+    // the panel on the newest successful evaluation; still log older samples.
+    const bool publish_sample = slot.diagnostic_identity.frame_id >=
+        g_last_sample_identity.frame_id;
+    if (publish_sample) {
+        g_last_source_to_canonical.store(sampled_source_to_canonical,
                                          std::memory_order_relaxed);
-    g_last_diagnostic_invalid_count.store(invalid_count,
+        g_last_sample_identity = slot.diagnostic_identity;
+        g_last_sampled_nr_delta.store(max_delta, std::memory_order_relaxed);
+        g_last_sampled_final_delta.store(max_final_delta,
                                           std::memory_order_relaxed);
-    for (unsigned int stage = 0; stage < kDiagnosticStageCount; ++stage) {
-        const unsigned int base = 4 + stage * 5;
-        const float denominator =
-            static_cast<float>(sample_count) * 65535.0f;
-        g_last_diagnostic_r[stage].store(
-            static_cast<float>(values[base + 0]) / denominator,
-            std::memory_order_relaxed);
-        g_last_diagnostic_g[stage].store(
-            static_cast<float>(values[base + 1]) / denominator,
-            std::memory_order_relaxed);
-        g_last_diagnostic_b[stage].store(
-            static_cast<float>(values[base + 2]) / denominator,
-            std::memory_order_relaxed);
-        g_last_diagnostic_luma[stage].store(
-            static_cast<float>(values[base + 3]) / denominator,
-            std::memory_order_relaxed);
-        g_last_diagnostic_hash[stage].store(values[base + 4],
+        g_last_sampled_final_mean_delta.store(mean_final_delta,
+                                               std::memory_order_relaxed);
+        g_last_sampled_final_changed.store(final_changed_count,
                                             std::memory_order_relaxed);
+        g_last_sampled_exposure_scale.store(sampled_exposure,
+                                            std::memory_order_relaxed);
+        g_last_diagnostic_serial.store(sampled_frame,
+                                       std::memory_order_relaxed);
+        g_last_diagnostic_mode.store(slot.diagnostic_mode,
+                                     std::memory_order_relaxed);
+        g_last_diagnostic_transfer_strength.store(
+            slot.diagnostic_transfer_strength, std::memory_order_relaxed);
+        g_last_diagnostic_color_strength.store(
+            slot.diagnostic_color_strength, std::memory_order_relaxed);
+        g_last_diagnostic_preserve_lighting.store(
+            slot.diagnostic_preserve_lighting, std::memory_order_relaxed);
+        g_last_diagnostic_sample_count.store(sample_count,
+                                             std::memory_order_relaxed);
+        g_last_diagnostic_invalid_count.store(invalid_count,
+                                              std::memory_order_relaxed);
+        for (unsigned int stage = 0; stage < kDiagnosticStageCount; ++stage) {
+            const unsigned int base = 4 + stage * 5;
+            const float denominator =
+                static_cast<float>(sample_count) * 65535.0f;
+            g_last_diagnostic_r[stage].store(
+                static_cast<float>(values[base + 0]) / denominator,
+                std::memory_order_relaxed);
+            g_last_diagnostic_g[stage].store(
+                static_cast<float>(values[base + 1]) / denominator,
+                std::memory_order_relaxed);
+            g_last_diagnostic_b[stage].store(
+                static_cast<float>(values[base + 2]) / denominator,
+                std::memory_order_relaxed);
+            g_last_diagnostic_luma[stage].store(
+                static_cast<float>(values[base + 3]) / denominator,
+                std::memory_order_relaxed);
+            g_last_diagnostic_hash[stage].store(values[base + 4],
+                                                std::memory_order_relaxed);
+        }
     }
     ReleaseSRWLockExclusive(&g_diagnostic_snapshot_lock);
-    if (sampled_frame <= 3 || (sampled_frame % 600) == 0) {
+    const bool first_instance_sample = !context.diagnostic_first_sample_logged &&
+        slot.diagnostic_identity.instance_id == context.instance_id &&
+        slot.diagnostic_identity.warmed_up && invalid_count == 0;
+    if (first_instance_sample) context.diagnostic_first_sample_logged = true;
+    if (first_instance_sample || sampled_frame <= 3 || (sampled_frame % 600) == 0) {
+        const auto &identity = slot.diagnostic_identity;
+        const auto &tuning = identity.tuning;
+        Log("[nr-diag] instance=%llu frame=%llu config=%u eval=%u sinceReset=%u "
+            "warmed=%d first=%d intensity=%.3f style=%u autoMask=%d skin=%.3f "
+            "localTone=%.3f localStructure=%.3f uiCorrection=%d; "
+            "frame identifies NR evaluation, not Present/FG. Model response "
+            "requires image comparison; parameter acceptance alone is insufficient.",
+            identity.instance_id, identity.frame_id, identity.config_generation,
+            identity.evaluation, identity.since_reset, identity.warmed_up ? 1 : 0,
+            first_instance_sample ? 1 : 0, static_cast<double>(tuning.intensity),
+            tuning.style, tuning.auto_mask ? 1 : 0,
+            static_cast<double>(tuning.skin_structure),
+            static_cast<double>(tuning.local_tone),
+            static_cast<double>(tuning.local_structure), tuning.ui_correction ? 1 : 0);
         static const char *const stage_names[kDiagnosticStageCount] = {
             "original", "proxy", "nr-output", "composited"};
         Log("ColorDiag #%llu mode=%d featureGeneration=%llu extent=%ux%u "
@@ -3769,13 +3953,15 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                                unsigned long long feature_generation,
                                int mode, unsigned int width,
                                unsigned int height,
-                               CodecColorMode requested_color_mode) {
+                               CodecColorMode requested_color_mode,
+                               const NrGuideSignature &requested_guides) {
     CollectRetiredContextsLocked();
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_nr_failed_create_process_latched.load(std::memory_order_acquire))
         return nullptr;
     const NrTuningSignature requested_tuning = CurrentNrTuningSignature();
     NrContext *empty = nullptr;
+    NrContext *matching = nullptr;
     for (auto &context : g_contexts) {
         if (context.sr_handle == sr_handle && !context.retired &&
             context.feature_generation != feature_generation) {
@@ -3789,8 +3975,23 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
         }
         if (context.sr_handle == sr_handle && !context.retired &&
             context.feature_generation == feature_generation &&
-            context.mode == mode &&
-            context.width == width && context.height == height) {
+            context.mode == mode) {
+            // One temporal history per carrier/generation/mode. Keeping an
+            // active context for every DRS extent resurrected stale history
+            // on A->B->A and eventually occupied all 16 context entries.
+            if (context.width != width || context.height != height ||
+                !SameNrGuideStorageContract(context.guide_storage_signature,
+                                            requested_guides)) {
+                context.retired = true;
+                Log("NR dimensions/guide storage changed: handle=%p mode=%d "
+                    "extent=%ux%u->%ux%u flags=%d->%d; retiring temporal "
+                    "history after its exact GPU fence.",
+                    static_cast<const void *>(sr_handle), mode,
+                    context.width, context.height, width, height,
+                    context.guide_storage_signature.normalized_create_flags,
+                    requested_guides.normalized_create_flags);
+                continue;
+            }
             if (context.codec_color_mode_initialized &&
                 context.codec_color_mode != requested_color_mode) {
                 context.retired = true;
@@ -3827,10 +4028,11 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                     requested_tuning.ui_correction ? 1 : 0);
                 continue;
             }
-            return &context;
+            matching = &context;
         }
         if (empty == nullptr && context.sr_handle == nullptr) empty = &context;
     }
+    if (matching != nullptr) return matching;
     if (empty != nullptr) {
         empty->sr_handle = sr_handle;
         empty->feature_generation = feature_generation;
@@ -3841,6 +4043,7 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
         empty->codec_color_mode_initialized = true;
         empty->tuning_signature = requested_tuning;
         empty->tuning_signature_initialized = true;
+        empty->guide_storage_signature = requested_guides;
     }
     return empty;
 }
@@ -4279,6 +4482,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
             slot.stats_clear_heap);
     ID3D12Device_CreateUnorderedAccessView(
         device, slot.delta_stats, nullptr, &stats_uav, stats_clear_cpu);
+    BindStageCaptureDescriptor(slot, nullptr, 0);
     if (slot.snapshots_native_output) {
         D3D12_DESCRIPTOR_HEAP_DESC snapshot_desc = heap_desc;
         hr = ID3D12Device_CreateDescriptorHeap(
@@ -4565,6 +4769,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
 void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
                                 const ColorContract &color_contract) {
     CollectSlotDeltaStatsLocked(context, slot);
+    ArmStageCaptureLocked(context, slot);
     if (!slot.delta_stats_pending && slot.delta_stats != nullptr &&
         slot.delta_stats_readback != nullptr) {
         slot.delta_stats_capture_armed = true;
@@ -4620,7 +4825,9 @@ struct CodecConstants {
     unsigned int motion_source_base_x;
     unsigned int motion_source_base_y;
     float pre_exposure;
+    unsigned int capture_stride;
 };
+static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * sizeof(UINT));
 
 void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    ID3D12PipelineState *pipeline, unsigned int width,
@@ -4640,6 +4847,14 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         slot.delta_stats_capture_armed && !slot.delta_stats_pending &&
         slot.delta_stats != nullptr && slot.delta_stats_readback != nullptr &&
         slot.stats_clear_heap != nullptr;
+    const bool capture_stages = pipeline == g_codec.combine &&
+        slot.stage_capture.armed && !slot.stage_capture.pending &&
+        slot.stage_capture.info.identity.warmed_up &&
+        slot.stage_capture.buffer != nullptr && slot.stage_capture.readback != nullptr;
+    if (capture_stages) {
+        Transition(command_list, slot.stage_capture.buffer, slot.stage_capture.state,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
     if (capture_delta) {
         Transition(command_list, slot.delta_stats, slot.delta_stats_state,
                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -4687,18 +4902,47 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         ? 0.0f : g_config.color_strength;
     if (capture_delta)
         slot.diagnostic_color_strength = effective_color_strength;
+    if (capture_stages) {
+        NrStageCaptureInfo &info = slot.stage_capture.info;
+        info.source_format = static_cast<unsigned int>(slot.source_format);
+        info.result_format = static_cast<unsigned int>(slot.result_format);
+        info.source_base_x = source_base_x;
+        info.source_base_y = source_base_y;
+        info.destination_base_x = destination_base_x;
+        info.destination_base_y = destination_base_y;
+        info.codec_flags = codec_flags;
+        info.proxy_scale = g_config.proxy_scale;
+        info.transfer_strength = ActiveTransferStrength(g_config);
+        info.color_strength = effective_color_strength;
+        info.max_luma_ratio = g_config.max_luma_ratio;
+        info.pre_exposure = color_contract.pre_exposure;
+        info.exposure_scale = color_contract.exposure_scale;
+        info.has_pre_exposure = color_contract.has_pre_exposure;
+        info.has_exposure_scale = color_contract.has_exposure_scale;
+    }
     const CodecConstants constants = {
         width, height, g_config.proxy_scale, ActiveTransferStrength(g_config),
         color_contract.source_to_canonical, effective_color_strength,
         g_config.max_luma_ratio, codec_flags,
         source_base_x, source_base_y,
         destination_base_x, destination_base_y,
-        0, 0, 0, 0, color_contract.pre_exposure};
+        0, 0, 0, 0, color_contract.pre_exposure,
+        capture_stages ? slot.stage_capture.info.stride : 0u};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
     ID3D12GraphicsCommandList_Dispatch(
         command_list, (width + 7) / 8, (height + 7) / 8, 1);
+    if (capture_stages) {
+        UavBarrier(command_list, slot.stage_capture.buffer);
+        Transition(command_list, slot.stage_capture.buffer, slot.stage_capture.state,
+                   D3D12_RESOURCE_STATE_COPY_SOURCE);
+        ID3D12GraphicsCommandList_CopyBufferRegion(
+            command_list, slot.stage_capture.readback, 0,
+            slot.stage_capture.buffer, 0, slot.stage_capture.bytes);
+        slot.stage_capture.pending = true;
+        slot.stage_capture.armed = false;
+    }
     if (capture_delta) {
         UavBarrier(command_list, slot.delta_stats);
         Transition(command_list, slot.delta_stats, slot.delta_stats_state,
@@ -4727,7 +4971,7 @@ void DispatchMotionResample(ID3D12GraphicsCommandList *command_list,
     const CodecConstants constants = {
         width, height, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0,
         0, 0, 0, 0,
-        source_width, source_height, source_base_x, source_base_y, 1.0f};
+        source_width, source_height, source_base_x, source_base_y, 1.0f, 0};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(
@@ -4955,111 +5199,169 @@ NgxResult ComputeScalingRatioCallback(NgxParams *params) {
     return kNgxSuccess;
 }
 
-bool BindNrParameters(NrContext &context, NrSlot &slot,
-                      const NgxParams *sr_params, const FeatureRecord &feature,
-                      unsigned int width, unsigned int height,
-                      unsigned int guide_width, unsigned int guide_height,
-                      const ColorContract &color_contract, bool reset,
-                      ID3D12Resource *motion_override = nullptr,
-                      unsigned int motion_override_width = 0,
-                      unsigned int motion_override_height = 0,
-                      float motion_scale_multiplier_x = 1.0f,
-                      float motion_scale_multiplier_y = 1.0f) {
-    ID3D12Resource *motion = nullptr;
+struct NrGuideBinding {
+    NrGuideSignature signature = {};
     ID3D12Resource *depth = nullptr;
-    if (!GetResource(sr_params, "MotionVectors", &motion) || motion == nullptr ||
-        !GetResource(sr_params, "Depth", &depth) || depth == nullptr) return false;
+    ID3D12Resource *motion = nullptr;
+    bool has_motion_scale_x = false, has_motion_scale_y = false;
+    bool valid_motion_scale_x = false, valid_motion_scale_y = false;
+    int game_reset = 0;
+};
 
-    unsigned int depth_x = 0, depth_y = 0, mv_x = 0, mv_y = 0;
-    GetUInt(sr_params, "DLSS.Input.Depth.Subrect.Base.X", &depth_x);
-    GetUInt(sr_params, "DLSS.Input.Depth.Subrect.Base.Y", &depth_y);
-    GetUInt(sr_params, "DLSS.Input.MV.Subrect.Base.X", &mv_x);
-    GetUInt(sr_params, "DLSS.Input.MV.Subrect.Base.Y", &mv_y);
-    if (motion_override != nullptr) {
-        motion = motion_override;
-        mv_x = 0;
-        mv_y = 0;
-    }
-    if (guide_width == 0) guide_width = width;
-    if (guide_height == 0) guide_height = height;
-    unsigned int motion_width = guide_width;
-    unsigned int motion_height = guide_height;
-    if (motion_override != nullptr) {
-        motion_width = motion_override_width;
-        motion_height = motion_override_height;
-    } else if ((feature.create_flags & 2) == 0) {
-        const D3D12_RESOURCE_DESC motion_desc = ID3D12Resource_GetDesc(motion);
-        const unsigned int available_motion_width = motion_desc.Width > mv_x
-            ? static_cast<unsigned int>(motion_desc.Width - mv_x) : 0;
-        const unsigned int available_motion_height = motion_desc.Height > mv_y
-            ? motion_desc.Height - mv_y : 0;
-        // With MVLowRes clear, NGX expects motion at the feature output
-        // resolution. This is the native contract for Wuchang's post-SR path.
-        if (available_motion_width >= width &&
-            available_motion_height >= height) {
-            motion_width = width;
-            motion_height = height;
+// Resolve the complete guide contract before selecting temporal history or
+// recording codec commands. The post-SR path retains this entrance snapshot
+// across native SR instead of re-reading its mutable parameter block.
+bool ResolveNrGuideBinding(const NgxParams *sr_params,
+                            const FeatureRecord &feature, int mode,
+                            unsigned int width, unsigned int height,
+                            unsigned int guide_width, unsigned int guide_height,
+                            ID3D12Resource *color, unsigned int color_x,
+                            unsigned int color_y, CodecColorMode color_mode,
+                            NrGuideBinding &binding) {
+    if (!GetResource(sr_params, "MotionVectors", &binding.motion) ||
+        binding.motion == nullptr ||
+        !GetResource(sr_params, "Depth", &binding.depth) ||
+        binding.depth == nullptr || color == nullptr) return false;
+    NrGuideSignature &s = binding.signature;
+    const D3D12_RESOURCE_DESC depth_desc = ID3D12Resource_GetDesc(binding.depth);
+    const D3D12_RESOURCE_DESC motion_desc = ID3D12Resource_GetDesc(binding.motion);
+    const D3D12_RESOURCE_DESC color_desc = ID3D12Resource_GetDesc(color);
+    s.depth_physical_width = depth_desc.Width;
+    s.depth_physical_height = depth_desc.Height;
+    s.depth_format = static_cast<unsigned int>(depth_desc.Format);
+    s.motion_physical_width = motion_desc.Width;
+    s.motion_physical_height = motion_desc.Height;
+    s.motion_format = static_cast<unsigned int>(motion_desc.Format);
+    s.color_physical_width = color_desc.Width;
+    s.color_physical_height = color_desc.Height;
+    s.color_format = static_cast<unsigned int>(color_desc.Format);
+    s.color_x = color_x;
+    s.color_y = color_y;
+    GetUInt(sr_params, "DLSS.Input.Depth.Subrect.Base.X", &s.depth_x);
+    GetUInt(sr_params, "DLSS.Input.Depth.Subrect.Base.Y", &s.depth_y);
+    GetUInt(sr_params, "DLSS.Input.MV.Subrect.Base.X", &s.motion_x);
+    GetUInt(sr_params, "DLSS.Input.MV.Subrect.Base.Y", &s.motion_y);
+    s.depth_width = guide_width;
+    s.depth_height = guide_height;
+    s.motion_source_width = guide_width;
+    s.motion_source_height = guide_height;
+    const unsigned int available_width = motion_desc.Width > s.motion_x &&
+        motion_desc.Width - s.motion_x <= UINT_MAX
+        ? static_cast<unsigned int>(motion_desc.Width - s.motion_x) : 0;
+    const unsigned int available_height = motion_desc.Height > s.motion_y
+        ? motion_desc.Height - s.motion_y : 0;
+    if ((feature.create_flags & 2) == 0) {
+        if (mode == 2) {
+            ID3D12Resource *output = nullptr;
+            unsigned int output_x = 0, output_y = 0;
+            unsigned int output_width = 0, output_height = 0;
+            GetUInt(sr_params, "DLSS.Output.Subrect.Base.X", &output_x);
+            GetUInt(sr_params, "DLSS.Output.Subrect.Base.Y", &output_y);
+            if (!GetResource(sr_params, "Output", &output) || output == nullptr ||
+                !ResolveOutputExtentFromEvaluate(
+                    sr_params, feature, output, output_x, output_y,
+                    width, height, output_width, output_height) ||
+                output_width < width || output_height < height ||
+                available_width < output_width || available_height < output_height) {
+                static unsigned int rejected_motion_extents = 0;
+                ++rejected_motion_extents;
+                if (rejected_motion_extents <= 3 ||
+                    (rejected_motion_extents % 600) == 0)
+                    Log("High-resolution motion contract is incomplete: "
+                        "available=%ux%u logicalOutput=%ux%u render=%ux%u; "
+                        "original SR retained (count=%u).", available_width,
+                        available_height, output_width, output_height,
+                        width, height, rejected_motion_extents);
+                return false;
+            }
+            s.motion_source_width = output_width;
+            s.motion_source_height = output_height;
+            s.resample_motion = output_width != width || output_height != height;
+        } else if (available_width >= width && available_height >= height) {
+            s.motion_source_width = width;
+            s.motion_source_height = height;
         }
     }
-    if (motion_width == 0 || motion_height == 0) return false;
-    if (!TextureContainsRegion(depth, depth_x, depth_y,
-                               guide_width, guide_height) ||
-        !TextureContainsRegion(motion, mv_x, mv_y,
-                               motion_width, motion_height)) {
-        const D3D12_RESOURCE_DESC depth_desc = ID3D12Resource_GetDesc(depth);
-        const D3D12_RESOURCE_DESC motion_desc = ID3D12Resource_GetDesc(motion);
-        Log("NR guide contract rejected: depthActive=%ux%u "
-            "depth physical=%llux%u base=%u,%u; motionActive=%ux%u "
-            "motion physical=%llux%u base=%u,%u. "
-            "Original game SR retained.",
-            guide_width, guide_height,
-            static_cast<unsigned long long>(depth_desc.Width), depth_desc.Height,
-            depth_x, depth_y,
-            motion_width, motion_height,
-            static_cast<unsigned long long>(motion_desc.Width), motion_desc.Height,
-            mv_x, mv_y);
+    s.motion_bound_width = s.resample_motion ? width : s.motion_source_width;
+    s.motion_bound_height = s.resample_motion ? height : s.motion_source_height;
+    if (guide_width == 0 || guide_height == 0 ||
+        !TextureContainsRegion(binding.depth, s.depth_x, s.depth_y,
+                               s.depth_width, s.depth_height) ||
+        !TextureContainsRegion(binding.motion, s.motion_x, s.motion_y,
+                               s.motion_source_width, s.motion_source_height)) {
+        static unsigned int rejected_guides = 0;
+        ++rejected_guides;
+        if (rejected_guides <= 3 || (rejected_guides % 600) == 0)
+            Log("NR guide contract rejected before context/GPU recording: "
+                "depth=%llux%u active=%ux%u@%u,%u motion=%llux%u "
+                "active=%ux%u@%u,%u; original SR retained (count=%u).",
+                s.depth_physical_width, s.depth_physical_height,
+                s.depth_width, s.depth_height, s.depth_x, s.depth_y,
+                s.motion_physical_width, s.motion_physical_height,
+                s.motion_source_width, s.motion_source_height,
+                s.motion_x, s.motion_y, rejected_guides);
         return false;
     }
-    if (!context.guide_contract_logged) {
+    binding.has_motion_scale_x = GetFloat(sr_params, "MV.Scale.X", &s.motion_scale_x);
+    binding.has_motion_scale_y = GetFloat(sr_params, "MV.Scale.Y", &s.motion_scale_y);
+    binding.valid_motion_scale_x = binding.has_motion_scale_x &&
+        std::isfinite(s.motion_scale_x) && std::abs(s.motion_scale_x) > 0.000001f;
+    binding.valid_motion_scale_y = binding.has_motion_scale_y &&
+        std::isfinite(s.motion_scale_y) && std::abs(s.motion_scale_y) > 0.000001f;
+    if (!binding.valid_motion_scale_x) s.motion_scale_x = 1.0f;
+    if (!binding.valid_motion_scale_y) s.motion_scale_y = 1.0f;
+    // Resampling changes locations, never the units of stored vectors.
+    s.normalized_create_flags = feature.create_flags;
+    if (color_mode == CodecColorMode::ModelEncodedValueDomain)
+        s.normalized_create_flags &= ~1;
+    if (s.motion_bound_width == width && s.motion_bound_height == height)
+        s.normalized_create_flags &= ~2;
+    else
+        s.normalized_create_flags |= 2;
+    s.depth_inverted = (feature.create_flags & 8) != 0 ? 1 : 0;
+    if (g_config.depth_mode == 0) s.depth_inverted = 0;
+    else if (g_config.depth_mode == 1) s.depth_inverted = 1;
+    GetInt(sr_params, "Reset", &binding.game_reset);
+    return true;
+}
+
+bool BindNrParameters(NrContext &context, NrSlot &slot,
+                      const NrGuideBinding &guides, const FeatureRecord &feature,
+                      unsigned int width, unsigned int height,
+                      const ColorContract &color_contract, bool reset,
+                      ID3D12Resource *motion_override = nullptr) {
+    const NrGuideSignature &s = guides.signature;
+    ID3D12Resource *motion = s.resample_motion ? motion_override : guides.motion;
+    ID3D12Resource *depth = guides.depth;
+    if (motion == nullptr || depth == nullptr) return false;
+    const unsigned int depth_x = s.depth_x, depth_y = s.depth_y;
+    const unsigned int mv_x = s.resample_motion ? 0 : s.motion_x;
+    const unsigned int mv_y = s.resample_motion ? 0 : s.motion_y;
+    const unsigned int guide_width = s.depth_width, guide_height = s.depth_height;
+    const unsigned int motion_width = s.motion_bound_width;
+    const unsigned int motion_height = s.motion_bound_height;
+    const float mv_scale_x = s.motion_scale_x, mv_scale_y = s.motion_scale_y;
+    const int game_reset = guides.game_reset;
+    const bool guide_reset = context.guide_history.NeedsReset(s);
+    if (!context.guide_contract_logged || guide_reset) {
         context.guide_contract_logged = true;
-        const D3D12_RESOURCE_DESC depth_desc = ID3D12Resource_GetDesc(depth);
-        const D3D12_RESOURCE_DESC motion_desc = ID3D12Resource_GetDesc(motion);
-        Log("NR guide contract accepted: depthActive=%ux%u "
-            "depth=%llux%u@%u,%u motionActive=%ux%u "
-            "motion=%llux%u@%u,%u%s.",
-            guide_width, guide_height,
-            static_cast<unsigned long long>(depth_desc.Width), depth_desc.Height,
-            depth_x, depth_y,
-            motion_width, motion_height,
-            static_cast<unsigned long long>(motion_desc.Width), motion_desc.Height,
-            mv_x, mv_y, motion_override != nullptr ? " converted" : "");
+        Log("NR guide binding: mode=%d depth=%ux%u@%u,%u mv=%ux%u@%u,%u "
+            "sourceMV=%ux%u converted=%d scale=%.6f,%.6f flags=%d "
+            "depthInverted=%d historyReset=%d.", context.mode,
+            guide_width, guide_height, depth_x, depth_y,
+            motion_width, motion_height, mv_x, mv_y,
+            s.motion_source_width, s.motion_source_height,
+            s.resample_motion ? 1 : 0,
+            static_cast<double>(mv_scale_x), static_cast<double>(mv_scale_y),
+            s.normalized_create_flags, s.depth_inverted, guide_reset ? 1 : 0);
     }
-    // NGX defines MV.Scale as the conversion from the resource's stored
-    // vectors to pixel displacement. A missing scale is 1, not the guide
-    // extent: using width/height here turned an omitted optional parameter
-    // into a hundreds- or thousands-fold temporal offset.
-    float mv_scale_x = 1.0f;
-    float mv_scale_y = 1.0f;
-    const bool has_mv_scale_x = GetFloat(sr_params, "MV.Scale.X", &mv_scale_x);
-    const bool has_mv_scale_y = GetFloat(sr_params, "MV.Scale.Y", &mv_scale_y);
-    const bool valid_mv_scale_x = has_mv_scale_x && std::isfinite(mv_scale_x) &&
-                                  std::abs(mv_scale_x) > 0.000001f;
-    const bool valid_mv_scale_y = has_mv_scale_y && std::isfinite(mv_scale_y) &&
-                                  std::abs(mv_scale_y) > 0.000001f;
-    if (!valid_mv_scale_x) mv_scale_x = 1.0f;
-    if (!valid_mv_scale_y) mv_scale_y = 1.0f;
-    if ((!valid_mv_scale_x || !valid_mv_scale_y) &&
+    if ((!guides.valid_motion_scale_x || !guides.valid_motion_scale_y) &&
         !context.motion_scale_fallback_logged) {
         context.motion_scale_fallback_logged = true;
         Log("MV.Scale missing, zero, or non-finite; using safe 1:1 default "
-            "(present=%d,%d).", has_mv_scale_x ? 1 : 0,
-            has_mv_scale_y ? 1 : 0);
+            "(present=%d,%d).", guides.has_motion_scale_x ? 1 : 0,
+            guides.has_motion_scale_y ? 1 : 0);
     }
-    mv_scale_x *= motion_scale_multiplier_x;
-    mv_scale_y *= motion_scale_multiplier_y;
-    int game_reset = 0;
-    GetInt(sr_params, "Reset", &game_reset);
-
     NgxParams *params = context.params;
     SetResource(params, "DLSSNR.Color", slot.proxy);
     SetResource(params, "DLSSNR.Output", slot.neural);
@@ -5099,19 +5401,9 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     SetFloat(params, "DLSSNR.Scale", 1.0f);
     SetInt(params, "DLSSNR.Upscaling", 0);
     int nr_perf_quality = 5;
-    int nr_create_flags = feature.create_flags;
-    // The live bounded-R8 admission is model-encoded SDR even when the game
-    // kept an old HDR bit on its Feature 1 handle. Feature 18 sees our FP16
-    // proxy, so normalize its create contract to the proxy actually supplied.
-    if (slot.codec_color_mode == CodecColorMode::ModelEncodedValueDomain)
-        nr_create_flags &= ~1;
-    // Bit 1 is the NGX "low-resolution motion vectors" flag. Normalize it to
-    // this Feature 18 output, rather than blindly forwarding the game's SR
-    // relationship. Depth and motion may legitimately have different extents.
-    if (motion_width == width && motion_height == height)
-        nr_create_flags &= ~2;
-    else
-        nr_create_flags |= 2;
+    // Selected before context lookup, so a changed MVLowRes/storage contract
+    // rebuilds the temporal feature instead of silently retaining old flags.
+    int nr_create_flags = s.normalized_create_flags;
     if (context.create_variant_selected) {
         nr_create_flags = context.bound_create_flags;
         nr_perf_quality = context.bound_perf_quality;
@@ -5136,9 +5428,7 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     SetFloat(params, "DLSSNR.MVecScaleX", mv_scale_x);
     SetFloat(params, "DLSSNR.MVecScaleY", mv_scale_y);
 
-    int depth_inverted = (feature.create_flags & 8) != 0 ? 1 : 0;
-    if (g_config.depth_mode == 0) depth_inverted = 0;
-    else if (g_config.depth_mode == 1) depth_inverted = 1;
+    const int depth_inverted = s.depth_inverted;
     const unsigned int config_generation =
         g_config_generation.load(std::memory_order_relaxed);
     const bool config_changed = context.config_generation != config_generation;
@@ -5218,8 +5508,13 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     SetFloat(params, "DLSS.Exposure.Scale", 1.0f);
     SetInt(params, "DLSSNR.DepthInverted", depth_inverted);
     SetInt(params, "DLSSNR.Enabled", 1);
-    SetInt(params, "DLSSNR.Reset",
-           (reset || game_reset != 0 || config_changed || color_contract_reset) ? 1 : 0);
+    const bool reset_requested = reset || game_reset != 0 || config_changed ||
+        color_contract_reset || guide_reset || context.reset_retry_pending;
+    context.diagnostic_reset_requested = reset_requested;
+    // Binding may consume config/color transitions before Evaluate fails.
+    // Only a successful Evaluate is allowed to consume a requested Reset.
+    context.reset_retry_pending = reset_requested;
+    SetInt(params, "DLSSNR.Reset", reset_requested ? 1 : 0);
     const NrTuningSignature &tuning = context.tuning_signature;
     SetFloat(params, "DLSSNR.Intensity", tuning.intensity);
     SetFloat(params, "DLSSNR.LocalToneStrength", tuning.local_tone);
@@ -5262,6 +5557,14 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
             context.params, &handle);
     }
     if (result == kNgxSuccess && handle != nullptr) {
+        context.instance_id = ++g_next_nr_instance_id;
+        context.successful_evaluations_since_reset = 0;
+        context.diagnostic_first_sample_logged = false;
+        Log("[nr-instance] created=%llu mode=%d featureGeneration=%llu "
+            "config=%u intensity=%.3f style=%u.", context.instance_id,
+            context.mode, context.feature_generation,
+            g_config_generation.load(std::memory_order_relaxed),
+            static_cast<double>(tuning.intensity), tuning.style);
         context.create_variant_selected = true;
         *out_handle = handle;
     } else if (handle != nullptr) {
@@ -5370,13 +5673,13 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                 output_desc.SampleDesc.Count == 1;
         }
         const bool create_declares_sdr = (feature.create_flags & 1) == 0;
-        const bool unity_exposure = IsUnityExposureContract(color_contract);
         // Evaluate resources are authoritative. Yanyun retains one Feature 1
         // handle and stale HDR flags while changing both live Color and Output
         // from FP16 to bounded R8. Admit that exact, corroborated value-domain
-        // contract; do not generalize it to typed sRGB or non-unity exposure.
-        const bool live_r8_admitted = unity_exposure &&
-            (create_declares_sdr || live_bounded_output);
+        // contract only with explicitly supplied unit exposure scalars; do not
+        // generalize it to typed sRGB, missing keys, or non-unity exposure.
+        const bool live_r8_admitted = IsPreSrBoundedR8Contract(
+            color_contract, create_declares_sdr, live_bounded_output);
         if (!live_r8_admitted) {
             SetBypassReason(BypassReason::InputColorContractUnverified);
             static unsigned int rejected_live_r8_contracts = 0;
@@ -5500,8 +5803,16 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
     const CodecColorMode pre_sr_color_mode =
         PreSrCodecColorMode(storage_contract);
+    NrGuideBinding guides = {};
+    if (!ResolveNrGuideBinding(sr_params, feature, 2, width, height,
+                               width, height, color, color_x, color_y,
+                               pre_sr_color_mode, guides)) {
+        ReleaseCom(device);
+        return substitution;
+    }
     NrContext *context = FindOrCreateContext(
-        sr_handle, feature.generation, 2, width, height, pre_sr_color_mode);
+        sr_handle, feature.generation, 2, width, height, pre_sr_color_mode,
+        guides.signature);
     if (context == nullptr) {
         Log("No free NR context for the Before-SR chain; original SR retained.");
         ReleaseCom(device);
@@ -5538,110 +5849,35 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     bool lifecycle_recorded = false;
 
     ID3D12Resource *motion_override = nullptr;
-    unsigned int motion_override_width = 0;
-    unsigned int motion_override_height = 0;
-    float motion_scale_multiplier_x = 1.0f;
-    float motion_scale_multiplier_y = 1.0f;
-    ID3D12Resource *game_motion = nullptr;
-    if ((feature.create_flags & 2) == 0 &&
-        GetResource(sr_params, "MotionVectors", &game_motion) &&
-        game_motion != nullptr) {
-        unsigned int mv_x = 0, mv_y = 0;
-        GetUInt(sr_params, "DLSS.Input.MV.Subrect.Base.X", &mv_x);
-        GetUInt(sr_params, "DLSS.Input.MV.Subrect.Base.Y", &mv_y);
-        const D3D12_RESOURCE_DESC motion_desc =
-            ID3D12Resource_GetDesc(game_motion);
-        unsigned int source_width = motion_desc.Width > mv_x
-            ? static_cast<unsigned int>(motion_desc.Width - mv_x) : 0;
-        unsigned int source_height = motion_desc.Height > mv_y
-            ? motion_desc.Height - mv_y : 0;
-        // Resolve the logical output rather than assuming OutWidth is always
-        // the output side. Some integrations publish Width/OutWidth reversed.
-        // An ambiguous contract is safer to bypass than to crop the top-left
-        // render-sized portion of a full-resolution motion field.
-        ID3D12Resource *game_output = nullptr;
-        if (GetResource(sr_params, "Output", &game_output) &&
-            game_output != nullptr) {
-            unsigned int output_x = 0, output_y = 0;
-            GetUInt(sr_params, "DLSS.Output.Subrect.Base.X", &output_x);
-            GetUInt(sr_params, "DLSS.Output.Subrect.Base.Y", &output_y);
-            unsigned int logical_output_width = 0;
-            unsigned int logical_output_height = 0;
-            if (!ResolveOutputExtentFromEvaluate(
-                    sr_params, feature, game_output, output_x, output_y,
-                    width, height, logical_output_width,
-                    logical_output_height)) {
-                const D3D12_RESOURCE_DESC game_output_desc =
-                    ID3D12Resource_GetDesc(game_output);
-                const unsigned int output_width = game_output_desc.Width > output_x
-                    ? static_cast<unsigned int>(game_output_desc.Width - output_x) : 0;
-                const unsigned int output_height = game_output_desc.Height > output_y
-                    ? game_output_desc.Height - output_y : 0;
-                static unsigned int ambiguous_motion_extents = 0;
-                ++ambiguous_motion_extents;
-                if (ambiguous_motion_extents <= 3 ||
-                    (ambiguous_motion_extents % 600) == 0) {
-                    Log("High-resolution motion extent is ambiguous: create=%ux%u "
-                        "-> %ux%u render=%ux%u outputRegion=%ux%u; original SR retained.",
-                        feature.width, feature.height,
-                        feature.out_width, feature.out_height,
-                        width, height, output_width, output_height);
-                }
-                ReleaseCom(device);
-                return substitution;
-            }
-            source_width = std::min(source_width, logical_output_width);
-            source_height = std::min(source_height, logical_output_height);
-        } else {
-            static unsigned int missing_motion_output_extents = 0;
-            ++missing_motion_output_extents;
-            if (missing_motion_output_extents <= 3 ||
-                (missing_motion_output_extents % 600) == 0) {
-                Log("High-resolution motion conversion requires an unambiguous "
-                    "game Output extent; original SR retained.");
-            }
+    if (guides.signature.resample_motion) {
+        const NrGuideSignature &guide = guides.signature;
+        if (!EnsureMotionProxy(device, *slot, guides.motion, width, height)) {
             ReleaseCom(device);
             return substitution;
         }
-        if ((source_width != width || source_height != height) &&
-            source_width >= width && source_height >= height) {
-            if (!TextureContainsRegion(game_motion, mv_x, mv_y,
-                                       source_width, source_height) ||
-                !EnsureMotionProxy(device, *slot, game_motion, width, height)) {
-                ReleaseCom(device);
-                return substitution;
-            }
-            if (!RecordNrUseLocked(command_list, *context, *slot)) {
-                ReleaseCom(device);
-                return substitution;
-            }
-            lifecycle_recorded = true;
-            Transition(command_list, slot->motion_proxy,
-                       slot->motion_proxy_state,
-                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            DispatchMotionResample(command_list, *slot, width, height,
-                                   source_width, source_height, mv_x, mv_y);
-            UavBarrier(command_list, slot->motion_proxy);
-            Transition(command_list, slot->motion_proxy,
-                       slot->motion_proxy_state,
-                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            motion_override = slot->motion_proxy;
-            motion_override_width = width;
-            motion_override_height = height;
-            // Spatial resampling and vector value units are independent. The
-            // game-provided MV.Scale already defines the conversion to pixel
-            // displacement; resource dimensions alone do not prove that the
-            // vector magnitude needs another render/output ratio.
-            motion_scale_multiplier_x = 1.0f;
-            motion_scale_multiplier_y = 1.0f;
-            if (!context->motion_conversion_logged) {
-                context->motion_conversion_logged = true;
-                Log("High-resolution motion conversion enabled: %ux%u@%u,%u "
-                    "-> %ux%u, preserving game MV.Scale %.6f,%.6f.",
-                    source_width, source_height, mv_x, mv_y, width, height,
-                    static_cast<double>(motion_scale_multiplier_x),
-                    static_cast<double>(motion_scale_multiplier_y));
-            }
+        if (!RecordNrUseLocked(command_list, *context, *slot)) {
+            ReleaseCom(device);
+            return substitution;
+        }
+        lifecycle_recorded = true;
+        Transition(command_list, slot->motion_proxy, slot->motion_proxy_state,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        DispatchMotionResample(command_list, *slot, width, height,
+                               guide.motion_source_width,
+                               guide.motion_source_height,
+                               guide.motion_x, guide.motion_y);
+        UavBarrier(command_list, slot->motion_proxy);
+        Transition(command_list, slot->motion_proxy, slot->motion_proxy_state,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        motion_override = slot->motion_proxy;
+        if (!context->motion_conversion_logged) {
+            context->motion_conversion_logged = true;
+            Log("High-resolution motion conversion enabled: %ux%u@%u,%u "
+                "-> %ux%u, preserving game MV.Scale %.6f,%.6f.",
+                guide.motion_source_width, guide.motion_source_height,
+                guide.motion_x, guide.motion_y, width, height,
+                static_cast<double>(guide.motion_scale_x),
+                static_cast<double>(guide.motion_scale_y));
         }
     }
     if (!lifecycle_recorded &&
@@ -5675,11 +5911,9 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         }
     }
     const bool first = context->nr_handle == nullptr;
-    if (!BindNrParameters(*context, *slot, sr_params, feature,
-                          width, height, width, height, color_contract, first,
-                          motion_override, motion_override_width,
-                          motion_override_height, motion_scale_multiplier_x,
-                          motion_scale_multiplier_y))
+    if (!BindNrParameters(*context, *slot, guides, feature,
+                          width, height, color_contract, first,
+                          motion_override))
         return substitution;
 
     if (first) {
@@ -5722,7 +5956,9 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         SetBypassReason(BypassReason::RuntimeRejected);
         return substitution;
     }
+    context->guide_history.CommitOnEvaluate(guides.signature, true);
     ++context->evaluations;
+    CompleteNrDiagnosticEvaluation(*context, *slot);
     g_nr_successful_evaluations.fetch_add(1, std::memory_order_relaxed);
     g_pipeline_feature18_success.fetch_add(1, std::memory_order_relaxed);
     g_last_nr_width.store(width, std::memory_order_relaxed);
@@ -5738,7 +5974,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
 
     if (g_config.identity_use_original ||
-        context->evaluations <= g_config.warmup_after_create) {
+        context->successful_evaluations_since_reset <= g_config.warmup_after_create) {
         g_nr_identity_or_warmup_frames.fetch_add(1,
                                                   std::memory_order_relaxed);
         return substitution;
@@ -5792,6 +6028,7 @@ struct PostSrSubstitution {
     unsigned int guide_width = 0;
     unsigned int guide_height = 0;
     ColorContract color_contract = {};
+    NrGuideBinding guides = {};
 };
 
 PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
@@ -5981,9 +6218,16 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
 
     const CodecColorMode post_sr_color_mode =
         PostSrCodecColorMode(storage_contract);
+    NrGuideBinding guides = {};
+    if (!ResolveNrGuideBinding(sr_params, feature, 1, width, height,
+                               guide_width, guide_height, output,
+                               output_x, output_y, post_sr_color_mode, guides)) {
+        ReleaseCom(device);
+        return substitution;
+    }
     NrContext *context = FindOrCreateContext(
         sr_handle, feature.generation, 1, width, height,
-        post_sr_color_mode);
+        post_sr_color_mode, guides.signature);
     if (context == nullptr) {
         Log("No free NR context for the post-SR chain; original SR retained.");
         ReleaseCom(device);
@@ -6033,6 +6277,7 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     substitution.guide_width = guide_width;
     substitution.guide_height = guide_height;
     substitution.color_contract = color_contract;
+    substitution.guides = guides;
     substitution.native_output_snapshot = slot->snapshots_native_output;
     if (!slot->snapshots_native_output) {
         Transition(command_list, slot->source, slot->source_state,
@@ -6108,7 +6353,7 @@ bool DispatchPostSrNativeSnapshot(
         substitution.width, substitution.height,
         1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0,
         substitution.output_base_x, substitution.output_base_y,
-        0, 0, 0, 0, 0, 0, 1.0f};
+        0, 0, 0, 0, 0, 0, 1.0f, 0};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, g_codec.copy);
@@ -6132,6 +6377,7 @@ void PreservePostSrOnFailure(ID3D12GraphicsCommandList *command_list,
 bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
                    const NgxParams *sr_params, const FeatureRecord &feature,
                    PostSrSubstitution &substitution) {
+    (void)sr_params;
     NrContext &context = *substitution.context;
     NrSlot &slot = *substitution.slot;
     const unsigned int width = substitution.width;
@@ -6176,9 +6422,8 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         }
     }
     const bool first = context.nr_handle == nullptr;
-    if (!BindNrParameters(context, slot, sr_params, feature, width, height,
-                          substitution.guide_width, substitution.guide_height,
-                          color_contract, first)) {
+    if (!BindNrParameters(context, slot, substitution.guides, feature,
+                          width, height, color_contract, first)) {
         PreservePostSrOnFailure(command_list, substitution);
         return false;
     }
@@ -6231,7 +6476,9 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
         return false;
     }
 
+    context.guide_history.CommitOnEvaluate(substitution.guides.signature, true);
     ++context.evaluations;
+    CompleteNrDiagnosticEvaluation(context, slot);
     g_nr_successful_evaluations.fetch_add(1, std::memory_order_relaxed);
     g_pipeline_feature18_success.fetch_add(1, std::memory_order_relaxed);
     g_last_nr_width.store(width, std::memory_order_relaxed);
@@ -6247,7 +6494,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     }
 
     if (g_config.identity_use_original ||
-        context.evaluations <= g_config.warmup_after_create) {
+        context.successful_evaluations_since_reset <= g_config.warmup_after_create) {
         g_nr_identity_or_warmup_frames.fetch_add(1,
                                                   std::memory_order_relaxed);
         PreservePostSrOnFailure(command_list, substitution);
@@ -6317,12 +6564,6 @@ SRWLOCK g_module_rescan_lock = SRWLOCK_INIT;
 SRWLOCK g_present_observer_lock = SRWLOCK_INIT;
 HMODULE g_hooked_core_module = nullptr;
 HMODULE g_hooked_dlssd_module = nullptr;
-void *g_primary_create_target = nullptr;
-void *g_primary_evaluate_target = nullptr;
-void *g_primary_release_target = nullptr;
-void *g_core_create_target = nullptr;
-void *g_core_evaluate_target = nullptr;
-void *g_core_release_target = nullptr;
 std::atomic<bool> g_core_lifecycle_hooks_ready{false};
 std::atomic<bool> g_dlssd_lifecycle_hooks_ready{false};
 std::atomic<bool> g_core_unknown_handle_guard{false};
@@ -7459,20 +7700,6 @@ bool CreateHook(void *target, void *detour, void **original, const char *name) {
     return status == MH_OK;
 }
 
-bool CreateOptionalHook(void *target, void *detour, void **original,
-                        const char *name) {
-    if (target == nullptr) {
-        Log("Optional hook target absent: %s; continuing.", name);
-        return false;
-    }
-    if (!CreateHook(target, detour, original, name)) {
-        Log("Optional hook failed: %s; continuing with the primary NGX hooks.",
-            name);
-        return false;
-    }
-    return true;
-}
-
 bool EnsureNativeQueueExecuteHook(reshade::api::command_queue *queue) {
     if (queue == nullptr || queue->get_device() == nullptr ||
         queue->get_device()->get_api() != reshade::api::device_api::d3d12)
@@ -7779,206 +8006,209 @@ void LogModuleObservation(const char *phase, const wchar_t *name,
         static_cast<void *>(module), path[0] != L'\0' ? path : L"<unknown>");
 }
 
-bool PinHookModule(HMODULE module, const wchar_t *name) {
-    if (module == nullptr) return false;
+// The loader reference closes the discovery/GetProcAddress unload race. PIN is
+// separate: named modules and the actual owners of forwarded detour targets
+// must outlive permanent hooks, whereas a routine absent-module scan owns none.
+struct LoadedNgxModule {
+    HMODULE handle = nullptr;
+    explicit LoadedNgxModule(const wchar_t *name) {
+        GetModuleHandleExW(0, name, &handle);
+    }
+    ~LoadedNgxModule() {
+        if (handle != nullptr) FreeLibrary(handle);
+    }
+    LoadedNgxModule(const LoadedNgxModule &) = delete;
+    LoadedNgxModule &operator=(const LoadedNgxModule &) = delete;
+};
+
+bool PinHookAddress(const void *address, const char *name,
+                    HMODULE expected_module = nullptr) {
+    if (address == nullptr) return false;
     HMODULE pinned = nullptr;
-    const DWORD flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                        GET_MODULE_HANDLE_EX_FLAG_PIN;
     const BOOL pinned_ok = GetModuleHandleExW(
-        flags, reinterpret_cast<LPCWSTR>(module), &pinned);
-    if (pinned_ok == FALSE || pinned != module) {
-        Log("[module] could not pin hook owner name=%ls handle=%p error=%lu; "
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+        reinterpret_cast<LPCWSTR>(address), &pinned);
+    if (pinned_ok == FALSE ||
+        (expected_module != nullptr && pinned != expected_module)) {
+        Log("[module] could not pin hook owner name=%s address=%p error=%lu; "
             "permanent detours are not installed into an unloadable module.",
-            name != nullptr ? name : L"<unknown>",
-            static_cast<void *>(module), GetLastError());
+            name, address, GetLastError());
         return false;
     }
-    Log("[module] pinned hook owner name=%ls handle=%p until process exit.",
-        name != nullptr ? name : L"<unknown>", static_cast<void *>(module));
+    Log("[module] pinned hook owner name=%s address=%p module=%p until "
+        "process exit.", name, address, static_cast<void *>(pinned));
     return true;
 }
 
-bool QueueLateHook(void *target, void *detour, void **original,
-                   const char *name, bool &queued_any) {
-    if (!CreateHook(target, detour, original, name)) return false;
+// This table records hooks that were actually created, not merely exported.
+// All entries are private to the startup worker, then the module-rescan lock.
+// Operation-specific lookup handles both orders of core/DLSSD forwarding and
+// prevents an Evaluate_C alias from being hooked twice.
+enum class NgxHookOperation { Release, Create, Evaluate };
+struct NgxHookTarget {
+    NgxHookOperation operation = NgxHookOperation::Release;
+    void *target = nullptr;
+    const char *name = nullptr;
+    bool published = false;
+    bool queued = false;
+};
+NgxHookTarget g_ngx_hook_targets[10] = {};
+std::size_t g_ngx_hook_target_count = 0;
+
+NgxHookTarget *FindNgxHookTarget(NgxHookOperation operation, void *target) {
+    for (std::size_t i = 0; i < g_ngx_hook_target_count; ++i) {
+        NgxHookTarget &entry = g_ngx_hook_targets[i];
+        if (entry.operation == operation && entry.target == target)
+            return &entry;
+    }
+    return nullptr;
+}
+
+bool IsNgxHookPublished(NgxHookOperation operation, void *target) {
+    if (target == nullptr) return true; // An absent export is not an entry.
+    const NgxHookTarget *entry = FindNgxHookTarget(operation, target);
+    return entry != nullptr && entry->published;
+}
+
+bool PrepareNgxHook(NgxHookOperation operation, void *target, void *detour,
+                    void **original, const char *name) {
+    if (target == nullptr) return false;
+    if (FindNgxHookTarget(operation, target) != nullptr) return true;
+    if (g_ngx_hook_target_count == std::size(g_ngx_hook_targets)) {
+        Log("[module] NGX hook registry exhausted at %s; failing closed.", name);
+        return false;
+    }
+    // GetProcAddress may resolve a forwarder into a different image. Pin that
+    // image before MinHook reads/patches it, including the optional Evaluate_C.
+    if (!PinHookAddress(target, name) ||
+        !CreateHook(target, detour, original, name))
+        return false;
+    g_ngx_hook_targets[g_ngx_hook_target_count++] =
+        {operation, target, name, false, false};
+    return true;
+}
+
+bool QueueLateHook(NgxHookOperation operation, void *target, void *detour,
+                   void **original, const char *name, bool &queued_any) {
+    if (target == nullptr || IsNgxHookPublished(operation, target)) return true;
+    if (!PrepareNgxHook(operation, target, detour, original, name)) return false;
+    NgxHookTarget *entry = FindNgxHookTarget(operation, target);
+    if (entry->queued) return true;
     const MH_STATUS queued = MH_QueueEnableHook(target);
     Log("[module] MH_QueueEnableHook %-26s target=%p status=%d", name,
         target, static_cast<int>(queued));
     if (queued == MH_OK) {
+        entry->queued = true;
         queued_any = true;
         return true;
     }
-    return queued == MH_ERROR_ENABLED;
-}
-
-bool ApplyLateHookTransaction(bool queued_any, const char *module_name) {
-    if (!queued_any) return true;
-    const MH_STATUS applied = MH_ApplyQueued();
-    Log("[module] MH_ApplyQueued %-29s status=%d", module_name,
-        static_cast<int>(applied));
-    return applied == MH_OK;
-}
-
-bool InstallLateCoreHooksLocked(HMODULE core,
-                                bool *introduced_new_lifecycle_entry) {
-    if (introduced_new_lifecycle_entry != nullptr)
-        *introduced_new_lifecycle_entry = false;
-    if (core == nullptr) return false;
-    if (g_hooked_core_module == core)
-        return g_core_lifecycle_hooks_ready.load(std::memory_order_acquire);
-    if (g_hooked_core_module != nullptr && g_hooked_core_module != core) {
-        LatchRrOwnershipUncertain(
-            "lazy module rescan",
-            "_nvngx.dll was unloaded/reloaded at a different module handle");
-        return false;
+    // This is our already-created hook, so an enabled response is covered.
+    if (queued == MH_ERROR_ENABLED) {
+        entry->published = true;
+        if (operation == NgxHookOperation::Evaluate)
+            RememberEvaluateHookTarget(target);
+        return true;
     }
-    if (!PinHookModule(core, L"_nvngx.dll")) return false;
+    return false;
+}
 
-    LogModuleObservation("late module discovered", L"_nvngx.dll", core);
-    void *create = reinterpret_cast<void *>(
-        GetProcAddress(core, "NVSDK_NGX_D3D12_CreateFeature"));
-    void *evaluate = reinterpret_cast<void *>(
-        GetProcAddress(core, "NVSDK_NGX_D3D12_EvaluateFeature"));
-    void *release = reinterpret_cast<void *>(
-        GetProcAddress(core, "NVSDK_NGX_D3D12_ReleaseFeature"));
+void MarkNgxHooksPublished(bool initial_install) {
+    for (std::size_t i = 0; i < g_ngx_hook_target_count; ++i) {
+        NgxHookTarget &entry = g_ngx_hook_targets[i];
+        if (!initial_install && !entry.queued) continue;
+        entry.published = true;
+        entry.queued = false;
+        if (entry.operation == NgxHookOperation::Evaluate)
+            RememberEvaluateHookTarget(entry.target);
+    }
+}
 
-    // A missing export is not an unobserved entry point. Likewise, an export
-    // that aliases the already-hooked public wrapper cannot have bypassed the
-    // lifecycle observer merely because this module handle appeared later.
-    const bool create_already_covered = create == nullptr ||
-        create == g_primary_create_target;
-    const bool evaluate_already_covered = evaluate == nullptr ||
-        evaluate == g_primary_evaluate_target;
-    const bool release_already_covered = release == nullptr ||
-        release == g_primary_release_target;
-    const bool distinct_core_entry = !create_already_covered ||
-        !evaluate_already_covered || !release_already_covered;
-    // Publish the guard before enabling any late detour. This closes the small
-    // window in which another thread can enter the new hook during MinHook's
-    // enable transaction with a handle created before observer coverage.
-    if (distinct_core_entry) {
+struct LateNgxModulePlan {
+    HMODULE module = nullptr;
+    bool core = false;
+    void *release = nullptr;
+    void *create = nullptr;
+    void *evaluate = nullptr;
+    bool introduces_distinct_entry = false;
+    bool prepared = false;
+};
+
+LateNgxModulePlan InspectLateNgxModule(HMODULE module, bool core) {
+    LateNgxModulePlan plan{};
+    plan.module = module;
+    plan.core = core;
+    if (module == nullptr) return plan;
+    plan.release = reinterpret_cast<void *>(
+        GetProcAddress(module, "NVSDK_NGX_D3D12_ReleaseFeature"));
+    plan.create = reinterpret_cast<void *>(
+        GetProcAddress(module, "NVSDK_NGX_D3D12_CreateFeature"));
+    plan.evaluate = reinterpret_cast<void *>(
+        GetProcAddress(module, "NVSDK_NGX_D3D12_EvaluateFeature"));
+    plan.introduces_distinct_entry =
+        !IsNgxHookPublished(NgxHookOperation::Release, plan.release) ||
+        !IsNgxHookPublished(NgxHookOperation::Create, plan.create) ||
+        !IsNgxHookPublished(NgxHookOperation::Evaluate, plan.evaluate);
+    return plan;
+}
+
+void PrepareLateNgxModule(LateNgxModulePlan &plan, bool &queued_any) {
+    if (plan.module == nullptr) return;
+    LogModuleObservation("late module discovered",
+        plan.core ? L"_nvngx.dll" : L"nvngx_dlssd.dll", plan.module);
+    if (!PinHookAddress(plan.module,
+            plan.core ? "_nvngx.dll" : "nvngx_dlssd.dll", plan.module))
+        return;
+    if (plan.core && plan.introduces_distinct_entry)
         g_core_unknown_handle_guard.store(true, std::memory_order_release);
-    }
-    if (introduced_new_lifecycle_entry != nullptr) {
-        *introduced_new_lifecycle_entry =
-            !create_already_covered || !evaluate_already_covered ||
-            !release_already_covered;
-    }
-    // Create all missing detours first, queue Release before Create/Evaluate,
-    // then publish them in one MinHook transaction. This prevents an unknown
-    // Evaluate from being observed in a window where its Release is not yet
-    // covered and therefore cannot be diagnosed safely.
-    bool queued_any = false;
-    const bool release_prepared = release_already_covered || QueueLateHook(
-        release, reinterpret_cast<void *>(&HookCoreRelease),
-        reinterpret_cast<void **>(&g_original_core_release),
-        "late core D3D12_ReleaseFeature", queued_any);
-    const bool create_prepared = create_already_covered || QueueLateHook(
-        create, reinterpret_cast<void *>(&HookCoreCreate),
-        reinterpret_cast<void **>(&g_original_core_create),
-        "late core D3D12_CreateFeature", queued_any);
-    const bool evaluate_prepared = evaluate_already_covered || QueueLateHook(
-        evaluate, reinterpret_cast<void *>(&HookCoreEvaluate),
-        reinterpret_cast<void **>(&g_original_core_evaluate),
-        "late core D3D12_EvaluateFeature", queued_any);
-    const bool transaction_applied = ApplyLateHookTransaction(
-        queued_any, "late _nvngx lifecycle");
-    const bool release_covered = release_prepared && transaction_applied;
-    const bool create_covered = create_prepared && transaction_applied;
-    const bool evaluate_covered = evaluate_prepared && transaction_applied;
-    if (evaluate_covered && !evaluate_already_covered)
-        RememberEvaluateHookTarget(evaluate);
-
-    g_hooked_core_module = core;
-    g_core_create_target = create;
-    g_core_evaluate_target = evaluate;
-    g_core_release_target = release;
-    const bool lifecycle_ready = create_covered && evaluate_covered &&
-                                 release_covered;
-    g_core_lifecycle_hooks_ready.store(lifecycle_ready,
-                                        std::memory_order_release);
-    Log("[module] late _nvngx coverage: create=%d evaluate=%d release=%d; "
-        "RR-lifecycle=%s.", create_covered ? 1 : 0,
-        evaluate_covered ? 1 : 0, release_covered ? 1 : 0,
-        lifecycle_ready ? "covered" : "UNCERTAIN");
-    if (!lifecycle_ready) {
-        LatchRrOwnershipUncertain(
-            "lazy module rescan",
-            "late _nvngx.dll Create/Release lifecycle hooks are incomplete");
-    }
-    return lifecycle_ready;
+    // Queue both modules before a single publication. Duplicate exports in
+    // either plan reuse the registry entry and its existing owner/trampoline.
+    const bool release = QueueLateHook(
+        NgxHookOperation::Release, plan.release,
+        plan.core ? reinterpret_cast<void *>(&HookCoreRelease)
+                  : reinterpret_cast<void *>(&HookDlssdRelease),
+        plan.core ? reinterpret_cast<void **>(&g_original_core_release)
+                  : reinterpret_cast<void **>(&g_original_dlssd_release),
+        plan.core ? "late core ReleaseFeature" : "late DLSSD ReleaseFeature",
+        queued_any);
+    const bool create = QueueLateHook(
+        NgxHookOperation::Create, plan.create,
+        plan.core ? reinterpret_cast<void *>(&HookCoreCreate)
+                  : reinterpret_cast<void *>(&HookDlssdCreate),
+        plan.core ? reinterpret_cast<void **>(&g_original_core_create)
+                  : reinterpret_cast<void **>(&g_original_dlssd_create),
+        plan.core ? "late core CreateFeature" : "late DLSSD CreateFeature",
+        queued_any);
+    const bool evaluate = QueueLateHook(
+        NgxHookOperation::Evaluate, plan.evaluate,
+        plan.core ? reinterpret_cast<void *>(&HookCoreEvaluate)
+                  : reinterpret_cast<void *>(&HookDlssdEvaluate),
+        plan.core ? reinterpret_cast<void **>(&g_original_core_evaluate)
+                  : reinterpret_cast<void **>(&g_original_dlssd_evaluate),
+        plan.core ? "late core EvaluateFeature" : "late DLSSD EvaluateFeature",
+        queued_any);
+    plan.prepared = release && create && evaluate;
 }
 
-bool InstallLateDlssdHooksLocked(HMODULE dlssd,
-                                 bool *introduced_new_lifecycle_entry) {
-    if (introduced_new_lifecycle_entry != nullptr)
-        *introduced_new_lifecycle_entry = false;
-    if (dlssd == nullptr) return false;
-    if (g_hooked_dlssd_module == dlssd)
-        return g_dlssd_lifecycle_hooks_ready.load(std::memory_order_acquire);
-    if (g_hooked_dlssd_module != nullptr && g_hooked_dlssd_module != dlssd) {
-        LatchRrOwnershipUncertain(
-            "lazy module rescan",
-            "nvngx_dlssd.dll was unloaded/reloaded at a different module handle");
-        return false;
+bool FinishLateNgxModule(const LateNgxModulePlan &plan) {
+    if (plan.module == nullptr) return true;
+    const bool release = IsNgxHookPublished(
+        NgxHookOperation::Release, plan.release);
+    const bool create = IsNgxHookPublished(NgxHookOperation::Create, plan.create);
+    const bool evaluate = IsNgxHookPublished(
+        NgxHookOperation::Evaluate, plan.evaluate);
+    const bool covered = plan.prepared && release && create && evaluate;
+    if (plan.core) {
+        g_hooked_core_module = plan.module;
+        g_core_lifecycle_hooks_ready.store(covered, std::memory_order_release);
+    } else {
+        g_hooked_dlssd_module = plan.module;
+        g_dlssd_lifecycle_hooks_ready.store(covered, std::memory_order_release);
     }
-    if (!PinHookModule(dlssd, L"nvngx_dlssd.dll")) return false;
-
-    LogModuleObservation("late module discovered", L"nvngx_dlssd.dll", dlssd);
-    void *create = reinterpret_cast<void *>(
-        GetProcAddress(dlssd, "NVSDK_NGX_D3D12_CreateFeature"));
-    void *evaluate = reinterpret_cast<void *>(
-        GetProcAddress(dlssd, "NVSDK_NGX_D3D12_EvaluateFeature"));
-    void *release = reinterpret_cast<void *>(
-        GetProcAddress(dlssd, "NVSDK_NGX_D3D12_ReleaseFeature"));
-    const bool create_already_covered = create == nullptr ||
-        create == g_primary_create_target || create == g_core_create_target;
-    const bool evaluate_already_covered = evaluate == nullptr ||
-        evaluate == g_primary_evaluate_target ||
-        evaluate == g_core_evaluate_target;
-    const bool release_already_covered = release == nullptr ||
-        release == g_primary_release_target || release == g_core_release_target;
-    if (introduced_new_lifecycle_entry != nullptr) {
-        *introduced_new_lifecycle_entry =
-            !create_already_covered || !evaluate_already_covered ||
-            !release_already_covered;
-    }
-    bool queued_any = false;
-    const bool release_prepared = release_already_covered || QueueLateHook(
-        release, reinterpret_cast<void *>(&HookDlssdRelease),
-        reinterpret_cast<void **>(&g_original_dlssd_release),
-        "late DLSSD D3D12_ReleaseFeature", queued_any);
-    const bool create_prepared = create_already_covered || QueueLateHook(
-        create, reinterpret_cast<void *>(&HookDlssdCreate),
-        reinterpret_cast<void **>(&g_original_dlssd_create),
-        "late DLSSD D3D12_CreateFeature", queued_any);
-    const bool evaluate_prepared = evaluate_already_covered || QueueLateHook(
-        evaluate, reinterpret_cast<void *>(&HookDlssdEvaluate),
-        reinterpret_cast<void **>(&g_original_dlssd_evaluate),
-        "late DLSSD D3D12_EvaluateFeature", queued_any);
-    const bool transaction_applied = ApplyLateHookTransaction(
-        queued_any, "late DLSSD lifecycle");
-    const bool release_covered = release_prepared && transaction_applied;
-    const bool create_covered = create_prepared && transaction_applied;
-    const bool evaluate_covered = evaluate_prepared && transaction_applied;
-    if (evaluate_covered && !evaluate_already_covered)
-        RememberEvaluateHookTarget(evaluate);
-
-    g_hooked_dlssd_module = dlssd;
-    const bool lifecycle_ready = create_covered && evaluate_covered &&
-                                 release_covered;
-    g_dlssd_lifecycle_hooks_ready.store(lifecycle_ready,
-                                         std::memory_order_release);
-    Log("[module] late DLSSD coverage: create=%d evaluate=%d release=%d; "
-        "RR-lifecycle=%s.", create_covered ? 1 : 0,
-        evaluate_covered ? 1 : 0, release_covered ? 1 : 0,
-        lifecycle_ready ? "covered" : "UNCERTAIN");
-    if (!lifecycle_ready) {
-        LatchRrOwnershipUncertain(
-            "lazy module rescan",
-            "late nvngx_dlssd.dll Create/Release lifecycle hooks are incomplete");
-    }
-    return lifecycle_ready;
+    Log("[module] late %s coverage: create=%d evaluate=%d release=%d; "
+        "RR-lifecycle=%s.", plan.core ? "_nvngx" : "DLSSD",
+        create ? 1 : 0, evaluate ? 1 : 0, release ? 1 : 0,
+        covered ? "covered" : "UNCERTAIN");
+    return covered;
 }
 
 constexpr bool LateLifecycleDiscoveryRequiresIsolation(
@@ -7989,6 +8219,7 @@ constexpr bool LateLifecycleDiscoveryRequiresIsolation(
 }
 
 static_assert(!LateLifecycleDiscoveryRequiresIsolation(false, true, false));
+static_assert(!LateLifecycleDiscoveryRequiresIsolation(false, false, true));
 static_assert(LateLifecycleDiscoveryRequiresIsolation(false, true, true));
 static_assert(LateLifecycleDiscoveryRequiresIsolation(true, false, false));
 
@@ -8004,21 +8235,29 @@ void PollNgxLifecycleModules() {
     AcquireSRWLockExclusive(&g_module_rescan_lock);
     const unsigned long long scan =
         g_module_rescan_count.fetch_add(1, std::memory_order_relaxed) + 1;
-    HMODULE core = GetModuleHandleW(L"_nvngx.dll");
-    HMODULE dlssd = GetModuleHandleW(L"nvngx_dlssd.dll");
-    const bool has_new_module =
-        (core != nullptr && g_hooked_core_module == nullptr) ||
-        (dlssd != nullptr && g_hooked_dlssd_module == nullptr);
-    // Feature 1 remains native only while MinHook publishes newly discovered
-    // lifecycle detours. Routine one-second scans do not perturb rendering.
-    g_module_rescan_in_progress.store(has_new_module,
-                                      std::memory_order_release);
-    unsigned long long observer_epoch =
-        g_module_observer_epoch.load();
-    if (has_new_module) {
+    LoadedNgxModule core_ref(L"_nvngx.dll");
+    LoadedNgxModule dlssd_ref(L"nvngx_dlssd.dll");
+    HMODULE core = core_ref.handle;
+    HMODULE dlssd = dlssd_ref.handle;
+    // Resolve while ordinary loader references are held. A module with only
+    // absent/forwarded/already-published exports does not change the epoch and
+    // cannot poison a concurrent successful HDR Feature 1 rebuild.
+    LateNgxModulePlan core_plan = InspectLateNgxModule(
+        g_hooked_core_module == nullptr ? core : nullptr, true);
+    LateNgxModulePlan dlssd_plan = InspectLateNgxModule(
+        g_hooked_dlssd_module == nullptr ? dlssd : nullptr, false);
+    const bool discovered_late =
+        core_plan.module != nullptr || dlssd_plan.module != nullptr;
+    const bool introduced_distinct_lifecycle_entry =
+        core_plan.introduces_distinct_entry ||
+        dlssd_plan.introduces_distinct_entry;
+    const bool bracket_publication = introduced_distinct_lifecycle_entry;
+    unsigned long long observer_epoch = g_module_observer_epoch.load();
+    if (bracket_publication) {
         const unsigned long long previous_epoch =
             g_module_observer_epoch.fetch_add(1);
         observer_epoch = previous_epoch + 1;
+        g_module_rescan_in_progress.store(true, std::memory_order_release);
         if ((previous_epoch & 1u) != 0) {
             LatchUnknownFeatureHandle(
                 "lazy module rescan",
@@ -8028,35 +8267,34 @@ void PollNgxLifecycleModules() {
     const bool feature1_active_before =
         g_feature1_successful_creates.load() != 0 ||
         g_carrier_evaluations.load() != 0;
-    bool discovered_late = false;
-    bool introduced_distinct_lifecycle_entry = false;
-    bool lifecycle_coverage_failed = false;
-    if (core != nullptr && g_hooked_core_module == nullptr) {
-        discovered_late = true;
-        bool introduced = false;
-        const bool covered = InstallLateCoreHooksLocked(core, &introduced);
-        introduced_distinct_lifecycle_entry |= introduced;
-        lifecycle_coverage_failed |= !covered;
+    // Serialize with queued Evaluate activation. Keep one MH_ApplyQueued for
+    // every newly discovered module in this scan, not one apply per module.
+    AcquireSRWLockExclusive(&g_evaluate_hook_lock);
+    bool queued_any = false;
+    PrepareLateNgxModule(core_plan, queued_any);
+    PrepareLateNgxModule(dlssd_plan, queued_any);
+    bool transaction_applied = true;
+    if (queued_any) {
+        const MH_STATUS applied = MH_ApplyQueued();
+        transaction_applied = applied == MH_OK;
+        Log("[module] MH_ApplyQueued late NGX lifecycle status=%d",
+            static_cast<int>(applied));
+        if (transaction_applied) MarkNgxHooksPublished(false);
     }
-    if (dlssd != nullptr && g_hooked_dlssd_module == nullptr) {
-        discovered_late = true;
-        bool introduced = false;
-        const bool covered = InstallLateDlssdHooksLocked(dlssd, &introduced);
-        introduced_distinct_lifecycle_entry |= introduced;
-        lifecycle_coverage_failed |= !covered;
-    }
+    const bool core_covered = FinishLateNgxModule(core_plan);
+    const bool dlssd_covered = FinishLateNgxModule(dlssd_plan);
+    const bool lifecycle_coverage_failed =
+        !transaction_applied || !core_covered || !dlssd_covered;
+    ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
     const unsigned long long feature1_create_entries =
         g_feature1_create_entries.load(std::memory_order_acquire);
     const unsigned long long feature1_successful_creates =
         g_feature1_successful_creates.load();
     const unsigned int feature1_creates_in_progress =
         g_feature1_create_in_progress.load(std::memory_order_acquire);
-    const unsigned long long carrier_evaluations =
-        g_carrier_evaluations.load();
-    const bool feature1_active_after = feature1_successful_creates != 0 ||
-                                       carrier_evaluations != 0;
-    const bool feature1_activity_observed =
-        feature1_active_before || feature1_active_after;
+    const unsigned long long carrier_evaluations = g_carrier_evaluations.load();
+    const bool feature1_activity_observed = feature1_active_before ||
+        feature1_successful_creates != 0 || carrier_evaluations != 0;
     if (LateLifecycleDiscoveryRequiresIsolation(
             lifecycle_coverage_failed, introduced_distinct_lifecycle_entry,
             feature1_activity_observed)) {
@@ -8068,18 +8306,16 @@ void PollNgxLifecycleModules() {
                 : "a late RR-capable NGX module introduced a distinct "
                   "Create/Release entry point after Feature 1 activity; a "
                   "pre-hook Feature 13 handle cannot be ruled out");
-    } else if (introduced_distinct_lifecycle_entry && discovered_late) {
-        g_startup_deferred_module_coverage.store(true,
-                                                  std::memory_order_release);
+    } else if (introduced_distinct_lifecycle_entry) {
+        g_startup_deferred_module_coverage.store(true, std::memory_order_release);
         Log("[module] startup-deferred RR-capable module entry points were "
             "fully hooked before the first observed Feature 1 Create/Evaluate; "
             "startup continues without a permanent ownership bypass.");
     } else if (discovered_late) {
         Log("[module] late module exports were absent or aliased lifecycle "
-            "targets already covered by the observer; no RR uncertainty was "
-            "introduced.");
+            "targets already covered by the observer; observer epoch unchanged.");
     }
-    if (has_new_module) {
+    if (bracket_publication) {
         const unsigned long long previous_epoch =
             g_module_observer_epoch.fetch_add(1);
         observer_epoch = previous_epoch + 1;
@@ -8103,8 +8339,7 @@ void PollNgxLifecycleModules() {
             g_startup_deferred_module_coverage.load(
                 std::memory_order_relaxed) ? 1 : 0,
             feature1_create_entries, feature1_successful_creates,
-            feature1_creates_in_progress,
-            observer_epoch,
+            feature1_creates_in_progress, observer_epoch,
             g_null_feature_evaluations.load(std::memory_order_relaxed),
             carrier_evaluations);
     }
@@ -8113,154 +8348,119 @@ void PollNgxLifecycleModules() {
 }
 
 bool InstallHooks(HMODULE ngx) {
-    if (!PinHookModule(ngx, L"nvngx_dlss.dll")) return false;
+    if (!PinHookAddress(ngx, "nvngx_dlss.dll", ngx)) return false;
     const MH_STATUS init = MH_Initialize();
     if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED) {
         Log("MH_Initialize failed: %d", static_cast<int>(init));
         return false;
     }
-
-    void *create = reinterpret_cast<void *>(GetProcAddress(ngx, "NVSDK_NGX_D3D12_CreateFeature"));
-    void *evaluate = reinterpret_cast<void *>(GetProcAddress(ngx, "NVSDK_NGX_D3D12_EvaluateFeature"));
-    void *evaluate_c = reinterpret_cast<void *>(GetProcAddress(ngx, "NVSDK_NGX_D3D12_EvaluateFeature_C"));
-    void *release = reinterpret_cast<void *>(GetProcAddress(ngx, "NVSDK_NGX_D3D12_ReleaseFeature"));
-    HMODULE core = GetModuleHandleW(L"_nvngx.dll");
-    if (core != nullptr && !PinHookModule(core, L"_nvngx.dll")) return false;
-    void *core_create = core != nullptr ? reinterpret_cast<void *>(
-        GetProcAddress(core, "NVSDK_NGX_D3D12_CreateFeature")) : nullptr;
-    void *core_evaluate = core != nullptr ? reinterpret_cast<void *>(
-        GetProcAddress(core, "NVSDK_NGX_D3D12_EvaluateFeature")) : nullptr;
-    void *core_release = core != nullptr ? reinterpret_cast<void *>(
-        GetProcAddress(core, "NVSDK_NGX_D3D12_ReleaseFeature")) : nullptr;
-    HMODULE dlssd = GetModuleHandleW(L"nvngx_dlssd.dll");
-    if (dlssd != nullptr && !PinHookModule(dlssd, L"nvngx_dlssd.dll"))
+    LoadedNgxModule core_ref(L"_nvngx.dll");
+    LoadedNgxModule dlssd_ref(L"nvngx_dlssd.dll");
+    HMODULE core = core_ref.handle;
+    HMODULE dlssd = dlssd_ref.handle;
+    if (core != nullptr && !PinHookAddress(core, "_nvngx.dll", core))
         return false;
-    void *dlssd_create = dlssd != nullptr ? reinterpret_cast<void *>(
-        GetProcAddress(dlssd, "NVSDK_NGX_D3D12_CreateFeature")) : nullptr;
-    void *dlssd_evaluate = dlssd != nullptr ? reinterpret_cast<void *>(
-        GetProcAddress(dlssd, "NVSDK_NGX_D3D12_EvaluateFeature")) : nullptr;
-    void *dlssd_release = dlssd != nullptr ? reinterpret_cast<void *>(
-        GetProcAddress(dlssd, "NVSDK_NGX_D3D12_ReleaseFeature")) : nullptr;
-    g_primary_create_target = create;
-    g_primary_evaluate_target = evaluate;
-    g_primary_release_target = release;
-    g_core_create_target = core_create;
-    g_core_evaluate_target = core_evaluate;
-    g_core_release_target = core_release;
-    // If the core Evaluate export is distinct, any outermost handle that did
-    // not pass a hooked Create is evidence that the asynchronous hook worker
-    // started after game-owned NGX state already existed.
-    g_core_unknown_handle_guard.store(
-        core_evaluate != nullptr && core_evaluate != evaluate,
-        std::memory_order_release);
-    bool okay = true;
-    okay &= CreateHook(create, reinterpret_cast<void *>(&HookCreate),
-                       reinterpret_cast<void **>(&g_original_create), "D3D12_CreateFeature");
-    const bool evaluate_hooked = CreateHook(
-        evaluate, reinterpret_cast<void *>(&HookEvaluate),
-        reinterpret_cast<void **>(&g_original_evaluate),
-        "D3D12_EvaluateFeature");
-    okay &= evaluate_hooked;
-    if (evaluate_hooked) RememberEvaluateHookTarget(evaluate);
-    if (evaluate_c != nullptr && evaluate_c != evaluate) {
-        if (CreateOptionalHook(evaluate_c,
-                               reinterpret_cast<void *>(&HookEvaluateC),
-                               reinterpret_cast<void **>(&g_original_evaluate_c),
-                               "D3D12_EvaluateFeature_C")) {
-            RememberEvaluateHookTarget(evaluate_c);
-        }
-    }
-    okay &= CreateHook(release, reinterpret_cast<void *>(&HookRelease),
-                       reinterpret_cast<void **>(&g_original_release), "D3D12_ReleaseFeature");
-    bool core_evaluate_hooked = core_evaluate == nullptr ||
-        core_evaluate == evaluate;
-    if (core != nullptr && !core_evaluate_hooked && CreateOptionalHook(
-            core_evaluate, reinterpret_cast<void *>(&HookCoreEvaluate),
-            reinterpret_cast<void **>(&g_original_core_evaluate),
-            "core D3D12_EvaluateFeature")) {
-        core_evaluate_hooked = true;
-        RememberEvaluateHookTarget(core_evaluate);
-    }
-    const bool core_create_hooked = core_create == nullptr || core_create == create
-        ? true
-        : CreateOptionalHook(
-            core_create, reinterpret_cast<void *>(&HookCoreCreate),
-            reinterpret_cast<void **>(&g_original_core_create),
-            "core D3D12_CreateFeature");
-    const bool core_release_hooked = core_release == nullptr || core_release == release
-        ? true
-        : CreateOptionalHook(
-            core_release, reinterpret_cast<void *>(&HookCoreRelease),
-            reinterpret_cast<void **>(&g_original_core_release),
-            "core D3D12_ReleaseFeature");
+    if (dlssd != nullptr && !PinHookAddress(dlssd, "nvngx_dlssd.dll", dlssd))
+        return false;
 
-    const bool dlssd_create_already_covered = dlssd_create == nullptr ||
-        dlssd_create == create || dlssd_create == core_create;
-    const bool dlssd_evaluate_already_covered = dlssd_evaluate == nullptr ||
-        dlssd_evaluate == evaluate || dlssd_evaluate == core_evaluate;
-    const bool dlssd_release_already_covered = dlssd_release == nullptr ||
-        dlssd_release == release || dlssd_release == core_release;
-    const bool dlssd_create_hooked = dlssd_create_already_covered
-        ? true
-        : CreateOptionalHook(
-            dlssd_create, reinterpret_cast<void *>(&HookDlssdCreate),
-            reinterpret_cast<void **>(&g_original_dlssd_create),
-            "DLSSD D3D12_CreateFeature");
-    bool dlssd_evaluate_hooked = dlssd_evaluate_already_covered;
-    if (!dlssd_evaluate_hooked && CreateOptionalHook(
-            dlssd_evaluate, reinterpret_cast<void *>(&HookDlssdEvaluate),
-            reinterpret_cast<void **>(&g_original_dlssd_evaluate),
-            "DLSSD D3D12_EvaluateFeature")) {
-        dlssd_evaluate_hooked = true;
-        RememberEvaluateHookTarget(dlssd_evaluate);
+    void *create = reinterpret_cast<void *>(
+        GetProcAddress(ngx, "NVSDK_NGX_D3D12_CreateFeature"));
+    void *evaluate = reinterpret_cast<void *>(
+        GetProcAddress(ngx, "NVSDK_NGX_D3D12_EvaluateFeature"));
+    void *evaluate_c = reinterpret_cast<void *>(
+        GetProcAddress(ngx, "NVSDK_NGX_D3D12_EvaluateFeature_C"));
+    void *release = reinterpret_cast<void *>(
+        GetProcAddress(ngx, "NVSDK_NGX_D3D12_ReleaseFeature"));
+    LateNgxModulePlan core_plan = InspectLateNgxModule(core, true);
+    LateNgxModulePlan dlssd_plan = InspectLateNgxModule(dlssd, false);
+    // An alias uses its existing detour, never HookCoreEvaluate. Keeping the
+    // guard armed also covers a primary optional alias whose first hook failed
+    // and was subsequently installed through the core export.
+    g_core_unknown_handle_guard.store(core_plan.evaluate != nullptr,
+                                      std::memory_order_release);
+
+    bool okay = PrepareNgxHook(
+        NgxHookOperation::Create, create, reinterpret_cast<void *>(&HookCreate),
+        reinterpret_cast<void **>(&g_original_create), "D3D12_CreateFeature");
+    okay &= PrepareNgxHook(
+        NgxHookOperation::Evaluate, evaluate,
+        reinterpret_cast<void *>(&HookEvaluate),
+        reinterpret_cast<void **>(&g_original_evaluate), "D3D12_EvaluateFeature");
+    if (evaluate_c != nullptr) {
+        PrepareNgxHook(
+            NgxHookOperation::Evaluate, evaluate_c,
+            reinterpret_cast<void *>(&HookEvaluateC),
+            reinterpret_cast<void **>(&g_original_evaluate_c),
+            "D3D12_EvaluateFeature_C");
     }
-    const bool dlssd_release_hooked = dlssd_release_already_covered
-        ? true
-        : CreateOptionalHook(
-            dlssd_release, reinterpret_cast<void *>(&HookDlssdRelease),
-            reinterpret_cast<void **>(&g_original_dlssd_release),
-            "DLSSD D3D12_ReleaseFeature");
+    okay &= PrepareNgxHook(
+        NgxHookOperation::Release, release, reinterpret_cast<void *>(&HookRelease),
+        reinterpret_cast<void **>(&g_original_release), "D3D12_ReleaseFeature");
+
+    // Initial modules share the same operation registry as later modules. A
+    // failed optional target must not make a forwarding alias appear covered.
+    for (LateNgxModulePlan *plan : {&core_plan, &dlssd_plan}) {
+        if (plan->module == nullptr) continue;
+        const bool is_core = plan->core;
+        const bool create_ok = plan->create == nullptr || PrepareNgxHook(
+            NgxHookOperation::Create, plan->create,
+            is_core ? reinterpret_cast<void *>(&HookCoreCreate)
+                    : reinterpret_cast<void *>(&HookDlssdCreate),
+            is_core ? reinterpret_cast<void **>(&g_original_core_create)
+                    : reinterpret_cast<void **>(&g_original_dlssd_create),
+            is_core ? "core CreateFeature" : "DLSSD CreateFeature");
+        const bool evaluate_ok = plan->evaluate == nullptr || PrepareNgxHook(
+            NgxHookOperation::Evaluate, plan->evaluate,
+            is_core ? reinterpret_cast<void *>(&HookCoreEvaluate)
+                    : reinterpret_cast<void *>(&HookDlssdEvaluate),
+            is_core ? reinterpret_cast<void **>(&g_original_core_evaluate)
+                    : reinterpret_cast<void **>(&g_original_dlssd_evaluate),
+            is_core ? "core EvaluateFeature" : "DLSSD EvaluateFeature");
+        const bool release_ok = plan->release == nullptr || PrepareNgxHook(
+            NgxHookOperation::Release, plan->release,
+            is_core ? reinterpret_cast<void *>(&HookCoreRelease)
+                    : reinterpret_cast<void *>(&HookDlssdRelease),
+            is_core ? reinterpret_cast<void **>(&g_original_core_release)
+                    : reinterpret_cast<void **>(&g_original_dlssd_release),
+            is_core ? "core ReleaseFeature" : "DLSSD ReleaseFeature");
+        plan->prepared = create_ok && evaluate_ok && release_ok;
+    }
     if (!okay) return false;
+    if ((core_plan.module != nullptr && !core_plan.prepared) ||
+        (dlssd_plan.module != nullptr && !dlssd_plan.prepared)) {
+        // Publish isolation before enabling any detour: another thread can
+        // enter Evaluate during MH_EnableHook, before status logging below.
+        LatchRrOwnershipUncertain(
+            "initial module scan",
+            "initial NGX Create/Evaluate/Release lifecycle hooks are incomplete");
+    }
     const MH_STATUS enabled = MH_EnableHook(MH_ALL_HOOKS);
     Log("MH_EnableHook all status=%d", static_cast<int>(enabled));
-    if (enabled != MH_OK) return false;
+    if (enabled != MH_OK) {
+        for (std::size_t i = 0; i < g_ngx_hook_target_count; ++i) {
+            const NgxHookTarget &entry = g_ngx_hook_targets[i];
+            MEMORY_BASIC_INFORMATION memory{};
+            const SIZE_T queried = VirtualQuery(
+                entry.target, &memory, sizeof(memory));
+            Log("[module] enable-failure candidate name=%s target=%p "
+                "query=%llu state=%lu protect=0x%lx allocationProtect=0x%lx. "
+                "This lists candidates, not a proven failing target.",
+                entry.name, entry.target, static_cast<unsigned long long>(queried),
+                memory.State, memory.Protect, memory.AllocationProtect);
+        }
+        return false;
+    }
+    MarkNgxHooksPublished(true);
     g_evaluate_hooks_enabled.store(true, std::memory_order_release);
+    // Publish complete optional-module status before Present can start rescans.
+    const bool core_covered = FinishLateNgxModule(core_plan);
+    const bool dlssd_covered = FinishLateNgxModule(dlssd_plan);
+    if (!core_covered || !dlssd_covered) {
+        LatchRrOwnershipUncertain(
+            "initial module scan",
+            "initial NGX Create/Evaluate/Release lifecycle hooks are incomplete");
+    }
     g_evaluate_hooks_ready.store(true, std::memory_order_release);
-    if (core != nullptr) {
-        g_hooked_core_module = core;
-        const bool core_lifecycle_ready =
-            core_create_hooked && core_release_hooked;
-        g_core_lifecycle_hooks_ready.store(core_lifecycle_ready,
-                                            std::memory_order_release);
-        LogModuleObservation("initial module", L"_nvngx.dll", core);
-        Log("[module] initial _nvngx coverage: create=%d evaluate=%d "
-            "release=%d; RR-lifecycle=%s.", core_create_hooked ? 1 : 0,
-            core_evaluate_hooked ? 1 : 0, core_release_hooked ? 1 : 0,
-            core_lifecycle_ready ? "covered" : "UNCERTAIN");
-        if (!core_lifecycle_ready) {
-            LatchRrOwnershipUncertain(
-                "initial module scan",
-                "_nvngx.dll Create/Release lifecycle hooks are incomplete");
-        }
-    }
-    if (dlssd != nullptr) {
-        g_hooked_dlssd_module = dlssd;
-        const bool dlssd_lifecycle_ready =
-            dlssd_create_hooked && dlssd_evaluate_hooked &&
-            dlssd_release_hooked;
-        g_dlssd_lifecycle_hooks_ready.store(dlssd_lifecycle_ready,
-                                             std::memory_order_release);
-        LogModuleObservation("initial module", L"nvngx_dlssd.dll", dlssd);
-        Log("[module] initial DLSSD coverage: create=%d evaluate=%d release=%d; "
-            "RR-lifecycle=%s.", dlssd_create_hooked ? 1 : 0,
-            dlssd_evaluate_hooked ? 1 : 0, dlssd_release_hooked ? 1 : 0,
-            dlssd_lifecycle_ready ? "covered" : "UNCERTAIN");
-        if (!dlssd_lifecycle_ready) {
-            LatchRrOwnershipUncertain(
-                "initial module scan",
-                "nvngx_dlssd.dll Create/Release lifecycle hooks are incomplete");
-        }
-    }
     Log("[module] initial scan complete: sr=%p core=%p dlssd=%p.",
         static_cast<void *>(ngx), static_cast<void *>(core),
         static_cast<void *>(dlssd));
@@ -8275,7 +8475,8 @@ DWORD WINAPI HookWorker(void *) {
                        reinterpret_cast<LPCWSTR>(&HookWorker), &pinned);
 
     for (unsigned int attempt = 0; attempt < 24000; ++attempt) {
-        HMODULE ngx = GetModuleHandleW(L"nvngx_dlss.dll");
+        LoadedNgxModule ngx_ref(L"nvngx_dlss.dll");
+        HMODULE ngx = ngx_ref.handle;
         if (ngx != nullptr) {
             wchar_t path[MAX_PATH] = {};
             GetModuleFileNameW(ngx, path, MAX_PATH);
@@ -8332,6 +8533,12 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     if (screenshot_pressed && now_ms - last_screenshot_ms >= 350) {
         last_screenshot_ms = now_ms;
         const ChainConfig config = SnapshotConfig();
+        NrDiagnosticIdentity applied = {};
+        unsigned int requested_generation = 0;
+        EnterCriticalSection(&g_chain_cs);
+        applied = g_applied_nr_identity;
+        requested_generation = g_config_generation.load(std::memory_order_relaxed);
+        LeaveCriticalSection(&g_chain_cs);
         const BypassReason bypass_reason = static_cast<BypassReason>(
             g_last_bypass_reason.load(std::memory_order_relaxed));
         const char *mode_name = !config.enabled
@@ -8350,7 +8557,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
         snprintf(
             postfix, sizeof(postfix),
             "DLSS5_%s_%s_%s_IN%ux%u_NR%ux%u_OUT%ux%u_F%u_"
-            "I%.2f_B%.2f_%s_AM%d_SK%.2f_LT%.2f_LS%.2f_LM%d_C%.2f_PW%.2f",
+            "REQ-I%.2f_B%.2f_%s_AM%d_SK%.2f_LT%.2f_LS%.2f_LM%d_C%.2f_PW%.2f",
             kBuildIdentity, mode_name, state_name,
             g_last_dlss_input_width.load(std::memory_order_relaxed),
             g_last_dlss_input_height.load(std::memory_order_relaxed),
@@ -8368,6 +8575,12 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
 
         runtime->save_screenshot(postfix);
         Log("[screenshot] ReShade capture queued by '-' hotkey: %s", postfix);
+        Log("[screenshot] labels=REQUESTED config=%u lastAppliedInstance=%llu "
+            "lastAppliedConfig=%u lastNrFrame=%llu intensity=%.3f style=%u. "
+            "Present/FG screenshot is not an exact same-frame NR stage capture.",
+            requested_generation, applied.instance_id, applied.config_generation,
+            applied.frame_id, static_cast<double>(applied.tuning.intensity),
+            applied.tuning.style);
     }
 
     screenshot_key_was_down = screenshot_key_is_down;
@@ -8621,6 +8834,7 @@ void DrawSettings(reshade::api::effect_runtime *) {
     float last_sampled_final_mean_delta = 0.0f;
     unsigned int last_sampled_final_changed = 0;
     unsigned long long diagnostic_serial = 0;
+    NrDiagnosticIdentity sample_identity = {};
     float diagnostic_r[kDiagnosticStageCount] = {};
     float diagnostic_g[kDiagnosticStageCount] = {};
     float diagnostic_b[kDiagnosticStageCount] = {};
@@ -8643,6 +8857,7 @@ void DrawSettings(reshade::api::effect_runtime *) {
         g_last_sampled_final_mean_delta.load(std::memory_order_relaxed);
     last_sampled_final_changed =
         g_last_sampled_final_changed.load(std::memory_order_relaxed);
+    sample_identity = g_last_sample_identity;
     diagnostic_serial =
         g_last_diagnostic_serial.load(std::memory_order_relaxed);
     for (unsigned int stage = 0; stage < kDiagnosticStageCount; ++stage) {
@@ -9108,6 +9323,62 @@ void DrawSettings(reshade::api::effect_runtime *) {
             "请连同日志反馈。"));
 
     ImGui::SeparatorText(ui("Quick Compare / Image Tuning", "快速对比 / 画质调节"));
+    NrDiagnosticIdentity applied_identity = {};
+    int applied_mode = 0;
+    unsigned int requested_generation = 0;
+    EnterCriticalSection(&g_chain_cs);
+    applied_identity = g_applied_nr_identity;
+    applied_mode = g_applied_nr_mode;
+    requested_generation = g_config_generation.load(std::memory_order_relaxed);
+    LeaveCriticalSection(&g_chain_cs);
+    const bool tuning_pending = has_pending ||
+        applied_identity.instance_id == 0 || applied_mode != next.mode ||
+        applied_identity.config_generation != requested_generation;
+    ImGui::TextWrapped("%s", !next.enabled
+        ? ui("NR is off. Last applied settings below are historical.",
+             "NR 已关闭。下方已应用设置为历史记录。")
+        : (tuning_pending
+            ? ui("Settings pending: waiting for a successful NR evaluation.",
+                 "设置待应用：等待 NR 成功评估。")
+            : ui("Settings applied to NR. Check the image to verify the effect.",
+                 "设置已应用到 NR；实际效果请通过画面对照确认。")));
+    if (applied_identity.instance_id != 0) {
+        ImGui::TextDisabled(ui("Applied: instance %llu | intensity %.2f | style %s | warmup %s",
+            "已应用：实例 %llu | 强度 %.2f | 风格 %s | 预热 %s"),
+            applied_identity.instance_id,
+            static_cast<double>(applied_identity.tuning.intensity),
+            applied_identity.tuning.style == 2 ? ui("Cinematic", "电影") :
+                (applied_identity.tuning.style == 1 ? ui("Natural", "自然") : ui("Default", "默认")),
+            applied_identity.warmed_up ? ui("complete", "完成") : ui("pending", "未完成"));
+    }
+    if (sample_identity.instance_id != 0) {
+        ImGui::TextDisabled(ui("Last GPU sample: instance %llu | NR frame %llu | config %u",
+            "最近 GPU 采样：实例 %llu | NR 帧 %llu | 配置 %u"),
+            sample_identity.instance_id, sample_identity.frame_id,
+            sample_identity.config_generation);
+    }
+    const unsigned int capture_status = StageCaptureStatus();
+    if (capture_status == 0) {
+        if (ImGui::Button(ui("Capture NR stages once", "采集一次 NR 各阶段")))
+            RequestStageCapture();
+        const int capture_result = g_stage_capture_last_result.load(std::memory_order_relaxed);
+        if (capture_result != 0)
+            ImGui::TextDisabled("%s", capture_result > 0
+                ? ui("Stages saved beside the log. See metadata before comparing.",
+                     "阶段图已保存在日志旁，请结合元数据对照。")
+                : ui("Capture could not be saved. Check the log; rendering continues.",
+                     "采集未能保存，请查看日志；渲染继续。"));
+    } else {
+        ImGui::TextDisabled("%s", capture_status == 3
+            ? ui("Saving stage capture...", "正在保存阶段图……")
+            : ui("Waiting for a stable NR frame and GPU completion...",
+                 "等待稳定的 NR 帧及 GPU 完成……"));
+    }
+    ImGui::TextWrapped("%s", ui(
+        "Optional diagnosis: samples original, proxy, NR and composition once. "
+        "NR -> SR capture stops before native SR; '-' captures the displayed image separately.",
+        "可选诊断：单次采集原图、代理图、NR 输出和合成结果。"
+        "NR→SR 的阶段图止于原生 SR 之前；按“-”可另外截取显示画面。"));
     changed |= ImGui::SliderFloat(
         ui("NR Intensity", "NR 强度"), &next.intensity, 0.0f, 2.0f, "%.2f");
     static const char *style_items_en[] = {"Default", "Natural", "Cinematic"};

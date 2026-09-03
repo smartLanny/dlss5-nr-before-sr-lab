@@ -1,0 +1,307 @@
+// Production observer functions are inserted by validate-observer.ps1. Only
+// loader/MinHook/native-feature services are simulated; policy is not copied.
+#include <windows.h>
+#include <algorithm>
+#include <atomic>
+#include <cassert>
+#include <cstdio>
+#include <cstring>
+#include <cwchar>
+#include <functional>
+#include <iterator>
+#include <vector>
+
+struct FakeModule {
+    const wchar_t *name;
+    bool loaded = false;
+    void *exports[4] = {};
+    int refs = 0;
+    int pins = 0;
+};
+FakeModule modules[] = {{L"nvngx_dlss.dll"}, {L"_nvngx.dll"},
+    {L"nvngx_dlssd.dll"}, {L"forwarded-owner.dll"}};
+struct FakeTarget {
+    FakeModule *owner = nullptr;
+    bool created = false;
+    bool queued = false;
+    bool enabled = false;
+    bool fail_create = false;
+    bool fail_queue = false;
+    bool fail_pin = false;
+};
+FakeTarget targets[24];
+unsigned int create_calls = 0, apply_calls = 0;
+bool fail_apply = false;
+std::function<void()> during_apply;
+
+BOOL WINAPI FakeGetModuleHandleExW(DWORD flags, LPCWSTR name, HMODULE *result) {
+    FakeModule *module = nullptr;
+    if ((flags & GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS) != 0) {
+        for (FakeModule &candidate : modules)
+            if (reinterpret_cast<const void *>(name) == &candidate)
+                module = &candidate;
+        for (FakeTarget &target : targets) {
+            if (reinterpret_cast<const void *>(name) == &target) {
+                if (target.fail_pin) return FALSE;
+                module = target.owner;
+            }
+        }
+    } else {
+        for (FakeModule &candidate : modules)
+            if (candidate.loaded && std::wcscmp(name, candidate.name) == 0)
+                module = &candidate;
+    }
+    if (module == nullptr || !module->loaded) return FALSE;
+    if ((flags & GET_MODULE_HANDLE_EX_FLAG_PIN) != 0) ++module->pins;
+    else ++module->refs;
+    *result = reinterpret_cast<HMODULE>(module);
+    return TRUE;
+}
+BOOL WINAPI FakeFreeLibrary(HMODULE module) {
+    auto *entry = reinterpret_cast<FakeModule *>(module);
+    assert(entry->refs > 0);
+    --entry->refs;
+    return TRUE;
+}
+FARPROC WINAPI FakeGetProcAddress(HMODULE module, LPCSTR name) {
+    auto *entry = reinterpret_cast<FakeModule *>(module);
+    // Discovery must hold an ordinary loader reference across resolution.
+    assert(entry->refs > 0);
+    const char *names[] = {"NVSDK_NGX_D3D12_ReleaseFeature",
+        "NVSDK_NGX_D3D12_CreateFeature", "NVSDK_NGX_D3D12_EvaluateFeature",
+        "NVSDK_NGX_D3D12_EvaluateFeature_C"};
+    for (int i = 0; i < 4; ++i)
+        if (std::strcmp(name, names[i]) == 0)
+            return reinterpret_cast<FARPROC>(entry->exports[i]);
+    return nullptr;
+}
+ULONGLONG WINAPI FakeGetTickCount64() { return 10000; }
+#define GetModuleHandleExW FakeGetModuleHandleExW
+#define FreeLibrary FakeFreeLibrary
+#define GetProcAddress FakeGetProcAddress
+#define GetTickCount64 FakeGetTickCount64
+
+enum MH_STATUS { MH_OK, MH_ERROR_ALREADY_INITIALIZED, MH_ERROR_ENABLED,
+    MH_ERROR_ALREADY_CREATED, MH_ERROR_MEMORY_PROTECT };
+#define MH_ALL_HOOKS nullptr
+MH_STATUS MH_Initialize() { return MH_OK; }
+MH_STATUS MH_CreateHook(void *address, void *, void **original) {
+    auto &target = *static_cast<FakeTarget *>(address);
+    ++create_calls;
+    assert(target.owner != nullptr && target.owner->pins > 0);
+    if (target.created) return MH_ERROR_ALREADY_CREATED;
+    if (target.fail_create) return MH_ERROR_MEMORY_PROTECT;
+    target.created = true;
+    *original = address;
+    return MH_OK;
+}
+MH_STATUS MH_QueueEnableHook(void *address) {
+    auto &target = *static_cast<FakeTarget *>(address);
+    if (target.fail_queue) return MH_ERROR_MEMORY_PROTECT;
+    if (target.enabled) return MH_ERROR_ENABLED;
+    assert(target.created);
+    target.queued = true;
+    return MH_OK;
+}
+MH_STATUS MH_ApplyQueued() {
+    ++apply_calls;
+    if (during_apply) during_apply();
+    if (fail_apply) return MH_ERROR_MEMORY_PROTECT;
+    for (auto &target : targets) {
+        if (target.queued) target.enabled = true;
+        target.queued = false;
+    }
+    return MH_OK;
+}
+MH_STATUS MH_EnableHook(void *) {
+    for (auto &target : targets)
+        if (target.created) target.enabled = true;
+    return MH_OK;
+}
+void Log(const char *, ...) {}
+void LogModuleObservation(const char *, const wchar_t *, HMODULE) {}
+void UpdateEvaluateHookActivation() {}
+std::vector<void *> evaluate_targets;
+void RememberEvaluateHookTarget(void *address) {
+    if (std::find(evaluate_targets.begin(), evaluate_targets.end(), address) ==
+        evaluate_targets.end()) evaluate_targets.push_back(address);
+}
+void HookCreate() {}
+void HookEvaluate() {}
+void HookEvaluateC() {}
+void HookRelease() {}
+void HookCoreCreate() {}
+void HookCoreEvaluate() {}
+void HookCoreRelease() {}
+void HookDlssdCreate() {}
+void HookDlssdEvaluate() {}
+void HookDlssdRelease() {}
+void *g_original_create, *g_original_evaluate, *g_original_evaluate_c;
+void *g_original_release, *g_original_core_create, *g_original_core_evaluate;
+void *g_original_core_release, *g_original_dlssd_create;
+void *g_original_dlssd_evaluate, *g_original_dlssd_release;
+using NgxResult = unsigned int;
+constexpr NgxResult kNgxSuccess = 1;
+struct NgxHandle {};
+std::atomic<bool> g_evaluate_hooks_ready{false};
+std::atomic<bool> g_evaluate_hooks_enabled{false};
+std::atomic<bool> g_core_unknown_handle_guard{false};
+std::atomic<bool> g_core_lifecycle_hooks_ready{false};
+std::atomic<bool> g_dlssd_lifecycle_hooks_ready{false};
+std::atomic<bool> g_module_observer_gap_detected{false};
+std::atomic<bool> g_startup_deferred_module_coverage{false};
+std::atomic<bool> g_module_rescan_in_progress{false};
+std::atomic<unsigned long long> g_module_observer_epoch{0};
+std::atomic<unsigned long long> g_module_rescan_count{0};
+std::atomic<unsigned long long> g_feature1_create_entries{0};
+std::atomic<unsigned long long> g_feature1_successful_creates{0};
+std::atomic<unsigned int> g_feature1_create_in_progress{0};
+std::atomic<unsigned long long> g_carrier_evaluations{0};
+std::atomic<unsigned long long> g_null_feature_evaluations{0};
+std::atomic<ULONGLONG> g_next_module_rescan_tick{0};
+HMODULE g_hooked_core_module = nullptr, g_hooked_dlssd_module = nullptr;
+SRWLOCK g_module_rescan_lock = SRWLOCK_INIT;
+SRWLOCK g_evaluate_hook_lock = SRWLOCK_INIT;
+void LatchRrOwnershipUncertain(const char *, const char *) {
+    g_module_observer_gap_detected = true;
+}
+void LatchUnknownFeatureHandle(const char *source, const char *detail) {
+    LatchRrOwnershipUncertain(source, detail);
+}
+
+// @PRODUCTION_CREATE_HOOK@
+// @PRODUCTION_FINISH_OBSERVATION@
+// @PRODUCTION_MODULE_OBSERVER@
+
+void SetExports(FakeModule &module, int first_target, bool evaluate_c = false) {
+    module.loaded = true;
+    for (int i = 0; i < (evaluate_c ? 4 : 3); ++i) {
+        module.exports[i] = &targets[first_target + i];
+        if (targets[first_target + i].owner == nullptr)
+            targets[first_target + i].owner = &module;
+    }
+}
+void Reset() {
+    for (auto &module : modules) {
+        assert(module.refs == 0);
+        module.loaded = false;
+        module.refs = module.pins = 0;
+        for (auto &entry : module.exports) entry = nullptr;
+    }
+    for (auto &target : targets) target = {};
+    for (auto &target : g_ngx_hook_targets) target = {};
+    g_ngx_hook_target_count = 0;
+    evaluate_targets.clear();
+    g_evaluate_hooks_ready = g_evaluate_hooks_enabled = false;
+    g_core_unknown_handle_guard = false;
+    g_core_lifecycle_hooks_ready = g_dlssd_lifecycle_hooks_ready = false;
+    g_module_observer_gap_detected = g_startup_deferred_module_coverage = false;
+    g_module_rescan_in_progress = false;
+    g_module_observer_epoch = g_module_rescan_count = 0;
+    g_feature1_create_entries = g_feature1_successful_creates = 0;
+    g_feature1_create_in_progress = 0;
+    g_carrier_evaluations = g_null_feature_evaluations = 0;
+    g_next_module_rescan_tick = 0;
+    g_hooked_core_module = g_hooked_dlssd_module = nullptr;
+    create_calls = apply_calls = 0;
+    fail_apply = false;
+    during_apply = {};
+    SetExports(modules[0], 0, true);
+}
+void InstallPrimary() {
+    LoadedNgxModule primary(L"nvngx_dlss.dll");
+    assert(InstallHooks(primary.handle));
+    assert(g_evaluate_hooks_ready);
+}
+void Scan() {
+    g_next_module_rescan_tick = 0;
+    PollNgxLifecycleModules();
+    assert(!g_module_rescan_in_progress);
+    assert((g_module_observer_epoch.load() & 1) == 0);
+    for (auto &module : modules) assert(module.refs == 0);
+}
+int main() {
+    NgxHandle handle;
+    Reset(); InstallPrimary();
+    modules[1].loaded = true; // No exports: never an observer publication.
+    g_feature1_successful_creates = 1;
+    g_feature1_create_in_progress = 1;
+    Scan();
+    FinishFeature1CreateObservation(true, kNgxSuccess, &handle, 0, "absent");
+    assert(g_module_observer_epoch == 0 && !g_module_observer_gap_detected);
+    assert(apply_calls == 0 && create_calls == 4);
+
+    Reset(); InstallPrimary();
+    SetExports(modules[1], 0);
+    modules[1].exports[2] = modules[0].exports[3]; // Evaluate_C forwarder.
+    g_feature1_successful_creates = 1;
+    Scan(); Scan();
+    assert(g_module_observer_epoch == 0 && !g_module_observer_gap_detected);
+    assert(create_calls == 4 && apply_calls == 0);
+
+    Reset(); SetExports(modules[2], 4); InstallPrimary();
+    SetExports(modules[1], 4); // DLSSD first, then core aliases it.
+    g_feature1_successful_creates = 1;
+    Scan();
+    assert(g_module_observer_epoch == 0 && !g_module_observer_gap_detected);
+    assert(create_calls == 7 && apply_calls == 0);
+
+    Reset(); InstallPrimary();
+    SetExports(modules[1], 4); SetExports(modules[2], 4);
+    Scan(); // Both discovered together: one create/queue per shared target.
+    assert(create_calls == 7 && apply_calls == 1);
+    assert(g_module_observer_epoch == 2 && !g_module_observer_gap_detected);
+    assert(g_core_lifecycle_hooks_ready && g_dlssd_lifecycle_hooks_ready);
+
+    Reset(); InstallPrimary(); SetExports(modules[1], 4);
+    g_feature1_successful_creates = 1;
+    Scan();
+    assert(g_module_observer_gap_detected);
+
+    for (int variant = 0; variant < 4; ++variant) {
+        Reset(); InstallPrimary(); SetExports(modules[1], 4);
+        g_feature1_create_in_progress = 1;
+        during_apply = [&] {
+            assert(g_module_observer_epoch == 1);
+            if (variant == 0)
+                FinishFeature1CreateObservation(true, kNgxSuccess, &handle, 0, "success");
+            if (variant == 1)
+                FinishFeature1CreateObservation(true, 0, nullptr, 0, "failed");
+            if (variant == 2)
+                FinishFeature1CreateObservation(true, kNgxSuccess, nullptr, 0, "null");
+        };
+        Scan();
+        if (variant == 3)
+            FinishFeature1CreateObservation(true, kNgxSuccess, &handle, 0, "after");
+        assert(g_module_observer_gap_detected == (variant == 0 || variant == 3));
+        assert(g_feature1_create_in_progress == 0);
+    }
+
+    for (int failure = 0; failure < 4; ++failure) {
+        Reset(); InstallPrimary(); SetExports(modules[1], 4);
+        targets[5].fail_create = failure == 0;
+        targets[5].fail_queue = failure == 1;
+        targets[5].fail_pin = failure == 2;
+        fail_apply = failure == 3;
+        Scan();
+        assert(g_module_observer_gap_detected && !g_core_lifecycle_hooks_ready);
+        assert(!IsNgxHookPublished(NgxHookOperation::Create, &targets[5]));
+    }
+
+    Reset(); modules[3].loaded = true;
+    targets[3].owner = &modules[3]; // Optional Evaluate_C in another image.
+    InstallPrimary();
+    assert(modules[3].pins == 1 && targets[3].enabled);
+    assert(evaluate_targets.size() == 2);
+
+    Reset(); SetExports(modules[1], 4);
+    modules[0].exports[3] = &targets[6];
+    targets[6].fail_create = true;
+    InstallPrimary();
+    assert(!g_core_lifecycle_hooks_ready && g_module_observer_gap_detected);
+    assert(g_core_unknown_handle_guard); // Failed alias never disables guard.
+
+    std::puts("Observer regression scenarios passed: absent/aliases/reverse aliases, "
+        "single publication, Create overlap/null/failure, hook failures and forwarded PIN.");
+    return 0;
+}

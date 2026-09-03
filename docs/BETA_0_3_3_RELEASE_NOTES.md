@@ -1,5 +1,18 @@
 # beta0.3.3 create-time tuning and packed-color input candidate
 
+## Revision r3: diagnostic and compatibility candidate
+
+The current build identity is `beta0.3.3-dev-r3`. It fixes no-op observer epochs,
+reverse module aliases, stale dynamic-size contexts, guide history transitions,
+failed Reset retry, restricted untyped resource reads and explicit-unity stale-HDR
+R8 admission. Instance/config/frame diagnostics and an opt-in bounded four-stage
+raw capture make intensity/style comparisons attributable. Default composition
+is unchanged. Capture does not read an unverified native-SR Output state.
+
+See [the r3 validation procedure](BETA_0_3_3_R3_VALIDATION.md). CPU/compute
+validation is separate from game validation; no r3 Spider-Man or Yanyun visual
+pass is claimed. The older sections below document earlier revisions.
+
 beta0.3.3 is a focused follow-up to beta0.3.2. It addresses two concrete
 community logs without widening the project into a general graphics wrapper.
 Both processing orders remain available: render-resolution `NR -> SR` is the

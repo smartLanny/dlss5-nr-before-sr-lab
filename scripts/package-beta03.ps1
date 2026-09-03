@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$Version = 'beta0.3.3-dev'
+$Version = 'beta0.3.3-dev-r3'
 $BuildRoot = Join-Path $ProjectRoot 'build'
 $ResolvedRtx50Runtime = (Resolve-Path -LiteralPath $Rtx50Runtime).Path
 $ResolvedRtx3040Runtime = (Resolve-Path -LiteralPath $Rtx3040Runtime).Path

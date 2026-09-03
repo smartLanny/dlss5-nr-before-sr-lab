@@ -1,0 +1,485 @@
+// Real D3D12 execution of the source-extracted production HLSL. No model/runtime
+// binary is used. WARP is preferred; installed hardware is a fallback only.
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <d3d12.h>
+#include <d3d12sdklayers.h>
+#include <d3dcompiler.h>
+#include <d3d11shader.h>
+#include <dxgi1_4.h>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iterator>
+#include <limits>
+#include <stdexcept>
+#include <vector>
+
+// @PRODUCTION_DESCRIPTOR_CONSTANTS@
+// @PRODUCTION_SHADER@
+// @PRODUCTION_CONSTANTS@
+
+void Require(bool value, const char *message) {
+    if (!value) throw std::runtime_error(message);
+}
+void Check(HRESULT result, const char *message) {
+    if (FAILED(result)) {
+        std::fprintf(stderr, "%s: 0x%08lx\n", message,
+                     static_cast<unsigned long>(result));
+        throw std::runtime_error(message);
+    }
+}
+template<class T> struct Com {
+    T *p = nullptr;
+    Com() = default;
+    ~Com() { if (p != nullptr) p->Release(); }
+    Com(const Com &) = delete;
+    Com &operator=(const Com &) = delete;
+    Com(Com &&other) noexcept : p(other.p) { other.p = nullptr; }
+    Com &operator=(Com &&other) noexcept {
+        if (p != nullptr) p->Release();
+        p = other.p;
+        other.p = nullptr;
+        return *this;
+    }
+    T *operator->() const { return p; }
+    void **address() { return reinterpret_cast<void **>(&p); }
+};
+struct Float4 { float x, y, z, w; };
+static_assert(sizeof(Float4) == 16);
+static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * 4);
+static_assert(kCodecCaptureUavIndex == kCodecSrvCount + 4);
+static_assert(kCodecDescriptorCount == kCodecCaptureUavIndex + 1);
+
+struct Texture {
+    Com<ID3D12Resource> resource;
+    Com<ID3D12Resource> upload;
+    Com<ID3D12Resource> readback;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+    D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COPY_DEST;
+    unsigned int width = 0, height = 0;
+};
+
+struct Gpu {
+    Com<ID3D12Device> device;
+    Com<ID3D12InfoQueue> messages;
+    Com<ID3D12CommandQueue> queue;
+    Com<ID3D12CommandAllocator> allocator;
+    Com<ID3D12GraphicsCommandList> list;
+    Com<ID3D12Fence> fence;
+    Com<ID3D12RootSignature> root;
+    Com<ID3D12PipelineState> pipeline;
+    Com<ID3D12DescriptorHeap> heap;
+    UINT increment = 0;
+    UINT64 submitted = 0;
+    HANDLE completion = nullptr;
+
+    Gpu() {
+        Com<ID3D12Debug> debug;
+        if (SUCCEEDED(D3D12GetDebugInterface(IID_ID3D12Debug, debug.address())))
+            debug->EnableDebugLayer();
+        Com<IDXGIFactory4> factory;
+        Check(CreateDXGIFactory1(IID_IDXGIFactory4, factory.address()), "DXGI factory");
+        Com<IDXGIAdapter1> warp;
+        HRESULT result = factory->EnumWarpAdapter(IID_IDXGIAdapter1, warp.address());
+        if (SUCCEEDED(result))
+            result = D3D12CreateDevice(warp.p, D3D_FEATURE_LEVEL_11_0,
+                                      IID_ID3D12Device, device.address());
+        if (SUCCEEDED(result)) {
+            std::puts("GPU codec validation adapter: D3D12 WARP");
+        } else {
+            for (UINT index = 0; device.p == nullptr; ++index) {
+                Com<IDXGIAdapter1> adapter;
+                if (factory->EnumAdapters1(index, &adapter.p) == DXGI_ERROR_NOT_FOUND)
+                    break;
+                DXGI_ADAPTER_DESC1 description{};
+                Check(adapter->GetDesc1(&description), "Adapter description");
+                if ((description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0) continue;
+                result = D3D12CreateDevice(adapter.p, D3D_FEATURE_LEVEL_11_0,
+                                          IID_ID3D12Device, device.address());
+                if (SUCCEEDED(result))
+                    std::printf("GPU codec validation adapter: installed hardware %ls\n",
+                                description.Description);
+            }
+            Require(device.p != nullptr, "No usable D3D12 WARP or installed adapter");
+        }
+        device->QueryInterface(IID_ID3D12InfoQueue, messages.address());
+        D3D12_COMMAND_QUEUE_DESC queue_desc{};
+        queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        Check(device->CreateCommandQueue(&queue_desc, IID_ID3D12CommandQueue,
+              queue.address()), "Create queue");
+        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+              IID_ID3D12CommandAllocator, allocator.address()), "Create allocator");
+        Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+              allocator.p, nullptr, IID_ID3D12GraphicsCommandList,
+              list.address()), "Create list");
+        Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_ID3D12Fence,
+              fence.address()), "Create fence");
+        completion = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        Require(completion != nullptr, "Fence event");
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
+        heap_desc.NumDescriptors = kCodecDescriptorCount;
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        Check(device->CreateDescriptorHeap(&heap_desc, IID_ID3D12DescriptorHeap,
+              heap.address()), "Create descriptor heap");
+        increment = device->GetDescriptorHandleIncrementSize(heap_desc.Type);
+
+        Com<ID3DBlob> shader, errors;
+        result = D3DCompile(kCodecShader, sizeof(kCodecShader) - 1,
+            "production-codec", nullptr, nullptr, "CombineCS", "cs_5_0",
+            D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &shader.p, &errors.p);
+        if (FAILED(result) && errors.p != nullptr)
+            std::fprintf(stderr, "%s\n", static_cast<const char *>(errors->GetBufferPointer()));
+        Check(result, "Compile production CombineCS");
+        Com<ID3D11ShaderReflection> reflection;
+        Check(D3DReflect(shader->GetBufferPointer(), shader->GetBufferSize(),
+              IID_ID3D11ShaderReflection, reflection.address()), "Reflect shader");
+        D3D11_SHADER_INPUT_BIND_DESC binding{};
+        Check(reflection->GetResourceBindingDescByName("StageCapture", &binding),
+              "Reflect StageCapture");
+        Require(binding.Type == D3D_SIT_UAV_RWBYTEADDRESS && binding.BindPoint == 4,
+                "Capture UAV register/type mismatch");
+        D3D11_SHADER_VARIABLE_DESC capture_field{};
+        Check(reflection->GetConstantBufferByName("Constants")
+              ->GetVariableByName("CaptureStride")->GetDesc(&capture_field),
+              "Reflect CaptureStride");
+        Require(capture_field.StartOffset == offsetof(CodecConstants, capture_stride),
+                "CPU/HLSL capture stride offset mismatch");
+
+        D3D12_DESCRIPTOR_RANGE ranges[2]{};
+        ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        ranges[0].NumDescriptors = kCodecSrvCount;
+        ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        ranges[1].NumDescriptors = kCodecUavCount;
+        ranges[1].OffsetInDescriptorsFromTableStart = kCodecSrvCount;
+        D3D12_ROOT_PARAMETER parameters[2]{};
+        parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameters[0].DescriptorTable = {2, ranges};
+        parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameters[1].Constants = {0, 0, kCodecRootConstantCount};
+        D3D12_ROOT_SIGNATURE_DESC root_desc{};
+        root_desc.NumParameters = 2;
+        root_desc.pParameters = parameters;
+        Com<ID3DBlob> serialized;
+        Check(D3D12SerializeRootSignature(&root_desc, D3D_ROOT_SIGNATURE_VERSION_1,
+              &serialized.p, nullptr), "Serialize root");
+        Check(device->CreateRootSignature(0, serialized->GetBufferPointer(),
+              serialized->GetBufferSize(), IID_ID3D12RootSignature, root.address()),
+              "Create root");
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_desc{};
+        pipeline_desc.pRootSignature = root.p;
+        pipeline_desc.CS = {shader->GetBufferPointer(), shader->GetBufferSize()};
+        Check(device->CreateComputePipelineState(&pipeline_desc,
+              IID_ID3D12PipelineState, pipeline.address()), "Create compute pipeline");
+    }
+    ~Gpu() { if (completion != nullptr) CloseHandle(completion); }
+    D3D12_CPU_DESCRIPTOR_HANDLE Cpu(UINT index) const {
+        auto handle = heap->GetCPUDescriptorHandleForHeapStart();
+        handle.ptr += static_cast<SIZE_T>(index) * increment;
+        return handle;
+    }
+    Com<ID3D12Resource> Buffer(UINT64 bytes, D3D12_HEAP_TYPE type,
+                               D3D12_RESOURCE_FLAGS flags,
+                               D3D12_RESOURCE_STATES state) {
+        D3D12_HEAP_PROPERTIES properties{};
+        properties.Type = type;
+        properties.CreationNodeMask = properties.VisibleNodeMask = 1;
+        D3D12_RESOURCE_DESC desc{};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        desc.Width = bytes;
+        desc.Height = desc.DepthOrArraySize = desc.MipLevels = 1;
+        desc.SampleDesc.Count = 1;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        desc.Flags = flags;
+        Com<ID3D12Resource> resource;
+        Check(device->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE,
+              &desc, state, nullptr, IID_ID3D12Resource, resource.address()),
+              "Create buffer");
+        return resource;
+    }
+    void Barrier(ID3D12Resource *resource, D3D12_RESOURCE_STATES before,
+                  D3D12_RESOURCE_STATES after) {
+        if (before == after) return;
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition = {resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                              before, after};
+        list->ResourceBarrier(1, &barrier);
+    }
+    Texture MakeTexture(UINT width, UINT height, const std::vector<Float4> &pixels) {
+        Texture texture;
+        texture.width = width; texture.height = height;
+        D3D12_HEAP_PROPERTIES properties{};
+        properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+        properties.CreationNodeMask = properties.VisibleNodeMask = 1;
+        D3D12_RESOURCE_DESC desc{};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width = width; desc.Height = height;
+        desc.DepthOrArraySize = desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        desc.SampleDesc.Count = 1;
+        desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        Check(device->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE,
+              &desc, texture.state, nullptr, IID_ID3D12Resource,
+              texture.resource.address()), "Create texture");
+        UINT64 bytes = 0;
+        device->GetCopyableFootprints(&desc, 0, 1, 0, &texture.footprint,
+                                      nullptr, nullptr, &bytes);
+        texture.upload = Buffer(bytes, D3D12_HEAP_TYPE_UPLOAD,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
+        texture.readback = Buffer(bytes, D3D12_HEAP_TYPE_READBACK,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+        void *mapped = nullptr;
+        D3D12_RANGE no_read{0, 0};
+        Check(texture.upload->Map(0, &no_read, &mapped), "Map texture upload");
+        for (UINT y = 0; y < height; ++y)
+            std::memcpy(static_cast<std::uint8_t *>(mapped) +
+                texture.footprint.Offset + y * texture.footprint.Footprint.RowPitch,
+                pixels.data() + y * width, width * sizeof(Float4));
+        texture.upload->Unmap(0, nullptr);
+        D3D12_TEXTURE_COPY_LOCATION destination{};
+        destination.pResource = texture.resource.p;
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_TEXTURE_COPY_LOCATION source{};
+        source.pResource = texture.upload.p;
+        source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        source.PlacedFootprint = texture.footprint;
+        list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+        return texture;
+    }
+    void TextureState(Texture &texture, D3D12_RESOURCE_STATES state) {
+        Barrier(texture.resource.p, texture.state, state);
+        texture.state = state;
+    }
+    void Srv(UINT index, ID3D12Resource *resource) {
+        D3D12_SHADER_RESOURCE_VIEW_DESC view{};
+        view.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        view.Texture2D.MipLevels = 1;
+        device->CreateShaderResourceView(resource, &view, Cpu(index));
+    }
+    void UavTexture(UINT index, ID3D12Resource *resource, DXGI_FORMAT format) {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC view{};
+        view.Format = format;
+        view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(resource, nullptr, &view, Cpu(index));
+    }
+    void UavBuffer(UINT index, ID3D12Resource *resource, UINT64 bytes) {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC view{};
+        view.Format = DXGI_FORMAT_R32_TYPELESS;
+        view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        view.Buffer.NumElements = resource != nullptr ? static_cast<UINT>(bytes / 4) : 4;
+        view.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        device->CreateUnorderedAccessView(resource, nullptr, &view, Cpu(index));
+    }
+    void ReadTexture(Texture &texture) {
+        TextureState(texture, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_TEXTURE_COPY_LOCATION destination{};
+        destination.pResource = texture.readback.p;
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        destination.PlacedFootprint = texture.footprint;
+        D3D12_TEXTURE_COPY_LOCATION source{};
+        source.pResource = texture.resource.p;
+        source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+    }
+    std::vector<Float4> TexturePixels(Texture &texture) {
+        std::vector<Float4> pixels(texture.width * texture.height);
+        void *mapped = nullptr;
+        Check(texture.readback->Map(0, nullptr, &mapped), "Map result");
+        for (UINT y = 0; y < texture.height; ++y)
+            std::memcpy(pixels.data() + y * texture.width,
+                static_cast<std::uint8_t *>(mapped) + texture.footprint.Offset +
+                y * texture.footprint.Footprint.RowPitch, texture.width * sizeof(Float4));
+        const D3D12_RANGE no_write{0, 0};
+        texture.readback->Unmap(0, &no_write);
+        return pixels;
+    }
+    void Execute() {
+        Check(list->Close(), "Close command list");
+        ID3D12CommandList *lists[] = {list.p};
+        queue->ExecuteCommandLists(1, lists);
+        Check(queue->Signal(fence.p, ++submitted), "Signal queue");
+        Check(fence->SetEventOnCompletion(submitted, completion), "Fence wait event");
+        Require(WaitForSingleObject(completion, 30000) == WAIT_OBJECT_0,
+                "GPU completion timed out");
+        Check(device->GetDeviceRemovedReason(), "D3D12 device removed");
+        if (messages.p != nullptr) {
+            for (UINT64 i = 0; i < messages->GetNumStoredMessages(); ++i) {
+                SIZE_T bytes = 0;
+                messages->GetMessage(i, nullptr, &bytes);
+                std::vector<std::uint8_t> storage(bytes);
+                auto *message = reinterpret_cast<D3D12_MESSAGE *>(storage.data());
+                Check(messages->GetMessage(i, message, &bytes), "Debug message");
+                if (message->Severity <= D3D12_MESSAGE_SEVERITY_ERROR) {
+                    std::fprintf(stderr, "D3D12 validation: %s\n", message->pDescription);
+                    throw std::runtime_error("D3D12 debug layer error");
+                }
+            }
+            messages->ClearStoredMessages();
+        }
+        Check(allocator->Reset(), "Reset allocator");
+        Check(list->Reset(allocator.p, nullptr), "Reset list");
+    }
+};
+
+struct RunResult {
+    std::vector<Float4> output;
+    std::vector<std::uint32_t> capture;
+};
+
+RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
+               UINT requested_stride, UINT flags, int variant) {
+    constexpr UINT sx = 3, sy = 2, dx = 2, dy = 1;
+    const UINT source_width = width + sx + 2, source_height = height + sy + 2;
+    const UINT output_width = width + dx + 2, output_height = height + dy + 2;
+    const Float4 sentinel{-123.0f, -123.0f, -123.0f, -123.0f};
+    std::vector<Float4> original(source_width * source_height);
+    std::vector<Float4> proxy(width * height), neural(width * height);
+    std::vector<Float4> destination(output_width * output_height, sentinel);
+    for (UINT y = 0; y < source_height; ++y)
+        for (UINT x = 0; x < source_width; ++x)
+            original[y * source_width + x] = {0.25f + (x % 7) * 0.03125f,
+                0.375f + (y % 5) * 0.03125f, 0.5f, 0.625f};
+    for (UINT y = 0; y < height; ++y)
+        for (UINT x = 0; x < width; ++x) {
+            proxy[y * width + x] = {0.25f, 0.375f, 0.5f, 0.75f};
+            neural[y * width + x] = variant == 1 ? proxy[y * width + x]
+                : Float4{0.3f, 0.45f, 0.6f, 0.875f};
+        }
+    if (variant == 3) neural[0].x = std::numeric_limits<float>::quiet_NaN();
+    auto source_texture = gpu.MakeTexture(source_width, source_height, original);
+    auto proxy_texture = gpu.MakeTexture(width, height, proxy);
+    auto neural_texture = gpu.MakeTexture(width, height, neural);
+    auto output_texture = gpu.MakeTexture(output_width, output_height, destination);
+    gpu.TextureState(source_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    gpu.TextureState(proxy_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    gpu.TextureState(neural_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    gpu.TextureState(output_texture, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    const UINT capture_width = (width + requested_stride - 1) / requested_stride;
+    const UINT capture_height = (height + requested_stride - 1) / requested_stride;
+    const UINT64 stage_bytes = static_cast<UINT64>(capture_width) * capture_height * 64;
+    const UINT64 allocation_bytes = stage_bytes + 64; // Tail sentinel outside the UAV.
+    auto capture = gpu.Buffer(allocation_bytes, D3D12_HEAP_TYPE_DEFAULT,
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+    auto capture_upload = gpu.Buffer(allocation_bytes, D3D12_HEAP_TYPE_UPLOAD,
+        D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
+    auto capture_readback = gpu.Buffer(allocation_bytes, D3D12_HEAP_TYPE_READBACK,
+        D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    void *mapped = nullptr;
+    Check(capture_upload->Map(0, nullptr, &mapped), "Map capture initial values");
+    std::fill_n(static_cast<std::uint32_t *>(mapped), allocation_bytes / 4, 0xcdcdcdcdu);
+    capture_upload->Unmap(0, nullptr);
+    gpu.list->CopyBufferRegion(capture.p, 0, capture_upload.p, 0, allocation_bytes);
+    gpu.Barrier(capture.p, D3D12_RESOURCE_STATE_COPY_DEST,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    gpu.Srv(0, source_texture.resource.p);
+    gpu.Srv(1, proxy_texture.resource.p);
+    gpu.Srv(2, neural_texture.resource.p);
+    gpu.Srv(3, nullptr);
+    gpu.Srv(kCodecExposureSrvIndex, nullptr);
+    gpu.UavTexture(kCodecSrvCount, nullptr, DXGI_FORMAT_R32G32B32A32_FLOAT);
+    gpu.UavTexture(kCodecResultUavIndex, output_texture.resource.p,
+                   DXGI_FORMAT_R32G32B32A32_FLOAT);
+    gpu.UavTexture(kCodecMotionUavIndex, nullptr, DXGI_FORMAT_R32G32_FLOAT);
+    gpu.UavBuffer(kCodecStatsUavIndex, nullptr, 0);
+    gpu.UavBuffer(kCodecCaptureUavIndex, stride == 0 ? nullptr : capture.p, stage_bytes);
+    const CodecConstants constants = {width, height, 1.0f,
+        variant == 2 ? 0.0f : 0.8f, 1.0f, 0.25f, 2.0f, flags,
+        sx, sy, dx, dy, 0, 0, 0, 0, 1.0f, stride};
+    ID3D12DescriptorHeap *heaps[] = {gpu.heap.p};
+    gpu.list->SetDescriptorHeaps(1, heaps);
+    gpu.list->SetComputeRootSignature(gpu.root.p);
+    gpu.list->SetComputeRootDescriptorTable(0, gpu.heap->GetGPUDescriptorHandleForHeapStart());
+    gpu.list->SetComputeRoot32BitConstants(1, kCodecRootConstantCount, &constants, 0);
+    gpu.list->SetPipelineState(gpu.pipeline.p);
+    gpu.list->Dispatch((width + 7) / 8, (height + 7) / 8, 1);
+    gpu.Barrier(capture.p, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
+    gpu.list->CopyBufferRegion(capture_readback.p, 0, capture.p, 0, allocation_bytes);
+    gpu.ReadTexture(output_texture);
+    gpu.Execute();
+    RunResult result;
+    result.output = gpu.TexturePixels(output_texture);
+    Check(capture_readback->Map(0, nullptr, &mapped), "Map capture values");
+    result.capture.resize(allocation_bytes / 4);
+    std::memcpy(result.capture.data(), mapped, allocation_bytes);
+    D3D12_RANGE no_write{0, 0};
+    capture_readback->Unmap(0, &no_write);
+    for (UINT y = 0; y < output_height; ++y)
+        for (UINT x = 0; x < output_width; ++x) {
+            const Float4 &actual = result.output[y * output_width + x];
+            const bool active = x >= dx && x < dx + width && y >= dy && y < dy + height;
+            if (!active) Require(std::memcmp(&actual, &sentinel, 16) == 0,
+                                  "Dispatch wrote outside destination subrect");
+            else {
+                const Float4 &expected = original[(y - dy + sy) * source_width + x - dx + sx];
+                Require(std::isfinite(actual.x) && std::isfinite(actual.y) &&
+                        std::isfinite(actual.z) && actual.w == expected.w,
+                        "Output is non-finite or alpha changed");
+                if (variant == 1 || variant == 2 || (variant == 3 && x == dx && y == dy))
+                    Require(std::memcmp(&actual, &expected, 16) == 0,
+                            "Identity, zero-strength or invalid-neural fallback changed source");
+            }
+        }
+    const UINT64 plane_words = stage_bytes / 4 / 4;
+    if (stride != 0) {
+        for (UINT y = 0; y < capture_height; ++y)
+            for (UINT x = 0; x < capture_width; ++x) {
+                const UINT source_x = x * stride, source_y = y * stride;
+                const Float4 *expected[] = {
+                    &original[(source_y + sy) * source_width + source_x + sx],
+                    &proxy[source_y * width + source_x],
+                    &neural[source_y * width + source_x],
+                    &result.output[(source_y + dy) * output_width + source_x + dx]};
+                for (UINT stage = 0; stage < 4; ++stage)
+                    Require(std::memcmp(result.capture.data() + stage * plane_words +
+                        (y * capture_width + x) * 4, expected[stage], 16) == 0,
+                        "Captured plane/grid/raw float4 differs from source or GPU output");
+            }
+    }
+    for (UINT64 i = stride == 0 ? 0 : stage_bytes / 4; i < allocation_bytes / 4; ++i)
+        Require(result.capture[i] == 0xcdcdcdcdu,
+                "Capture disabled buffer or tail sentinel was modified");
+    return result;
+}
+
+int main() {
+    try {
+        Gpu gpu;
+        unsigned int scenarios = 0;
+        for (UINT flags : {0u, 1u, 16u, 32u, 128u}) {
+            for (int variant = 0; variant < 4; ++variant) {
+                const auto off = Run(gpu, 13, 9, 0, 2, flags, variant);
+                const auto on = Run(gpu, 13, 9, 2, 2, flags, variant);
+                Require(off.output.size() == on.output.size() &&
+                    std::memcmp(off.output.data(), on.output.data(),
+                        off.output.size() * sizeof(Float4)) == 0,
+                    "Enabling stage capture changes composited output");
+                ++scenarios;
+            }
+        }
+        for (UINT stride : {1u, 4u, 8u}) {
+            const auto off = Run(gpu, 35, 17, 0, stride, 1, 0);
+            const auto on = Run(gpu, 35, 17, stride, stride, 1, 0);
+            Require(std::memcmp(off.output.data(), on.output.data(),
+                off.output.size() * sizeof(Float4)) == 0, "Stride changed output");
+            ++scenarios;
+        }
+        Run(gpu, 4097, 513, 8, 8, 1, 0);
+        ++scenarios;
+        std::printf("GPU codec validation passed: %u paired/grid scenarios; "
+            "capture on/off bit identity, raw four-plane values, alpha, "
+            "subrect bounds, invalid/zero/identity paths, descriptor and root layout.\n",
+            scenarios);
+        return 0;
+    } catch (const std::exception &error) {
+        std::fprintf(stderr, "GPU codec validation FAILED: %s\n", error.what());
+        return 1;
+    }
+}
