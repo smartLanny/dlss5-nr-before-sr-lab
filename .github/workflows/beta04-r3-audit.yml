@@ -28,28 +28,32 @@ jobs:
           from pathlib import Path
           path = Path('tests/codec_gpu_harness.cpp.in')
           text = path.read_text(encoding='utf-8')
-          old = '''                if (variant == 1 || variant == 2 || variant == 4 ||
-                    (variant == 3 && x == dx && y == dy))
-                    Require(std::memcmp(&actual, &expected, 16) == 0,
-                            "Identity, zero-strength, reset suppression or invalid-neural fallback changed source");
-          '''
-          new = '''                if (variant == 1 || variant == 2 || variant == 4 ||
-                    (variant == 3 && x == dx && y == dy)) {
-                    if (std::memcmp(&actual, &expected, 16) != 0) {
-                        std::fprintf(stderr,
-                            "fallback mismatch v2=%d variant=%d flags=%u frame=%ux%u model=%ux%u pixel=%u,%u actual=(%.9g,%.9g,%.9g,%.9g) expected=(%.9g,%.9g,%.9g,%.9g)\\n",
-                            v2 ? 1 : 0, variant, flags, width, height,
-                            model_width, model_height, x - dx, y - dy,
-                            actual.x, actual.y, actual.z, actual.w,
-                            expected.x, expected.y, expected.z, expected.w);
-                        throw std::runtime_error(
-                            "Identity, zero-strength, reset suppression or invalid-neural fallback changed source");
-                    }
-                }
-          '''
-          if text.count(old) != 1:
-              raise SystemExit(f'fallback assertion block count={text.count(old)}')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+          message = '"Identity, zero-strength, reset suppression or invalid-neural fallback changed source");'
+          message_pos = text.index(message)
+          block_start = text.rfind('if (variant == 1 || variant == 2 || variant == 4 ||', 0, message_pos)
+          block_start = text.rfind('\n', 0, block_start) + 1
+          block_end = text.index('\n', message_pos) + 1
+          indent = ' ' * 16
+          inner = ' ' * 20
+          deep = ' ' * 24
+          new = (
+              indent + 'if (variant == 1 || variant == 2 || variant == 4 ||\n' +
+              inner + '(variant == 3 && x == dx && y == dy)) {\n' +
+              inner + 'if (std::memcmp(&actual, &expected, 16) != 0) {\n' +
+              deep + 'std::fprintf(stderr,\n' +
+              deep + '    "fallback mismatch v2=%d variant=%d flags=%u frame=%ux%u model=%ux%u pixel=%u,%u actual=(%.9g,%.9g,%.9g,%.9g) expected=(%.9g,%.9g,%.9g,%.9g)\\n",\n' +
+              deep + '    v2 ? 1 : 0, variant, flags, width, height,\n' +
+              deep + '    model_width, model_height, x - dx, y - dy,\n' +
+              deep + '    actual.x, actual.y, actual.z, actual.w,\n' +
+              deep + '    expected.x, expected.y, expected.z, expected.w);\n' +
+              deep + 'throw std::runtime_error(\n' +
+              deep + '    "Identity, zero-strength, reset suppression or invalid-neural fallback changed source");\n' +
+              inner + '}\n' +
+              indent + '}\n')
+          if block_start <= 0 or block_end <= block_start:
+              raise SystemExit('could not isolate fallback assertion block')
+          path.write_text(text[:block_start] + new + text[block_end:],
+                          encoding='utf-8', newline='\n')
           PY
       - name: Check generated patch
         run: git diff --check
