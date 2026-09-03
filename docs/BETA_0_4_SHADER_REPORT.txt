@@ -1,0 +1,8 @@
+InvalidArgument: D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\scripts\validate-codec-shader.ps1:42
+Line |
+  42 |      Write-Host ('{0}: 0x{1:X8}' -f $entryPoint, [uint32]$result)
+     |      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Cannot convert value "-2147467259" to type "System.UInt32". Error: "Value was either too large or too small for
+     | a UInt32."
+
+
