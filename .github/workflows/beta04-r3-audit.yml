@@ -22,6 +22,18 @@ jobs:
         with:
           ref: codex/beta0.4-perfect-chain
           fetch-depth: 0
+      - name: Keep generated commit outside workflow paths
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply-beta04-r3-audit.py')
+          text = path.read_text(encoding='utf-8')
+          old = 'for path in (DOC, MATRIX, CONFIG, BUILD, WORKFLOW, README):'
+          new = 'for path in (DOC, MATRIX, CONFIG, BUILD, README):'
+          if old not in text:
+              raise SystemExit('expected workflow-update tuple not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+          PY
       - name: Apply final audit fixes
         run: python scripts/apply-beta04-r3-audit.py
       - name: Validate generated source
