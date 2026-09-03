@@ -140,8 +140,11 @@ native-SR bypass. No title name is consulted.
 
 Release builds use optimization, LTO, dead-section removal and symbol stripping.
 The DLL resources and exported provenance strings retain the author and only
-official release location. Packages contain an ECDSA-signed file manifest and
-`AI_AGENT_NOTICE.md`. These measures provide attribution and tamper evidence;
+official release location. Streamlined distribution archives contain only the
+four required runtime files and one README. ZIP hashes are printed by the
+internal packaging process for optional publication, but standalone signature
+bundles, verifier scripts and duplicate documents are not placed in the archive.
+These measures preserve clear attribution without complicating installation;
 they are not a claim that native code cannot be reverse engineered.
 
 ## Still not resolved by this candidate

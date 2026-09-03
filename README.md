@@ -17,8 +17,10 @@ DLSS NR/SR implementation. NVIDIA, DLSS, GeForce, and related names are
 trademarks of their respective owners.
 
 Project author: **@野生的装机宅 Bilibili**. The only official release location
-is https://space.bilibili.com/941799. Distributed archives include a signed
-manifest and offline verifier; matching filenames alone do not prove origin.
+is https://space.bilibili.com/941799. The author and official address remain
+embedded in release binaries and the add-on UI. Distribution archives are kept
+to the four required runtime files plus one README; optional ZIP hashes may be
+published with the official release post.
 See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for the explicit prohibition on
 unauthorized automated builds, rebranding and modified redistribution.
 
@@ -83,8 +85,8 @@ implementations inside this project.
   removal, runtime placement, and bug-report instructions.
 - `scripts/validate-codec-shader.ps1`: compiles all embedded HLSL entry points
   with the same Shader Model 5.1 compiler contract used at runtime.
-- `scripts/Verify-ReleaseManifest.ps1`: validates the project ECDSA signature
-  and every package file hash without needing the private signing key.
+- `scripts/Verify-ReleaseManifest.ps1`: optional internal legacy verifier; it is
+  retained for reproducibility but is no longer bundled in simple release ZIPs.
 
 ## Build prerequisites
 

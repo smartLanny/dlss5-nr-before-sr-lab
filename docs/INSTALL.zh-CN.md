@@ -4,7 +4,7 @@
 
 作者：**@野生的装机宅 Bilibili**
 
-唯一官方发布地址：[野生的装机宅 Bilibili 主页](https://space.bilibili.com/941799)。其他来源即使文件名相同，也请先按包内签名清单验证。
+唯一官方发布地址：[野生的装机宅 Bilibili 主页](https://space.bilibili.com/941799)。插件界面和二进制内均保留作者与官方地址。
 
 ## 适用范围
 
@@ -68,12 +68,8 @@ DX11、Vulkan、没有原生 DLSS SR，或被 OptiScaler 等转换层完全接�
 RTX 30/40 ShortFuse 完整包已经包含匹配的 `310.8.SF-v2` runtime，解压后
 直接整体覆盖即可；不要再同时开启另一个 ShortFuse/RHI NR addon。
 
-## 验证官方文件
+## 分发包内容
 
-在解压目录打开 PowerShell，运行：
-
-```powershell
-.\Verify-ReleaseManifest.ps1
-```
-
-看到 `VALID` 才表示包内文件与“野生的装机宅”发布密钥签署的清单完全一致。该签名清单用于确认来源和防篡改；插件 DLL 本身暂未使用商业 Authenticode 证书。
+为方便直接覆盖安装，完整包只保留 5 个文件：插件、桥接 DLL、配置、
+对应显卡的 NR runtime 和本说明。不会再附带多份签名、校验脚本或重复文档。
+如官方发布帖同时给出 ZIP 的 SHA-256，可用该值核对下载文件。

@@ -4,7 +4,7 @@ Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.3.3-dev**
 
 Author: **@野生的装机宅 Bilibili**
 
-Only official release location: [野生的装机宅 on Bilibili](https://space.bilibili.com/941799). Verify the signed manifest before trusting a copy from anywhere else.
+Only official release location: [野生的装机宅 on Bilibili](https://space.bilibili.com/941799). The author and official address remain embedded in the add-on UI and binary.
 
 ## Scope
 
@@ -77,12 +77,10 @@ The RTX 30/40 ShortFuse full package already includes the matching
 `310.8.SF-v2` runtime. Extract the package as one unit and do not enable a second
 ShortFuse/RHI NR add-on at the same time.
 
-## Verify official files
+## Package contents
 
-Open PowerShell in the extracted directory and run:
-
-```powershell
-.\Verify-ReleaseManifest.ps1
-```
-
-`VALID` means every listed file exactly matches the manifest signed by the release key for 野生的装机宅. This is a provenance and tamper-evidence signature; the add-on DLL itself does not yet carry a commercial Authenticode certificate.
+For simple copy-in installation, each full package contains only five files:
+the add-on, bridge DLL, configuration, matching NR runtime, and this README.
+Separate signature files, verification scripts, and duplicate documents are no
+longer bundled. If the official release post publishes a ZIP SHA-256, that value
+can be used to check the downloaded archive.
