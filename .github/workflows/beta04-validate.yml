@@ -79,7 +79,8 @@ jobs:
           Invoke-WebRequest $asset.browser_download_url -OutFile llvm-mingw.zip
           Expand-Archive llvm-mingw.zip -DestinationPath toolchain
           $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
-          git clone --depth 1 https://github.com/crosire/reshade.git reshade-source
+          git clone --depth 1 --recurse-submodules --shallow-submodules `
+            https://github.com/crosire/reshade.git reshade-source
           "TOOLCHAIN_ROOT=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Append
           "RESHADE_ROOT=$pwd\reshade-source" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build English and Chinese add-ons and retain report
