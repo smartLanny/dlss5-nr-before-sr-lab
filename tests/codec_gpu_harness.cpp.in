@@ -453,9 +453,18 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                         std::isfinite(actual.z) && actual.w == expected.w,
                         "Output is non-finite or alpha changed");
                 if (variant == 1 || variant == 2 || variant == 4 ||
-                    (variant == 3 && x == dx && y == dy))
-                    Require(std::memcmp(&actual, &expected, 16) == 0,
+                    (variant == 3 && x == dx && y == dy)) {
+                    if (std::memcmp(&actual, &expected, 16) != 0) {
+                        std::fprintf(stderr,
+                            "fallback mismatch v2=%d variant=%d flags=%u frame=%ux%u model=%ux%u pixel=%u,%u actual=(%.9g,%.9g,%.9g,%.9g) expected=(%.9g,%.9g,%.9g,%.9g)\n",
+                            v2 ? 1 : 0, variant, flags, width, height,
+                            model_width, model_height, x - dx, y - dy,
+                            actual.x, actual.y, actual.z, actual.w,
+                            expected.x, expected.y, expected.z, expected.w);
+                        throw std::runtime_error(
                             "Identity, zero-strength, reset suppression or invalid-neural fallback changed source");
+                    }
+                }
                 if (v2 && variant == 5)
                     Require(actual.x >= 0.0f && actual.x <= 1.0f &&
                             actual.y >= 0.0f && actual.y <= 1.0f &&
