@@ -32,8 +32,11 @@ components must come from lawful sources and remain outside this repository.
 
 The add-on deliberately limits itself to ordinary DLSS Super Resolution
 (NGX feature 1). Ray Reconstruction (feature 13) is passed through unmodified;
-while RR is active, companion feature-1 evaluations are also protected from a
-second NR pass. The process-lifetime detours remain installed, but the master-off
+while any feature-13 handle remains live, companion feature-1 evaluations are
+also protected from a second NR pass. A retained RR handle is never guessed
+dormant from timing or evaluation counts: the guard ends only on explicit
+Release, or on process restart. The process-lifetime detours remain installed,
+but the master-off
 path takes an atomic first-branch bypass before Feature 18, resource conversion,
 parameter substitution, or GPU work. If a resource, subrect, guide, format,
 create, or evaluate contract is not accepted, the intended behavior is to retain
@@ -59,6 +62,10 @@ implementations inside this project.
 - `docs/TEST_EVIDENCE.md`: sanitized, non-authoritative runtime observations.
 - `docs/BETA_0_3_RELEASE_NOTES.md`: current behavior and safety changes.
 - `docs/BETA_0_3_TEST_MATRIX.md`: release qualification checklist.
+- `docs/COMMUNITY_FEEDBACK_BETA03.md`: sanitized mapping from early reports to
+  current fixes, intentional bypasses, and remaining evidence gaps.
+- `docs/INSTALL.zh-CN.md` / `docs/INSTALL.en.md`: quick deployment, conflict
+  removal, runtime placement, and bug-report instructions.
 - `scripts/validate-codec-shader.ps1`: compiles all embedded HLSL entry points
   with the same Shader Model 5.1 compiler contract used at runtime.
 
@@ -91,16 +98,24 @@ provide runtime installation instructions or download links for vendor binaries.
 The two chains have executed successfully in several D3D12 titles, including
 contracts with FP16 SceneColor, UE-style `R11G11B10_FLOAT` SceneColor, padded
 active regions, low-resolution depth/motion guides, and high-resolution motion
-conversion. Results are engine- and runtime-dependent. Important unresolved
+conversion. The current candidate also admits a shader-loadable 1x1
+exposure-scale texture by sampling its red channel symmetrically on
+the GPU; unsupported exposure contracts remain native-SR bypasses. Results are
+engine- and runtime-dependent. Important unresolved
 areas are documented in [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
 The 2026-09-03 tree is a **beta0.3 stabilization candidate**, not a universal
-release. It compiles cleanly in the maintained local toolchain and has received
-focused P0/P1 source reviews. Its immutable submission batches, context-level
-queue/fence proof, reset-success gate, output-format conversion, RR exclusion, and
-extent resolution still require the fresh in-game stress matrix before a public
-binary release. beta0.3 uses the smaller three-title gate documented in the test
-matrix; the seven-title 600-frame/20-cycle matrix is reserved for RC.
+release. It compiles cleanly in the maintained local toolchain and passes a
+focused static analysis. Runtime observations above 99% Feature-18/carrier in
+both orders, clean Enabled cycles, and an RR interval with zero Feature 18 come
+from the immediately preceding graphics candidate. They motivated the current
+stable-queue, exact-fence, and prepared/recorded/bound/submitted diagnostics, but do
+not qualify the newly rebuilt binary. Hogwarts' two orders and three live DLSS
+contracts plus the Witcher mixed-guide post-SR path are likewise prior-candidate
+evidence. The current binary still needs the three-title minimum gate, physical
+F6, and preset switching in a native game session. beta0.3 uses the smaller
+three-title gate in the test matrix; the seven-title 600-frame/20-cycle matrix
+is reserved for RC.
 
 The project should not claim exact visual equivalence between Mode 1 and Mode 2:
 Mode 2 gives the neural model fewer source pixels and then asks the game's SR to

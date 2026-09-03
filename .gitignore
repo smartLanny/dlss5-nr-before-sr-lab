@@ -12,6 +12,7 @@
 *.exp
 *.ilk
 *.map
+*.plist
 *.addon32
 *.addon64
 

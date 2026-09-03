@@ -18,6 +18,7 @@
 #include <cwchar>
 #include <cstring>
 #include <iterator>
+#include <limits>
 
 #define ImTextureID ImU64
 #include <imgui.h>
@@ -35,6 +36,8 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
+constexpr const char *kAddonVersion = "beta0.3";
+constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 
 struct NgxHandle {
     std::uint32_t id;
@@ -124,6 +127,20 @@ void SetSiblingPath(HMODULE module, const wchar_t *leaf, wchar_t (&out)[MAX_PATH
     }
 }
 
+void WideToUtf8(const wchar_t *source, char *destination,
+                std::size_t destination_size) {
+    if (destination == nullptr || destination_size == 0) return;
+    destination[0] = '\0';
+    if (source == nullptr) return;
+    const int capacity = destination_size > static_cast<std::size_t>(INT_MAX)
+        ? INT_MAX : static_cast<int>(destination_size);
+    const int converted = WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, source, -1, destination, capacity,
+        nullptr, nullptr);
+    if (converted == 0)
+        snprintf(destination, destination_size, "%s", "<utf8-unavailable>");
+}
+
 void TruncateLog() {
     HANDLE file = CreateFileW(g_log_path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
                               nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -196,14 +213,26 @@ const char *ResultName(NgxResult result) {
 
 const char *FormatName(DXGI_FORMAT format) {
     switch (format) {
+    case DXGI_FORMAT_R32G32B32A32_FLOAT: return "R32G32B32A32_FLOAT";
+    case DXGI_FORMAT_R32G32B32_FLOAT: return "R32G32B32_FLOAT";
     case DXGI_FORMAT_R16G16B16A16_FLOAT: return "R16G16B16A16_FLOAT";
     case DXGI_FORMAT_R11G11B10_FLOAT: return "R11G11B10_FLOAT";
     case DXGI_FORMAT_R16G16_FLOAT: return "R16G16_FLOAT";
     case DXGI_FORMAT_R32G32_FLOAT: return "R32G32_FLOAT";
+    case DXGI_FORMAT_R32G8X24_TYPELESS: return "R32G8X24_TYPELESS";
+    case DXGI_FORMAT_D32_FLOAT_S8X24_UINT: return "D32_FLOAT_S8X24_UINT";
+    case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS: return "R32_FLOAT_X8X24_TYPELESS";
+    case DXGI_FORMAT_R24G8_TYPELESS: return "R24G8_TYPELESS";
+    case DXGI_FORMAT_D24_UNORM_S8_UINT: return "D24_UNORM_S8_UINT";
+    case DXGI_FORMAT_R24_UNORM_X8_TYPELESS: return "R24_UNORM_X8_TYPELESS";
     case DXGI_FORMAT_R32_FLOAT: return "R32_FLOAT";
     case DXGI_FORMAT_R32_TYPELESS: return "R32_TYPELESS";
     case DXGI_FORMAT_D32_FLOAT: return "D32_FLOAT";
     case DXGI_FORMAT_R16_FLOAT: return "R16_FLOAT";
+    case DXGI_FORMAT_R16_TYPELESS: return "R16_TYPELESS";
+    case DXGI_FORMAT_D16_UNORM: return "D16_UNORM";
+    case DXGI_FORMAT_R16_UNORM: return "R16_UNORM";
+    case DXGI_FORMAT_R8_UNORM: return "R8_UNORM";
     case DXGI_FORMAT_R8G8B8A8_UNORM: return "R8G8B8A8_UNORM";
     case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return "R8G8B8A8_UNORM_SRGB";
     case DXGI_FORMAT_R10G10B10A2_UNORM: return "R10G10B10A2_UNORM";
@@ -228,21 +257,58 @@ enum class BypassReason : int {
     RuntimeRejected,
     ShortFuseOwnsNr,
     LifecycleIsolation,
+    QueueAffinityUnverified,
     FailedCreateQuarantine,
 };
 
 std::atomic<int> g_last_bypass_reason{
     static_cast<int>(BypassReason::WaitingForFeature1)};
+std::atomic<unsigned long long> g_bypass_reason_transitions{0};
 std::atomic<unsigned int> g_last_output_format{DXGI_FORMAT_UNKNOWN};
-std::atomic<unsigned long long> g_nr_transferred_frames{0};
+// "Recorded" means the final visible transfer commands were appended to a
+// game command list. "Bound" means that transfer was attached to a validated
+// lifetime record. "Submitted" means its non-quarantined immutable batch
+// reached the native Execute transaction.
+std::atomic<unsigned long long> g_nr_transfer_recorded_frames{0};
+std::atomic<unsigned long long> g_nr_transfer_bound_frames{0};
+std::atomic<unsigned long long> g_nr_transfer_submitted_frames{0};
+std::atomic<unsigned long long> g_nr_transfer_attempted_frames{0};
 std::atomic<unsigned long long> g_nr_identity_or_warmup_frames{0};
 std::atomic<unsigned long long> g_nr_delta_sampled_frames{0};
 std::atomic<unsigned long long> g_nr_delta_near_zero_frames{0};
 std::atomic<unsigned long long> g_nr_delta_visible_frames{0};
 std::atomic<float> g_last_sampled_nr_delta{0.0f};
+std::atomic<float> g_last_sampled_final_delta{0.0f};
+std::atomic<float> g_last_sampled_final_mean_delta{0.0f};
+std::atomic<unsigned int> g_last_sampled_final_changed{0};
+std::atomic<float> g_last_sampled_exposure_scale{1.0f};
+std::atomic<unsigned int> g_exposure_texture_delayed_resets{0};
 std::atomic<unsigned long long> g_lifecycle_safe_bypass_frames{0};
+// A command list's last observed native submission queue is the only queue
+// affinity signal available before opaque NGX work is recorded. Same-queue
+// submissions are ordered by D3D12, so this lets temporal Feature 18 remain
+// continuous without a CPU fence stall. Unknown lists stay native, and an
+// actual queue mismatch at Execute is fail-closed and permanently diagnosed.
+std::atomic<unsigned long long> g_queue_affinity_admitted_frames{0};
+std::atomic<unsigned long long> g_queue_affinity_unknown_bypass_frames{0};
+std::atomic<unsigned long long> g_queue_affinity_prediction_bypass_frames{0};
+std::atomic<unsigned long long> g_queue_affinity_actual_mismatches{0};
+std::atomic<unsigned long long> g_queue_affinity_marker_failures{0};
+std::atomic<unsigned int> g_live_graphics_queue_count{0};
+std::atomic<unsigned long long> g_queue_contract_bypass_frames{0};
+std::atomic<unsigned long long> g_command_list_replay_detections{0};
+std::atomic<unsigned long long> g_duplicate_execute_list_detections{0};
+std::atomic<unsigned long long> g_pipeline_stats_generation{0};
+std::atomic<int> g_pipeline_stats_mode{0};
+std::atomic<unsigned long long> g_pipeline_stats_epoch{0};
+std::atomic<unsigned long long> g_pipeline_eligible_carriers{0};
+std::atomic<unsigned long long> g_pipeline_feature18_success{0};
+std::atomic<unsigned long long> g_pipeline_transfer_attempted{0};
+std::atomic<unsigned long long> g_pipeline_transfer_recorded{0};
+std::atomic<unsigned long long> g_pipeline_transfer_bound{0};
+std::atomic<unsigned long long> g_pipeline_transfer_submitted{0};
 constexpr unsigned int kDiagnosticStageCount = 4;
-constexpr unsigned int kDiagnosticStatsUintCount = 24;
+constexpr unsigned int kDiagnosticStatsUintCount = 28;
 constexpr unsigned int kDiagnosticStatsBytes =
     kDiagnosticStatsUintCount * sizeof(std::uint32_t);
 std::atomic<float> g_last_diagnostic_r[kDiagnosticStageCount] = {};
@@ -252,10 +318,46 @@ std::atomic<float> g_last_diagnostic_luma[kDiagnosticStageCount] = {};
 std::atomic<std::uint32_t> g_last_diagnostic_hash[kDiagnosticStageCount] = {};
 std::atomic<unsigned int> g_last_diagnostic_sample_count{0};
 std::atomic<unsigned int> g_last_diagnostic_invalid_count{0};
+std::atomic<unsigned long long> g_last_diagnostic_serial{0};
+SRWLOCK g_diagnostic_snapshot_lock = SRWLOCK_INIT;
+
+const char *BypassReasonName(BypassReason reason) {
+    switch (reason) {
+    case BypassReason::None: return "none/active";
+    case BypassReason::MasterDisabled: return "master-disabled";
+    case BypassReason::WaitingForFeature1: return "waiting-feature1";
+    case BypassReason::UnsupportedInputFormat: return "unsupported-input-format";
+    case BypassReason::UnsupportedOutputFormat: return "unsupported-output-format";
+    case BypassReason::OutputColorContractUnverified:
+        return "output-color-contract-unverified";
+    case BypassReason::ExposureTextureUnverified:
+        return "exposure-texture-unverified";
+    case BypassReason::RayReconstructionGuard: return "rr-safe-bypass";
+    case BypassReason::RuntimeRejected: return "runtime-rejected";
+    case BypassReason::ShortFuseOwnsNr: return "shortfuse-owns-nr";
+    case BypassReason::LifecycleIsolation: return "lifecycle-isolation";
+    case BypassReason::QueueAffinityUnverified:
+        return "queue-affinity-unverified";
+    case BypassReason::FailedCreateQuarantine: return "failed-create-quarantine";
+    default: return "unknown";
+    }
+}
 
 void SetBypassReason(BypassReason reason) {
-    g_last_bypass_reason.store(static_cast<int>(reason),
-                               std::memory_order_relaxed);
+    const int next = static_cast<int>(reason);
+    const int previous = g_last_bypass_reason.exchange(
+        next, std::memory_order_relaxed);
+    if (previous == next) return;
+    const unsigned long long transition =
+        g_bypass_reason_transitions.fetch_add(1, std::memory_order_relaxed) + 1;
+    // The overlay always shows the current reason. The file log records early
+    // transitions and sparse long-run checkpoints so intermittent contracts can
+    // be diagnosed without producing a line per frame.
+    if (transition <= 12 || (transition % 600) == 0) {
+        Log("Bypass state transition #%llu: %s -> %s.", transition,
+            BypassReasonName(static_cast<BypassReason>(previous)),
+            BypassReasonName(reason));
+    }
 }
 
 struct FeatureRecord {
@@ -280,15 +382,123 @@ std::atomic<unsigned long long> g_feature_generation{1};
 // If ownership bookkeeping ever becomes incomplete, fail closed for Feature 1
 // rather than risk submitting our Feature 18 beside an untracked RR feature.
 std::atomic<bool> g_feature_tracking_uncertain{false};
-// A live Feature 13 handle is a stronger and frame-rate-independent RR signal
-// than "an RR evaluation happened within N milliseconds".  The conservative
-// policy is intentional: if an engine keeps a dormant RR handle alive we may
-// temporarily skip our pass, but we never feed a second denoiser into RR.
+// A live Feature 13 handle is treated as authoritative RR ownership. There is
+// no public frame token that can prove a retained handle is dormant without a
+// race, so ordinary Feature 1 processing resumes only after the game releases
+// every RR handle (or after a process restart).
 std::atomic<unsigned int> g_live_rr_handles{0};
 // Close the small window between entering a Feature 13 Create call and
 // publishing its returned handle in g_features. Feature 1 must not be modified
 // while RR ownership is being established.
 std::atomic<unsigned int> g_rr_create_in_progress{0};
+// Linearizes the complete interval in which Feature 1 parameters/resources are
+// substituted against Feature 13 ownership changes. A lock-free last check is
+// insufficient: RR can begin after the check but before Feature 18 recording.
+SRWLOCK g_rr_ownership_gate = SRWLOCK_INIT;
+thread_local unsigned int g_rr_ownership_gate_depth = 0;
+thread_local bool g_inside_feature1_rr_transaction = false;
+thread_local bool g_feature1_rr_transaction_aborted = false;
+
+class ScopedRrOwnershipGate {
+public:
+    ScopedRrOwnershipGate(bool enabled, bool feature1_transaction = false,
+                          bool try_only = false)
+        : enabled_(enabled),
+          feature1_transaction_(feature1_transaction),
+          previous_feature1_transaction_(
+              g_inside_feature1_rr_transaction),
+          previous_transaction_aborted_(
+              g_feature1_rr_transaction_aborted) {
+        if (!enabled_) return;
+        if (g_rr_ownership_gate_depth != 0) {
+            ++g_rr_ownership_gate_depth;
+            entered_ = true;
+        } else if (try_only) {
+            if (TryAcquireSRWLockExclusive(&g_rr_ownership_gate) != FALSE) {
+                g_rr_ownership_gate_depth = 1;
+                owns_lock_ = true;
+                entered_ = true;
+            }
+        } else {
+            AcquireSRWLockExclusive(&g_rr_ownership_gate);
+            g_rr_ownership_gate_depth = 1;
+            owns_lock_ = true;
+            entered_ = true;
+        }
+        if (feature1_transaction_ && entered_) {
+            g_inside_feature1_rr_transaction = true;
+            g_feature1_rr_transaction_aborted = false;
+        }
+    }
+
+    ~ScopedRrOwnershipGate() { Release(); }
+
+    void Release() {
+        if (!enabled_ || released_) return;
+        released_ = true;
+        if (feature1_transaction_ && entered_) {
+            g_inside_feature1_rr_transaction =
+                previous_feature1_transaction_;
+            g_feature1_rr_transaction_aborted =
+                previous_transaction_aborted_;
+        }
+        if (!entered_) return;
+        if (g_rr_ownership_gate_depth == 0) {
+            g_feature_tracking_uncertain.store(true,
+                                                std::memory_order_release);
+            if (owns_lock_)
+                ReleaseSRWLockExclusive(&g_rr_ownership_gate);
+            return;
+        }
+        --g_rr_ownership_gate_depth;
+        if (owns_lock_)
+            ReleaseSRWLockExclusive(&g_rr_ownership_gate);
+    }
+
+    bool acquired() const { return enabled_ && entered_; }
+    bool acquisition_failed() const { return enabled_ && !entered_; }
+    bool is_nested() const { return enabled_ && entered_ && !owns_lock_; }
+    bool transaction_aborted() const {
+        return feature1_transaction_ && entered_ &&
+               g_feature1_rr_transaction_aborted;
+    }
+
+private:
+    bool enabled_ = false;
+    bool feature1_transaction_ = false;
+    bool previous_feature1_transaction_ = false;
+    bool previous_transaction_aborted_ = false;
+    bool owns_lock_ = false;
+    bool entered_ = false;
+    bool released_ = false;
+};
+
+void LatchRrOwnershipUncertain(const char *operation, const char *detail) {
+    const bool already_uncertain = g_feature_tracking_uncertain.exchange(
+        true, std::memory_order_acq_rel);
+    if (!already_uncertain) {
+        Log("RR ownership tracking became uncertain during %s: %s. All future "
+            "Feature 1 processing fails closed for this process.",
+            operation != nullptr ? operation : "an unknown operation",
+            detail != nullptr ? detail : "no additional detail");
+    }
+}
+
+void LatchNestedRrOwnershipChange(const char *operation) {
+    if (!g_inside_feature1_rr_transaction) return;
+    g_feature1_rr_transaction_aborted = true;
+    LatchRrOwnershipUncertain(
+        operation,
+        "recursive ownership change inside a modified Feature 1 transaction; "
+        "remaining plugin work in this call will be aborted and quarantined");
+}
+
+void LatchConcurrentRrOwnershipChange(const char *operation) {
+    LatchRrOwnershipUncertain(
+        operation,
+        "the nonblocking ownership gate was busy; the native call continues "
+        "without waiting and any active modified Feature 1 transaction aborts");
+}
 
 void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *params) {
     // Only these two features participate in this add-on's state machine.
@@ -496,6 +706,8 @@ CRITICAL_SECTION g_chain_cs;
 std::atomic<bool> g_enabled_fast{false};
 std::atomic<ULONGLONG> g_next_config_poll_tick{0};
 std::atomic<unsigned int> g_config_generation{1};
+std::atomic<bool> g_config_persistence_failed{false};
+std::atomic<unsigned long> g_config_persistence_error{ERROR_SUCCESS};
 std::atomic<unsigned long long> g_nr_successful_evaluations{0};
 std::atomic<unsigned int> g_last_nr_width{0};
 std::atomic<unsigned int> g_last_nr_height{0};
@@ -521,6 +733,28 @@ std::atomic<bool> g_nr_failed_create_process_latched{false};
 std::atomic<bool> g_shortfuse_loaded{false};
 std::atomic<bool> g_shortfuse_nr_enabled{false};
 
+void BeginPipelineStatsScopeLocked(unsigned long long feature_generation,
+                                   int mode) {
+    if (g_pipeline_stats_generation.load(std::memory_order_relaxed) ==
+            feature_generation &&
+        g_pipeline_stats_mode.load(std::memory_order_relaxed) == mode) {
+        return;
+    }
+    g_pipeline_stats_generation.store(feature_generation,
+                                      std::memory_order_relaxed);
+    g_pipeline_stats_mode.store(mode, std::memory_order_relaxed);
+    const unsigned long long scope_epoch =
+        g_pipeline_stats_epoch.fetch_add(1, std::memory_order_relaxed) + 1;
+    g_pipeline_eligible_carriers.store(0, std::memory_order_relaxed);
+    g_pipeline_feature18_success.store(0, std::memory_order_relaxed);
+    g_pipeline_transfer_attempted.store(0, std::memory_order_relaxed);
+    g_pipeline_transfer_recorded.store(0, std::memory_order_relaxed);
+    g_pipeline_transfer_bound.store(0, std::memory_order_relaxed);
+    g_pipeline_transfer_submitted.store(0, std::memory_order_relaxed);
+    Log("Pipeline diagnostic scope reset: epoch=%llu Feature1 generation=%llu "
+        "mode=%d.", scope_epoch, feature_generation, mode);
+}
+
 float ActiveTransferStrength(const ChainConfig &config) {
     return config.transfer_strength;
 }
@@ -530,6 +764,9 @@ struct ColorContract {
     float exposure_scale = 1.0f;
     float source_to_canonical = 1.0f;
     ID3D12Resource *exposure_texture = nullptr;
+    DXGI_FORMAT exposure_texture_format = DXGI_FORMAT_UNKNOWN;
+    unsigned int exposure_texture_width = 0;
+    unsigned int exposure_texture_height = 0;
     bool has_pre_exposure = false;
     bool has_exposure_scale = false;
 };
@@ -555,6 +792,15 @@ ColorContract ReadColorContract(const NgxParams *sr_params) {
         contract.has_exposure_scale = value > 0.0f && std::isfinite(value);
     }
     GetResource(sr_params, "ExposureTexture", &contract.exposure_texture);
+    if (contract.exposure_texture != nullptr) {
+        const D3D12_RESOURCE_DESC exposure_desc =
+            ID3D12Resource_GetDesc(contract.exposure_texture);
+        contract.exposure_texture_format = exposure_desc.Format;
+        contract.exposure_texture_width = static_cast<unsigned int>(
+            std::min<UINT64>(exposure_desc.Width,
+                             std::numeric_limits<unsigned int>::max()));
+        contract.exposure_texture_height = exposure_desc.Height;
+    }
 
     // This is the exposure transform required by the NGX/DirectSR color
     // contract: canonical = source * ExposureScale / PreExposure. The neural
@@ -574,19 +820,55 @@ ColorContract ReadColorContract(const NgxParams *sr_params) {
     return contract;
 }
 
-bool MustBypassUnverifiedExposureTexture(const ColorContract &contract,
-                                         const FeatureRecord &feature,
-                                         int mode) {
-    // The public SR contract exposes ExposureTexture separately from the two
-    // scalar exposure values, but Feature 18 has no public rule describing how
-    // they combine.  Until we take a same-command-list GPU snapshot and use it
-    // symmetrically in Encode/Combine, applying a non-zero HDR residual would
-    // be a colour/exposure guess.  Fail closed instead of silently changing the
-    // game's lighting.  Diagnostic identity mode remains safe and is allowed.
-    const bool blocked = (feature.create_flags & 1) != 0 &&
-        contract.exposure_texture != nullptr &&
-        !g_config.identity_use_original &&
-        ActiveTransferStrength(g_config) > 0.000001f;
+bool IsExposureTextureFormat(DXGI_FORMAT format) {
+    switch (format) {
+    case DXGI_FORMAT_R32_FLOAT:
+    case DXGI_FORMAT_R32G32_FLOAT:
+    case DXGI_FORMAT_R32G32B32_FLOAT:
+    case DXGI_FORMAT_R32G32B32A32_FLOAT:
+    case DXGI_FORMAT_R16_FLOAT:
+    case DXGI_FORMAT_R16G16_FLOAT:
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool SupportsExposureTextureContract(ID3D12Device *device,
+                                     const ColorContract &contract,
+                                     const FeatureRecord &feature,
+                                     int mode) {
+    // NVIDIA's NGX definition calls ExposureTexture a 1x1 texture containing
+    // the final exposure scale. DirectSR specifies the same contract and uses
+    // its red channel. Sample that value in both codec passes on the same game
+    // command list; this avoids a stale CPU readback and makes the transform
+    // symmetric. Unknown dimensions or typed-load support still fail closed.
+    if ((feature.create_flags & 1) == 0 ||
+        contract.exposure_texture == nullptr) {
+        g_unverified_exposure_texture_bypass.store(false,
+                                                    std::memory_order_relaxed);
+        return true;
+    }
+    const D3D12_RESOURCE_DESC desc =
+        ID3D12Resource_GetDesc(contract.exposure_texture);
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {};
+    support.Format = desc.Format;
+    const bool supported = device != nullptr &&
+        desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+        desc.Width == 1 && desc.Height == 1 && desc.DepthOrArraySize == 1 &&
+        desc.MipLevels >= 1 && desc.SampleDesc.Count == 1 &&
+        (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) == 0 &&
+        IsExposureTextureFormat(desc.Format) &&
+        SUCCEEDED(ID3D12Device_CheckFeatureSupport(
+            device, D3D12_FEATURE_FORMAT_SUPPORT, &support,
+            sizeof(support))) &&
+        (support.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE2D) != 0 &&
+        (support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD) != 0;
+    // Formats outside the DirectSR exposure-scale family would require a
+    // separate, engine-specific decode contract. Do not bind an unsupported
+    // descriptor even in diagnostic identity mode.
+    const bool blocked = !supported;
     g_unverified_exposure_texture_bypass.store(blocked,
                                                 std::memory_order_relaxed);
     if (blocked) {
@@ -595,12 +877,24 @@ bool MustBypassUnverifiedExposureTexture(const ColorContract &contract,
             g_exposure_texture_bypasses.fetch_add(1,
                                                    std::memory_order_relaxed) + 1;
         if (count <= 3 || (count % 600) == 0) {
-            Log("Mode %d bypassed because HDR ExposureTexture is present but "
-                "has no verified same-frame Feature 18 contract; original SR "
-                "is preserved (count=%llu).", mode, count);
+            Log("Mode %d bypassed because ExposureTexture has no verified "
+                "1x1 typed-load contract: physical=%llux%u format=%u flags=0x%X; "
+                "original SR is preserved (count=%llu).", mode,
+                static_cast<unsigned long long>(desc.Width), desc.Height,
+                static_cast<unsigned int>(desc.Format),
+                static_cast<unsigned int>(desc.Flags), count);
+        }
+    } else if (supported) {
+        static unsigned int accepted_contracts = 0;
+        ++accepted_contracts;
+        if (accepted_contracts <= 3) {
+            Log("Mode %d accepted live ExposureTexture contract: 1x1 format=%u; "
+                "the red-channel exposure scale will be sampled symmetrically "
+                "in Encode/Combine.", mode,
+                static_cast<unsigned int>(desc.Format));
         }
     }
-    return blocked;
+    return supported;
 }
 
 float ReadIniFloat(const wchar_t *key, float fallback) {
@@ -660,6 +954,11 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
 
 void ReloadConfig(bool force = false) {
     const ULONGLONG now = GetTickCount64();
+    // If the game directory is read-only, keep the user's live overlay edits
+    // for this process instead of reloading stale defaults every 500 ms. A
+    // later successful SaveConfig clears this latch.
+    if (!force &&
+        g_config_persistence_failed.load(std::memory_order_acquire)) return;
     if (!force && now - g_config_read_tick < 500) return;
     g_config_read_tick = now;
     g_next_config_poll_tick.store(now + 500, std::memory_order_relaxed);
@@ -674,11 +973,30 @@ void ReloadConfig(bool force = false) {
         // once so installing beta0.3 cannot silently keep users on the
         // comparison-only full-resolution path.
         next.mode = 2;
-        WritePrivateProfileStringW(L"NRBeforeSR", L"Mode", L"2", g_ini_path);
-        WritePrivateProfileStringW(L"NRBeforeSR", L"ConfigVersion", L"3",
-                                   g_ini_path);
-        Log("Migrated legacy beta0.2 configuration to beta0.3: default mode is "
-            "now render-resolution NR -> SR.");
+        SetLastError(ERROR_SUCCESS);
+        const bool mode_written = WritePrivateProfileStringW(
+            L"NRBeforeSR", L"Mode", L"2", g_ini_path) != FALSE;
+        const bool version_written = WritePrivateProfileStringW(
+            L"NRBeforeSR", L"ConfigVersion", L"3", g_ini_path) != FALSE;
+        const bool flushed = WritePrivateProfileStringW(
+            nullptr, nullptr, nullptr, g_ini_path) != FALSE;
+        const bool migration_persisted =
+            mode_written && version_written && flushed;
+        if (!migration_persisted) {
+            unsigned long error = GetLastError();
+            if (error == ERROR_SUCCESS) error = ERROR_WRITE_FAULT;
+            g_config_persistence_error.store(error,
+                                             std::memory_order_relaxed);
+            g_config_persistence_failed.store(true,
+                                               std::memory_order_release);
+        }
+        static bool migration_logged = false;
+        if (!migration_logged) {
+            migration_logged = true;
+            Log("Migrated legacy beta0.2 configuration to beta0.3 in memory: "
+                "default mode is now render-resolution NR -> SR; persisted=%d.",
+                migration_persisted ? 1 : 0);
+        }
     }
     next.identity_use_original = GetPrivateProfileIntW(
         L"NRBeforeSR", L"IdentityUseOriginalColor", 0, g_ini_path) != 0;
@@ -753,7 +1071,8 @@ void ReloadConfig(bool force = false) {
     if (changed || force) {
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
             "postTransfer=%.3f preserveLighting=%d proxyScale=%.3f "
-            "warmup=%u autoMask=%d style=%u perfEpoch=%d",
+            "warmup=%u autoMask=%d style=%u perfEpoch=%d "
+            "feature18Evals=%llu",
             g_config.enabled ? 1 : 0, g_config.mode,
             g_config.identity_use_original ? 1 : 0,
             static_cast<double>(g_config.transfer_strength),
@@ -761,48 +1080,60 @@ void ReloadConfig(bool force = false) {
             g_config.preserve_lighting ? 1 : 0,
             static_cast<double>(g_config.proxy_scale),
             g_config.warmup_after_create, g_config.auto_mask ? 1 : 0,
-            g_config.style, g_config.perf_epoch);
+            g_config.style, g_config.perf_epoch,
+            g_nr_successful_evaluations.load(std::memory_order_relaxed));
     }
 }
 
-void WriteIniInt(const wchar_t *key, int value) {
+bool WriteIniInt(const wchar_t *key, int value) {
     wchar_t text[32] = {};
     swprintf_s(text, L"%d", value);
-    WritePrivateProfileStringW(L"NRBeforeSR", key, text, g_ini_path);
+    return WritePrivateProfileStringW(
+        L"NRBeforeSR", key, text, g_ini_path) != FALSE;
 }
 
-void WriteIniFloat(const wchar_t *key, float value) {
+bool WriteIniFloat(const wchar_t *key, float value) {
     wchar_t text[64] = {};
     swprintf_s(text, L"%.6g", static_cast<double>(value));
-    WritePrivateProfileStringW(L"NRBeforeSR", key, text, g_ini_path);
+    return WritePrivateProfileStringW(
+        L"NRBeforeSR", key, text, g_ini_path) != FALSE;
 }
 
-void SaveConfig(const ChainConfig &config) {
-    WriteIniInt(L"ConfigVersion", 3);
-    WriteIniInt(L"Enabled", config.enabled ? 1 : 0);
-    WriteIniInt(L"Mode", config.mode);
-    WriteIniInt(L"IdentityUseOriginalColor", config.identity_use_original ? 1 : 0);
-    WriteIniFloat(L"TransferStrength", config.transfer_strength);
-    WriteIniFloat(L"PostTransferStrength", config.post_transfer_strength);
-    WriteIniFloat(L"ColorStrength", config.color_strength);
-    WriteIniFloat(L"MaxLumaRatio", config.max_luma_ratio);
-    WriteIniInt(L"PreserveLighting", config.preserve_lighting ? 1 : 0);
-    WriteIniFloat(L"ProxyScale", config.proxy_scale);
-    WriteIniInt(L"WarmupAfterCreate", static_cast<int>(config.warmup_after_create));
-    WriteIniInt(L"RetryOriginalOnSRFailure", config.retry_original_on_sr_failure ? 1 : 0);
-    WriteIniInt(L"DepthMode", config.depth_mode);
-    WriteIniFloat(L"Intensity", config.intensity);
-    WriteIniFloat(L"LocalToneStrength", config.local_tone);
-    WriteIniFloat(L"LocalStructureStrength", config.local_structure);
-    WriteIniFloat(L"SkinStructureStrength", config.skin_structure);
-    WriteIniInt(L"AutoMask", config.auto_mask ? 1 : 0);
-    WriteIniInt(L"Style", static_cast<int>(config.style));
-    WriteIniInt(L"UICorrection", config.ui_correction ? 1 : 0);
-    WriteIniInt(L"PerfEpoch", config.perf_epoch);
-    WriteIniInt(L"R8OutputEncoding", config.r8_output_encoding);
+bool SaveConfig(const ChainConfig &config) {
+    SetLastError(ERROR_SUCCESS);
+    bool ok = true;
+    ok = WriteIniInt(L"ConfigVersion", 3) && ok;
+    ok = WriteIniInt(L"Enabled", config.enabled ? 1 : 0) && ok;
+    ok = WriteIniInt(L"Mode", config.mode) && ok;
+    ok = WriteIniInt(L"IdentityUseOriginalColor", config.identity_use_original ? 1 : 0) && ok;
+    ok = WriteIniFloat(L"TransferStrength", config.transfer_strength) && ok;
+    ok = WriteIniFloat(L"PostTransferStrength", config.post_transfer_strength) && ok;
+    ok = WriteIniFloat(L"ColorStrength", config.color_strength) && ok;
+    ok = WriteIniFloat(L"MaxLumaRatio", config.max_luma_ratio) && ok;
+    ok = WriteIniInt(L"PreserveLighting", config.preserve_lighting ? 1 : 0) && ok;
+    ok = WriteIniFloat(L"ProxyScale", config.proxy_scale) && ok;
+    ok = WriteIniInt(L"WarmupAfterCreate", static_cast<int>(config.warmup_after_create)) && ok;
+    ok = WriteIniInt(L"RetryOriginalOnSRFailure", config.retry_original_on_sr_failure ? 1 : 0) && ok;
+    ok = WriteIniInt(L"DepthMode", config.depth_mode) && ok;
+    ok = WriteIniFloat(L"Intensity", config.intensity) && ok;
+    ok = WriteIniFloat(L"LocalToneStrength", config.local_tone) && ok;
+    ok = WriteIniFloat(L"LocalStructureStrength", config.local_structure) && ok;
+    ok = WriteIniFloat(L"SkinStructureStrength", config.skin_structure) && ok;
+    ok = WriteIniInt(L"AutoMask", config.auto_mask ? 1 : 0) && ok;
+    ok = WriteIniInt(L"Style", static_cast<int>(config.style)) && ok;
+    ok = WriteIniInt(L"UICorrection", config.ui_correction ? 1 : 0) && ok;
+    ok = WriteIniInt(L"PerfEpoch", config.perf_epoch) && ok;
+    ok = WriteIniInt(L"R8OutputEncoding", config.r8_output_encoding) && ok;
     // Remove the obsolete option from configs created by older builds.
-    WritePrivateProfileStringW(L"NRBeforeSR", L"NRPreset", nullptr, g_ini_path);
-    WritePrivateProfileStringW(nullptr, nullptr, nullptr, g_ini_path);
+    ok = (WritePrivateProfileStringW(
+        L"NRBeforeSR", L"NRPreset", nullptr, g_ini_path) != FALSE) && ok;
+    ok = (WritePrivateProfileStringW(
+        nullptr, nullptr, nullptr, g_ini_path) != FALSE) && ok;
+    unsigned long error = ok ? ERROR_SUCCESS : GetLastError();
+    if (!ok && error == ERROR_SUCCESS) error = ERROR_WRITE_FAULT;
+    g_config_persistence_error.store(error, std::memory_order_relaxed);
+    g_config_persistence_failed.store(!ok, std::memory_order_release);
+    return ok;
 }
 
 ChainConfig SnapshotConfig() {
@@ -843,12 +1174,20 @@ bool ApplyConfig(ChainConfig next, const char *source) {
     SetBypassReason(g_config.enabled
         ? BypassReason::WaitingForFeature1
         : BypassReason::MasterDisabled);
-    SaveConfig(g_config);
+    const bool persisted = SaveConfig(g_config);
     const ChainConfig applied = g_config;
     LeaveCriticalSection(&g_chain_cs);
-    Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f epoch=%d",
+    Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
+        "epoch=%d feature18Evals=%llu",
         source, applied.enabled ? 1 : 0, applied.mode == 2 ? 1 : 0,
-        static_cast<double>(ActiveTransferStrength(applied)), applied.perf_epoch);
+        static_cast<double>(ActiveTransferStrength(applied)), applied.perf_epoch,
+        g_nr_successful_evaluations.load(std::memory_order_relaxed));
+    if (!persisted) {
+        Log("Config could not be written to %ls (error=%lu). Live settings "
+            "remain active for this process and stale disk defaults will not "
+            "be reloaded.", g_ini_path,
+            g_config_persistence_error.load(std::memory_order_relaxed));
+    }
     return true;
 }
 
@@ -1097,6 +1436,15 @@ struct Codec {
 
 Codec g_codec = {};
 
+constexpr UINT kCodecSrvCount = 5;
+constexpr UINT kCodecUavCount = 4;
+constexpr UINT kCodecDescriptorCount = kCodecSrvCount + kCodecUavCount;
+constexpr UINT kCodecExposureSrvIndex = 4;
+constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
+constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
+constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
+constexpr UINT kCodecRootConstantCount = 17;
+
 const char kCodecShader[] = R"HLSL(
 // The HDR proxy keeps a linear mid-range and applies a luminance-preserving
 // shoulder only to highlights. Composition is a conservative source-domain
@@ -1108,6 +1456,7 @@ Texture2D<float4> OriginalColor : register(t0);
 Texture2D<float4> ProxyColor    : register(t1);
 Texture2D<float4> NeuralColor   : register(t2);
 Texture2D<float2> MotionSource  : register(t3);
+Texture2D<float4> ExposureScaleTexture : register(t4);
 RWTexture2D<float4> ProxyOut    : register(u0);
 RWTexture2D<float4> ResultOut   : register(u1);
 RWTexture2D<float2> MotionOut   : register(u2);
@@ -1130,9 +1479,30 @@ cbuffer Constants : register(b0) {
     uint MotionSourceHeight;
     uint MotionSourceBaseX;
     uint MotionSourceBaseY;
+    float PreExposure;
 };
 
 static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
+
+float ResolveExposureScale() {
+    if ((Passthrough & 64u) != 0u) {
+        float exposure = ExposureScaleTexture.Load(int3(0, 0, 0)).r;
+        if (!(exposure > 0.000001) || exposure != exposure ||
+            abs(exposure) > 65504.0)
+            return 1.0;
+        return clamp(exposure, 0.0009765625, 1024.0);
+    }
+    return clamp(SourceToCanonical * max(PreExposure, 0.0009765625),
+                 0.0009765625, 1024.0);
+}
+
+float ResolveSourceToCanonical() {
+    if ((Passthrough & 64u) != 0u)
+        return clamp(ResolveExposureScale() /
+                     max(PreExposure, 0.0009765625),
+                     0.0009765625, 1024.0);
+    return max(SourceToCanonical, 0.0009765625);
+}
 
 float3 LinearToSRGB(float3 x) {
     x = saturate(x);
@@ -1159,7 +1529,7 @@ float3 ClampAP1(float3 color) {
 }
 
 float3 HdrSourceToModelLinear(float3 source) {
-    float colorScale = max(SourceToCanonical, 0.0009765625);
+    float colorScale = ResolveSourceToCanonical();
     float3 display = max(source, 0.0.xxx) *
         (max(ProxyScale, 0.001) * colorScale);
     float displayLuma = dot(display, kLuma);
@@ -1206,15 +1576,19 @@ void RecordDiagnosticStage(uint stage, float3 color, uint2 coord) {
     DeltaStats.InterlockedAdd(baseOffset + 4u, q.y, ignored);
     DeltaStats.InterlockedAdd(baseOffset + 8u, q.z, ignored);
     DeltaStats.InterlockedAdd(baseOffset + 12u, q.w, ignored);
+    // Keep the same hash basis for every stage so Original and Composited are
+    // directly comparable. The stage already selects an independent output
+    // slot and must not salt otherwise identical pixel values.
     uint hash = DiagnosticHash(coord.x ^ (coord.y * 0x9e3779b9u) ^
-        (stage * 0x85ebca6bu) ^ q.x ^ (q.y << 5) ^
+        q.x ^ (q.y << 5) ^
         (q.z << 11) ^ (q.w << 17));
     DeltaStats.InterlockedXor(baseOffset + 16u, hash, ignored);
 }
 
 void RecordDiagnostics(uint2 coord, float3 original, float3 proxy,
                        float3 neural, float3 finalResult,
-                       float sampledDelta, bool invalid) {
+                       float sampledDelta, float finalRelativeDelta,
+                       bool invalid) {
     if ((Passthrough & 8u) == 0u ||
         (coord.x & 31u) != 0u || (coord.y & 31u) != 0u) return;
     uint ignored = 0;
@@ -1226,6 +1600,20 @@ void RecordDiagnostics(uint2 coord, float3 original, float3 proxy,
         DeltaStats.InterlockedAdd(8u, 1u, ignored);
     if (invalid)
         DeltaStats.InterlockedAdd(12u, 1u, ignored);
+    DeltaStats.InterlockedExchange(96u, asuint(ResolveExposureScale()), ignored);
+    // The bounded diagnostic display transform deliberately compresses HDR
+    // highlights. Measuring final-original only after that transform can round
+    // a real source-domain change to zero (notably when PreExposure drives the
+    // proxy scale to 1024). The caller therefore supplies a scale-invariant
+    // source-storage relative delta for the execution/no-op verdict.
+    uint quantizedFinal = (uint)min(max(finalRelativeDelta, 0.0) * 1048576.0,
+                                    4294967040.0);
+    DeltaStats.InterlockedMax(100u, quantizedFinal, ignored);
+    if (finalRelativeDelta >= (1.0 / 4096.0))
+        DeltaStats.InterlockedAdd(104u, 1u, ignored);
+    uint quantizedFinalMean = (uint)round(
+        saturate(finalRelativeDelta) * 65535.0);
+    DeltaStats.InterlockedAdd(108u, quantizedFinalMean, ignored);
     RecordDiagnosticStage(0u, original, coord);
     RecordDiagnosticStage(1u, proxy, coord);
     RecordDiagnosticStage(2u, neural, coord);
@@ -1274,7 +1662,7 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         // A malformed temporal sample must not poison the game's HDR target.
         ResultOut[destinationCoord] = storedOriginal;
         RecordDiagnostics(tid.xy, 0.0.xxx, 0.0.xxx, 0.0.xxx,
-                          0.0.xxx, 0.0, true);
+                          0.0.xxx, 0.0, 0.0, true);
         return;
     }
 
@@ -1289,7 +1677,7 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         ResultOut[destinationCoord] = storedOriginal;
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
                           diagnosticNeural, diagnosticOriginal,
-                          diagnosticDelta, false);
+                          diagnosticDelta, 0.0, false);
         return;
     }
 
@@ -1315,7 +1703,7 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         ResultOut[destinationCoord] = storedOriginal;
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
                           diagnosticNeural, diagnosticOriginal,
-                          diagnosticDelta, false);
+                          diagnosticDelta, 0.0, false);
         return;
     }
 
@@ -1355,29 +1743,51 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
 
     float normalizer = (modelEncodedInput || linearSdrStorage || srgbSdrStorage)
         ? 1.0
-        : max(ProxyScale * SourceToCanonical, 0.000001);
+        : max(ProxyScale * ResolveSourceToCanonical(), 0.000001);
     float3 source = original * normalizer;
     float sourceLuma = dot(source, kLuma);
     float proxyLuma = dot(proxy, kLuma);
     float neuralLuma = dot(neural, kLuma);
+    // The proxy may be compressed by the highlight shoulder and proportional
+    // peak normalization, so an absolute proxy delta is not in source-HDR
+    // units. Transfer the neural residual as a *relative* change around the
+    // proxy luminance. This removes the old fixed exposure-scale attenuation
+    // (including when SourceToCanonical is clamped to 1024), does not require a
+    // singular inverse shoulder, and keeps the transfer approximately stable
+    // across ordinary exposure changes.
+    float proxyReference = max(proxyLuma, 1.0 / 1024.0);
+    float relativeLumaDelta = (neuralLuma - proxyLuma) / proxyReference;
     float maxRatio = max(MaxLumaRatio, 1.0);
-    float targetLuma = max(
-        sourceLuma + (neuralLuma - proxyLuma) * TransferStrength, 0.0);
-    float lumaRatio = sourceLuma > 0.000001
-        ? clamp(targetLuma / sourceLuma, 1.0 / maxRatio, maxRatio)
-        : 1.0;
+    // Fade the transfer in across near-black values. A hard sourceLuma branch
+    // creates a visible exposure-dependent kink when a pixel crosses it.
+    float transferConfidence = smoothstep(
+        1.0 / 65536.0, 1.0 / 1024.0, max(sourceLuma, 0.0));
+    float transferredLumaRatio = clamp(
+        1.0 + relativeLumaDelta * TransferStrength,
+        1.0 / maxRatio, maxRatio);
+    float lumaRatio = lerp(1.0, transferredLumaRatio, transferConfidence);
     float3 lumaOnly = source * lumaRatio;
 
     // Full colour following is optional. Even at one, transfer only the NR
     // delta; never replace the game's base illumination with the model proxy.
-    float3 fullColour = ClampAP1(max(
-        source + modelDelta * TransferStrength, 0.0.xxx));
-    float3 result = lerp(lumaOnly, fullColour, saturate(ColorStrength));
+    float3 result = lumaOnly;
+    if (ColorStrength > 0.000001) {
+        float relativeLimit = max(maxRatio - 1.0, 1.0 / 1024.0);
+        float3 relativeModelDelta = clamp(modelDelta / proxyReference,
+                                          -relativeLimit.xxx,
+                                          relativeLimit.xxx);
+        float3 fullColour = ClampAP1(max(
+            source + relativeModelDelta * max(sourceLuma, 0.0) *
+                TransferStrength * transferConfidence,
+            0.0.xxx));
+        result = lerp(lumaOnly, fullColour, saturate(ColorStrength));
+    }
     float resultLuma = dot(result, kLuma);
-    if (sourceLuma > 0.000001 && resultLuma > 0.000001) {
+    if (sourceLuma > 0.0 && resultLuma > 0.0) {
         float boundedLuma = clamp(
             resultLuma, sourceLuma / maxRatio, sourceLuma * maxRatio);
-        result *= boundedLuma / resultLuma;
+        result = lerp(result, result * (boundedLuma / resultLuma),
+                      transferConfidence);
     }
     result = clamp(result / normalizer, -65504.0.xxx, 65504.0.xxx);
     if (srgbSdrStorage)
@@ -1385,9 +1795,16 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     else if (linearSdrStorage)
         result = saturate(result);
     ResultOut[destinationCoord] = float4(result, storedOriginal.a);
+    float originalMagnitude = max(
+        max(abs(storedOriginal.r), max(abs(storedOriginal.g),
+                                       abs(storedOriginal.b))),
+        1.0 / 1024.0);
+    float finalRelativeDelta = max(abs(result.r - storedOriginal.r),
+        max(abs(result.g - storedOriginal.g),
+            abs(result.b - storedOriginal.b))) / originalMagnitude;
     RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
                       diagnosticNeural, SourceToDiagnosticLinear(result),
-                      diagnosticDelta, false);
+                      diagnosticDelta, finalRelativeDelta, false);
 }
 
 [numthreads(8, 8, 1)]
@@ -1442,15 +1859,15 @@ bool EnsureCodec(ID3D12Device *device) {
 
     D3D12_DESCRIPTOR_RANGE ranges[2] = {};
     ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    ranges[0].NumDescriptors = 4;
+    ranges[0].NumDescriptors = kCodecSrvCount;
     ranges[0].BaseShaderRegister = 0;
     ranges[0].RegisterSpace = 0;
     ranges[0].OffsetInDescriptorsFromTableStart = 0;
     ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[1].NumDescriptors = 4;
+    ranges[1].NumDescriptors = kCodecUavCount;
     ranges[1].BaseShaderRegister = 0;
     ranges[1].RegisterSpace = 0;
-    ranges[1].OffsetInDescriptorsFromTableStart = 4;
+    ranges[1].OffsetInDescriptorsFromTableStart = kCodecSrvCount;
 
     D3D12_ROOT_PARAMETER parameters[2] = {};
     parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -1460,7 +1877,7 @@ bool EnsureCodec(ID3D12Device *device) {
     parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     parameters[1].Constants.ShaderRegister = 0;
     parameters[1].Constants.RegisterSpace = 0;
-    parameters[1].Constants.Num32BitValues = 16;
+    parameters[1].Constants.Num32BitValues = kCodecRootConstantCount;
     parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     D3D12_ROOT_SIGNATURE_DESC root_desc = {};
@@ -1576,9 +1993,13 @@ struct NrSlot {
     ID3D12Resource *result = nullptr;
     ID3D12Resource *motion_source = nullptr;
     ID3D12Resource *motion_proxy = nullptr;
+    ID3D12Resource *exposure_source = nullptr;
     ID3D12Resource *delta_stats = nullptr;
     ID3D12Resource *delta_stats_readback = nullptr;
     ID3D12DescriptorHeap *heap = nullptr;
+    // ClearUnorderedAccessViewUint requires its CPU descriptor to come from a
+    // non-shader-visible heap, while the GPU descriptor remains in heap.
+    ID3D12DescriptorHeap *stats_clear_heap = nullptr;
     ID3D12DescriptorHeap *snapshot_heap = nullptr;
     DXGI_FORMAT source_format = DXGI_FORMAT_UNKNOWN;
     DXGI_FORMAT result_format = DXGI_FORMAT_UNKNOWN;
@@ -1605,6 +2026,9 @@ struct NrSlot {
     unsigned long long diagnostic_feature_generation = 0;
     unsigned int diagnostic_width = 0;
     unsigned int diagnostic_height = 0;
+    unsigned long long diagnostic_serial = 0;
+    float diagnostic_pre_exposure = 1.0f;
+    bool diagnostic_has_exposure_texture = false;
 };
 
 struct NrContext {
@@ -1624,6 +2048,9 @@ struct NrContext {
     bool last_has_pre_exposure = false;
     bool last_has_exposure_scale = false;
     bool last_has_exposure_texture = false;
+    DXGI_FORMAT last_exposure_texture_format = DXGI_FORMAT_UNKNOWN;
+    unsigned int last_exposure_texture_width = 0;
+    unsigned int last_exposure_texture_height = 0;
     unsigned int color_contract_resets = 0;
     bool create_contract_logged = false;
     bool guide_contract_logged = false;
@@ -1637,11 +2064,21 @@ struct NrContext {
     bool create_variant_selected = false;
     bool retired = false;
     bool create_dependencies_quarantined = false;
+    bool lifecycle_dependencies_quarantined = false;
+    float last_sampled_exposure_scale = 1.0f;
+    unsigned long long last_sampled_exposure_serial = 0;
+    bool sampled_exposure_initialized = false;
+    bool exposure_texture_reset_pending = false;
     // Feature 18 Create/Evaluate is temporal state, not merely a collection of
-    // textures. Keep one recording owner and one proof fence for the complete
-    // context so initialization and later evaluations cannot overtake each
-    // other on different command lists or queues.
-    unsigned long long recording_token = 0;
+    // textures. Multiple game command lists may record consecutive evaluations
+    // before any one list is reset. Count every owning list and use the proven
+    // queue/fence below to permit only ordered same-queue overlap.
+    unsigned int recording_command_lists = 0;
+    // At most one command list may contain a newly recorded, not-yet-captured
+    // evaluation for this temporal Feature 18 handle.  This is separate from
+    // recording_command_lists: submitted lists retain lifetime references until
+    // Reset, while this token is cleared at the Execute transaction commit.
+    unsigned long long pending_recording_token = 0;
     LifecycleQueue *last_submission_queue = nullptr;
     unsigned long long completion_fence_value = 0;
     bool awaiting_fence_signal = false;
@@ -1668,19 +2105,38 @@ constexpr std::size_t kLifecycleCommandListCount = 128;
 constexpr std::size_t kLifecycleUsesPerCommandList = 16;
 constexpr std::size_t kLifecycleQueueCount = 8;
 
+struct CommandListQueueMarker {
+    unsigned long long identity = 0;
+    unsigned int stable_submissions = 0;
+    unsigned int flags = 0;
+};
+constexpr unsigned int kQueueMarkerMigrated = 1u;
+constexpr unsigned int kRequiredStableQueueSubmissions = 2u;
+
 struct LifecycleCommandList {
     unsigned long long token = 0;
+    // Immutable prediction captured before plugin work is recorded. The
+    // actual Execute queue is checked against this identity later.
+    unsigned long long expected_queue_identity = 0;
     NrSlot *slots[kLifecycleUsesPerCommandList] = {};
     unsigned int slot_count = 0;
     NrContext *contexts[kLifecycleUsesPerCommandList] = {};
     unsigned int context_count = 0;
     unsigned int in_flight_submissions = 0;
+    unsigned long long submission_count = 0;
+    unsigned int bound_transfer_count = 0;
+    unsigned int scoped_bound_transfer_count = 0;
+    unsigned long long transfer_scope_epoch = 0;
+    unsigned long long transfer_feature_generation = 0;
+    int transfer_mode = 0;
+    bool execution_attempted_without_proof = false;
     bool detached = false;
 };
 
 struct LifecycleQueue {
     ID3D12CommandQueue *queue = nullptr;
     ID3D12Fence *fence = nullptr;
+    unsigned long long identity = 0;
     unsigned long long next_fence_value = 1;
     // Every hooked ExecuteCommandLists call on this concrete queue is kept
     // adjacent to the retirement Signal that proves completion of that exact
@@ -1701,12 +2157,26 @@ struct SubmissionBatch {
     NrContext *contexts[kLifecycleBatchSlots] = {};
     unsigned int context_count = 0;
     unsigned long long fence_value = 0;
+    unsigned int bound_transfer_count = 0;
+    unsigned int scoped_bound_transfer_count = 0;
+    unsigned long long pipeline_scope_epoch = 0;
+    unsigned long long pipeline_scope_generation = 0;
+    int pipeline_scope_mode = 0;
     bool active = false;
+    bool quarantine = false;
+};
+
+struct GraphicsQueueRecord {
+    ID3D12CommandQueue *queue = nullptr;
+    unsigned long long identity = 0;
+    bool live = false;
 };
 
 LifecycleCommandList g_lifecycle_command_lists[kLifecycleCommandListCount] = {};
 LifecycleQueue g_lifecycle_queues[kLifecycleQueueCount] = {};
+GraphicsQueueRecord g_graphics_queues[16] = {};
 std::atomic<unsigned long long> g_lifecycle_token{1};
+std::atomic<unsigned long long> g_graphics_queue_identity{1};
 std::atomic<bool> g_lifecycle_tracking_uncertain{false};
 // Avoid installing or traversing the native queue hook in a pure-SR session.
 // This count is raised only after an NR slot is attached to a command list and
@@ -1725,6 +2195,7 @@ void MarkLifecycleUncertain(const char *reason) {
 void DestroySlot(NrSlot &slot) {
     ReleaseCom(slot.delta_stats_readback);
     ReleaseCom(slot.delta_stats);
+    ReleaseCom(slot.stats_clear_heap);
     ReleaseCom(slot.snapshot_heap);
     ReleaseCom(slot.heap);
     ReleaseCom(slot.result);
@@ -1732,12 +2203,14 @@ void DestroySlot(NrSlot &slot) {
     ReleaseCom(slot.proxy);
     ReleaseCom(slot.motion_source);
     ReleaseCom(slot.motion_proxy);
+    ReleaseCom(slot.exposure_source);
     ReleaseCom(slot.source);
     slot = {};
 }
 
 void DestroyContext(NrContext &context) {
-    if (context.create_dependencies_quarantined) {
+    if (context.create_dependencies_quarantined ||
+        context.lifecycle_dependencies_quarantined) {
         // A failed Create returned a non-null handle after recording unknown
         // initialization work. Its complete dependency closure intentionally
         // survives to process exit; releasing only part of it is not safe.
@@ -1793,10 +2266,13 @@ bool CanMutateSlotLocked(const NrSlot &slot) {
 }
 
 bool CanDestroyContextLocked(const NrContext &context) {
-    if (context.create_dependencies_quarantined) return false;
+    if (context.create_dependencies_quarantined ||
+        context.lifecycle_dependencies_quarantined) return false;
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))
         return false;
-    if (context.recording_token != 0 || context.awaiting_fence_signal ||
+    if (context.recording_command_lists != 0 ||
+        context.pending_recording_token != 0 ||
+        context.awaiting_fence_signal ||
         !IsContextFenceCompleteLocked(context)) return false;
     for (const auto &slot : context.slots) {
         if (slot.key != nullptr && !CanMutateSlotLocked(slot)) return false;
@@ -1804,7 +2280,7 @@ bool CanDestroyContextLocked(const NrContext &context) {
     return true;
 }
 
-void CollectSlotDeltaStatsLocked(NrSlot &slot) {
+void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
     if (!slot.delta_stats_pending || slot.delta_stats_readback == nullptr ||
         !CanMutateSlotLocked(slot)) return;
     const D3D12_RANGE read_range = {0, kDiagnosticStatsBytes};
@@ -1812,24 +2288,92 @@ void CollectSlotDeltaStatsLocked(NrSlot &slot) {
     const HRESULT mapped_result = ID3D12Resource_Map(
         slot.delta_stats_readback, 0, &read_range, &mapped);
     if (FAILED(mapped_result) || mapped == nullptr) return;
-    const auto *values = static_cast<const std::uint32_t *>(mapped);
+    std::uint32_t values[kDiagnosticStatsUintCount] = {};
+    std::memcpy(values, mapped, sizeof(values));
     const std::uint32_t max_quantized = values[0];
     const std::uint32_t sample_count = values[1];
     const std::uint32_t changed_count = values[2];
     const std::uint32_t invalid_count = values[3];
+    const std::uint32_t final_max_quantized = values[25];
+    const std::uint32_t final_changed_count = values[26];
+    const std::uint32_t final_relative_sum = values[27];
+    float sampled_exposure = 1.0f;
+    std::memcpy(&sampled_exposure, &values[24], sizeof(sampled_exposure));
+    sampled_exposure = SanitizeExposure(sampled_exposure);
     const D3D12_RANGE written_range = {0, 0};
     ID3D12Resource_Unmap(slot.delta_stats_readback, 0, &written_range);
     slot.delta_stats_pending = false;
 
     if (sample_count == 0) return;
     const float max_delta = static_cast<float>(max_quantized) / 1048576.0f;
-    g_last_sampled_nr_delta.store(max_delta, std::memory_order_relaxed);
+    const float max_final_delta =
+        static_cast<float>(final_max_quantized) / 1048576.0f;
+    const float mean_final_delta = static_cast<float>(final_relative_sum) /
+        (static_cast<float>(sample_count) * 65535.0f);
+    const bool exposure_sample_is_newer =
+        slot.diagnostic_serial > context.last_sampled_exposure_serial;
+    if (exposure_sample_is_newer && slot.diagnostic_has_exposure_texture) {
+        // Engines commonly rotate several otherwise identical 1x1 exposure
+        // resources. Texture identity is therefore not a color-contract or
+        // history boundary. Compare the sampled values in temporal order for
+        // this Feature 18 context, regardless of which ring-buffer resource
+        // supplied the current frame.
+        const bool has_previous_sample = context.sampled_exposure_initialized;
+        const float previous_sampled_exposure =
+            context.last_sampled_exposure_scale;
+        const float exposure_ratio = sampled_exposure /
+            SanitizeExposure(previous_sampled_exposure);
+        const float exposure_ev_delta = has_previous_sample
+            ? std::fabs(std::log2(std::max(
+                  exposure_ratio, 1.0f / 1024.0f)))
+            : 0.0f;
+        if (has_previous_sample && exposure_ev_delta > 0.5f) {
+            context.exposure_texture_reset_pending = true;
+            const unsigned int reset_count =
+                g_exposure_texture_delayed_resets.fetch_add(
+                    1, std::memory_order_relaxed) + 1;
+            if (reset_count <= 3 || (reset_count % 120) == 0) {
+                Log("Delayed ExposureTexture transition observed: previous=%.6f "
+                    "current=%.6f evDelta=%.3f; next matching Feature 18 "
+                    "evaluation will reset history (count=%u).",
+                    static_cast<double>(previous_sampled_exposure),
+                    static_cast<double>(sampled_exposure),
+                    static_cast<double>(exposure_ev_delta), reset_count);
+            }
+        }
+        context.last_sampled_exposure_scale = sampled_exposure;
+        context.last_sampled_exposure_serial = slot.diagnostic_serial;
+        context.sampled_exposure_initialized = true;
+    } else if (exposure_sample_is_newer) {
+        context.last_sampled_exposure_serial = slot.diagnostic_serial;
+        context.sampled_exposure_initialized = false;
+    }
+    const float sampled_source_to_canonical = std::clamp(
+        sampled_exposure / SanitizeExposure(slot.diagnostic_pre_exposure),
+        1.0f / 1024.0f, 1024.0f);
+    g_last_source_to_canonical.store(sampled_source_to_canonical,
+                                     std::memory_order_relaxed);
     const unsigned long long sampled_frame =
         g_nr_delta_sampled_frames.fetch_add(1, std::memory_order_relaxed) + 1;
     if (changed_count == 0 || max_delta < 1.0f / 4096.0f)
         g_nr_delta_near_zero_frames.fetch_add(1, std::memory_order_relaxed);
     else
         g_nr_delta_visible_frames.fetch_add(1, std::memory_order_relaxed);
+    // Publish one coherent diagnostic sample. GPU readbacks can be retired by
+    // more than one submission thread, so use a real writer lock instead of a
+    // single-writer seqlock assumption.
+    AcquireSRWLockExclusive(&g_diagnostic_snapshot_lock);
+    g_last_sampled_nr_delta.store(max_delta, std::memory_order_relaxed);
+    g_last_sampled_final_delta.store(max_final_delta,
+                                      std::memory_order_relaxed);
+    g_last_sampled_final_mean_delta.store(mean_final_delta,
+                                           std::memory_order_relaxed);
+    g_last_sampled_final_changed.store(final_changed_count,
+                                        std::memory_order_relaxed);
+    g_last_sampled_exposure_scale.store(sampled_exposure,
+                                        std::memory_order_relaxed);
+    g_last_diagnostic_serial.store(sampled_frame,
+                                   std::memory_order_relaxed);
     g_last_diagnostic_sample_count.store(sample_count,
                                          std::memory_order_relaxed);
     g_last_diagnostic_invalid_count.store(invalid_count,
@@ -1853,29 +2397,34 @@ void CollectSlotDeltaStatsLocked(NrSlot &slot) {
         g_last_diagnostic_hash[stage].store(values[base + 4],
                                             std::memory_order_relaxed);
     }
-    if (sampled_frame <= 3 || (sampled_frame % 120) == 0) {
+    ReleaseSRWLockExclusive(&g_diagnostic_snapshot_lock);
+    if (sampled_frame <= 3 || (sampled_frame % 600) == 0) {
         static const char *const stage_names[kDiagnosticStageCount] = {
             "original", "proxy", "nr-output", "composited"};
         Log("ColorDiag #%llu mode=%d featureGeneration=%llu extent=%ux%u "
-            "samples=%u invalid=%u maxNrDelta=%.6f changed=%u.",
+            "samples=%u invalid=%u maxNrDelta=%.6f changed=%u "
+            "maxFinalRelativeDelta=%.6f meanFinalRelativeDelta=%.6f "
+            "finalChanged=%u "
+            "sampledExposure=%.6f sampledSourceToCanonical=%.6f.",
             sampled_frame, slot.diagnostic_mode,
             slot.diagnostic_feature_generation,
             slot.diagnostic_width, slot.diagnostic_height,
             sample_count, invalid_count, static_cast<double>(max_delta),
-            changed_count);
+            changed_count, static_cast<double>(max_final_delta),
+            static_cast<double>(mean_final_delta), final_changed_count,
+            static_cast<double>(sampled_exposure),
+            static_cast<double>(sampled_source_to_canonical));
         for (unsigned int stage = 0; stage < kDiagnosticStageCount; ++stage) {
+            const unsigned int base = 4 + stage * 5;
+            const float denominator =
+                static_cast<float>(sample_count) * 65535.0f;
             Log("    %-10s meanRGB=(%.6f,%.6f,%.6f) luma=%.6f hash=%08X",
                 stage_names[stage],
-                static_cast<double>(
-                    g_last_diagnostic_r[stage].load(std::memory_order_relaxed)),
-                static_cast<double>(
-                    g_last_diagnostic_g[stage].load(std::memory_order_relaxed)),
-                static_cast<double>(
-                    g_last_diagnostic_b[stage].load(std::memory_order_relaxed)),
-                static_cast<double>(g_last_diagnostic_luma[stage].load(
-                    std::memory_order_relaxed)),
-                g_last_diagnostic_hash[stage].load(
-                    std::memory_order_relaxed));
+                static_cast<double>(values[base + 0]) / denominator,
+                static_cast<double>(values[base + 1]) / denominator,
+                static_cast<double>(values[base + 2]) / denominator,
+                static_cast<double>(values[base + 3]) / denominator,
+                values[base + 4]);
         }
     }
 }
@@ -1884,7 +2433,7 @@ void CollectCompletedDeltaStatsLocked() {
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) return;
     for (auto &context : g_contexts) {
         for (auto &slot : context.slots)
-            CollectSlotDeltaStatsLocked(slot);
+            CollectSlotDeltaStatsLocked(context, slot);
     }
 }
 
@@ -1958,6 +2507,30 @@ LifecycleCommandList *FindLifecycleCommandListLocked(
     return nullptr;
 }
 
+bool QuarantineUnsubmittedLifecycleRecordLocked(
+    unsigned long long token, const char *reason) {
+    LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
+    if (record == nullptr || record->detached ||
+        (record->slot_count == 0 && record->context_count == 0) ||
+        record->submission_count != 0 ||
+        record->execution_attempted_without_proof) {
+        return false;
+    }
+
+    for (unsigned int i = 0; i < record->context_count; ++i) {
+        if (record->contexts[i] != nullptr)
+            record->contexts[i]->lifecycle_dependencies_quarantined = true;
+    }
+    Log("Command list %s discarded recorded Feature 18 work before its first "
+        "native Execute (token=%llu contexts=%u slots=%u). The complete "
+        "dependency closure is quarantined until process exit.",
+        reason != nullptr ? reason : "reset/destroy", token,
+        record->context_count, record->slot_count);
+    MarkLifecycleUncertain(
+        "recorded Feature 18 work was reset/destroyed before submission");
+    return true;
+}
+
 bool ReadLifecycleToken(ID3D12GraphicsCommandList *command_list,
                         unsigned long long &token) {
     if (command_list == nullptr) return false;
@@ -1968,23 +2541,123 @@ bool ReadLifecycleToken(ID3D12GraphicsCommandList *command_list,
         size == sizeof(token) && token != 0;
 }
 
-ID3D12CommandQueue *ReadLastSubmissionQueue(
-    ID3D12GraphicsCommandList *command_list) {
-    if (command_list == nullptr) return nullptr;
-    std::uintptr_t value = 0;
-    UINT size = sizeof(value);
-    if (FAILED(ID3D12GraphicsCommandList_GetPrivateData(
-            command_list, kLastSubmissionQueueGuid, &size, &value)) ||
-        size != sizeof(value)) return nullptr;
-    return reinterpret_cast<ID3D12CommandQueue *>(value);
+bool ReadLastSubmissionQueueMarker(
+    ID3D12GraphicsCommandList *command_list,
+    CommandListQueueMarker &marker) {
+    marker = {};
+    if (command_list == nullptr) return false;
+    UINT size = sizeof(marker);
+    return SUCCEEDED(ID3D12GraphicsCommandList_GetPrivateData(
+        command_list, kLastSubmissionQueueGuid, &size, &marker)) &&
+        size == sizeof(marker) && marker.identity != 0;
 }
 
-void RememberLastSubmissionQueue(ID3D12GraphicsCommandList *command_list,
-                                 ID3D12CommandQueue *queue) {
-    if (command_list == nullptr || queue == nullptr) return;
-    const std::uintptr_t value = reinterpret_cast<std::uintptr_t>(queue);
+bool RememberLastSubmissionQueue(ID3D12GraphicsCommandList *command_list,
+                                 unsigned long long queue_identity) {
+    if (command_list == nullptr || queue_identity == 0) return false;
+    CommandListQueueMarker marker = {};
+    const bool had_marker =
+        ReadLastSubmissionQueueMarker(command_list, marker);
+    if (!had_marker) {
+        marker.identity = queue_identity;
+        marker.stable_submissions = 1;
+    } else if (marker.identity == queue_identity) {
+        if (marker.stable_submissions != UINT_MAX)
+            ++marker.stable_submissions;
+    } else {
+        marker.identity = queue_identity;
+        marker.stable_submissions = 1;
+        marker.flags |= kQueueMarkerMigrated;
+    }
+    const HRESULT result = ID3D12GraphicsCommandList_SetPrivateData(
+        command_list, kLastSubmissionQueueGuid, sizeof(marker), &marker);
+    if (SUCCEEDED(result)) return true;
+    // Never leave a stale affinity marker behind after a failed update.
     ID3D12GraphicsCommandList_SetPrivateData(
-        command_list, kLastSubmissionQueueGuid, sizeof(value), &value);
+        command_list, kLastSubmissionQueueGuid, 0, nullptr);
+    const unsigned long long failures =
+        g_queue_affinity_marker_failures.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+    if (failures <= 3 || (failures % 600) == 0) {
+        Log("Could not remember native command-list queue affinity "
+            "(HRESULT=0x%08X count=%llu). Future unresolved frames on this "
+            "list will remain native until their proof fence completes.",
+            static_cast<unsigned int>(result), failures);
+    }
+    // Without a durable marker, a list that once migrated could later appear
+    // newly stable. Do not relearn around that loss of monotonic evidence.
+    MarkLifecycleUncertain(
+        "native command-list queue-affinity marker could not be persisted");
+    return false;
+}
+
+GraphicsQueueRecord *FindGraphicsQueueRecordLocked(
+    ID3D12CommandQueue *queue) {
+    for (auto &record : g_graphics_queues) {
+        if (record.queue == queue && record.live) return &record;
+    }
+    return nullptr;
+}
+
+GraphicsQueueRecord *TrackGraphicsQueueLocked(ID3D12CommandQueue *queue) {
+    if (queue == nullptr) return nullptr;
+    if (GraphicsQueueRecord *record = FindGraphicsQueueRecordLocked(queue))
+        return record;
+
+    GraphicsQueueRecord *empty = nullptr;
+    for (auto &record : g_graphics_queues) {
+        if (!record.live && empty == nullptr) empty = &record;
+    }
+    if (empty == nullptr) {
+        MarkLifecycleUncertain("graphics command-queue identity table exhausted");
+        return nullptr;
+    }
+    unsigned long long identity =
+        g_graphics_queue_identity.fetch_add(1, std::memory_order_relaxed);
+    if (identity == 0)
+        identity = g_graphics_queue_identity.fetch_add(
+            1, std::memory_order_relaxed);
+    empty->queue = queue;
+    empty->identity = identity;
+    empty->live = true;
+    const unsigned int live = g_live_graphics_queue_count.fetch_add(
+        1, std::memory_order_release) + 1;
+    Log("Observed D3D12 graphics queue identity=%llu native=%p live=%u. "
+        "Feature 18 admission requires stable per-command-list affinity.",
+        identity, static_cast<void *>(queue), live);
+    return empty;
+}
+
+void RetireGraphicsQueueLocked(ID3D12CommandQueue *queue) {
+    GraphicsQueueRecord *record = FindGraphicsQueueRecordLocked(queue);
+    if (record == nullptr) return;
+    record->live = false;
+    const unsigned int previous =
+        g_live_graphics_queue_count.load(std::memory_order_relaxed);
+    if (previous == 0) {
+        MarkLifecycleUncertain("graphics command-queue count underflow");
+    } else {
+        g_live_graphics_queue_count.fetch_sub(1, std::memory_order_release);
+    }
+    Log("D3D12 graphics queue retired identity=%llu native=%p live=%u.",
+        record->identity, static_cast<void *>(queue),
+        previous != 0 ? previous - 1 : 0);
+}
+
+void QuarantineAbortedRrTransactionLocked(
+    ID3D12GraphicsCommandList *command_list) {
+    unsigned long long token = 0;
+    if (command_list != nullptr && ReadLifecycleToken(command_list, token) &&
+        token != 0 && QuarantineUnsubmittedLifecycleRecordLocked(
+            token, "after a recursive/concurrent RR ownership transition")) {
+        return;
+    }
+    // An active substitution is required to have registered its command-list
+    // dependency. If that proof is missing, do not attempt to infer whether the
+    // already-recorded work is safe to reuse.
+    MarkLifecycleUncertain(
+        "RR ownership changed during modified Feature 1 and its command-list "
+        "dependency could not be quarantined");
 }
 
 bool ClearLifecycleToken(ID3D12GraphicsCommandList *command_list) {
@@ -1994,7 +2667,8 @@ bool ClearLifecycleToken(ID3D12GraphicsCommandList *command_list) {
 }
 
 LifecycleCommandList *FindOrCreateLifecycleCommandListLocked(
-    ID3D12GraphicsCommandList *command_list) {
+    ID3D12GraphicsCommandList *command_list, bool &created) {
+    created = false;
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))
         return nullptr;
 
@@ -2027,14 +2701,59 @@ LifecycleCommandList *FindOrCreateLifecycleCommandListLocked(
             return nullptr;
         }
         record->token = token;
+        created = true;
         g_lifecycle_active_command_lists.fetch_add(1,
                                                    std::memory_order_release);
     }
     return record;
 }
 
+void RollBackEmptyLifecycleCommandListLocked(
+    ID3D12GraphicsCommandList *command_list, LifecycleCommandList *record,
+    bool newly_created) {
+    if (!newly_created || command_list == nullptr || record == nullptr ||
+        record->slot_count != 0 || record->context_count != 0 ||
+        record->submission_count != 0 || record->in_flight_submissions != 0)
+        return;
+    if (!ClearLifecycleToken(command_list)) {
+        MarkLifecycleUncertain(
+            "could not roll back an empty command-list lifetime marker");
+        return;
+    }
+    const unsigned int active =
+        g_lifecycle_active_command_lists.load(std::memory_order_relaxed);
+    if (active == 0) {
+        MarkLifecycleUncertain(
+            "empty command-list lifetime rollback count underflow");
+        return;
+    }
+    g_lifecycle_active_command_lists.fetch_sub(1,
+                                               std::memory_order_release);
+    *record = {};
+}
+
 bool CanBeginContextUseLocked(ID3D12GraphicsCommandList *command_list,
-                              const NrContext &context) {
+                              const NrContext &context,
+                              bool count_affinity_decision = true) {
+    CommandListQueueMarker queue_marker = {};
+    const bool has_stable_queue_marker =
+        ReadLastSubmissionQueueMarker(command_list, queue_marker) &&
+        queue_marker.stable_submissions >= kRequiredStableQueueSubmissions &&
+        (queue_marker.flags & kQueueMarkerMigrated) == 0;
+    if (!has_stable_queue_marker) {
+        SetBypassReason(BypassReason::QueueAffinityUnverified);
+        if (count_affinity_decision) {
+            g_queue_contract_bypass_frames.fetch_add(
+                1, std::memory_order_relaxed);
+            if ((queue_marker.flags & kQueueMarkerMigrated) != 0)
+                g_queue_affinity_prediction_bypass_frames.fetch_add(
+                    1, std::memory_order_relaxed);
+            else
+                g_queue_affinity_unknown_bypass_frames.fetch_add(
+                    1, std::memory_order_relaxed);
+        }
+        return false;
+    }
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         context.awaiting_fence_signal) {
         SetBypassReason(BypassReason::LifecycleIsolation);
@@ -2042,39 +2761,85 @@ bool CanBeginContextUseLocked(ID3D12GraphicsCommandList *command_list,
                                                   std::memory_order_relaxed);
         return false;
     }
-    if (!IsContextFenceCompleteLocked(context)) {
-        // Same-queue submissions are ordered by D3D12, so a previously used
-        // command list that is known to return to the context's queue can keep
-        // temporal NR continuous without a GPU Wait or a CPU fence stall.
-        // Unknown/new lists and queue changes bypass until the proof fence is
-        // complete. Capture validates the actual queue again before Execute.
-        ID3D12CommandQueue *expected_queue =
-            ReadLastSubmissionQueue(command_list);
-        if (expected_queue == nullptr ||
-            context.last_submission_queue == nullptr ||
-            expected_queue != context.last_submission_queue->queue) {
+    if (context.pending_recording_token != 0) {
+        unsigned long long command_list_token = 0;
+        if (!ReadLifecycleToken(command_list, command_list_token) ||
+            command_list_token != context.pending_recording_token) {
             SetBypassReason(BypassReason::LifecycleIsolation);
             g_lifecycle_safe_bypass_frames.fetch_add(
                 1, std::memory_order_relaxed);
             return false;
         }
     }
-    if (context.recording_token == 0) return true;
-    unsigned long long token = 0;
-    // Reusing the same token is legal only before that recording has ever been
-    // submitted. Once a proof fence exists the list must Reset successfully
-    // before the context can be recorded again.
-    return ReadLifecycleToken(command_list, token) &&
-           token == context.recording_token &&
-           context.completion_fence_value == 0;
+    if (!IsContextFenceCompleteLocked(context)) {
+        // ReShade exposes this list before its actual ExecuteCommandLists queue
+        // is known. A list that has previously been submitted on the same
+        // concrete queue may safely append another temporal evaluation because
+        // D3D12 preserves queue order. Capture validates the real queue again
+        // before Execute. New/unknown lists and predicted queue changes stay on
+        // native SR instead of stalling the CPU or injecting a private Wait.
+        if (context.last_submission_queue == nullptr) {
+            if (count_affinity_decision)
+                g_queue_affinity_unknown_bypass_frames.fetch_add(
+                    1, std::memory_order_relaxed);
+            SetBypassReason(BypassReason::LifecycleIsolation);
+            g_lifecycle_safe_bypass_frames.fetch_add(
+                1, std::memory_order_relaxed);
+            return false;
+        }
+        if (queue_marker.identity !=
+            context.last_submission_queue->identity) {
+            if (count_affinity_decision)
+                g_queue_affinity_prediction_bypass_frames.fetch_add(
+                    1, std::memory_order_relaxed);
+            SetBypassReason(BypassReason::LifecycleIsolation);
+            g_lifecycle_safe_bypass_frames.fetch_add(
+                1, std::memory_order_relaxed);
+            return false;
+        }
+        if (count_affinity_decision)
+            g_queue_affinity_admitted_frames.fetch_add(
+                1, std::memory_order_relaxed);
+    }
+    return true;
 }
 
 bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
                        NrContext &context, NrSlot &slot) {
-    if (!CanBeginContextUseLocked(command_list, context)) return false;
+    // PrepareBefore/AfterSr already counted the user-visible admission or
+    // bypass for this frame. Revalidate here under the same chain lock without
+    // double-counting the queue-affinity diagnostic.
+    if (!CanBeginContextUseLocked(command_list, context, false)) return false;
+    bool newly_created = false;
     LifecycleCommandList *record =
-        FindOrCreateLifecycleCommandListLocked(command_list);
+        FindOrCreateLifecycleCommandListLocked(command_list, newly_created);
     if (record == nullptr) return false;
+    if (record->submission_count != 0 ||
+        record->execution_attempted_without_proof) {
+        MarkLifecycleUncertain(
+            "Feature 18 was asked to append to a command list already submitted without Reset");
+        RollBackEmptyLifecycleCommandListLocked(
+            command_list, record, newly_created);
+        return false;
+    }
+
+    CommandListQueueMarker queue_marker = {};
+    if (!ReadLastSubmissionQueueMarker(command_list, queue_marker) ||
+        queue_marker.stable_submissions < kRequiredStableQueueSubmissions ||
+        (queue_marker.flags & kQueueMarkerMigrated) != 0) {
+        RollBackEmptyLifecycleCommandListLocked(
+            command_list, record, newly_created);
+        SetBypassReason(BypassReason::QueueAffinityUnverified);
+        return false;
+    }
+    if (record->expected_queue_identity != 0 &&
+        record->expected_queue_identity != queue_marker.identity) {
+        MarkLifecycleUncertain(
+            "one recorded command list acquired conflicting queue predictions");
+        RollBackEmptyLifecycleCommandListLocked(
+            command_list, record, newly_created);
+        return false;
+    }
 
     bool has_context = false;
     for (unsigned int i = 0; i < record->context_count; ++i) {
@@ -2083,31 +2848,113 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
             break;
         }
     }
-    if (!has_context) {
-        if (record->context_count >= kLifecycleUsesPerCommandList) {
-            MarkLifecycleUncertain("too many NR contexts on one command list");
-            return false;
+    bool has_slot = false;
+    for (unsigned int i = 0; i < record->slot_count; ++i) {
+        if (record->slots[i] == &slot) {
+            has_slot = true;
+            break;
         }
-        if (context.recording_token != 0 &&
-            context.recording_token != record->token) {
-            SetBypassReason(BypassReason::LifecycleIsolation);
-            g_lifecycle_safe_bypass_frames.fetch_add(
-                1, std::memory_order_relaxed);
-            return false;
-        }
-        record->contexts[record->context_count++] = &context;
-        context.recording_token = record->token;
     }
 
-    for (unsigned int i = 0; i < record->slot_count; ++i) {
-        if (record->slots[i] == &slot) return true;
-    }
-    if (record->slot_count >= kLifecycleUsesPerCommandList) {
-        MarkLifecycleUncertain("too many NR resources on one command list");
+    // Preflight every capacity/reference condition before mutating either side,
+    // so a failed slot append cannot leave a half-attached context record.
+    if ((!has_context &&
+         record->context_count >= kLifecycleUsesPerCommandList) ||
+        (!has_slot && record->slot_count >= kLifecycleUsesPerCommandList)) {
+        MarkLifecycleUncertain("too many NR dependencies on one command list");
+        RollBackEmptyLifecycleCommandListLocked(
+            command_list, record, newly_created);
         return false;
     }
-    record->slots[record->slot_count++] = &slot;
-    ++slot.recording_command_lists;
+    if ((!has_context && context.recording_command_lists == UINT_MAX) ||
+        (!has_slot && slot.recording_command_lists == UINT_MAX)) {
+        MarkLifecycleUncertain(
+            "Feature 18 command-list lifetime reference overflow");
+        RollBackEmptyLifecycleCommandListLocked(
+            command_list, record, newly_created);
+        return false;
+    }
+    if (context.pending_recording_token != 0 &&
+        context.pending_recording_token != record->token) {
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        g_lifecycle_safe_bypass_frames.fetch_add(1,
+                                                  std::memory_order_relaxed);
+        RollBackEmptyLifecycleCommandListLocked(
+            command_list, record, newly_created);
+        return false;
+    }
+
+    record->expected_queue_identity = queue_marker.identity;
+    if (context.pending_recording_token == 0)
+        context.pending_recording_token = record->token;
+    if (!has_context) {
+        record->contexts[record->context_count++] = &context;
+        ++context.recording_command_lists;
+    }
+    if (!has_slot) {
+        record->slots[record->slot_count++] = &slot;
+        ++slot.recording_command_lists;
+    }
+    return true;
+}
+
+bool RecordVisibleTransferLocked(ID3D12GraphicsCommandList *command_list,
+                                 unsigned long long feature_generation,
+                                 int mode) {
+    const unsigned long long scope_epoch =
+        g_pipeline_stats_epoch.load(std::memory_order_relaxed);
+    g_nr_transfer_recorded_frames.fetch_add(1, std::memory_order_relaxed);
+    if (g_pipeline_stats_epoch.load(std::memory_order_relaxed) == scope_epoch &&
+        g_pipeline_stats_generation.load(std::memory_order_relaxed) ==
+            feature_generation &&
+        g_pipeline_stats_mode.load(std::memory_order_relaxed) == mode) {
+        g_pipeline_transfer_recorded.fetch_add(1,
+                                               std::memory_order_relaxed);
+    }
+
+    unsigned long long token = 0;
+    if (!ReadLifecycleToken(command_list, token)) {
+        MarkLifecycleUncertain(
+            "visible NR transfer was recorded without a lifetime token");
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        return false;
+    }
+    LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
+    if (record == nullptr || record->detached ||
+        record->submission_count != 0 ||
+        record->execution_attempted_without_proof) {
+        MarkLifecycleUncertain(
+            "visible NR transfer reached an invalid command-list lifetime record");
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        return false;
+    }
+    if (record->bound_transfer_count == UINT_MAX) {
+        MarkLifecycleUncertain("bound NR transfer count overflow");
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        return false;
+    }
+    if (record->transfer_scope_epoch != scope_epoch ||
+        record->transfer_feature_generation != feature_generation ||
+        record->transfer_mode != mode) {
+        record->transfer_scope_epoch = scope_epoch;
+        record->transfer_feature_generation = feature_generation;
+        record->transfer_mode = mode;
+        record->scoped_bound_transfer_count = 0;
+    }
+    if (record->scoped_bound_transfer_count == UINT_MAX) {
+        MarkLifecycleUncertain("scoped bound NR transfer count overflow");
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        return false;
+    }
+    ++record->bound_transfer_count;
+    ++record->scoped_bound_transfer_count;
+    g_nr_transfer_bound_frames.fetch_add(1, std::memory_order_relaxed);
+    if (g_pipeline_stats_epoch.load(std::memory_order_relaxed) == scope_epoch &&
+        g_pipeline_stats_generation.load(std::memory_order_relaxed) ==
+            feature_generation &&
+        g_pipeline_stats_mode.load(std::memory_order_relaxed) == mode) {
+        g_pipeline_transfer_bound.fetch_add(1, std::memory_order_relaxed);
+    }
     return true;
 }
 
@@ -2138,12 +2985,14 @@ void DetachLifecycleCommandListTokenLocked(
     }
     for (unsigned int i = 0; i < record->context_count; ++i) {
         NrContext *context = record->contexts[i];
-        if (context == nullptr || context->recording_token != record->token) {
+        if (context == nullptr || context->recording_command_lists == 0) {
             MarkLifecycleUncertain(
-                "command-list context ownership token mismatch");
+                "command-list context lifetime reference underflow");
             continue;
         }
-        context->recording_token = 0;
+        if (context->pending_recording_token == token)
+            context->pending_recording_token = 0;
+        --context->recording_command_lists;
     }
     record->detached = true;
     const unsigned int active =
@@ -2173,9 +3022,18 @@ void DetachLifecycleCommandListLocked(
 
 LifecycleQueue *FindOrCreateLifecycleQueueLocked(
     ID3D12CommandQueue *queue) {
+    GraphicsQueueRecord *graphics_queue = TrackGraphicsQueueLocked(queue);
+    if (graphics_queue == nullptr) return nullptr;
     LifecycleQueue *empty = nullptr;
     for (auto &candidate : g_lifecycle_queues) {
-        if (candidate.queue == queue) return &candidate;
+        if (candidate.queue == queue) {
+            if (candidate.identity != graphics_queue->identity) {
+                MarkLifecycleUncertain(
+                    "native command-queue pointer identity changed unexpectedly");
+                return nullptr;
+            }
+            return &candidate;
+        }
         if (empty == nullptr && candidate.queue == nullptr) empty = &candidate;
     }
     if (empty == nullptr) {
@@ -2202,6 +3060,7 @@ LifecycleQueue *FindOrCreateLifecycleQueueLocked(
     ID3D12CommandQueue_AddRef(queue);
     empty->queue = queue;
     empty->fence = fence;
+    empty->identity = graphics_queue->identity;
     empty->next_fence_value = 1;
     Log("Created GPU retirement fence for D3D12 queue=%p.",
         static_cast<void *>(queue));
@@ -2235,14 +3094,84 @@ bool CaptureSubmissionBatchLocked(
         }
         unsigned long long token = 0;
         const bool has_token = ReadLifecycleToken(graphics, token);
+        CommandListQueueMarker queue_marker = {};
+        const bool has_queue_marker =
+            ReadLastSubmissionQueueMarker(graphics, queue_marker);
         ReleaseCom(graphics);
         if (!has_token) continue;
+
+        if (!has_queue_marker || queue_marker.identity != queue_state->identity ||
+            (queue_marker.flags & kQueueMarkerMigrated) != 0) {
+            const unsigned long long mismatches =
+                g_queue_affinity_actual_mismatches.fetch_add(
+                    1, std::memory_order_relaxed) + 1;
+            Log("Actual Execute queue invalidated a recorded Feature 18 list's "
+                "stable affinity (token=%llu marker=%llu actual=%llu flags=0x%X "
+                "count=%llu). The current batch is quarantined and later NR "
+                "work is disabled.", token, queue_marker.identity,
+                queue_state->identity, queue_marker.flags, mismatches);
+            batch.quarantine = true;
+            MarkLifecycleUncertain(
+                "actual Execute queue invalidated recorded command-list affinity");
+        }
 
         LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
         if (record == nullptr || record->detached) {
             MarkLifecycleUncertain(
                 "unknown or detached command-list marker before submission");
             return false;
+        }
+        if (record->expected_queue_identity == 0 ||
+            record->expected_queue_identity != queue_state->identity) {
+            const unsigned long long mismatches =
+                g_queue_affinity_actual_mismatches.fetch_add(
+                    1, std::memory_order_relaxed) + 1;
+            Log("Immutable command-list queue prediction did not match actual "
+                "Execute (token=%llu expected=%llu actual=%llu count=%llu). "
+                "The current batch is quarantined and later NR work is disabled.",
+                token, record->expected_queue_identity, queue_state->identity,
+                mismatches);
+            batch.quarantine = true;
+            MarkLifecycleUncertain(
+                "actual Execute queue contradicted immutable queue prediction");
+        }
+        bool duplicate_in_execute = false;
+        for (unsigned int record_index = 0;
+             record_index < batch.record_count; ++record_index) {
+            if (batch.records[record_index] == record) {
+                duplicate_in_execute = true;
+                break;
+            }
+        }
+        if (duplicate_in_execute) {
+            const unsigned long long detections =
+                g_duplicate_execute_list_detections.fetch_add(
+                    1, std::memory_order_relaxed) + 1;
+            if (detections <= 3 || (detections % 120) == 0) {
+                Log("ExecuteCommandLists contained the same Feature 18 command "
+                    "list more than once (token=%llu count=%llu). The batch is "
+                    "quarantined and later Feature 18 work is disabled.",
+                    token, detections);
+            }
+            batch.quarantine = true;
+            record->execution_attempted_without_proof = true;
+            MarkLifecycleUncertain(
+                "Feature 18 command list appeared more than once in one Execute batch");
+        }
+        if (record->submission_count != 0) {
+            const unsigned long long detections =
+                g_command_list_replay_detections.fetch_add(
+                    1, std::memory_order_relaxed) + 1;
+            if (detections <= 3 || (detections % 120) == 0) {
+                Log("Feature 18 command-list replay detected before Reset "
+                    "(token=%llu priorSubmissions=%llu count=%llu). NGX temporal "
+                    "commands are not assumed replay-safe; quarantining.",
+                    token, record->submission_count, detections);
+            }
+            batch.quarantine = true;
+            record->execution_attempted_without_proof = true;
+            MarkLifecycleUncertain(
+                "Feature 18 command list was submitted more than once before Reset");
         }
         if (!AppendUnique(record, batch.records, batch.record_count)) {
             MarkLifecycleUncertain("submission record batch exhausted");
@@ -2270,30 +3199,97 @@ bool CaptureSubmissionBatchLocked(
     }
 
     if (batch.record_count == 0) return true;
+    batch.pipeline_scope_epoch =
+        g_pipeline_stats_epoch.load(std::memory_order_relaxed);
+    batch.pipeline_scope_generation =
+        g_pipeline_stats_generation.load(std::memory_order_relaxed);
+    batch.pipeline_scope_mode =
+        g_pipeline_stats_mode.load(std::memory_order_relaxed);
+    for (unsigned int i = 0; i < batch.record_count; ++i) {
+        const LifecycleCommandList *record = batch.records[i];
+        if (record == nullptr) {
+            MarkLifecycleUncertain("submission batch contained a null record");
+            return false;
+        }
+        if (record->bound_transfer_count >
+            UINT_MAX - batch.bound_transfer_count) {
+            MarkLifecycleUncertain("submission NR transfer count overflow");
+            return false;
+        }
+        batch.bound_transfer_count += record->bound_transfer_count;
+        if (record->transfer_scope_epoch == batch.pipeline_scope_epoch &&
+            record->transfer_feature_generation ==
+                batch.pipeline_scope_generation &&
+            record->transfer_mode == batch.pipeline_scope_mode) {
+            if (record->scoped_bound_transfer_count >
+                UINT_MAX - batch.scoped_bound_transfer_count) {
+                MarkLifecycleUncertain(
+                    "scoped submission NR transfer count overflow");
+                return false;
+            }
+            batch.scoped_bound_transfer_count +=
+                record->scoped_bound_transfer_count;
+        }
+    }
     // Validate the entire immutable batch before taking any ownership pins.
     // No private cross-queue Wait is injected: it could form a cycle with a
-    // game's future-fence waits. The recording gate ensures a context can only
-    // reach this point after its previous proof fence has completed.
+    // game's future-fence waits. An unfinished prior proof is legal only when
+    // the actual queue matches the previously proven queue; same-queue command
+    // execution is ordered. A historical-affinity prediction that turns out to
+    // be wrong is detected here before native Execute and latches fail-closed.
     for (unsigned int i = 0; i < batch.context_count; ++i) {
         NrContext *context = batch.contexts[i];
         if (context == nullptr || context->awaiting_fence_signal ||
-            context->recording_token == 0 ||
-            (!IsContextFenceCompleteLocked(*context) &&
-             context->last_submission_queue != queue_state)) {
+            context->recording_command_lists == 0) {
+            batch.quarantine = true;
             MarkLifecycleUncertain(
-                "Feature 18 context reached submission without a completed "
-                "single-in-flight proof");
-            return false;
+                "Feature 18 context reached submission without a stable "
+                "recording owner");
+            continue;
+        }
+        if (!IsContextFenceCompleteLocked(*context) &&
+            context->last_submission_queue != queue_state) {
+            const unsigned long long mismatches =
+                g_queue_affinity_actual_mismatches.fetch_add(
+                    1, std::memory_order_relaxed) + 1;
+            Log("Actual command-list queue contradicted the recorded affinity "
+                "for a pending Feature 18 context (count=%llu previous=%p "
+                "actual=%p). Already-recorded plugin work cannot be removed; "
+                "all later Feature 18 work is fail-closed.",
+                mismatches,
+                context->last_submission_queue != nullptr
+                    ? static_cast<void *>(context->last_submission_queue->queue)
+                    : nullptr,
+                static_cast<void *>(queue_state->queue));
+            MarkLifecycleUncertain(
+                "actual submission queue contradicted predicted affinity");
+            batch.quarantine = true;
         }
     }
     for (unsigned int i = 0; i < batch.slot_count; ++i) {
         NrSlot *slot = batch.slots[i];
-        if (slot == nullptr || slot->awaiting_fence_signal ||
-            (!IsSlotFenceCompleteLocked(*slot) &&
-             slot->last_submission_queue != queue_state)) {
+        if (slot == nullptr || slot->awaiting_fence_signal) {
+            batch.quarantine = true;
             MarkLifecycleUncertain(
-                "submission resource lacks a completed single-in-flight proof");
-            return false;
+                "submission resource reached Execute without a stable "
+                "ownership pin");
+            continue;
+        }
+        if (!IsSlotFenceCompleteLocked(*slot) &&
+            slot->last_submission_queue != queue_state) {
+            const unsigned long long mismatches =
+                g_queue_affinity_actual_mismatches.fetch_add(
+                    1, std::memory_order_relaxed) + 1;
+            Log("Actual command-list queue contradicted the recorded affinity "
+                "for a pending NR resource (count=%llu previous=%p actual=%p).",
+                mismatches,
+                slot->last_submission_queue != nullptr
+                    ? static_cast<void *>(slot->last_submission_queue->queue)
+                    : nullptr,
+                static_cast<void *>(queue_state->queue));
+            MarkLifecycleUncertain(
+                "actual submission queue contradicted resource affinity");
+            batch.quarantine = true;
         }
     }
 
@@ -2302,8 +3298,47 @@ bool CaptureSubmissionBatchLocked(
         MarkLifecycleUncertain("retirement fence value wrapped to zero");
         return false;
     }
-    for (unsigned int i = 0; i < batch.record_count; ++i)
-        ++batch.records[i]->in_flight_submissions;
+    for (unsigned int i = 0; i < batch.record_count; ++i) {
+        if (batch.records[i]->submission_count == UINT64_MAX) {
+            MarkLifecycleUncertain("command-list submission count overflow");
+            return false;
+        }
+    }
+    for (unsigned int i = 0; i < batch.record_count; ++i) {
+        LifecycleCommandList *record = batch.records[i];
+        ++record->in_flight_submissions;
+        // Capture is the commit point of an Execute transaction: the hook
+        // unconditionally invokes the native Execute immediately after this
+        // function. Publishing the count under g_chain_cs also prevents a
+        // successful Reset on another thread from mistaking this list for
+        // never-submitted work in the narrow post-Execute return window.
+        ++record->submission_count;
+        if (batch.quarantine)
+            record->execution_attempted_without_proof = true;
+    }
+    // Capture is also the temporal ordering commit point. Submitted lists keep
+    // their lifetime references until Reset, but a later list may start a new
+    // evaluation only after the current pending token has been captured.
+    for (unsigned int record_index = 0;
+         record_index < batch.record_count; ++record_index) {
+        LifecycleCommandList *record = batch.records[record_index];
+        for (unsigned int context_index = 0;
+             context_index < record->context_count; ++context_index) {
+            NrContext *context = record->contexts[context_index];
+            if (context != nullptr &&
+                context->pending_recording_token == record->token) {
+                context->pending_recording_token = 0;
+            }
+        }
+    }
+    if (batch.quarantine) {
+        for (unsigned int i = 0; i < batch.context_count; ++i) {
+            if (batch.contexts[i] != nullptr)
+                batch.contexts[i]->lifecycle_dependencies_quarantined = true;
+        }
+        batch.active = true;
+        return true;
+    }
     for (unsigned int i = 0; i < batch.context_count; ++i) {
         NrContext *context = batch.contexts[i];
         context->last_submission_queue = queue_state;
@@ -2313,8 +3348,9 @@ bool CaptureSubmissionBatchLocked(
     for (unsigned int i = 0; i < batch.slot_count; ++i) {
         NrSlot *slot = batch.slots[i];
         slot->last_submission_queue = queue_state;
-        // Publish the reserved value before Execute. A later queue can then
-        // enqueue an explicit GPU wait on this exact transaction.
+        // Publish the reserved value before Execute. Reuse on every queue is
+        // rejected until this exact transaction's fence is complete; the add-on
+        // deliberately does not inject cross-queue waits into the game.
         slot->completion_fence_value = batch.fence_value;
         // This pre-Execute pin is the important transaction boundary: Reset,
         // descriptor rebinding and context destruction cannot race the native
@@ -2323,6 +3359,34 @@ bool CaptureSubmissionBatchLocked(
     }
     batch.active = true;
     return true;
+}
+
+void QuarantineUnprovenSubmissionLocked(
+    UINT count, ID3D12CommandList *const *command_lists) {
+    if (command_lists == nullptr) return;
+    for (UINT i = 0; i < count; ++i) {
+        if (command_lists[i] == nullptr) continue;
+        ID3D12GraphicsCommandList *graphics = nullptr;
+        if (FAILED(ID3D12CommandList_QueryInterface(
+                command_lists[i], IID_ID3D12GraphicsCommandList,
+                reinterpret_cast<void **>(&graphics))) ||
+            graphics == nullptr) {
+            continue;
+        }
+        unsigned long long token = 0;
+        const bool has_token = ReadLifecycleToken(graphics, token);
+        ReleaseCom(graphics);
+        if (!has_token) continue;
+        LifecycleCommandList *record = FindLifecycleCommandListLocked(token);
+        if (record == nullptr) continue;
+        record->execution_attempted_without_proof = true;
+        for (unsigned int context_index = 0;
+             context_index < record->context_count; ++context_index) {
+            if (record->contexts[context_index] != nullptr)
+                record->contexts[context_index]
+                    ->lifecycle_dependencies_quarantined = true;
+        }
+    }
 }
 
 void CompleteSubmissionBatchLocked(SubmissionBatch &batch) {
@@ -2556,12 +3620,33 @@ bool SupportsPostSrStorage(ID3D12Device *device,
     return true;
 }
 
+void WriteExposureSrv(ID3D12Device *device, ID3D12Resource *exposure,
+                      ID3D12DescriptorHeap *heap) {
+    if (device == nullptr || heap == nullptr) return;
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu =
+        ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) *
+               kCodecExposureSrvIndex;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
+    srv.Format = exposure != nullptr
+        ? ID3D12Resource_GetDesc(exposure).Format
+        : DXGI_FORMAT_R32_FLOAT;
+    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2D.MipLevels = 1;
+    ID3D12Device_CreateShaderResourceView(device, exposure, &srv, cpu);
+}
+
 bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
                 unsigned int width, unsigned int height, bool post_sr,
-                NrSlot &slot) {
+                ID3D12Resource *exposure, NrSlot &slot) {
     const D3D12_RESOURCE_DESC external_desc =
         ID3D12Resource_GetDesc(external);
     slot.key = external;
+    if (exposure != nullptr) {
+        ID3D12Resource_AddRef(exposure);
+        slot.exposure_source = exposure;
+    }
     slot.owns_source = post_sr;
     slot.owns_result = !post_sr;
     if (post_sr) {
@@ -2574,6 +3659,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
                 FormatName(external_desc.Format),
                 static_cast<unsigned int>(external_desc.Flags),
                 g_config.r8_output_encoding);
+            DestroySlot(slot);
             return false;
         }
         slot.result_format = external_desc.Format;
@@ -2626,13 +3712,26 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
 
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
     heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap_desc.NumDescriptors = 8;
+    heap_desc.NumDescriptors = kCodecDescriptorCount;
     heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     HRESULT hr = ID3D12Device_CreateDescriptorHeap(
         device, &heap_desc, IID_ID3D12DescriptorHeap,
         reinterpret_cast<void **>(&slot.heap));
     if (FAILED(hr)) {
         Log("CreateDescriptorHeap failed: 0x%08X", static_cast<unsigned int>(hr));
+        DestroySlot(slot);
+        return false;
+    }
+    D3D12_DESCRIPTOR_HEAP_DESC stats_clear_heap_desc = {};
+    stats_clear_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    stats_clear_heap_desc.NumDescriptors = 1;
+    stats_clear_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+    hr = ID3D12Device_CreateDescriptorHeap(
+        device, &stats_clear_heap_desc, IID_ID3D12DescriptorHeap,
+        reinterpret_cast<void **>(&slot.stats_clear_heap));
+    if (FAILED(hr) || slot.stats_clear_heap == nullptr) {
+        Log("CreateDescriptorHeap for CPU stats clear failed: 0x%08X",
+            static_cast<unsigned int>(hr));
         DestroySlot(slot);
         return false;
     }
@@ -2662,6 +3761,17 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     motion_srv.Texture2D.MipLevels = 1;
     ID3D12Device_CreateShaderResourceView(device, nullptr, &motion_srv, cpu);
     cpu.ptr += g_codec.descriptor_size;
+    D3D12_SHADER_RESOURCE_VIEW_DESC exposure_srv = {};
+    exposure_srv.Format = exposure != nullptr
+        ? ID3D12Resource_GetDesc(exposure).Format
+        : DXGI_FORMAT_R32_FLOAT;
+    exposure_srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    exposure_srv.Shader4ComponentMapping =
+        D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    exposure_srv.Texture2D.MipLevels = 1;
+    ID3D12Device_CreateShaderResourceView(
+        device, exposure, &exposure_srv, cpu);
+    cpu.ptr += g_codec.descriptor_size;
     ID3D12Device_CreateUnorderedAccessView(device, slot.proxy, nullptr, &uav, cpu);
     cpu.ptr += g_codec.descriptor_size;
     uav.Format = slot.result_uav_format;
@@ -2683,6 +3793,11 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     stats_uav.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
     ID3D12Device_CreateUnorderedAccessView(
         device, slot.delta_stats, nullptr, &stats_uav, cpu);
+    const D3D12_CPU_DESCRIPTOR_HANDLE stats_clear_cpu =
+        ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
+            slot.stats_clear_heap);
+    ID3D12Device_CreateUnorderedAccessView(
+        device, slot.delta_stats, nullptr, &stats_uav, stats_clear_cpu);
     if (slot.snapshots_native_output) {
         D3D12_DESCRIPTOR_HEAP_DESC snapshot_desc = heap_desc;
         hr = ID3D12Device_CreateDescriptorHeap(
@@ -2700,7 +3815,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
         const D3D12_CPU_DESCRIPTOR_HANDLE main_cpu =
             ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
         ID3D12Device_CopyDescriptorsSimple(
-            device, 8, snapshot_cpu, main_cpu,
+            device, kCodecDescriptorCount, snapshot_cpu, main_cpu,
             D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         D3D12_SHADER_RESOURCE_VIEW_DESC external_srv = {};
         external_srv.Format = slot.result_format;
@@ -2711,7 +3826,8 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
         ID3D12Device_CreateShaderResourceView(
             device, slot.result, &external_srv, snapshot_cpu);
         snapshot_cpu.ptr +=
-            static_cast<SIZE_T>(g_codec.descriptor_size) * 5;
+            static_cast<SIZE_T>(g_codec.descriptor_size) *
+            kCodecResultUavIndex;
         D3D12_UNORDERED_ACCESS_VIEW_DESC source_uav = {};
         source_uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
         source_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
@@ -2758,7 +3874,8 @@ bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
             return false;
         D3D12_CPU_DESCRIPTOR_HANDLE cpu =
             ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
-        cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) * 6;
+        cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) *
+                   kCodecMotionUavIndex;
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
         uav.Format = DXGI_FORMAT_R16G16_FLOAT;
         uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
@@ -2782,8 +3899,18 @@ bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
     return true;
 }
 
+void RebindExposureSource(ID3D12Device *device, ID3D12Resource *exposure,
+                          NrSlot &slot) {
+    if (slot.exposure_source == exposure) return;
+    if (exposure != nullptr) ID3D12Resource_AddRef(exposure);
+    ReleaseCom(slot.exposure_source);
+    slot.exposure_source = exposure;
+    WriteExposureSrv(device, exposure, slot.heap);
+    WriteExposureSrv(device, exposure, slot.snapshot_heap);
+}
+
 bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
-                        bool post_sr, NrSlot &slot) {
+                        bool post_sr, ID3D12Resource *exposure, NrSlot &slot) {
     if (device == nullptr || external == nullptr || slot.heap == nullptr)
         return false;
     if (!CanMutateSlotLocked(slot)) return false;
@@ -2812,7 +3939,8 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
         slot.result_uav_format = PostSrUavFormat(external_desc.Format);
         slot.codec_color_mode = codec_color_mode;
         slot.result_state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-        cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) * 5;
+        cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) *
+                   kCodecResultUavIndex;
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
         uav.Format = slot.result_uav_format;
         uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
@@ -2831,6 +3959,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
             ID3D12Device_CreateShaderResourceView(
                 device, slot.result, &srv, snapshot_cpu);
         }
+        RebindExposureSource(device, exposure, slot);
         slot.last_submission_queue = nullptr;
         slot.completion_fence_value = 0;
         slot.awaiting_fence_signal = false;
@@ -2855,6 +3984,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = 1;
     ID3D12Device_CreateShaderResourceView(device, slot.source, &srv, cpu);
+    RebindExposureSource(device, exposure, slot);
     slot.last_submission_queue = nullptr;
     slot.completion_fence_value = 0;
     slot.awaiting_fence_signal = false;
@@ -2862,11 +3992,12 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
 }
 
 NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
-                         ID3D12Resource *external, bool post_sr = false) {
+                         ID3D12Resource *external, bool post_sr = false,
+                         ID3D12Resource *exposure = nullptr) {
     const unsigned long long serial = ++context.slot_serial;
     NrSlot *empty = nullptr;
     for (auto &slot : context.slots) {
-        if (slot.key == external) {
+        if (slot.key == external && slot.exposure_source == exposure) {
             if (post_sr) {
                 const D3D12_RESOURCE_DESC desc =
                     ID3D12Resource_GetDesc(external);
@@ -2892,7 +4023,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
     }
     if (empty != nullptr) {
         if (!CreateSlot(device, external, context.width, context.height,
-                        post_sr, *empty))
+                        post_sr, exposure, *empty))
             return nullptr;
         empty->last_used_serial = serial;
         return empty;
@@ -2912,7 +4043,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
     const unsigned long long age = oldest != nullptr
         ? serial - oldest->last_used_serial : 0;
     if (oldest == nullptr ||
-        !RebindSlotExternal(device, external, post_sr, *oldest)) {
+        !RebindSlotExternal(device, external, post_sr, exposure, *oldest)) {
         static unsigned int rejected_reuses = 0;
         ++rejected_reuses;
         if (rejected_reuses <= 3 || (rejected_reuses % 600) == 0) {
@@ -2932,8 +4063,9 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
     return oldest;
 }
 
-void ArmDeltaStatsCaptureLocked(NrSlot &slot, const NrContext &context) {
-    CollectSlotDeltaStatsLocked(slot);
+void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
+                                const ColorContract &color_contract) {
+    CollectSlotDeltaStatsLocked(context, slot);
     if (!slot.delta_stats_pending && slot.delta_stats != nullptr &&
         slot.delta_stats_readback != nullptr) {
         slot.delta_stats_capture_armed = true;
@@ -2941,6 +4073,10 @@ void ArmDeltaStatsCaptureLocked(NrSlot &slot, const NrContext &context) {
         slot.diagnostic_feature_generation = context.feature_generation;
         slot.diagnostic_width = context.width;
         slot.diagnostic_height = context.height;
+        slot.diagnostic_serial = slot.last_used_serial;
+        slot.diagnostic_pre_exposure = color_contract.pre_exposure;
+        slot.diagnostic_has_exposure_texture =
+            color_contract.exposure_texture != nullptr;
     }
 }
 
@@ -2981,6 +4117,7 @@ struct CodecConstants {
     unsigned int motion_source_height;
     unsigned int motion_source_base_x;
     unsigned int motion_source_base_y;
+    float pre_exposure;
 };
 
 void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
@@ -2999,19 +4136,24 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu);
     const bool capture_delta = pipeline == g_codec.combine &&
         slot.delta_stats_capture_armed && !slot.delta_stats_pending &&
-        slot.delta_stats != nullptr && slot.delta_stats_readback != nullptr;
+        slot.delta_stats != nullptr && slot.delta_stats_readback != nullptr &&
+        slot.stats_clear_heap != nullptr;
     if (capture_delta) {
         Transition(command_list, slot.delta_stats, slot.delta_stats_state,
                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         D3D12_GPU_DESCRIPTOR_HANDLE stats_gpu = gpu;
-        stats_gpu.ptr += static_cast<UINT64>(g_codec.descriptor_size) * 7;
-        D3D12_CPU_DESCRIPTOR_HANDLE stats_cpu =
-            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
-        stats_cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) * 7;
+        stats_gpu.ptr += static_cast<UINT64>(g_codec.descriptor_size) *
+                         kCodecStatsUavIndex;
+        const D3D12_CPU_DESCRIPTOR_HANDLE stats_cpu =
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
+                slot.stats_clear_heap);
         const UINT clear_values[4] = {};
         ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(
             command_list, stats_gpu, stats_cpu, slot.delta_stats,
             clear_values, 0, nullptr);
+        // The following dispatch performs atomics against the same UAV. Make
+        // the clear visible before any diagnostic thread updates the buffer.
+        UavBarrier(command_list, slot.delta_stats);
     }
     unsigned int source_flags = hdr_input ? 0u : 1u;
     if (color_mode == CodecColorMode::LinearSdr)
@@ -3020,16 +4162,23 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         source_flags = 32u;
     const unsigned int codec_flags = source_flags |
         ((g_config.mode == 2 && g_config.preserve_lighting) ? 2u : 0u) |
-        (capture_delta ? 8u : 0u);
+        (capture_delta ? 8u : 0u) |
+        ((hdr_input && color_contract.exposure_texture != nullptr) ? 64u : 0u);
+    // Automatic HDR does not prove the engine working gamut. Until a profile
+    // verifies primaries, transfer only the luminance residual; profiled SDR
+    // and non-HDR model input may opt into chroma following.
+    const float effective_color_strength = hdr_input &&
+        color_mode == CodecColorMode::Automatic
+        ? 0.0f : g_config.color_strength;
     const CodecConstants constants = {
         width, height, g_config.proxy_scale, ActiveTransferStrength(g_config),
-        color_contract.source_to_canonical, g_config.color_strength,
+        color_contract.source_to_canonical, effective_color_strength,
         g_config.max_luma_ratio, codec_flags,
         source_base_x, source_base_y,
         destination_base_x, destination_base_y,
-        0, 0, 0, 0};
+        0, 0, 0, 0, color_contract.pre_exposure};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
-        command_list, 1, 16, &constants, 0);
+        command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
     ID3D12GraphicsCommandList_Dispatch(
         command_list, (width + 7) / 8, (height + 7) / 8, 1);
@@ -3061,9 +4210,9 @@ void DispatchMotionResample(ID3D12GraphicsCommandList *command_list,
     const CodecConstants constants = {
         width, height, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0,
         0, 0, 0, 0,
-        source_width, source_height, source_base_x, source_base_y};
+        source_width, source_height, source_base_x, source_base_y, 1.0f};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
-        command_list, 1, 16, &constants, 0);
+        command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(
         command_list, g_codec.motion_resample);
     ID3D12GraphicsCommandList_Dispatch(
@@ -3475,11 +4624,15 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
 
     bool color_contract_reset = false;
     const bool has_exposure_texture = color_contract.exposure_texture != nullptr;
+    const bool delayed_texture_reset = has_exposure_texture &&
+        context.exposure_texture_reset_pending;
+    context.exposure_texture_reset_pending = false;
     if (!context.color_contract_initialized) {
         context.color_contract_initialized = true;
         Log("HDR exposure contract adapted: source PreExposure=%.6f "
-            "ExposureScale=%.6f sourceToCanonical=%.6f texture=%d; "
-            "the NR proxy uses canonical exposure 1.0.",
+            "scalarExposureScale=%.6f scalarSourceToCanonical=%.6f "
+            "liveTexture=%d; when present its 1x1 red channel overrides the "
+            "scalar in the codec and the NR proxy uses canonical exposure 1.0.",
             static_cast<double>(color_contract.pre_exposure),
             static_cast<double>(color_contract.exposure_scale),
             static_cast<double>(color_contract.source_to_canonical),
@@ -3491,26 +4644,35 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
         const bool source_contract_changed =
             context.last_has_pre_exposure != color_contract.has_pre_exposure ||
             context.last_has_exposure_scale != color_contract.has_exposure_scale ||
-            context.last_has_exposure_texture != has_exposure_texture;
+            context.last_has_exposure_texture != has_exposure_texture ||
+            context.last_exposure_texture_format !=
+                color_contract.exposure_texture_format ||
+            context.last_exposure_texture_width !=
+                color_contract.exposure_texture_width ||
+            context.last_exposure_texture_height !=
+                color_contract.exposure_texture_height;
         // Ordinary auto-exposure changes are normalized by the codec. A large
         // single-frame EV jump, however, invalidates temporal history even if
         // the parameter names themselves did not change.
         const float ev_delta = std::fabs(std::log2(
             std::max(ratio, 1.0f / 1024.0f)));
-        color_contract_reset = source_contract_changed || ev_delta > 0.5f;
+        color_contract_reset = source_contract_changed || ev_delta > 0.5f ||
+            delayed_texture_reset;
         if (color_contract_reset) {
             ++context.color_contract_resets;
             if (context.color_contract_resets <= 3 ||
                 (context.color_contract_resets % 120) == 0) {
                 Log("HDR exposure contract transition: previous=%.6f "
                     "current=%.6f preExposure=%.6f exposureScale=%.6f "
-                    "texture=%d evDelta=%.3f; resetting NR history (count=%u).",
+                    "texture=%d evDelta=%.3f delayedTextureReset=%d; "
+                    "resetting NR history (count=%u).",
                     static_cast<double>(previous),
                     static_cast<double>(color_contract.source_to_canonical),
                     static_cast<double>(color_contract.pre_exposure),
                     static_cast<double>(color_contract.exposure_scale),
                     has_exposure_texture ? 1 : 0,
                     static_cast<double>(ev_delta),
+                    delayed_texture_reset ? 1 : 0,
                     context.color_contract_resets);
             }
         }
@@ -3519,10 +4681,17 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     context.last_has_pre_exposure = color_contract.has_pre_exposure;
     context.last_has_exposure_scale = color_contract.has_exposure_scale;
     context.last_has_exposure_texture = has_exposure_texture;
+    context.last_exposure_texture_format =
+        color_contract.exposure_texture_format;
+    context.last_exposure_texture_width =
+        color_contract.exposure_texture_width;
+    context.last_exposure_texture_height =
+        color_contract.exposure_texture_height;
 
     // The proxy has already been transformed into canonical exposure. Keep
     // standard exposure keys neutral if this feature build happens to consume
     // them, while leaving the game's original SR parameter block untouched.
+    SetResource(params, "ExposureTexture", nullptr);
     SetFloat(params, "DLSS.Pre.Exposure", 1.0f);
     SetFloat(params, "DLSS.Exposure.Scale", 1.0f);
     SetInt(params, "DLSSNR.DepthInverted", depth_inverted);
@@ -3637,13 +4806,15 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
 
     const ColorContract color_contract = ReadColorContract(sr_params);
-    if (MustBypassUnverifiedExposureTexture(color_contract, feature, 2))
-        return substitution;
-
     ID3D12Device *device = nullptr;
     HRESULT hr = ID3D12GraphicsCommandList_GetDevice(
         command_list, IID_ID3D12Device, reinterpret_cast<void **>(&device));
     if (FAILED(hr) || device == nullptr) return substitution;
+    if (!SupportsExposureTextureContract(
+            device, color_contract, feature, 2)) {
+        ReleaseCom(device);
+        return substitution;
+    }
     const bool ready = EnsureNrApi(device) && EnsureCodec(device);
     if (!ready) {
         ReleaseCom(device);
@@ -3674,12 +4845,15 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         return substitution;
     }
 
-    NrSlot *slot = FindOrCreateSlot(*context, device, color);
+    ID3D12Resource *exposure_source = (feature.create_flags & 1) != 0
+        ? color_contract.exposure_texture : nullptr;
+    NrSlot *slot = FindOrCreateSlot(
+        *context, device, color, false, exposure_source);
     if (slot == nullptr || context->failed) {
         ReleaseCom(device);
         return substitution;
     }
-    ArmDeltaStatsCaptureLocked(*slot, *context);
+    ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
     bool lifecycle_recorded = false;
 
     ID3D12Resource *motion_override = nullptr;
@@ -3869,6 +5043,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
     ++context->evaluations;
     g_nr_successful_evaluations.fetch_add(1, std::memory_order_relaxed);
+    g_pipeline_feature18_success.fetch_add(1, std::memory_order_relaxed);
     g_last_nr_width.store(width, std::memory_order_relaxed);
     g_last_nr_height.store(height, std::memory_order_relaxed);
     UavBarrier(command_list, slot->neural);
@@ -3905,7 +5080,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     SetResource(substitution.params, "Color", slot->result);
     SetUInt(substitution.params, "DLSS.Input.Color.Subrect.Base.X", 0);
     SetUInt(substitution.params, "DLSS.Input.Color.Subrect.Base.Y", 0);
-    g_nr_transferred_frames.fetch_add(1, std::memory_order_relaxed);
+    g_nr_transfer_attempted_frames.fetch_add(1,
+                                             std::memory_order_relaxed);
+    g_pipeline_transfer_attempted.fetch_add(1,
+                                            std::memory_order_relaxed);
     SetBypassReason(BypassReason::None);
     return substitution;
 }
@@ -4018,13 +5196,15 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     }
 
     const ColorContract color_contract = ReadColorContract(sr_params);
-    if (MustBypassUnverifiedExposureTexture(color_contract, feature, 1))
-        return substitution;
-
     ID3D12Device *device = nullptr;
     const HRESULT hr = ID3D12GraphicsCommandList_GetDevice(
         command_list, IID_ID3D12Device, reinterpret_cast<void **>(&device));
     if (FAILED(hr) || device == nullptr) return substitution;
+    if (!SupportsExposureTextureContract(
+            device, color_contract, feature, 1)) {
+        ReleaseCom(device);
+        return substitution;
+    }
     const bool storage_supported =
         SupportsPostSrStorage(device, output_desc, storage_contract);
     const bool ready = storage_supported &&
@@ -4059,12 +5239,15 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         return substitution;
     }
 
-    NrSlot *slot = FindOrCreateSlot(*context, device, output, true);
+    ID3D12Resource *exposure_source = (feature.create_flags & 1) != 0
+        ? color_contract.exposure_texture : nullptr;
+    NrSlot *slot = FindOrCreateSlot(
+        *context, device, output, true, exposure_source);
     if (slot == nullptr || context->failed) {
         ReleaseCom(device);
         return substitution;
     }
-    ArmDeltaStatsCaptureLocked(*slot, *context);
+    ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
     if (!RecordNrUseLocked(command_list, *context, *slot)) {
         ReleaseCom(device);
         return substitution;
@@ -4092,6 +5275,10 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         SetUInt(substitution.params, "DLSS.Output.Subrect.Base.X", 0);
         SetUInt(substitution.params, "DLSS.Output.Subrect.Base.Y", 0);
     }
+    g_nr_transfer_attempted_frames.fetch_add(1,
+                                             std::memory_order_relaxed);
+    g_pipeline_transfer_attempted.fetch_add(1,
+                                            std::memory_order_relaxed);
     SetBypassReason(BypassReason::None);
     return substitution;
 }
@@ -4154,9 +5341,9 @@ bool DispatchPostSrNativeSnapshot(
         substitution.width, substitution.height,
         1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0,
         substitution.output_base_x, substitution.output_base_y,
-        0, 0, 0, 0, 0, 0};
+        0, 0, 0, 0, 0, 0, 1.0f};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
-        command_list, 1, 16, &constants, 0);
+        command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, g_codec.copy);
     ID3D12GraphicsCommandList_Dispatch(
         command_list, (substitution.width + 7) / 8,
@@ -4279,6 +5466,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
 
     ++context.evaluations;
     g_nr_successful_evaluations.fetch_add(1, std::memory_order_relaxed);
+    g_pipeline_feature18_success.fetch_add(1, std::memory_order_relaxed);
     g_last_nr_width.store(width, std::memory_order_relaxed);
     g_last_nr_height.store(height, std::memory_order_relaxed);
     UavBarrier(command_list, slot.neural);
@@ -4303,7 +5491,8 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
                    0, 0, substitution.output_base_x,
                    substitution.output_base_y, slot.codec_color_mode);
     UavBarrier(command_list, slot.result);
-    g_nr_transferred_frames.fetch_add(1, std::memory_order_relaxed);
+    if (!RecordVisibleTransferLocked(command_list, feature.generation, 1))
+        return false;
     SetBypassReason(BypassReason::None);
     return true;
 }
@@ -4362,28 +5551,49 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         return;
     }
 
-    if (g_enabled_fast.load(std::memory_order_acquire) &&
-        !g_shortfuse_nr_enabled.load(std::memory_order_relaxed)) {
-        // Persist queue affinity for every graphics list seen while the add-on
-        // is enabled, including lists whose current frame took a native bypass.
-        // F6 off retains the prior near-zero-cost trampoline path.
+    if (queue == nullptr) {
+        original(queue, count, command_lists);
+        return;
+    }
+    const D3D12_COMMAND_QUEUE_DESC queue_desc =
+        ID3D12CommandQueue_GetDesc(queue);
+    if (queue_desc.Type != D3D12_COMMAND_LIST_TYPE_DIRECT) {
+        original(queue, count, command_lists);
+        return;
+    }
+
+    unsigned long long queue_identity = 0;
+    bool batch_has_lifecycle_token = false;
+    EnterCriticalSection(&g_chain_cs);
+    if (GraphicsQueueRecord *tracked = TrackGraphicsQueueLocked(queue))
+        queue_identity = tracked->identity;
+    // Persist actual affinity on every observed direct-queue submission,
+    // including F6-off and native-bypass frames. Marker read/modify/write is
+    // serialized with admission so two concurrent Execute calls cannot lose a
+    // migration bit or fabricate stable history.
+    if (queue_identity != 0) {
         for (UINT i = 0; i < count; ++i) {
-            if (command_lists == nullptr || command_lists[i] == nullptr) continue;
+            if (command_lists == nullptr || command_lists[i] == nullptr)
+                continue;
             ID3D12GraphicsCommandList *graphics = nullptr;
             if (SUCCEEDED(ID3D12CommandList_QueryInterface(
                     command_lists[i], IID_ID3D12GraphicsCommandList,
                     reinterpret_cast<void **>(&graphics))) &&
                 graphics != nullptr) {
-                RememberLastSubmissionQueue(graphics, queue);
+                RememberLastSubmissionQueue(graphics, queue_identity);
+                unsigned long long token = 0;
+                if (ReadLifecycleToken(graphics, token))
+                    batch_has_lifecycle_token = true;
                 ReleaseCom(graphics);
             }
         }
     }
+    LeaveCriticalSection(&g_chain_cs);
 
     const bool may_have_lifecycle_work =
         g_lifecycle_active_command_lists.load(std::memory_order_acquire) != 0;
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
-        !may_have_lifecycle_work) {
+        !may_have_lifecycle_work || !batch_has_lifecycle_token) {
         original(queue, count, command_lists);
         return;
     }
@@ -4399,19 +5609,40 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
     }
 
     // Queue-local serialization keeps the native Execute adjacent to the
-    // private completion Signal. Context-level single-in-flight admission has
-    // already rejected unresolved cross-queue reuse, so no private queue Wait
-    // is required (and none is injected into the game's dependency graph).
+    // private completion Signal. Recording admission permits unfinished work
+    // only for a command list previously observed on this same queue; capture
+    // checks the actual queue before Execute. No private queue Wait is injected
+    // into the game's dependency graph.
     AcquireSRWLockExclusive(&queue_state->submission_lock);
     SubmissionBatch batch = {};
     EnterCriticalSection(&g_chain_cs);
     const bool captured = CaptureSubmissionBatchLocked(
         queue_state, count, command_lists, batch);
+    if (!captured)
+        QuarantineUnprovenSubmissionLocked(count, command_lists);
     LeaveCriticalSection(&g_chain_cs);
 
     // Even a failed capture is submitted unchanged: fail-closed means no more
     // plugin mutation, never suppressing the game's own command list.
     original(queue, count, command_lists);
+    if (captured && batch.active && !batch.quarantine &&
+        batch.bound_transfer_count != 0) {
+        g_nr_transfer_submitted_frames.fetch_add(
+            batch.bound_transfer_count, std::memory_order_relaxed);
+        EnterCriticalSection(&g_chain_cs);
+        if (g_pipeline_stats_epoch.load(std::memory_order_relaxed) ==
+                batch.pipeline_scope_epoch &&
+            g_pipeline_stats_generation.load(std::memory_order_relaxed) ==
+                batch.pipeline_scope_generation &&
+            g_pipeline_stats_mode.load(std::memory_order_relaxed) ==
+                batch.pipeline_scope_mode &&
+            batch.scoped_bound_transfer_count != 0) {
+            g_pipeline_transfer_submitted.fetch_add(
+                batch.scoped_bound_transfer_count,
+                std::memory_order_relaxed);
+        }
+        LeaveCriticalSection(&g_chain_cs);
+    }
     bool signaled = false;
     if (captured && batch.active) {
         const HRESULT signal_result = ID3D12CommandQueue_Signal(
@@ -4420,11 +5651,15 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         if (!signaled)
             MarkLifecycleUncertain("D3D12 retirement fence signal failed");
     }
-    if (captured && signaled && batch.active &&
+    if (captured && signaled && batch.active && !batch.quarantine &&
         !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
         EnterCriticalSection(&g_chain_cs);
         CompleteSubmissionBatchLocked(batch);
         LeaveCriticalSection(&g_chain_cs);
+    } else if (captured && batch.quarantine) {
+        Log("Quarantined Execute batch was submitted and %s with an exact "
+            "current-queue fence; dependencies remain pinned until process exit.",
+            signaled ? "signaled" : "could not be signaled");
     }
     ReleaseSRWLockExclusive(&queue_state->submission_lock);
 }
@@ -4476,6 +5711,11 @@ HRESULT ProcessCommandListReset(
     const HRESULT result = original(command_list, allocator, initial_state);
     if (SUCCEEDED(result) && token != 0) {
         EnterCriticalSection(&g_chain_cs);
+        if (QuarantineUnsubmittedLifecycleRecordLocked(
+                token, "native Reset")) {
+            LeaveCriticalSection(&g_chain_cs);
+            return result;
+        }
         DetachLifecycleCommandListTokenLocked(
             command_list, token, "native Reset");
         CollectRetiredContextsLocked();
@@ -4551,6 +5791,11 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
                      NgxParams *params, NgxHandle **out_handle) {
     const bool outermost = g_create_hook_depth++ == 0;
     const bool creating_rr = outermost && feature_id == 13;
+    ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
+    if (creating_rr && rr_gate.is_nested())
+        LatchNestedRrOwnershipChange("Feature 13 Create");
+    else if (creating_rr && rr_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("Feature 13 Create");
     if (creating_rr)
         g_rr_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
     const NgxResult result = g_original_create(command_list, feature_id, params, out_handle);
@@ -4567,6 +5812,12 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
     }
     if (result == kNgxSuccess && handle != nullptr) {
         RememberFeature(handle, feature_id, params);
+    }
+    if (creating_rr &&
+        ((result == kNgxSuccess) != (handle != nullptr))) {
+        LatchRrOwnershipUncertain(
+            "Feature 13 Create",
+            "the native result/handle pair was inconsistent");
     }
     if (creating_rr) {
         const unsigned int previous =
@@ -4585,6 +5836,11 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
                          NgxParams *params, NgxHandle **out_handle) {
     const bool outermost = g_create_hook_depth++ == 0;
     const bool creating_rr = outermost && feature_id == 13;
+    ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
+    if (creating_rr && rr_gate.is_nested())
+        LatchNestedRrOwnershipChange("core Feature 13 Create");
+    else if (creating_rr && rr_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("core Feature 13 Create");
     if (creating_rr)
         g_rr_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
     const NgxResult result = g_original_core_create(command_list, feature_id, params, out_handle);
@@ -4602,6 +5858,12 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
     if (result == kNgxSuccess && handle != nullptr) {
         RememberFeature(handle, feature_id, params);
     }
+    if (creating_rr &&
+        ((result == kNgxSuccess) != (handle != nullptr))) {
+        LatchRrOwnershipUncertain(
+            "core Feature 13 Create",
+            "the native result/handle pair was inconsistent");
+    }
     if (creating_rr) {
         const unsigned int previous =
             g_rr_create_in_progress.fetch_sub(1, std::memory_order_acq_rel);
@@ -4615,17 +5877,22 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
     return result;
 }
 
+bool ShouldGuardFeature1ForRayReconstruction() {
+    return g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
+           g_live_rr_handles.load(std::memory_order_acquire) != 0;
+}
+
 NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                           ID3D12GraphicsCommandList *command_list,
                           const NgxHandle *handle, const NgxParams *params,
                           void *callback) {
     // A disabled add-on must be indistinguishable from an unloaded add-on on
     // the hot NGX path. Configuration polling happens from Present, so this
-    // branch avoids parameter lookups, locks, counters and timing work.
+    // branch avoids parameter lookups, rendering locks, instrumentation and
+    // GPU work; only a rate-limited bypass-state transition may be published.
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
         g_evaluate_target_overflow.load(std::memory_order_acquire) ||
-        g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_nr_failed_create_process_latched.load(std::memory_order_acquire)) {
         if (!g_enabled_fast.load(std::memory_order_relaxed))
@@ -4662,14 +5929,12 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
 
-    // Some engines evaluate an ordinary Feature 1 before Feature 13 in the
-    // same frame.  A wall-clock timeout cannot protect that ordering and can
-    // span anywhere from a few to hundreds of frames.  Use Feature 13 handle
-    // lifetime instead: a false-positive bypass is recoverable, while a missed
-    // RR frame would feed altered colour into a second reconstruction network.
+    // A live Feature 13 handle is authoritative ownership. A count/time based
+    // "dormant" guess races engines that call Feature 1 before Feature 13 and
+    // can produce a double-NR frame, so only an explicit Release resumes work.
     const unsigned int live_rr_handles =
         g_live_rr_handles.load(std::memory_order_acquire);
-    if (live_rr_handles != 0) {
+    if (ShouldGuardFeature1ForRayReconstruction()) {
         SetBypassReason(BypassReason::RayReconstructionGuard);
         g_last_carrier_feature.store(13, std::memory_order_relaxed);
         g_rr_guard_was_active.store(true, std::memory_order_relaxed);
@@ -4681,13 +5946,6 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         }
         return original(command_list, handle, params, callback);
     }
-    if (g_rr_guard_was_active.exchange(false, std::memory_order_relaxed)) {
-        // The last live RR handle has gone away. Any Feature 18 history from
-        // before RR is stale, so reset on the first resumed ordinary-SR frame.
-        g_config_generation.fetch_add(1, std::memory_order_relaxed);
-        Log("Ray Reconstruction handle ownership ended; ordinary SR processing "
-            "resumed with a fresh NR history.");
-    }
 
     g_last_carrier_feature.store(feature.feature_id, std::memory_order_relaxed);
     TrackDlssResolution(params, feature);
@@ -4698,6 +5956,70 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         Log("[stats] all NGX evaluations=%llu, upscaling-carrier evaluations=%llu "
             "feature=%d(%s)", all, carrier, feature.feature_id,
             FeatureName(feature.feature_id));
+        const unsigned long long successful =
+            g_nr_successful_evaluations.load(std::memory_order_relaxed);
+        const unsigned long long transfer_recorded =
+            g_nr_transfer_recorded_frames.load(std::memory_order_relaxed);
+        const unsigned long long transfer_bound =
+            g_nr_transfer_bound_frames.load(std::memory_order_relaxed);
+        const unsigned long long transfer_submitted =
+            g_nr_transfer_submitted_frames.load(std::memory_order_relaxed);
+        const unsigned long long transfer_attempted =
+            g_nr_transfer_attempted_frames.load(std::memory_order_relaxed);
+        const unsigned long long lifecycle_bypasses =
+            g_lifecycle_safe_bypass_frames.load(std::memory_order_relaxed);
+        const unsigned long long affinity_admitted =
+            g_queue_affinity_admitted_frames.load(std::memory_order_relaxed);
+        const unsigned long long affinity_unknown =
+            g_queue_affinity_unknown_bypass_frames.load(
+                std::memory_order_relaxed);
+        const unsigned long long affinity_prediction_bypass =
+            g_queue_affinity_prediction_bypass_frames.load(
+                std::memory_order_relaxed);
+        const unsigned long long affinity_actual_mismatch =
+            g_queue_affinity_actual_mismatches.load(
+                std::memory_order_relaxed);
+        Log("[stats] session totals: Feature18-success=%llu "
+            "transfer-prepared=%llu transfer-recorded=%llu "
+            "transfer-bound=%llu transfer-submitted=%llu "
+            "lifecycle-bypass=%llu; queue-affinity "
+            "admitted=%llu unknown-bypass=%llu predicted-change-bypass=%llu "
+            "actual-mismatch=%llu.",
+            successful, transfer_attempted, transfer_recorded, transfer_bound,
+            transfer_submitted, lifecycle_bypasses,
+            affinity_admitted, affinity_unknown,
+            affinity_prediction_bypass, affinity_actual_mismatch);
+    }
+
+    // Never wait across opaque NGX calls. If Feature 13 currently owns the
+    // gate, this Feature 1 call remains native. Conversely, a concurrent RR
+    // transition that cannot acquire the gate marks this transaction aborted
+    // and proceeds without blocking, avoiding an external cross-thread cycle.
+    ScopedRrOwnershipGate rr_transaction(true, true, true);
+    if (rr_transaction.acquisition_failed()) {
+        SetBypassReason(BypassReason::RayReconstructionGuard);
+        g_rr_guard_was_active.store(true, std::memory_order_relaxed);
+        return original(command_list, handle, params, callback);
+    }
+    if (g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        rr_transaction.Release();
+        return original(command_list, handle, params, callback);
+    }
+    if (ShouldGuardFeature1ForRayReconstruction()) {
+        SetBypassReason(BypassReason::RayReconstructionGuard);
+        g_last_carrier_feature.store(13, std::memory_order_relaxed);
+        g_rr_guard_was_active.store(true, std::memory_order_relaxed);
+        rr_transaction.Release();
+        return original(command_list, handle, params, callback);
+    }
+    if (g_rr_guard_was_active.exchange(false, std::memory_order_relaxed)) {
+        // Explicit RR ownership ended. Any Feature 18 history from before RR is
+        // stale, so reset on the first resumed ordinary-SR frame.
+        g_config_generation.fetch_add(1, std::memory_order_relaxed);
+        Log("Ray Reconstruction activity ended; ordinary SR processing resumed "
+            "with a fresh NR history (live RR handles=%u).",
+            live_rr_handles);
     }
 
     EnterCriticalSection(&g_chain_cs);
@@ -4706,11 +6028,12 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     // starts recording substitutions.
     if (g_feature_tracking_uncertain.load(std::memory_order_acquire) ||
         g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
-        g_live_rr_handles.load(std::memory_order_acquire) != 0) {
+        ShouldGuardFeature1ForRayReconstruction()) {
         g_last_carrier_feature.store(13, std::memory_order_relaxed);
         SetBypassReason(BypassReason::RayReconstructionGuard);
         g_rr_guard_was_active.store(true, std::memory_order_relaxed);
         LeaveCriticalSection(&g_chain_cs);
+        rr_transaction.Release();
         return original(command_list, handle, params, callback);
     }
     // A zero visible transfer is the user's pure-game-SR baseline.  Previous
@@ -4730,26 +6053,93 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         if (zero_transfer_native)
             g_unverified_exposure_texture_bypass.store(false,
                                                         std::memory_order_relaxed);
-        const NgxResult result = original(command_list, handle, params, callback);
         LeaveCriticalSection(&g_chain_cs);
-        return result;
+        rr_transaction.Release();
+        return original(command_list, handle, params, callback);
+    }
+    BeginPipelineStatsScopeLocked(feature.generation, g_config.mode);
+    const unsigned long long scoped_carriers =
+        g_pipeline_eligible_carriers.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+    if (scoped_carriers <= 3 || (scoped_carriers % 600) == 0) {
+        const unsigned long long scoped_success =
+            g_pipeline_feature18_success.load(std::memory_order_relaxed);
+        const unsigned long long scoped_attempted =
+            g_pipeline_transfer_attempted.load(std::memory_order_relaxed);
+        const unsigned long long scoped_recorded =
+            g_pipeline_transfer_recorded.load(std::memory_order_relaxed);
+        const unsigned long long scoped_bound =
+            g_pipeline_transfer_bound.load(std::memory_order_relaxed);
+        const unsigned long long scoped_submitted =
+            g_pipeline_transfer_submitted.load(std::memory_order_relaxed);
+        Log("[stats] current contract: generation=%llu mode=%d "
+            "carrier-requests=%llu Feature18-success=%llu "
+            "transfer-prepared=%llu transfer-recorded=%llu "
+            "transfer-bound=%llu transfer-submitted=%llu.",
+            feature.generation, g_config.mode, scoped_carriers,
+            scoped_success, scoped_attempted, scoped_recorded,
+            scoped_bound, scoped_submitted);
     }
     Substitution before_sr = PrepareBeforeSr(
         command_list, handle, params, feature);
     PostSrSubstitution after_sr = PrepareAfterSr(
         command_list, handle, params, feature);
+    if (!before_sr.active && !after_sr.active) {
+        LeaveCriticalSection(&g_chain_cs);
+        rr_transaction.Release();
+        return original(command_list, handle, params, callback);
+    }
+    if (rr_transaction.transaction_aborted() ||
+        g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
+        RestoreSubstitution(before_sr);
+        RestorePostSrParameters(after_sr);
+        Log("Modified Feature 1 transaction was interrupted before native SR "
+            "evaluation by an RR ownership transition; original parameters "
+            "are restored and recorded dependencies are quarantined.");
+        QuarantineAbortedRrTransactionLocked(command_list);
+        LeaveCriticalSection(&g_chain_cs);
+        rr_transaction.Release();
+        return original(command_list, handle, params, callback);
+    }
     NgxResult result = original(command_list, handle, params, callback);
     const bool used_before_sr = before_sr.active;
     const bool used_after_sr = after_sr.active;
+    bool retried_original_color = false;
     RestoreSubstitution(before_sr);
     RestorePostSrParameters(after_sr);
+    if (rr_transaction.transaction_aborted() ||
+        g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
+        Log("Modified Feature 1 transaction aborted after an RR ownership "
+            "transition; substitutions were restored, retry/post-SR work is "
+            "suppressed, and recorded dependencies are quarantined.");
+        QuarantineAbortedRrTransactionLocked(command_list);
+        LeaveCriticalSection(&g_chain_cs);
+        rr_transaction.Release();
+        return result;
+    }
     if (used_before_sr && result != kNgxSuccess &&
         g_config.retry_original_on_sr_failure) {
         Log("%s failed with NR-derived Color: 0x%08X (%s); retrying original Color.",
             FeatureName(feature.feature_id), result, ResultName(result));
         result = original(command_list, handle, params, callback);
+        retried_original_color = true;
         Log("Original-Color %s retry result=0x%08X (%s).",
             FeatureName(feature.feature_id), result, ResultName(result));
+        if (rr_transaction.transaction_aborted() ||
+            g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
+            Log("Feature 1 retry observed an RR ownership transition; "
+                "remaining plugin work is suppressed and dependencies are "
+                "quarantined.");
+            QuarantineAbortedRrTransactionLocked(command_list);
+            LeaveCriticalSection(&g_chain_cs);
+            rr_transaction.Release();
+            return result;
+        }
+    }
+    if (used_before_sr && result == kNgxSuccess &&
+        !retried_original_color) {
+        if (!RecordVisibleTransferLocked(command_list, feature.generation, 2))
+            SetBypassReason(BypassReason::LifecycleIsolation);
     }
     if (used_after_sr) {
         if (result == kNgxSuccess) {
@@ -4762,9 +6152,29 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             result = original(command_list, handle, params, callback);
             Log("Original-Output %s retry result=0x%08X (%s).",
                 FeatureName(feature.feature_id), result, ResultName(result));
+            if (rr_transaction.transaction_aborted() ||
+                g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
+                Log("Feature 1 output retry observed an RR ownership "
+                    "transition; dependencies are quarantined.");
+                QuarantineAbortedRrTransactionLocked(command_list);
+                LeaveCriticalSection(&g_chain_cs);
+                rr_transaction.Release();
+                return result;
+            }
         }
     }
+    if (rr_transaction.transaction_aborted() ||
+        g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
+        Log("RR ownership changed while finalizing the modified Feature 1 "
+            "transaction; recorded dependencies are quarantined and future "
+            "Feature 18 processing is disabled.");
+        QuarantineAbortedRrTransactionLocked(command_list);
+        LeaveCriticalSection(&g_chain_cs);
+        rr_transaction.Release();
+        return result;
+    }
     LeaveCriticalSection(&g_chain_cs);
+    rr_transaction.Release();
     return result;
 }
 
@@ -4773,6 +6183,9 @@ NgxResult DispatchEvaluate(EvaluateFeatureFn original,
                            const NgxHandle *handle, const NgxParams *params,
                            void *callback) {
     if (g_inside_ngx_evaluate) {
+        const FeatureRecord nested_feature = FindFeature(handle);
+        if (nested_feature.feature_id == 13)
+            LatchNestedRrOwnershipChange("Feature 13 Evaluate");
         return original(command_list, handle, params, callback);
     }
     g_inside_ngx_evaluate = true;
@@ -4824,6 +6237,12 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
 NgxResult HookRelease(NgxHandle *handle) {
     const bool outermost = g_release_hook_depth++ == 0;
     const FeatureRecord feature = FindFeature(handle);
+    const bool releasing_rr = outermost && feature.feature_id == 13;
+    ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
+    if (releasing_rr && rr_gate.is_nested())
+        LatchNestedRrOwnershipChange("Feature 13 Release");
+    else if (releasing_rr && rr_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("Feature 13 Release");
     const NgxResult result = g_original_release(handle);
     --g_release_hook_depth;
     if (!outermost) return result;
@@ -4852,6 +6271,12 @@ NgxResult HookRelease(NgxHandle *handle) {
 NgxResult HookCoreRelease(NgxHandle *handle) {
     const bool outermost = g_release_hook_depth++ == 0;
     const FeatureRecord feature = FindFeature(handle);
+    const bool releasing_rr = outermost && feature.feature_id == 13;
+    ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
+    if (releasing_rr && rr_gate.is_nested())
+        LatchNestedRrOwnershipChange("core Feature 13 Release");
+    else if (releasing_rr && rr_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("core Feature 13 Release");
     const NgxResult result = g_original_core_release(handle);
     --g_release_hook_depth;
     if (!outermost) return result;
@@ -4909,6 +6334,10 @@ bool EnsureNativeQueueExecuteHook(reshade::api::command_queue *queue) {
     auto *native_queue = reinterpret_cast<ID3D12CommandQueue *>(
         queue->get_native());
     if (native_queue == nullptr) return false;
+    const D3D12_COMMAND_QUEUE_DESC queue_desc =
+        ID3D12CommandQueue_GetDesc(native_queue);
+    if (queue_desc.Type != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        return true;
     void **vtable = *reinterpret_cast<void ***>(native_queue);
     void *target = vtable != nullptr ? vtable[10] : nullptr;
     if (target == nullptr) return false;
@@ -4955,6 +6384,37 @@ bool EnsureNativeQueueExecuteHook(reshade::api::command_queue *queue) {
         "slot=%zu.", target, index);
     ReleaseSRWLockExclusive(&g_queue_execute_hook_lock);
     return true;
+}
+
+bool IsD3D12GraphicsQueue(reshade::api::command_queue *queue) {
+    return queue != nullptr && queue->get_device() != nullptr &&
+        queue->get_device()->get_api() == reshade::api::device_api::d3d12 &&
+        (queue->get_type() & reshade::api::command_queue_type::graphics) !=
+            static_cast<reshade::api::command_queue_type>(0);
+}
+
+void OnInitCommandQueue(reshade::api::command_queue *queue) {
+    if (!IsD3D12GraphicsQueue(queue)) return;
+    auto *native_queue = reinterpret_cast<ID3D12CommandQueue *>(
+        queue->get_native());
+    EnterCriticalSection(&g_chain_cs);
+    TrackGraphicsQueueLocked(native_queue);
+    LeaveCriticalSection(&g_chain_cs);
+    // Install before the first submission even when F6 is off. This keeps
+    // command-list affinity fresh and lets the first enabled frame fail closed
+    // rather than relying on a stale or absent queue marker.
+    if (!EnsureNativeQueueExecuteHook(queue))
+        Log("Could not install the D3D12 queue observer during queue init; "
+            "Feature 18 will remain fail-closed if lifecycle work appears.");
+}
+
+void OnDestroyCommandQueue(reshade::api::command_queue *queue) {
+    if (!IsD3D12GraphicsQueue(queue)) return;
+    auto *native_queue = reinterpret_cast<ID3D12CommandQueue *>(
+        queue->get_native());
+    EnterCriticalSection(&g_chain_cs);
+    RetireGraphicsQueueLocked(native_queue);
+    LeaveCriticalSection(&g_chain_cs);
 }
 
 bool EnsureNativeCommandListResetHook(
@@ -5022,6 +6482,14 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
         queue->get_device() == nullptr ||
         queue->get_device()->get_api() != reshade::api::device_api::d3d12)
         return;
+    // Observe every native graphics submission, not just lists that already
+    // contain NR work. This is what makes a later queue-affinity decision based
+    // on current evidence even after F6-off intervals.
+    if (!EnsureNativeQueueExecuteHook(queue)) {
+        if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) != 0)
+            MarkLifecycleUncertain("could not install post-submit queue hook");
+        return;
+    }
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0)
         return;
@@ -5034,10 +6502,7 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
     // The ReShade event is before the native submission, so this is the last
     // safe point to install the post-submit proof hook. Do it only for a list
     // that actually contains our GPU work; pure SR never pays this hook cost.
-    if (!EnsureNativeQueueExecuteHook(queue)) {
-        MarkLifecycleUncertain("could not install post-submit queue hook");
-        return;
-    }
+    (void)token;
 }
 
 void OnResetCommandList(reshade::api::command_list *command_list) {
@@ -5064,7 +6529,14 @@ void OnDestroyCommandList(reshade::api::command_list *command_list) {
         return;
     auto *native_command_list = reinterpret_cast<ID3D12GraphicsCommandList *>(
         command_list->get_native());
+    unsigned long long token = 0;
+    ReadLifecycleToken(native_command_list, token);
     EnterCriticalSection(&g_chain_cs);
+    if (token != 0 && QuarantineUnsubmittedLifecycleRecordLocked(
+            token, "destroy")) {
+        LeaveCriticalSection(&g_chain_cs);
+        return;
+    }
     DetachLifecycleCommandListLocked(native_command_list, "destroy");
     CollectRetiredContextsLocked();
     LeaveCriticalSection(&g_chain_cs);
@@ -5274,9 +6746,24 @@ void DrawSettings(reshade::api::effect_runtime *) {
         return kChineseUi ? chinese : english;
     };
 
-    ImGui::SeparatorText(ui("DLSS 5 AI Rendering Upscaling Edition",
-                            "DLSS 5 AI渲染超分版"));
+    ImGui::SeparatorText(ui(
+        "DLSS 5 AI Rendering Upscaling Edition beta0.3",
+        "DLSS 5 AI渲染超分版 beta0.3"));
+    ImGui::TextDisabled(
+        ui("Version %s | Author %s", "版本 %s | 作者 %s"),
+        kAddonVersion, kAddonAuthor);
     changed |= ImGui::Checkbox(ui("Enabled (F6)", "启用（F6）"), &next.enabled);
+    if (g_config_persistence_failed.load(std::memory_order_acquire)) {
+        ImGui::TextWrapped(
+            ui("Warning: nr_before_sr.ini is not writable (Windows error %lu). "
+               "Your choices remain active for this game session but cannot "
+               "be saved. Move the add-on files to a writable ReShade "
+               "add-on folder or fix the file's read-only permission.",
+               "警告：nr_before_sr.ini 无法写入（Windows 错误 %lu）。当前选择在"
+               "本次游戏中仍会生效，但无法保存；请把插件文件放到可写的 "
+               "ReShade 插件目录，或取消该文件的只读权限。"),
+            g_config_persistence_error.load(std::memory_order_relaxed));
+    }
 
     const bool shortfuse_loaded =
         g_shortfuse_loaded.load(std::memory_order_relaxed);
@@ -5323,6 +6810,51 @@ void DrawSettings(reshade::api::effect_runtime *) {
 
     const unsigned long long evaluations =
         g_nr_successful_evaluations.load(std::memory_order_relaxed);
+    const unsigned long long affinity_admitted =
+        g_queue_affinity_admitted_frames.load(std::memory_order_relaxed);
+    const unsigned long long affinity_unknown_bypass =
+        g_queue_affinity_unknown_bypass_frames.load(
+            std::memory_order_relaxed);
+    const unsigned long long affinity_prediction_bypass =
+        g_queue_affinity_prediction_bypass_frames.load(
+            std::memory_order_relaxed);
+    const unsigned long long affinity_actual_mismatch =
+        g_queue_affinity_actual_mismatches.load(std::memory_order_relaxed);
+    const unsigned int live_graphics_queues =
+        g_live_graphics_queue_count.load(std::memory_order_relaxed);
+    const unsigned long long queue_contract_bypasses =
+        g_queue_contract_bypass_frames.load(std::memory_order_relaxed);
+    const unsigned long long replay_detections =
+        g_command_list_replay_detections.load(std::memory_order_relaxed);
+    const unsigned long long duplicate_list_detections =
+        g_duplicate_execute_list_detections.load(std::memory_order_relaxed);
+    unsigned long long scoped_epoch = 0;
+    unsigned long long scoped_generation = 0;
+    int scoped_mode = 0;
+    unsigned long long scoped_carriers = 0;
+    unsigned long long scoped_success = 0;
+    unsigned long long scoped_attempted = 0;
+    unsigned long long scoped_recorded = 0;
+    unsigned long long scoped_bound = 0;
+    unsigned long long scoped_submitted = 0;
+    EnterCriticalSection(&g_chain_cs);
+    scoped_epoch = g_pipeline_stats_epoch.load(std::memory_order_relaxed);
+    scoped_generation =
+        g_pipeline_stats_generation.load(std::memory_order_relaxed);
+    scoped_mode = g_pipeline_stats_mode.load(std::memory_order_relaxed);
+    scoped_carriers =
+        g_pipeline_eligible_carriers.load(std::memory_order_relaxed);
+    scoped_success =
+        g_pipeline_feature18_success.load(std::memory_order_relaxed);
+    scoped_attempted =
+        g_pipeline_transfer_attempted.load(std::memory_order_relaxed);
+    scoped_recorded =
+        g_pipeline_transfer_recorded.load(std::memory_order_relaxed);
+    scoped_bound =
+        g_pipeline_transfer_bound.load(std::memory_order_relaxed);
+    scoped_submitted =
+        g_pipeline_transfer_submitted.load(std::memory_order_relaxed);
+    LeaveCriticalSection(&g_chain_cs);
     const unsigned int width = g_last_nr_width.load(std::memory_order_relaxed);
     const unsigned int height = g_last_nr_height.load(std::memory_order_relaxed);
     const unsigned int input_width =
@@ -5339,7 +6871,9 @@ void DrawSettings(reshade::api::effect_runtime *) {
         g_last_carrier_feature.load(std::memory_order_relaxed);
     const unsigned int live_rr_handles =
         g_live_rr_handles.load(std::memory_order_relaxed);
-    const bool rr_protected = carrier_feature == 13 || live_rr_handles != 0;
+    const bool rr_protected = carrier_feature == 13 ||
+        live_rr_handles != 0 ||
+        g_rr_guard_was_active.load(std::memory_order_relaxed);
     const bool pre_sr_runtime_rejected =
         g_pre_sr_runtime_rejected.load(std::memory_order_relaxed);
     const bool post_sr_runtime_rejected =
@@ -5364,23 +6898,44 @@ void DrawSettings(reshade::api::effect_runtime *) {
         g_nr_failed_create_process_latched.load(std::memory_order_relaxed);
     const unsigned long long lifecycle_safe_bypasses =
         g_lifecycle_safe_bypass_frames.load(std::memory_order_relaxed);
-    const unsigned long long transferred_frames =
-        g_nr_transferred_frames.load(std::memory_order_relaxed);
+    const unsigned long long recorded_transfer_frames =
+        g_nr_transfer_recorded_frames.load(std::memory_order_relaxed);
+    const unsigned long long bound_transfer_frames =
+        g_nr_transfer_bound_frames.load(std::memory_order_relaxed);
+    const unsigned long long submitted_transfer_frames =
+        g_nr_transfer_submitted_frames.load(std::memory_order_relaxed);
     const unsigned long long identity_frames =
         g_nr_identity_or_warmup_frames.load(std::memory_order_relaxed);
-    const unsigned long long delta_sampled_frames =
-        g_nr_delta_sampled_frames.load(std::memory_order_relaxed);
     const unsigned long long delta_near_zero_frames =
         g_nr_delta_near_zero_frames.load(std::memory_order_relaxed);
     const unsigned long long delta_visible_frames =
         g_nr_delta_visible_frames.load(std::memory_order_relaxed);
-    const float last_sampled_delta =
-        g_last_sampled_nr_delta.load(std::memory_order_relaxed);
+    float sampled_exposure_scale = 1.0f;
+    float last_sampled_delta = 0.0f;
+    float last_sampled_final_delta = 0.0f;
+    float last_sampled_final_mean_delta = 0.0f;
+    unsigned int last_sampled_final_changed = 0;
+    unsigned long long diagnostic_serial = 0;
     float diagnostic_r[kDiagnosticStageCount] = {};
     float diagnostic_g[kDiagnosticStageCount] = {};
     float diagnostic_b[kDiagnosticStageCount] = {};
     float diagnostic_luma[kDiagnosticStageCount] = {};
     std::uint32_t diagnostic_hash[kDiagnosticStageCount] = {};
+    unsigned int diagnostic_sample_count = 0;
+    unsigned int diagnostic_invalid_count = 0;
+    AcquireSRWLockShared(&g_diagnostic_snapshot_lock);
+    sampled_exposure_scale =
+        g_last_sampled_exposure_scale.load(std::memory_order_relaxed);
+    last_sampled_delta =
+        g_last_sampled_nr_delta.load(std::memory_order_relaxed);
+    last_sampled_final_delta =
+        g_last_sampled_final_delta.load(std::memory_order_relaxed);
+    last_sampled_final_mean_delta =
+        g_last_sampled_final_mean_delta.load(std::memory_order_relaxed);
+    last_sampled_final_changed =
+        g_last_sampled_final_changed.load(std::memory_order_relaxed);
+    diagnostic_serial =
+        g_last_diagnostic_serial.load(std::memory_order_relaxed);
     for (unsigned int stage = 0; stage < kDiagnosticStageCount; ++stage) {
         diagnostic_r[stage] =
             g_last_diagnostic_r[stage].load(std::memory_order_relaxed);
@@ -5393,10 +6948,11 @@ void DrawSettings(reshade::api::effect_runtime *) {
         diagnostic_hash[stage] =
             g_last_diagnostic_hash[stage].load(std::memory_order_relaxed);
     }
-    const unsigned int diagnostic_sample_count =
+    diagnostic_sample_count =
         g_last_diagnostic_sample_count.load(std::memory_order_relaxed);
-    const unsigned int diagnostic_invalid_count =
+    diagnostic_invalid_count =
         g_last_diagnostic_invalid_count.load(std::memory_order_relaxed);
+    ReleaseSRWLockShared(&g_diagnostic_snapshot_lock);
     const bool safety_tracking_uncertain =
         g_feature_tracking_uncertain.load(std::memory_order_relaxed) ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_relaxed) ||
@@ -5412,8 +6968,8 @@ void DrawSettings(reshade::api::effect_runtime *) {
     }
     if (rr_protected) {
         ImGui::Text("%s", ui(
-            "Active game path: Ray Reconstruction (Feature 13, protected pass-through)",
-            "当前游戏链路：光线重构（Feature 13，受保护原样旁路）"));
+            "Protected game path: Ray Reconstruction ownership (Feature 13 pass-through)",
+            "受保护游戏链路：光线重构所有权（Feature 13 原样旁路）"));
     } else if (carrier_feature == 1) {
         ImGui::Text("%s", ui(
             "Active game path: DLSS Super Resolution (Feature 1)",
@@ -5422,6 +6978,12 @@ void DrawSettings(reshade::api::effect_runtime *) {
         ImGui::TextDisabled("%s", ui(
             "Active game path: waiting for DLSS Super Resolution",
             "当前游戏链路：等待 DLSS 超分"));
+    }
+    if (live_rr_handles != 0) {
+        ImGui::TextDisabled(
+            ui("Live RR handle(s): %u. Safety bypass remains until explicit Release or restart.",
+               "存活 RR 句柄：%u 个；在游戏明确 Release 或重启前持续安全旁路。"),
+            live_rr_handles);
     }
     if (shortfuse_nr_enabled) {
         ImGui::Text("%s", ui("Status: ShortFuse NR owns this frame",
@@ -5448,18 +7010,28 @@ void DrawSettings(reshade::api::effect_runtime *) {
             "SR。请重启游戏；反馈时请附上 nr-before-sr.log。"));
     } else if (rr_protected) {
         ImGui::TextWrapped("%s", ui(
-            "Status: game Ray Reconstruction is active and is left completely "
-            "untouched. Disable RR in the game to use this add-on's SR -> NR "
-            "or NR -> SR modes.",
-            "状态：游戏光线重构正在运行，本插件完全不改写该链路。若要使用"
-            "本插件的 SR -> NR 或 NR -> SR，请先在游戏内关闭光线重构。"));
+            "Status: Ray Reconstruction owns this process and is left completely "
+            "untouched. Disable RR in-game; if the title retains its Feature 13 "
+            "handle, restart once with RR already off to use SR -> NR or NR -> SR.",
+            "状态：光线重构当前拥有本进程链路，本插件完全不改写。若要使用 "
+            "SR -> NR 或 NR -> SR，请先在游戏内关闭 RR；若游戏仍保留 "
+            "Feature 13 句柄，请在 RR 已关闭的状态下重启一次。"));
     } else if (unverified_exposure_texture_bypass) {
         ImGui::TextWrapped("%s", ui(
-            "Status: HDR ExposureTexture is present, but its Feature 18 "
-            "contract is not verified. The add-on is preserving the game's "
-            "original SR to prevent an exposure or colour shift.",
-            "状态：检测到 HDR ExposureTexture，但其 Feature 18 合同尚未验证。"
-            "为避免曝光或颜色偏移，本插件已保留游戏原始 SR。"));
+            "Status: the live ExposureTexture is not a supported 1x1 "
+            "exposure-scale shader-load contract. The add-on is preserving "
+            "the game's original SR to prevent an exposure or colour shift.",
+            "状态：当前 ExposureTexture 不符合受支持的 1x1 曝光缩放 shader-load "
+             "合同。为避免曝光或颜色偏移，本插件已保留游戏原始 SR。"));
+    } else if (bypass_reason == BypassReason::QueueAffinityUnverified) {
+        ImGui::TextWrapped(
+            ui("Status: this command list has not yet proved two stable "
+               "submissions on one D3D12 graphics queue, or it has migrated. "
+               "Native SR is kept (live queues %u, bypass count %llu).",
+               "状态：当前命令列表尚未证明在同一 D3D12 图形队列稳定提交两次，"
+               "或已发生过队列迁移；本帧保留原生 SR（存活队列 %u，累计旁路 "
+               "%llu 帧）。"),
+            live_graphics_queues, queue_contract_bypasses);
     } else if (bypass_reason == BypassReason::LifecycleIsolation) {
         ImGui::TextWrapped(
             ui("Status: this frame kept native SR because the Feature 18 "
@@ -5527,10 +7099,43 @@ void DrawSettings(reshade::api::effect_runtime *) {
             "后置 R11 原生快照 -> FP16 NR -> R11 typed 写回已启用。"));
     }
     ImGui::TextDisabled(
-        ui("NR transfer frames: %llu | native/warm-up frames: %llu",
-           "NR 合成帧：%llu | 原生 / 预热帧：%llu"),
-        transferred_frames, identity_frames);
-    if (delta_sampled_frames == 0) {
+        ui("NR transfer recorded/bound/submitted: %llu/%llu/%llu | "
+           "native/warm-up: %llu",
+           "NR 合成已记录 / 已绑定 / 已提交：%llu / %llu / %llu | "
+           "原生 / 预热：%llu"),
+        recorded_transfer_frames, bound_transfer_frames,
+        submitted_transfer_frames, identity_frames);
+    if (scoped_carriers != 0) {
+        const double success_ratio =
+            100.0 * static_cast<double>(scoped_success) /
+            static_cast<double>(scoped_carriers);
+        ImGui::TextDisabled(
+            ui("Current contract epoch %llu gen %llu mode %d: Feature 18 success/request "
+               "%.2f%% (%llu/%llu)",
+               "当前合同 epoch %llu、generation %llu、模式 %d：Feature 18 成功 / 请求 "
+               "%.2f%%（%llu/%llu）"),
+            scoped_epoch, scoped_generation, scoped_mode, success_ratio,
+            scoped_success, scoped_carriers);
+        ImGui::TextDisabled(
+            ui("Transfer prepared/recorded/bound/submitted: %llu/%llu/%llu/%llu | "
+               "same-queue admitted: %llu",
+               "合成准备 / 已记录 / 已绑定 / 已提交：%llu / %llu / %llu / %llu | "
+               "同队列连续放行：%llu"),
+            scoped_attempted, scoped_recorded, scoped_bound, scoped_submitted,
+            affinity_admitted);
+        ImGui::TextDisabled(
+            ui("Queue-affinity bypass: unknown %llu, predicted change %llu | "
+               "actual mismatch: %llu",
+               "队列亲和旁路：未知 %llu，预测切换 %llu | 实际不匹配：%llu"),
+            affinity_unknown_bypass, affinity_prediction_bypass,
+            affinity_actual_mismatch);
+        ImGui::TextDisabled(
+            ui("Live graphics queues: %u | replay/duplicate detections: %llu/%llu",
+               "存活图形队列：%u | 重复提交 / 同批重复列表：%llu / %llu"),
+            live_graphics_queues, replay_detections,
+            duplicate_list_detections);
+    }
+    if (diagnostic_serial == 0) {
         ImGui::TextDisabled("%s", ui(
             "Sampled NR delta: waiting for a completed GPU sample",
             "NR 差值采样：等待完成的 GPU 样本"));
@@ -5540,6 +7145,12 @@ void DrawSettings(reshade::api::effect_runtime *) {
                "NR 差值采样：最近最大 %.6f | 接近零 %llu | 有效 %llu"),
             static_cast<double>(last_sampled_delta),
             delta_near_zero_frames, delta_visible_frames);
+        ImGui::TextDisabled(
+            ui("Final - original: max/mean relative delta %.6f / %.6f | changed samples %u",
+               "最终结果 - 原图：最大/平均相对差值 %.6f / %.6f | 变化样本 %u"),
+            static_cast<double>(last_sampled_final_delta),
+            static_cast<double>(last_sampled_final_mean_delta),
+            last_sampled_final_changed);
         static const char *const diagnostic_stage_names_en[] = {
             "Original", "NR proxy", "NR output", "Composited"};
         static const char *const diagnostic_stage_names_zh[] = {
@@ -5547,9 +7158,10 @@ void DrawSettings(reshade::api::effect_runtime *) {
         const char *const *diagnostic_stage_names = kChineseUi
             ? diagnostic_stage_names_zh : diagnostic_stage_names_en;
         ImGui::TextDisabled(
-            ui("ColorDiag (bounded display-linear): %u samples, %u invalid",
-               "颜色诊断（有界显示线性域）：%u 个样本，%u 个无效样本"),
-            diagnostic_sample_count, diagnostic_invalid_count);
+            ui("ColorDiag #%llu (bounded display-linear): %u samples, %u invalid",
+               "颜色诊断 #%llu（有界显示线性域）：%u 个样本，%u 个无效样本"),
+            diagnostic_serial, diagnostic_sample_count,
+            diagnostic_invalid_count);
         for (unsigned int stage = 0; stage < kDiagnosticStageCount; ++stage) {
             ImGui::TextDisabled(
                 "%s  RGB %.4f / %.4f / %.4f  Y %.4f  #%08X",
@@ -5564,11 +7176,17 @@ void DrawSettings(reshade::api::effect_runtime *) {
     ImGui::TextDisabled(
         ui("HDR exposure contract: PreExposure %.3f, ExposureScale %.3f, "
            "source -> canonical %.3f%s",
-           "HDR 曝光合同：预曝光 %.3f，曝光缩放 %.3f，源 -> 标准 %.3f%s"),
+           "HDR 曝光合同：预曝光 %.3f，标量曝光缩放 %.3f，源 -> 标准 %.3f%s"),
         pre_exposure, exposure_scale, source_to_canonical,
         exposure_texture_present
-            ? ui(" (exposure texture observed)", "（检测到曝光纹理）")
+            ? ui(" (live 1x1 exposure sampled)", "（已采样实时 1x1 曝光纹理）")
             : "");
+    if (exposure_texture_present && diagnostic_serial != 0) {
+        ImGui::TextDisabled(
+            ui("Live ExposureTexture red channel: %.3f",
+               "实时 ExposureTexture 红通道：%.3f"),
+            sampled_exposure_scale);
+    }
     ImGui::TextDisabled(
         "%s", ui(
             "NR changes image detail by design. F6 off is the pure-SR "
@@ -5618,8 +7236,10 @@ void DrawSettings(reshade::api::effect_runtime *) {
     ImGui::TextDisabled(
         "%s", ui(
             "0 keeps the game's hue while retaining NR luminance detail; 1 "
-            "also follows the model's color. Use 0 for the closest cross-mode match.",
-            "0 保留游戏原始色相并保留 NR 明暗细节；1 同时跟随模型颜色。要让两条链路最接近请用 0。"));
+            "also follows the model's color. Unknown HDR gamut is forced to 0 "
+            "for safety; chroma follow is enabled only by a verified color contract.",
+            "0 保留游戏原始色相并保留 NR 明暗细节；1 同时跟随模型颜色。未知 HDR "
+            "色域会为安全强制按 0 处理，只有已验证颜色合同时才启用色彩跟随。"));
     changed |= ImGui::Checkbox(
         ui("Experimental Lighting Match (NR -> SR)",
            "实验性光照匹配（NR -> SR）"),
@@ -5715,14 +7335,14 @@ void DrawSettings(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI渲染超分版@野生的装机宅bilibili";
+    "DLSS 5 AI渲染超分版 beta0.3 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
     "三种风格和实时画质调节，输入分辨率严格跟随游戏 DLSS 挡位；检测到"
     "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Upscaling Edition @野生的装机宅bilibili";
+    "DLSS 5 AI Rendering Upscaling Edition beta0.3 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Switches between output-resolution NR after Super Resolution and "
     "render-resolution NR before Super Resolution. Includes an F6 master "
@@ -5730,6 +7350,8 @@ extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "strictly follows the in-game DLSS quality mode. DLSS Ray Reconstruction "
     "is detected and passed through strictly unmodified to prevent double reconstruction.";
 #endif
+extern "C" __declspec(dllexport) const char *AUTHOR =
+    "@野生的装机宅 Bilibili";
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
     if (reason == DLL_PROCESS_ATTACH) {
@@ -5739,13 +7361,33 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         SetSiblingPath(module, L"nr_before_sr.ini", g_ini_path);
         SetSiblingPath(module, L"ReShade.ini", g_reshade_ini_path);
         TruncateLog();
-        Log("DLSS 5 AI Rendering Upscaling Edition attached (language=%s build %s %s)",
-            kChineseUi ? "zh-CN" : "en", __DATE__, __TIME__);
+        wchar_t addon_path[32768] = {};
+        const DWORD addon_path_length = GetModuleFileNameW(
+            module, addon_path, static_cast<DWORD>(std::size(addon_path)));
+        const bool addon_path_complete = addon_path_length != 0 &&
+            addon_path_length < std::size(addon_path) - 1;
+        addon_path[std::size(addon_path) - 1] = L'\0';
+        const wchar_t *addon_leaf = wcsrchr(addon_path, L'\\');
+        addon_leaf = addon_leaf != nullptr ? addon_leaf + 1 : addon_path;
+        char addon_leaf_utf8[MAX_PATH * 4] = {};
+        if (addon_path_complete)
+            WideToUtf8(addon_leaf, addon_leaf_utf8, sizeof(addon_leaf_utf8));
+        else
+            snprintf(addon_leaf_utf8, sizeof(addon_leaf_utf8), "%s",
+                     "<module-path-unavailable-or-truncated>");
+        Log("DLSS 5 AI Rendering Upscaling Edition %s attached | author=%s | "
+            "language=%s | file=%s | build=%s %s",
+            kAddonVersion, kAddonAuthor, kChineseUi ? "zh-CN" : "en",
+            addon_leaf_utf8, __DATE__, __TIME__);
         ReloadConfig(true);
         if (!reshade::register_addon(module)) {
             Log("ReShade add-on registration failed.");
             return FALSE;
         }
+        reshade::register_event<reshade::addon_event::init_command_queue>(
+            OnInitCommandQueue);
+        reshade::register_event<reshade::addon_event::destroy_command_queue>(
+            OnDestroyCommandQueue);
         reshade::register_event<reshade::addon_event::execute_command_list>(
             OnExecuteCommandList);
         reshade::register_event<reshade::addon_event::reset_command_list>(
@@ -5767,6 +7409,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
                 OnResetCommandList);
             reshade::unregister_event<reshade::addon_event::execute_command_list>(
                 OnExecuteCommandList);
+            reshade::unregister_event<reshade::addon_event::destroy_command_queue>(
+                OnDestroyCommandQueue);
+            reshade::unregister_event<reshade::addon_event::init_command_queue>(
+                OnInitCommandQueue);
             reshade::unregister_addon(module);
             return FALSE;
         }
@@ -5780,6 +7426,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnResetCommandList);
         reshade::unregister_event<reshade::addon_event::execute_command_list>(
             OnExecuteCommandList);
+        reshade::unregister_event<reshade::addon_event::destroy_command_queue>(
+            OnDestroyCommandQueue);
+        reshade::unregister_event<reshade::addon_event::init_command_queue>(
+            OnInitCommandQueue);
         reshade::unregister_addon(module);
     }
     return TRUE;

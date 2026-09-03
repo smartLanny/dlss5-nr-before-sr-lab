@@ -2,12 +2,21 @@
 
 ## Exposure texture contract
 
-The current code reads scalar `DLSS.Pre.Exposure` and `DLSS.Exposure.Scale` and
-records whether `ExposureTexture` exists. It does not sample the exposure
-texture. A title that supplies an exposure texture is failed closed to native SR
-instead of being adapted from incomplete scalar information. Dynamic exposure
-sourced from texture content is not represented in the current history-reset
-policy.
+The codec accepts a live `ExposureTexture` only when its runtime resource
+contract is a shader-loadable 1x1 Texture2D in the DirectSR exposure-scale
+format family. Its red channel is
+sampled in both encode and combine on the same game command list and is divided
+by `DLSS.Pre.Exposure`; the Feature 18 parameter block itself receives neutral
+exposure values so the transform is not applied twice. Dimensions, formats, or
+view capabilities outside that contract fail closed to native SR.
+
+The sparse diagnostic readback records the sampled red-channel value, but it is
+fence-delayed. A change larger than 0.5 EV schedules a history reset for the
+next matching Feature 18 evaluation; it cannot reset the same frame in which
+the GPU first observes the new value. Scalar exposure/contract changes still
+use the immediate reset policy. This path also
+does not identify an engine's primaries, gamut, transfer, or private working
+space; those remain separate HDR-admission questions.
 
 ## Active extents and dynamic resolution
 
@@ -24,12 +33,31 @@ native SR. Current retirement tracks marked command lists through the real
 queue submission. The native submit hook pins the matching slot before the real
 `ExecuteCommandLists` call, then signals a private fence on that same submitting
 queue before allowing descriptor rebinding or object destruction. Feature 18's
-context is tracked with the slots: same-queue work may remain ordered without a
-stall, but an unresolved queue change is not bridged with a private GPU Wait and
-is failed closed. A failed signal, an unprovable hook state, or an ambiguous
+context is tracked with the slots: several recorded command lists may overlap
+when each list's last observed native queue matches the context queue. The
+actual queue is checked again at submission. A new/unknown list first remains
+native to establish affinity; an unresolved queue change is not bridged with a
+private GPU Wait and is failed closed. A failed signal, an unprovable hook state,
+or an ambiguous
 submission is conservatively quarantined until process exit. This still needs current-build
 stress testing with repeated command-list submits, resets, feature recreation,
 resolution changes, and multiple queues.
+
+The pre-recording queue signal is historical affinity, not a formal promise from
+D3D12. Submitting an already-recorded list concurrently or moving it to another
+queue remains an architectural boundary: the actual queue is known only at
+`ExecuteCommandLists`, and fail-closed detection cannot remove Feature 18
+commands already in that list. The candidate quarantines future work and reports
+the mismatch. A universal solution requires independently recorded plugin
+command lists or a proven queue/ownership contract.
+
+Accordingly, this candidate requires a title to reset/re-record the temporal
+DLSS command list and to keep that list on one stable D3D12 direct queue. The
+first observations remain native while affinity is established. Replaying a
+closed list containing temporal Feature 18 work without a successful Reset, or
+submitting it on a different queue, is unsupported and latches lifecycle
+isolation. This precondition is why the build remains a candidate even after
+source/static qualification.
 
 ## Motion vectors and depth
 
@@ -47,7 +75,13 @@ legitimately use independent active extents.
 The HDR proxy applies exposure normalization, a highlight shoulder, proportional
 peak scaling, and an sRGB model-input encoding. Composition grafts the neural
 delta back onto the original HDR image and has an explicit identity path when the
-neural result equals the proxy.
+neural result equals the proxy. Proxy-domain changes are transferred as a
+relative residual around proxy luminance rather than through either a fixed
+gain cap or a full inverse shoulder. This keeps the result responsive when
+PreExposure makes the canonical source much larger than the proxy, without
+introducing the inverse transform's near-white singularity. It remains an
+approximation when the model changes strongly saturated clipped channels, and
+the final luminance ratio is still bounded by `MaxLumaRatio`.
 
 Shader-level identity does not by itself prove end-to-end identity. In particular,
 `R11G11B10_FLOAT` SceneColor is expanded to FP16 before substitution, and the
@@ -83,11 +117,22 @@ runtime is distributed here.
 ## Ray Reconstruction
 
 Ray Reconstruction (feature 13) is intentionally unsupported as a carrier for an
-additional Feature 18 pass. The correct behavior while RR is active is little or
-no visual change from this add-on because the RR path is passed through. Live RR
-handles and an RR-create-in-progress guard bypass companion feature-1 work; an
-ambiguous or overflowing ownership table fails closed. This is coexistence by
-exclusion, not a joint RR + NR -> SR implementation.
+additional Feature 18 pass. The correct behavior while RR owns a live handle is
+little or no visual change from this add-on because the RR path is passed
+through. Live RR handles and an RR-create-in-progress guard bypass companion
+feature-1 work; an ambiguous or overflowing ownership table fails closed. Some
+engines retain a feature-13 handle after their visible RR setting is disabled.
+Those processes remain bypassed until explicit Release or restart rather than
+using a racy timeout/dormancy guess. This is coexistence by exclusion, not a
+joint RR + NR -> SR implementation.
+
+Feature 13 Create/Release is serialized against the modified Feature 1 interval
+with a nonblocking ownership gate. A recursive Feature 13 Evaluate discovered
+only after render-resolution Feature 18 commands were already recorded causes
+the transaction to restore parameters, quarantine that command-list dependency
+and disable future processing. It cannot retroactively erase those commands;
+the strict zero-Feature-18 guarantee therefore starts once RR ownership has been
+observed, and the transition frame remains an explicit stress-test target.
 
 ## Mode 1 command-list state
 
