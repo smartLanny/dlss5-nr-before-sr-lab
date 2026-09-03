@@ -1,8 +1,232 @@
-Exception: D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\scripts\build.ps1:36
-Line |
-  36 |          throw "Required build input missing: $Required"
-     |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-     | Required build input missing:
-     | D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\deps\imgui\imgui.h
-
-
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\src\nr_before_sr.cpp:26:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_events.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:27:
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_format.hpp:471:9: warning: 'const' type qualifier on return type has no effect [-Wignored-qualifiers]
+  471 |         inline const uint32_t format_bit_depth(format value)
+      |                ^~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_format.hpp:517:9: warning: 'const' type qualifier on return type has no effect [-Wignored-qualifiers]
+  517 |         inline const uint32_t format_row_pitch(format value, uint32_t width)
+      |                ^~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_format.hpp:555:9: warning: 'const' type qualifier on return type has no effect [-Wignored-qualifiers]
+  555 |         inline const uint32_t format_slice_pitch(format value, uint32_t row_pitch, uint32_t height)
+      |                ^~~~~
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\src\nr_before_sr.cpp:26:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_events.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:8:
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:311:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  311 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:330:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  330 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:295:47: warning: missing field 'structured' initializer [-Wmissing-field-initializers]
+  295 |                         type(resource_type::buffer), buffer({ size }), heap(heap), usage(usage), flags(flags) {}
+      |                                                                    ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:461:6: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  461 |                                         struct
+      |                                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:443:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  443 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:478:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  478 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:418:71: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+  418 |                         type(resource_view_type::buffer), format(format), buffer({ offset, size }) {}
+      |                                                                                            ^~~~
+      |                                                                                            {   }
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:422:49: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+  422 |                         type(type), format(format), buffer({ offset, size }) {}
+      |                                                                      ^~~~
+      |                                                                      {   }
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:746:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  746 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:766:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  766 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:777:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  777 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:732:487: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+  732 |                 constexpr acceleration_structure_build_input(resource vertex_buffer, uint64_t vertex_offset, uint32_t vertex_count, uint64_t vertex_stride, format vertex_format, resource index_buffer, uint64_t index_offset, uint32_t index_count, format index_format, uint64_t transform_address = 0) : type(acceleration_structure_build_input_type::triangles), triangles({ vertex_buffer, vertex_offset, vertex_count, vertex_stride, vertex_format, index_buffer, index_offset, index_count, index_format, transform_address }) {}
+      |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     ^~~~~~~~~~~~~~~~~
+      |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     {                }
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\src\nr_before_sr.cpp:26:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_events.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:8:
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:268:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  268 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:277:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  277 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:517:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  517 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:529:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  529 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:541:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  541 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:566:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  566 |                         struct
+      |                         ^
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\src\nr_before_sr.cpp:26:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_events.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api.hpp:8:
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:264:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+  264 |         struct __declspec(novtable) api_object
+      |                           ^~~~~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:327:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+  327 |         struct __declspec(novtable) device : public api_object
+      |                           ^~~~~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:659:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+  659 |         struct __declspec(novtable) device_object : public api_object
+      |                           ^~~~~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:688:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+  688 |         struct __declspec(novtable) command_list : public device_object
+      |                           ^~~~~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:1213:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+ 1213 |         struct __declspec(novtable) command_queue : public device_object
+      |                           ^~~~~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:1335:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+ 1335 |         struct __declspec(novtable) swapchain : public device_object
+      |                           ^~~~~~~~
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\src\nr_before_sr.cpp:26:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_events.hpp:8:
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api.hpp:50:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+   50 |         struct __declspec(novtable) effect_runtime : public device_object
+      |                           ^~~~~~~~
+28 warnings generated.
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\src\nr_before_sr.cpp:26:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_events.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:27:
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_format.hpp:471:9: warning: 'const' type qualifier on return type has no effect [-Wignored-qualifiers]
+  471 |         inline const uint32_t format_bit_depth(format value)
+      |                ^~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_format.hpp:517:9: warning: 'const' type qualifier on return type has no effect [-Wignored-qualifiers]
+  517 |         inline const uint32_t format_row_pitch(format value, uint32_t width)
+      |                ^~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_format.hpp:555:9: warning: 'const' type qualifier on return type has no effect [-Wignored-qualifiers]
+  555 |         inline const uint32_t format_slice_pitch(format value, uint32_t row_pitch, uint32_t height)
+      |                ^~~~~
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\src\nr_before_sr.cpp:26:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_events.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:8:
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:311:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  311 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:330:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  330 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:295:47: warning: missing field 'structured' initializer [-Wmissing-field-initializers]
+  295 |                         type(resource_type::buffer), buffer({ size }), heap(heap), usage(usage), flags(flags) {}
+      |                                                                    ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:461:6: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  461 |                                         struct
+      |                                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:443:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  443 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:478:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  478 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:418:71: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+  418 |                         type(resource_view_type::buffer), format(format), buffer({ offset, size }) {}
+      |                                                                                            ^~~~
+      |                                                                                            {   }
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:422:49: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+  422 |                         type(type), format(format), buffer({ offset, size }) {}
+      |                                                                      ^~~~
+      |                                                                      {   }
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:746:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  746 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:766:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  766 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:777:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  777 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_resource.hpp:732:487: warning: suggest braces around initialization of subobject [-Wmissing-braces]
+  732 |                 constexpr acceleration_structure_build_input(resource vertex_buffer, uint64_t vertex_offset, uint32_t vertex_count, uint64_t vertex_stride, format vertex_format, resource index_buffer, uint64_t index_offset, uint32_t index_count, format index_format, uint64_t transform_address = 0) : type(acceleration_structure_build_input_type::triangles), triangles({ vertex_buffer, vertex_offset, vertex_count, vertex_stride, vertex_format, index_buffer, index_offset, index_count, index_format, transform_address }) {}
+      |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     ^~~~~~~~~~~~~~~~~
+      |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     {                }
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\src\nr_before_sr.cpp:26:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_events.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:8:
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:268:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  268 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:277:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  277 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:517:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  517 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:529:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  529 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:541:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  541 |                         struct
+      |                         ^
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_pipeline.hpp:566:4: warning: anonymous types declared in an anonymous union are an extension [-Wnested-anon-types]
+  566 |                         struct
+      |                         ^
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\src\nr_before_sr.cpp:26:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_events.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api.hpp:8:
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:264:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+  264 |         struct __declspec(novtable) api_object
+      |                           ^~~~~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:327:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+  327 |         struct __declspec(novtable) device : public api_object
+      |                           ^~~~~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:659:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+  659 |         struct __declspec(novtable) device_object : public api_object
+      |                           ^~~~~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:688:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+  688 |         struct __declspec(novtable) command_list : public device_object
+      |                           ^~~~~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:1213:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+ 1213 |         struct __declspec(novtable) command_queue : public device_object
+      |                           ^~~~~~~~
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api_device.hpp:1335:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+ 1335 |         struct __declspec(novtable) swapchain : public device_object
+      |                           ^~~~~~~~
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\src\nr_before_sr.cpp:26:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade.hpp:8:
+In file included from D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_events.hpp:8:
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\reshade-source\include/reshade_api.hpp:50:20: warning: unknown attribute 'novtable' ignored [-Wunknown-attributes]
+   50 |         struct __declspec(novtable) effect_runtime : public device_object
+      |                           ^~~~~~~~
+28 warnings generated.
+Built: D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\build\DLSS5-AI-Rendering-Upscaling-beta0.4-perfect-chain-r1-@野生的装机宅-Bilibili.en.addon64
+SHA256: 1391C5A020CA95CCF93628FF56D5771F6E92DBB8B46BD5E055BC434BA75F6EBF
+Built: D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\build\DLSS5-AI渲染超分版-beta0.4-perfect-chain-r1-@野生的装机宅-Bilibili.addon64
+SHA256: A0581D9AFB9A0F2EDB773BCA0B13DBAECD7D1ADFB91DBDF97554312189F071E9
+Built: D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\build\nrchain_nvngx.dll
+SHA256: 46041A5FF91AE2FD907E310D132AABC3C4A1ECD48DACE511B8672909D5D9C2FB
