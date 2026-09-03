@@ -39,7 +39,10 @@ harness = r'''
 #include "nr_guide_contract.h"
 TUNING
 IDENTITY
-struct Config { unsigned warmup_after_create=2; } g_config;
+struct Config {
+    unsigned warmup_after_create=2;
+    bool suppress_reset_frame=true;
+} g_config;
 std::atomic<unsigned> g_config_generation{7};
 unsigned long long g_next_nr_frame_id=0;
 NrDiagnosticIdentity g_applied_nr_identity{};
@@ -54,6 +57,7 @@ struct NrContext {
 };
 struct NrSlot {
     bool delta_stats_capture_armed=true;
+    bool suppress_transfer_this_frame=false;
     NrDiagnosticIdentity diagnostic_identity{};
     struct { bool armed=true; struct { NrDiagnosticIdentity identity{}; } info; } stage_capture;
 };
@@ -82,10 +86,15 @@ bool PostComplete(NrContext& context,NrSlot& slot,unsigned evaluated) {
 }
 struct NgxParams { int reset_value=-1; };
 void SetInt(NgxParams* params,const char*,int value) { params->reset_value=value; }
-int BindReset(NrContext& context,bool config_changed,bool color_contract_reset=false,bool guide_reset=false) {
+int BindReset(NrContext& context,bool config_changed,bool color_contract_reset=false,
+              bool guide_reset=false,bool* suppressed=nullptr) {
     bool reset=false; int game_reset=0;
+    const bool history_changed=config_changed;
+    NrSlot slot{};
     NgxParams block{}; NgxParams* params=&block;
     RESET_BINDING
+    if (suppressed != nullptr)
+        *suppressed=slot.suppress_transfer_this_frame;
     return block.reset_value;
 }
 int failures=0;
@@ -93,7 +102,14 @@ void check(bool ok,const char* label) { if(!ok) { ++failures; std::printf("FAIL:
 int main() {
     NrContext a{}; NrSlot slot{};
     a.tuning_signature.style=1; a.tuning_signature.intensity=1;
-    check(BindReset(a,true)==1,"config transition requests reset");
+    bool suppressed=false;
+    check(BindReset(a,true,false,false,&suppressed)==1,"history transition requests reset");
+    check(suppressed,"reset frame suppresses visible V2 correction by default");
+    g_config.suppress_reset_frame=false;
+    suppressed=true;
+    check(BindReset(a,true,false,false,&suppressed)==1 && !suppressed,
+          "reset suppression can be explicitly disabled");
+    g_config.suppress_reset_frame=true;
     check(!PreComplete(&a,&slot,0xBAD00001u),"pre-SR failure returns without success advancement");
     check(a.evaluations==0 && a.successful_evaluations_since_reset==0 && g_next_nr_frame_id==0,"failed pre-SR Evaluate creates no diagnostic frame");
     check(a.reset_retry_pending && BindReset(a,false)==1,"failed Evaluate retains consumed config Reset until retry");
