@@ -73,11 +73,13 @@ unknown non-null handle still fails closed for the process because its feature
 identity cannot be proved safely. Delayed core/DLSSD Create, Evaluate and Release
 detours are prepared first and published in one queued MinHook transaction, so
 an Evaluate hook cannot become live before its matching Release observer.
-Feature 1 Create entry/in-flight counters also detect a Create that overlaps
-that publication window. Native Create output slots are cleared first so a
-failed call cannot inherit a stale caller pointer. An unknown non-null Release
-is treated as the same ownership gap, while permanent NGX detours pin their
-owning module until process exit instead of retaining an unloadable trampoline.
+A single sequentially consistent odd/even epoch brackets that publication
+window. Each outermost Feature 1 Create samples it at entry and completion, so
+only a successful non-null overlapping Create fails closed; a failed/null
+attempt does not. Native Create output slots are cleared first so a failed call
+cannot inherit a stale caller pointer. An unknown non-null Release is treated
+as the same ownership gap, while permanent NGX detours pin their owning module
+until process exit instead of retaining an unloadable trampoline.
 
 ### Post-SR colour following reports and applies its effective value
 
@@ -122,7 +124,8 @@ native-SR bypass. No title name is consulted.
 - Configuration, context retirement and Feature 18 creation logs include the
   full create-time tuning signature.
 - Module-rescan summaries separately report Feature 1 create attempts,
-  successful non-null creates, in-flight creates and null-handle Evaluates. A transient failed
+  successful non-null creates, in-flight creates, the observer epoch and
+  null-handle Evaluates. A transient failed
   HDR/DLSS rebuild can therefore be distinguished from a real unobserved
   non-null owner without a local reproduction.
 - Delayed `_nvngx`/DLSSD lifecycle observers log their queued hook transaction,

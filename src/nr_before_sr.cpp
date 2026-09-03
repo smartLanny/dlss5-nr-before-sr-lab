@@ -6330,6 +6330,11 @@ std::atomic<bool> g_module_observer_gap_detected{false};
 std::atomic<bool> g_startup_deferred_module_coverage{false};
 std::atomic<bool> g_module_rescan_in_progress{false};
 std::atomic<unsigned long long> g_module_rescan_count{0};
+// Even values mean no late lifecycle-hook transaction is being published;
+// odd values bracket the publication window. An outermost Feature 1 Create
+// samples this at entry and completion, so a successful overlapping Create
+// can fail closed itself without relying on a torn multi-counter snapshot.
+std::atomic<unsigned long long> g_module_observer_epoch{0};
 std::atomic<ULONGLONG> g_next_module_rescan_tick{0};
 
 bool IsUnknownOutermostEvaluateHandle(const NgxHandle *handle) {
@@ -6356,6 +6361,33 @@ void LatchUnknownFeatureHandle(const char *source, const char *detail) {
     g_module_observer_gap_detected.store(true, std::memory_order_release);
     LatchRrOwnershipUncertain(source, detail);
     SetBypassReason(BypassReason::ModuleObserverUncertain);
+}
+
+void FinishFeature1CreateObservation(bool creating_feature1,
+                                     NgxResult result,
+                                     const NgxHandle *handle,
+                                     unsigned long long observer_epoch_at_entry,
+                                     const char *source) {
+    if (!creating_feature1) return;
+    const unsigned long long observer_epoch_at_completion =
+        g_module_observer_epoch.load();
+    const bool overlapped_observer =
+        (observer_epoch_at_entry & 1u) != 0 ||
+        (observer_epoch_at_completion & 1u) != 0 ||
+        observer_epoch_at_entry != observer_epoch_at_completion;
+    if (result == kNgxSuccess && handle != nullptr && overlapped_observer) {
+        LatchUnknownFeatureHandle(
+            source,
+            "a successful Feature 1 Create overlapped publication of a late "
+            "RR-capable module lifecycle observer");
+    }
+    const unsigned int previous =
+        g_feature1_create_in_progress.fetch_sub(1, std::memory_order_acq_rel);
+    if (previous == 0) {
+        g_feature1_create_in_progress.store(0, std::memory_order_release);
+        LatchRrOwnershipUncertain(
+            source, "the Feature 1 Create in-progress counter underflowed");
+    }
 }
 
 void ProcessSubmittedCommandLists(std::size_t hook_index,
@@ -6629,6 +6661,8 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
         g_feature1_create_entries.fetch_add(1, std::memory_order_release);
         g_feature1_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
     }
+    const unsigned long long observer_epoch_at_entry = creating_feature1
+        ? g_module_observer_epoch.load() : 0;
     // NGX owns this output slot. Clear any caller residue before the native
     // call so a failed Create cannot masquerade as a returned live handle.
     if (outermost && out_handle != nullptr) *out_handle = nullptr;
@@ -6655,20 +6689,11 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
     if (result == kNgxSuccess && handle != nullptr) {
         RememberFeature(handle, feature_id, params);
         if (feature_id == 1)
-            g_feature1_successful_creates.fetch_add(
-                1, std::memory_order_release);
+            g_feature1_successful_creates.fetch_add(1);
     }
-    if (creating_feature1) {
-        const unsigned int previous =
-            g_feature1_create_in_progress.fetch_sub(
-                1, std::memory_order_acq_rel);
-        if (previous == 0) {
-            g_feature1_create_in_progress.store(0, std::memory_order_release);
-            LatchRrOwnershipUncertain(
-                "Feature 1 Create",
-                "the in-progress observer counter underflowed");
-        }
-    }
+    FinishFeature1CreateObservation(
+        creating_feature1, result, handle, observer_epoch_at_entry,
+        "Feature 1 Create");
     if (creating_rr &&
         ((result == kNgxSuccess) != (handle != nullptr))) {
         LatchRrOwnershipUncertain(
@@ -6702,6 +6727,8 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
         g_feature1_create_entries.fetch_add(1, std::memory_order_release);
         g_feature1_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
     }
+    const unsigned long long observer_epoch_at_entry = creating_feature1
+        ? g_module_observer_epoch.load() : 0;
     if (outermost && out_handle != nullptr) *out_handle = nullptr;
     const bool creating_rr = outermost && feature_id == 13;
     ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
@@ -6726,20 +6753,11 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
     if (result == kNgxSuccess && handle != nullptr) {
         RememberFeature(handle, feature_id, params);
         if (feature_id == 1)
-            g_feature1_successful_creates.fetch_add(
-                1, std::memory_order_release);
+            g_feature1_successful_creates.fetch_add(1);
     }
-    if (creating_feature1) {
-        const unsigned int previous =
-            g_feature1_create_in_progress.fetch_sub(
-                1, std::memory_order_acq_rel);
-        if (previous == 0) {
-            g_feature1_create_in_progress.store(0, std::memory_order_release);
-            LatchRrOwnershipUncertain(
-                "core Feature 1 Create",
-                "the in-progress observer counter underflowed");
-        }
-    }
+    FinishFeature1CreateObservation(
+        creating_feature1, result, handle, observer_epoch_at_entry,
+        "core Feature 1 Create");
     if (creating_rr &&
         ((result == kNgxSuccess) != (handle != nullptr))) {
         LatchRrOwnershipUncertain(
@@ -6774,6 +6792,8 @@ NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
         g_feature1_create_entries.fetch_add(1, std::memory_order_release);
         g_feature1_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
     }
+    const unsigned long long observer_epoch_at_entry = creating_feature1
+        ? g_module_observer_epoch.load() : 0;
     if (outermost && out_handle != nullptr) *out_handle = nullptr;
     const bool creating_rr = outermost && feature_id == 13;
     ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
@@ -6798,20 +6818,11 @@ NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
     if (result == kNgxSuccess && handle != nullptr) {
         RememberFeature(handle, feature_id, params);
         if (feature_id == 1)
-            g_feature1_successful_creates.fetch_add(
-                1, std::memory_order_release);
+            g_feature1_successful_creates.fetch_add(1);
     }
-    if (creating_feature1) {
-        const unsigned int previous =
-            g_feature1_create_in_progress.fetch_sub(
-                1, std::memory_order_acq_rel);
-        if (previous == 0) {
-            g_feature1_create_in_progress.store(0, std::memory_order_release);
-            LatchRrOwnershipUncertain(
-                "DLSSD Feature 1 Create",
-                "the in-progress observer counter underflowed");
-        }
-    }
+    FinishFeature1CreateObservation(
+        creating_feature1, result, handle, observer_epoch_at_entry,
+        "DLSSD Feature 1 Create");
     if (creating_rr &&
         ((result == kNgxSuccess) != (handle != nullptr))) {
         LatchRrOwnershipUncertain(
@@ -8002,13 +8013,21 @@ void PollNgxLifecycleModules() {
     // lifecycle detours. Routine one-second scans do not perturb rendering.
     g_module_rescan_in_progress.store(has_new_module,
                                       std::memory_order_release);
-    const unsigned long long feature1_create_entries_before =
-        g_feature1_create_entries.load(std::memory_order_acquire);
-    const unsigned int feature1_creates_in_progress_before =
-        g_feature1_create_in_progress.load(std::memory_order_acquire);
+    unsigned long long observer_epoch =
+        g_module_observer_epoch.load();
+    if (has_new_module) {
+        const unsigned long long previous_epoch =
+            g_module_observer_epoch.fetch_add(1);
+        observer_epoch = previous_epoch + 1;
+        if ((previous_epoch & 1u) != 0) {
+            LatchUnknownFeatureHandle(
+                "lazy module rescan",
+                "the late lifecycle observer epoch was already active");
+        }
+    }
     const bool feature1_active_before =
-        g_feature1_successful_creates.load(std::memory_order_acquire) != 0 ||
-        g_carrier_evaluations.load(std::memory_order_acquire) != 0;
+        g_feature1_successful_creates.load() != 0 ||
+        g_carrier_evaluations.load() != 0;
     bool discovered_late = false;
     bool introduced_distinct_lifecycle_entry = false;
     bool lifecycle_coverage_failed = false;
@@ -8029,20 +8048,15 @@ void PollNgxLifecycleModules() {
     const unsigned long long feature1_create_entries =
         g_feature1_create_entries.load(std::memory_order_acquire);
     const unsigned long long feature1_successful_creates =
-        g_feature1_successful_creates.load(std::memory_order_acquire);
+        g_feature1_successful_creates.load();
     const unsigned int feature1_creates_in_progress =
         g_feature1_create_in_progress.load(std::memory_order_acquire);
     const unsigned long long carrier_evaluations =
-        g_carrier_evaluations.load(std::memory_order_acquire);
+        g_carrier_evaluations.load();
     const bool feature1_active_after = feature1_successful_creates != 0 ||
                                        carrier_evaluations != 0;
-    const bool feature1_create_overlapped_observer =
-        feature1_creates_in_progress_before != 0 ||
-        feature1_creates_in_progress != 0 ||
-        feature1_create_entries != feature1_create_entries_before;
     const bool feature1_activity_observed =
-        feature1_active_before || feature1_active_after ||
-        feature1_create_overlapped_observer;
+        feature1_active_before || feature1_active_after;
     if (LateLifecycleDiscoveryRequiresIsolation(
             lifecycle_coverage_failed, introduced_distinct_lifecycle_entry,
             feature1_activity_observed)) {
@@ -8051,12 +8065,9 @@ void PollNgxLifecycleModules() {
             "lazy module rescan",
             lifecycle_coverage_failed
                 ? "a late RR-capable NGX module could not be fully covered"
-                : (feature1_create_overlapped_observer
-                    ? "a Feature 1 Create overlapped publication of a late "
-                      "RR-capable lifecycle observer"
-                    : "a late RR-capable NGX module introduced a distinct "
-                      "Create/Release entry point after Feature 1 activity; "
-                      "a pre-hook Feature 13 handle cannot be ruled out"));
+                : "a late RR-capable NGX module introduced a distinct "
+                  "Create/Release entry point after Feature 1 activity; a "
+                  "pre-hook Feature 13 handle cannot be ruled out");
     } else if (introduced_distinct_lifecycle_entry && discovered_late) {
         g_startup_deferred_module_coverage.store(true,
                                                   std::memory_order_release);
@@ -8068,11 +8079,21 @@ void PollNgxLifecycleModules() {
             "targets already covered by the observer; no RR uncertainty was "
             "introduced.");
     }
+    if (has_new_module) {
+        const unsigned long long previous_epoch =
+            g_module_observer_epoch.fetch_add(1);
+        observer_epoch = previous_epoch + 1;
+        if ((previous_epoch & 1u) == 0) {
+            LatchUnknownFeatureHandle(
+                "lazy module rescan",
+                "the late lifecycle observer epoch lost its active state");
+        }
+    }
     if (scan <= 3 || (scan % 60) == 0) {
         Log("[module] lazy rescan #%llu core=%p coreLifecycle=%d "
             "dlssd=%p dlssdLifecycle=%d observerGap=%d startupCovered=%d "
             "feature1CreateAttempts=%llu feature1CreateSuccess=%llu "
-            "feature1CreateInFlight=%u createObserverOverlap=%d "
+            "feature1CreateInFlight=%u observerEpoch=%llu "
             "nullEvals=%llu carrierEvals=%llu.", scan,
             static_cast<void *>(core),
             g_core_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
@@ -8083,7 +8104,7 @@ void PollNgxLifecycleModules() {
                 std::memory_order_relaxed) ? 1 : 0,
             feature1_create_entries, feature1_successful_creates,
             feature1_creates_in_progress,
-            feature1_create_overlapped_observer ? 1 : 0,
+            observer_epoch,
             g_null_feature_evaluations.load(std::memory_order_relaxed),
             carrier_evaluations);
     }

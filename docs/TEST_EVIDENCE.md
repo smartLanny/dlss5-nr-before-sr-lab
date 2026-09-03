@@ -22,8 +22,8 @@ be checked for byte-for-byte reproducibility.
   and distinguishes transfer `prepared`, `recorded`, and native-queue
   `submitted` counts.
 - Two clean beta0.3.3-dev-r2 builds produced identical artifacts. Their SHA-256
-  values are `EFAEDEE32193038725D61F6E5B7FFE60827D7FF7A5A16977C14DACDACCAC2D56`
-  (Chinese), `290F6C5448736F2F9064FBCF40609050E7BB67B33F93544D3762E06B1A276433`
+  values are `0B9330D390F4D90AFEEBDE48BB40D76711D10F3AB189184A0999AE698E04F6E7`
+  (Chinese), `9BC3EAD30F4942D71D60FE57D850CA61A3A358BF4B99B38D1FE71F58E009ED28`
   (English), and
   `46041A5FF91AE2FD907E310D132AABC3C4A1ECD48DACE511B8672909D5D9C2FB`
   (bridge). This is build qualification only: these exact add-on hashes have
@@ -32,12 +32,14 @@ be checked for byte-for-byte reproducibility.
   LLVM static analyzer passes the English add-on, Chinese add-on and forwarding
   bridge targets. The shader-model change is specifically intended for games
   shipping an older `d3dcompiler_47.dll` that rejects `cs_5_1`.
-- A Feature 1 Create that overlaps delayed lifecycle-hook publication is now
-  detected from its entry and in-flight counters. Failed Create output slots
-  are cleared before the native call, unknown non-null Release handles fail
-  closed, and permanently detoured NGX modules are pinned until process exit.
-  These are source/build checks; the opaque-call RR transition boundary remains
-  documented and cannot be proved away by static analysis.
+- A single sequentially consistent odd/even observer epoch brackets delayed
+  lifecycle-hook publication. Each outermost Feature 1 Create samples that
+  epoch at entry and completion, so only a successful non-null overlapping
+  Create fails closed; failed/null attempts do not. Failed Create output slots
+  are also cleared before the native call, unknown non-null Release handles
+  fail closed, and permanently detoured NGX modules are pinned until process
+  exit. These are source/build checks; the opaque-call RR transition boundary
+  remains documented and cannot be proved away by static analysis.
 
 ## Latest gameplay-tested binary runtime status
 

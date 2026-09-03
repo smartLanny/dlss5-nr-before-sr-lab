@@ -166,11 +166,13 @@ public SR, distinct core `_nvngx`, or direct DLSSD observer still fails closed
 for the process. There is no public API that can safely guess its feature
 identity or dormancy. Failed/null Create attempts are not treated as successful
 Feature-1 activity, and delayed Create/Evaluate/Release hooks are prepared and
-enabled in one queued transaction. A Create overlapping that transaction is
-detected from entry/in-flight counters, unknown non-null Releases fail closed,
-and each permanently hooked NGX module is pinned until process exit. Incomplete coverage, a concurrent ownership
-race, or a late RR-capable module first discovered after real carrier activity
-also remains process-long fail-closed.
+enabled in one queued transaction. An odd/even observer epoch makes a
+successful non-null Create that overlaps that transaction fail closed from its
+own completion path, without treating a failed/null attempt as activity.
+Unknown non-null Releases fail closed, and each permanently hooked NGX module
+is pinned until process exit. Incomplete coverage, a concurrent ownership race,
+or a late RR-capable module first discovered after real carrier activity also
+remains process-long fail-closed.
 
 ## Mode 1 command-list state
 
