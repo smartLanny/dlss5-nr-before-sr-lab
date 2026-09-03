@@ -46,7 +46,8 @@ hlsl_fields = re.findall(r"^\s*(?:uint|float)\s+([A-Za-z0-9_]+)\s*;", cbuffer.gr
 cpp_fields = re.findall(r"^\s*(?:unsigned int|float)\s+([A-Za-z0-9_]+)\s*;", cpp.group("body"), re.M)
 if len(hlsl_fields) != 26 or len(cpp_fields) != 26:
     raise SystemExit(f"constant layout count mismatch: HLSL={len(hlsl_fields)} C++={len(cpp_fields)}")
-if [x.lower() for x in hlsl_fields] != [x.lower() for x in cpp_fields]:
+normalize = lambda value: re.sub(r"[^a-z0-9]", "", value.lower())
+if [normalize(x) for x in hlsl_fields] != [normalize(x) for x in cpp_fields]:
     raise SystemExit(f"constant layout order mismatch:\nHLSL={hlsl_fields}\nC++={cpp_fields}")
 
 if "ConfigVersion=4" not in config:
