@@ -38,11 +38,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.3.3-dev-r3";
+constexpr const char *kAddonVersion = "beta0.3.3-dev-r4";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.3.3-dev-r3";
+constexpr const char *kBuildIdentity = "beta0.3.3-dev-r4";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -302,6 +302,7 @@ enum class BypassReason : int {
     FailedCreateQuarantine,
     ModuleObserverInstalling,
     ModuleObserverUncertain,
+    CommandStateUnverified,
 };
 
 std::atomic<int> g_last_bypass_reason{
@@ -394,6 +395,8 @@ const char *BypassReasonName(BypassReason reason) {
         return "module-observer-installing";
     case BypassReason::ModuleObserverUncertain:
         return "module-observer-uncertain";
+    case BypassReason::CommandStateUnverified:
+        return "command-state-unverified";
     default: return "unknown";
     }
 }
@@ -782,6 +785,7 @@ struct ChainConfig {
     float max_luma_ratio = 2.0f;
     bool preserve_lighting = false;
     float proxy_scale = 1.0f;
+    bool experimental_peak_shoulder = false;
     unsigned int warmup_after_create = 2;
     bool retry_original_on_sr_failure = true;
     int depth_mode = -1;
@@ -1066,6 +1070,7 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.max_luma_ratio == b.max_luma_ratio &&
            a.preserve_lighting == b.preserve_lighting &&
            a.proxy_scale == b.proxy_scale &&
+           a.experimental_peak_shoulder == b.experimental_peak_shoulder &&
            a.warmup_after_create == b.warmup_after_create &&
            a.retry_original_on_sr_failure == b.retry_original_on_sr_failure &&
            a.depth_mode == b.depth_mode &&
@@ -1141,6 +1146,8 @@ void ReloadConfig(bool force = false) {
         L"NRBeforeSR", L"PreserveLighting", 0, g_ini_path) != 0;
     next.proxy_scale = ReadIniFloat(L"ProxyScale", 1.0f);
     if (next.proxy_scale < 0.001f) next.proxy_scale = 0.001f;
+    next.experimental_peak_shoulder = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"ExperimentalPeakShoulder", 0, g_ini_path) != 0;
     int warmup = GetPrivateProfileIntW(L"NRBeforeSR", L"WarmupAfterCreate", 2, g_ini_path);
     next.warmup_after_create = warmup > 0 ? static_cast<unsigned int>(warmup) : 0;
     next.retry_original_on_sr_failure = GetPrivateProfileIntW(
@@ -1202,7 +1209,7 @@ void ReloadConfig(bool force = false) {
     if (changed || force) {
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
             "postTransfer=%.3f colorFollowRequested=%.3f preserveLighting=%d proxyScale=%.3f "
-            "paperWhiteScale=%.3f warmup=%u intensity=%.3f localTone=%.3f "
+            "paperWhiteScale=%.3f peakShoulderRequested=%d warmup=%u intensity=%.3f localTone=%.3f "
             "localStructure=%.3f skinStructure=%.3f autoMask=%d style=%u "
             "uiCorrection=%d r8OutputEncoding=%d perfEpoch=%d "
             "feature18Evals=%llu",
@@ -1214,6 +1221,7 @@ void ReloadConfig(bool force = false) {
             g_config.preserve_lighting ? 1 : 0,
             static_cast<double>(g_config.proxy_scale),
             static_cast<double>(1.0f / g_config.proxy_scale),
+            g_config.experimental_peak_shoulder ? 1 : 0,
             g_config.warmup_after_create,
             static_cast<double>(g_config.intensity),
             static_cast<double>(g_config.local_tone),
@@ -1265,6 +1273,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniFloat(L"MaxLumaRatio", config.max_luma_ratio));
     record_write(WriteIniInt(L"PreserveLighting", config.preserve_lighting ? 1 : 0));
     record_write(WriteIniFloat(L"ProxyScale", config.proxy_scale));
+    record_write(WriteIniInt(L"ExperimentalPeakShoulder", config.experimental_peak_shoulder ? 1 : 0));
     record_write(WriteIniInt(L"WarmupAfterCreate", static_cast<int>(config.warmup_after_create)));
     record_write(WriteIniInt(L"RetryOriginalOnSRFailure", config.retry_original_on_sr_failure ? 1 : 0));
     record_write(WriteIniInt(L"DepthMode", config.depth_mode));
@@ -1336,7 +1345,7 @@ bool ApplyConfig(ChainConfig next, const char *source) {
     LeaveCriticalSection(&g_chain_cs);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
         "colorFollowRequested=%.3f intensity=%.3f style=%u autoMask=%d skin=%.3f localTone=%.3f "
-        "localStructure=%.3f uiCorrection=%d paperWhiteScale=%.3f "
+        "localStructure=%.3f uiCorrection=%d paperWhiteScale=%.3f peakShoulderRequested=%d "
         "epoch=%d feature18Evals=%llu",
         source, applied.enabled ? 1 : 0, applied.mode == 2 ? 1 : 0,
         static_cast<double>(ActiveTransferStrength(applied)),
@@ -1347,7 +1356,8 @@ bool ApplyConfig(ChainConfig next, const char *source) {
         static_cast<double>(applied.local_tone),
         static_cast<double>(applied.local_structure),
         applied.ui_correction ? 1 : 0,
-        static_cast<double>(1.0f / applied.proxy_scale), applied.perf_epoch,
+        static_cast<double>(1.0f / applied.proxy_scale),
+        applied.experimental_peak_shoulder ? 1 : 0, applied.perf_epoch,
         g_nr_successful_evaluations.load(std::memory_order_relaxed));
     if (!persisted) {
         Log("Config could not be written to %ls (error=%lu). Live settings "
@@ -1753,10 +1763,28 @@ float3 ClampAP1(float3 color) {
     return mul(ap1ToBt709, max(mul(bt709ToAp1, color), 0.0.xxx));
 }
 
+// Experimental mapping: exact identity below the peak knee, then a bounded
+// rational shoulder. Unlike dividing by max(peak, 1), each finite RGB ray keeps
+// brightness ordering. The FP16 model proxy still has finite precision.
+float RationalPeakShoulderScale(float peak) {
+    if (peak <= 0.75) return 1.0;
+    return (1.0 - 0.0625 / (peak - 0.5)) / peak;
+}
+
+float3 RationalPeakShoulder(float3 display) {
+    // Raw invalid originals remain subject to CombineCS's original-image
+    // fallback. Do not feed a non-finite proxy into temporal model history.
+    if (!all(display == display) || !all(abs(display) <= 134217728.0.xxx))
+        return 0.0.xxx;
+    float peak = max(display.r, max(display.g, display.b));
+    return display * RationalPeakShoulderScale(peak);
+}
+
 float3 HdrSourceToModelLinear(float3 source) {
     float colorScale = ResolveSourceToCanonical();
     float3 display = max(source, 0.0.xxx) *
         (max(ProxyScale, 0.001) * colorScale);
+    if ((Passthrough & 256u) != 0u) return RationalPeakShoulder(display);
     float displayLuma = dot(display, kLuma);
     if (displayLuma > 0.75) {
         float rolled = 0.75 + 0.25 *
@@ -1774,6 +1802,7 @@ float3 PqSourceToModelLinear(float3 source) {
     // and then use the same bounded, hue-preserving model contract as FP16.
     float3 display = PQToLinear(max(source, 0.0.xxx)) *
         (kPqToScrgbUnit * max(ProxyScale, 0.001));
+    if ((Passthrough & 256u) != 0u) return RationalPeakShoulder(display);
     float displayLuma = dot(display, kLuma);
     if (displayLuma > 0.75) {
         float rolled = 0.75 + 0.25 *
@@ -2287,6 +2316,12 @@ enum class CodecColorMode : unsigned int {
     ModelEncodedValueDomain,
 };
 
+bool UsePeakShoulder(CodecColorMode color_mode, bool hdr_input, bool requested) {
+    return requested &&
+        (color_mode == CodecColorMode::PqEncodedHdr ||
+         (color_mode == CodecColorMode::Automatic && hdr_input));
+}
+
 struct NrTuningSignature {
     float intensity = 1.0f;
     float local_tone = 1.0f;
@@ -2431,6 +2466,7 @@ bool SameNrTuningSignature(const NrTuningSignature &a,
 }
 
 struct NrContext {
+    unsigned long long stage_capture_request_id = 0;
     unsigned long long instance_id = 0;
     unsigned int successful_evaluations_since_reset = 0;
     bool diagnostic_first_sample_logged = false;
@@ -2447,6 +2483,7 @@ struct NrContext {
     unsigned int config_generation = 0;
     CodecColorMode codec_color_mode = CodecColorMode::Automatic;
     bool codec_color_mode_initialized = false;
+    bool codec_peak_shoulder = false;
     NrTuningSignature tuning_signature = {};
     bool tuning_signature_initialized = false;
     NrGuideSignature guide_storage_signature = {};
@@ -3954,12 +3991,14 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                                int mode, unsigned int width,
                                unsigned int height,
                                CodecColorMode requested_color_mode,
-                               const NrGuideSignature &requested_guides) {
+                               const NrGuideSignature &requested_guides,
+                               bool requested_peak_shoulder = false) {
     CollectRetiredContextsLocked();
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_nr_failed_create_process_latched.load(std::memory_order_acquire))
         return nullptr;
     const NrTuningSignature requested_tuning = CurrentNrTuningSignature();
+    PrepareStageCaptureContextLocked(sr_handle, feature_generation, mode);
     NrContext *empty = nullptr;
     NrContext *matching = nullptr;
     for (auto &context : g_contexts) {
@@ -3993,14 +4032,17 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                 continue;
             }
             if (context.codec_color_mode_initialized &&
-                context.codec_color_mode != requested_color_mode) {
+                (context.codec_color_mode != requested_color_mode ||
+                 context.codec_peak_shoulder != requested_peak_shoulder)) {
                 context.retired = true;
-                Log("Live Color storage contract changed for handle=%p mode=%d "
-                    "extent=%ux%u: codec mode %u -> %u without a new Feature 1 "
+                Log("Live Color/NR proxy contract changed for handle=%p mode=%d "
+                    "extent=%ux%u: codec mode %u -> %u peakShoulder %d -> %d without a new Feature 1 "
                     "Create. Retiring Feature 18 after its exact GPU fence.",
                     static_cast<const void *>(sr_handle), mode, width, height,
                     static_cast<unsigned int>(context.codec_color_mode),
-                    static_cast<unsigned int>(requested_color_mode));
+                    static_cast<unsigned int>(requested_color_mode),
+                    context.codec_peak_shoulder ? 1 : 0,
+                    requested_peak_shoulder ? 1 : 0);
                 continue;
             }
             if (context.tuning_signature_initialized &&
@@ -4037,10 +4079,13 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
         empty->sr_handle = sr_handle;
         empty->feature_generation = feature_generation;
         empty->mode = mode;
+        empty->stage_capture_request_id = PreparedStageCaptureRequestId(
+            sr_handle, feature_generation, mode);
         empty->width = width;
         empty->height = height;
         empty->codec_color_mode = requested_color_mode;
         empty->codec_color_mode_initialized = true;
+        empty->codec_peak_shoulder = requested_peak_shoulder;
         empty->tuning_signature = requested_tuning;
         empty->tuning_signature_initialized = true;
         empty->guide_storage_signature = requested_guides;
@@ -4848,9 +4893,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         slot.delta_stats != nullptr && slot.delta_stats_readback != nullptr &&
         slot.stats_clear_heap != nullptr;
     const bool capture_stages = pipeline == g_codec.combine &&
-        slot.stage_capture.armed && !slot.stage_capture.pending &&
-        slot.stage_capture.info.identity.warmed_up &&
-        slot.stage_capture.buffer != nullptr && slot.stage_capture.readback != nullptr;
+        CanRecordStageCapture(slot.stage_capture);
     if (capture_stages) {
         Transition(command_list, slot.stage_capture.buffer, slot.stage_capture.state,
                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -4884,7 +4927,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     const unsigned int codec_flags = source_flags |
         ((g_config.mode == 2 && g_config.preserve_lighting) ? 2u : 0u) |
         (capture_delta ? 8u : 0u) |
-        ((hdr_input && color_contract.exposure_texture != nullptr) ? 64u : 0u);
+        ((hdr_input && color_contract.exposure_texture != nullptr) ? 64u : 0u) |
+        (UsePeakShoulder(color_mode, hdr_input, g_config.experimental_peak_shoulder) ? 256u : 0u);
     // Automatic HDR does not normally prove the engine working gamut. The
     // post-SR FP16 + unit-exposure contract is the one narrow exception: both
     // proxy and result are derived from the same output pixels, so an opt-in
@@ -4942,6 +4986,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
             slot.stage_capture.buffer, 0, slot.stage_capture.bytes);
         slot.stage_capture.pending = true;
         slot.stage_capture.armed = false;
+        RetireStageCaptureOwnerLocked(slot);
     }
     if (capture_delta) {
         UavBarrier(command_list, slot.delta_stats);
@@ -5540,14 +5585,15 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
     const NrTuningSignature &tuning = context.tuning_signature;
     Log("Feature 18 create-time tuning: mode=%d extent=%ux%u "
         "intensity=%.3f style=%u autoMask=%d skin=%.3f localTone=%.3f "
-        "localStructure=%.3f uiCorrection=%d.",
+        "localStructure=%.3f uiCorrection=%d proxyMapping=%s.",
         context.mode, context.width, context.height,
         static_cast<double>(tuning.intensity), tuning.style,
         tuning.auto_mask ? 1 : 0,
         static_cast<double>(tuning.skin_structure),
         static_cast<double>(tuning.local_tone),
         static_cast<double>(tuning.local_structure),
-        tuning.ui_correction ? 1 : 0);
+        tuning.ui_correction ? 1 : 0,
+        context.codec_peak_shoulder ? "rational-peak" : "existing");
     void *handle = nullptr;
     NgxResult result = 0xBAD00005u;
     {
@@ -5561,10 +5607,11 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
         context.successful_evaluations_since_reset = 0;
         context.diagnostic_first_sample_logged = false;
         Log("[nr-instance] created=%llu mode=%d featureGeneration=%llu "
-            "config=%u intensity=%.3f style=%u.", context.instance_id,
+            "config=%u intensity=%.3f style=%u proxyMapping=%s.", context.instance_id,
             context.mode, context.feature_generation,
             g_config_generation.load(std::memory_order_relaxed),
-            static_cast<double>(tuning.intensity), tuning.style);
+            static_cast<double>(tuning.intensity), tuning.style,
+            context.codec_peak_shoulder ? "rational-peak" : "existing");
         context.create_variant_selected = true;
         *out_handle = handle;
     } else if (handle != nullptr) {
@@ -5812,7 +5859,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
     NrContext *context = FindOrCreateContext(
         sr_handle, feature.generation, 2, width, height, pre_sr_color_mode,
-        guides.signature);
+        guides.signature, UsePeakShoulder(pre_sr_color_mode,
+            (feature.create_flags & 1) != 0, g_config.experimental_peak_shoulder));
     if (context == nullptr) {
         Log("No free NR context for the Before-SR chain; original SR retained.");
         ReleaseCom(device);
@@ -5846,6 +5894,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         return substitution;
     }
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
+    if (context->retired) {
+        ReleaseCom(device);
+        return substitution;
+    }
     bool lifecycle_recorded = false;
 
     ID3D12Resource *motion_override = nullptr;
@@ -6227,7 +6279,8 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     }
     NrContext *context = FindOrCreateContext(
         sr_handle, feature.generation, 1, width, height,
-        post_sr_color_mode, guides.signature);
+        post_sr_color_mode, guides.signature, UsePeakShoulder(post_sr_color_mode,
+            (feature.create_flags & 1) != 0, g_config.experimental_peak_shoulder));
     if (context == nullptr) {
         Log("No free NR context for the post-SR chain; original SR retained.");
         ReleaseCom(device);
@@ -6259,6 +6312,10 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         return substitution;
     }
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
+    if (context->retired) {
+        ReleaseCom(device);
+        return substitution;
+    }
     if (!RecordNrUseLocked(command_list, *context, *slot)) {
         ReleaseCom(device);
         return substitution;
@@ -6549,6 +6606,7 @@ thread_local unsigned int g_release_hook_depth = 0;
 void *g_evaluate_hook_targets[4] = {};
 std::size_t g_evaluate_hook_target_count = 0;
 SRWLOCK g_evaluate_hook_lock = SRWLOCK_INIT;
+#include "nr_command_state.inl"
 std::atomic<bool> g_evaluate_hooks_ready{false};
 std::atomic<bool> g_evaluate_hooks_enabled{false};
 std::atomic<bool> g_evaluate_target_overflow{false};
@@ -6810,6 +6868,7 @@ HRESULT ProcessCommandListReset(
     unsigned long long token = 0;
     ReadLifecycleToken(command_list, token);
     const HRESULT result = original(command_list, allocator, initial_state);
+    OnCommandStateResetResult(command_list, result, initial_state);
     if (SUCCEEDED(result) && token != 0) {
         EnterCriticalSection(&g_chain_cs);
         if (QuarantineUnsubmittedLifecycleRecordLocked(
@@ -7317,10 +7376,19 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             scoped_success, scoped_attempted, scoped_recorded,
             scoped_bound, scoped_submitted);
     }
+    NativeCommandStateScope before_state(command_list);
+    if (!before_state.active) {
+        LeaveCriticalSection(&g_chain_cs);
+        rr_transaction.Release();
+        return original(command_list, handle, params, callback);
+    }
     Substitution before_sr = PrepareBeforeSr(
-        command_list, handle, params, feature);
+        before_state.command_list, handle, params, feature);
     PostSrSubstitution after_sr = PrepareAfterSr(
-        command_list, handle, params, feature);
+        before_state.command_list, handle, params, feature);
+    // Warmup/Create/Evaluate failure may have recorded NR work even though
+    // neither substitution is active. Always restore before native SR.
+    before_state.Restore();
     if (!before_sr.active && !after_sr.active) {
         LeaveCriticalSection(&g_chain_cs);
         rr_transaction.Release();
@@ -7380,7 +7448,17 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     }
     if (used_after_sr) {
         if (result == kNgxSuccess) {
-            FinishAfterSr(command_list, params, feature, after_sr);
+            // Native SR may legitimately leave a different state from entry.
+            // Preserve that exact exit state around the post-SR NR work.
+            NativeCommandStateScope after_state(command_list);
+            if (after_state.active) {
+                FinishAfterSr(after_state.command_list, params, feature, after_sr);
+                after_state.Restore();
+            } else if (after_sr.redirected_output) {
+                Log("[command-state] post-SR state unavailable; native SR is "
+                    "re-evaluated to its original Output without NR work.");
+                result = original(command_list, handle, params, callback);
+            }
         } else if (after_sr.redirected_output &&
                    g_config.retry_original_on_sr_failure) {
             Log("%s failed while targeting the post-upscaling intermediate: "
@@ -7889,6 +7967,7 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
 }
 
 void OnResetCommandList(reshade::api::command_list *command_list) {
+    OnCommandStateBeforeReset(command_list);
     if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0)
         return;
     if (command_list == nullptr || command_list->get_device() == nullptr ||
@@ -7907,6 +7986,7 @@ void OnResetCommandList(reshade::api::command_list *command_list) {
 }
 
 void OnDestroyCommandList(reshade::api::command_list *command_list) {
+    OnCommandStateDestroyList(command_list);
     if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0)
         return;
     if (command_list == nullptr || command_list->get_device() == nullptr ||
@@ -8509,16 +8589,40 @@ const char *ScreenshotStyleName(unsigned int style) {
     }
 }
 
+bool FormatScreenshotPostfix(char *postfix, std::size_t capacity,
+                             const ChainConfig &config,
+                             unsigned int requested_generation,
+                             BypassReason bypass_reason) {
+    if (postfix == nullptr || capacity == 0) return false;
+    const char *mode = !config.enabled ? "SR" : (config.mode == 2 ? "NRSR" : "SRNR");
+    const char *state = !config.enabled ? "off" :
+        (bypass_reason == BypassReason::None ? "active" : "bypass");
+    const float blend = config.mode == 2 ? config.transfer_strength : config.post_transfer_strength;
+    // ReShade prefixes its own game name/timestamp and the installation path.
+    // Keep this ASCII suffix bounded; the complete requested state is logged.
+    const int written = std::snprintf(postfix, capacity,
+        "DLSS5_%.16s_%s_%s_REQ-G%u_I%.2f_S%u_B%.2f_C%.2f_HP%d",
+        kBuildIdentity, mode, state, requested_generation,
+        static_cast<double>(std::clamp(config.intensity, 0.0f, 2.0f)),
+        std::min(config.style, 2u),
+        static_cast<double>(std::clamp(blend, 0.0f, 1.0f)),
+        static_cast<double>(std::clamp(config.color_strength, 0.0f, 1.0f)),
+        config.experimental_peak_shoulder ? 1 : 0);
+    return written > 0 && written <= 90 && static_cast<std::size_t>(written) < capacity;
+}
+
 // ReShade owns the back-buffer readback, HDR-aware output format and async file
 // writer. The add-on only supplies a compact, filesystem-safe diagnostic
-// postfix, so taking a screenshot never enters the Feature 18 command-list or
-// lifetime transaction.
+// postfix. F7 separately queues the existing asynchronous stage request;
+// neither hotkey enters a Feature 18 command-list/lifetime transaction.
 void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     if (runtime == nullptr) return;
 
     static SRWLOCK screenshot_hotkey_lock = SRWLOCK_INIT;
     static bool screenshot_key_was_down = false;
     static ULONGLONG last_screenshot_ms = 0;
+    static bool stage_key_was_down = false;
+    static ULONGLONG last_stage_request_ms = 0;
     if (!TryAcquireSRWLockExclusive(&screenshot_hotkey_lock)) return;
 
     const SHORT minus_state = GetAsyncKeyState(VK_OEM_MINUS);
@@ -8529,6 +8633,20 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
         (minus_state & 0x0001) != 0 || (numpad_minus_state & 0x0001) != 0 ||
         (screenshot_key_is_down && !screenshot_key_was_down);
     const ULONGLONG now_ms = GetTickCount64();
+
+    const SHORT f7_state = GetAsyncKeyState(VK_F7);
+    const bool stage_key_is_down = (f7_state & 0x8000) != 0;
+    // Like '-', keep the transition fallback for short taps between Presents.
+    const bool stage_pressed = (f7_state & 0x0001) != 0 ||
+        (stage_key_is_down && !stage_key_was_down);
+    if (stage_pressed && now_ms - last_stage_request_ms >= 350) {
+        last_stage_request_ms = now_ms;
+        const bool accepted = RequestStageCapture();
+        Log("[stage-capture] F7 request=%s; next eligible warmed-up NR "
+            "composition. '-' screenshots are separate, NOT same-frame evidence.",
+            accepted ? "accepted" : "already pending");
+    }
+    stage_key_was_down = stage_key_is_down;
 
     if (screenshot_pressed && now_ms - last_screenshot_ms >= 350) {
         last_screenshot_ms = now_ms;
@@ -8553,12 +8671,21 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
             ? config.transfer_strength
             : config.post_transfer_strength;
 
-        char postfix[320] = {};
-        snprintf(
-            postfix, sizeof(postfix),
-            "DLSS5_%s_%s_%s_IN%ux%u_NR%ux%u_OUT%ux%u_F%u_"
-            "REQ-I%.2f_B%.2f_%s_AM%d_SK%.2f_LT%.2f_LS%.2f_LM%d_C%.2f_PW%.2f",
-            kBuildIdentity, mode_name, state_name,
+        char postfix[91] = {};
+        if (!FormatScreenshotPostfix(postfix, sizeof(postfix), config,
+                                     requested_generation, bypass_reason)) {
+            std::snprintf(postfix, sizeof(postfix), "DLSS5_screenshot");
+            Log("[screenshot] compact label formatting failed; full state follows in log.");
+        }
+
+        runtime->save_screenshot(postfix);
+        Log("[screenshot] ReShade capture queued by '-' hotkey: %s", postfix);
+        Log("[screenshot] requested config=%u build=%s mode=%s state=%s "
+            "input=%ux%u NR=%ux%u output=%ux%u format=%u "
+            "intensity=%.3f blend=%.3f style=%s autoMask=%d skin=%.3f "
+            "localTone=%.3f localStructure=%.3f lightingMatch=%d "
+            "colorFollow=%.3f paperWhite=%.3f peakShoulder=%d",
+            requested_generation, kBuildIdentity, mode_name, state_name,
             g_last_dlss_input_width.load(std::memory_order_relaxed),
             g_last_dlss_input_height.load(std::memory_order_relaxed),
             g_last_nr_width.load(std::memory_order_relaxed),
@@ -8570,11 +8697,8 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
             ScreenshotStyleName(config.style), config.auto_mask ? 1 : 0,
             config.skin_structure, config.local_tone, config.local_structure,
             config.preserve_lighting ? 1 : 0, config.color_strength,
-            1.0f / std::max(config.proxy_scale, 0.001f));
-        postfix[sizeof(postfix) - 1] = '\0';
-
-        runtime->save_screenshot(postfix);
-        Log("[screenshot] ReShade capture queued by '-' hotkey: %s", postfix);
+            1.0f / std::max(config.proxy_scale, 0.001f),
+            config.experimental_peak_shoulder ? 1 : 0);
         Log("[screenshot] labels=REQUESTED config=%u lastAppliedInstance=%llu "
             "lastAppliedConfig=%u lastNrFrame=%llu intensity=%.3f style=%u. "
             "Present/FG screenshot is not an exact same-frame NR stage capture.",
@@ -9376,9 +9500,11 @@ void DrawSettings(reshade::api::effect_runtime *) {
     }
     ImGui::TextWrapped("%s", ui(
         "Optional diagnosis: samples original, proxy, NR and composition once. "
-        "NR -> SR capture stops before native SR; '-' captures the displayed image separately.",
+        "F7 requests stages; '-' saves the displayed image separately. "
+        "NR -> SR stages stop before native SR. These captures are not the same frame.",
         "可选诊断：单次采集原图、代理图、NR 输出和合成结果。"
-        "NR→SR 的阶段图止于原生 SR 之前；按“-”可另外截取显示画面。"));
+        "F7 请求阶段图；“-”独立截取显示画面。NR→SR 的阶段图止于原生 SR 之前，"
+        "两者不是同一帧。"));
     changed |= ImGui::SliderFloat(
         ui("NR Intensity", "NR 强度"), &next.intensity, 0.0f, 2.0f, "%.2f");
     static const char *style_items_en[] = {"Default", "Natural", "Cinematic"};
@@ -9450,6 +9576,15 @@ void DrawSettings(reshade::api::effect_runtime *) {
                                &next.ui_correction);
 
     ImGui::SeparatorText(ui("Advanced / Recovery", "高级 / 故障恢复"));
+    changed |= ImGui::Checkbox(
+        ui("Experimental HDR Highlight Detail", "实验性 HDR 高光细节"),
+        &next.experimental_peak_shoulder);
+    ImGui::TextDisabled("%s", ui(
+        "Off by default. Preserves more highlight variation in the HDR proxy, "
+        "but can change the NR appearance. Switching rebuilds NR and warms up. "
+        "SDR-encoded inputs are unaffected; compare fixed scenes before keeping it on.",
+        "默认关闭。可保留 HDR 代理中的更多高光变化，但可能改变 NR 外观。"
+        "切换会重建 NR 并重新预热；SDR 编码输入不受影响，请先在固定场景对照。"));
     float scene_paper_white_scale =
         1.0f / std::max(next.proxy_scale, 0.001f);
     if (ImGui::SliderFloat(
@@ -9503,6 +9638,7 @@ void DrawSettings(reshade::api::effect_runtime *) {
         next.max_luma_ratio = 2.0f;
         next.preserve_lighting = false;
         next.proxy_scale = 1.0f;
+        next.experimental_peak_shoulder = false;
         next.warmup_after_create = 2;
         next.retry_original_on_sr_failure = true;
         next.depth_mode = -1;
@@ -9603,6 +9739,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         }
         reshade::register_event<reshade::addon_event::destroy_command_queue>(
             OnDestroyCommandQueue);
+        reshade::register_event<reshade::addon_event::init_device>(OnCommandStateInitDevice);
+        reshade::register_event<reshade::addon_event::init_command_list>(OnCommandStateInitList);
         reshade::register_event<reshade::addon_event::execute_command_list>(
             OnExecuteCommandList);
         reshade::register_event<reshade::addon_event::reset_command_list>(
@@ -9620,6 +9758,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         if (worker == nullptr) {
             Log("Could not start NGX hook worker (error %lu).", GetLastError());
             reshade::unregister_overlay(nullptr, DrawSettings);
+            reshade::unregister_event<reshade::addon_event::init_command_list>(OnCommandStateInitList);
+            reshade::unregister_event<reshade::addon_event::init_device>(OnCommandStateInitDevice);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
             reshade::unregister_event<reshade::addon_event::present>(OnPresent);
@@ -9636,6 +9776,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         }
         CloseHandle(worker);
     } else if (reason == DLL_PROCESS_DETACH && reserved == nullptr) {
+        reshade::unregister_event<reshade::addon_event::init_command_list>(OnCommandStateInitList);
+        reshade::unregister_event<reshade::addon_event::init_device>(OnCommandStateInitDevice);
         reshade::unregister_overlay(nullptr, DrawSettings);
         reshade::unregister_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);

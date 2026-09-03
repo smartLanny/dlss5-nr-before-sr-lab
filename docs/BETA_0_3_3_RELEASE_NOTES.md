@@ -1,8 +1,30 @@
 # beta0.3.3 create-time tuning and packed-color input candidate
 
+## Revision r4: command-state and diagnostic follow-up
+
+The current development identity is `beta0.3.3-dev-r4`. It adds native command
+binding preservation around the plugin's pre-/post-SR work, prompted by RE9's
+reproducible crash after its first successful NR evaluation. Game SR retains
+its original command-list interface. Unsupported or incompletely observed
+state keeps that evaluation on native SR; later verified Reset/bindings can
+recover without permanently disabling NR.
+
+F7 capture now uses a fresh, bounded context lifetime that can actually retire
+and export while the game continues rendering. Screenshot labels are short
+enough for the reproduced Cyberpunk game path. An optional HDR peak-shoulder
+mapping preserves distinctions that the old proxy can collapse at bright
+fixed-colour values; it remains off by default and is not a verified facial
+detail improvement.
+
+See [the r4 validation record](BETA_0_3_3_R4_VALIDATION.md) for exact gate status,
+[local game comparisons](LOCAL_GAME_QUALITY_2026_09_04.md), and
+[the current-runtime intensity investigation](RENODX_2026_09_04_COMPARISON.md).
+The local I1/I2 plateau was already present in raw NR output. This revision
+does not claim that model intensity above 1 now creates stronger detail.
+
 ## Revision r3: diagnostic and compatibility candidate
 
-The current build identity is `beta0.3.3-dev-r3`. It fixes no-op observer epochs,
+The r3 build identity is `beta0.3.3-dev-r3`. It fixes no-op observer epochs,
 reverse module aliases, stale dynamic-size contexts, guide history transitions,
 failed Reset retry, restricted untyped resource reads and explicit-unity stale-HDR
 R8 admission. Instance/config/frame diagnostics and an opt-in bounded four-stage

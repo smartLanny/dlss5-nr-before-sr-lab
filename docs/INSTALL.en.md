@@ -1,6 +1,6 @@
-# beta0.3.3 tuning and R8 compatibility candidate quick install
+# beta0.3.3-dev-r4 compatibility and diagnostic candidate quick install
 
-Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.3.3-dev**
+Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.3.3-dev-r4**
 
 Author: **@野生的装机宅 Bilibili**
 
@@ -39,13 +39,12 @@ the panel may open but every option will appear ineffective.
 ## Quick use
 
 - `F6`: master toggle. Off must be native game SR with zero Feature 18 calls.
-- Main keyboard `-` (numpad subtract also works): save a screenshot. Its file
-  name records the build, chain, active/bypass state, DLSS input/NR/output
-  extents, format, intensity, blend, style, mask, skin/local controls, Lighting
-  Match and colour strength.
-  `IN/NR/OUT` are the three extents; `F/I/B` are output format, NR intensity and
-  blend; `AM/SK/LT/LS/LM/C/PW` are auto-mask, skin, local tone, local structure,
-  Lighting Match, colour follow and Scene Paper-White Scale.
+- Main keyboard `-` (numpad subtract also works): save a screenshot. Its short
+  name records build, chain, active/bypass state, requested configuration and
+  `I/S/B/C/HP` (NR intensity, style, blend, colour follow, peak-shoulder experiment).
+  Full extents, format and controls go into the matching log entry to avoid
+  capture failures in long game paths. Names describe requested settings; use
+  the log or stage metadata for the actual NR instance, configuration and frame.
 - The default `render-resolution NR -> SR` option follows the game's real DLSS
   render extent, then passes the result into the game's native SR.
 - Turn that option off for the full-output-resolution `SR -> NR` quality and
@@ -55,10 +54,17 @@ the panel may open but every option will appear ineffective.
 - Committing Intensity, Style, mask, skin or local controls retires the old
   Feature 18 after its exact GPU fence and creates a new one. A short safe
   warm-up/bypass interval during this switch is expected.
+- Start with NR Intensity 1. In the current original 310.8 runtime, the path
+  used here without an external control mask does not amplify the model beyond
+  1. A setting can be applied successfully without a stronger 1-to-2 response.
+  This revision does not substitute extra darkening or contrast gain for it.
 - `Scene Paper-White Scale` controls HDR normalization before NR; values above
   1 feed a darker normalized scene to the model. Format-24 HDR input is first
   PQ-decoded, uses this paper-white scale, and is symmetrically encoded back to
   PQ. It is neither final display brightness nor NR intensity, so start at 1.
+- The advanced peak-shoulder experiment is off by default and is only for
+  controlled captures of admitted HDR input. It has not been shown to improve
+  Spider-Man faces or NR-to-SR quality; leave it off for normal testing.
 
 For a report, include the displayed version and bypass reason plus the smallest
 matching window from `nr-before-sr.log`. beta0.3.3 logs state-machine changes,
@@ -94,5 +100,6 @@ differences still require controlled scene comparisons.
 Optional “Capture NR stages once” exports four raw floating-point PFM images
 and metadata under `nr-stage-captures` beside the log. It is off by default.
 NR-to-SR capture stops before native SR. Use `-` for a separate displayed-image
-screenshot; it is not same-frame evidence. Wait for applied settings and warmup,
-keep the camera fixed and change one parameter at a time.
+screenshot. Press `F7` to request the stages independently (one pending request
+at a time). The two captures are not same-frame evidence. Wait for
+applied settings and warmup, keep the camera fixed and change one parameter at a time.

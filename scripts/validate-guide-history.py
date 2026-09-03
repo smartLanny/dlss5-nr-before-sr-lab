@@ -49,9 +49,10 @@ SAME_TUNING
 struct NrContext {
     const NgxHandle* sr_handle=nullptr;
     unsigned long long feature_generation=0, instance_id=0;
+    unsigned long long stage_capture_request_id=0;
     unsigned width=0, height=0;
     int mode=0;
-    bool retired=false, codec_color_mode_initialized=false, tuning_signature_initialized=false;
+    bool retired=false, codec_color_mode_initialized=false, tuning_signature_initialized=false, codec_peak_shoulder=false;
     CodecColorMode codec_color_mode=CodecColorMode::Automatic;
     NrTuningSignature tuning_signature{};
     GUIDE_FIELDS
@@ -61,6 +62,10 @@ std::atomic<bool> g_lifecycle_tracking_uncertain{false}, g_nr_failed_create_proc
 std::atomic<unsigned long long> g_nr_instance_serial{0}, g_next_nr_instance_id{0};
 void CollectRetiredContextsLocked() {} // No fence has completed in this trace.
 void Log(const char*, ...) {}
+// Stage capture stays off in the guide/context regression. Its request and
+// retirement behavior is exercised by validate-stage-capture-lifecycle.ps1.
+void PrepareStageCaptureContextLocked(const NgxHandle*, unsigned long long, int) {}
+unsigned long long PreparedStageCaptureRequestId(const NgxHandle*, unsigned long long, int) { return 0; }
 GUIDE_RESOLVER
 LOOKUP
 int failures=0;
@@ -81,6 +86,16 @@ int main() {
     check(b->retired,"B retires on return to A");
     auto* post=lookup(1,3840,2160);
     check(post && !second_a->retired,"independent mode does not retire other mode");
+    clear();
+    auto* legacy=lookup(2,1920,1080);
+    auto* peak=FindOrCreateContext(&carrier,1,2,1920,1080,CodecColorMode::Automatic GUIDE_ARG,true);
+    check(legacy && peak && legacy!=peak && legacy->retired,"proxy mapping change retires history with pending fence");
+    check(peak && peak->codec_peak_shoulder,"new context records effective proxy mapping");
+    auto* stable_peak=FindOrCreateContext(&carrier,1,2,1920,1080,CodecColorMode::Automatic GUIDE_ARG,true);
+    check(stable_peak==peak,"same proxy mapping reuses history");
+    auto* restored=lookup(2,1920,1080);
+    check(restored && restored!=legacy && restored!=peak && peak->retired,"legacy->peak->legacy never resurrects history");
+    check(restored && !restored->codec_peak_shoulder,"return to default records legacy mapping");
     clear();
     for(unsigned i=0;i<16;++i) check(lookup(2,100+i,100)!=nullptr,"free slot available before capacity");
     check(lookup(2,100,100)==nullptr,"pending-fence capacity cannot resurrect retired size");

@@ -126,10 +126,11 @@ int wmain(int argc, wchar_t **argv) {
     NrStageCaptureInfo info = {};
     info.request_id = 7; info.identity.instance_id = 22; info.identity.frame_id = 333;
     info.identity.config_generation = 4; info.identity.evaluation = 55;
-    info.identity.since_reset = 6; info.identity.warmed_up = true;
+    info.identity.since_reset = 64; info.identity.warmed_up = true;
     info.identity.tuning.style = 2; info.identity.tuning.intensity = 1.5f;
     info.width = 960; info.height = 540; info.stride = 4;
     info.source_width = 3840; info.source_height = 2160; info.mode = 2;
+    info.codec_flags = 256;
     Check(WriteStageCaptureMetadata(argv[1], info, true), "metadata writes frozen identity");
     swprintf_s(path, L"%ls\\metadata.txt", argv[1]);
     auto metadata = Read(path); metadata.push_back('\0');
@@ -138,10 +139,26 @@ int wmain(int argc, wchar_t **argv) {
           std::strstr(metadata.data(), "style=2\n") &&
           std::strstr(metadata.data(), "intensity=1.5\n") &&
           std::strstr(metadata.data(), "stride=4\n") &&
+          std::strstr(metadata.data(), "proxyMapping=rational-peak\n") &&
           std::strstr(metadata.data(), "BEFORE destination format quantization") &&
           std::strstr(metadata.data(), "nativeSrOutput=unavailable") &&
           std::strstr(metadata.data(), "NOT same-frame evidence"),
           "metadata states stage domains, sampling and native-SR/display limitations");
+    Check(std::strstr(metadata.data(), "captureRecreatedContext=1\n") &&
+          std::strstr(metadata.data(), "evaluationsSinceReset=64\n") &&
+          std::strstr(metadata.data(), "minimumCaptureEvaluations=64\n") &&
+          std::strstr(metadata.data(), "NOT verified convergence") &&
+          std::strstr(metadata.data(), "following frames recreate NR"),
+          "capture metadata discloses reset, settling interval and post-capture history retirement");
+    wchar_t legacy_directory[MAX_PATH] = {};
+    swprintf_s(legacy_directory, L"%ls\\legacy", argv[1]);
+    Check(CreateDirectoryW(legacy_directory, nullptr) != FALSE, "create legacy metadata directory");
+    info.codec_flags = 0;
+    Check(WriteStageCaptureMetadata(legacy_directory, info, true), "write default mapping metadata");
+    swprintf_s(path, L"%ls\\metadata.txt", legacy_directory);
+    metadata = Read(path); metadata.push_back('\0');
+    Check(std::strstr(metadata.data(), "proxyMapping=existing\n") != nullptr,
+          "default mapping is separately identified");
     std::printf("Stage capture CPU regression: %u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;
 }

@@ -453,7 +453,7 @@ int main() {
     try {
         Gpu gpu;
         unsigned int scenarios = 0;
-        for (UINT flags : {0u, 1u, 16u, 32u, 128u}) {
+        for (UINT flags : {0u, 1u, 16u, 32u, 128u, 256u, 384u}) {
             for (int variant = 0; variant < 4; ++variant) {
                 const auto off = Run(gpu, 13, 9, 0, 2, flags, variant);
                 const auto on = Run(gpu, 13, 9, 2, 2, flags, variant);

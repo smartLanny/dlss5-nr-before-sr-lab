@@ -4,6 +4,20 @@
 std::atomic<unsigned int> g_stage_capture_status{0};
 std::atomic<int> g_stage_capture_last_result{0};
 std::atomic<unsigned long long> g_stage_capture_request_id{0};
+std::atomic<bool> g_stage_capture_rebuild_pending{false};
+std::atomic<unsigned int> g_stage_capture_retry_count{0};
+constexpr unsigned int kStageCaptureMinimumEvaluations = 64;
+constexpr unsigned int kStageCaptureMaximumRetries = 1;
+
+struct StageCapturePreparedContext {
+    unsigned long long request_id = 0;
+    const NgxHandle *sr_handle = nullptr;
+    unsigned long long feature_generation = 0;
+    int mode = 0;
+};
+// Only accessed under g_chain_cs; the UI publishes a new request atomically
+// and never edits this binding directly.
+StageCapturePreparedContext g_stage_capture_prepared_context = {};
 
 unsigned int StageCaptureStatus() {
     return g_stage_capture_status.load(std::memory_order_acquire);
@@ -17,10 +31,116 @@ bool RequestStageCapture() {
             expected, 4, std::memory_order_acq_rel)) return false;
     g_stage_capture_request_id.fetch_add(1, std::memory_order_relaxed);
     g_stage_capture_last_result.store(0, std::memory_order_relaxed);
+    g_stage_capture_retry_count.store(0, std::memory_order_relaxed);
+    g_stage_capture_rebuild_pending.store(true, std::memory_order_relaxed);
     g_stage_capture_status.store(1, std::memory_order_release);
     Log("Stage capture requested: next eligible warmed-up NR composition; "
-        "one outstanding request, sampled raw stages, no native-SR output read.");
+        "one outstanding request, sampled raw stages, no native-SR output read. "
+        "NR is recreated before capture, waits at least 64 successful "
+        "evaluations since Reset, then retires to drain exact-fence resources. "
+        "This settling interval does not prove temporal convergence.");
     return true;
+}
+
+void PrepareStageCaptureContextLocked(const NgxHandle *sr_handle,
+                                       unsigned long long feature_generation,
+                                       int mode) {
+    if (StageCaptureStatus() != 1) return;
+    if (!g_stage_capture_rebuild_pending.exchange(false, std::memory_order_acq_rel)) {
+        const auto &prepared = g_stage_capture_prepared_context;
+        if (prepared.request_id ==
+                g_stage_capture_request_id.load(std::memory_order_relaxed) &&
+            (prepared.sr_handle != sr_handle ||
+             prepared.feature_generation != feature_generation || prepared.mode != mode)) {
+            // Preparation may precede a failed queue/slot admission. If the
+            // selected contract then disappears, no slot owns any capture GPU
+            // work yet (status1), so explicitly unlock instead of waiting forever.
+            Log("Stage capture cancelled before arming: selected carrier/generation/mode "
+                "changed. Request unlocked; press F7 again after the scene settles.");
+            g_stage_capture_last_result.store(-1, std::memory_order_relaxed);
+            g_stage_capture_status.store(0, std::memory_order_release);
+        }
+        return;
+    }
+    g_stage_capture_prepared_context = {
+        g_stage_capture_request_id.load(std::memory_order_relaxed),
+        sr_handle, feature_generation, mode};
+    // A continuously reused Output may never have an idle descriptor heap:
+    // same-queue NR overlap is permitted while prior frames still own it.
+    // Retire the chosen history ONCE and arm its replacement's pristine slot.
+    for (auto &context : g_contexts) {
+        if (context.sr_handle == sr_handle && !context.retired &&
+            context.feature_generation == feature_generation && context.mode == mode) {
+            context.retired = true;
+            Log("Stage capture preparing fresh NR instance: request=%llu "
+                "previousInstance=%llu mode=%d; old resources keep their exact fences.",
+                g_stage_capture_request_id.load(std::memory_order_relaxed),
+                context.instance_id, mode);
+        }
+    }
+}
+
+unsigned long long PreparedStageCaptureRequestId(
+    const NgxHandle *sr_handle, unsigned long long feature_generation, int mode) {
+    const auto &prepared = g_stage_capture_prepared_context;
+    const unsigned long long request =
+        g_stage_capture_request_id.load(std::memory_order_relaxed);
+    if (StageCaptureStatus() != 1 ||
+        g_stage_capture_rebuild_pending.load(std::memory_order_acquire) ||
+        prepared.request_id != request || prepared.sr_handle != sr_handle ||
+        prepared.feature_generation != feature_generation || prepared.mode != mode)
+        return 0;
+    return request;
+}
+
+void RetireStaleStageCaptureLocked(NrContext &context, const NrSlot &current) {
+    const unsigned long long request =
+        g_stage_capture_request_id.load(std::memory_order_relaxed);
+    if (StageCaptureStatus() != 2 || context.stage_capture_request_id != request)
+        return;
+    for (auto &owner : context.slots) {
+        const NrStageCapture &capture = owner.stage_capture;
+        if (&owner == &current || !capture.armed || capture.pending ||
+            capture.info.request_id != request) continue;
+        const unsigned int last_seen = capture.info.identity.evaluation;
+        if (context.evaluations < last_seen ||
+            context.evaluations - last_seen < kStageCaptureMinimumEvaluations)
+            continue;
+        // An ordinary double/triple buffer revisits its armed slot quickly.
+        // If a one-off Output/Exposure is gone for 64 successful evaluations,
+        // retire its history and let the exact-fence destructor retry once.
+        // No descriptor/resource is mutated while it may still be in flight.
+        context.retired = true;
+        Log("Stage capture target stopped recurring: request=%llu lastSeenEval=%u "
+            "currentEval=%u; retiring owner to drain, automatic retry budget=%u.",
+            request, last_seen, context.evaluations, kStageCaptureMaximumRetries);
+        return;
+    }
+}
+
+void RetireStageCaptureOwnerLocked(NrSlot &slot) {
+    for (auto &context : g_contexts) {
+        for (auto &candidate : context.slots) {
+            if (&candidate != &slot) continue;
+            // Do not append future frames to this capture's slot: otherwise
+            // its latest fence/recording references can advance indefinitely.
+            context.retired = true;
+            Log("Stage capture recorded: request=%llu instance=%llu frame=%llu "
+                "sampled=%ux%u stride=%u; owner retired, awaiting exact fence and recording release.",
+                slot.stage_capture.info.request_id,
+                slot.stage_capture.info.identity.instance_id,
+                slot.stage_capture.info.identity.frame_id,
+                slot.stage_capture.info.width, slot.stage_capture.info.height,
+                slot.stage_capture.info.stride);
+            return;
+        }
+    }
+}
+
+bool CanRecordStageCapture(const NrStageCapture &capture) {
+    return capture.armed && !capture.pending && capture.buffer != nullptr &&
+           capture.readback != nullptr && capture.info.identity.warmed_up &&
+           capture.info.identity.since_reset >= kStageCaptureMinimumEvaluations;
 }
 
 bool ComputeStageCaptureGrid(unsigned int source_width,
@@ -63,21 +183,41 @@ void BindStageCaptureDescriptor(NrSlot &slot, ID3D12Resource *buffer,
 void DestroyStageCapture(NrSlot &slot) {
     const bool owned_request = slot.stage_capture.armed ||
                               slot.stage_capture.pending;
+    const unsigned long long request = slot.stage_capture.info.request_id;
     ReleaseCom(slot.stage_capture.readback);
     ReleaseCom(slot.stage_capture.buffer);
     slot.stage_capture = {};
-    if (owned_request) {
+    if (owned_request && request != 0 &&
+        request == g_stage_capture_request_id.load(std::memory_order_relaxed) &&
+        StageCaptureStatus() == 2) {
         // A failed create/evaluate or discarded list must not silently consume
         // the user's one-shot request. The enclosing slot retirement already
         // proved safety; let a later successful instance fulfil the request.
-        g_stage_capture_status.store(1, std::memory_order_release);
+        const unsigned int retries =
+            g_stage_capture_retry_count.fetch_add(1, std::memory_order_relaxed);
+        if (retries < kStageCaptureMaximumRetries) {
+            g_stage_capture_rebuild_pending.store(true, std::memory_order_relaxed);
+            g_stage_capture_status.store(1, std::memory_order_release);
+            Log("Stage capture retrying request=%llu after exact-fence retirement "
+                "(retry=%u/%u).", request, retries + 1, kStageCaptureMaximumRetries);
+        } else {
+            Log("Stage capture failed: request=%llu could not retain a recurring "
+                "target within the bounded retry budget. Request unlocked; retry manually "
+                "after the scene/resources settle.", request);
+            g_stage_capture_last_result.store(-1, std::memory_order_relaxed);
+            g_stage_capture_status.store(0, std::memory_order_release);
+        }
     }
 }
 
 void ArmStageCaptureLocked(NrContext &context, NrSlot &slot) {
+    RetireStaleStageCaptureLocked(context, slot);
     if (StageCaptureStatus() != 1 || slot.stage_capture.buffer != nullptr ||
-        context.nr_handle == nullptr ||
-        context.successful_evaluations_since_reset < g_config.warmup_after_create ||
+        context.retired ||
+        g_stage_capture_rebuild_pending.load(std::memory_order_acquire) ||
+        context.stage_capture_request_id == 0 ||
+        context.stage_capture_request_id !=
+            g_stage_capture_request_id.load(std::memory_order_relaxed) ||
         !CanMutateSlotLocked(slot)) return;
     NrStageCapture capture = {};
     if (!ComputeStageCaptureGrid(context.width, context.height,
@@ -131,6 +271,9 @@ void ArmStageCaptureLocked(NrContext &context, NrSlot &slot) {
     slot.stage_capture = capture;
     BindStageCaptureDescriptor(slot, capture.buffer, capture.bytes);
     g_stage_capture_status.store(2, std::memory_order_release);
+    Log("Stage capture armed: request=%llu mode=%d sampled=%ux%u stride=%u; "
+        "captureRecreatedContext=1 waiting for at least 64 successful NR evaluations since Reset.", capture.info.request_id,
+        context.mode, capture.info.width, capture.info.height, capture.info.stride);
 }
 
 struct StageCaptureExport {
@@ -191,7 +334,7 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         "sourceBase=%u,%u\ndestinationBase=%u,%u\nsourceFormat=%u\nresultFormat=%u\n"
         "codecFlags=%u\nintensity=%.9g\nstyle=%u\nlocalTone=%.9g\n"
         "localStructure=%.9g\nskinStructure=%.9g\nautoMask=%d\nuiCorrection=%d\n"
-        "proxyScale=%.9g\ntransfer=%.9g\ncolorFollowEffective=%.9g\nmaxLumaRatio=%.9g\n"
+        "proxyScale=%.9g\nproxyMapping=%s\ntransfer=%.9g\ncolorFollowEffective=%.9g\nmaxLumaRatio=%.9g\n"
         "preExposure=%.9g\nhasPreExposure=%d\nscalarExposureScale=%.9g\nhasExposureScale=%d\n"
         "sampling=nearest grid at active-region coordinates (x*stride,y*stride)\n"
         "pixels=PFM little-endian float RGB, raw shader values; alpha omitted\n"
@@ -200,7 +343,10 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         "nativeSrOutput=%s\n"
         "displayScreenshot=not captured; separately triggered ReShade screenshots are NOT same-frame evidence\n"
         "exposureTexture=when codecFlags bit64 is set, GPU samples external texture; this file records scalars only\n"
-        "comparison=decode with the recorded codec contract; raw stages do not share a photometric domain\n",
+        "comparison=decode with the recorded codec contract; raw stages do not share a photometric domain\n"
+        "captureRecreatedContext=1\nevaluationsSinceReset=%u\nminimumCaptureEvaluations=64\n"
+        "temporalHistory=fresh NR context; 64 successful evaluations is a settling interval, NOT verified convergence\n"
+        "afterCapture=NR context retires for exact-fence export; following frames recreate NR and warm up again\n",
         kBuildIdentity, images_ok ? 1 : 0, info.request_id, id.instance_id,
         info.feature_generation, id.frame_id, id.config_generation, id.evaluation,
         id.since_reset, id.warmed_up ? 1 : 0, info.mode,
@@ -211,12 +357,14 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         static_cast<double>(id.tuning.local_tone), static_cast<double>(id.tuning.local_structure),
         static_cast<double>(id.tuning.skin_structure), id.tuning.auto_mask ? 1 : 0,
         id.tuning.ui_correction ? 1 : 0, static_cast<double>(info.proxy_scale),
+        (info.codec_flags & 256u) != 0u ? "rational-peak" : "existing",
         static_cast<double>(info.transfer_strength), static_cast<double>(info.color_strength),
         static_cast<double>(info.max_luma_ratio), static_cast<double>(info.pre_exposure),
         info.has_pre_exposure ? 1 : 0, static_cast<double>(info.exposure_scale),
         info.has_exposure_scale ? 1 : 0,
         info.mode == 1 ? "represented by original stage (post-SR source/snapshot)"
-                       : "unavailable; arrival state not proven, so no extra output read/transition");
+                       : "unavailable; arrival state not proven, so no extra output read/transition",
+        id.since_reset);
     const bool ok = length > 0 && static_cast<std::size_t>(length) < sizeof(text) &&
         WriteStageCaptureBytes(file, text, static_cast<DWORD>(length));
     CloseHandle(file);
