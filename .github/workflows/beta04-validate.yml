@@ -1,5 +1,5 @@
 name: Validate beta0.4 perfect-chain r3
-# Source-validation trigger: V2 capture-alpha contract fix at 39625b2.
+# Source-validation trigger: labelled V2 fallback diagnostics at d47e21d.
 
 on:
   workflow_dispatch:
