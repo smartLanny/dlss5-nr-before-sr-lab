@@ -2018,14 +2018,39 @@ float3 LoadProxyLinearV2(int2 p) {
     int2 upper = int2(max(ModelWidth, 1u) - 1u,
                       max(ModelHeight, 1u) - 1u);
     float3 stored = ProxyColor.Load(int3(clamp(p, int2(0, 0), upper), 0)).rgb;
-    return (Passthrough & 1u) != 0u ? saturate(stored) : SRGBToLinear(stored);
+    return (Passthrough & 1u) != 0u ? stored : SRGBToLinear(stored);
 }
 
 float3 LoadNeuralLinearV2(int2 p) {
     int2 upper = int2(max(ModelWidth, 1u) - 1u,
                       max(ModelHeight, 1u) - 1u);
     float3 stored = NeuralColor.Load(int3(clamp(p, int2(0, 0), upper), 0)).rgb;
-    return (Passthrough & 1u) != 0u ? saturate(stored) : SRGBToLinear(stored);
+    return (Passthrough & 1u) != 0u ? stored : SRGBToLinear(stored);
+}
+
+bool IsFiniteModelStoredV2(float3 value) {
+    return all(value == value) && all(abs(value) <= 65504.0.xxx);
+}
+
+bool ModelNeighborhoodFiniteV2(float2 fullPixelCenter) {
+    float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
+        float2(max(Width, 1u), max(Height, 1u)) - 0.5;
+    int2 base = int2(floor(mapped));
+    int2 upper = int2(max(ModelWidth, 1u) - 1u,
+                      max(ModelHeight, 1u) - 1u);
+    int2 p00 = clamp(base, int2(0, 0), upper);
+    int2 p10 = clamp(base + int2(1, 0), int2(0, 0), upper);
+    int2 p01 = clamp(base + int2(0, 1), int2(0, 0), upper);
+    int2 p11 = clamp(base + int2(1, 1), int2(0, 0), upper);
+    return
+        IsFiniteModelStoredV2(ProxyColor.Load(int3(p00, 0)).rgb) &&
+        IsFiniteModelStoredV2(ProxyColor.Load(int3(p10, 0)).rgb) &&
+        IsFiniteModelStoredV2(ProxyColor.Load(int3(p01, 0)).rgb) &&
+        IsFiniteModelStoredV2(ProxyColor.Load(int3(p11, 0)).rgb) &&
+        IsFiniteModelStoredV2(NeuralColor.Load(int3(p00, 0)).rgb) &&
+        IsFiniteModelStoredV2(NeuralColor.Load(int3(p10, 0)).rgb) &&
+        IsFiniteModelStoredV2(NeuralColor.Load(int3(p01, 0)).rgb) &&
+        IsFiniteModelStoredV2(NeuralColor.Load(int3(p11, 0)).rgb);
 }
 
 float3 SampleProxyLinearV2(float2 fullPixelCenter) {
@@ -2454,7 +2479,8 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float3 neural = SampleNeuralLinearV2(center);
     float3 fullProxy = EncodeProxyLinearV2(source);
 
-    bool finiteInputs = all(storedOriginal.rgb == storedOriginal.rgb) &&
+    bool finiteInputs = ModelNeighborhoodFiniteV2(center) &&
+        all(storedOriginal.rgb == storedOriginal.rgb) &&
         all(source == source) && all(proxy == proxy) && all(neural == neural) &&
         all(abs(source) <= 65504.0.xxx) && all(abs(proxy) <= 65504.0.xxx) &&
         all(abs(neural) <= 65504.0.xxx);
