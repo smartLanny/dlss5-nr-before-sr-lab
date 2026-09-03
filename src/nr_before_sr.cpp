@@ -1970,31 +1970,31 @@ float HybridPeak(float peak) {
         (excess * rsqrt(excess * excess + 1.0));
 }
 
-float3 ApplySelectedProxyCurve(float3 linear) {
-    linear = max(linear, 0.0.xxx);
+float3 ApplySelectedProxyCurve(float3 sceneLinear) {
+    sceneLinear = max(sceneLinear, 0.0.xxx);
     const bool modelEncodedInput = (Passthrough & 1u) != 0u;
     const bool linearSdrStorage = (Passthrough & 16u) != 0u;
     const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
     if (modelEncodedInput || linearSdrStorage || srgbSdrStorage)
-        return saturate(linear);
+        return saturate(sceneLinear);
 
     if (ProxyCurve == 0u) {
-        float luma = dot(linear, kLuma);
+        float luma = dot(sceneLinear, kLuma);
         if (luma > 0.75) {
             float rolled = 0.75 + 0.25 *
                 (1.0 - exp(-(luma - 0.75) / 0.25));
-            linear *= rolled / max(luma, 0.000001);
+            sceneLinear *= rolled / max(luma, 0.000001);
         }
-        float peak = max(linear.r, max(linear.g, linear.b));
-        return saturate(linear * rcp(max(peak, 1.0)));
+        float peak = max(sceneLinear.r, max(sceneLinear.g, sceneLinear.b));
+        return saturate(sceneLinear * rcp(max(peak, 1.0)));
     }
 
-    float peak = max(linear.r, max(linear.g, linear.b));
-    if (peak <= 0.000001) return linear;
+    float peak = max(sceneLinear.r, max(sceneLinear.g, sceneLinear.b));
+    if (peak <= 0.000001) return sceneLinear;
     float mapped = ProxyCurve == 1u
         ? HybridPeak(peak)
         : peak * rsqrt(peak * peak + 1.0);
-    return linear * (mapped / peak);
+    return sceneLinear * (mapped / peak);
 }
 
 float3 EncodeProxyLinearV2(float3 sourceLinear) {
