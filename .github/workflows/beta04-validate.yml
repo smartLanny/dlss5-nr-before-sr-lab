@@ -1,4 +1,4 @@
-name: Validate beta0.4 perfect-chain r2
+name: Validate beta0.4 perfect-chain r3
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: beta04-r2-${{ github.ref }}
+  group: beta04-r3-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -20,13 +20,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Structural invariants
         run: python scripts/validate-beta04-structure.py
-      - name: Multiplicative and HDR math invariants
+      - name: Multiplicative HDR guide and gamut math
         run: python scripts/test-beta04-math.py
       - name: Compile every embedded Shader Model 5 entry
         shell: pwsh
         run: ./scripts/validate-codec-shader.ps1
 
-  full-build-and-package:
+  full-contract-build-and-package:
     needs: shader-structure-and-math
     runs-on: windows-latest
     steps:
@@ -35,7 +35,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $headers = @{ 'User-Agent' = 'beta04-r2-validator' }
+          $headers = @{ 'User-Agent' = 'beta04-r3-validator' }
           $release = Invoke-RestMethod -Headers $headers `
             'https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest'
           $asset = $release.assets | Where-Object {
@@ -49,6 +49,26 @@ jobs:
             https://github.com/crosire/reshade.git reshade-source
           "TOOLCHAIN_ROOT=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Append
           "RESHADE_ROOT=$pwd\reshade-source" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: CPU temporal and diagnostic harnesses
+        shell: pwsh
+        run: |
+          $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
+          python scripts/validate-diagnostic-identity.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic identity harness failed.' }
+          python scripts/validate-guide-history.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw 'Guide/context history harness failed.' }
+      - name: Resource observer and capture contracts
+        shell: pwsh
+        run: |
+          ./scripts/validate-resource-contracts.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+          ./scripts/validate-observer.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+          ./scripts/validate-stage-capture.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+      - name: Execute the D3D12 codec harness
+        shell: pwsh
+        run: ./scripts/validate-codec-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+      - name: LLVM static analysis
+        shell: pwsh
+        run: ./scripts/validate-static-analysis.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
       - name: Build English and Chinese add-ons
         shell: pwsh
         run: ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
@@ -65,6 +85,6 @@ jobs:
             Format-Table -AutoSize
       - uses: actions/upload-artifact@v4
         with:
-          name: beta04-perfect-chain-r2-test-package
+          name: beta04-perfect-chain-r3-test-package
           path: dist/
           if-no-files-found: error
