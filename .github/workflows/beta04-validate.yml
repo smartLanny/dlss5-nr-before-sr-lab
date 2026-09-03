@@ -10,8 +10,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: beta04-validate-${{ github.ref }}
-  cancel-in-progress: true
+  group: beta04-validate-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   shader-and-structure:
