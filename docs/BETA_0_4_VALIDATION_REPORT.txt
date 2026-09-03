@@ -1,6 +1,1 @@
-constant layout order mismatch:
-HLSL=['Width', 'Height', 'ProxyScale', 'TransferStrength', 'SourceToCanonical', 'ColorStrength', 'MaxLumaRatio', 'Passthrough', 'SourceBaseX', 'SourceBaseY', 'DestinationBaseX', 'DestinationBaseY', 'MotionSourceWidth', 'MotionSourceHeight', 'MotionSourceBaseX', 'MotionSourceBaseY', 'PreExposure', 'CaptureStride', 'SourceWidth', 'SourceHeight', 'ModelWidth', 'ModelHeight', 'LightingLock', 'EdgeGuard', 'ProxyCurve', 'FrameConfidence']
-C++=['width', 'height', 'proxy_scale', 'transfer_strength', 'source_to_canonical', 'color_strength', 'max_luma_ratio', 'passthrough', 'source_base_x', 'source_base_y', 'destination_base_x', 'destination_base_y', 'motion_source_width', 'motion_source_height', 'motion_source_base_x', 'motion_source_base_y', 'pre_exposure', 'capture_stride', 'source_width', 'source_height', 'model_width', 'model_height', 'lighting_lock', 'edge_guard', 'proxy_curve', 'frame_confidence']
-warning: in the working copy of 'config/nr_before_sr.ini', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'scripts/build.ps1', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'scripts/validate-codec-shader.ps1', LF will be replaced by CRLF the next time Git touches it
+beta0.4 perfect-chain structural validation passed
