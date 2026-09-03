@@ -26,7 +26,7 @@ public static class NativeD3DCompiler {
 '@
 }
 
-foreach ($entryPoint in @('EncodeCS', 'CombineCS', 'CopyCS', 'ResampleMotionCS')) {
+foreach ($entryPoint in @('EncodeCS', 'CombineCS', 'EncodeV2CS', 'CombineV2CS', 'CopyCS', 'ResampleMotionCS')) {
     $code = [IntPtr]::Zero
     $errors = [IntPtr]::Zero
     $result = [NativeD3DCompiler]::D3DCompile(

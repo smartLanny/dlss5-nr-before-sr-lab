@@ -80,11 +80,15 @@ void ArmStageCaptureLocked(NrContext &context, NrSlot &slot) {
         context.successful_evaluations_since_reset < g_config.warmup_after_create ||
         !CanMutateSlotLocked(slot)) return;
     NrStageCapture capture = {};
-    if (!ComputeStageCaptureGrid(context.width, context.height,
+    const unsigned int capture_source_width = slot.active_render_width != 0
+        ? slot.active_render_width : context.width;
+    const unsigned int capture_source_height = slot.active_render_height != 0
+        ? slot.active_render_height : context.height;
+    if (!ComputeStageCaptureGrid(capture_source_width, capture_source_height,
             capture.info.stride, capture.info.width, capture.info.height,
             capture.bytes)) {
         Log("Stage capture rejected unsupported source extent %ux%u.",
-            context.width, context.height);
+            capture_source_width, capture_source_height);
         g_stage_capture_last_result.store(-1, std::memory_order_relaxed);
         g_stage_capture_status.store(0, std::memory_order_release);
         return;
@@ -122,8 +126,10 @@ void ArmStageCaptureLocked(NrContext &context, NrSlot &slot) {
     }
     capture.info.request_id = g_stage_capture_request_id.load(std::memory_order_relaxed);
     capture.info.feature_generation = context.feature_generation;
-    capture.info.source_width = context.width;
-    capture.info.source_height = context.height;
+    capture.info.source_width = capture_source_width;
+    capture.info.source_height = capture_source_height;
+    capture.info.model_width = context.width;
+    capture.info.model_height = context.height;
     capture.info.source_format = static_cast<unsigned int>(slot.source_format);
     capture.info.result_format = static_cast<unsigned int>(slot.result_format);
     capture.info.mode = context.mode;
@@ -187,7 +193,7 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         "format=NRStageCapture-v1\nbuild=%s\ncomplete=%d\n"
         "request=%llu\ninstance=%llu\nfeatureGeneration=%llu\nframe=%llu\n"
         "configGeneration=%u\nevaluation=%u\nsinceReset=%u\nwarmedUp=%d\nmode=%d\n"
-        "sourceExtent=%ux%u\nsampledExtent=%ux%u\nstride=%u\n"
+        "sourceExtent=%ux%u\nmodelExtent=%ux%u\nsampledExtent=%ux%u\nstride=%u\n"
         "sourceBase=%u,%u\ndestinationBase=%u,%u\nsourceFormat=%u\nresultFormat=%u\n"
         "codecFlags=%u\nintensity=%.9g\nstyle=%u\nlocalTone=%.9g\n"
         "localStructure=%.9g\nskinStructure=%.9g\nautoMask=%d\nuiCorrection=%d\n"
@@ -204,7 +210,8 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         kBuildIdentity, images_ok ? 1 : 0, info.request_id, id.instance_id,
         info.feature_generation, id.frame_id, id.config_generation, id.evaluation,
         id.since_reset, id.warmed_up ? 1 : 0, info.mode,
-        info.source_width, info.source_height, info.width, info.height, info.stride,
+        info.source_width, info.source_height, info.model_width, info.model_height,
+        info.width, info.height, info.stride,
         info.source_base_x, info.source_base_y, info.destination_base_x,
         info.destination_base_y, info.source_format, info.result_format, info.codec_flags,
         static_cast<double>(id.tuning.intensity), id.tuning.style,
