@@ -24,6 +24,8 @@ jobs:
           fetch-depth: 0
       - name: Apply idempotent source patch
         run: python scripts/apply-beta04-perfect-chain.py
+      - name: Apply compiler hotfixes
+        run: python scripts/fix-beta04-hlsl.py
       - name: Validate structure and retain report
         id: validate
         continue-on-error: true
