@@ -1,50 +1,38 @@
 EncodeCS: 0x80004005
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(265,39-44): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(266,12): error X3000: syntax error: unexpected token '='
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,25-30): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013: 'saturate': no matching 0 parameter intrinsic function
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013: Possible intrinsic functions are:
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013:     saturate(float|half|double|min10float|min16float)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(347,12-17): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(348,39-44): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(352,12-17): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(353,39-44): error X3000: syntax error: unexpected token 'linear'
 
 CombineCS: 0x80004005
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(265,39-44): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(266,12): error X3000: syntax error: unexpected token '='
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,25-30): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013: 'saturate': no matching 0 parameter intrinsic function
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013: Possible intrinsic functions are:
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013:     saturate(float|half|double|min10float|min16float)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(347,12-17): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(348,39-44): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(352,12-17): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(353,39-44): error X3000: syntax error: unexpected token 'linear'
 
 EncodeV2CS: 0x80004005
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(265,39-44): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(266,12): error X3000: syntax error: unexpected token '='
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,25-30): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013: 'saturate': no matching 0 parameter intrinsic function
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013: Possible intrinsic functions are:
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013:     saturate(float|half|double|min10float|min16float)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(347,12-17): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(348,39-44): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(352,12-17): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(353,39-44): error X3000: syntax error: unexpected token 'linear'
 
 CombineV2CS: 0x80004005
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(265,39-44): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(266,12): error X3000: syntax error: unexpected token '='
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,25-30): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013: 'saturate': no matching 0 parameter intrinsic function
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013: Possible intrinsic functions are:
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013:     saturate(float|half|double|min10float|min16float)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(347,12-17): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(348,39-44): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(352,12-17): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(353,39-44): error X3000: syntax error: unexpected token 'linear'
 
 CopyCS: 0x80004005
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(265,39-44): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(266,12): error X3000: syntax error: unexpected token '='
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,25-30): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013: 'saturate': no matching 0 parameter intrinsic function
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013: Possible intrinsic functions are:
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013:     saturate(float|half|double|min10float|min16float)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(347,12-17): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(348,39-44): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(352,12-17): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(353,39-44): error X3000: syntax error: unexpected token 'linear'
 
 ResampleMotionCS: 0x80004005
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(265,39-44): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(266,12): error X3000: syntax error: unexpected token '='
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,25-30): error X3000: syntax error: unexpected token 'linear'
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013: 'saturate': no matching 0 parameter intrinsic function
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013: Possible intrinsic functions are:
-D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(271,16-31): error X3013:     saturate(float|half|double|min10float|min16float)
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(347,12-17): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(348,39-44): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(352,12-17): error X3000: syntax error: unexpected token 'linear'
+D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\NRBeforeSR.Codec(353,39-44): error X3000: syntax error: unexpected token 'linear'
 
 Exception: D:\a\dlss5-nr-before-sr-lab\dlss5-nr-before-sr-lab\scripts\validate-codec-shader.ps1:87
 Line |
