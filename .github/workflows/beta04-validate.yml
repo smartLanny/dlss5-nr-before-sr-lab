@@ -1,0 +1,59 @@
+name: Validate beta0.4 perfect-chain
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/beta0.4-perfect-chain
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta04-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shader-and-structure:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Structural invariants
+        run: python scripts/validate-beta04-structure.py
+      - name: Compile every embedded shader entry
+        shell: pwsh
+        run: ./scripts/validate-codec-shader.ps1
+
+  full-build:
+    needs: shader-and-structure
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch public build inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = @{ 'User-Agent' = 'beta04-validator' }
+          $release = Invoke-RestMethod -Headers $headers `
+            'https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest'
+          $asset = $release.assets | Where-Object {
+            $_.name -match '^llvm-mingw-.*-ucrt-x86_64\.zip$'
+          } | Select-Object -First 1
+          if (-not $asset) { throw 'No llvm-mingw UCRT x86_64 archive found.' }
+          Invoke-WebRequest $asset.browser_download_url -OutFile llvm-mingw.zip
+          Expand-Archive llvm-mingw.zip -DestinationPath toolchain
+          $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
+          git clone --depth 1 https://github.com/crosire/reshade.git reshade-source
+          "TOOLCHAIN_ROOT=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "RESHADE_ROOT=$pwd\reshade-source" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Build English and Chinese add-ons
+        shell: pwsh
+        run: ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
+      - name: Show hashes
+        shell: pwsh
+        run: Get-FileHash build/* -Algorithm SHA256 | Format-Table -AutoSize
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beta04-perfect-chain-build
+          path: build/
+          if-no-files-found: error
