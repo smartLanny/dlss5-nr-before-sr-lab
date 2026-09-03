@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   apply:
-    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[beta04-applied]')
+    if: github.event_name == 'workflow_dispatch' || (!contains(github.event.head_commit.message, '[beta04-applied]') && !contains(github.event.head_commit.message, '[beta04-ci-report]'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
