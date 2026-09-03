@@ -28,7 +28,7 @@ translation layer such as OptiScaler are outside this add-on's direct scope.
    - `DLSS5-AI-Rendering-Upscaling-beta0.3.2-dev-@野生的装机宅-Bilibili.en.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
-   - `nvngx_dlssnr.dll` from the RTX 50 package
+   - `nvngx_dlssnr.dll` from the matching GPU package
 5. Start the game and verify that the ReShade Add-ons page shows beta0.3.2-dev, the
    author and official release address at the top of this add-on's panel.
 
@@ -39,6 +39,13 @@ the panel may open but every option will appear ineffective.
 ## Quick use
 
 - `F6`: master toggle. Off must be native game SR with zero Feature 18 calls.
+- Main keyboard `-` (numpad subtract also works): save a screenshot. Its file
+  name records the build, chain, active/bypass state, DLSS input/NR/output
+  extents, format, intensity, blend, style, mask, skin/local controls, Lighting
+  Match and colour strength.
+  `IN/NR/OUT` are the three extents; `F/I/B` are output format, NR intensity and
+  blend; `AM/SK/LT/LS/LM/C` are auto-mask, skin, local tone, local structure,
+  Lighting Match and colour follow.
 - The default `render-resolution NR -> SR` option follows the game's real DLSS
   render extent, then passes the result into the game's native SR.
 - Turn that option off for the full-output-resolution `SR -> NR` quality and
@@ -59,9 +66,9 @@ Experimental Lighting Match. Do not change style, intensity or exposure during
 that ablation; the log can then separate proxy-contract, neural-model and final
 composition bias.
 
-The RTX 40 community package does not redistribute the ShortFuse runtime. Supply
-a lawfully obtained compatible runtime and keep it beside the add-on, bridge and
-configuration. RTX 40 family-wide compatibility is not claimed.
+The RTX 30/40 ShortFuse full package already includes the matching
+`310.8.SF-v2` runtime. Extract the package as one unit and do not enable a second
+ShortFuse/RHI NR add-on at the same time.
 
 ## Verify official files
 

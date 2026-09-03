@@ -28,7 +28,7 @@ DX11、Vulkan、没有原生 DLSS SR，或被 OptiScaler 等转换层完全接�
    - `DLSS5-AI渲染超分版-beta0.3.2-dev-@野生的装机宅-Bilibili.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
-   - RTX 50 包内的 `nvngx_dlssnr.dll`
+   - 当前显卡完整包内的 `nvngx_dlssnr.dll`
 5. 启动游戏，在 ReShade 的“插件”页确认界面顶部显示 beta0.3.2-dev、作者名和官方地址。
 
 插件会从自身目录读取配置、桥接 DLL 和 NR runtime。因此，仅让 ReShade
@@ -38,6 +38,11 @@ DX11、Vulkan、没有原生 DLSS SR，或被 OptiScaler 等转换层完全接�
 ## 快速使用
 
 - `F6`：总开关。关闭时应为纯游戏原生 SR，Feature 18 调用应为 0。
+- 主键盘 `-`（小键盘减号也可）：直接截图。文件名会自动写入插件版本、
+  当前链路、运行/旁路状态、DLSS 输入/NR/输出分辨率、格式、强度、混合、
+  风格、人脸遮罩、皮肤/局部参数、光照匹配和颜色强度。
+  缩写：`IN/NR/OUT`=三段分辨率，`F`=输出格式，`I`=NR 强度，`B`=混合，
+  `AM/SK/LT/LS/LM/C`=自动遮罩/皮肤/局部影调/局部结构/光照匹配/颜色。
 - 默认开启“使用渲染分辨率 NR → SR”：按游戏当前 DLSS 挡位的真实渲染
   分辨率先运行 NR，再交给游戏原生 SR。
 - 关闭该链路开关：切换为 `SR → NR`，用于全输出分辨率高画质/性能对比。
@@ -55,9 +60,8 @@ DX11、Vulkan、没有原生 DLSS SR，或被 OptiScaler 等转换层完全接�
 不要同时改风格、强度或曝光；这样日志才能区分代理合同、NR 模型偏差和
 最终合成偏差。
 
-RTX 40 社区测试包不包含 ShortFuse runtime。请只从合法来源自行提供与
-测试说明匹配的 runtime，并继续把 addon、bridge、配置和 runtime 放在
-同一目录。RTX 40 尚不能称为全系兼容。
+RTX 30/40 ShortFuse 完整包已经包含匹配的 `310.8.SF-v2` runtime，解压后
+直接整体覆盖即可；不要再同时开启另一个 ShortFuse/RHI NR addon。
 
 ## 验证官方文件
 

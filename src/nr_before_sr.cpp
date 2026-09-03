@@ -40,7 +40,7 @@ constexpr const char *kAddonVersion = "beta0.3.2-dev";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.3.2-dev-r2";
+constexpr const char *kBuildIdentity = "beta0.3.2-dev-r3";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -7433,6 +7433,80 @@ void ToggleMasterFromHotkey() {
     ApplyConfig(next, "F6");
 }
 
+const char *ScreenshotStyleName(unsigned int style) {
+    switch (style) {
+    case 0: return "Default";
+    case 1: return "Natural";
+    case 2: return "Cinematic";
+    default: return "Unknown";
+    }
+}
+
+// ReShade owns the back-buffer readback, HDR-aware output format and async file
+// writer. The add-on only supplies a compact, filesystem-safe diagnostic
+// postfix, so taking a screenshot never enters the Feature 18 command-list or
+// lifetime transaction.
+void OnReShadePresent(reshade::api::effect_runtime *runtime) {
+    if (runtime == nullptr) return;
+
+    static SRWLOCK screenshot_hotkey_lock = SRWLOCK_INIT;
+    static bool screenshot_key_was_down = false;
+    static ULONGLONG last_screenshot_ms = 0;
+    if (!TryAcquireSRWLockExclusive(&screenshot_hotkey_lock)) return;
+
+    const SHORT minus_state = GetAsyncKeyState(VK_OEM_MINUS);
+    const SHORT numpad_minus_state = GetAsyncKeyState(VK_SUBTRACT);
+    const bool screenshot_key_is_down =
+        (minus_state & 0x8000) != 0 || (numpad_minus_state & 0x8000) != 0;
+    const bool screenshot_pressed =
+        (minus_state & 0x0001) != 0 || (numpad_minus_state & 0x0001) != 0 ||
+        (screenshot_key_is_down && !screenshot_key_was_down);
+    const ULONGLONG now_ms = GetTickCount64();
+
+    if (screenshot_pressed && now_ms - last_screenshot_ms >= 350) {
+        last_screenshot_ms = now_ms;
+        const ChainConfig config = SnapshotConfig();
+        const BypassReason bypass_reason = static_cast<BypassReason>(
+            g_last_bypass_reason.load(std::memory_order_relaxed));
+        const char *mode_name = !config.enabled
+            ? "SR-only"
+            : (config.mode == 2 ? "NR-to-SR" : "SR-to-NR");
+        const char *state_name = !config.enabled
+            ? "off"
+            : (bypass_reason == BypassReason::None
+                   ? "active"
+                   : BypassReasonName(bypass_reason));
+        const float blend_strength = config.mode == 2
+            ? config.transfer_strength
+            : config.post_transfer_strength;
+
+        char postfix[256] = {};
+        snprintf(
+            postfix, sizeof(postfix),
+            "DLSS5_%s_%s_%s_IN%ux%u_NR%ux%u_OUT%ux%u_F%u_"
+            "I%.2f_B%.2f_%s_AM%d_SK%.2f_LT%.2f_LS%.2f_LM%d_C%.2f",
+            kBuildIdentity, mode_name, state_name,
+            g_last_dlss_input_width.load(std::memory_order_relaxed),
+            g_last_dlss_input_height.load(std::memory_order_relaxed),
+            g_last_nr_width.load(std::memory_order_relaxed),
+            g_last_nr_height.load(std::memory_order_relaxed),
+            g_last_dlss_output_width.load(std::memory_order_relaxed),
+            g_last_dlss_output_height.load(std::memory_order_relaxed),
+            g_last_output_format.load(std::memory_order_relaxed),
+            config.intensity, blend_strength,
+            ScreenshotStyleName(config.style), config.auto_mask ? 1 : 0,
+            config.skin_structure, config.local_tone, config.local_structure,
+            config.preserve_lighting ? 1 : 0, config.color_strength);
+        postfix[sizeof(postfix) - 1] = '\0';
+
+        runtime->save_screenshot(postfix);
+        Log("[screenshot] ReShade capture queued by '-' hotkey: %s", postfix);
+    }
+
+    screenshot_key_was_down = screenshot_key_is_down;
+    ReleaseSRWLockExclusive(&screenshot_hotkey_lock);
+}
+
 void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *,
                const reshade::api::rect *, const reshade::api::rect *,
                std::uint32_t, const reshade::api::rect *) {
@@ -7500,6 +7574,11 @@ void DrawSettings(reshade::api::effect_runtime *) {
     ImGui::TextWrapped(
         ui("Official releases only: %s", "唯一官方发布地址：%s"),
         kOfficialReleaseUrl);
+    ImGui::TextDisabled(
+        "%s", ui(
+            "Hotkeys: F6 master switch | - diagnostic screenshot (settings "
+            "are embedded in the filename)",
+            "快捷键：F6 总开关 | - 参数截图（当前设置会直接写入文件名）"));
     changed |= ImGui::Checkbox(ui("Enabled (F6)", "启用（F6）"), &next.enabled);
     if (g_config_persistence_failed.load(std::memory_order_acquire)) {
         ImGui::TextWrapped(
@@ -8257,7 +8336,7 @@ extern "C" __declspec(dllexport) const char *NAME =
     "DLSS 5 AI渲染超分版 beta0.3.2-dev @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
-    "三种风格和实时画质调节，输入分辨率严格跟随游戏 DLSS 挡位；检测到"
+    "主键盘 - 参数截图、三种风格和实时画质调节，输入分辨率严格跟随游戏 DLSS 挡位；检测到"
     "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
@@ -8265,7 +8344,7 @@ extern "C" __declspec(dllexport) const char *NAME =
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Switches between output-resolution NR after Super Resolution and "
     "render-resolution NR before Super Resolution. Includes an F6 master "
-    "switch, three styles and live image-tuning controls. Input resolution "
+    "switch, '-' diagnostic screenshots, three styles and live image-tuning controls. Input resolution "
     "strictly follows the in-game DLSS quality mode. DLSS Ray Reconstruction "
     "is detected and passed through strictly unmodified to prevent double reconstruction.";
 #endif
@@ -8322,13 +8401,18 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::register_event<reshade::addon_event::destroy_command_list>(
             OnDestroyCommandList);
         reshade::register_event<reshade::addon_event::present>(OnPresent);
+        reshade::register_event<reshade::addon_event::reshade_present>(
+            OnReShadePresent);
         reshade::register_overlay(nullptr, DrawSettings);
-        Log("Registered ReShade overlay and F6 hotkey (API %u).",
+        Log("Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot "
+            "hotkey (API %u).",
             static_cast<unsigned int>(RESHADE_API_VERSION));
         HANDLE worker = CreateThread(nullptr, 0, &HookWorker, nullptr, 0, nullptr);
         if (worker == nullptr) {
             Log("Could not start NGX hook worker (error %lu).", GetLastError());
             reshade::unregister_overlay(nullptr, DrawSettings);
+            reshade::unregister_event<reshade::addon_event::reshade_present>(
+                OnReShadePresent);
             reshade::unregister_event<reshade::addon_event::present>(OnPresent);
             reshade::unregister_event<reshade::addon_event::destroy_command_list>(
                 OnDestroyCommandList);
@@ -8344,6 +8428,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         CloseHandle(worker);
     } else if (reason == DLL_PROCESS_DETACH && reserved == nullptr) {
         reshade::unregister_overlay(nullptr, DrawSettings);
+        reshade::unregister_event<reshade::addon_event::reshade_present>(
+            OnReShadePresent);
         reshade::unregister_event<reshade::addon_event::present>(OnPresent);
         reshade::unregister_event<reshade::addon_event::destroy_command_list>(
             OnDestroyCommandList);

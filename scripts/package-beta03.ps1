@@ -3,6 +3,8 @@ param(
     [string]$ReleaseRoot,
     [Parameter(Mandatory = $true)]
     [string]$Rtx50Runtime,
+    [Parameter(Mandatory = $true)]
+    [string]$Rtx3040Runtime,
     [string]$SigningKeyPath = (Join-Path $env:LOCALAPPDATA `
         'DLSS5-NR-Pro\signing\release-signing-key.dpapi.json'),
     [string]$PublicKeyPath
@@ -20,10 +22,24 @@ if ([string]::IsNullOrWhiteSpace($PublicKeyPath)) {
     $PublicKeyPath = Join-Path $ProjectRoot 'signing\release-public-key.json'
 }
 $BuildRoot = Join-Path $ProjectRoot 'build'
-$ResolvedRuntime = (Resolve-Path -LiteralPath $Rtx50Runtime).Path
-$RuntimeSignature = Get-AuthenticodeSignature -LiteralPath $ResolvedRuntime
+$ResolvedRtx50Runtime = (Resolve-Path -LiteralPath $Rtx50Runtime).Path
+$ResolvedRtx3040Runtime = (Resolve-Path -LiteralPath $Rtx3040Runtime).Path
+$RuntimeSignature = Get-AuthenticodeSignature -LiteralPath $ResolvedRtx50Runtime
 if ($RuntimeSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-    throw "RTX 50 runtime is not Authenticode-valid: $ResolvedRuntime"
+    throw "RTX 50 runtime is not Authenticode-valid: $ResolvedRtx50Runtime"
+}
+$Rtx50RuntimeHash = (Get-FileHash -Algorithm SHA256 `
+    -LiteralPath $ResolvedRtx50Runtime).Hash
+$ExpectedRtx3040RuntimeHash = `
+    '6EB209E764F39872625DEBD6ABAF45E2BB6322F6F270F781F70C059AE30B3927'
+$Rtx3040RuntimeHash = (Get-FileHash -Algorithm SHA256 `
+    -LiteralPath $ResolvedRtx3040Runtime).Hash
+if ($Rtx3040RuntimeHash -ne $ExpectedRtx3040RuntimeHash) {
+    throw "Unexpected RTX 30/40 SF-v2 runtime hash: $Rtx3040RuntimeHash"
+}
+$Rtx3040Version = (Get-Item -LiteralPath $ResolvedRtx3040Runtime).VersionInfo.FileVersion
+if ($Rtx3040Version -ne '310.8.SF.0') {
+    throw "Unexpected RTX 30/40 runtime version: $Rtx3040Version"
 }
 
 $ReleasePath = [IO.Path]::GetFullPath($ReleaseRoot)
@@ -47,36 +63,45 @@ $Packages = @(
         Name = 'DLSS5-AI渲染超分版-beta0.3.2-dev-RTX50-@野生的装机宅-Bilibili-完整包'
         Addon = $ChineseAddon
         Readme = Join-Path $ProjectRoot 'docs\INSTALL.zh-CN.md'
-        IncludeRuntime = $true
-        Rtx40 = $false
+        Runtime = $ResolvedRtx50Runtime
+        RuntimeHash = $Rtx50RuntimeHash
+        Target = 'RTX 50; NVIDIA signed 310.8 runtime included'
+        Compat = $false
     },
     [pscustomobject]@{
         Name = 'DLSS5-AI-Rendering-Upscaling-beta0.3.2-dev-RTX50-@野生的装机宅-Bilibili-Full'
         Addon = $EnglishAddon
         Readme = Join-Path $ProjectRoot 'docs\INSTALL.en.md'
-        IncludeRuntime = $true
-        Rtx40 = $false
+        Runtime = $ResolvedRtx50Runtime
+        RuntimeHash = $Rtx50RuntimeHash
+        Target = 'RTX 50; NVIDIA signed 310.8 runtime included'
+        Compat = $false
     },
     [pscustomobject]@{
-        Name = 'DLSS5-AI渲染超分版-beta0.3.2-dev-RTX40-@野生的装机宅-Bilibili-社区测试包'
+        Name = 'DLSS5-AI渲染超分版-beta0.3.2-dev-RTX30-40-ShortFuse-SF-v2-@野生的装机宅-Bilibili-完整包'
         Addon = $ChineseAddon
         Readme = Join-Path $ProjectRoot 'docs\INSTALL.zh-CN.md'
-        IncludeRuntime = $false
-        Rtx40 = $true
+        Runtime = $ResolvedRtx3040Runtime
+        RuntimeHash = $Rtx3040RuntimeHash
+        Target = 'RTX 30/40; ShortFuse 310.8.SF-v2 runtime included'
+        Compat = $true
     },
     [pscustomobject]@{
-        Name = 'DLSS5-AI-Rendering-Upscaling-beta0.3.2-dev-RTX40-@野生的装机宅-Bilibili-Community-Test'
+        Name = 'DLSS5-AI-Rendering-Upscaling-beta0.3.2-dev-RTX30-40-ShortFuse-SF-v2-@野生的装机宅-Bilibili-Full'
         Addon = $EnglishAddon
         Readme = Join-Path $ProjectRoot 'docs\INSTALL.en.md'
-        IncludeRuntime = $false
-        Rtx40 = $true
+        Runtime = $ResolvedRtx3040Runtime
+        RuntimeHash = $Rtx3040RuntimeHash
+        Target = 'RTX 30/40; ShortFuse 310.8.SF-v2 runtime included'
+        Compat = $true
     }
 )
 
 $Required = @(
     $ChineseAddon, $EnglishAddon, $Bridge, $Config, $ReleaseNotes,
     $Limitations, $Rtx40Notes, $ManifestSigner, $ManifestVerifier,
-    $SigningKeyPath, $PublicKeyPath
+    $SigningKeyPath, $PublicKeyPath, $ResolvedRtx50Runtime,
+    $ResolvedRtx3040Runtime
 ) + $Packages.Readme
 foreach ($Path in $Required | Select-Object -Unique) {
     if (-not (Test-Path -LiteralPath $Path)) {
@@ -102,14 +127,12 @@ foreach ($Package in $Packages) {
         -Destination (Join-Path $PackagePath 'Verify-ReleaseManifest.ps1')
     Copy-Item -LiteralPath $PublicKeyPath `
         -Destination (Join-Path $PackagePath 'release-public-key.json')
-    if ($Package.Rtx40) {
+    if ($Package.Compat) {
         Copy-Item -LiteralPath $Rtx40Notes `
-            -Destination (Join-Path $PackagePath 'RTX40_COMMUNITY_TEST.md')
+            -Destination (Join-Path $PackagePath 'RTX30_40_SHORTFUSE.md')
     }
-    if ($Package.IncludeRuntime) {
-        Copy-Item -LiteralPath $ResolvedRuntime `
-            -Destination (Join-Path $PackagePath 'nvngx_dlssnr.dll')
-    }
+    Copy-Item -LiteralPath $Package.Runtime `
+        -Destination (Join-Path $PackagePath 'nvngx_dlssnr.dll')
 
     $ManifestLines = @(
         "DLSS 5 AI Rendering Upscaling Edition $Version",
@@ -117,7 +140,8 @@ foreach ($Package in $Packages) {
         "Only official release address: $OfficialReleaseUrl",
         'Authenticity: run .\Verify-ReleaseManifest.ps1 after extraction.',
         'Status: beta0.3.2 deferred-module/diagnostic development candidate; wider native game gates remain pending.',
-        "Target: $(if ($Package.Rtx40) { 'RTX 40 community test; runtime not included' } else { 'RTX 50; NVIDIA signed 310.8 runtime included' })",
+        "Target: $($Package.Target)",
+        "Runtime SHA-256: $($Package.RuntimeHash)",
         ''
     )
     $ManifestLines | Set-Content -LiteralPath `

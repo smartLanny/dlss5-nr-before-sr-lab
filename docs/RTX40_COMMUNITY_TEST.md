@@ -1,55 +1,21 @@
-# RTX 40 community test track
+# RTX 30/40 ShortFuse complete package
 
-This track tests the **same beta0.3 add-on build** used on RTX 50 hardware. It is
-runtime-only compatibility work: no RTX 40-specific add-on fork should be
-created, and no second ShortFuse/RHI NR add-on should be bundled or enabled.
+The RTX 30/40 package uses the exact same beta0.3.2 add-on and configuration as
+the RTX 50 package. Its only difference is the bundled Feature 18 runtime:
 
-## Distribution boundary
+```text
+File: nvngx_dlssnr.dll
+Version: 310.8.SF.0 (ShortFuse SF-v2)
+SHA-256: 6EB209E764F39872625DEBD6ABAF45E2BB6322F6F270F781F70C059AE30B3927
+```
 
-ShortFuse `310.8.SF-v2` is a community-modified, unsigned runtime. It is **not
-bundled in this repository or in a public beta0.3 package until its license and
-redistribution rights are confirmed**. The repository contains no NVIDIA or
-ShortFuse DLL, model, weight, kernel, or download mirror.
+Extract every file into the active ReShade/RHI add-on directory. Keep the
+add-on, `nrchain_nvngx.dll`, `nr_before_sr.ini` and `nvngx_dlssnr.dll` together.
+Remove older builds and do not enable another DLSS5/ShortFuse/RHI NR owner.
 
-Until permission is confirmed, maintainers may publish only:
+RTX 30 and RTX 40 use this same package. Start with the default `NR -> SR`
+mode. Use `F6` for native-SR comparison and `-` for parameter-labelled
+screenshots.
 
-- the beta0.3 add-on source/build manifest;
-- a SHA-256 hash of the exact runtime tested;
-- text instructions for selecting a lawfully obtained runtime locally; and
-- sanitized test results that do not expose binaries or machine-specific data.
-
-Do not rename, rehost, patch, or embed SF-v2 to make it appear project-owned.
-
-## Test configuration
-
-1. Use the current beta0.3 add-on and matching configuration.
-2. Supply exactly one Feature 18 runtime from a lawful source outside this
-   repository. Record its filename, byte size, SHA-256, and signature status.
-3. Remove or disable any other DLSS5/NR ReShade or RHI add-on. ShortFuse may be
-   used as the runtime only; running a second NR owner can cause duplicate work
-   or silent bypass.
-4. Start with `NR -> SR`. `SR -> NR` is the full-resolution comparison path and
-   activates only when its live resource/color contract passes.
-5. If Ray Reconstruction is active, expect `RR safe bypass` and zero Feature 18
-   evaluations. This is correct behavior, not a compatibility failure.
-
-## Qualification scope
-
-The package name must remain **RTX 40 community test** until current-build tests
-pass on at least RTX 4070 and RTX 4090D. A successful run on one GPU, game,
-driver, or SF-v2 build must not be generalized to the whole RTX 40 family.
-
-A useful report includes GPU model, driver, Windows build, game/build, add-on
-commit, mode, render/output extents, texture formats, runtime hash/signature,
-Feature 18 create/evaluate result, and the bypass reason. Remove usernames,
-absolute paths, process addresses, account identifiers, screenshots containing
-personal information, and proprietary files before sharing.
-
-## Stop conditions
-
-Stop testing and retain the native game result if the overlay reports runtime
-rejection, lifecycle isolation, unsupported format/exposure, duplicate NR owner,
-or an uncertain resource contract. A crash, device removal, non-null handle on a
-failed create, or Feature 18 activity during master-off/RR bypass is a release
-blocker and should be reported with a sanitized log and, when lawful, a minimal
-call-order summary.
+If a game does not engage, the add-on panel and `nr-before-sr.log` report the
+live bypass reason, runtime create result, resource format and extents.

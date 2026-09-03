@@ -8,6 +8,10 @@ orders around a game's ordinary DLSS Super Resolution call:
   DLSS SR (`NR -> SR`). Mode 2 is the beta0.3.2 default performance path; Mode 1
   remains the complete full-resolution quality/reference path.
 
+Runtime hotkeys are `F6` for the master comparison switch and main keyboard `-`
+for a ReShade screenshot whose filename records the current build, chain,
+resource extents and image settings.
+
 This is a research project, not an NVIDIA product and not an official joint
 DLSS NR/SR implementation. NVIDIA, DLSS, GeForce, and related names are
 trademarks of their respective owners.
@@ -119,10 +123,13 @@ shader entries compile, and both language builds pass focused LLVM analysis.
 The Chinese binary with SHA256 `4E483F...B1AF1` completed fresh Cyberpunk 2077
 RR-off and RR-on runs: the default `NR -> SR` path exceeded 1,800 carrier
 evaluations without a logged lifecycle/device failure, while the RR run exceeded
-1,800 Feature-13 evaluations with zero Feature 18 work. The current reproducible
-Chinese binary (`1E717C...7F560`) has separately completed an exact-hash Witcher
+1,800 Feature-13 evaluations with zero Feature 18 work. The gameplay-validated
+Chinese r2 binary (`1E717C...7F560`) separately completed an exact-hash Witcher
 gameplay run with native SR, both orders, and a Lighting Match ablation; every
 active interval exceeded 600 frames without a logged lifecycle/device failure.
+The r3 screenshot build (`F88518...1C9D8C`) changes only ReShade screenshot/UI
+integration and packaging metadata; the NGX processing and lifetime paths are
+unchanged.
 Hogwarts still requires a current-hash visual gate, and the remaining physical
 hotkey/order plus three-preset tests are open. The seven-title 600-frame/20-cycle
 matrix is reserved for RC.

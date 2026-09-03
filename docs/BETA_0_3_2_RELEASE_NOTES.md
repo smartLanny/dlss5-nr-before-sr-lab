@@ -51,6 +51,10 @@ Only official release location: https://space.bilibili.com/941799
   seconds.
 - Concurrent auxiliary swapchain Presents no longer race cadence/F6 edge state,
   and the performance sampler reads an immutable in-memory configuration copy.
+- Main keyboard `-` (and numpad subtract) now asks ReShade to save a diagnostic
+  screenshot. The file name records the exact build, chain, active/bypass state,
+  input/NR/output extents, output format and live image controls without adding
+  any work to the Feature 18 command-list transaction.
 
 ## Witcher 3 HDR finding
 
@@ -63,8 +67,8 @@ Lighting Match disabled.
 
 This points to a broad luminance component in the neural residual. beta0.3.2
 does not hide it with an unconditional exposure gain: that would brighten valid
-output in other games and can clip HDR highlights. The exact current r2 binary
-has now completed a fixed-scene ablation. In that second scene the uncorrected
+output in other games and can clip HDR highlights. The gameplay-validated r2
+binary completed a fixed-scene ablation. In that second scene the uncorrected
 neural residual moved in the opposite direction (`+18%` to `+20%`), confirming
 that a fixed global gain cannot be correct. Lighting Match reduced the
 render-resolution composited mean error from roughly `+16%` to below `+0.4%`;
@@ -87,10 +91,10 @@ passed fresh Cyberpunk 2077 runs on the maintained RTX 50 system:
 
 All four embedded shader entries compile. Chinese, English and bridge sources
 build successfully, and both add-on language variants plus the bridge pass the
-focused LLVM static analyzer. Two clean builds are byte-for-byte reproducible:
-the current Chinese, English and bridge hashes are `1E717C...7F560`,
-`9A5F64...53E49`, and `DB26E4...11B60`. The exact Chinese r2 hash has now also
-completed the Witcher fixed-camera four-way run described above, with more than
+focused LLVM static analyzer. Two clean r3 builds were byte-identical; the
+Chinese, English and bridge hashes are
+`F88518...1C9D8C`, `FD650B...CE8591`, and `DB26E4...11B60`. The exact Chinese r2
+hash completed the Witcher fixed-camera four-way run described above, with more than
 600 frames in every active mode and no logged lifecycle/device error.
 Wuthering Waves remains a supplied-log/source-fix item. Hogwarts/current-hash
 visual testing, the remaining physical F6/order cycles and three live DLSS
@@ -99,8 +103,9 @@ candidate, not a universal stable release.
 
 ## Packaging boundary
 
-The repository and signed source manifest do not contain NVIDIA or ShortFuse
-runtime binaries. An RTX 50 full test archive may include a separately obtained,
-Authenticode-valid NVIDIA runtime. The RTX 40 community-test archive contains
-the same add-on and bridge but no ShortFuse runtime; its compatibility and
-redistribution rights remain separate from this project's code.
+The source repository and signed source manifest do not contain vendor/community
+runtime binaries. Generated full archives contain one pinned runtime: the RTX 50
+archive uses an Authenticode-valid NVIDIA 310.8 build, while the shared RTX 30/40
+archive uses ShortFuse `310.8.SF.0` with SHA-256
+`6EB209E764F39872625DEBD6ABAF45E2BB6322F6F270F781F70C059AE30B3927`.
+Every included file is covered by the package's project-signed manifest.

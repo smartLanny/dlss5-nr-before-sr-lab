@@ -59,12 +59,13 @@ FPS as a same-process measurement.
 format, exposure, subrect, guide, view-capability and command-list contracts
 have been accepted. The decision is not made from the executable name.
 
-## RTX 40 community coverage
+## RTX 30/40 compatibility coverage
 
 | GPU | Runtime record | Minimum scenarios | Status |
 |---|---|---|---|
 | RTX 4070 | SF-v2 byte size, SHA-256, signature state | One FP16 title and one R11 UE title | Pending |
 | RTX 4090D | SF-v2 byte size, SHA-256, signature state | One FP16 title and one R8-format title | Pending |
+| RTX 30 series | SF-v2 byte size and SHA-256 | One native D3D12 DLSS Feature-1 title | Pending |
 
 R8 results remain native-SR bypass unless a color-contract profile confirms
 linear or sRGB encoding. Reaching a format rejection is not evidence that the
@@ -105,7 +106,8 @@ external runtime failed.
 - Unexplained format/color conversion, out-of-bounds subrect, alpha corruption,
   persistent global exposure/hue drift, or silent fallback without a reason.
 - Material F6-off overhead or any Feature 18 work during the native control.
-- An RTX 40 package containing SF-v2 before redistribution rights are confirmed.
+- An RTX 30/40 package containing a runtime other than the pinned SF-v2 hash, or
+  loading a second NR-owner add-on beside this project.
 
 The seven-title 600-frame-per-group and 20-cycle stress requirements are RC
 blockers, not beta0.3 packaging blockers.
