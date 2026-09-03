@@ -471,10 +471,18 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                 const UINT model_index =
                     model_width == width && model_height == height
                         ? source_y * model_width + source_x : 0;
+                Float4 expected_proxy = proxy[model_index];
+        Float4 expected_neural = neural[model_index];
+        // V2 model planes are deliberately opaque. Original and
+        // composited planes still preserve the game's alpha.
+        if (v2) {
+            expected_proxy.w = 1.0f;
+            expected_neural.w = 1.0f;
+        }
                 const Float4 *expected[] = {
                     &original[(source_y + sy) * source_width + source_x + sx],
-                    &proxy[model_index],
-                    &neural[model_index],
+                    &expected_proxy,
+                    &expected_neural,
                     &result.output[(source_y + dy) * output_width + source_x + dx]};
                 for (UINT stage = 0; stage < 4; ++stage)
                     Require(std::memcmp(result.capture.data() + stage * plane_words +
