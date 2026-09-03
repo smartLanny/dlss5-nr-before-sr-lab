@@ -22,10 +22,20 @@ process addresses. Evidence from different build timestamps is kept separate.
 
 ## Current-binary runtime status
 
-The current lifecycle-marker and submitted-counter revision has build/static
-qualification only. It has not completed a fresh native gameplay gate. Earlier
-runtime evidence below remains useful regression guidance, but it must not be
-reported as evidence for this exact binary.
+The beta0.3.1 startup hotfix Chinese binary with SHA256
+`6460C8E367E586B648E15426B4C6C57C87BAFBC154BF67F88357392FDA706307`
+completed a fresh Cyberpunk 2077 direct-launch smoke run on 2026-09-03. The
+observed contract was `1920x1200 -> 3840x2400`; the process remained alive
+beyond 2,400 carrier evaluations and recorded 2,388 successful Feature 18
+evaluations. Transfer prepared/recorded/bound/submitted counters stayed aligned,
+and no device removal, lifecycle uncertainty, duplicate Feature 18, runtime
+rejection, or slot exhaustion appeared in the captured log.
+
+This proves the confirmed beta0.3 `DllMain` stack-overflow regression is fixed
+locally and that the default `NR -> SR` path reaches sustained execution. It
+does not replace the physical F6, RR-on, mode-switch, DLSS-preset, Hogwarts, or
+Witcher gates. Earlier runtime evidence below remains regression guidance and
+is kept separate from this exact hotfix binary.
 
 ## Pre-current Cyberpunk candidate
 

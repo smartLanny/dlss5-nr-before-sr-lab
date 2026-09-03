@@ -86,7 +86,7 @@ $AddonBuilds = @(
         ResourceDefine = '-DNR_UI_CHINESE=0'
         Object = 'nr_before_sr.en.o'
         ResourceObject = 'nr_before_sr.en.resource.o'
-        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.3-@野生的装机宅-Bilibili.en.addon64'
+        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.3.1-@野生的装机宅-Bilibili.en.addon64'
     },
     @{
         Language = 'Simplified Chinese'
@@ -94,7 +94,7 @@ $AddonBuilds = @(
         ResourceDefine = '-DNR_UI_CHINESE=1'
         Object = 'nr_before_sr.zh-CN.o'
         ResourceObject = 'nr_before_sr.zh-CN.resource.o'
-        Output = 'DLSS5-AI渲染超分版-beta0.3-@野生的装机宅-Bilibili.addon64'
+        Output = 'DLSS5-AI渲染超分版-beta0.3.1-@野生的装机宅-Bilibili.addon64'
     }
 )
 $AddonOutputs = @()

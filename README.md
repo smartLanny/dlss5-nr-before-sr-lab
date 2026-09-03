@@ -5,12 +5,16 @@ orders around a game's ordinary DLSS Super Resolution call:
 
 - Mode 1: game DLSS SR, then output-resolution neural rendering (`SR -> NR`).
 - Mode 2: render-resolution neural rendering at 1:1, then the game's original
-  DLSS SR (`NR -> SR`). Mode 2 is the beta0.3 default performance path; Mode 1
+  DLSS SR (`NR -> SR`). Mode 2 is the beta0.3.1 default performance path; Mode 1
   remains the complete full-resolution quality/reference path.
 
 This is a research project, not an NVIDIA product and not an official joint
 DLSS NR/SR implementation. NVIDIA, DLSS, GeForce, and related names are
 trademarks of their respective owners.
+
+Project author: **@野生的装机宅 Bilibili**. The only official release location
+is https://space.bilibili.com/941799. Distributed archives include a signed
+manifest and offline verifier; matching filenames alone do not prove origin.
 
 ## Repository boundary
 
@@ -61,6 +65,7 @@ implementations inside this project.
 - `third_party/minhook`: minimal x64 MinHook source subset required by the build.
 - `docs/TEST_EVIDENCE.md`: sanitized, non-authoritative runtime observations.
 - `docs/BETA_0_3_RELEASE_NOTES.md`: current behavior and safety changes.
+- `docs/BETA_0_3_1_RELEASE_NOTES.md`: startup-stability hotfix and release gate.
 - `docs/BETA_0_3_TEST_MATRIX.md`: release qualification checklist.
 - `docs/COMMUNITY_FEEDBACK_BETA03.md`: sanitized mapping from early reports to
   current fixes, intentional bypasses, and remaining evidence gaps.
@@ -68,6 +73,8 @@ implementations inside this project.
   removal, runtime placement, and bug-report instructions.
 - `scripts/validate-codec-shader.ps1`: compiles all embedded HLSL entry points
   with the same Shader Model 5.1 compiler contract used at runtime.
+- `scripts/Verify-ReleaseManifest.ps1`: validates the project ECDSA signature
+  and every package file hash without needing the private signing key.
 
 ## Build prerequisites
 
@@ -104,18 +111,17 @@ the GPU; unsupported exposure contracts remain native-SR bypasses. Results are
 engine- and runtime-dependent. Important unresolved
 areas are documented in [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
-The 2026-09-03 tree is a **beta0.3 stabilization candidate**, not a universal
+The 2026-09-03 tree is a **beta0.3.1 startup-stability candidate**, not a universal
 release. It compiles cleanly in the maintained local toolchain and passes a
-focused static analysis. Runtime observations above 99% Feature-18/carrier in
-both orders, clean Enabled cycles, and an RR interval with zero Feature 18 come
-from the immediately preceding graphics candidate. They motivated the current
-stable-queue, exact-fence, and prepared/recorded/bound/submitted diagnostics, but do
-not qualify the newly rebuilt binary. Hogwarts' two orders and three live DLSS
-contracts plus the Witcher mixed-guide post-SR path are likewise prior-candidate
-evidence. The current binary still needs the three-title minimum gate, physical
-F6, and preset switching in a native game session. beta0.3 uses the smaller
-three-title gate in the test matrix; the seven-title 600-frame/20-cycle matrix
-is reserved for RC.
+focused static analysis. The exact rebuilt Chinese binary passed a Cyberpunk
+2077 direct-start smoke run and sustained the default `NR -> SR` path beyond
+2,400 carrier evaluations without a logged lifecycle/device failure. Runtime
+observations for the other processing order, clean Enabled cycles, and an RR
+interval with zero Feature 18 still come from the immediately preceding graphics
+candidate. Hogwarts' two orders and three live DLSS contracts plus the Witcher
+mixed-guide post-SR path are likewise prior-candidate evidence. The current
+binary still needs the remaining three-title gate, physical F6, RR-on, mode and
+preset switching. The seven-title 600-frame/20-cycle matrix is reserved for RC.
 
 The project should not claim exact visual equivalence between Mode 1 and Mode 2:
 Mode 2 gives the neural model fewer source pixels and then asks the game's SR to

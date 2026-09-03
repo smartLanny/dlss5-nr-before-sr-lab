@@ -36,8 +36,9 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.3";
+constexpr const char *kAddonVersion = "beta0.3.1";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
+constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
 struct NgxHandle {
     std::uint32_t id;
@@ -970,7 +971,7 @@ void ReloadConfig(bool force = false) {
     next.mode = GetPrivateProfileIntW(L"NRBeforeSR", L"Mode", 2, g_ini_path);
     if (config_version < 3) {
         // beta0.2 shipped Mode 1 as the default.  Migrate that persisted value
-        // once so installing beta0.3 cannot silently keep users on the
+        // once so installing the beta0.3 series cannot silently keep users on the
         // comparison-only full-resolution path.
         next.mode = 2;
         SetLastError(ERROR_SUCCESS);
@@ -993,7 +994,7 @@ void ReloadConfig(bool force = false) {
         static bool migration_logged = false;
         if (!migration_logged) {
             migration_logged = true;
-            Log("Migrated legacy beta0.2 configuration to beta0.3 in memory: "
+            Log("Migrated legacy beta0.2 configuration to beta0.3.1 in memory: "
                 "default mode is now render-resolution NR -> SR; persisted=%d.",
                 migration_persisted ? 1 : 0);
         }
@@ -5519,6 +5520,8 @@ std::atomic<unsigned long long> g_carrier_evaluations{0};
 std::atomic<unsigned long long> g_all_evaluations{0};
 std::atomic<unsigned int> g_wrapper_calls{0};
 std::atomic<unsigned int> g_core_calls{0};
+std::atomic<unsigned int> g_wrapper_create_entries{0};
+std::atomic<unsigned int> g_core_create_entries{0};
 thread_local bool g_inside_ngx_evaluate = false;
 // The public nvngx_dlss wrapper may call the identically named export in
 // _nvngx.dll. Both exports are hooked for games that call either layer, but
@@ -5548,6 +5551,16 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         ? g_original_queue_execute[hook_index] : nullptr;
     if (original == nullptr) {
         MarkLifecycleUncertain("missing ExecuteCommandLists trampoline");
+        return;
+    }
+
+    // The detour stays installed after the first real NR submission, but an
+    // ordinary game submission must not pay queue queries, locks, COM calls or
+    // private-data traffic when no command list currently owns Feature 18
+    // work. This is also the safe startup path for engines that submit many
+    // bootstrap lists before creating DLSS Feature 1.
+    if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0) {
+        original(queue, count, command_lists);
         return;
     }
 
@@ -5789,6 +5802,12 @@ void TrackDlssResolution(const NgxParams *params, const FeatureRecord &feature) 
 
 NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
                      NgxParams *params, NgxHandle **out_handle) {
+    const unsigned int entry =
+        g_wrapper_create_entries.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (entry <= 3) {
+        Log("nvngx_dlss CreateFeature entered: call=%u id=%d (%s)",
+            entry, feature_id, FeatureName(feature_id));
+    }
     const bool outermost = g_create_hook_depth++ == 0;
     const bool creating_rr = outermost && feature_id == 13;
     ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
@@ -5834,6 +5853,12 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
 
 NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
                          NgxParams *params, NgxHandle **out_handle) {
+    const unsigned int entry =
+        g_core_create_entries.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (entry <= 3) {
+        Log("_nvngx core CreateFeature entered: call=%u id=%d (%s)",
+            entry, feature_id, FeatureName(feature_id));
+    }
     const bool outermost = g_create_hook_depth++ == 0;
     const bool creating_rr = outermost && feature_id == 13;
     ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
@@ -6393,22 +6418,11 @@ bool IsD3D12GraphicsQueue(reshade::api::command_queue *queue) {
             static_cast<reshade::api::command_queue_type>(0);
 }
 
-void OnInitCommandQueue(reshade::api::command_queue *queue) {
-    if (!IsD3D12GraphicsQueue(queue)) return;
-    auto *native_queue = reinterpret_cast<ID3D12CommandQueue *>(
-        queue->get_native());
-    EnterCriticalSection(&g_chain_cs);
-    TrackGraphicsQueueLocked(native_queue);
-    LeaveCriticalSection(&g_chain_cs);
-    // Install before the first submission even when F6 is off. This keeps
-    // command-list affinity fresh and lets the first enabled frame fail closed
-    // rather than relying on a stale or absent queue marker.
-    if (!EnsureNativeQueueExecuteHook(queue))
-        Log("Could not install the D3D12 queue observer during queue init; "
-            "Feature 18 will remain fail-closed if lifecycle work appears.");
-}
-
 void OnDestroyCommandQueue(reshade::api::command_queue *queue) {
+    // No queue has been retained before the first admitted DLSS frame. Avoid
+    // touching a queue proxy during engine bootstrap/destruction in that case.
+    if (g_live_graphics_queue_count.load(std::memory_order_acquire) == 0)
+        return;
     if (!IsD3D12GraphicsQueue(queue)) return;
     auto *native_queue = reinterpret_cast<ID3D12CommandQueue *>(
         queue->get_native());
@@ -6478,34 +6492,57 @@ bool EnsureNativeCommandListResetHook(
 
 void OnExecuteCommandList(reshade::api::command_queue *queue,
                           reshade::api::command_list *command_list) {
-    if (queue == nullptr || command_list == nullptr ||
-        queue->get_device() == nullptr ||
-        queue->get_device()->get_api() != reshade::api::device_api::d3d12)
-        return;
-    // Observe every native graphics submission, not just lists that already
-    // contain NR work. This is what makes a later queue-affinity decision based
-    // on current evidence even after F6-off intervals.
-    if (!EnsureNativeQueueExecuteHook(queue)) {
-        if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) != 0)
-            MarkLifecycleUncertain("could not install post-submit queue hook");
-        return;
-    }
-    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
-        g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0)
+    const bool has_lifecycle_work =
+        g_lifecycle_active_command_lists.load(std::memory_order_acquire) != 0;
+    const bool may_learn_affinity =
+        g_carrier_evaluations.load(std::memory_order_acquire) != 0 &&
+        g_enabled_fast.load(std::memory_order_acquire);
+    // This event fires for virtually every game submission. Before Feature 1,
+    // while F6 is off, and whenever no NR work exists it must be a true atomic
+    // no-op that never unwraps a ReShade proxy or calls into D3D12.
+    if (!has_lifecycle_work && !may_learn_affinity) return;
+    if (!IsD3D12GraphicsQueue(queue) || command_list == nullptr)
         return;
 
     auto *native_command_list = reinterpret_cast<ID3D12GraphicsCommandList *>(
         command_list->get_native());
+    auto *native_queue = reinterpret_cast<ID3D12CommandQueue *>(
+        queue->get_native());
+    if (native_command_list == nullptr || native_queue == nullptr) return;
+
+    // Do not patch ExecuteCommandLists during device/queue bootstrap. After the
+    // first real Feature 1 evaluation, this pre-submit ReShade event already
+    // tells us the exact queue for the list, so it can train the durable
+    // affinity marker without a process-wide native detour. The first DLSS
+    // frame may remain native; a later frame on the proven list can safely
+    // admit Feature 18.
+    const bool observe_affinity = may_learn_affinity &&
+        !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire);
+    if (observe_affinity) {
+        EnterCriticalSection(&g_chain_cs);
+        GraphicsQueueRecord *tracked = TrackGraphicsQueueLocked(native_queue);
+        if (tracked != nullptr)
+            RememberLastSubmissionQueue(native_command_list, tracked->identity);
+        LeaveCriticalSection(&g_chain_cs);
+    }
+
+    if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
+        g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0)
+        return;
+
     unsigned long long token = 0;
     if (!ReadLifecycleToken(native_command_list, token)) return;
 
-    // The ReShade event is before the native submission, so this is the last
-    // safe point to install the post-submit proof hook. Do it only for a list
-    // that actually contains our GPU work; pure SR never pays this hook cost.
-    (void)token;
+    // Install the exact-fence native hook only when this concrete submission
+    // contains plugin GPU work. The event runs before ReShade invokes native
+    // ExecuteCommandLists, so the current submission is still captured.
+    if (!EnsureNativeQueueExecuteHook(queue))
+        MarkLifecycleUncertain("could not install post-submit queue hook");
 }
 
 void OnResetCommandList(reshade::api::command_list *command_list) {
+    if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0)
+        return;
     if (command_list == nullptr || command_list->get_device() == nullptr ||
         command_list->get_device()->get_api() !=
             reshade::api::device_api::d3d12 ||
@@ -6522,6 +6559,8 @@ void OnResetCommandList(reshade::api::command_list *command_list) {
 }
 
 void OnDestroyCommandList(reshade::api::command_list *command_list) {
+    if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0)
+        return;
     if (command_list == nullptr || command_list->get_device() == nullptr ||
         command_list->get_device()->get_api() !=
             reshade::api::device_api::d3d12 ||
@@ -6704,14 +6743,17 @@ void ToggleMasterFromHotkey() {
 void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *,
                const reshade::api::rect *, const reshade::api::rect *,
                std::uint32_t, const reshade::api::rect *) {
-    EnterCriticalSection(&g_chain_cs);
-    // ExecuteCommandLists now owns the only Execute -> Signal transaction.
-    // Present merely observes completed fence values and can never insert a
-    // signal between another thread's native submission and proof fence.
-    (void)queue;
-    CollectRetiredContextsLocked();
-    LeaveCriticalSection(&g_chain_cs);
-    DrainPendingContextDestructions();
+    // No Feature 1 means there cannot be an NR context or fence to retire. Keep
+    // early engine Presents away from lifecycle tables entirely.
+    if (g_carrier_evaluations.load(std::memory_order_acquire) != 0) {
+        EnterCriticalSection(&g_chain_cs);
+        // ExecuteCommandLists owns the only Execute -> Signal transaction.
+        // Present only observes completed values and never inserts a signal.
+        (void)queue;
+        CollectRetiredContextsLocked();
+        LeaveCriticalSection(&g_chain_cs);
+        DrainPendingContextDestructions();
+    }
     PollConfigFromPresent();
     // Measure presented frames instead of NGX evaluations. This keeps the
     // reference sampler alive while F6 is off and avoids counting engines that
@@ -6747,11 +6789,14 @@ void DrawSettings(reshade::api::effect_runtime *) {
     };
 
     ImGui::SeparatorText(ui(
-        "DLSS 5 AI Rendering Upscaling Edition beta0.3",
-        "DLSS 5 AI渲染超分版 beta0.3"));
+        "DLSS 5 AI Rendering Upscaling Edition beta0.3.1",
+        "DLSS 5 AI渲染超分版 beta0.3.1"));
     ImGui::TextDisabled(
         ui("Version %s | Author %s", "版本 %s | 作者 %s"),
         kAddonVersion, kAddonAuthor);
+    ImGui::TextWrapped(
+        ui("Official releases only: %s", "唯一官方发布地址：%s"),
+        kOfficialReleaseUrl);
     changed |= ImGui::Checkbox(ui("Enabled (F6)", "启用（F6）"), &next.enabled);
     if (g_config_persistence_failed.load(std::memory_order_acquire)) {
         ImGui::TextWrapped(
@@ -7294,8 +7339,8 @@ void DrawSettings(reshade::api::effect_runtime *) {
            "诊断直通模式（丢弃 NR 颜色结果）"),
         &next.identity_use_original);
 
-    if (ImGui::Button(ui("Restore recommended beta0.3 settings",
-                         "恢复 beta0.3 推荐设置"))) {
+    if (ImGui::Button(ui("Restore recommended beta0.3.1 settings",
+                         "恢复 beta0.3.1 推荐设置"))) {
         next.mode = 2;
         next.identity_use_original = false;
         next.post_transfer_strength = 1.0f;
@@ -7335,14 +7380,14 @@ void DrawSettings(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI渲染超分版 beta0.3 @野生的装机宅 Bilibili";
+    "DLSS 5 AI渲染超分版 beta0.3.1 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
     "三种风格和实时画质调节，输入分辨率严格跟随游戏 DLSS 挡位；检测到"
     "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Upscaling Edition beta0.3 @野生的装机宅 Bilibili";
+    "DLSS 5 AI Rendering Upscaling Edition beta0.3.1 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Switches between output-resolution NR after Super Resolution and "
     "render-resolution NR before Super Resolution. Includes an F6 master "
@@ -7352,6 +7397,8 @@ extern "C" __declspec(dllexport) const char *DESCRIPTION =
 #endif
 extern "C" __declspec(dllexport) const char *AUTHOR =
     "@野生的装机宅 Bilibili";
+extern "C" __declspec(dllexport) const char *WEBSITE =
+    "https://space.bilibili.com/941799";
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
     if (reason == DLL_PROCESS_ATTACH) {
@@ -7361,7 +7408,14 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         SetSiblingPath(module, L"nr_before_sr.ini", g_ini_path);
         SetSiblingPath(module, L"ReShade.ini", g_reshade_ini_path);
         TruncateLog();
-        wchar_t addon_path[32768] = {};
+        // DllMain may run on game worker threads with a 64 KiB stack when
+        // static/thread-local storage prevents DisableThreadLibraryCalls from
+        // suppressing notifications. beta0.3 used a 32,768-wchar local buffer
+        // here, making the function's fixed stack frame exceed 64 KiB before
+        // it could even inspect 'reason'. Keep this entry point deliberately
+        // tiny; the add-on's sibling paths already use the same MAX_PATH
+        // contract.
+        wchar_t addon_path[MAX_PATH] = {};
         const DWORD addon_path_length = GetModuleFileNameW(
             module, addon_path, static_cast<DWORD>(std::size(addon_path)));
         const bool addon_path_complete = addon_path_length != 0 &&
@@ -7376,16 +7430,15 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             snprintf(addon_leaf_utf8, sizeof(addon_leaf_utf8), "%s",
                      "<module-path-unavailable-or-truncated>");
         Log("DLSS 5 AI Rendering Upscaling Edition %s attached | author=%s | "
-            "language=%s | file=%s | build=%s %s",
-            kAddonVersion, kAddonAuthor, kChineseUi ? "zh-CN" : "en",
+            "official_release=%s | language=%s | file=%s | build=%s %s",
+            kAddonVersion, kAddonAuthor, kOfficialReleaseUrl,
+            kChineseUi ? "zh-CN" : "en",
             addon_leaf_utf8, __DATE__, __TIME__);
         ReloadConfig(true);
         if (!reshade::register_addon(module)) {
             Log("ReShade add-on registration failed.");
             return FALSE;
         }
-        reshade::register_event<reshade::addon_event::init_command_queue>(
-            OnInitCommandQueue);
         reshade::register_event<reshade::addon_event::destroy_command_queue>(
             OnDestroyCommandQueue);
         reshade::register_event<reshade::addon_event::execute_command_list>(
@@ -7411,8 +7464,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
                 OnExecuteCommandList);
             reshade::unregister_event<reshade::addon_event::destroy_command_queue>(
                 OnDestroyCommandQueue);
-            reshade::unregister_event<reshade::addon_event::init_command_queue>(
-                OnInitCommandQueue);
             reshade::unregister_addon(module);
             return FALSE;
         }
@@ -7428,8 +7479,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnExecuteCommandList);
         reshade::unregister_event<reshade::addon_event::destroy_command_queue>(
             OnDestroyCommandQueue);
-        reshade::unregister_event<reshade::addon_event::init_command_queue>(
-            OnInitCommandQueue);
         reshade::unregister_addon(module);
     }
     return TRUE;

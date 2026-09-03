@@ -25,7 +25,7 @@ below is the RC/community qualification target.
 
 | Title | Current candidate evidence | Remaining blocker |
 |---|---|---|
-| Cyberpunk 2077 | Pre-current candidate: `SR -> NR` reached 598/600, `NR -> SR` reached 1,796/1,800, five Enabled cycles resumed, and an RR interval exceeded 2,400 feature-13 evaluations with zero Feature 18. | Full focused rerun of the current affinity-marker/submission-counter hash, three DLSS-preset changes and physical F6 |
+| Cyberpunk 2077 | Exact beta0.3.1 Chinese binary (`6460C8...06307`) passed direct startup and sustained default `NR -> SR` beyond 2,400 carrier evaluations with 2,388 Feature 18 successes and aligned submitted counters. Pre-current evidence also covers `SR -> NR`, five Enabled cycles, and a 2,400+ frame RR interval with zero Feature 18. | Physical F6, RR-on, five mode transitions and three DLSS-preset changes on the exact hotfix hash |
 | Hogwarts Legacy | Pre-current candidate: Performance `NR -> SR` and `SR -> NR` each exceeded 600 frames; Balanced exceeded 600 and Quality exceeded 480 in `NR -> SR`; live contracts rebuilt as 1920x1200, 2228x1392, and 2562x1601. A 46-second master-off interval kept the Feature 18 counter exactly at 1990. | Focused rerun of the current hash, physical F6 and fixed-camera image capture |
 | The Witcher 3 | Pre-current candidate: mixed-resolution `SR -> NR` (`1920x1200`, guides `1114x696`) exceeded 600 frames; five mode transitions and five Enabled cycles completed; every off interval froze the Feature 18 counter; no lifecycle/device/slot error | Focused rerun of the current hash, three DLSS-preset changes and physical F6 |
 
