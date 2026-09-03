@@ -1,0 +1,43 @@
+name: Apply beta0.4 perfect-chain r3 audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/beta0.4-perfect-chain
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta04-r3-audit
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[r3-audit-applied]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/beta0.4-perfect-chain
+          fetch-depth: 0
+      - name: Apply final audit fixes
+        run: python scripts/apply-beta04-r3-audit.py
+      - name: Validate generated source
+        run: |
+          python scripts/validate-beta04-structure.py
+          python scripts/test-beta04-math.py
+          git diff --check
+      - name: Commit generated r3 source
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No generated changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Finalize beta0.4 perfect-chain r3 audit [r3-audit-applied]"
+          git push origin HEAD:codex/beta0.4-perfect-chain
