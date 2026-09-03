@@ -24,11 +24,27 @@ jobs:
           fetch-depth: 0
       - name: Apply idempotent source patch
         run: python scripts/apply-beta04-perfect-chain.py
-      - name: Validate structure
-        run: python scripts/validate-beta04-structure.py
-      - name: Check whitespace
-        run: git diff --check
-      - name: Commit generated source
+      - name: Validate structure and retain report
+        id: validate
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          python scripts/validate-beta04-structure.py 2>&1 | tee docs/BETA_0_4_VALIDATION_REPORT.txt
+          status=${PIPESTATUS[0]}
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit $status
+      - name: Check whitespace and retain report
+        id: whitespace
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          git diff --check 2>&1 | tee -a docs/BETA_0_4_VALIDATION_REPORT.txt
+          status=${PIPESTATUS[0]}
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit $status
+      - name: Commit generated source and validation report
         shell: bash
         run: |
           if git diff --quiet; then
@@ -40,3 +56,6 @@ jobs:
           git add src config scripts docs README.md 2>/dev/null || true
           git commit -m "Implement beta0.4 perfect-chain V2 [beta04-applied]"
           git push origin HEAD:codex/beta0.4-perfect-chain
+      - name: Enforce validation result
+        if: steps.validate.outputs.exit_code != '0' || steps.whitespace.outputs.exit_code != '0'
+        run: exit 1
