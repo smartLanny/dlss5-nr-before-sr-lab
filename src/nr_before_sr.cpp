@@ -1340,6 +1340,15 @@ void PollConfigFromPresent() {
 
 bool ApplyConfig(ChainConfig next, const char *source,
                  bool persist_to_ini = true) {
+    // F8 owns a transient three-group experiment. Block every ordinary
+    // writer, including F6 and pending overlay edits, while it is active;
+    // the F8 path passes persist_to_ini=false for its temporary transitions
+    // and final restoration.
+    if (persist_to_ini && nr_f8::g_config_hold.load(std::memory_order_acquire)) {
+        Log("Config update from %s ignored while F8 capture owns the transient "
+            "configuration; no INI write performed.", source);
+        return false;
+    }
     NormalizeConfig(next);
     EnterCriticalSection(&g_chain_cs);
     if (SameConfig(next, g_config)) {
