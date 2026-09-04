@@ -449,19 +449,26 @@ DWORD WINAPI ExportStageCapture(void *parameter) {
         job->info.gpu_resolved_exposure = exposure[1];
         job->info.gpu_source_to_canonical = exposure[2];
         job->info.gpu_pre_exposure = exposure[3];
-        for (unsigned int stage = 0; stage < 4; ++stage) {
-            const bool written = WriteStageCapturePfm(directory, names[stage],
-                pixels + stage * plane_values, job->info.width, job->info.height);
-            ok = written && ok;
+        // F8 embeds bounded ROI tiles into its sequence container. Avoid
+        // writing sixteen full sampled grids per group; the one-shot F7 path
+        // retains the ordinary PFM/raw export below.
+        if (!nr_f8::KeepStageContext()) {
+            for (unsigned int stage = 0; stage < 4; ++stage) {
+                const bool written = WriteStageCapturePfm(directory, names[stage],
+                    pixels + stage * plane_values, job->info.width, job->info.height);
+                ok = written && ok;
+            }
         }
         // Keep alpha and non-finite bit patterns for debugging format/alpha
         // faults. Four planar RGBA32F images in the same order as the PFM files.
         wchar_t raw_path[MAX_PATH] = {};
         bool raw_ok = swprintf_s(raw_path, L"%ls\\stages.rgba32f", directory) >= 0;
-        HANDLE raw = raw_ok ? CreateFileW(raw_path, GENERIC_WRITE, FILE_SHARE_READ,
-            nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr) : INVALID_HANDLE_VALUE;
+        HANDLE raw = (!nr_f8::KeepStageContext() && raw_ok) ? CreateFileW(raw_path,
+            GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL, nullptr) : INVALID_HANDLE_VALUE;
         raw_ok = raw != INVALID_HANDLE_VALUE;
-        if (raw_ok) {
+        if (nr_f8::KeepStageContext()) raw_ok = true;
+        if (raw_ok && !nr_f8::KeepStageContext()) {
             raw_ok = job->bytes <= MAXDWORD && WriteStageCaptureBytes(raw, mapped, static_cast<DWORD>(job->bytes - 16u));
             CloseHandle(raw);
         }
@@ -470,7 +477,8 @@ DWORD WINAPI ExportStageCapture(void *parameter) {
             job->bytes > 16u ? job->bytes - 16u : job->bytes, ok);
         const D3D12_RANGE written_range = {0, 0};
         ID3D12Resource_Unmap(job->readback, 0, &written_range);
-        ok = WriteStageCaptureMetadata(directory, job->info, ok) && ok;
+        if (!nr_f8::KeepStageContext())
+            ok = WriteStageCaptureMetadata(directory, job->info, ok) && ok;
     }
     ReleaseCom(job->readback);
     Log("Stage capture %s: request=%llu instance=%llu frame=%llu "

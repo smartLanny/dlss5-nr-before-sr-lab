@@ -352,7 +352,8 @@ void StageCaptured(const NrStageCaptureInfo &info, const wchar_t *directory,
             Group &group = g_session->groups[i];
             if (group.stage_request != info.request_id) continue;
             group.stage_complete = true;
-            group.stage_available = group.stage_available || ok;
+            const bool ordinary_stage_export = !KeepStageContext();
+            group.stage_available = group.stage_available || (ok && ordinary_stage_export);
             if (ok) {
                 ++group.raw_stage_count;
                 if (directory != nullptr) wcsncpy_s(group.stage_directory,
@@ -408,6 +409,8 @@ void StageCaptured(const NrStageCaptureInfo &info, const wchar_t *directory,
                 }
             }
             group.stage_request = 0;
+            if (!ordinary_stage_export)
+                std::strcpy(group.stage_reason, "raw ROI four-plane tile embedded in sequence.bin");
             g_raw_stage_ready.store(true, std::memory_order_release);
             break;
         }
@@ -521,6 +524,35 @@ bool AddStageFiles(nr_bundle::Job &job, const Group &group,
     return true;
 }
 
+bool WriteOverview(const wchar_t *directory, const Session &session) {
+    wchar_t path[kMaxPath] = {};
+    if (swprintf_s(path, L"%ls\\overview.txt", directory) < 0) return false;
+    HANDLE file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+        CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    char text[4096] = {};
+    int used = std::snprintf(text, sizeof(text),
+        "format=DLSS5-F8-overview-v1\n"
+        "identity=three independent Present screenshots; no same-frame final SR claim\n"
+        "nativeSrOutput=unknown\n");
+    for (unsigned int i = 0; used > 0 && static_cast<std::size_t>(used) < sizeof(text) &&
+         i < kGroupCount; ++i) {
+        const Group &group = session.groups[i];
+        const int n = std::snprintf(text + used, sizeof(text) - used,
+            "group.%u.mode=%s\nscreenshot=%s\nsequenceFrames=%u\nrawROIFrames=%u\n",
+            i, ModeName(group.mode), group.screenshot_received ? "present" : "missing",
+            group.frame_count, group.raw_stage_count);
+        if (n <= 0) break;
+        used += n;
+    }
+    DWORD written = 0;
+    const bool ok = used > 0 && static_cast<std::size_t>(used) < sizeof(text) &&
+        WriteFile(file, text, static_cast<DWORD>(used), &written, nullptr) != FALSE &&
+        written == static_cast<DWORD>(used);
+    CloseHandle(file);
+    return ok;
+}
+
 DWORD WINAPI Worker(void *parameter) {
     Session *session = static_cast<Session *>(parameter);
     nr_bundle::Result result = {};
@@ -576,8 +608,13 @@ DWORD WINAPI Worker(void *parameter) {
                         "four-plane GPU stage readback unavailable", false);
                 }
             }
-            nr_bundle::AddMissing(*job, "overview/display-identity",
-                "overview is represented by per-group screenshots; Present identity is independent", false);
+            wchar_t overview[kMaxPath] = {};
+            swprintf_s(overview, L"%ls\\overview.txt", directory);
+            if (WriteOverview(directory, *session))
+                nr_bundle::AddFile(*job, overview, "overview.txt",
+                    nr_bundle::FileKind::Copy, false);
+            else nr_bundle::AddMissing(*job, "overview.txt",
+                "overview writer failed", false);
             nr_bundle::AddMissing(*job, "native-sr-same-frame",
                 "native SR output state cannot be proven or read; display screenshots are separate Present events", false);
             result = nr_bundle::Run(*job);
