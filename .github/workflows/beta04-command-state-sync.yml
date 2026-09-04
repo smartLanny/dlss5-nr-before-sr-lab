@@ -1,0 +1,63 @@
+name: Integrate beta0.4 command-state safety
+
+on:
+  push:
+    branches:
+      - codex/beta0.4-perfect-chain
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta04-command-state-integration
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[beta04-command-state-integrated]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/beta0.4-perfect-chain
+          fetch-depth: 0
+      - name: Apply command-state envelope to current beta0.4 source
+        run: python scripts/apply-beta04-command-state.py
+      - name: Verify integration markers and existing beta0.4 invariants
+        run: |
+          python scripts/validate-beta04-structure.py
+          python scripts/test-beta04-math.py
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('src/nr_before_sr.cpp').read_text(encoding='utf-8')
+          required = (
+              '#include "nr_command_state.inl"',
+              'NativeCommandStateScope before_state(command_list);',
+              'before_state.Restore();',
+              'NativeCommandStateScope after_state(command_list);',
+              'OnCommandStateResetResult(command_list, result, initial_state);',
+              'OnCommandStateBeforeReset(command_list);',
+              'OnCommandStateDestroyList(command_list);',
+              'OnCommandStateInitDevice',
+              'OnCommandStateInitList',
+              'CommandStateUnverified',
+          )
+          missing = [item for item in required if item not in source]
+          if missing:
+              raise SystemExit('missing command-state markers: ' + ', '.join(missing))
+          print('beta0.4 command-state integration markers passed')
+          PY
+          git diff --check
+      - name: Commit integration
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "Command-state integration already present."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/nr_before_sr.cpp
+          git commit -m "Integrate native D3D12 command-state safety [beta04-command-state-integrated]"
+          git push origin HEAD:codex/beta0.4-perfect-chain
