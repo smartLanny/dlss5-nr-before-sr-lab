@@ -52,6 +52,7 @@ bool foreground(Runtime*r){HWND h=static_cast<HWND>(r->get_hwnd());return h&&Get
 double now_seconds(){LARGE_INTEGER f{},t{};QueryPerformanceFrequency(&f);QueryPerformanceCounter(&t);return double(t.QuadPart)/double(f.QuadPart);}
 struct GlassStyle {
     GlassStyle(float alpha){
+        ImGui::PushFont(nullptr,ImGui::GetStyle().FontSizeBase*app->font_scale);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,12.f);ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,6.f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(20,16));ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,ImVec2(10,10));
         ImGui::PushStyleColor(ImGuiCol_WindowBg,ImVec4(.065f,.08f,.10f,alpha));
@@ -63,7 +64,7 @@ struct GlassStyle {
         ImGui::PushStyleColor(ImGuiCol_SliderGrab,ImVec4(.56f,.78f,.55f,1));
         ImGui::PushStyleColor(ImGuiCol_PlotLines,ImVec4(.56f,.78f,.68f,1));
     }
-    ~GlassStyle(){ImGui::PopStyleColor(8);ImGui::PopStyleVar(4);}
+    ~GlassStyle(){ImGui::PopStyleColor(8);ImGui::PopStyleVar(4);ImGui::PopFont();}
 };
 void metric(const char*label,float value,const char*format){ImGui::TextDisabled("%s",label);if(value<0 || !std::isfinite(value))ImGui::TextUnformatted("--");else ImGui::Text(format,value);}
 void send(uint32_t key,float v){auto r=app->core.write(key,v);app->feedback=r==NRUI_OK?"设置已交由核心应用":app->core.message;}
@@ -161,7 +162,6 @@ void on_overlay(Runtime*r){
     ImGui::SetNextWindowSize(ImVec2(std::min(850.f,ImGui::GetIO().DisplaySize.x-32),std::min(580.f,ImGui::GetIO().DisplaySize.y-100)),ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(36,70),ImGuiCond_FirstUseEver);
     if(ImGui::Begin("DLSS 5 AI 超分 · 野生的装机宅###zjz-quickbar",&v.open,ImGuiWindowFlags_NoCollapse)){
-        ImGui::SetWindowFontScale(app->font_scale);
         ImGui::TextDisabled("F6 总开关   F8 诊断抓帧   Home 原设置页");
         if(ImGui::Checkbox("固定性能条",&app->pinned))app->save();ImGui::SameLine();
         if(ImGui::Button("原始 ReShade / 高级")){v.open=false;r->open_overlay(true,reshade::api::input_source::mouse);}
