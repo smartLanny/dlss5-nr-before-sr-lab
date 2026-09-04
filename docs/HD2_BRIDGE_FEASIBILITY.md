@@ -58,8 +58,11 @@ it to a protection product or anti-cheat without evidence.
 
 The beta0.3.7 diagnostic addition records each registered candidate target's name,
 address and `VirtualQuery` memory information after initial enable failure.
-It also records operation, published/queued state, and every observed native
-Feature 1 Evaluate boundary. It explicitly calls enable entries
+It also records operation, published/queued state, and tracked native
+Feature 1 Evaluate calls that reach feature lookup. Master-off, another NR
+owner, observer-installation and lifecycle fast bypasses return before this
+counter. A positive count proves an SR boundary observation; zero in those
+conditions cannot establish that native SR is absent. It explicitly calls enable entries
 **candidates**, because `MH_EnableHook(MH_ALL_HOOKS)` does not identify which
 target failed. This improves the next investigation; it is not a workaround,
 a successful hook installation, or a per-target proof.
@@ -73,7 +76,8 @@ bridge only as an inspection reference; its confirmed SHA-256 is
 
 Before judging image quality, the log must show `MH_EnableHook all status=0`,
 per-target published lifecycle hooks, and a nonzero `F1-evaluate` count in the
-panel or `[module] lazy rescan` line. A loaded DLL, a menu setting, or a
+panel or `[module] lazy rescan` line with this addon enabled and early bypasses
+resolved. A loaded DLL, a menu setting, or a
 successful hook creation alone is insufficient evidence of native SR
 visibility. If enabling still fails, preserve the per-target candidate lines,
 the exact status code, renderer/API, addon and runtime hashes, then stop the

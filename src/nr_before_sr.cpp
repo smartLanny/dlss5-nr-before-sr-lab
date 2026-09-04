@@ -472,9 +472,9 @@ std::atomic<unsigned long long> g_null_feature_evaluations{0};
 // deferred startup dependency, not by itself evidence that a processed SR
 // frame raced an unobserved Feature 13 owner.
 std::atomic<unsigned long long> g_feature1_create_entries{0};
-// Counts every observed outermost Feature 1 Evaluate boundary, including
-// calls that are kept native by a safety gate. This distinguishes an actual
-// native SR observation from a loaded module or menu setting.
+// Counts tracked outermost Feature 1 Evaluate calls that reach feature lookup.
+// Master-off/other-owner/observer/lifecycle fast bypasses return before this
+// point. Positive counts prove an observed SR boundary; zero is inconclusive.
 std::atomic<unsigned long long> g_feature1_evaluate_entries{0};
 // Brackets the opaque native Create call. The module-rescan observer samples
 // this together with the entry counter so a successful Create cannot race all
@@ -7439,7 +7439,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             g_feature1_evaluate_entries.fetch_add(1, std::memory_order_release) + 1;
         if (observed <= 3)
             Log("Native Feature 1 Evaluate observed: count=%llu handle=%p "
-                "generation=%llu; SR boundary is visible to the observer.",
+                "generation=%llu; SR boundary observed after early safety gates; "
+                "zero counts during fast bypass are inconclusive.",
                 observed, static_cast<const void *>(handle), feature.generation);
     }
     if (feature.feature_id == 13) {
@@ -9385,6 +9386,9 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
         g_feature1_evaluate_entries.load(std::memory_order_relaxed),
         feature1_creates_in_progress,
         null_feature_evaluations);
+    ImGui::TextDisabled("%s", ui(
+        "F1-evaluate counts only calls reaching tracked lookup; zero during early bypass does not prove SR is absent.",
+        "F1 评估只计入到达句柄查询的调用；提前旁路时计数为 0，不能证明 SR 没有运行。"));
     if (input_width != 0 && input_height != 0 &&
         output_width != 0 && output_height != 0) {
         ImGui::Text(ui("Game DLSS: %ux%u -> %ux%u",
