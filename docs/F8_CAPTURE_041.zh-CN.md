@@ -11,10 +11,14 @@ SR、Mode 2（渲染分辨率 NR → SR）、Mode 1（SR → NR）。每组会�
 
 每帧元数据包括 frame、instance、config generation、reset、尺寸、jitter、
 MV scale、曝光有效性及四个诊断平面摘要；若 exact fence readback 成功，
-sequence 文件还包含四个真实 RGBA32F ROI tile。只有同一实例、同一配置代数和同一
+sequence-v2 文件使用显式 little-endian 字段并包含四个 RGBA32F ROI plane。只有同一实例、同一配置代数和同一
 尺寸且 frame 连续的样本才会进入连续段。Reset、尺寸变化或实例变化会结束当前段并记录
 `partial`，不会用相邻帧伪造连续性。默认 ROI 是原始输入中心的 256×256；
 当前版本若未提供逐像素区域保护字段，会写入 `unknown`，不会声称保护已生效。
+
+GPU 端必须为每个实际提交帧预先绑定独立的 readback 槽并在对应 queue fence
+完成后交给 writer；旧的单请求阶段导出不能作为连续 16 帧证据。若 backend
+未提供这一 exact-fence ring，包会把序列标为 partial 并记录缺失原因。
 
 显示截图由 ReShade 的 Present 回调独立保存；其身份不等于阶段样本，也不声称
 是同帧最终 SR。无法证明原生输出状态时，包中只写明 `unknown`，不读取或猜测

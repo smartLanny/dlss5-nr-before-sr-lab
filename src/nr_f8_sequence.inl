@@ -793,7 +793,7 @@ void Finish(Session &session) {
         session.group = i;
         AppendFrameMetadata(session, session.groups[i]);
     }
-    Append(session, "capture.format=DLSS5-F8-v1\nstatus=%s\nissue=%s\n"
+    Append(session, "capture.format=DLSS5-F8-v2\nstatus=%s\nissue=%s\n"
         "intensity=%.9g\nregionProtection.requested=%d\n"
         "regionProtection.effective=%s\nNRjitterExperiment.requested=%d\n"
         "NRjitterExperiment.effective=unknown\nroi=%s\n"
