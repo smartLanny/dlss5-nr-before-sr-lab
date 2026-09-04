@@ -472,6 +472,78 @@ void AppendFrameMetadata(Session &session, Group &group) {
     }
 }
 
+bool WriteSequenceBytes(HANDLE file, const void *data, std::size_t bytes) {
+    if (bytes == 0) return true;
+    if (data == nullptr || bytes > static_cast<std::size_t>(0xffffffffull)) return false;
+    DWORD written = 0;
+    return WriteFile(file, data, static_cast<DWORD>(bytes), &written, nullptr) != FALSE &&
+        written == static_cast<DWORD>(bytes);
+}
+
+bool WriteSequenceU32(HANDLE file, std::uint32_t value) {
+    unsigned char bytes[4] = {
+        static_cast<unsigned char>(value & 0xffu),
+        static_cast<unsigned char>((value >> 8) & 0xffu),
+        static_cast<unsigned char>((value >> 16) & 0xffu),
+        static_cast<unsigned char>((value >> 24) & 0xffu)};
+    return WriteSequenceBytes(file, bytes, sizeof(bytes));
+}
+
+bool WriteSequenceU64(HANDLE file, std::uint64_t value) {
+    unsigned char bytes[8] = {};
+    for (unsigned int i = 0; i < 8; ++i)
+        bytes[i] = static_cast<unsigned char>((value >> (i * 8u)) & 0xffu);
+    return WriteSequenceBytes(file, bytes, sizeof(bytes));
+}
+
+bool WriteSequenceF32(HANDLE file, float value) {
+    std::uint32_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(value), "unexpected float size");
+    std::memcpy(&bits, &value, sizeof(bits));
+    return WriteSequenceU32(file, bits);
+}
+
+// Fixed on-disk sequence format. Every field is written explicitly so the
+// output never depends on Frame's padding, bool representation, or compiler.
+bool WriteSequenceFrame(HANDLE file, const Frame &frame, const Session &session,
+                        unsigned int group_index, unsigned int frame_index) {
+    constexpr std::uint32_t kFrameVersion = 1;
+    constexpr std::uint32_t kParamsKnown = 1u << 0;
+    constexpr std::uint32_t kResetKnown = 1u << 1;
+    constexpr std::uint32_t kExposureValid = 1u << 2;
+    constexpr std::uint32_t kRawAvailable = 1u << 3;
+    const std::uint32_t flags = (frame.params_known ? kParamsKnown : 0u) |
+        (frame.reset_known ? kResetKnown : 0u) |
+        (frame.exposure_valid ? kExposureValid : 0u) |
+        (frame.raw_available ? kRawAvailable : 0u);
+    bool ok = WriteSequenceU32(file, kFrameVersion) &&
+        WriteSequenceU32(file, frame_index) &&
+        WriteSequenceU64(file, frame.identity.frame_id) &&
+        WriteSequenceU64(file, frame.identity.instance_id) &&
+        WriteSequenceU32(file, frame.identity.config_generation) &&
+        WriteSequenceU32(file, frame.width) && WriteSequenceU32(file, frame.height) &&
+        WriteSequenceU32(file, frame.reset) && WriteSequenceU32(file, flags) &&
+        WriteSequenceF32(file, frame.jitter_x) && WriteSequenceF32(file, frame.jitter_y) &&
+        WriteSequenceF32(file, frame.mv_x) && WriteSequenceF32(file, frame.mv_y) &&
+        WriteSequenceF32(file, frame.exposure_scale);
+    for (float value : frame.plane_mean) ok = ok && WriteSequenceF32(file, value);
+    ok = ok && WriteSequenceU32(file, frame.raw_width) &&
+        WriteSequenceU32(file, frame.raw_height) &&
+        WriteSequenceU32(file, frame.raw_stride);
+    const std::size_t raw_bytes = frame.raw_available ?
+        static_cast<std::size_t>(frame.raw_width) * frame.raw_height * 4u * sizeof(float) : 0u;
+    ok = ok && raw_bytes <= static_cast<std::size_t>(0xffffffffull) &&
+        WriteSequenceU32(file, static_cast<std::uint32_t>(raw_bytes));
+    if (!ok || raw_bytes == 0) return ok;
+    if (session.raw_planes == nullptr || frame.raw_width == 0 || frame.raw_height == 0)
+        return false;
+    for (unsigned int plane = 0; plane < 4; ++plane) {
+        const float *values = RawPlane(session, group_index, frame_index, plane);
+        if (values == nullptr || !WriteSequenceBytes(file, values, raw_bytes)) return false;
+    }
+    return true;
+}
+
 bool WriteSequence(const wchar_t *directory, unsigned int index,
                    const Session &session, const Group &group) {
     wchar_t path[kMaxPath] = {};
@@ -479,32 +551,21 @@ bool WriteSequence(const wchar_t *directory, unsigned int index,
     HANDLE file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr,
         CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return false;
-    char header[256] = {};
-    const int length = std::snprintf(header, sizeof(header),
-        "F8SEQ-v1\nmode=%s\nplanes=original,proxy,nr,composite\n"
-        "planeData=original,proxy,nr,composite RGBA32F ROI tiles\n"
-        "roi=%u,%u,%u,%u;frames=%u\n",
-        ModeName(group.mode), group.roi_x, group.roi_y, group.roi_width,
-        group.roi_height, group.frame_count);
-    DWORD written = 0;
-    bool ok = length > 0 && WriteFile(file, header, static_cast<DWORD>(length),
-        &written, nullptr) != FALSE && written == static_cast<DWORD>(length);
+    const char magic[8] = {'F', '8', 'S', 'E', 'Q', 0, 0, 2};
+    bool ok = WriteSequenceBytes(file, magic, sizeof(magic)) &&
+        WriteSequenceU32(file, 2) && // format version
+        WriteSequenceU32(file, static_cast<std::uint32_t>(group.mode)) &&
+        WriteSequenceU32(file, group.roi_x) && WriteSequenceU32(file, group.roi_y) &&
+        WriteSequenceU32(file, group.roi_width) && WriteSequenceU32(file, group.roi_height) &&
+        WriteSequenceU32(file, group.frame_count) && WriteSequenceU32(file, 4) &&
+        WriteSequenceU32(file, 1); // ROI coordinates are original pixels.
     for (unsigned int i = 0; ok && i < group.frame_count; ++i) {
         const Frame &frame = group.frames[i];
-        ok = WriteFile(file, &frame, sizeof(frame), &written, nullptr) != FALSE &&
-            written == sizeof(frame);
-        if (ok && frame.raw_available && session.raw_planes != nullptr) {
-            for (unsigned int plane = 0; ok && plane < 4; ++plane) {
-                const float *tile = RawPlane(session,
-                    static_cast<unsigned int>(&group - session.groups), i, plane);
-                const DWORD tile_bytes = frame.raw_width * frame.raw_height * 4u * sizeof(float);
-                ok = tile_bytes <= kMaxSequenceBytes &&
-                    WriteFile(file, tile, tile_bytes, &written, nullptr) != FALSE &&
-                    written == tile_bytes;
-            }
-        }
+        ok = WriteSequenceFrame(file, frame, session,
+            static_cast<unsigned int>(&group - session.groups), i);
     }
     CloseHandle(file);
+    if (!ok) DeleteFileW(path);
     return ok;
 }
 
