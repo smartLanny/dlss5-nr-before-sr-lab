@@ -1,0 +1,21 @@
+name: quickbar-windows-build
+on: [workflow_dispatch, pull_request]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: crosire/reshade
+          ref: v6.8.0
+          submodules: recursive
+          path: .sdk/reshade
+      - shell: pwsh
+        run: cmake -S native -B out/quickbar -A x64 "-DRESHADE_SOURCE=$((Resolve-Path .sdk/reshade).Path)"
+      - run: cmake --build out/quickbar --config Release
+      - run: ctest --test-dir out/quickbar -C Release --output-on-failure
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quickbar-experimental-x64
+          path: out/quickbar/Release/zjz-quickbar.addon64

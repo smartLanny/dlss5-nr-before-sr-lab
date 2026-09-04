@@ -1,10 +1,14 @@
 'use strict';
 
 const MESSAGES = Object.freeze({
+  ERR_CONFIG_CHANGED: '配置已被其他入口修改，请重新读取后再保存。',
+  ERR_RECOVERY_REQUIRED: '存在未完成事务，请先关闭游戏并恢复上次操作。',
+  ERR_CORE_CONFLICT: '检测到其他 NR 核心或旧安装，请先按原方式卸载；不会自动覆盖。',
+  ERR_RESHADER_DISABLED: 'ReShade 中已禁用本组件，请在原设置页重新启用。',
   ERR_BAD_REQUEST: '请求参数无效。',
   ERR_UNKNOWN_GAME: '游戏不在当前扫描结果中，请重新扫描。',
   ERR_NO_GAME_EXE: '没有找到可用的游戏主程序。',
-  ERR_UNSUPPORTED_API: '当前基础版只支持 64 位 DirectX 11 / DirectX 12 游戏。',
+  ERR_UNSUPPORTED_API: '当前基础版只支持 已明确识别为 64 位 DirectX 12 的游戏。',
   ERR_UNSUPPORTED_BITNESS: '当前基础版只支持 64 位游戏。',
   ERR_NO_DLSS: '没有检测到游戏自带的普通 DLSS 超分组件。',
   ERR_EMULATOR_UNSUPPORTED: '当前基础版暂不自动安装到模拟器。',

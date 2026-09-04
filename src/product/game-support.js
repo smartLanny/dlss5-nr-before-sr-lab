@@ -1,9 +1,7 @@
 'use strict';
 
 function apiSupported(chosen) {
-  if (!chosen) return false;
-  const label = String(chosen.apiLabel || '');
-  return chosen.api === 'dxgi' || /DirectX\s*(?:11|12|11\/12)/i.test(label);
+  return Boolean(chosen && (chosen.dx12 === true || /^DirectX 12$/i.test(chosen.apiLabel || '')));
 }
 
 function assess(scan) {

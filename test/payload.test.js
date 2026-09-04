@@ -1,20 +1,6 @@
 'use strict';
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const { PAYLOAD_FILES } = require('../src/product/constants');
-const { createBundle, inspectPayload } = require('../src/product/payload');
-
-test('requires every payload file and detects tampering', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-payload-'));
-  for (const name of Object.values(PAYLOAD_FILES)) fs.writeFileSync(path.join(dir, name), name);
-  const bundle = createBundle(dir);
-  fs.writeFileSync(path.join(dir, 'bundle.json'), JSON.stringify(bundle));
-  assert.equal(inspectPayload(dir).ready, true);
-  fs.appendFileSync(path.join(dir, PAYLOAD_FILES.bridge), 'changed');
-  const changed = inspectPayload(dir);
-  assert.equal(changed.ready, false);
-  assert.deepEqual(changed.invalid, [PAYLOAD_FILES.bridge]);
-});
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {PAYLOAD_FILES}=require('../src/product/constants'),{createBundle,inspectPayload,requirePayload}=require('../src/product/payload');
+function fixture(t){const d=fs.mkdtempSync(path.join(os.tmpdir(),'payload-'));t.after(()=>fs.rmSync(d,{recursive:true,force:true}));for(const n of Object.values(PAYLOAD_FILES))fs.writeFileSync(path.join(d,n),n);fs.writeFileSync(path.join(d,'bundle.json'),JSON.stringify(createBundle(d)));return d;}
+test('required and optional payload hashes are enforced',t=>{const d=fixture(t);assert.equal(inspectPayload(d).ready,true);fs.appendFileSync(path.join(d,PAYLOAD_FILES.quickbar),'tampered');assert.throws(()=>requirePayload(d),{code:'ERR_PAYLOAD_HASH'});});
+test('unknown files and unversioned Quickbar pairing metadata are rejected',t=>{const d=fixture(t),f=path.join(d,'bundle.json'),b=JSON.parse(fs.readFileSync(f));b.coreControlApi=0;fs.writeFileSync(f,JSON.stringify(b));assert.throws(()=>requirePayload(d));b.coreControlApi=1;b.files['../injected.dll']='0'.repeat(64);fs.writeFileSync(f,JSON.stringify(b));assert.throws(()=>requirePayload(d));});

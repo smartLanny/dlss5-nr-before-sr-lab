@@ -8,3 +8,6 @@ Thumbs.db
 payload/nr-before-sr/*
 !payload/nr-before-sr/README.md
 !payload/nr-before-sr/bundle.example.json
+
+.sdk/
+preview/*.png

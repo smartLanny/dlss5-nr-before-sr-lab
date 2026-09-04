@@ -1,37 +1,11 @@
-# Architecture
+# 0.2 layering
 
-## First-principles boundary
+Desktop: main/preload IPC -> app-service -> schema-aware nr-config + installer -> product-owned transaction journal.
 
-The desktop manager owns only four jobs:
+Native: ReShade public callbacks -> Quickbar ImGui view -> versioned NRUI C ABI -> core ApplyConfig. The sensor provider is a separate low-rate worker. The GUI process is not needed while gaming.
 
-1. find local games;
-2. install, repair and safely remove a verified payload;
-3. edit `nr_before_sr.ini` in beginner-friendly terms;
-4. show honest file-level diagnostics.
+Reused upstream: local library discovery, PE/API scanning and process/anti-cheat guards via the pinned DLSS5-Swapper submodule. Product installation no longer shares upstream's pending-switch.json. Copying or restoring outside managed fixed filenames is refused.
 
-It does not replace ReShade, inject a second overlay, log users in or claim
-runtime success without telemetry. The NR add-on remains responsible for the
-rendering chain and its existing ReShade in-game controls.
+Games running: change parameters only through the C ABI in the game's UI. Desktop INI editing is game-closed only. Runtime measurements and static installed-file checks remain separate.
 
-## Layers
-
-- `vendor/DLSS5-Swapper/`: pinned MIT-licensed upstream dependency.
-- `src/core/` and `src/library.js`: thin adapters over the pinned dependency.
-- `src/product/`: product-specific policy and stable extension points.
-- `src/renderer/`: one-page Chinese desktop UI.
-- `payload/`: untracked release inputs plus a hash manifest.
-- `product.json`: branding and community links without changing application code.
-
-## Extension points
-
-Future features should be added behind small modules rather than directly in
-`main.js`:
-
-- compatibility database: add a provider beside `game-support.js`;
-- runtime telemetry: add a read-only status provider, then clearly distinguish
-  `组件完整` from `正在运行`;
-- update channel: add a signed manifest provider outside the game process;
-- optional licensing: keep it in the desktop process and use signed offline
-  entitlements; never put a server secret in Electron or the game DLL;
-- additional install routes: implement separate route adapters without changing
-  the native NR-before-SR installer.
+Extension points: alternate telemetry provider (e.g. a verified PresentMon adapter), additional explicitly tested rendering routes, game compatibility catalogue, new core ABI version. No plugin has permission to reinterpret a new schema as an old one silently.

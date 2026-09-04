@@ -1,6 +1,6 @@
 {
   "name": "xiaofeng-dlss5-manager",
-  "version": "0.1.0",
+  "version": "0.2.0-alpha.1",
   "private": true,
   "description": "A beginner-friendly desktop manager for the DLSS 5 NR-before-SR add-on.",
   "main": "main.js",
@@ -14,11 +14,12 @@
     "verify:vendor": "node scripts/verify-vendor.js",
     "verify:payload": "node scripts/verify-payload.js",
     "build": "npm run verify:vendor && npm run verify:payload && electron-builder --win",
-    "build:portable": "npm run verify:vendor && npm run verify:payload && electron-builder --win portable"
+    "build:portable": "npm run verify:vendor && npm run verify:payload && electron-builder --win portable",
+    "preview": "node scripts/preview-server.js"
   },
   "devDependencies": {
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron": "44.2.0",
+    "electron-builder": "25.1.8"
   },
   "build": {
     "appId": "com.xiaofeng.dlss5.manager",
@@ -39,7 +40,8 @@
       "product.json",
       "LICENSE",
       "THIRD_PARTY_NOTICES.md",
-      "UPSTREAM.md"
+      "UPSTREAM.md",
+      "native/README.md"
     ],
     "extraResources": [
       {

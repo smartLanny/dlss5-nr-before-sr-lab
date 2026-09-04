@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' file: data:; connect-src 'none'">
+<title>DLSS 5 AI 超分管理器</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<div class="shell">
+<header><div><h1>DLSS 5 AI 超分 <span>装机宅版</span></h1><p id="identity">野生的装机宅</p></div><span id="version" class="muted">开发版</span></header>
+<div id="demoNotice" class="notice">交互预览 · 下方为样例数据，不是本机扫描或实机监测结果</div>
+<nav aria-label="主导航"><button data-view="games" class="active">游戏</button><button data-view="repair">检查与修复</button><button data-view="settings">设置</button><div class="keyhint"><kbd>F10</kbd> 游戏内面板 <span>·</span> <kbd>Home</kbd> 原设置页</div></nav>
+<div id="message" role="status" aria-live="polite"></div>
+<section id="view-games" class="view">
+ <div class="toolbar"><input id="search" type="search" placeholder="搜索游戏名称" aria-label="搜索游戏"><select id="filter" aria-label="筛选"><option value="all">全部游戏</option><option value="installed">已安装</option><option value="supported">可尝试安装</option></select><span class="spacer"></span><button id="addGame">添加游戏</button><button id="scan">重新扫描</button></div>
+ <div id="payloadNotice" class="notice hidden"></div><div id="summary" class="muted small"></div>
+ <div id="games"></div><div id="empty" class="empty hidden"><h2>还没有找到游戏</h2><p>选择游戏安装文件夹，或扫描 Steam、Epic、GOG 游戏库。</p><button id="emptyAdd">添加游戏</button></div>
+</section>
+<section id="view-repair" class="view hidden">
+ <div class="toolbar"><h2>检查组件，不猜测运行状态</h2><span class="spacer"></span><select id="repairGame" aria-label="选择要检查的游戏"></select><button id="check">重新检查</button></div>
+ <div id="diagnostic" class="panel"><p class="muted">先选择游戏。</p></div>
+ <div class="actions"><button id="repair" class="primary">修复组件</button><button id="recover">恢复未完成操作</button><button id="copy">复制诊断</button><span class="spacer"></span><label><input id="removeSettings" type="checkbox">卸载时删除本工具创建的配置</label><button id="uninstall" class="danger">卸载</button></div>
+ <p class="muted small">复制的诊断默认不包含安装路径、用户名或内存地址。操作前需关闭游戏。</p>
+</section>
+<section id="view-settings" class="view hidden">
+ <div class="panel"><h2>组件包</h2><p id="bundleState" class="muted">未读取</p><p class="muted small">选择含 bundle.json 的本地组件目录。校验和只能检查文件一致性，不能证明发布者身份。</p><button id="payload">选择组件目录</button></div>
+ <div class="panel"><h2>游戏扫描</h2><label class="setting"><span>搜索其他常见游戏目录<small>默认关闭；启用后仍不遍历所有文件。</small></span><input id="scanDrives" type="checkbox"></label><button id="addFolder">添加游戏库目录</button></div>
+ <div class="panel"><h2>快捷键与使用方式</h2><p><kbd>F10</kbd> Quickbar 面板　<kbd>F6</kbd> AI 总开关　<kbd>F8</kbd> 诊断抓帧　<kbd>Home</kbd> ReShade 原始设置</p><p class="muted">桌面修改参数前请关闭游戏；游戏运行时用 Quickbar，避免多个入口争写配置。面板快捷键和透明度可以在游戏内修改。</p><p class="muted small">Quickbar 为独立 Add-on，仍由 ReShade 渲染。配套核心未提供控制接口时，设置控件会禁用。</p></div>
+ <div class="panel"><h2>开源致谢</h2><p>本地发现等基础实现来自 DLSS5-Swapper · Rakan Alkhaldi · MIT。</p><p class="muted small">ReShade、Dear ImGui 和各运行组件分别遵循其许可证。本项目不是 NVIDIA / Xbox 官方产品。</p></div>
+</section>
+<footer><button id="bilibili" class="link">野生的装机宅 · Bilibili 主页 ↗</button><button id="group" class="link hidden">复制交流群号</button><span class="spacer"></span><span class="muted small">组件完整 ≠ AI 已生效</span></footer>
+</div><script src="demo.js"></script><script src="renderer.js"></script></body></html>

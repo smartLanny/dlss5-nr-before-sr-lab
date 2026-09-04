@@ -13,7 +13,9 @@ const PAYLOAD_FILES = Object.freeze({
   addon: 'nr-before-sr.zh-CN.addon64',
   bridge: 'nrchain_nvngx.dll',
   runtime: 'nvngx_dlssnr.dll',
-  config: 'nr_before_sr.ini'
+  config: 'nr_before_sr.ini',
+  quickbar: 'zjz-quickbar.addon64',
+  quickbarConfig: 'nr_quickbar.ini'
 });
 
 const INSTALLED_NAMES = Object.freeze({
@@ -21,31 +23,9 @@ const INSTALLED_NAMES = Object.freeze({
   addon: PAYLOAD_FILES.addon,
   bridge: PAYLOAD_FILES.bridge,
   runtime: PAYLOAD_FILES.runtime,
-  config: PAYLOAD_FILES.config
+  config: PAYLOAD_FILES.config,
+  quickbar: PAYLOAD_FILES.quickbar,
+  quickbarConfig: PAYLOAD_FILES.quickbarConfig
 });
 
-const DEFAULT_NR_CONFIG = Object.freeze({
-  Enabled: 1,
-  Mode: 2,
-  Intensity: 1.2,
-  Style: 1,
-  AutoMask: 1,
-  SkinStructureStrength: -1,
-  LocalToneStrength: 1,
-  LocalStructureStrength: 1,
-  TransferStrength: 1,
-  ColorStrength: 0,
-  UICorrection: 0
-});
-
-const PUBLIC_NR_KEYS = Object.freeze([
-  'Enabled', 'Mode', 'Intensity', 'Style', 'AutoMask'
-]);
-
-module.exports = {
-  PRODUCT,
-  PAYLOAD_FILES,
-  INSTALLED_NAMES,
-  DEFAULT_NR_CONFIG,
-  PUBLIC_NR_KEYS
-};
+module.exports = { PRODUCT, PAYLOAD_FILES, INSTALLED_NAMES };

@@ -1,146 +1,44 @@
 'use strict';
-
-const fs = require('fs');
-const path = require('path');
-const { DEFAULT_NR_CONFIG, PUBLIC_NR_KEYS } = require('./constants');
-const { appError } = require('./errors');
-
-const SECTION = 'NRBeforeSR';
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
+const fs=require('node:fs');
+const {appError}=require('./errors');
+const {hash,readBounded,atomicWrite}=require('./safe-files');
+const SECTION='NRBeforeSR';
+const ranges={Enabled:[0,1,true],Mode:[1,2,true],Intensity:[0,2,false],TransferStrength:[0,4,false],PostTransferStrength:[0,4,false],Style:[0,2,true],AutoMask:[0,1,true],WorkMode:[0,5,true],CustomWorkScale:[.25,1,false]};
+const canonical=new Map([...Object.keys(ranges),'ConfigVersion','StrengthConfigVersion'].map(k=>[k.toLowerCase(),k]));
+function fail(message){throw appError('ERR_BAD_REQUEST',{reason:message});}
+function normalizeValue(key,value){const r=ranges[key];if(!r||typeof value!=='number'||!Number.isFinite(value)||value<r[0]||value>r[1]||(r[2]&&!Number.isInteger(value)))fail('Invalid '+key);return value;}
+function decode(bytes){
+ const utf16=bytes[0]===255&&bytes[1]===254,bom=utf16||(bytes[0]===239&&bytes[1]===187&&bytes[2]===191);
+ const encoding=utf16?'utf16le':'utf8',body=bytes.subarray(utf16?2:bom?3:0);
+ if(utf16&&body.length%2)fail('Truncated UTF-16 config');
+ let text;try{text=new TextDecoder(utf16?'utf-16le':'utf-8',{fatal:true}).decode(body);}catch{fail('Unsupported config text encoding');}
+ return {text,encoding,bom};
 }
-
-function normalizeValue(key, value) {
-  if (key === 'Enabled' || key === 'AutoMask' || key === 'UICorrection') return value ? 1 : 0;
-  if (key === 'Mode') return Number(value) === 1 ? 1 : 2;
-  if (key === 'Style') return Math.round(clamp(Number(value) || 0, 0, 2));
-  if (key === 'Intensity') return Number(clamp(Number(value) || 0, 0, 2).toFixed(2));
-  if (key === 'SkinStructureStrength') return Number(clamp(Number(value), -1, 2).toFixed(2));
-  if (key === 'LocalToneStrength' || key === 'LocalStructureStrength') {
-    return Number(clamp(Number(value) || 0, 0, 2).toFixed(2));
-  }
-  if (key === 'TransferStrength' || key === 'ColorStrength') {
-    return Number(clamp(Number(value) || 0, 0, 1).toFixed(2));
-  }
-  throw appError('ERR_BAD_REQUEST', { key });
+function encode(text,d){const b=Buffer.from(text,d.encoding);return d.bom?Buffer.concat([d.encoding==='utf16le'?Buffer.from([255,254]):Buffer.from([239,187,191]),b]):b;}
+function parseSection(text){
+ const result={};let active=false,sections=0;const seen=new Set();
+ for(const line of String(text).split(/\r?\n/)){
+  const s=line.match(/^\s*\[([^\]]+)\]\s*$/);if(s){active=s[1].trim().toLowerCase()===SECTION.toLowerCase();if(active&&++sections>1)fail('Duplicate NR section');continue;}
+  if(!active||/^\s*[;#]/.test(line))continue;const p=line.match(/^\s*([^=]+?)\s*=\s*([^;#]*)(.*)$/);if(!p)continue;
+  const key=canonical.get(p[1].trim().toLowerCase());if(!key)continue;if(seen.has(key))fail('Duplicate key '+key);seen.add(key);
+  if(!p[2].trim()||!Number.isFinite(Number(p[2])))fail('Invalid key '+key);result[key]=Number(p[2]);
+ }
+ if(sections!==1)fail('Missing NRBeforeSR section');return result;
 }
-
-function parseSection(text) {
-  const result = {};
-  let active = false;
-  for (const raw of String(text || '').split(/\r?\n/)) {
-    const section = raw.match(/^\s*\[([^\]]+)\]\s*$/);
-    if (section) {
-      active = section[1].trim().toLowerCase() === SECTION.toLowerCase();
-      continue;
-    }
-    if (!active || /^\s*[;#]/.test(raw)) continue;
-    const pair = raw.match(/^\s*([^=]+?)\s*=\s*(.*?)\s*$/);
-    if (!pair) continue;
-    const key = pair[1].trim();
-    if (!(key in DEFAULT_NR_CONFIG)) continue;
-    const number = Number(pair[2]);
-    if (Number.isFinite(number)) result[key] = normalizeValue(key, number);
-  }
-  return result;
+function schemaFor(v){if(v.ConfigVersion===4&&v.StrengthConfigVersion===1)return 'residual-v4';if((v.ConfigVersion===undefined||v.ConfigVersion<4)&&v.Intensity!==undefined)return 'legacy';return 'unknown';}
+function allowed(schema){return schema==='residual-v4'?['Enabled','Mode','TransferStrength','Style','AutoMask','WorkMode']:schema==='legacy'?['Enabled','Mode','Intensity','Style','AutoMask']:[];}
+function updateSection(text,patch){
+ const current=parseSection(text),schema=schemaFor(current),keys=allowed(schema);if(schema==='unknown')fail('Unknown core schema');
+ if(!patch||typeof patch!=='object'||Array.isArray(patch)||Object.keys(patch).length===0)fail('Empty patch');
+ const edits={};for(const[k,v]of Object.entries(patch)){if(!keys.includes(k))fail('Unsupported setting '+k);edits[k]=normalizeValue(k,v);}
+ if('TransferStrength'in edits)edits.PostTransferStrength=edits.TransferStrength;
+ const nl=text.includes('\r\n')?'\r\n':'\n',lines=text.split(/\r?\n/);let active=false,start=-1,end=lines.length;const seen=new Set();
+ for(let i=0;i<lines.length;i++){const s=lines[i].match(/^\s*\[([^\]]+)\]\s*$/);if(s){if(active){end=i;break;}active=s[1].trim().toLowerCase()===SECTION.toLowerCase();if(active)start=i;continue;}
+  if(!active)continue;const p=lines[i].match(/^(\s*)([^=;#]+?)(\s*=\s*)([^;#]*)(.*)$/);if(!p)continue;
+  const k=canonical.get(p[2].trim().toLowerCase());if(Object.hasOwn(edits,k)){lines[i]=`${p[1]}${p[2]}${p[3]}${edits[k]}${p[5]?' '+p[5]:''}`;seen.add(k);}}
+ let pos=end;while(pos>start+1&&!lines[pos-1].trim())pos--;lines.splice(pos,0,...Object.keys(edits).filter(k=>!seen.has(k)).map(k=>`${k}=${edits[k]}`));return lines.join(nl);
 }
-
-function readConfig(file) {
-  let text = '';
-  try { text = fs.readFileSync(file, 'utf8'); } catch {}
-  const full = { ...DEFAULT_NR_CONFIG, ...parseSection(text) };
-  return {
-    Enabled: full.Enabled,
-    Mode: full.Mode,
-    Intensity: full.Intensity,
-    Style: full.Style,
-    AutoMask: full.AutoMask
-  };
-}
-
-function updateSection(text, patch) {
-  const normalized = {};
-  for (const [key, value] of Object.entries(patch || {})) {
-    if (!PUBLIC_NR_KEYS.includes(key) && !(key in DEFAULT_NR_CONFIG)) {
-      throw appError('ERR_BAD_REQUEST', { key });
-    }
-    normalized[key] = normalizeValue(key, value);
-  }
-
-  const newline = String(text || '').includes('\r\n') ? '\r\n' : '\n';
-  const lines = String(text || '').split(/\r?\n/);
-  let start = -1;
-  let end = lines.length;
-  for (let i = 0; i < lines.length; i++) {
-    const section = lines[i].match(/^\s*\[([^\]]+)\]\s*$/);
-    if (!section) continue;
-    if (section[1].trim().toLowerCase() === SECTION.toLowerCase()) {
-      start = i;
-      for (let j = i + 1; j < lines.length; j++) {
-        if (/^\s*\[[^\]]+\]\s*$/.test(lines[j])) { end = j; break; }
-      }
-      break;
-    }
-  }
-
-  if (start < 0) {
-    if (lines.length && lines[lines.length - 1].trim()) lines.push('');
-    lines.push(`[${SECTION}]`);
-    for (const [key, value] of Object.entries(normalized)) lines.push(`${key}=${value}`);
-    return lines.join(newline).replace(/(?:\r?\n)*$/, newline);
-  }
-
-  const seen = new Set();
-  for (let i = start + 1; i < end; i++) {
-    const pair = lines[i].match(/^(\s*)([^=;#]+?)(\s*=\s*)(.*)$/);
-    if (!pair) continue;
-    const key = pair[2].trim();
-    if (!(key in normalized)) continue;
-    lines[i] = `${pair[1]}${key}${pair[3]}${normalized[key]}`;
-    seen.add(key);
-  }
-  const missing = Object.keys(normalized).filter(key => !seen.has(key));
-  let insertAt = end;
-  while (insertAt > start + 1 && !lines[insertAt - 1].trim()) insertAt--;
-  lines.splice(insertAt, 0, ...missing.map(key => `${key}=${normalized[key]}`));
-  return lines.join(newline).replace(/(?:\r?\n)*$/, newline);
-}
-
-async function writeConfig(file, patch) {
-  let current = '';
-  try { current = await fs.promises.readFile(file, 'utf8'); } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-  }
-  const next = updateSection(current, patch);
-  await fs.promises.mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.xiaofeng.tmp`;
-  await fs.promises.writeFile(temp, next, 'utf8');
-  await fs.promises.rename(temp, file);
-  return readConfig(file);
-}
-
-function recommendedPatch() {
-  return {
-    Enabled: 1,
-    Mode: 2,
-    Intensity: 1.2,
-    Style: 1,
-    AutoMask: 1,
-    SkinStructureStrength: -1,
-    LocalToneStrength: 1,
-    LocalStructureStrength: 1,
-    TransferStrength: 1,
-    ColorStrength: 0
-  };
-}
-
-module.exports = {
-  SECTION,
-  readConfig,
-  parseSection,
-  updateSection,
-  writeConfig,
-  recommendedPatch,
-  normalizeValue
-};
+function readConfig(file){const bytes=readBounded(file),d=decode(bytes),values=parseSection(d.text);return {schema:schemaFor(values),revision:hash(bytes),values};}
+async function writeConfig(file,patch,expectedRevision){const bytes=readBounded(file);if(!expectedRevision||hash(bytes)!==expectedRevision)throw appError('ERR_CONFIG_CHANGED');const d=decode(bytes);const next=updateSection(d.text,patch);if(hash(readBounded(file))!==expectedRevision)throw appError('ERR_CONFIG_CHANGED');await atomicWrite(file,encode(next,d));return readConfig(file);}
+function recommendedPatch(){throw appError('ERR_BAD_REQUEST',{reason:'No universal recommended preset; use the matching payload defaults.'});}
+module.exports={SECTION,parseSection,schemaFor,allowed,normalizeValue,updateSection,readConfig,writeConfig,recommendedPatch,decode,encode};

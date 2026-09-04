@@ -1,22 +1,29 @@
-# DLSS 5 AI 超分管理器 · 装机宅版
+# 装机宅 DLSS 5 管理器 + Quickbar · 0.2 实验版
 
-一个面向中国普通玩家的 **NR→SR 安装、设置与修复基础工程**。
+单页本地管理器 + ReShade 原生半透明调节面板。无账号、无广告、无独立注入器。
 
-它不是新的游戏内 HUD，也不尝试重造 ReShade。桌面端只负责把现有
-NR-before-SR 插件变得更容易安装和调节：打开软件即可看到游戏，卡片内
-直接一键安装、修改常用参数、检查组件、修复或卸载。
+**这是源码实验版本，不是已经完成 Windows 实机验收的发行包。** 当前环境验证了 Node 文件事务与配置测试、标准 C++ 帧率/ABI 合约测试、样例数据的浏览器界面。没有验证 Windows 原生构建、NVML 实机读取、游戏输入/HDR/插帧兼容。
 
-## 当前范围
+## 用户操作
 
-- Windows 10 / 11；
-- 64 位 DirectX 11 / DirectX 12；
-- 游戏本身已经集成普通 DLSS Super Resolution；
-- 使用现有 ReShade Add-on 作为插件宿主和游戏内设置页；
-- 不支持反作弊游戏、模拟器、x86、Vulkan、OpenGL、Feeder、OptiScaler。
+桌面上选择游戏，安装经校验的配套组件。卡片原地展开，配置不跳第二个详情页。
 
-这些限制是有意的：先把最常用、最安全的一条链路做稳定，再逐层扩展。
+游戏内默认 **F10** 打开 Quickbar，**F6** 保持 AI 总开关，**F8** 保持诊断抓帧。
+**Home** 或面板的“原始 ReShade / 高级”仍能进入原界面。F10 正常使用不打开 ReShade 主窗口，但不会删除宿主、版权信息或错误提示。
 
-## 使用源码
+Quickbar 左侧调 AI，右侧展示观测 FPS、帧率/帧时间曲线、GPU 占用、功耗、温度和设备总体显存。可固定只读性能条。半透明色块和细边框构成玻璃观感，**没有真实背景模糊 pass**。
+
+## 架构和版本约束
+
+- 本安装路线只支持 **Windows、x64、原生 D3D12 + 普通 DLSS SR**。不能因为 DX11 也使用 dxgi.dll 就把它列为受支持。
+- 0.4.1 的 AI 强度绑定 `TransferStrength` 和 `PostTransferStrength`，不是旧的 `Intensity`。配置版本不明时只读拒改。
+- 游戏内修改走 `NRUI_GetStateV1` / `NRUI_SetValueV1` C ABI，保留核心 F8 锁、generation 检查和 ApplyConfig。旧核心没有接口时设置区禁用，Home 回退仍可用。
+- 桌面修改 INI 必须先关闭游戏，使用文件 revision 检查和原子写入。删除了 v0.1“多入口同时写 INI 保证半秒生效”的承诺。
+- ReShade v6.8.0 / API20 / ImGui1.92.5 是面板构建基线。不是任何 ReShade DLL 都兼容。
+- NVML 只从系统目录加载，采样在线程里约1Hz，不支持/过期显示 `--`。多显卡必须选择设备，不能当成游戏专属占用。
+- 观测 FPS 来自 ReShade 回调间隔，**不等于插帧后的显示 FPS**；不冒充 PresentMon 的显示帧统计。
+
+## 启动和预览
 
 ```powershell
 git submodule update --init --recursive
@@ -24,50 +31,34 @@ npm install
 npm start
 ```
 
-通过 GitHub 的“Download ZIP”获取源码时，压缩包没有 submodule 元数据，请改用：
+离线预览：打开 `preview/index.html`；也可 `npm run preview` 后访问控制台给出的本地地址。预览明确使用样例数据，不操作电脑或游戏。
+
+## 两份源码配套
+
+本工程包含 `native/`（独立 Quickbar Add-on）和 `core-integration/`（供已审查 0.4.1 核心使用的适配文件）。在核心实验分支中：
+
+- 将 `core-integration/nrui_api.h`、`nrui_exports.inl`、`nr_before_sr_quickbar.cpp` 放到核心 `src/`。
+- 将 `core-integration/build-quickbar.ps1` 放到核心 `scripts/`，运行该脚本构建带控制接口的核心。
+- 原 `nr_before_sr.cpp` 不修改。脚本校验该文件的 Git blob，防止静默适配未来不同内核。
+- 单独按 `native/README.md` 用 MSVC x64 构建 `zjz-quickbar.addon64`。不要用 MinGW 编译这个 ReShade/ImGui 面板。
+
+准备组件包时显式指定文件，不再猜测含中文/版本号的 Add-on 名称：
 
 ```powershell
-./scripts/bootstrap-vendor.ps1
-npm install
-npm start
+./scripts/prepare-payload.ps1 -AddonFile <核心addon路径> -BridgeFile <bridge路径> -ConfigFile <ini路径> -NeuralRuntime <NR运行库路径> -ReShadeAddonRuntime <ReShade64路径> -QuickbarFile <Quickbar路径>
+npm run build:portable
 ```
 
-管理器可以在没有 payload 时启动、扫描游戏和查看兼容性；安装操作会被
-安全阻止。准备发布组件的方法见：
+NVIDIA、ReShade 和其他二进制不随源码提供；发布前需确认来源、许可和配套版本。`bundle.json` 的 SHA256 是一致性检查，不是发布者签名。
 
-```powershell
-./scripts/prepare-payload.ps1 `
-  -NrBuildDir D:\nr-build `
-  -NeuralRuntime D:\runtime\nvngx_dlssnr.dll `
-  -ReShadeAddonRuntime D:\reshade\ReShade64.dll
-```
+## 安全恢复
 
-脚本会复制五个必要文件并生成 SHA-256 `bundle.json`。
+安装必须关闭游戏；未知代理 DLL、其他 NR 核心、反作弊目标会被拒绝。只管理自己记录的文件；升级/卸载遇到外部更改先停止。真实写前日志支持自动失败回滚和显式中断恢复，不递归删除游戏备份。
 
-## 用户路径
+**v0.1 收据不可直接迁移**：请先用旧管理器卸载旧版本，再安装0.2。0.2拒绝旧或损坏收据，不猜测文件所有权。
 
-1. 自动扫描或“添加游戏”；
-2. 在游戏卡片点击“一键安装”；
-3. 原地展开卡片，调整性能/画质模式、AI 强度、风格和人脸保护；
-4. 游戏内仍使用原来的 ReShade 设置页；
-5. 出问题时进入“修复”，检查组件并一键恢复。
+## 开发
 
-## 安全模型
+`npm test` 不需要安装 Electron。Windows/C++ 构建和待测矩阵见 `docs/VALIDATION.md`。当前指定 Electron44.2.0，仍需在联网构建机生成 lockfile 并完成发行包回归；此环境未安装其依赖。
 
-- 所有安装组件必须匹配 `bundle.json`；
-- 写入前确认游戏已关闭；
-- 检测到反作弊时停止；
-- 不覆盖未知 `dxgi.dll`；
-- 每次操作使用写前日志，失败自动回滚；
-- 首次被替换的文件单独备份，卸载时恢复；
-- 默认保留用户的 `nr_before_sr.ini` 参数；
-- 不在仓库提交 NVIDIA runtime 或其他未审查二进制。
-
-## 上游与署名
-
-桌面基础通过固定版本 Git submodule 复用了 MIT 许可的
-[DLSS5-Swapper](https://github.com/rakanki911/DLSS5-Swapper) 部分本地扫描与
-文件安全实现。原作者和许可证见 `UPSTREAM.md`、`LICENSE` 与
-`THIRD_PARTY_NOTICES.md`。
-
-产品维护：**野生的装机宅**。品牌名、Bilibili 主页、群号和更新地址统一在根目录 `product.json` 配置，空群号不会显示入口。
+扫描器等基础来自 DLSS5-Swapper / Rakan Alkhaldi (MIT)，固定 submodule。作者/主页/群号统一在 `product.json`。**野生的装机宅**是维护者署名，不是登录账号。

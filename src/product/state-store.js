@@ -9,7 +9,8 @@ const DEFAULTS = Object.freeze({
   scanFolders: [],
   manualGames: [],
   excludedRoots: [],
-  lastSelectedGame: null
+  lastSelectedGame: null,
+  payloadDirectory: null
 });
 
 function uniquePaths(rows) {
@@ -31,6 +32,7 @@ function validate(value) {
     ...DEFAULTS,
     ...state,
     version: 1,
+    payloadDirectory: typeof state.payloadDirectory === 'string' && path.isAbsolute(state.payloadDirectory) ? state.payloadDirectory : null,
     scanDrives: state.scanDrives === true,
     scanFolders: uniquePaths(state.scanFolders),
     manualGames: uniquePaths(state.manualGames),

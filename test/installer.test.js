@@ -1,124 +1,16 @@
 'use strict';
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const { createInstaller } = require('../src/product/installer');
-const { createBundle, inspectPayload } = require('../src/product/payload');
-const { PAYLOAD_FILES } = require('../src/product/constants');
-
-function makeJournal() {
-  return {
-    safePath(root, rel) {
-      const target = path.resolve(root, rel);
-      if (!path.relative(root, target) || path.relative(root, target).startsWith('..')) throw Error('unsafe');
-      return target;
-    },
-    async capture() {},
-    async atomicJson(file, data) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(data, null, 2)); },
-    async transaction(_dir, work) { return work(); }
-  };
-}
-
-function fixture() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-install-'));
-  const gameDir = path.join(root, 'Game');
-  const exeDir = path.join(gameDir, 'bin');
-  const exePath = path.join(exeDir, 'game.exe');
-  const payloadDir = path.join(root, 'payload');
-  fs.mkdirSync(exeDir, { recursive: true });
-  fs.mkdirSync(payloadDir, { recursive: true });
-  fs.writeFileSync(exePath, 'exe');
-  for (const name of Object.values(PAYLOAD_FILES)) {
-    let body = name;
-    if (name === PAYLOAD_FILES.reshade) body = 'PE64 ReShade Searching for add-ons';
-    fs.writeFileSync(path.join(payloadDir, name), body);
-  }
-  fs.writeFileSync(path.join(payloadDir, 'bundle.json'), JSON.stringify(createBundle(payloadDir)));
-  const payload = Object.fromEntries(inspectPayload(payloadDir).files.map(row => [row.kind, row]));
-  const scan = {
-    chosen: { path: exePath, rel: 'bin/game.exe', bitness: 64, api: 'dxgi', apiLabel: 'DirectX 12', emulator: null },
-    primaryDlss: { name: 'nvngx_dlss.dll' }, emulator: null
-  };
-  return { root, gameDir, exeDir, exePath, payload, scan };
-}
-
-test('installs, diagnoses, repairs and uninstalls without deleting kept settings', async () => {
-  const f = fixture();
-  const scanModule = {
-    async scanGame() { return f.scan; },
-    inspectReShade(dir) {
-      const file = path.join(dir, 'dxgi.dll');
-      return fs.existsSync(file)
-        ? { installed: true, addonSupport: fs.readFileSync(file).includes('Searching for add-ons'), file: 'dxgi.dll' }
-        : { installed: false, addonSupport: false, file: null };
-    }
-  };
-  const installer = createInstaller({
-    journal: makeJournal(),
-    scan: scanModule,
-    guards: { antiCheatPresent: () => false, assertGameClosed: async () => {} },
-    pe: { getBitness: () => 64 }
-  });
-  const installed = await installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
-  assert.equal(installed.complete, true);
-  const ini = path.join(f.exeDir, PAYLOAD_FILES.config);
-  fs.appendFileSync(ini, '\n; user setting');
-  fs.unlinkSync(path.join(f.exeDir, PAYLOAD_FILES.bridge));
-  assert.equal((await installer.diagnose({ gameDir: f.gameDir, payload: f.payload, scan: f.scan })).complete, false);
-  assert.equal((await installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan })).complete, true);
-  const removed = await installer.uninstall({ gameDir: f.gameDir, scan: f.scan });
-  assert.equal(removed.removed, true);
-  assert.equal(fs.existsSync(ini), true, 'user settings are kept by default');
-  assert.equal(fs.existsSync(path.join(f.exeDir, PAYLOAD_FILES.addon)), false);
-});
-
-test('refuses to overwrite an unknown dxgi.dll', async () => {
-  const f = fixture();
-  fs.writeFileSync(path.join(f.exeDir, 'dxgi.dll'), 'some unrelated proxy');
-  const installer = createInstaller({
-    journal: makeJournal(),
-    scan: {
-      async scanGame() { return f.scan; },
-      inspectReShade() { return { installed: false, addonSupport: false, file: null }; }
-    },
-    guards: { antiCheatPresent: () => false, assertGameClosed: async () => {} },
-    pe: { getBitness: () => 64 }
-  });
-  await assert.rejects(
-    installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan }),
-    error => error && error.code === 'ERR_RESHADER_CONFLICT'
-  );
-  assert.equal(fs.readFileSync(path.join(f.exeDir, 'dxgi.dll'), 'utf8'), 'some unrelated proxy');
-});
-
-test('keeps an existing add-on ReShade and restores an overwritten runtime', async () => {
-  const f = fixture();
-  const reshadePath = path.join(f.exeDir, 'dxgi.dll');
-  const runtimePath = path.join(f.exeDir, PAYLOAD_FILES.runtime);
-  fs.writeFileSync(reshadePath, 'existing ReShade Searching for add-ons');
-  fs.writeFileSync(runtimePath, 'original runtime');
-  const scanModule = {
-    async scanGame() { return f.scan; },
-    inspectReShade(dir) {
-      const file = path.join(dir, 'dxgi.dll');
-      return fs.existsSync(file) && fs.readFileSync(file).includes('Searching for add-ons')
-        ? { installed: true, addonSupport: true, file: 'dxgi.dll' }
-        : { installed: false, addonSupport: false, file: null };
-    }
-  };
-  const installer = createInstaller({
-    journal: makeJournal(),
-    scan: scanModule,
-    guards: { antiCheatPresent: () => false, assertGameClosed: async () => {} },
-    pe: { getBitness: () => 64 }
-  });
-  await installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
-  assert.equal(fs.readFileSync(reshadePath, 'utf8'), 'existing ReShade Searching for add-ons');
-  assert.equal(fs.readFileSync(runtimePath, 'utf8'), PAYLOAD_FILES.runtime);
-  const removed = await installer.uninstall({ gameDir: f.gameDir, scan: f.scan });
-  assert.equal(removed.removed, true);
-  assert.equal(fs.readFileSync(reshadePath, 'utf8'), 'existing ReShade Searching for add-ons');
-  assert.equal(fs.readFileSync(runtimePath, 'utf8'), 'original runtime');
-});
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {createInstaller,readManifest,MANIFEST}=require('../src/product/installer');const {PAYLOAD_FILES}=require('../src/product/constants');
+const {createBundle,requirePayload}=require('../src/product/payload');const journal=require('../src/product/transaction');
+function fixture(t){const root=fs.mkdtempSync(path.join(os.tmpdir(),'zjz-installer-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));const gameDir=path.join(root,'游戏'),exeDir=path.join(gameDir,'bin'),exe=path.join(exeDir,'game.exe'),pd=path.join(root,'payload');fs.mkdirSync(exeDir,{recursive:true});fs.mkdirSync(pd);fs.writeFileSync(exe,'test exe');for(const n of Object.values(PAYLOAD_FILES))fs.writeFileSync(path.join(pd,n),n==='nr_before_sr.ini'?'[NRBeforeSR]\nConfigVersion=4\nStrengthConfigVersion=1\nIntensity=1\n':n);
+ fs.writeFileSync(path.join(pd,'bundle.json'),JSON.stringify(createBundle(pd)));const payload=requirePayload(pd),scan={chosen:{path:exe,bitness:64,api:'dxgi',apiLabel:'DirectX 12'},primaryDlss:{name:'nvngx_dlss.dll'}};
+ const scanModule={async scanGame(){return scan;},inspectReShade(){const f=path.join(exeDir,'dxgi.dll'),good=fs.existsSync(f)&&fs.readFileSync(f,'utf8').includes('ReShade');return{installed:good,addonSupport:good,file:good?'dxgi.dll':null,version:'6.8.0'};}};
+ const guards={antiCheatPresent:()=>false,assertGameClosed:async()=>{}};const installer=createInstaller({scan:scanModule,guards,pe:{getBitness:()=>64}});return{root,gameDir,exeDir,payload,scan,guards,installer};}
+test('real journal: install, repair and uninstall preserve user settings',async t=>{const f=fixture(t);assert.equal((await f.installer.install(f)).complete,true);assert.equal((await f.installer.diagnose(f)).recoveryPending,false);const ini=path.join(f.exeDir,'nr_before_sr.ini');fs.appendFileSync(ini,'; user setting\n');fs.unlinkSync(path.join(f.exeDir,'nrchain_nvngx.dll'));assert.equal((await f.installer.diagnose(f)).complete,false);await f.installer.repair(f);assert.match(fs.readFileSync(ini,'utf8'),/user setting/);await f.installer.uninstall(f);assert.ok(fs.existsSync(ini));assert.ok(!fs.existsSync(path.join(f.exeDir,'nr-before-sr.zh-CN.addon64')));});
+test('existing ReShade is not adopted; original NR runtime is restored',async t=>{const f=fixture(t);fs.writeFileSync(path.join(f.exeDir,'dxgi.dll'),'Existing ReShade');fs.writeFileSync(path.join(f.exeDir,'nvngx_dlssnr.dll'),'original runtime');await f.installer.install(f);assert.ok(!readManifest(f.gameDir).files.some(x=>x.kind==='reshade'));await f.installer.uninstall(f);assert.equal(fs.readFileSync(path.join(f.exeDir,'dxgi.dll'),'utf8'),'Existing ReShade');assert.equal(fs.readFileSync(path.join(f.exeDir,'nvngx_dlssnr.dll'),'utf8'),'original runtime');});
+test('unknown proxy and competing core refuse without changing files',async t=>{const f=fixture(t),proxy=path.join(f.exeDir,'dxgi.dll');fs.writeFileSync(proxy,'unrelated proxy');await assert.rejects(f.installer.install(f),{code:'ERR_RESHADER_CONFLICT'});assert.equal(fs.readFileSync(proxy,'utf8'),'unrelated proxy');fs.unlinkSync(proxy);fs.writeFileSync(path.join(f.exeDir,'renodx-dlss.addon64'),'other core');await assert.rejects(f.installer.install(f),{code:'ERR_CORE_CONFLICT'});});
+test('running game and anti-cheat guard errors precede writes',async t=>{const f=fixture(t);f.guards.antiCheatPresent=()=>true;await assert.rejects(f.installer.install(f),{code:'ERR_ANTI_CHEAT'});f.guards.antiCheatPresent=()=>false;f.guards.assertGameClosed=async()=>{throw Object.assign(Error('running'),{code:'errGameRunning'});};await assert.rejects(f.installer.install(f),{code:'errGameRunning'});assert.ok(!fs.existsSync(path.join(f.exeDir,'dxgi.dll')));});
+test('mid-copy failure rolls back with production journal, not a journal mock',async t=>{const f=fixture(t);const original=fs.promises.copyFile;fs.promises.copyFile=async(s,d,...args)=>{if(d.endsWith('nrchain_nvngx.dll'))throw Error('injected disk fault');return original(s,d,...args);};try{await assert.rejects(f.installer.install(f),/injected disk fault/);}finally{fs.promises.copyFile=original;}assert.ok(!fs.existsSync(path.join(f.exeDir,'dxgi.dll')));assert.ok(!fs.existsSync(path.join(f.exeDir,'nr-before-sr.zh-CN.addon64')));assert.ok(!fs.existsSync(path.join(f.gameDir,journal.PENDING)));});
+test('modified component stops whole uninstall before deleting any component',async t=>{const f=fixture(t);await f.installer.install(f);fs.appendFileSync(path.join(f.exeDir,'nrchain_nvngx.dll'),'third party change');await assert.rejects(f.installer.uninstall(f),{code:'ERR_FILE_CHANGED'});assert.ok(fs.existsSync(path.join(f.exeDir,'zjz-quickbar.addon64')));assert.ok(fs.existsSync(path.join(f.gameDir,MANIFEST)));});
+test('corrupt original backup is refused before restore',async t=>{const f=fixture(t);fs.writeFileSync(path.join(f.exeDir,'nvngx_dlssnr.dll'),'original');await f.installer.install(f);const m=readManifest(f.gameDir),row=m.files.find(x=>x.kind==='runtime');fs.writeFileSync(path.join(f.gameDir,row.original.backupRel),'corrupted');await assert.rejects(f.installer.uninstall(f),{code:'ERR_BACKUP_INVALID'});assert.ok(fs.existsSync(path.join(f.exeDir,'zjz-quickbar.addon64')));});
+test('repair uses a fresh compatibility scan instead of stale UI metadata',async t=>{const f=fixture(t);await f.installer.install(f);f.scan.chosen.apiLabel='DirectX 11';await assert.rejects(f.installer.repair(f),{code:'ERR_UNSUPPORTED_API'});});
