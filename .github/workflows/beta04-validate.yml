@@ -1,5 +1,4 @@
-name: Validate beta0.4 perfect-chain r3
-# Source-validation trigger: labelled V2 fallback diagnostics at d47e21d.
+name: Validate beta0.4 perfect-chain command-state candidate
 
 on:
   workflow_dispatch:
@@ -11,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: beta04-r3-${{ github.ref }}
+  group: beta04-command-state-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -36,7 +35,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $headers = @{ 'User-Agent' = 'beta04-r3-validator' }
+          $headers = @{ 'User-Agent' = 'beta04-command-state-validator' }
           $release = Invoke-RestMethod -Headers $headers `
             'https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest'
           $asset = $release.assets | Where-Object {
@@ -64,6 +63,14 @@ jobs:
           ./scripts/validate-resource-contracts.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
           ./scripts/validate-observer.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
           ./scripts/validate-stage-capture.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+      - name: Native command-state CPU and stack envelope
+        shell: pwsh
+        run: ./scripts/validate-command-state-native.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+      - name: Native command-state D3D12 WARP oracle
+        shell: pwsh
+        run: |
+          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -NegativeControl
       - name: Execute the D3D12 codec harness
         shell: pwsh
         run: ./scripts/validate-codec-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
@@ -82,10 +89,11 @@ jobs:
           Copy-Item build/nr_before_sr.ini dist/
           Copy-Item docs/BETA_0_4_TEST_MATRIX.md dist/README-TESTING.md
           Copy-Item docs/BETA_0_4_PERFECT_CHAIN.md dist/TECHNICAL-NOTES.md
+          Copy-Item docs/COMMAND_STATE_CONTRACT.md dist/COMMAND-STATE-NOTES.md
           Get-ChildItem dist -File | Get-FileHash -Algorithm SHA256 |
             Format-Table -AutoSize
       - uses: actions/upload-artifact@v4
         with:
-          name: beta04-perfect-chain-r3-test-package
+          name: beta04-perfect-chain-command-state-test-package
           path: dist/
           if-no-files-found: error
