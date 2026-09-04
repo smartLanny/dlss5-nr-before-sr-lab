@@ -33,6 +33,7 @@ struct FakeTarget {
 FakeTarget targets[32];
 unsigned int create_calls = 0, apply_calls = 0;
 bool fail_apply = false;
+unsigned int fail_apply_call = 0;
 std::function<void()> during_apply;
 
 BOOL WINAPI FakeGetModuleHandleExW(DWORD flags, LPCWSTR name, HMODULE *result) {
@@ -107,7 +108,8 @@ MH_STATUS MH_QueueEnableHook(void *address) {
 MH_STATUS MH_ApplyQueued() {
     ++apply_calls;
     if (during_apply) during_apply();
-    if (fail_apply) return MH_ERROR_MEMORY_PROTECT;
+    if (fail_apply || (fail_apply_call != 0 && apply_calls == fail_apply_call))
+        return MH_ERROR_MEMORY_PROTECT;
     for (auto &target : targets) {
         if (target.queued) target.enabled = true;
         target.queued = false;
@@ -216,6 +218,7 @@ void Reset() {
     g_hooked_dlssg_module = nullptr;
     create_calls = apply_calls = 0;
     fail_apply = false;
+    fail_apply_call = 0;
     during_apply = {};
     SetExports(modules[0], 0, true);
 }
@@ -323,6 +326,24 @@ int main() {
         assert(!g_dlssg_lifecycle_hooks_ready);
         assert(g_module_observer_epoch == 0 && !g_module_observer_gap_detected);
     }
+
+    // Discover an RR-capable core and DLSSG together. A failure confined to
+    // the second, optional transaction leaves the first transaction covered
+    // and does not turn the DLSSG observer into an RR ownership event.
+    Reset(); InstallPrimary();
+    SetExports(modules[1], 4); SetExports(modules[3], 8);
+    fail_apply_call = 2;
+    Scan();
+    assert(g_core_lifecycle_hooks_ready && !g_dlssg_lifecycle_hooks_ready);
+    assert(g_module_observer_epoch == 2 && !g_module_observer_gap_detected);
+    assert(apply_calls == 2);
+
+    // A preloaded DLSSG module is also optional. Its enable failure must not
+    // undo the already enabled primary SR lifecycle observer.
+    Reset(); SetExports(modules[3], 8); fail_apply = true;
+    InstallPrimary();
+    assert(targets[0].enabled && targets[1].enabled && targets[2].enabled);
+    assert(!g_dlssg_lifecycle_hooks_ready && !g_module_observer_gap_detected);
 
     static_assert(std::size(g_ngx_hook_targets) >= 16,
                   "DLSSG adds three lifecycle targets; registry must leave headroom");

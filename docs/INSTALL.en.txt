@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Upscaling Edition beta0.3.7 [HD2 diagnostic candidate]
+DLSS 5 AI Rendering Upscaling Edition beta0.3.7 [HD2 Feature 11 experiment]
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
@@ -46,6 +46,8 @@ Double-click Collect-Feedback.cmd in the installation directory. Keep collect-fe
 Send the ZIP with the game name, GPU model, HDR or SDR setting, what went wrong and what you expected. Files stay on your computer until you share them. The collector does not upload automatically or switch image settings. Logs and screenshots may include installation paths and visible overlays.
 
 What changed in this version
+
+This is a separate HD2 experiment with diagnostic build identity beta0.3.7-hd2-exp1. It observes Feature 11 Create, Evaluate and Release through nvngx_dlssg.dll and accepts identity only from a successful Create returning a non-null handle. Feature 11 hooks use a separate publication step, so their failure cannot invalidate otherwise usable SR/RR lifecycle observers; unknown non-null handles still fail closed. It does not copy the external bridge's COM/vtable substitution and does not claim HD2 compatibility.
 
 The stable build no longer forces NR insertion while the command list has a null PSO, reducing the regression surface behind the reported Forza Horizon crash. The submitted bundle had no crash dump, so game confirmation is still required. The model UI-correction parameter now uses the unsigned type actually read by the runtime. It can help text only when a game supplies a separate UI layer and cannot discover subtitles already baked into the picture.
 

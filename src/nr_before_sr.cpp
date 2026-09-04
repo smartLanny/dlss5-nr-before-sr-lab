@@ -46,8 +46,8 @@ constexpr const char *kAddonVersion = "beta0.3.7";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.3.7";
-constexpr const char *kEditionIdentity = "HD2 diagnostic candidate";
+constexpr const char *kBuildIdentity = "beta0.3.7-hd2-exp1";
+constexpr const char *kEditionIdentity = "HD2 Feature 11 observer experiment";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -8854,26 +8854,27 @@ void PollNgxLifecycleModules() {
     const bool feature1_active_before =
         g_feature1_successful_creates.load() != 0 ||
         g_carrier_evaluations.load() != 0;
-    // Serialize with queued Evaluate activation. Keep one MH_ApplyQueued for
-    // every newly discovered module in this scan, not one apply per module.
+    // Serialize with queued Evaluate activation. RR-capable lifecycle hooks
+    // are one publication transaction. The optional DLSSG Feature 11 observer
+    // is deliberately published in a second transaction below: a protection
+    // failure in that module must not make otherwise complete SR/RR lifecycle
+    // coverage look incomplete.
     AcquireSRWLockExclusive(&g_evaluate_hook_lock);
-    bool queued_any = false;
-    PrepareLateNgxModule(core_plan, queued_any);
-    PrepareLateNgxModule(dlssd_plan, queued_any);
-    PrepareLateNgxModule(dlssg_plan, queued_any);
-    bool transaction_applied = true;
-    if (queued_any) {
+    bool rr_queued_any = false;
+    PrepareLateNgxModule(core_plan, rr_queued_any);
+    PrepareLateNgxModule(dlssd_plan, rr_queued_any);
+    bool rr_transaction_applied = true;
+    if (rr_queued_any) {
         const MH_STATUS applied = MH_ApplyQueued();
-        transaction_applied = applied == MH_OK;
-        Log("[module] MH_ApplyQueued late NGX lifecycle status=%d",
+        rr_transaction_applied = applied == MH_OK;
+        Log("[module] MH_ApplyQueued late RR lifecycle status=%d",
             static_cast<int>(applied));
-        if (transaction_applied) MarkNgxHooksPublished(false);
+        if (rr_transaction_applied) MarkNgxHooksPublished(false);
     }
     const bool core_covered = FinishLateNgxModule(core_plan);
     const bool dlssd_covered = FinishLateNgxModule(dlssd_plan);
-    const bool dlssg_covered = FinishLateNgxModule(dlssg_plan);
     const bool rr_lifecycle_coverage_failed =
-        (introduced_distinct_rr_lifecycle_entry && !transaction_applied) ||
+        (introduced_distinct_rr_lifecycle_entry && !rr_transaction_applied) ||
         !core_covered || !dlssd_covered;
     ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
     const unsigned long long feature1_create_entries =
@@ -8902,14 +8903,10 @@ void PollNgxLifecycleModules() {
         Log("[module] startup-deferred RR-capable module entry points were "
             "fully hooked before the first observed Feature 1 Create/Evaluate; "
             "startup continues without a permanent ownership bypass.");
-    } else if (discovered_late) {
-        Log("[module] late module exports were absent or aliased lifecycle "
+    } else if (core_plan.module != nullptr || dlssd_plan.module != nullptr) {
+        Log("[module] late RR-capable module exports were absent or aliased "
+            "lifecycle "
             "targets already covered by the observer; observer epoch unchanged.");
-    }
-    if (dlssg_plan.module != nullptr && !dlssg_covered) {
-        Log("[module] DLSSG Feature 11 lifecycle coverage is incomplete. "
-            "Ordinary SR/RR ownership remains unchanged; a later unknown "
-            "non-null DLSSG/core handle will still fail closed.");
     }
     if (bracket_publication) {
         const unsigned long long previous_epoch =
@@ -8920,6 +8917,35 @@ void PollNgxLifecycleModules() {
                 "lazy module rescan",
                 "the late lifecycle observer epoch lost its active state");
         }
+    }
+
+    bool dlssg_covered = dlssg_plan.module == nullptr;
+    bool dlssg_transaction_applied = rr_transaction_applied;
+    if (dlssg_plan.module != nullptr && rr_transaction_applied) {
+        AcquireSRWLockExclusive(&g_evaluate_hook_lock);
+        bool dlssg_queued_any = false;
+        PrepareLateNgxModule(dlssg_plan, dlssg_queued_any);
+        if (dlssg_queued_any) {
+            const MH_STATUS applied = MH_ApplyQueued();
+            dlssg_transaction_applied = applied == MH_OK;
+            Log("[module] MH_ApplyQueued late DLSSG Feature 11 lifecycle "
+                "status=%d", static_cast<int>(applied));
+            if (dlssg_transaction_applied) MarkNgxHooksPublished(false);
+        }
+        dlssg_covered = FinishLateNgxModule(dlssg_plan);
+        ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
+    }
+    if (dlssg_plan.module != nullptr &&
+        (!dlssg_transaction_applied || !dlssg_covered)) {
+        Log("[module] DLSSG Feature 11 lifecycle coverage is incomplete. "
+            "Ordinary SR/RR ownership remains unchanged; a later unknown "
+            "non-null DLSSG/core handle will still fail closed.");
+    } else if (dlssg_plan.module != nullptr) {
+        Log("[module] late DLSSG Feature 11 lifecycle observer is covered; "
+            "RR observer epoch remained unchanged by this publication.");
+    } else if (discovered_late &&
+               core_plan.module == nullptr && dlssd_plan.module == nullptr) {
+        Log("[module] late optional module required no new lifecycle hooks.");
     }
     if (scan <= 3 || (scan % 60) == 0) {
         Log("[module] lazy rescan #%llu core=%p coreLifecycle=%d "
@@ -9014,7 +9040,7 @@ bool InstallHooks(HMODULE ngx) {
 
     // Initial modules share the same operation registry as later modules. A
     // failed optional target must not make a forwarding alias appear covered.
-    for (LateNgxModulePlan *plan : {&core_plan, &dlssd_plan, &dlssg_plan}) {
+    for (LateNgxModulePlan *plan : {&core_plan, &dlssd_plan}) {
         if (plan->module == nullptr) continue;
         void *create_detour = nullptr;
         void *evaluate_detour = nullptr;
@@ -9048,17 +9074,7 @@ bool InstallHooks(HMODULE ngx) {
             evaluate_name = "DLSSD EvaluateFeature";
             release_name = "DLSSD ReleaseFeature";
             break;
-        case LateNgxModulePlan::Role::Dlssg:
-            create_detour = reinterpret_cast<void *>(&HookDlssgCreate);
-            evaluate_detour = reinterpret_cast<void *>(&HookDlssgEvaluate);
-            release_detour = reinterpret_cast<void *>(&HookDlssgRelease);
-            create_original = reinterpret_cast<void **>(&g_original_dlssg_create);
-            evaluate_original = reinterpret_cast<void **>(&g_original_dlssg_evaluate);
-            release_original = reinterpret_cast<void **>(&g_original_dlssg_release);
-            create_name = "DLSSG CreateFeature";
-            evaluate_name = "DLSSG EvaluateFeature";
-            release_name = "DLSSG ReleaseFeature";
-            break;
+        case LateNgxModulePlan::Role::Dlssg: break;
         }
         const bool create_ok = plan->create == nullptr || PrepareNgxHook(
             NgxHookOperation::Create, plan->create, create_detour,
@@ -9104,7 +9120,25 @@ bool InstallHooks(HMODULE ngx) {
     // Publish complete optional-module status before Present can start rescans.
     const bool core_covered = FinishLateNgxModule(core_plan);
     const bool dlssd_covered = FinishLateNgxModule(dlssd_plan);
-    const bool dlssg_covered = FinishLateNgxModule(dlssg_plan);
+    bool dlssg_covered = dlssg_plan.module == nullptr;
+    if (dlssg_plan.module != nullptr) {
+        // Publish Feature 11 observation only after the primary and
+        // RR-capable lifecycle hooks are live. This keeps an optional DLSSG
+        // memory-protection failure from turning the whole observer inactive.
+        AcquireSRWLockExclusive(&g_evaluate_hook_lock);
+        bool dlssg_queued_any = false;
+        PrepareLateNgxModule(dlssg_plan, dlssg_queued_any);
+        bool dlssg_transaction_applied = true;
+        if (dlssg_queued_any) {
+            const MH_STATUS applied = MH_ApplyQueued();
+            dlssg_transaction_applied = applied == MH_OK;
+            Log("[module] MH_ApplyQueued initial DLSSG Feature 11 lifecycle "
+                "status=%d", static_cast<int>(applied));
+            if (dlssg_transaction_applied) MarkNgxHooksPublished(false);
+        }
+        dlssg_covered = FinishLateNgxModule(dlssg_plan);
+        ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
+    }
     if (!core_covered || !dlssd_covered) {
         LatchRrOwnershipUncertain(
             "initial module scan",
@@ -10065,14 +10099,14 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI渲染超分版 beta0.3.7 [HD2诊断候选] @野生的装机宅 Bilibili";
+    "DLSS 5 AI渲染超分版 beta0.3.7 [HD2 Feature11实验] @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
     "主键盘 - 参数截图、三种风格和实时画质调节，输入分辨率严格跟随游戏 DLSS 挡位；检测到"
     "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Upscaling Edition beta0.3.7 [HD2 diagnostic candidate] @野生的装机宅 Bilibili";
+    "DLSS 5 AI Rendering Upscaling Edition beta0.3.7 [HD2 Feature11 experiment] @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Switches between output-resolution NR after Super Resolution and "
     "render-resolution NR before Super Resolution. Includes an F6 master "

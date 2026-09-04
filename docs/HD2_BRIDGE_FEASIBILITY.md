@@ -1,11 +1,11 @@
 # Helldivers 2 bridge feasibility
 
-Status: bounded investigation; **no Helldivers 2 compatibility implementation
-or successful native-SR/NR integration is claimed by beta0.3.7**.
-This checkout's addon identity is `beta0.3.7` with edition label **HD2
-diagnostic candidate**; it is a separately compiled investigation build.
-Prepared on 2026-09-04. This task remains lower priority than the confirmed
-lifecycle fixes and Spider-Man image-quality investigation.
+Status: bounded Feature 11 lifecycle experiment; **no successful Helldivers 2
+native-SR/NR integration or compatibility claim has been established**.
+This checkout's diagnostic build identity is `beta0.3.7-hd2-exp1` with edition
+label **HD2 Feature 11 observer experiment**. It is compiled and packaged
+separately from ordinary beta0.3.7 so logs cannot confuse the two editions.
+Updated on 2026-09-05.
 
 ## Supplied artifact
 
@@ -67,20 +67,43 @@ conditions cannot establish that native SR is absent. It explicitly calls enable
 target failed. This improves the next investigation; it is not a workaround,
 a successful hook installation, or a per-target proof.
 
+## Feature 11 observer experiment in this branch
+
+The current experimental edition also observes the D3D12 Create, Evaluate and
+Release exports of `nvngx_dlssg.dll`. It records Feature 11 only after an
+authoritative successful Create returns a non-null handle. A module name or
+mutable Evaluate parameters are never used to adopt an unknown handle. Null
+handles remain native invalid-call paths, while an unknown non-null handle still
+activates the existing fail-closed lifecycle gate.
+
+The hook registries now reserve space for the additional lifecycle entry points.
+Initial and late DLSSG hooks are published in an optional transaction after the
+ordinary SR and RR-capable observers. This publication does not advance the RR
+observer epoch. Failure to create, queue, pin or enable only the Feature 11
+observer is logged as incomplete and does not deactivate an otherwise complete
+ordinary SR observer. This boundary matters for the earlier HD2
+`MH_ERROR_MEMORY_PROTECT` evidence: adding an optional observer must not recreate
+the same all-hooks failure for the main path.
+
+This experiment does not change resource formats, create SR, replace the game's
+injection path, or use the supplied bridge's COM/vtable substitution. It can
+only address the specific case where a real Feature 11 wrapper-to-core sequence
+previously arrived as an unknown non-null handle.
+
 ## beta0.3.7 confirmation procedure
 
-Use the beta0.3.7 addon and its matching log on a clean Helldivers 2 launch,
+Use the `beta0.3.7-hd2-exp1` addon and its matching log on a clean Helldivers 2 launch,
 with `zz-hd2-dlss5-typeless-bridge.addon64` absent. Preserve the supplied
 bridge only as an inspection reference; its confirmed SHA-256 is
 `6296E34825196AD5EBF4FAFD86F0089E06C09FF5C57BB2D9748728157C57E5E2`.
 
 Before judging image quality, the log must show `MH_EnableHook all status=0`,
-per-target published lifecycle hooks, and a nonzero `F1-evaluate` count in the
-panel or `[module] lazy rescan` line with this addon enabled and early bypasses
-resolved. A loaded DLL, a menu setting, or a
-successful hook creation alone is insufficient evidence of native SR
-visibility. If enabling still fails, preserve the per-target candidate lines,
-the exact status code, renderer/API, addon and runtime hashes, then stop the
+an initial or late `DLSSG Feature 11 lifecycle` coverage line, and a nonzero
+`F1-evaluate` count in the panel or `[module] lazy rescan` line with this addon
+enabled and early bypasses resolved. A loaded DLL, menu setting, Feature 11
+observation, or successful hook creation alone is insufficient evidence of
+native SR visibility. If enabling still fails, preserve the per-target candidate
+lines, exact status code, renderer/API, addon and runtime hashes, then stop the
 experiment. Do not load, bundle, imitate, or bypass the supplied bridge and do
 not change memory protection or hook protection policy.
 
