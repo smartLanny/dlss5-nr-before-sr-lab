@@ -17,6 +17,14 @@ if (!$shader.Success -or !$constants.Success -or !$descriptors.Success) {
 $harness = $harness.Replace('// @PRODUCTION_SHADER@', $shader.Value)
 $harness = $harness.Replace('// @PRODUCTION_CONSTANTS@', $constants.Value)
 $harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_CONSTANTS@', $descriptors.Value)
+$writer = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_codec_descriptors.inl') -Raw
+$writerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\codec_descriptors_gpu.inl') -Raw
+$statsCount = [regex]::Match($source, 'constexpr unsigned int kDiagnosticStatsUintCount = \d+;')
+if (!$statsCount.Success -or !$source.Contains('WritePostSrSnapshotDescriptors(device, slot);')) {
+    throw 'Production descriptor writer is not wired into CreateSlot or stats count changed.'
+}
+$writerTests = $writerTests.Replace('// @PRODUCTION_DESCRIPTOR_WRITER@', $statsCount.Value + "`n" + $writer)
+$harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_TESTS@', $writerTests)
 $build = Join-Path $projectRoot 'build\codec-gpu-validation'
 New-Item -ItemType Directory -Path $build -Force | Out-Null
 $generated = Join-Path $build 'codec_gpu_validation.cpp'

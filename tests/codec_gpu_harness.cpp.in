@@ -328,6 +328,8 @@ struct Gpu {
     }
 };
 
+// @PRODUCTION_DESCRIPTOR_TESTS@
+
 struct RunResult {
     std::vector<Float4> output;
     std::vector<std::uint32_t> capture;
@@ -479,6 +481,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
 int main() {
     try {
         Gpu gpu;
+        ValidateProductionDescriptors(gpu);
         unsigned int scenarios = 0;
         for (UINT flags : {0u, 1u, 16u, 32u, 128u, 256u, 384u}) {
             for (int variant = 0; variant < 4; ++variant) {

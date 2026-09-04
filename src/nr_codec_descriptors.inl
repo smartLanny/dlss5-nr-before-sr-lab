@@ -26,3 +26,22 @@ void WriteCodecDescriptorSet(ID3D12Device *device, const NrSlot &slot,
     raw.Buffer.NumElements=4;
     ID3D12Device_CreateUnorderedAccessView(device,nullptr,nullptr,&raw,at(kCodecCaptureUavIndex));
 }
+
+// Post-SR takes its input from the real game Output and writes only the owned
+// FP16 intermediate. Rebuild from resource descriptions, never copy from the
+// shader-visible main heap. Called only while the slot is safe to mutate.
+void WritePostSrSnapshotDescriptors(ID3D12Device *device, const NrSlot &slot) {
+    WriteCodecDescriptorSet(device, slot, slot.snapshot_heap);
+    auto cpu = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.snapshot_heap);
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
+    srv.Format = slot.result_format;
+    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2D.MipLevels = 1;
+    ID3D12Device_CreateShaderResourceView(device, slot.result, &srv, cpu);
+    cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) * kCodecResultUavIndex;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+    uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    ID3D12Device_CreateUnorderedAccessView(device, slot.source, nullptr, &uav, cpu);
+}

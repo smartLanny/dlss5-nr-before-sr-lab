@@ -157,6 +157,12 @@ static unsigned stage_status=0,cancel_calls=0,cancelled_requests=0;
 static bool stage_available=true;
 static std::function<void()> during_stage_request;
 static const char *kBuildIdentity="fixture-build";
+static const char *kSourceCommit="fixture-source";
+static constexpr bool kSourceDirty=false;
+struct FixtureModuleIdentity {const char*sha256="fixture-sha256";const char*status="verified";};
+static const FixtureModuleIdentity &EnsureRuntimeIdentityOnWorker() {
+    static const FixtureModuleIdentity identity{};return identity;
+}
 static wchar_t g_log_path[1024]=L"C:\\fixture\\nr-before-sr.log";
 static wchar_t g_ini_path[1024]=L"C:\\fixture\\nr_before_sr.ini";
 static wchar_t g_reshade_ini_path[1024]=L"C:\\fixture\\ReShade.ini";

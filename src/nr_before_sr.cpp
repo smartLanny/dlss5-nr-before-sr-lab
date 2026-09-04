@@ -47,6 +47,14 @@ constexpr const char *kAddonVersion = "beta0.3.7";
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
 constexpr const char *kBuildIdentity = "beta0.3.7";
+#ifndef NR_SOURCE_COMMIT
+#define NR_SOURCE_COMMIT "unknown"
+#endif
+#ifndef NR_SOURCE_DIRTY
+#define NR_SOURCE_DIRTY 1
+#endif
+constexpr const char *kSourceCommit = NR_SOURCE_COMMIT;
+constexpr bool kSourceDirty = NR_SOURCE_DIRTY != 0;
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -4653,26 +4661,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
             DestroySlot(slot);
             return false;
         }
-        D3D12_CPU_DESCRIPTOR_HANDLE snapshot_cpu =
-            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
-                slot.snapshot_heap);
-        WriteCodecDescriptorSet(device,slot,slot.snapshot_heap);
-        D3D12_SHADER_RESOURCE_VIEW_DESC external_srv = {};
-        external_srv.Format = slot.result_format;
-        external_srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        external_srv.Shader4ComponentMapping =
-            D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        external_srv.Texture2D.MipLevels = 1;
-        ID3D12Device_CreateShaderResourceView(
-            device, slot.result, &external_srv, snapshot_cpu);
-        snapshot_cpu.ptr +=
-            static_cast<SIZE_T>(g_codec.descriptor_size) *
-            kCodecResultUavIndex;
-        D3D12_UNORDERED_ACCESS_VIEW_DESC source_uav = {};
-        source_uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-        source_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-        ID3D12Device_CreateUnorderedAccessView(
-            device, slot.source, nullptr, &source_uav, snapshot_cpu);
+        WritePostSrSnapshotDescriptors(device, slot);
         Log("Post-SR native output snapshot enabled: %s active=%ux%u -> "
             "controlled FP16 intermediate.",
             FormatName(slot.result_format), width, height);
@@ -8831,6 +8820,7 @@ DWORD WINAPI HookWorker(void *) {
     return 0;
 }
 
+#include "nr_runtime_identity.inl"
 #include "nr_feedback_capture.inl"
 #include "nr_runtime_status.inl"
 
@@ -9798,10 +9788,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             snprintf(addon_leaf_utf8, sizeof(addon_leaf_utf8), "%s",
                      "<module-path-unavailable-or-truncated>");
         Log("DLSS 5 AI Rendering Upscaling Edition %s attached | author=%s | "
-            "official_release=%s | language=%s | file=%s | build_id=%s",
+            "official_release=%s | language=%s | file=%s | build_id=%s | sourceCommit=%s sourceDirty=%d",
             kAddonVersion, kAddonAuthor, kOfficialReleaseUrl,
             kChineseUi ? "zh-CN" : "en",
-            addon_leaf_utf8, kBuildIdentity);
+            addon_leaf_utf8, kBuildIdentity, kSourceCommit, kSourceDirty ? 1 : 0);
         ReloadConfig(true);
         if (!reshade::register_addon(module)) {
             Log("ReShade add-on registration failed.");
