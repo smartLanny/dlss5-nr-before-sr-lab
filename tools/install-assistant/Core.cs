@@ -99,7 +99,7 @@ public static class Deployer
         {
             foreach (var f in p.Files)
             {
-                var dest = SafeDestination(g, f.Path); var had = File.Exists(dest); var rel = f.Path;
+                var dest = Destination(g, f); var had = File.Exists(dest); var rel = Path.GetRelativePath(g.Directory, dest);
                 var record = new BackupRecord { Path = rel, HadOriginal = had }; records.Add(record); SaveJournal(journal, records);
                 if (had) { var bp = Path.Combine(backup, rel); Directory.CreateDirectory(Path.GetDirectoryName(bp)!); File.Copy(dest, bp, true); record.Before = PackageManifest.Hash(bp); SaveJournal(journal, records); }
                 var tmp = dest + ".dlss5-new"; File.Copy(Path.Combine(p.Root, f.Path), tmp, true); if (!PackageManifest.Hash(tmp).Equals(f.Sha256, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("部署文件哈希不匹配：" + f.Path); File.Move(tmp, dest, true); record.After = f.Sha256; SaveJournal(journal, records);
@@ -118,9 +118,15 @@ public static class Deployer
     public static string RestoreLatest(GameCandidate g) { var dir = Path.Combine(StateDir(g), "backups"); var b = Directory.Exists(dir) ? new DirectoryInfo(dir).GetDirectories().OrderByDescending(x => x.Name).FirstOrDefault() : null; if (b == null) return "没有可恢复备份。"; var tx = Path.Combine(b.FullName, "transaction.json"); if (!File.Exists(tx)) return "备份缺少事务记录，未操作。"; foreach (var r in JsonSerializer.Deserialize<List<BackupRecord>>(File.ReadAllText(tx)) ?? new()) if (r.HadOriginal && File.Exists(Path.Combine(b.FullName, r.Path))) File.Copy(Path.Combine(b.FullName, r.Path), SafeDestination(g, r.Path), true); return "已恢复最近备份。"; }
     static void SaveJournal(string path, List<BackupRecord> records) { var tmp = path + ".tmp"; File.WriteAllText(tmp, JsonSerializer.Serialize(records, new JsonSerializerOptions { WriteIndented = true })); File.Move(tmp, path, true); }
     static void Rollback(GameCandidate g, string backup, List<BackupRecord> records) { foreach (var r in records.AsEnumerable().Reverse()) { var dest = SafeDestination(g, r.Path); if (r.HadOriginal && File.Exists(Path.Combine(backup, r.Path))) File.Copy(Path.Combine(backup, r.Path), dest, true); else if (!r.HadOriginal && r.After != null && File.Exists(dest) && PackageManifest.Hash(dest).Equals(r.After, StringComparison.OrdinalIgnoreCase)) File.Delete(dest); } }
+    static string Destination(GameCandidate g, PackageFile f) { if (f.Target.Equals("game-root", StringComparison.OrdinalIgnoreCase)) return SafeDestination(g, f.Path); if (!f.Target.Equals("reshade-addon", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("未知目标映射：" + f.Target); var ini = Path.Combine(g.Directory, "ReShade.ini"); if (!File.Exists(ini)) throw new InvalidDataException("未找到 ReShade.ini，无法确认 AddOnPath。"); var line = File.ReadLines(ini).FirstOrDefault(x => x.TrimStart().StartsWith("AddOnPath", StringComparison.OrdinalIgnoreCase)); if (line == null) throw new InvalidDataException("ReShade.ini 没有 AddOnPath，拒绝猜测安装目录。"); var value = line[(line.IndexOf('=') + 1)..].Trim().Trim('"'); var dir = Path.GetFullPath(Path.Combine(g.Directory, Environment.ExpandEnvironmentVariables(value))); if (!Directory.Exists(dir)) throw new InvalidDataException("AddOnPath 目录不存在：" + dir); return SafeDestination(new GameCandidate { Executable = Path.Combine(dir, "placeholder.exe") }, Path.GetFileName(f.Path)); }
     static string SafeDestination(GameCandidate g, string rel) { var full = Path.GetFullPath(Path.Combine(g.Directory, rel)); if (!full.StartsWith(Path.GetFullPath(g.Directory) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("目标路径越界：" + rel); Directory.CreateDirectory(Path.GetDirectoryName(full)!); return full; }
     static bool LooksLikeReShade(string path) { try { return System.Text.Encoding.ASCII.GetString(File.ReadAllBytes(path)).Contains("ReShade", StringComparison.OrdinalIgnoreCase); } catch { return false; } }
     sealed class BackupRecord { public string Path { get; set; } = ""; public string? Before { get; set; } public string? After { get; set; } public bool HadOriginal { get; set; } }
+}
+
+public static class ElevationHelper
+{
+    public static bool TryRun(string executable, string arguments, out string message) { try { Process.Start(new ProcessStartInfo(executable, arguments) { UseShellExecute = true, Verb = "runas" }); message = "已请求最小权限 helper；游戏启动仍保持非管理员。"; return true; } catch (System.ComponentModel.Win32Exception) { message = "用户取消或系统拒绝提权，未执行写入。"; return false; } catch (Exception ex) { message = "提权 helper 失败：" + ex.Message; return false; } }
 }
 
 public static class Launcher

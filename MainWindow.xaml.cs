@@ -13,6 +13,7 @@ public partial class MainWindow : Window
     public MainWindow() { InitializeComponent(); Games.ItemsSource = games; }
     void Note(string s) { LogBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {s}\n"); LogBox.ScrollToEnd(); }
     void ScanSteam(object s, RoutedEventArgs e) { foreach (var g in SteamScanner.Scan()) Add(g); Note($"Steam 扫描完成：发现 {games.Count} 个候选。扫描不提权，也不修改文件。"); }
+    void RefreshStatus(object s, RoutedEventArgs e) { foreach (var g in games) { var status = Launcher.ReadStatus(g); g.Status = status is null ? "已部署/待运行时确认" : $"已生效（{status.BuildId}，PID {status.ProcessId}）"; } Games.Items.Refresh(); Note("已刷新当前运行时状态；过期或非当前进程状态不会计为生效。"); }
     void ChooseExe(object s, RoutedEventArgs e) { var d = new OpenFileDialog { Filter="游戏程序 (*.exe)|*.exe", Multiselect=true }; if (d.ShowDialog()!=true) return; foreach(var p in d.FileNames) Add(GameInspector.Inspect(p, null)); Note("已添加手选 EXE；是否兼容仍以运行时状态为准。"); }
     void Add(GameCandidate g) { if (!games.Any(x=>String.Equals(x.Executable,g.Executable,StringComparison.OrdinalIgnoreCase))) games.Add(g); }
     void ImportPackage(object s, RoutedEventArgs e) { var d=new OpenFileDialog { Filter="安装包清单 (manifest.json)|manifest.json|JSON (*.json)|*.json" }; if(d.ShowDialog()!=true)return; try { package=PackageManifest.Load(Path.GetDirectoryName(d.FileName)!); Note($"已验证安装包：{package.Id}，{package.Files.Count} 个文件。"); } catch(Exception ex){ Note("安装包拒绝："+ex.Message); } }
