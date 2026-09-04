@@ -101,6 +101,7 @@ Session *g_session = nullptr;
 wchar_t g_last_zip[kMaxPath] = {};
 std::atomic<bool> g_config_hold{false};
 std::atomic<bool> g_raw_stage_ready{false};
+std::atomic<bool> g_window_open{false};
 
 float *RawPlane(Session &session, unsigned int group, unsigned int frame,
                 unsigned int plane) {
@@ -183,19 +184,44 @@ bool IsActive() {
 Options g_pending_options = {};
 
 bool RequestWithOptions(const Options &options) {
-    Status state = g_status.load(std::memory_order_acquire);
-    if (state != Status::Idle && state != Status::Complete &&
-        state != Status::Partial && state != Status::Failed) return false;
-    if (g_request.exchange(true, std::memory_order_acq_rel)) return false;
     AcquireSRWLockExclusive(&g_lock);
+    const Status state = g_status.load(std::memory_order_relaxed);
+    if ((state != Status::Idle && state != Status::Complete &&
+         state != Status::Partial && state != Status::Failed) ||
+        g_request.load(std::memory_order_relaxed)) {
+        ReleaseSRWLockExclusive(&g_lock);
+        return false;
+    }
     g_pending_options = options;
-    ReleaseSRWLockExclusive(&g_lock);
+    g_request.store(true, std::memory_order_release);
+    g_window_open.store(false, std::memory_order_release);
     g_status.store(Status::Requested, std::memory_order_release);
+    ReleaseSRWLockExclusive(&g_lock);
     return true;
 }
 
+void OpenWindow() {
+    if (!IsActive()) g_window_open.store(true, std::memory_order_release);
+}
+
 void Cancel() {
-    if (IsActive()) g_cancel.store(true, std::memory_order_release);
+    AcquireSRWLockExclusive(&g_lock);
+    const Status state = g_status.load(std::memory_order_relaxed);
+    if (state == Status::Requested && g_session == nullptr) {
+        g_pending_options = {};
+        g_request.store(false, std::memory_order_release);
+        g_status.store(Status::Idle, std::memory_order_release);
+        g_window_open.store(false, std::memory_order_release);
+    } else if (state == Status::Running || state == Status::Restoring) {
+        g_cancel.store(true, std::memory_order_release);
+    } else if (state == Status::Idle) {
+        g_window_open.store(false, std::memory_order_release);
+    }
+    ReleaseSRWLockExclusive(&g_lock);
+}
+
+void ResetWindowAfterStart() {
+    g_window_open.store(false, std::memory_order_release);
 }
 
 ChainConfig GroupConfig(const ChainConfig &base, GroupMode mode,
@@ -905,6 +931,23 @@ void DrawControls() {
         AcquireSRWLockShared(&g_lock); WideToUtf8(g_last_zip, path, sizeof(path)); ReleaseSRWLockShared(&g_lock);
         ImGui::TextWrapped("%s", path[0] ? path : (kChineseUi ? "反馈包已完成。" : "Feedback package completed."));
     }
+}
+
+// Dedicated titled overlay. The F8 hotkey requests ReShade to make its
+// overlay surface visible, so this window can appear even when the settings
+// panel was closed; it does not depend on the settings overlay registration.
+void DrawOverlay(reshade::api::effect_runtime *runtime) {
+    if (runtime == nullptr) return;
+    const Status state = g_status.load(std::memory_order_acquire);
+    if (!g_window_open.load(std::memory_order_acquire) && !IsActive() &&
+        state != Status::Packaging) return;
+    bool open = true;
+    if (ImGui::Begin(kChineseUi ? "F8 标准对比采集" : "F8 standard comparison capture",
+                     &open, ImGuiWindowFlags_AlwaysAutoResize)) {
+        DrawControls();
+    }
+    ImGui::End();
+    if (!open) Cancel();
 }
 
 } // namespace nr_f8

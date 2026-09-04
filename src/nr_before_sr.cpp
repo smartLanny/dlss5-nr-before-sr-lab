@@ -8697,8 +8697,10 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     static bool feedback_key_was_down = false;
     const SHORT f8_state = GetAsyncKeyState(VK_F8);
     const bool feedback_down = (f8_state & 0x8000) != 0;
-    if ((f8_state & 0x0001) != 0 || (feedback_down && !feedback_key_was_down))
-        nr_f8::RequestWithOptions(nr_f8::Options{});
+    if ((f8_state & 0x0001) != 0 || (feedback_down && !feedback_key_was_down)) {
+        nr_f8::OpenWindow();
+        runtime->open_overlay(true, reshade::api::input_source::keyboard);
+    }
     feedback_key_was_down = feedback_down;
     nr_f8::Present(runtime);
 
@@ -9887,6 +9889,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnReShadePresent);
         reshade::register_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
         reshade::register_overlay(nullptr, DrawSettings);
+        reshade::register_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
         Log("Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot "
             "hotkey (API %u).",
             static_cast<unsigned int>(RESHADE_API_VERSION));
@@ -9894,6 +9897,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         if (worker == nullptr) {
             Log("Could not start NGX hook worker (error %lu).", GetLastError());
             reshade::unregister_overlay(nullptr, DrawSettings);
+            reshade::unregister_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
             reshade::unregister_event<reshade::addon_event::init_command_list>(OnCommandStateInitList);
             reshade::unregister_event<reshade::addon_event::init_device>(OnCommandStateInitDevice);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
@@ -9916,6 +9920,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::unregister_event<reshade::addon_event::init_command_list>(OnCommandStateInitList);
         reshade::unregister_event<reshade::addon_event::init_device>(OnCommandStateInitDevice);
         reshade::unregister_overlay(nullptr, DrawSettings);
+        reshade::unregister_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
         reshade::unregister_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
         reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
