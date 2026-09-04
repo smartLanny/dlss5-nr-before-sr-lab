@@ -848,6 +848,8 @@ std::atomic<bool> g_nr_failed_create_process_latched{false};
 std::atomic<bool> g_shortfuse_loaded{false};
 std::atomic<bool> g_shortfuse_nr_enabled{false};
 
+namespace nr_f8 { extern std::atomic<bool> g_config_hold; }
+
 void BeginPipelineStatsScopeLocked(unsigned long long feature_generation,
                                    int mode) {
     if (g_pipeline_stats_generation.load(std::memory_order_relaxed) ==
@@ -1323,6 +1325,7 @@ ChainConfig SnapshotConfig() {
 }
 
 void PollConfigFromPresent() {
+    if (nr_f8::g_config_hold.load(std::memory_order_acquire)) return;
     const ULONGLONG now = GetTickCount64();
     ULONGLONG next = g_next_config_poll_tick.load(std::memory_order_relaxed);
     if (now < next ||
@@ -1335,7 +1338,8 @@ void PollConfigFromPresent() {
     LeaveCriticalSection(&g_chain_cs);
 }
 
-bool ApplyConfig(ChainConfig next, const char *source) {
+bool ApplyConfig(ChainConfig next, const char *source,
+                 bool persist_to_ini = true) {
     NormalizeConfig(next);
     EnterCriticalSection(&g_chain_cs);
     if (SameConfig(next, g_config)) {
@@ -1352,7 +1356,7 @@ bool ApplyConfig(ChainConfig next, const char *source) {
     SetBypassReason(g_config.enabled
         ? BypassReason::WaitingForFeature1
         : BypassReason::MasterDisabled);
-    const bool persisted = SaveConfig(g_config);
+    const bool persisted = persist_to_ini ? SaveConfig(g_config) : true;
     const ChainConfig applied = g_config;
     LeaveCriticalSection(&g_chain_cs);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
@@ -2364,6 +2368,13 @@ struct NrDiagnosticIdentity {
     NrTuningSignature tuning = {};
 };
 
+namespace nr_f8 {
+void ObserveSuccess(const NrDiagnosticIdentity &, unsigned int, unsigned int, bool);
+void ObserveParams(const NgxParams *, const FeatureRecord &, unsigned long long);
+void StageExported(unsigned long long, const wchar_t *, bool);
+void Screenshot(reshade::api::effect_runtime *, const char *);
+}
+
 // Protected by g_chain_cs. An instance means a successful, non-null Create;
 // a frame means one successful Feature 18 Evaluate, not a presented/FG frame.
 unsigned long long g_next_nr_instance_id = 0;
@@ -2584,6 +2595,8 @@ void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
         slot.stage_capture.info.identity = identity;
     g_applied_nr_identity = identity;
     g_applied_nr_mode = context.mode;
+    nr_f8::ObserveSuccess(identity, context.width, context.height,
+                          context.diagnostic_reset_requested);
 }
 // Ready contexts are detached from the live table under g_chain_cs, then their
 // NGX and COM objects are released after all lifecycle locks have been dropped.
@@ -8614,6 +8627,7 @@ DWORD WINAPI HookWorker(void *) {
 }
 
 #include "nr_feedback_capture.inl"
+#include "nr_f8_sequence.inl"
 
 void ToggleMasterFromHotkey() {
     ChainConfig next = SnapshotConfig();
@@ -8679,9 +8693,9 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     const SHORT f8_state = GetAsyncKeyState(VK_F8);
     const bool feedback_down = (f8_state & 0x8000) != 0;
     if ((f8_state & 0x0001) != 0 || (feedback_down && !feedback_key_was_down))
-        RequestFeedbackBundle();
+        nr_f8::RequestWithOptions(nr_f8::Options{});
     feedback_key_was_down = feedback_down;
-    FeedbackPresent(runtime);
+    nr_f8::Present(runtime);
 
     const SHORT f7_state = GetAsyncKeyState(VK_F7);
     const bool stage_key_is_down = (f7_state & 0x8000) != 0;
@@ -9539,7 +9553,7 @@ void DrawSettings(reshade::api::effect_runtime *) {
             sample_identity.instance_id, sample_identity.frame_id,
             sample_identity.config_generation);
     }
-    DrawFeedbackControls();
+    nr_f8::DrawControls();
     const unsigned int capture_status = StageCaptureStatus();
     if (capture_status == 0) {
         if (ImGui::Button(ui("Capture NR stages once", "采集一次 NR 各阶段")))

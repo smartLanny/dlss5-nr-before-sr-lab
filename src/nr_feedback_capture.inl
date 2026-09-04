@@ -82,6 +82,7 @@ void FeedbackStageExported(unsigned long long request, const wchar_t *directory,
         strcpy_s(s->stage_reason, ok ? "exported after exact GPU fence" : "stage export failed; inspect NR log");
     }
     ReleaseSRWLockExclusive(&g_feedback_lock);
+    nr_f8::StageExported(request, directory, ok);
 }
 
 void OnFeedbackScreenshot(reshade::api::effect_runtime *runtime, const char *path) {
@@ -117,10 +118,12 @@ void OnFeedbackScreenshot(reshade::api::effect_runtime *runtime, const char *pat
         }
     }
     ReleaseSRWLockExclusive(&g_feedback_lock);
+    nr_f8::Screenshot(runtime, path);
 }
 
 void FeedbackObserveEvaluate(const NgxParams *params, const FeatureRecord &feature,
                              unsigned long long carrier) {
+    nr_f8::ObserveParams(params, feature, carrier);
     if (g_feedback_status.load(std::memory_order_relaxed) != 1) return;
     if (!TryAcquireSRWLockExclusive(&g_feedback_lock)) return;
     auto *s = g_feedback_session;
