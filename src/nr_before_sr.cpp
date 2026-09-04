@@ -8764,6 +8764,7 @@ DWORD WINAPI HookWorker(void *) {
 }
 
 #include "nr_feedback_capture.inl"
+#include "nr_runtime_status.inl"
 
 void ToggleMasterFromHotkey() {
     ChainConfig next = SnapshotConfig();
@@ -8832,6 +8833,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
         RequestFeedbackBundle();
     feedback_key_was_down = feedback_down;
     FeedbackPresent(runtime);
+    QueueRuntimeStatus();
 
     const SHORT f7_state = GetAsyncKeyState(VK_F7);
     const bool stage_key_is_down = (f7_state & 0x8000) != 0;
