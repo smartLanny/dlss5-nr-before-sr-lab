@@ -2,6 +2,8 @@
 
 Status: bounded investigation; **no Helldivers 2 compatibility implementation
 or successful native-SR/NR integration is claimed by beta0.3.7**.
+This checkout's addon identity is `beta0.3.7` with edition label **HD2
+diagnostic candidate**; it is a separately compiled investigation build.
 Prepared on 2026-09-04. This task remains lower priority than the confirmed
 lifecycle fixes and Spider-Man image-quality investigation.
 
