@@ -1,1 +1,1 @@
-请导入已解压的签名组件目录，保留 manifest.json、RELEASE_MANIFEST.json、RELEASE_MANIFEST.sig 及全部载荷。应用仅信任内置发行公钥；不要将旧版未签名清单当作新版本安装包。
+可直接选择完整签名组件 ZIP，也可选择已解压目录中的 manifest.json。轻量 addon 更新包不含首次安装需要的 bridge 和 NR runtime，不能导入安装助手。应用仅信任内置发行公钥。

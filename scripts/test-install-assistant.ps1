@@ -16,7 +16,11 @@ if ($LASTEXITCODE -ne 0) { throw 'WPF build failed.' }
 & $Dotnet build (Join-Path $root 'tools/install-assistant.Helper/Dlss5InstallAssistant.Helper.csproj') -c Release
 if ($LASTEXITCODE -ne 0) { throw 'Helper build failed.' }
 if ($PackageRoot) {
-    foreach ($package in Get-ChildItem -LiteralPath $PackageRoot -Directory -Filter 'offline-package-*') {
+    $packages = @(
+        Get-ChildItem -LiteralPath $PackageRoot -Directory -Filter 'offline-package-*'
+        Get-ChildItem -LiteralPath $PackageRoot -File -Filter 'offline-package-*.zip'
+    )
+    foreach ($package in $packages) {
         & $Dotnet run --project $project --no-build -- --verify-production-package $package.FullName
         if ($LASTEXITCODE -ne 0) { throw "Production signed package validation failed: $($package.Name)" }
     }

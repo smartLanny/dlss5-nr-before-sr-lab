@@ -41,10 +41,12 @@ public partial class MainWindow : Window
     void Add(GameCandidate game) { if (!games.Any(x => SafeFiles.PathEquals(x.Executable, game.Executable))) games.Add(game); }
     async void ImportPackage(object sender, RoutedEventArgs e)
     {
-        if (busy) return; var picker = new OpenFileDialog { Filter = "安装清单 (manifest.json)|manifest.json" }; if (picker.ShowDialog() != true) return;
+        if (busy) return; var picker = new OpenFileDialog { Filter = "完整组件包 (*.zip;manifest.json)|*.zip;manifest.json|组件 ZIP (*.zip)|*.zip|已解压清单 (manifest.json)|manifest.json" }; if (picker.ShowDialog() != true) return;
         package = null; PackageLabel.Text = "尚未导入安装包";
-        await Run(async token => { var loaded = await Task.Run(() => PackageManifest.Load(Path.GetDirectoryName(picker.FileName)!), token); package = loaded;
-            PackageLabel.Text = $"{loaded.Build} · {loaded.GpuFamily} · {loaded.Language} · 签名及文件校验通过"; Note(PackageLabel.Text); });
+        await Run(async token => { var loaded = await Task.Run(() => PackageImport.LoadSelected(picker.FileName), token); package = loaded;
+            var addon = loaded.Files.Single(x => x.Role == "addon");
+            PackageLabel.Text = $"{loaded.Build} · {loaded.GpuFamily} · {loaded.Language} · 源码 {loaded.PayloadSourceCommit[..8]} · 插件 {addon.Sha256[..12]} · 签名及文件校验通过";
+            Note(PackageLabel.Text); });
     }
     async void ImportReShade(object sender, RoutedEventArgs e)
     {
@@ -56,7 +58,9 @@ public partial class MainWindow : Window
         Note("核对游戏和官方 ReShade 6.8 FullAddon；只在缓存中准备宿主。");
         var host = await ReShadeHost.PrepareAsync(ElevationHelper.CacheRoot, token);
         var plan = await Task.Run(() => Deployer.Inspect(game, selectedPackage, host), token);
-        PlanBox.Text = string.Join(Environment.NewLine, plan.Files.Select(f => $"{f.Action switch { FileAction.Reuse => "保留 / 复用", FileAction.Remove => "备份后移除旧版", _ => "备份后写入" }}  {f.Destination}"));
+        var addon = selectedPackage.Files.Single(x => x.Role == "addon");
+        PlanBox.Text = $"版本：{selectedPackage.Build}{Environment.NewLine}源码提交：{selectedPackage.PayloadSourceCommit}{Environment.NewLine}插件 SHA256：{addon.Sha256}{Environment.NewLine}{Environment.NewLine}" +
+            string.Join(Environment.NewLine, plan.Files.Select(f => $"{f.Action switch { FileAction.Reuse => "保留 / 复用", FileAction.Remove => "备份后移除旧版", _ => "备份后写入" }}  {f.Destination}"));
         return plan;
     }
     async void Inspect(object sender, RoutedEventArgs e)

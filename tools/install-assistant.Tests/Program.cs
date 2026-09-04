@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -18,7 +19,11 @@ if (args.FirstOrDefault() == "--crash")
 }
 if (args.FirstOrDefault() == "--verify-production-package")
 {
-    var verified = PackageManifest.Load(args[1]); Console.WriteLine("VALID " + verified.Build + " " + verified.ArtifactId + " " + verified.Files.Count + " files"); return 0;
+    var verified = Directory.Exists(args[1]) ? PackageManifest.Load(args[1]) :
+        PackageImport.LoadSelected(args[1]);
+    Console.WriteLine("VALID " + verified.Build + " " + verified.ArtifactId + " " +
+                      verified.Files.Count + " files");
+    return 0;
 }
 var hostPath = args.Length > 0 ? Path.GetFullPath(args[0]) : throw new ArgumentException("Provide verified official dxgi.dll fixture path.");
 var host = new VerifiedReShadeHost(hostPath, ReShadeHost.PinnedHostSha256, ReShadeHost.PinnedSetupSha256, ReShadeHost.Version);
@@ -30,18 +35,26 @@ void Test(string name, Action<Fixture> run)
     using var f = new Fixture(host);
     try { run(f); passed++; Console.WriteLine("PASS " + name); }
     catch (Exception ex) { failed++; Console.WriteLine("FAIL " + name + ": " + ex); }
-    finally { Deployer.TestCheckpoint = null; }
+    finally { Deployer.TestCheckpoint = null; ReShadeFontConfig.TestFileExists = null; }
 }
 Test("signed fixture trusted only through test trust anchor", f => { Check(f.Package.Files.Count == 4, "signed package"); Reject(() => PackageManifest.Load(f.PackageDirectory), "untrusted test key accepted by production anchor"); });
 Test("tampered manifest rejected before plan", f => { File.AppendAllText(Path.Combine(f.PackageDirectory, "manifest.json"), " "); Reject(() => f.Load(), "tampered manifest accepted"); });
 Test("tampered payload rejected", f => { File.AppendAllText(f.Package.Files[0].Path is { } p ? Path.Combine(f.PackageDirectory, p) : "", "bad"); Reject(() => f.Load(), "tampered payload accepted"); });
 Test("wrong artifact identity rejected even with valid signature", f => { f.Manifest["artifactId"] = "sha256:" + new string('0', 64); f.Sign(); Reject(() => f.Load(), "wrong artifact accepted"); });
+Test("flat signed component ZIP imports without manual extraction", f => { var zip = f.ZipPackage(); var imported = PackageImport.LoadSelected(zip, Path.Combine(f.Root, "imports"), f.TrustKey); Check(imported.Build == f.Package.Build && imported.ArtifactId == f.Package.ArtifactId, "ZIP identity changed"); var direct = PackageImport.LoadSelected(Path.Combine(f.PackageDirectory, "manifest.json"), Path.Combine(f.Root, "imports"), f.TrustKey); Check(direct.ManifestSha256 == f.Package.ManifestSha256, "direct manifest import changed"); });
+Test("ZIP import rejects nested and unsigned lightweight archives", f => { var cache = Path.Combine(f.Root, "imports"); var nested = Path.Combine(f.Root, "nested.zip"); using (var z = ZipFile.Open(nested, ZipArchiveMode.Create)) { var e = z.CreateEntry("folder/manifest.json"); using var w = new StreamWriter(e.Open()); w.Write("{}"); } Reject(() => PackageImport.LoadSelected(nested, cache, f.TrustKey), "nested ZIP accepted"); var light = Path.Combine(f.Root, "light.zip"); using (var z = ZipFile.Open(light, ZipArchiveMode.Create)) { var e = z.CreateEntry("DLSS5-test.addon64"); using var s = e.Open(); s.Write(Fixture.Pe(77)); } Reject(() => PackageImport.LoadSelected(light, cache, f.TrustKey), "unsigned addon-only ZIP accepted"); Check(!File.Exists(Path.Combine(f.Root, "manifest.json")), "ZIP escaped cache"); });
 Test("signed traversal and ADS names rejected", f => { f.Manifest["files"]![0]!["path"] = "../evil.addon64"; f.Sign(); Reject(() => f.Load(), "traversal accepted"); f.Manifest["files"]![0]!["path"] = "x:evil.addon64"; f.Sign(); Reject(() => f.Load(), "ADS accepted"); });
 Test("unsupported signed profile remains inspection only", f => { f.Manifest["compatibleProfiles"]![0]!["id"] = "helldivers2"; f.Sign(); Reject(() => f.Load(), "HD2 profile accepted"); });
 Test("actual PE machine and NGX exports required", f => { var pe = File.ReadAllBytes(f.Game.Executable); pe[0x84] = 0x64; pe[0x85] = 0xaa; File.WriteAllBytes(f.Game.Executable, pe); Check(!GameInspector.Inspect(f.Game.Executable, null).EvidenceConfirmed, "ARM64 accepted"); });
 Test("manifest unrelated Steam id cannot make arbitrary EXE a profile", f => { f.Manifest["compatibleProfiles"]![0]!["executableSha256"] = new JsonArray(); f.Sign(); Reject(() => Deployer.Plan(f.Game, f.Load(), host), "AppId alone accepted"); });
 Test("fresh install colocates all four payloads and official loader", f => { var p = Deployer.Plan(f.Game, f.Package, host); Check(p.Files.Count(x => x.Destination.StartsWith(p.AddonDirectory) && x.Role is "addon" or "bridge" or "runtime" or "config") == 4, "payloads split"); Check(Deployer.Apply(p).Ok, "install"); Check(File.Exists(Path.Combine(p.AddonDirectory, "nvngx_dlssnr.dll")), "runtime not sibling"); Check(File.ReadAllText(Path.Combine(f.Game.Directory, "ReShade.ini")).Contains("[ADDON]\r\nAddonPath="), "wrong INI section"); Check(Deployer.Uninstall(f.Game).Ok, "uninstall"); Check(!File.Exists(Path.Combine(f.Game.Directory, "dxgi.dll")), "owned host left"); });
+Test("fresh Chinese ReShade configuration includes an installed CJK font", f => { ReShadeFontConfig.TestFileExists = p => SafeFiles.PathEquals(p, ReShadeFontConfig.MicrosoftYaHei); var config = Deployer.Plan(f.Game, f.Package, host).Files.Single(x => x.Role == "reshade-config"); Check(config.Action == FileAction.Write && config.Content != null, "fresh ReShade config missing"); Check(Encoding.UTF8.GetString(config.Content!).Contains("[STYLE]\r\nFont=C:\\Windows\\Fonts\\msyh.ttc\r\n"), "fresh CJK font missing"); });
 Test("existing official loader with absent AddonPath uses EXE directory", f => { f.ExistingHost("[GENERAL]\r\nEffectSearchPaths=.\\Shaders\r\n"); var p = Deployer.Plan(f.Game, f.Package, host); Check(SafeFiles.PathEquals(p.AddonDirectory, f.Game.Directory), "default path wrong"); Deployer.Apply(p); Deployer.Uninstall(f.Game); Check(File.Exists(Path.Combine(f.Game.Directory, "dxgi.dll")), "reused host deleted"); });
+Test("Chinese first install adds YaHei transactionally and restores exact INI", f => { ReShadeFontConfig.TestFileExists = p => SafeFiles.PathEquals(p, ReShadeFontConfig.MicrosoftYaHei); var ini = Path.Combine(f.Game.Directory, "ReShade.ini"); var original = "[ADDON]\r\nAddonPath=.\\local\r\n\r\n[GENERAL]\r\nPresetPath=中文.ini\r\n"; f.ExistingHost(original); var before = File.ReadAllBytes(ini); var p = Deployer.Plan(f.Game, f.Package, host); var config = p.Files.Single(x => x.Role == "reshade-config"); Check(config.Action == FileAction.Write && config.Content != null, "font edit was not planned"); Check(Deployer.Apply(p).Ok, "font install"); Check(File.ReadAllText(ini).Contains("[STYLE]\r\nFont=C:\\Windows\\Fonts\\msyh.ttc\r\n"), "YaHei missing"); Check(Deployer.Uninstall(f.Game).Ok, "font uninstall"); Check(File.ReadAllBytes(ini).SequenceEqual(before), "original ReShade.ini not restored byte-for-byte"); });
+Test("Chinese font fallback fills one blank Font and preserves a custom Font", f => { ReShadeFontConfig.TestFileExists = p => SafeFiles.PathEquals(p, ReShadeFontConfig.SimSun); f.ExistingHost("[ADDON]\n\n[STYLE]\nFont=   \nLatinFont=C:\\Fonts\\latin.ttf\n"); var p = Deployer.Plan(f.Game, f.Package, host); Check(Encoding.Latin1.GetString(p.Files.Single(x => x.Role == "reshade-config").Content!).Contains("Font=C:\\Windows\\Fonts\\simsun.ttc\n"), "SimSun fallback missing"); Deployer.Apply(p); Deployer.Uninstall(f.Game); File.WriteAllText(Path.Combine(f.Game.Directory, "ReShade.ini"), "[ADDON]\r\n\r\n[STYLE]\r\nFont=D:\\Fonts\\custom.ttf\r\n"); p = Deployer.Plan(f.Game, f.Package, host); Check(p.Files.Single(x => x.Role == "reshade-config").Action == FileAction.Reuse, "custom font overwritten"); });
+Test("font configuration is skipped without a system CJK font and for English packages", f => { ReShadeFontConfig.TestFileExists = _ => false; f.ExistingHost("[ADDON]\r\n"); Check(Deployer.Plan(f.Game, f.Package, host).Files.Single(x => x.Role == "reshade-config").Action == FileAction.Reuse, "missing font changed INI"); ReShadeFontConfig.TestFileExists = _ => true; f.Manifest["language"] = "en"; f.Sign(); Check(Deployer.Plan(f.Game, f.Load(), host).Files.Single(x => x.Role == "reshade-config").Action == FileAction.Reuse, "English package changed font"); });
+Test("font edit rollback uses the existing transaction backup", f => { ReShadeFontConfig.TestFileExists = p => SafeFiles.PathEquals(p, ReShadeFontConfig.MicrosoftYaHei); var original = "[ADDON]\r\nAddonPath=.\\local\r\n[STYLE]\r\nFont=\r\n"; f.ExistingHost(original); var ini = Path.Combine(f.Game.Directory, "ReShade.ini"); var before = File.ReadAllBytes(ini); var once = false; Deployer.TestCheckpoint = phase => { if (phase == "after-move" && !once) { once = true; throw new IOException("stop after font move"); } }; Reject(() => Deployer.Install(f.Game, f.Package, host), "font failure not injected"); Check(File.ReadAllBytes(ini).SequenceEqual(before), "rollback did not restore original font config"); });
+Test("later managed upgrades do not introduce a font preference", f => { ReShadeFontConfig.TestFileExists = _ => false; Deployer.Install(f.Game, f.Package, host); var ini = Path.Combine(f.Game.Directory, "ReShade.ini"); var before = File.ReadAllBytes(ini); ReShadeFontConfig.TestFileExists = _ => true; var p = Deployer.Plan(f.Game, f.Package, host); Check(p.Files.Single(x => x.Role == "reshade-config").Action == FileAction.Reuse, "upgrade rewrote ReShade font"); Deployer.Apply(p); Check(File.ReadAllBytes(ini).SequenceEqual(before), "upgrade changed ReShade.ini"); });
 Test("ADDON section wins over unrelated GENERAL AddonPath", f => { f.ExistingHost("[GENERAL]\r\nAddonPath=C:\\not-the-addon-path\r\n[ADDON]\r\nAddonPath=.\\local\r\n"); Check(Deployer.Plan(f.Game, f.Package, host).AddonDirectory.EndsWith("local"), "section parse"); });
 Test("shared external addon folder refused", f => { f.ExistingHost("[ADDON]\r\nAddonPath=" + f.Root + "\r\n"); Reject(() => Deployer.Plan(f.Game, f.Package, host), "shared path accepted"); });
 Test("unknown loader and alternate entry not overwritten", f => { File.WriteAllText(Path.Combine(f.Game.Directory, "dxgi.dll"), "foreign"); Reject(() => Deployer.Plan(f.Game, f.Package, host), "unknown host accepted"); File.Delete(Path.Combine(f.Game.Directory, "dxgi.dll")); File.WriteAllText(Path.Combine(f.Game.Directory, "d3d12.dll"), "foreign"); Reject(() => Deployer.Plan(f.Game, f.Package, host), "second host accepted"); });
@@ -119,6 +132,13 @@ sealed class Fixture : IDisposable
         Sign();
     }
     public PackageManifest Load() => PackageManifest.LoadWithTrust(PackageDirectory, TrustKey);
+    public string ZipPackage()
+    {
+        var path = Path.Combine(Root, "signed-package.zip");
+        ZipFile.CreateFromDirectory(PackageDirectory, path, CompressionLevel.Optimal,
+                                    includeBaseDirectory: false);
+        return path;
+    }
     public void Sign()
     {
         File.WriteAllText(Path.Combine(PackageDirectory, "manifest.json"), Manifest.ToJsonString()); var keyId = Convert.ToHexString(SHA256.HashData(key.ExportSubjectPublicKeyInfo()))[..16];

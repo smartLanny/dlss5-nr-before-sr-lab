@@ -67,21 +67,36 @@ public static class Deployer
         foreach (var name in new[] { "d3d9.dll", "d3d10.dll", "d3d11.dll", "d3d12.dll", "opengl32.dll" })
             if (File.Exists(Path.Combine(game.Directory, name))) throw new InvalidDataException("检测到另一宿主入口，需先确认现有安装：" + name);
         files.Add(new(loader, host.HostPath, loaderHash, host.HostSha256, loaderHash == null ? FileAction.Write : FileAction.Reuse, "reshade-host"));
+        var prior = ReadInstalled(game);
+        var configureChineseFont = prior == null && package.Language == "zh-CN";
         var ini = Path.Combine(game.Directory, "ReShade.ini"); var iniHash = SafeFiles.ExistingHash(ini); string addonRoot;
         if (iniHash != null)
         {
             if (loaderHash == null) throw new InvalidDataException("存在 ReShade.ini 但没有可验证的宿主，先修复现有安装。");
             addonRoot = ExistingAddonDirectory(game, ini);
-            files.Add(new(ini, null, iniHash, iniHash, FileAction.Reuse, "reshade-config"));
+            byte[]? updated = null;
+            if (configureChineseFont && new FileInfo(ini).Length <= 4 * 1024 * 1024)
+            {
+                var original = File.ReadAllBytes(ini);
+                if (!ReShadeFontConfig.TryAddChineseOverlayFont(original, out updated, out _))
+                    updated = null;
+            }
+            if (updated != null)
+                files.Add(new(ini, null, iniHash, Convert.ToHexString(SHA256.HashData(updated)),
+                    FileAction.Write, "reshade-config", updated));
+            else
+                files.Add(new(ini, null, iniHash, iniHash, FileAction.Reuse, "reshade-config"));
         }
         else
         {
             addonRoot = Path.Combine(game.Directory, ".dlss5-addons");
             var bytes = Encoding.UTF8.GetBytes("[ADDON]\r\nAddonPath=.\\.dlss5-addons\r\n\r\n[GENERAL]\r\nEffectSearchPaths=.\\reshade-shaders\\Shaders\\**\r\nTextureSearchPaths=.\\reshade-shaders\\Textures\\**\r\n");
+            if (configureChineseFont && ReShadeFontConfig.TryAddChineseOverlayFont(
+                    bytes, out var updated, out _))
+                bytes = updated;
             files.Add(new(ini, null, null, Convert.ToHexString(SHA256.HashData(bytes)), FileAction.Write, "reshade-config", bytes));
         }
         SafeFiles.RejectReparse(addonRoot);
-        var prior = ReadInstalled(game);
         foreach (var f in package.Files)
         {
             var destination = PackageManifest.SafePath(addonRoot, f.Path); var before = SafeFiles.ExistingHash(destination);
@@ -163,7 +178,7 @@ public static class Deployer
             state.Files = owned.Values.ToList();
             Checkpoint("before-installed"); SafeFiles.AtomicText(InstalledPath(game), JsonSerializer.Serialize(state, PackageManifest.JsonOptions()));
             Checkpoint("after-installed"); transaction.Status = "complete"; Save(game, transaction); File.Delete(ActivePath(game));
-            game.Status = "已部署，等待启动验证"; return new(true, "安装完成；已知文件已复用，用户配置已保留。启动后验证实际加载的插件。");
+            game.Status = "已部署，等待启动验证"; return new(true, "安装完成；已有自定义设置已保留，必要的 ReShade 设置已通过可恢复事务更新。启动后验证实际加载的插件。");
         }
         catch
         {
