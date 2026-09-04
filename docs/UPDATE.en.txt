@@ -1,0 +1,35 @@
+DLSS 5 AI Rendering Upscaling beta0.3.3.5 - Small Update
+Author: @野生的装机宅 Bilibili
+Official releases: https://space.bilibili.com/941799
+
+For existing installations only. Both DLLs are byte-identical to the previous r4 full packages. Keep the DLLs for your GPU and your existing nr_before_sr.ini. The same English addon update serves RTX 30, 40 and 50 installations; their NR runtime DLLs are still different and must not be swapped between GPU packages.
+
+This addon is identical to the just-released beta0.3.3.5 full package. Only packaging and instructions have changed.
+
+Update
+1. Exit the game completely.
+2. Find the existing addon, back it up outside the game folder, and replace it with this addon. Do not leave two versions active.
+3. Keep both existing DLLs and nr_before_sr.ini. Copy Collect-Feedback.cmd and collect-feedback.ps1 next to the addon.
+4. Open the addon panel and check that its Version line says beta0.3.3.5. The addon filename still contains beta0.3.3-dev to allow replacement.
+
+First-time users or installations with missing DLLs need the full package for their GPU.
+
+Changes
+- Corrected a state check that could leave NR inactive even when enabled. Reports such as NTE still need a new game test.
+- Fixed handling of invalid exposure data. This does not resolve every brightness, colour or facial-detail issue.
+- The panel explains actual parameter values and restrictions more clearly.
+- F8 now collects a feedback ZIP automatically.
+
+How to report a problem
+Stop at a scene showing the issue, press F8 or use Collect feedback ZIP, keep the camera still, and wait for completion. Collection waits up to about 30 seconds; saving may take longer. Send feedback.zip from Documents\DLSS5-Feedback and describe the game, GPU, HDR on/off and the problem. Use Copy ZIP path in the panel if needed; the in-game collector tries the temporary folder if Documents cannot be used.
+
+The ZIP contains three current-view screenshots, available NR stages, rendering information, settings, versions and logs. It stays on your computer and is never uploaded automatically. Screenshots may include game chat or other overlays. A package with missing items is still useful; the reasons are recorded.
+
+The three screenshots are not an automatic A/B test. For comparison, collect once with NR on, press F6 to turn it off, and collect again from the same camera position. Label the two ZIPs. Change only one setting at a time when comparing processing order, Natural/Cinematic style or HDR/SDR.
+
+Reports of weak Spider-Man HDR faces, Wuthering Waves colour, NTE inactivity and Dragon's Dogma 2 crashes still need retesting. Say whether the result improved, stayed the same or became worse.
+
+Cannot start the game or it crashes?
+Double-click Collect-Feedback.cmd with collect-feedback.ps1 beside it. Send feedback-offline.zip from the path it prints. This cannot recover pictures from before a crash. Mention separately if the game generated a crash report. These two small files are optional for offline collection; F8 itself is built into the addon.
+
+Four files: addon, Instructions.txt, Collect-Feedback.cmd and collect-feedback.ps1. If you already installed the beta0.3.3.5 full package, you do not need to replace the addon again.

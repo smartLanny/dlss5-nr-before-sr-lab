@@ -8,9 +8,9 @@ orders around a game's ordinary DLSS Super Resolution call:
   DLSS SR (`NR -> SR`). Mode 2 is the beta0.3.3 default performance path; Mode 1
   remains the complete full-resolution quality/reference path.
 
-Runtime hotkeys are `F6` for the master comparison switch and main keyboard `-`
-for a ReShade screenshot whose filename records the current build, chain,
-resource extents and image settings.
+Runtime hotkeys are `F6` for the master comparison switch, `F8` for a local
+feedback ZIP, and main keyboard `-` for a ReShade screenshot whose filename
+records the current build, chain and selected settings.
 
 This is a research project, not an NVIDIA product and not an official joint
 DLSS NR/SR implementation. NVIDIA, DLSS, GeForce, and related names are
@@ -18,9 +18,14 @@ trademarks of their respective owners.
 
 Project author: **@野生的装机宅 Bilibili**. The only official release location
 is https://space.bilibili.com/941799. The author and official address remain
-embedded in release binaries and the add-on UI. Distribution archives are kept
-to the four required runtime files plus one README; optional ZIP hashes may be
-published with the official release post.
+embedded in release binaries and the add-on UI. Each full distribution archive
+contains seven files: the add-on, bridge DLL, configuration, matching NR runtime,
+plain-text instructions (`说明.txt` in Chinese or `Instructions.txt` in English),
+`Collect-Feedback.cmd`, and `collect-feedback.ps1`.
+Small update archives contain four files: the add-on, the plain-text instructions, and
+the two offline collection scripts. Updates reuse an existing compatible full
+installation's runtime, bridge and configuration; they are not first-install
+packages. Optional ZIP hashes may be published with the official release post.
 See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for the explicit prohibition on
 unauthorized automated builds, rebranding and modified redistribution.
 
@@ -81,10 +86,11 @@ implementations inside this project.
 - `docs/BETA_0_3_TEST_MATRIX.md`: release qualification checklist.
 - `docs/COMMUNITY_FEEDBACK_BETA03.md`: sanitized mapping from early reports to
   current fixes, intentional bypasses, and remaining evidence gaps.
-- `docs/INSTALL.zh-CN.md` / `docs/INSTALL.en.md`: quick deployment, conflict
-  removal, runtime placement, and bug-report instructions.
+- `docs/INSTALL.zh-CN.txt` / `docs/INSTALL.en.txt`: short player instructions,
+  packaged as `说明.txt` or `Instructions.txt` in full releases. Markdown installation
+  documents remain source documentation and are not the packaged instructions.
 - `scripts/validate-codec-shader.ps1`: compiles all embedded HLSL entry points
-  with the same Shader Model 5.1 compiler contract used at runtime.
+  with the same Shader Model 5.0 compiler contract used at runtime.
 - `scripts/Verify-ReleaseManifest.ps1`: optional internal legacy verifier; it is
   retained for reproducibility but is no longer bundled in simple release ZIPs.
 
@@ -109,8 +115,25 @@ From PowerShell:
 Alternatively set `DLSS5_LLVM_MINGW_ROOT` and `DLSS5_RESHADE_ROOT`. Build output
 is written only to `build/`, which is ignored by Git.
 
-No proprietary runtime is needed to compile the source. This repository does not
-provide runtime installation instructions or download links for vendor binaries.
+No proprietary runtime is needed to compile the source. Vendor binaries and
+their download links are not provided by this repository.
+
+## Local release packaging
+
+The packaging script uses existing local build output. To create small update
+archives without copying the large runtime DLLs, use:
+
+```powershell
+./scripts/package-beta03.ps1 `
+  -ReleaseRoot 'D:\releases\beta0.3.3.5-update' `
+  -UpdateOnly
+```
+
+For full packages, omit `-UpdateOnly` and provide `-Rtx50Runtime` and
+`-Rtx3040Runtime` with the matching local runtime paths. Choose a new destination
+for each run. Both package types include plain-text player instructions and the
+offline collector pair. Generated archives and binaries stay outside version
+control; the repository retains only their source, scripts and documentation.
 
 ## Current research status
 
