@@ -20,11 +20,11 @@ parser.add_argument("--compiler", required=True)
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 source = (root / "src/nr_before_sr.cpp").read_text(encoding="utf-8-sig")
+ui_source = (root / "src/nr_settings_ui.inl").read_text(encoding="utf-8-sig")
 dispatch = source[source.index("    const NrColorPolicy color_policy = ResolveNrColorPolicy("):]
 dispatch = dispatch[:dispatch.index("    if (capture_stages) {")]
-ui_block = source[source.index("    NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();"):]
-ui_block = ui_block[:ui_block.index('            "A sparse local correction')]
-ui_block = ui_block[:ui_block.rindex("    ImGui::TextDisabled(")]
+ui_function = definition(ui_source, "void DrawColorControls(")
+ui_block = ui_function[ui_function.index("{") + 1:ui_function.rindex("}")]
 
 harness = r'''
 #include <atomic>
