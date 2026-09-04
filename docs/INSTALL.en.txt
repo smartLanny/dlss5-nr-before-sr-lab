@@ -10,7 +10,7 @@ Choose the full package for your GPU. The game needs D3D12, native DLSS Super Re
 
 Exit the game completely. Extract all seven files into the directory where ReShade loads addons. This is usually beside the game's actual 64-bit executable and the ReShade DLL. If you configured a custom addon directory, use that directory.
 
-The seven files are:
+The full package has these seven core files, plus verification and source manifests. A small update replaces only the addon, instructions TXT and two feedback scripts; retain the existing runtimes and settings.
 One addon file ending in .addon64
 nrchain_nvngx.dll
 nvngx_dlssnr.dll
@@ -48,5 +48,7 @@ Send the ZIP with the game name, GPU model, HDR or SDR setting, what went wrong 
 What changed in this version
 
 This version fixes a case where an unset game rendering state incorrectly prevented the addon from running. It also fixes invalid exposure-value handling and shows the currently effective value and restriction reason for options such as Colour Follow.
+
+This revision also fixes post-SR snapshot resource binding and older strength values being overwritten by the other mode. Saved zero strength is retained. Status distinguishes current calls from pending or expired records.
 
 These changes do not mean every game is fixed. Weak effects, Spider-Man faces and HDR, Wuthering Waves colour and exposure, and Dragon's Dogma 2 crashes still need reports from this version. If a slider seems ineffective, collect both settings from the same camera position. A setting marked as applied does not guarantee a large visible change.

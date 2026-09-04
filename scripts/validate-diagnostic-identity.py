@@ -37,6 +37,7 @@ harness = r'''
 #include <atomic>
 #include <cstdio>
 #include "nr_guide_contract.h"
+#include "nr_jitter_status.h"
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 TUNING
 IDENTITY
@@ -47,6 +48,8 @@ NrDiagnosticIdentity g_applied_nr_identity{};
 int g_applied_nr_mode=0;
 struct NrContext {
     unsigned long long instance_id=10;
+    unsigned long long feature_generation=8;
+    bool jitter_binding_written=true, jitter_last_known=true;
     unsigned successful_evaluations_since_reset=0, evaluations=0, config_generation=7;
     bool diagnostic_reset_requested=false, reset_retry_pending=false;
     NrTuningSignature tuning_signature{};
@@ -58,6 +61,9 @@ struct NrSlot {
     NrDiagnosticIdentity diagnostic_identity{};
     struct { bool armed=true; struct { NrDiagnosticIdentity identity{}; } info; } stage_capture;
 };
+unsigned long long GetTickCount64() { return 100; }
+nr_jitter_status::Snapshot g_recorded_jitter{};
+JITTER_RECORD
 COMPLETE
 constexpr unsigned kNgxSuccess=1;
 enum class BypassReason { RuntimeRejected };
@@ -121,6 +127,17 @@ int main() {
     check(second.diagnostic_identity.since_reset==1 && !second.diagnostic_identity.warmed_up,"new context resets warmup independently");
     BindReset(a,false,false,true); PreComplete(&a,&slot,kNgxSuccess);
     check(g_applied_nr_identity.since_reset==1 && !g_applied_nr_identity.warmed_up,"successful guide Reset restarts warmup even on an old instance");
+    const auto previous_jitter_frame = g_recorded_jitter.frame;
+    a.jitter_binding_written = false;
+    RecordSuccessfulJitterBinding(a, 9999);
+    check(g_recorded_jitter.frame == previous_jitter_frame,
+          "unwritten binding cannot publish a jitter sample");
+    a.jitter_binding_written = true; a.jitter_last_known = false;
+    RecordSuccessfulJitterBinding(a, 9998);
+    check(g_recorded_jitter.frame == 9998 && !g_recorded_jitter.known &&
+          g_recorded_jitter.instance == a.instance_id &&
+          g_recorded_jitter.config == a.config_generation,
+          "actual jitter publication freezes identity and missing state");
     std::printf("diagnostic identity regression: %s (%d failures)\n",failures?"FAIL":"PASS",failures);
     return failures ? 1:0;
 }
@@ -129,6 +146,7 @@ replacements = {
     "TUNING": definition(source, "struct NrTuningSignature", True),
     "IDENTITY": definition(source, "struct NrDiagnosticIdentity", True),
     "COMPLETE": definition(source, "void CompleteNrDiagnosticEvaluation("),
+    "JITTER_RECORD": definition((root / "src/nr_jitter_status.inl").read_text(encoding="utf-8"), "void RecordSuccessfulJitterBinding("),
     "PRE_PATH": completion_path("Substitution PrepareBeforeSr(", "CompleteNrDiagnosticEvaluation(*context, *slot);"),
     "POST_PATH": completion_path("bool FinishAfterSr(", "CompleteNrDiagnosticEvaluation(context, slot);"),
     "RESET_BINDING": binding[reset_start:reset_end],

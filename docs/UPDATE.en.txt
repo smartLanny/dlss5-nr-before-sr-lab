@@ -4,9 +4,9 @@ Official releases: https://space.bilibili.com/941799
 
 What this update is
 
-This update adds the compact mode UI, 0..2 final effect strength, and an opt-in game pixel-jitter developer path. New installations request strength 1.2 and colour follow 0.5. Existing values, including zero, are preserved from the previously selected mode. There is no 1.2 shortcut: the slider displays the actual request. Mode 2 remains the default; effective colour follow remains zero for unknown HDR inputs.
+This update simplifies the controls and fixes a resource-binding problem when the post-SR mode copies the original picture. New installations request strength 1.2 and colour follow 0.5. Existing values, including zero, are preserved from the previously selected mode. The slider displays the actual request, from 0 to 2. Before-SR remains the default; effective colour follow stays zero for unknown HDR inputs.
 
-Use this package with an existing 0.3.5 maintenance installation. It contains four small files: the addon, Instructions.txt, Collect-Feedback.cmd and collect-feedback.ps1. Keep both existing DLLs and nr_before_sr.ini; there is no need to download the large runtime again.
+Use this package with an existing 0.3.5 maintenance installation. Its core update files are the addon, Instructions.txt, Collect-Feedback.cmd and collect-feedback.ps1, with additional verification and source manifests. Keep both existing DLLs and nr_before_sr.ini; there is no need to download the large runtime again.
 
 0.4 r4 belongs to a separate experimental line. Keep its installation and settings separate. Do not mix files and then treat the result as a comparison of the same version. To return from the experimental line, restore the maintenance installation and settings before applying this update. The 0.4 outdoor-image problem is still under investigation; this package does not establish a fix for it.
 
@@ -19,6 +19,10 @@ Keep nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Place Collect-Fee
 Start the game and check that the addon panel says beta0.3.7. First-time installations or missing runtime files require the full package for your GPU.
 
 What changed
+
+Post-SR preserves the game's original output and copies it into an owned intermediate. Its resource descriptors are now created directly, avoiding a descriptor heap that is not a permitted CPU copy source. Software GPU checks passed; individual games still need testing.
+
+Older strength settings no longer get overwritten by the other mode's higher value; a saved zero is retained. Binding status is reported only after an actual call for the matching configuration, with pending or expired records kept distinct from current state.
 
 When the game's Ray Reconstruction (RR) owns the rendering path, F8 collects screenshots, settings and logs and records why NR stage images are unavailable. It no longer waits for NR stages that cannot be produced while RR is active.
 
