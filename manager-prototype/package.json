@@ -1,0 +1,15 @@
+{
+  "name": "dlss5-ai-rendering-manager-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chinese beginner-friendly product prototype for the DLSS 5 NR→SR manager",
+  "main": "main.js",
+  "author": "野生的装机宅 / Xiaofeng Lab",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}
