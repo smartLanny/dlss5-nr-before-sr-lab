@@ -95,6 +95,7 @@ namespace ImGui {
         TextDisabled(fmt,args...);
     }
 }
+void SettingsTooltip(const char*) {}
 void Controls(Config& next,bool has_pending,bool& changed) {
     UI_BLOCK
 }

@@ -29,7 +29,7 @@ function Extract([string]$Text, [string]$Signature) {
     if ($depth -ne 0) { throw "Unterminated function: $Signature" }
     return $Text.Substring($start, $end - $start)
 }
-$types = ''
+$types = [regex]::Match($source, 'enum class NrJitterMode\s*:\s*int\s*\{[\s\S]*?\};').Value + "`n"
 foreach ($name in @('NrTuningSignature', 'NrDiagnosticIdentity', 'NrStageCaptureInfo', 'NrStageCapture')) {
     $match = [regex]::Match($source, "struct $name \{[\s\S]*?\r?\n\};")
     if (-not $match.Success) { throw "Missing type: $name" }
