@@ -359,7 +359,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
               UINT requested_stride, UINT flags, int variant,
               bool v2 = false, UINT requested_model_width = 0,
               UINT requested_model_height = 0,
-              const ExposureCase &exposure_case = {}) {
+              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f) {
     constexpr UINT sx = 3, sy = 2, dx = 2, dy = 1;
     const UINT model_width = requested_model_width != 0
         ? requested_model_width : width;
@@ -383,6 +383,13 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                 ? proxy[y * model_width + x]
                 : Float4{0.3f, 0.45f, 0.6f, 0.875f};
         }
+    if (variant == 6 || variant == 7) {
+        for (UINT y = 0; y < model_height; ++y) for (UINT x = 0; x < model_width; ++x) {
+            const float gain = variant == 7 ? 1.15f : (((x+y)&1u) ? 1.5f : 0.65f);
+            const auto &p = proxy[y*model_width+x];
+            neural[y*model_width+x] = {p.x*gain,p.y*gain,p.z*gain,1.0f};
+        }
+    }
     if (variant == 3) neural[0].x = std::numeric_limits<float>::quiet_NaN();
     auto source_texture = gpu.MakeTexture(source_width, source_height, original);
     auto proxy_texture = gpu.MakeTexture(model_width, model_height, proxy);
@@ -432,7 +439,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
         transfer_strength, exposure_case.source_to_canonical, color_strength, max_luma_ratio, flags,
         sx, sy, dx, dy, 0, 0, 0, 0, exposure_case.pre_exposure, stride,
         width, height, model_width, model_height,
-        0.0f, 0.0f, 1u, frame_confidence};
+        0.0f, 0.0f, 1u, frame_confidence, detail_stability};
     ID3D12DescriptorHeap *heaps[] = {gpu.heap.p};
     gpu.list->SetDescriptorHeaps(1, heaps);
     gpu.list->SetComputeRootSignature(gpu.root.p);
@@ -600,9 +607,35 @@ int main() {
                 ++scenarios;
             }
         }
+        for (const auto &exposure : texture_cases) {
+            const auto off=Run(gpu,13,9,0,2,64u,0,true,7,5,exposure);
+            const auto on=Run(gpu,13,9,2,2,64u,0,true,7,5,exposure);
+            Require(std::memcmp(off.output.data(),on.output.data(),off.output.size()*sizeof(Float4))==0,
+                    "V2 exposure capture changed composition");
+            ++scenarios;
+        }
         const ExposureCase scalar_case{nan, 2.0f, 0.375f, {0.75f, 0.75f, 0.375f, 2.0f}};
         Run(gpu, 13, 9, 2, 2, 0, 0, false, 0, 0, scalar_case);
         ++scenarios;
+        // Spatial protection must reduce alternating residuals, not erase uniform model edits.
+        const auto noise_off = Run(gpu, 32, 32, 0, 1, 1u, 6, true, 16, 16);
+        const auto noise_on = Run(gpu, 32, 32, 0, 1, 1u, 6, true, 16, 16, {}, 1.0f);
+        double residual_off = 0, residual_on = 0;
+        const UINT out_width = 32 + 2 + 2;
+        for (UINT y=2;y<30;++y) for(UINT x=2;x<30;++x) {
+            const auto i=(y+1)*out_width+x+2;
+            const auto j=(y+1)*out_width+x+3;
+            const float source_diff = (static_cast<int>((x+4)%7) - static_cast<int>((x+3)%7))*0.03125f;
+            residual_off += std::abs((noise_off.output[j].x-noise_off.output[i].x)-source_diff);
+            residual_on += std::abs((noise_on.output[j].x-noise_on.output[i].x)-source_diff);
+        }
+        Require(residual_on < residual_off*0.95, "Detail stability did not reduce alternating residual energy");
+        const auto uniform_off = Run(gpu, 16, 16, 0, 1, 1u, 7, true);
+        const auto uniform_on = Run(gpu, 16, 16, 0, 1, 1u, 7, true, 0, 0, {}, 1.0f);
+        for(std::size_t i=0;i<uniform_off.output.size();++i)
+            Require(std::abs(uniform_off.output[i].x-uniform_on.output[i].x)<0.00001f,
+                    "Detail stability changed a uniform model edit");
+        scenarios += 2;
         std::printf("GPU codec validation passed: %u paired/grid scenarios; "
             "legacy/V2 capture identity, scaled V2, 8x strength, reset "
             "suppression, raw planes, alpha, subrects and root layout.\n",

@@ -38,15 +38,17 @@ namespace {
 
 #include "nr_diagnostic_bundle.inl"
 
+#define NR_HAS_DETAIL_STABILITY 1
+
 using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.4-perfect-chain-r4";
+constexpr const char *kAddonVersion = "beta0.4.1";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.4-perfect-chain-r4";
+constexpr const char *kBuildIdentity = "beta0.4.1";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -803,6 +805,8 @@ struct ChainConfig {
     float custom_work_scale = 0.75f;
     float lighting_lock = 0.20f;
     float edge_guard = 0.25f;
+    float detail_stability = 0.0f; // Experimental spatial residual protection; 0 preserves old output.
+    bool motion_stability = false; // Requested only; requires a proven depth/history contract.
     unsigned int proxy_curve = 1; // 0 legacy, 1 hybrid, 2 reversible
     bool allow_unverified_hdr_color = false;
     bool suppress_reset_frame = true;
@@ -1091,6 +1095,8 @@ void NormalizeConfig(ChainConfig &config) {
     config.custom_work_scale = std::clamp(config.custom_work_scale, 0.5f, 1.0f);
     config.lighting_lock = std::clamp(config.lighting_lock, 0.0f, 1.0f);
     config.edge_guard = std::clamp(config.edge_guard, 0.0f, 1.0f);
+    config.detail_stability = std::isfinite(config.detail_stability)
+        ? std::clamp(config.detail_stability, 0.0f, 1.0f) : 0.0f;
     config.proxy_curve = std::min(config.proxy_curve, 2u);
     config.color_strength = std::clamp(config.color_strength, 0.0f, 2.0f);
     config.max_luma_ratio = std::clamp(config.max_luma_ratio, 1.0f, 16.0f);
@@ -1115,6 +1121,8 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.custom_work_scale == b.custom_work_scale &&
            a.lighting_lock == b.lighting_lock &&
            a.edge_guard == b.edge_guard &&
+           a.detail_stability == b.detail_stability &&
+           a.motion_stability == b.motion_stability &&
            a.proxy_curve == b.proxy_curve &&
            a.allow_unverified_hdr_color == b.allow_unverified_hdr_color &&
            a.suppress_reset_frame == b.suppress_reset_frame &&
@@ -1197,6 +1205,8 @@ void ReloadConfig(bool force = false) {
     next.custom_work_scale = ReadIniFloat(L"CustomWorkScale", 0.75f);
     next.lighting_lock = ReadIniFloat(L"LightingLock", 0.20f);
     next.edge_guard = ReadIniFloat(L"EdgeGuard", 0.25f);
+    next.detail_stability = ReadIniFloat(L"DetailStability", 0.0f);
+    next.motion_stability = GetPrivateProfileIntW(L"NRBeforeSR", L"MotionStability", 0, g_ini_path) != 0;
     next.proxy_curve = static_cast<unsigned int>(GetPrivateProfileIntW(
         L"NRBeforeSR", L"ProxyCurve", 1, g_ini_path));
     next.allow_unverified_hdr_color = GetPrivateProfileIntW(
@@ -1340,6 +1350,8 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniFloat(L"CustomWorkScale", config.custom_work_scale));
     record_write(WriteIniFloat(L"LightingLock", config.lighting_lock));
     record_write(WriteIniFloat(L"EdgeGuard", config.edge_guard));
+    record_write(WriteIniFloat(L"DetailStability", config.detail_stability));
+    record_write(WriteIniInt(L"MotionStability", config.motion_stability ? 1 : 0));
     record_write(WriteIniInt(L"ProxyCurve", static_cast<int>(config.proxy_curve)));
     record_write(WriteIniInt(L"AllowUnverifiedHdrColor",
                              config.allow_unverified_hdr_color ? 1 : 0));
@@ -1727,7 +1739,7 @@ constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
 constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
 constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
 constexpr UINT kCodecCaptureUavIndex = kCodecSrvCount + 4;
-constexpr UINT kCodecRootConstantCount = 26;
+constexpr UINT kCodecRootConstantCount = 27;
 
 const char kCodecShader[] = R"HLSL(
 // The HDR proxy keeps a linear mid-range and applies a luminance-preserving
@@ -1774,6 +1786,7 @@ cbuffer Constants : register(b0) {
     float EdgeGuard;
     uint ProxyCurve;
     float FrameConfidence;
+    float DetailStability;
 };
 
 static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
@@ -2137,6 +2150,32 @@ float ModelLumaRatioV2(float2 fullPixelCenter) {
     float p = max(dot(LoadProxyLinearV2(pxy), kLuma), 1.0 / 4096.0);
     float n = max(dot(LoadNeuralLinearV2(pxy), kLuma), 1.0 / 4096.0);
     return clamp(n / p, 1.0 / 256.0, 256.0);
+}
+
+// Only the residual is filtered. Uniform edits and the original image remain intact.
+// No temporal/face-mask claim: this confidence uses same-dispatch model samples only.
+float StabilizeDetailLogV2(float2 center, float rawLog, float proxyLuma) {
+    if (DetailStability <= 0.000001) return rawLog;
+    float2 stepPixels = float2(Width, Height) / float2(ModelWidth, ModelHeight);
+    float mean = 0.0;
+    float second = 0.0;
+    [unroll] for (int y=-1; y<=1; ++y) {
+        [unroll] for (int x=-1; x<=1; ++x) {
+            float w = (x == 0 ? 2.0 : 1.0) * (y == 0 ? 2.0 : 1.0) / 16.0;
+            float value = clamp(log2(ModelLumaRatioV2(center + float2(x,y)*stepPixels)), -8.0, 8.0);
+            mean += w * value;
+            second += w * value * value;
+        }
+    }
+    float spread = sqrt(max(second - mean * mean, 0.0));
+    float incoherent = smoothstep(0.03, 0.40, spread);
+    float lowSampling = 1.0 - saturate(min(float(ModelWidth)/max(Width,1u),
+                                          float(ModelHeight)/max(Height,1u)));
+    float dark = 1.0 - smoothstep(1.0/4096.0, 0.02, proxyLuma);
+    float extreme = smoothstep(1.0, 4.0, abs(rawLog));
+    float risk = incoherent * saturate(0.5 + lowSampling + 0.25*dark + 0.25*extreme);
+    float detailWeight = 1.0 - saturate(DetailStability)*risk;
+    return mean + (rawLog - mean)*detailWeight;
 }
 
 float3 CompressNegativeTowardNeutral(float3 color) {
@@ -2558,6 +2597,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float neuralLuma = max(dot(neural, kLuma), 1.0 / 4096.0);
     float fullProxyLuma = max(dot(fullProxy, kLuma), 1.0 / 4096.0);
     float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
+    logRatio = StabilizeDetailLogV2(center, logRatio, proxyLuma);
 
     // Remove only the low-frequency component of model luminance drift. The
     // centre plus four cross taps avoids the old 3x3 edge-heavy correction and
@@ -5510,6 +5550,7 @@ struct CodecConstants {
     float edge_guard;
     unsigned int proxy_curve;
     float frame_confidence;
+    float detail_stability;
 };
 static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * sizeof(UINT));
 
@@ -5570,11 +5611,20 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         source_flags = 128u;
     else if (color_mode == CodecColorMode::ModelEncodedValueDomain)
         source_flags = 1u;
-    const NrColorPolicy color_policy = ResolveNrColorPolicy(g_config.mode,
+    NrColorPolicy color_policy = ResolveNrColorPolicy(g_config.mode,
         hdr_input, color_mode,
         slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT,
         IsUnityExposureContract(color_contract), g_config.color_strength,
         g_config.preserve_lighting);
+    if (v2_combine) {
+        color_policy.requested_preserve_lighting = g_config.lighting_lock > 0.000001f;
+        color_policy.effective_preserve_lighting = color_policy.requested_preserve_lighting;
+    }
+    if (v2_combine && g_config.allow_unverified_hdr_color && !color_policy.color_allowed) {
+        color_policy.color_allowed = true;
+        color_policy.effective_color_strength = g_config.color_strength;
+        color_policy.color_reason = NrColorReason::ExperimentalUnverifiedHdr;
+    }
     const unsigned int codec_flags = source_flags |
         (color_policy.effective_preserve_lighting ? 2u : 0u) |
         (capture_delta ? 8u : 0u) |
@@ -5651,7 +5701,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         resolved_model_width, resolved_model_height,
         v2_combine ? g_config.lighting_lock : 0.0f,
         v2_combine ? g_config.edge_guard : 0.0f,
-        g_config.proxy_curve, std::clamp(frame_confidence, 0.0f, 1.0f)};
+        g_config.proxy_curve, std::clamp(frame_confidence, 0.0f, 1.0f),
+        v2_combine ? g_config.detail_stability : 0.0f};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
@@ -5697,7 +5748,7 @@ void DispatchMotionResample(ID3D12GraphicsCommandList *command_list,
         width, height, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0,
         0, 0, 0, 0,
         source_width, source_height, source_base_x, source_base_y, 1.0f, 0,
-        width, height, width, height, 0.0f, 0.0f, 0u, 1.0f};
+        width, height, width, height, 0.0f, 0.0f, 0u, 1.0f, 0.0f};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(
@@ -7296,7 +7347,7 @@ bool DispatchPostSrNativeSnapshot(
         0, 0, 0, 0, 0, 0, 1.0f, 0,
         substitution.width, substitution.height,
         substitution.width, substitution.height,
-        0.0f, 0.0f, 0u, 1.0f};
+        0.0f, 0.0f, 0u, 1.0f, 0.0f};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, g_codec.copy);
@@ -10506,6 +10557,11 @@ void DrawSettings(reshade::api::effect_runtime *) {
     changed |= ImGui::SliderFloat(
         ui("Edge / Hair Guard", "边缘 / 发丝保护"),
         &next.edge_guard, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::SliderFloat(ui("Detail stability (experimental)", "细节稳定保护（实验）"),
+        &next.detail_stability, 0.0f, 1.0f, "%.2f");
+    ImGui::TextWrapped("%s", ui("Default off. Filters inconsistent fine NR residuals, not the original picture. "
+        "Motion protection unavailable: pixel depth/history is unverified. Skin controls use model parameters, not a face mask.",
+        "默认关闭。只抑制不稳定的细碎 AI 变化，不模糊原图。运动保护不可用：尚未验证逐像素深度历史。皮肤参数不等于人脸区域识别。"));
     static const char *curve_items_en[] = {
         "Legacy shoulder", "Hybrid (recommended)", "Reversible (aggressive)"};
     static const char *curve_items_zh[] = {
@@ -10608,6 +10664,8 @@ void DrawSettings(reshade::api::effect_runtime *) {
         next.custom_work_scale = 0.75f;
         next.lighting_lock = 0.20f;
         next.edge_guard = 0.25f;
+        next.detail_stability = 0.0f;
+        next.motion_stability = false;
         next.proxy_curve = 1;
         next.allow_unverified_hdr_color = false;
         next.suppress_reset_frame = true;

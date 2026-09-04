@@ -10,7 +10,7 @@ guides = (root / "src" / "nr_guide_contract.h").read_text(encoding="utf-8")
 config = (root / "config" / "nr_before_sr.ini").read_text(encoding="utf-8")
 
 required = [
-    'kBuildIdentity = "beta0.4-perfect-chain-r4"',
+    'kBuildIdentity = "beta0.4.1"',
     'ID3D12PipelineState *encode_v2',
     'ID3D12PipelineState *combine_v2',
     'void EncodeV2CS(',
@@ -35,8 +35,8 @@ if missing:
     raise SystemExit("missing beta0.4 markers: " + ", ".join(missing))
 
 match = re.search(r"constexpr UINT kCodecRootConstantCount = (\d+);", source)
-if not match or int(match.group(1)) != 26:
-    raise SystemExit("kCodecRootConstantCount must be 26")
+if not match or int(match.group(1)) != 27:
+    raise SystemExit("kCodecRootConstantCount must be 27")
 
 hlsl = re.search(
     r'const char kCodecShader\[\] = R"HLSL\((?P<body>[\s\S]*?)\)HLSL";',
@@ -51,7 +51,7 @@ if not cbuffer or not cpp:
     raise SystemExit("constant layouts not found")
 hlsl_fields = re.findall(r"^\s*(?:uint|float)\s+([A-Za-z0-9_]+)\s*;", cbuffer.group("body"), re.M)
 cpp_fields = re.findall(r"^\s*(?:unsigned int|float)\s+([A-Za-z0-9_]+)\s*;", cpp.group("body"), re.M)
-if len(hlsl_fields) != 26 or len(cpp_fields) != 26:
+if len(hlsl_fields) != 27 or len(cpp_fields) != 27:
     raise SystemExit(f"constant layout count mismatch: HLSL={len(hlsl_fields)} C++={len(cpp_fields)}")
 normalize = lambda value: re.sub(r"[^a-z0-9]", "", value.lower())
 if [normalize(x) for x in hlsl_fields] != [normalize(x) for x in cpp_fields]:

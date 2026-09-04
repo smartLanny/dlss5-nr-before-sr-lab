@@ -9,6 +9,7 @@ enum class NrColorReason : unsigned int {
     ModelValueDomain,
     PostSrFp16UnitExposure,
     UnverifiedHdr,
+    ExperimentalUnverifiedHdr,
 };
 
 enum class NrLightingReason : unsigned int {
@@ -67,6 +68,7 @@ const char *NrColorReasonName(NrColorReason reason) {
     case NrColorReason::SrgbSdr: return "verified-srgb-sdr";
     case NrColorReason::ModelValueDomain: return "bounded-model-value-domain";
     case NrColorReason::PostSrFp16UnitExposure: return "post-sr-fp16-unit-exposure";
+    case NrColorReason::ExperimentalUnverifiedHdr: return "experimental-unverified-hdr";
     case NrColorReason::UnverifiedHdr: return "unverified-hdr-luminance-only";
     default: return "unknown-live-contract";
     }
