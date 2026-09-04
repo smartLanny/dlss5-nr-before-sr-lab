@@ -242,6 +242,7 @@ void FeedbackAddLogBeside(nr_bundle::Job &job, const wchar_t *module_path,
 }
 
 DWORD WINAPI FeedbackWorker(void *parameter) {
+    const auto &module_identity = EnsureRuntimeIdentityOnWorker();
     auto *s = static_cast<FeedbackSession *>(parameter);
     bool pending_cancelled = false;
     // A timeout freezes the file list; late GPU exports remain in the ordinary
@@ -298,6 +299,11 @@ DWORD WINAPI FeedbackWorker(void *parameter) {
         color.policy.requested_color_strength, color.policy.effective_color_strength,
         NrColorReasonName(color.policy.color_reason), color.policy.requested_preserve_lighting ? 1 : 0,
         color.policy.effective_preserve_lighting ? 1 : 0, NrLightingReasonName(color.policy.lighting_reason));
+    FeedbackAppend(*s, "artifact.sourceCommit=%s\nartifact.sourceDirty=%d\n"
+        "artifact.addonSha256=%s\nartifact.identityStatus=%s\n"
+        "artifact.hashMeasurement=loaded-path-file-once-worker\n",
+        kSourceCommit, kSourceDirty ? 1 : 0,
+        module_identity.sha256, module_identity.status);
     FeedbackAppendActivity(*s, "end");
     // FeedbackAppend always preserves these final 256 bytes, even on overflow.
     const int summary_bytes = std::snprintf(s->report + s->report_used,
