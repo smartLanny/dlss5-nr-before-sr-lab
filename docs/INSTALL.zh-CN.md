@@ -1,8 +1,8 @@
 # beta0.3.7 一键反馈测试版快速安装
 
-按 **F8** 或在插件面板点击“一键采集反馈包”，保持机位等待完成。`feedback.zip` 通常保存在系统“文档”的 `DLSS5-Feedback` 中；创建目录失败时会尝试系统临时目录，以面板可复制的实际路径为准。部分数据未采到仍会打包并说明原因。游戏无法启动时，双击同目录的 `Collect-Feedback.cmd`；它需要 `collect-feedback.ps1` 配套，会在“文档”中生成 `feedback-offline.zip`，不需要管理员权限。
+按 **F8** 或在插件面板点击“一键采集反馈包”，保持机位等待完成。`feedback.zip` 通常保存在系统“文档”的 `DLSS5-Feedback` 中；创建目录失败时会尝试系统临时目录，以面板可复制的实际路径为准。部分数据未采到仍会打包并说明原因。游戏无法启动时可用普通 `Collect-Feedback.cmd`；报告闪退时，在闪退后改用 `Collect-Crash-Feedback.cmd`。后者只关联最新 ReShade 日志中唯一的游戏 EXE，读取最近 72 小时精确匹配的已有 Windows 异常、WER 和转储，不会启用转储、改注册表或上传。
 
-当前完整包共 **7 个文件**。请以面板、日志和文件属性的 beta0.3.7 及 SHA-256 确认版本。采集只保存到本机，不自动上传或修改设置。
+当前完整包共 **9 个文件**。请以面板、日志和文件属性的 beta0.3.7 及 SHA-256 确认版本。采集只保存到本机，不自动上传或修改设置。
 
 本版修复了 ExposureTexture 为 NaN 时未正确回退到单位曝光的问题。包含该路径的 **54 个 D3D12 WARP GPU 用例已通过**，也验证了采集开关不改变这些用例的合成输出；这不代表所有动态曝光、颜色跟随或人脸画质问题已修复，仍需游戏实测。
 
@@ -37,6 +37,8 @@ DX11、Vulkan、没有原生 DLSS SR，或被 OptiScaler 等转换层完全接�
    - 当前显卡完整包内的 `nvngx_dlssnr.dll`
    - `Collect-Feedback.cmd`
    - `collect-feedback.ps1`
+   - `Collect-Crash-Feedback.cmd`
+   - `collect-crash-feedback.ps1`
 5. 启动游戏，在 ReShade 的“插件”页确认界面顶部显示 beta0.3.7、作者名和官方地址。
 
 插件会从自身目录读取配置、桥接 DLL 和 NR runtime。因此，仅让 ReShade
@@ -88,9 +90,10 @@ RTX 30/40 ShortFuse 完整包已经包含匹配的 `310.8.SF-v2` runtime，解�
 
 ## 分发包内容
 
-为方便直接覆盖安装，当前完整包包含 **7 个文件**：插件、桥接 DLL、配置、
-对应显卡的 NR runtime、本说明，以及离线收集器 `Collect-Feedback.cmd` 和
-`collect-feedback.ps1`。不会再附带多份签名、校验脚本或重复文档。
+为方便直接覆盖安装，当前完整包包含 **9 个文件**：插件、桥接 DLL、配置、
+对应显卡的 NR runtime、本说明、普通离线收集器 `Collect-Feedback.cmd` /
+`collect-feedback.ps1`，以及只读取已有崩溃证据的
+`Collect-Crash-Feedback.cmd` / `collect-crash-feedback.ps1`。不会再附带多份签名、校验脚本或重复文档。
 如官方发布帖同时给出 ZIP 的 SHA-256，可用该值核对下载文件。
 
 ## 参数与阶段诊断

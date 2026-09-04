@@ -6,7 +6,7 @@ DLSS 5 AI渲染超分版 beta0.3.7 轻量更新说明
 
 本次更新加入简化处理模式界面、0 到 2 的最终效果强度（含显式 1.2 预设）以及开发者用的游戏像素 jitter 传递选项。Mode 2 仍为默认，未知 HDR 颜色跟随限制保持不变。
 
-本包面向已经装好 0.3.5 维护线的玩家。包内只有四个小文件：addon、说明.txt、Collect-Feedback.cmd、collect-feedback.ps1。沿用原来的两个 DLL 和 nr_before_sr.ini，不需要重新下载大运行库。
+本包面向已经装好 0.3.5 维护线的玩家。包内只有六个小文件：addon、说明.txt、普通离线收集器两个文件和崩溃反馈收集器两个文件。沿用原来的两个 DLL 和 nr_before_sr.ini，不需要重新下载大运行库。
 
 0.4 r4 是另一条实验线，请分开保留安装和配置。不要直接混合覆盖，再把结果当作同版画质对比。如果要从实验线切回，请先恢复维护线的安装和配置，再使用本更新包。0.4 的室外画面问题仍在调查，本包不代表它已修复。
 
@@ -14,7 +14,7 @@ DLSS 5 AI渲染超分版 beta0.3.7 轻量更新说明
 
 完全退出游戏，把原来的本插件 addon 备份到游戏目录外，再用本包 addon 替换。只留一份正在加载的本插件，不要把新旧版或中英文版同时放进去。
 
-原来的 nrchain_nvngx.dll、nvngx_dlssnr.dll 和 nr_before_sr.ini 保留。把 Collect-Feedback.cmd 与 collect-feedback.ps1 一起放在 addon 旁边。不要把不同显卡完整包里的运行库互换。
+原来的 nrchain_nvngx.dll、nvngx_dlssnr.dll 和 nr_before_sr.ini 保留。把两个 Collect-*.cmd 与两个 collect-*.ps1 一起放在 addon 旁边。不要把不同显卡完整包里的运行库互换。
 
 进游戏后，在插件面板确认版本为 beta0.3.7。第一次安装或缺少运行文件的玩家，需要使用对应显卡的完整包。
 
@@ -44,4 +44,4 @@ feedback.zip 通常在系统“文档”的 DLSS5-Feedback 里。文档目录无
 
 发 ZIP 时请写清：游戏名、显卡型号、HDR 还是 SDR、遇到什么问题。效果偏弱、蜘蛛侠和鸣潮的画质、龙之信条 2 的崩溃仍需要新反馈，不要只凭“已应用”判断画面一定变强。
 
-如果游戏无法启动，双击 addon 旁的 Collect-Feedback.cmd，collect-feedback.ps1 必须在同目录。把提示路径中的 feedback-offline.zip 发来。离线包只能收集已有信息，不能补回没保存的画面。
+如果游戏无法启动但没有闪退证据，双击 Collect-Feedback.cmd。报告闪退时，在闪退后双击 Collect-Crash-Feedback.cmd；它严格关联最新 ReShade.log 中唯一的游戏 EXE，收集最近 72 小时精确匹配的已有 Windows 异常、WER 和转储。它不会开启转储、改注册表或上传。已有转储可能含进程内存和本机路径，发送前请自行决定是否分享。

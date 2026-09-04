@@ -1,8 +1,8 @@
 # beta0.3.7 feedback test build quick install
 
-Press **F8** or click Collect feedback ZIP in the addon panel. Keep the camera still and wait for completion. `feedback.zip` normally goes under Documents/DLSS5-Feedback. If that directory cannot be created, collection tries DLSS5-Feedback under the system temporary directory; copy the actual path from the panel. A partial bundle includes missing-item reasons and can still be submitted. If the game cannot start, double-click `Collect-Feedback.cmd` beside `collect-feedback.ps1`. This offline collector creates `feedback-offline.zip` under Documents and needs no administrator privileges.
+Press **F8** or click Collect feedback ZIP in the addon panel. Keep the camera still and wait for completion. `feedback.zip` normally goes under Documents/DLSS5-Feedback. If that directory cannot be created, collection tries DLSS5-Feedback under the system temporary directory; copy the actual path from the panel. A partial bundle includes missing-item reasons and can still be submitted. For an ordinary startup problem, use `Collect-Feedback.cmd`. After a crash, use `Collect-Crash-Feedback.cmd`; it derives one exact game EXE from the newest ReShade log and reads only matching existing Windows events, WER reports and dumps from the last 72 hours. It does not enable dumps, modify the registry or upload.
 
-The current full package contains **seven files**. Verify beta0.3.7 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
+The current full package contains **nine files**. Verify beta0.3.7 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
 
 This version fixes the unit-exposure fallback when ExposureTexture contains NaN. **54 D3D12 WARP GPU cases passed**, including this path and checks that capture on/off preserves their composition output. This does not establish that all dynamic-exposure, colour-follow or face-quality problems are fixed; game testing is still required.
 
@@ -37,6 +37,8 @@ translation layer such as OptiScaler are outside this add-on's direct scope.
    - `nvngx_dlssnr.dll` from the matching GPU package
    - `Collect-Feedback.cmd`
    - `collect-feedback.ps1`
+   - `Collect-Crash-Feedback.cmd`
+   - `collect-crash-feedback.ps1`
 5. Start the game and verify that the ReShade Add-ons page shows beta0.3.7, the
    author and official release address at the top of this add-on's panel.
 
@@ -102,9 +104,11 @@ ShortFuse/RHI NR add-on at the same time.
 
 ## Package contents
 
-For simple copy-in installation, each current full package contains **seven files**:
-the add-on, bridge DLL, configuration, matching NR runtime, this README, and the
-offline collector pair `Collect-Feedback.cmd` and `collect-feedback.ps1`.
+For simple copy-in installation, each current full package contains **nine files**:
+the add-on, bridge DLL, configuration, matching NR runtime, this README, the
+ordinary offline collector pair `Collect-Feedback.cmd` / `collect-feedback.ps1`,
+and `Collect-Crash-Feedback.cmd` / `collect-crash-feedback.ps1` for reading only
+existing crash evidence.
 Separate signature files, verification scripts, and duplicate documents are no
 longer bundled. If the official release post publishes a ZIP SHA-256, that value
 can be used to check the downloaded archive.

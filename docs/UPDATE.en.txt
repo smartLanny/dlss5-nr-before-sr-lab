@@ -6,7 +6,7 @@ What this update is
 
 This update adds the compact mode UI, the 0..2 final effect strength with an explicit 1.2 preset, and an opt-in game pixel-jitter developer path. Mode 2 remains the default and unknown HDR colour-follow restrictions remain unchanged.
 
-Use this package with an existing 0.3.5 maintenance installation. It contains four small files: the addon, Instructions.txt, Collect-Feedback.cmd and collect-feedback.ps1. Keep both existing DLLs and nr_before_sr.ini; there is no need to download the large runtime again.
+Use this package with an existing 0.3.5 maintenance installation. It contains six small files: the addon, Instructions.txt, the ordinary offline collector pair and the crash-feedback collector pair. Keep both existing DLLs and nr_before_sr.ini; there is no need to download the large runtime again.
 
 0.4 r4 belongs to a separate experimental line. Keep its installation and settings separate. Do not mix files and then treat the result as a comparison of the same version. To return from the experimental line, restore the maintenance installation and settings before applying this update. The 0.4 outdoor-image problem is still under investigation; this package does not establish a fix for it.
 
@@ -14,7 +14,7 @@ How to update
 
 Exit the game completely. Back up the current addon outside the game directory, then replace it with this addon. Keep only one active copy; do not load old/new or Chinese/English copies together.
 
-Keep nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Place Collect-Feedback.cmd and collect-feedback.ps1 together beside the addon. Do not swap runtime DLLs between GPU packages.
+Keep nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Place both Collect-*.cmd files and both collect-*.ps1 files beside the addon. Do not swap runtime DLLs between GPU packages.
 
 Start the game and check that the addon panel says beta0.3.7. First-time installations or missing runtime files require the full package for your GPU.
 
@@ -44,4 +44,4 @@ The ZIP contains three current-view screenshots, available NR stages, image info
 
 Send the ZIP with the game name, GPU model, HDR or SDR setting, and the problem. Weak effects, Spider-Man and Wuthering Waves image quality, and Dragon's Dogma 2 crashes still need reports. Applied does not necessarily mean a stronger visible effect.
 
-If the game cannot start, double-click Collect-Feedback.cmd with collect-feedback.ps1 in the same directory. Send feedback-offline.zip from the printed path. It collects existing information and cannot recover unsaved images.
+For a startup problem without crash evidence, run Collect-Feedback.cmd. After a crash, run Collect-Crash-Feedback.cmd; it derives one exact game EXE from the newest ReShade.log and collects only matching existing Windows events, WER reports and dumps from the last 72 hours. It does not enable dumps, change the registry or upload. Existing dumps can contain process memory and local paths, so decide whether to share them.

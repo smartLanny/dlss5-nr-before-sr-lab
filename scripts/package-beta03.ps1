@@ -52,6 +52,8 @@ $Bridge = Join-Path $BuildRoot 'nrchain_nvngx.dll'
 $Config = Join-Path $BuildRoot 'nr_before_sr.ini'
 $FeedbackScript = Join-Path $ProjectRoot 'scripts\collect-feedback.ps1'
 $FeedbackLauncher = Join-Path $ProjectRoot 'scripts\Collect-Feedback.cmd'
+$CrashFeedbackScript = Join-Path $ProjectRoot 'scripts\collect-crash-feedback.ps1'
+$CrashFeedbackLauncher = Join-Path $ProjectRoot 'scripts\Collect-Crash-Feedback.cmd'
 
 $Packages = if ($UpdateOnly) {
     @(
@@ -100,7 +102,8 @@ $Packages = if ($UpdateOnly) {
 ) }
 
 $Required = @(
-    $ChineseAddon, $EnglishAddon, $FeedbackScript, $FeedbackLauncher
+    $ChineseAddon, $EnglishAddon, $FeedbackScript, $FeedbackLauncher,
+    $CrashFeedbackScript, $CrashFeedbackLauncher
 ) + $Packages.Readme
 if (-not $UpdateOnly) {
     $Required += @($Bridge, $Config, $ResolvedRtx50Runtime, $ResolvedRtx3040Runtime)
@@ -125,6 +128,8 @@ foreach ($Package in $Packages) {
     }
     Copy-Item -LiteralPath $FeedbackScript -Destination $PackagePath
     Copy-Item -LiteralPath $FeedbackLauncher -Destination $PackagePath
+    Copy-Item -LiteralPath $CrashFeedbackScript -Destination $PackagePath
+    Copy-Item -LiteralPath $CrashFeedbackLauncher -Destination $PackagePath
     # UTF-8 BOM and Windows newlines keep the shipped plain-text instructions
     # readable in older Notepad versions as well as current Windows.
     $Instructions = [IO.File]::ReadAllText($Package.Readme)

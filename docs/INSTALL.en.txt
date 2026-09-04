@@ -6,15 +6,17 @@ First installation
 
 Choose the full package for your GPU. The game needs D3D12, native DLSS Super Resolution, and ReShade / RHI with addon support. Use it only in offline environments that allow these addons and have no anti-cheat.
 
-Exit the game completely. Extract all seven files into the directory where ReShade loads addons. This is usually beside the game's actual 64-bit executable and the ReShade DLL. If you configured a custom addon directory, use that directory.
+Exit the game completely. Extract all nine files into the directory where ReShade loads addons. This is usually beside the game's actual 64-bit executable and the ReShade DLL. If you configured a custom addon directory, use that directory.
 
-The seven files are:
+The nine files are:
 One addon file ending in .addon64
 nrchain_nvngx.dll
 nvngx_dlssnr.dll
 nr_before_sr.ini
 Collect-Feedback.cmd
 collect-feedback.ps1
+Collect-Crash-Feedback.cmd
+collect-crash-feedback.ps1
 Instructions.txt
 
 Keep these files together. Remove the old build or other language version of this addon, and do not run two addons that both process NR. Start the game and check for beta0.3.7 in the ReShade addon panel.
@@ -39,7 +41,9 @@ feedback.zip normally appears in Documents/DLSS5-Feedback, in a separate folder 
 
 If the game will not start
 
-Double-click Collect-Feedback.cmd in the installation directory. Keep collect-feedback.ps1 beside it. No administrator privileges are needed. It collects available logs, settings and version information into feedback-offline.zip under Documents/DLSS5-Feedback. Missing logs still allow a partial bundle, but it cannot recover images that were not saved before the crash.
+For a startup problem without a crash record, double-click Collect-Feedback.cmd. It collects logs, settings and version information without collecting dumps.
+
+For a crash report, double-click Collect-Crash-Feedback.cmd after the crash. Keep both collect-*.ps1 files beside it. It derives one exact game EXE from the newest ReShade.log, then collects only matching Windows event 1000/1001 summaries and existing WER reports or dumps from the last 72 hours. It does not enable dumps, modify the registry or upload. A dump can contain process memory and local paths, so decide whether to share it. Both tools need no administrator privileges and write under Documents/DLSS5-Feedback.
 
 Send the ZIP with the game name, GPU model, HDR or SDR setting, what went wrong and what you expected. Files stay on your computer until you share them. The collector does not upload automatically or switch image settings. Logs and screenshots may include installation paths and visible overlays.
 

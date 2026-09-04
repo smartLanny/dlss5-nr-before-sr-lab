@@ -6,15 +6,17 @@ DLSS 5 AI渲染超分版 beta0.4.1 社区测试版
 
 先选与显卡对应的完整包。游戏需要支持 D3D12 和原生 DLSS 超分，并已安装能加载 addon 插件的 ReShade / RHI。只在允许使用此类插件的离线、无反作弊环境中使用。
 
-完全退出游戏，把完整包里的七个文件解压到 ReShade 实际读取插件的目录。通常是游戏真正的 64 位程序和 ReShade DLL 所在目录；设过自定义插件目录的，以自己的设置为准。
+完全退出游戏，把完整包里的九个文件解压到 ReShade 实际读取插件的目录。通常是游戏真正的 64 位程序和 ReShade DLL 所在目录；设过自定义插件目录的，以自己的设置为准。
 
-七个文件是：
+九个文件是：
 一个以 .addon64 结尾的插件文件
 nrchain_nvngx.dll
 nvngx_dlssnr.dll
 nr_before_sr.ini
 Collect-Feedback.cmd
 collect-feedback.ps1
+Collect-Crash-Feedback.cmd
+collect-crash-feedback.ps1
 说明.txt
 
 这些文件要放在一起。移走旧版或另一语言版的本插件，不要同时开两个会处理 NR 的插件。启动游戏后，在 ReShade 插件面板确认版本为 beta0.4.1。
@@ -39,7 +41,9 @@ feedback.zip 通常保存在系统“文档”里的 DLSS5-Feedback，每次有�
 
 游戏无法启动怎么办
 
-双击安装目录里的 Collect-Feedback.cmd，collect-feedback.ps1 必须和它放在一起，不需要管理员权限。它会把能找到的日志、设置和版本信息打成 feedback-offline.zip，放在“文档”里的 DLSS5-Feedback。没有日志也能生成部分反馈包，但不能补回崩溃前没保存的画面。
+如果只是进不了游戏或没有画面，双击 Collect-Feedback.cmd。它只收集日志、设置和版本信息，不会收集转储。
+
+如果要报告闪退，闪退后双击 Collect-Crash-Feedback.cmd。两个 collect-*.ps1 必须和它放在一起。它会从最新 ReShade.log 严格确认游戏 EXE，只收集最近 72 小时内与该名称精确匹配的 Windows 1000/1001 摘要、已有 WER 报告和已有转储；不会开启转储、修改注册表或上传。转储可能包含进程内存和本机路径，发送前请自行决定是否分享。两种工具都不需要管理员权限，输出在“文档”的 DLSS5-Feedback。
 
 发反馈时请附上 ZIP，并说明游戏名、显卡型号、HDR 还是 SDR、遇到了什么问题，以及希望看到什么效果。文件只保存在本机，不自动上传，也不会自动切换画质设置。日志和截图可能包含安装路径及画面中的叠加信息。
 
