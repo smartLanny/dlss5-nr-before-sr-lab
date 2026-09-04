@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Upscaling Edition beta0.3.7
+DLSS 5 AI Rendering Perfect Chain beta0.4.1 Community Beta
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
@@ -21,7 +21,7 @@ Collect-Crash-Feedback.cmd
 collect-crash-feedback.ps1
 Instructions.txt
 
-Keep these files together. Remove the old build or other language version of this addon, and do not run two addons that both process NR. Start the game and check for beta0.3.7 in the ReShade addon panel.
+Keep these files together. Remove the old build or other language version of this addon, and do not run two addons that both process NR. Start the game and check for beta0.4.1 in the ReShade addon panel.
 
 If you already have a working full installation, you can use the small update package and keep the existing large runtime DLL, bridge DLL and settings file. Follow the instructions in that update package. It cannot be used for a first installation.
 
@@ -29,13 +29,13 @@ Using and comparing the effect
 
 Start with the defaults. F6 turns this addon on or off. With it off, you can compare against the game's original DLSS Super Resolution output.
 
-Keep the camera in the same position and change only one setting at a time. Let the image settle, then press F8 once for each setting. The three screenshots all use the current settings; the program does not switch settings to create an automatic before/after comparison.
+Keep the camera in the same position and change only one setting at a time. Let the image settle, then press F8 once for each setting. The default current-problem capture takes one display screenshot with the current settings and does not switch settings. Only an explicit comparison selected in the advanced feedback controls temporarily changes in-memory settings.
 
 Press F8 when something looks wrong
 
 Stop where the problem is visible, then press F8 or click Collect feedback ZIP in the panel. Keep the camera still until the panel reports completion.
 
-It collects three display screenshots and attempts to include images from the NR processing stages, image information, requested and effective settings, and logs. The processing stages come from one operation; they are not guaranteed to share a frame with the display screenshots.
+It collects one current display screenshot and attempts to include 16 consecutive NR processing frames, a separate overview, image information, requested and effective settings, and logs. A disabled or bypassed NR path can produce a screenshot-and-logs-only partial package. The processing frames come from the NR operation; they are not guaranteed to share a frame with the display screenshot.
 
 Collection waits up to about 30 seconds, then background packaging still needs time. A slow drive may take longer. A partial bundle is useful too; it records what could not be collected.
 

@@ -231,12 +231,16 @@ def inspect_bundle(path):
             name = entry.get('name')
             require(isinstance(name, str) and name not in listed, 'duplicate/invalid manifest name')
             listed.add(name)
-            if entry.get('status') == 'included':
+            status = entry.get('status')
+            require(status in ('included', 'included-truncated', 'hashed', 'missing'),
+                    f'unknown manifest entry status: {status!r}')
+            if status in ('included', 'included-truncated'):
                 expected = (entry.get('bytes'), entry.get('sha256', '').lower())
                 require(file_digests.get(name) == expected, f'manifest SHA256/size mismatch: {name}')
                 included.add(name)
             else:
-                require(name not in file_digests, 'manifest declares a present file missing')
+                require(name not in file_digests,
+                        'manifest declares a hash-only or missing file present')
         require(manifest.get('metadata_entry') == 'capture-info.txt' and metadata_data is not None,
                 'missing metadata entry')
         require(metadata_data.decode('utf-8') == manifest.get('metadata_text'), 'metadata text mismatch')
@@ -244,7 +248,7 @@ def inspect_bundle(path):
                 'archive contains unlisted members')
         result['manifest_verified'] = True
         result['bundle_declares_complete'] = manifest.get('complete')
-        result['missing_files'] = [e for e in manifest['entries'] if e.get('status') != 'included']
+        result['missing_files'] = [e for e in manifest['entries'] if e.get('status') == 'missing']
     else:
         result['warnings'].append('SHA256 manifest missing; only ZIP CRC and wire structure were checked.')
     for group, records in sorted(groups.items()):

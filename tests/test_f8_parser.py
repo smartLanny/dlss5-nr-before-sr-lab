@@ -119,6 +119,36 @@ class ParserTest(unittest.TestCase):
         with self.assertRaises(P.FormatError):
             self.bundle(entries)
 
+    def test_manifest_classifies_truncated_hash_only_and_missing_entries(self):
+        copied = b'bounded log tail'
+        manifest = {'format': 'DLSS5-DiagnosticBundle-v1', 'complete': False,
+                    'metadata_entry': 'capture-info.txt', 'metadata_text': 'partial\n',
+                    'entries': [
+                        {'name': 'logs/nr-current.log', 'status': 'included-truncated',
+                         'bytes': len(copied), 'sha256': hashlib.sha256(copied).hexdigest()},
+                        {'name': 'modules/game.exe', 'status': 'hashed', 'bytes': 123,
+                         'sha256': hashlib.sha256(b'hash-only fixture').hexdigest()},
+                        {'name': 'groups/0/display.missing', 'status': 'missing',
+                         'bytes': 0, 'sha256': ''},
+                    ]}
+        result = self.bundle([
+            ('logs/nr-current.log', copied),
+            ('capture-info.txt', b'partial\n'),
+            ('manifest.json', json.dumps(manifest).encode()),
+        ])
+        self.assertTrue(result['manifest_verified'])
+        self.assertEqual([entry['name'] for entry in result['missing_files']],
+                         ['groups/0/display.missing'])
+
+    def test_manifest_rejects_hash_only_entry_with_archive_payload(self):
+        manifest = {'format': 'DLSS5-DiagnosticBundle-v1',
+                    'metadata_entry': 'capture-info.txt', 'metadata_text': '',
+                    'entries': [{'name': 'modules/game.exe', 'status': 'hashed',
+                                 'bytes': 3, 'sha256': hashlib.sha256(b'exe').hexdigest()}]}
+        with self.assertRaises(P.FormatError):
+            self.bundle([('modules/game.exe', b'exe'), ('capture-info.txt', b''),
+                         ('manifest.json', json.dumps(manifest).encode())])
+
     def test_manifest_cannot_hide_present_file(self):
         manifest = {'format': 'DLSS5-DiagnosticBundle-v1',
                     'metadata_entry': 'capture-info.txt', 'metadata_text': '', 'entries': []}
