@@ -5198,8 +5198,37 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
          pre_sr_color_mode == CodecColorMode::PqEncodedHdr) ||
         (external_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
          pre_sr_color_mode == CodecColorMode::ModelEncodedValueDomain);
-    if (slot.owns_source || !slot.owns_result || !pre_source_supported)
+    if (slot.owns_source || !slot.owns_result || !pre_source_supported ||
+        slot.result == nullptr)
         return false;
+
+    // A stable Feature 18 working bucket can outlive many physically different
+    // SceneColor allocations. When all rotating slots are occupied and one is
+    // recycled, its full-render Result surface must follow the new allocation;
+    // retaining the previous dimensions can truncate a larger active region or
+    // hand native SR a replacement Color texture with the wrong physical extent.
+    // CanMutateSlotLocked above proves the old Result is no longer referenced.
+    const D3D12_RESOURCE_DESC previous_result_desc =
+        ID3D12Resource_GetDesc(slot.result);
+    const bool result_extent_changed =
+        previous_result_desc.Width != external_desc.Width ||
+        previous_result_desc.Height != external_desc.Height;
+    ID3D12Resource *replacement_result = nullptr;
+    if (result_extent_changed) {
+        if (external_desc.Width > UINT_MAX ||
+            !CreateTexture(device,
+                           static_cast<unsigned int>(external_desc.Width),
+                           external_desc.Height, L"NRChain.Result",
+                           &replacement_result)) {
+            Log("Rotating pre-SR slot could not rebuild Result for a physical "
+                "extent change %llux%u -> %llux%u; native SR retained.",
+                static_cast<unsigned long long>(previous_result_desc.Width),
+                previous_result_desc.Height,
+                static_cast<unsigned long long>(external_desc.Width),
+                external_desc.Height);
+            return false;
+        }
+    }
 
     ID3D12Resource_AddRef(external);
     ReleaseCom(slot.source);
@@ -5216,6 +5245,26 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = 1;
     ID3D12Device_CreateShaderResourceView(device, slot.source, &srv, cpu);
+
+    if (replacement_result != nullptr) {
+        ReleaseCom(slot.result);
+        slot.result = replacement_result;
+        slot.result_state = D3D12_RESOURCE_STATE_COMMON;
+        D3D12_CPU_DESCRIPTOR_HANDLE result_cpu =
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
+        result_cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) *
+                          kCodecResultUavIndex;
+        D3D12_UNORDERED_ACCESS_VIEW_DESC result_uav = {};
+        result_uav.Format = slot.result_uav_format;
+        result_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        ID3D12Device_CreateUnorderedAccessView(
+            device, slot.result, nullptr, &result_uav, result_cpu);
+        Log("Rebuilt rotating pre-SR Result surface: %llux%u -> %llux%u.",
+            static_cast<unsigned long long>(previous_result_desc.Width),
+            previous_result_desc.Height,
+            static_cast<unsigned long long>(external_desc.Width),
+            external_desc.Height);
+    }
     RebindExposureSource(device, exposure, slot);
     slot.last_submission_queue = nullptr;
     slot.completion_fence_value = 0;
