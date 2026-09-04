@@ -2372,6 +2372,7 @@ namespace nr_f8 {
 void ObserveSuccess(const NrDiagnosticIdentity &, unsigned int, unsigned int, bool);
 void ObserveParams(const NgxParams *, const FeatureRecord &, unsigned long long);
 void StageExported(unsigned long long, const wchar_t *, bool);
+bool KeepStageContext();
 void Screenshot(reshade::api::effect_runtime *, const char *);
 }
 
@@ -2413,6 +2414,10 @@ struct NrStageCaptureInfo {
     float gpu_pre_exposure = 0.0f;
     int mode = 0;
 };
+
+namespace nr_f8 {
+void StageCaptured(const NrStageCaptureInfo &, const wchar_t *, const float *, UINT64, bool);
+}
 
 struct NrStageCapture {
     ID3D12Resource *buffer = nullptr;

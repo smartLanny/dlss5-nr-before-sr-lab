@@ -15,7 +15,7 @@ foreach ($needle in @(
     'kGroupCount = 3', 'kFrameCount = 16', 'kCountdownMs = 3000',
     'sequence restarted', 'nativeSrOutput=unknown', 'config.writesToIni=0',
     'regionProtection.effective=',
-    'planeData=diagnostic-ROI-summary', 'QueueUserWorkItem(&Worker',
+    'planeData=original,proxy,nr,composite RGBA32F ROI tiles', 'QueueUserWorkItem(&Worker',
     'ApplyConfig(session->original, "F8 restore", false)')) {
     if (-not $text.Contains($needle)) { throw "F8 contract missing: $needle" }
 }

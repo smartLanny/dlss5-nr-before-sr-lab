@@ -11,7 +11,9 @@ constexpr unsigned int kGroupCount = 3;
 constexpr unsigned int kFrameCount = 16;
 constexpr unsigned int kMaxReport = 32768;
 constexpr unsigned int kMaxPath = 1024;
-constexpr unsigned int kMaxSequenceBytes = 2u * 1024u * 1024u;
+constexpr unsigned int kMaxSequenceBytes = 64u * 1024u * 1024u;
+constexpr unsigned int kRawTileSide = 256;
+constexpr unsigned int kRawTileValues = kRawTileSide * kRawTileSide * 4;
 constexpr ULONGLONG kCountdownMs = 3000;
 constexpr ULONGLONG kGroupTimeoutMs = 30000;
 
@@ -40,10 +42,11 @@ struct Frame {
     bool exposure_valid = false;
     bool params_known = false;
     bool reset_known = false;
-    // The four values are the small, bounded per-plane summary published by
-    // the existing GPU diagnostic readback. They are never presented as raw
-    // pixels; a future V2 hook can replace them with four ROI plane tiles.
+    // The means remain useful when a GPU stage callback is unavailable. When
+    // available, raw_planes carries four actual RGBA32F ROI tiles per frame.
     float plane_mean[4] = {NAN, NAN, NAN, NAN};
+    unsigned int raw_width = 0, raw_height = 0, raw_stride = 0;
+    bool raw_available = false;
 };
 
 struct Group {
@@ -59,6 +62,8 @@ struct Group {
     bool stage_available = false;
     bool stage_complete = false;
     unsigned long long stage_request = 0;
+    unsigned int raw_stage_count = 0;
+    bool raw_stage_required = false;
     char stage_reason[192] = {};
     char break_reason[192] = {};
     wchar_t screenshot[kMaxPath] = {};
@@ -85,6 +90,7 @@ struct Session {
     bool partial = false;
     unsigned int report_used = 0;
     char report[kMaxReport] = {};
+    float *raw_planes = nullptr; // [group][frame][plane][RGBA tile]
 };
 
 std::atomic<Status> g_status{Status::Idle};
@@ -94,6 +100,21 @@ SRWLOCK g_lock = SRWLOCK_INIT;
 Session *g_session = nullptr;
 wchar_t g_last_zip[kMaxPath] = {};
 std::atomic<bool> g_config_hold{false};
+std::atomic<bool> g_raw_stage_ready{false};
+
+float *RawPlane(Session &session, unsigned int group, unsigned int frame,
+                unsigned int plane) {
+    const std::size_t index = (((static_cast<std::size_t>(group) * kFrameCount +
+        frame) * 4u + plane) * kRawTileValues);
+    return session.raw_planes != nullptr ? session.raw_planes + index : nullptr;
+}
+
+const float *RawPlane(const Session &session, unsigned int group,
+                      unsigned int frame, unsigned int plane) {
+    const std::size_t index = (((static_cast<std::size_t>(group) * kFrameCount +
+        frame) * 4u + plane) * kRawTileValues);
+    return session.raw_planes != nullptr ? session.raw_planes + index : nullptr;
+}
 
 void Append(Session &s, const char *format, ...) {
     if (s.report_used >= sizeof(s.report) - 256) {
@@ -144,6 +165,11 @@ const char *StatusName(Status status) {
 
 void SetConfigHold(bool enabled) {
     g_config_hold.store(enabled, std::memory_order_release);
+}
+
+bool KeepStageContext() {
+    const Status state = g_status.load(std::memory_order_acquire);
+    return state == Status::Running;
 }
 
 bool IsActive() {
@@ -318,6 +344,77 @@ void StageExported(unsigned long long request, const wchar_t *directory, bool ok
     ReleaseSRWLockExclusive(&g_lock);
 }
 
+void StageCaptured(const NrStageCaptureInfo &info, const wchar_t *directory,
+                   const float *mapped, UINT64 bytes, bool ok) {
+    AcquireSRWLockExclusive(&g_lock);
+    if (g_session != nullptr) {
+        for (unsigned int i = 0; i < kGroupCount; ++i) {
+            Group &group = g_session->groups[i];
+            if (group.stage_request != info.request_id) continue;
+            group.stage_complete = true;
+            group.stage_available = group.stage_available || ok;
+            if (ok) {
+                ++group.raw_stage_count;
+                if (directory != nullptr) wcsncpy_s(group.stage_directory,
+                    directory, _TRUNCATE);
+                for (unsigned int frame_index = 0;
+                     frame_index < group.frame_count; ++frame_index) {
+                    Frame &frame = group.frames[frame_index];
+                    if (frame.identity.instance_id != info.identity.instance_id ||
+                        frame.identity.frame_id != info.identity.frame_id ||
+                        frame.identity.config_generation != info.identity.config_generation)
+                        continue;
+                    const unsigned int stride = std::max(1u, info.stride);
+                    const unsigned int tile_width = std::min(kRawTileSide,
+                        (group.roi_width + stride - 1) / stride);
+                    const unsigned int tile_height = std::min(kRawTileSide,
+                        (group.roi_height + stride - 1) / stride);
+                    const std::size_t plane_values = static_cast<std::size_t>(
+                        info.width) * info.height * 4u;
+                    const unsigned int sx = std::min(info.width,
+                        group.roi_x / stride);
+                    const unsigned int sy = std::min(info.height,
+                        group.roi_y / stride);
+                    const float *raw_end = mapped != nullptr ? mapped +
+                        std::min<std::size_t>(bytes / sizeof(float),
+                            plane_values * 4u) : nullptr;
+                    bool copied = raw_end != nullptr && info.width != 0 &&
+                        info.height != 0 && sx < info.width && sy < info.height;
+                    for (unsigned int plane = 0; copied && plane < 4; ++plane) {
+                        float *destination = RawPlane(*g_session, i,
+                            frame_index, plane);
+                        const float *source = mapped + plane * plane_values;
+                        for (unsigned int y = 0; y < tile_height && copied; ++y) {
+                            const unsigned int source_y = sy + y;
+                            if (source_y >= info.height) { copied = false; break; }
+                            for (unsigned int x = 0; x < tile_width; ++x) {
+                                const unsigned int source_x = sx + x;
+                                if (source_x >= info.width) { copied = false; break; }
+                                const float *pixel = source +
+                                    (static_cast<std::size_t>(source_y) * info.width + source_x) * 4u;
+                                std::memcpy(destination +
+                                    (static_cast<std::size_t>(y) * tile_width + x) * 4u,
+                                    pixel, 4u * sizeof(float));
+                            }
+                        }
+                    }
+                    if (copied) {
+                        frame.raw_width = tile_width;
+                        frame.raw_height = tile_height;
+                        frame.raw_stride = stride;
+                        frame.raw_available = true;
+                    }
+                    break;
+                }
+            }
+            group.stage_request = 0;
+            g_raw_stage_ready.store(true, std::memory_order_release);
+            break;
+        }
+    }
+    ReleaseSRWLockExclusive(&g_lock);
+}
+
 void Screenshot(reshade::api::effect_runtime *runtime, const char *path) {
     if (runtime == nullptr || path == nullptr) return;
     AcquireSRWLockExclusive(&g_lock);
@@ -366,11 +463,14 @@ void AppendFrameMetadata(Session &session, Group &group) {
             frame.exposure_scale, frame.exposure_valid ? 1 : 0,
             frame.params_known ? "known" : "unknown", frame.plane_mean[0],
             frame.plane_mean[1], frame.plane_mean[2], frame.plane_mean[3]);
+        Append(session, "frame.%u.rawROI=%d,%ux%u,stride=%u\n", i,
+            frame.raw_available ? 1 : 0, frame.raw_width, frame.raw_height,
+            frame.raw_stride);
     }
 }
 
 bool WriteSequence(const wchar_t *directory, unsigned int index,
-                   const Group &group) {
+                   const Session &session, const Group &group) {
     wchar_t path[kMaxPath] = {};
     if (swprintf_s(path, L"%ls\\sequence-%u.bin", directory, index) < 0) return false;
     HANDLE file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr,
@@ -379,8 +479,10 @@ bool WriteSequence(const wchar_t *directory, unsigned int index,
     char header[256] = {};
     const int length = std::snprintf(header, sizeof(header),
         "F8SEQ-v1\nmode=%s\nplanes=original,proxy,nr,composite\n"
-        "planeData=diagnostic-ROI-summary;rawPixels=unknown\nframes=%u\n",
-        ModeName(group.mode), group.frame_count);
+        "planeData=original,proxy,nr,composite RGBA32F ROI tiles\n"
+        "roi=%u,%u,%u,%u;frames=%u\n",
+        ModeName(group.mode), group.roi_x, group.roi_y, group.roi_width,
+        group.roi_height, group.frame_count);
     DWORD written = 0;
     bool ok = length > 0 && WriteFile(file, header, static_cast<DWORD>(length),
         &written, nullptr) != FALSE && written == static_cast<DWORD>(length);
@@ -388,6 +490,16 @@ bool WriteSequence(const wchar_t *directory, unsigned int index,
         const Frame &frame = group.frames[i];
         ok = WriteFile(file, &frame, sizeof(frame), &written, nullptr) != FALSE &&
             written == sizeof(frame);
+        if (ok && frame.raw_available && session.raw_planes != nullptr) {
+            for (unsigned int plane = 0; ok && plane < 4; ++plane) {
+                const float *tile = RawPlane(session,
+                    static_cast<unsigned int>(&group - session.groups), i, plane);
+                const DWORD tile_bytes = frame.raw_width * frame.raw_height * 4u * sizeof(float);
+                ok = tile_bytes <= kMaxSequenceBytes &&
+                    WriteFile(file, tile, tile_bytes, &written, nullptr) != FALSE &&
+                    written == tile_bytes;
+            }
+        }
     }
     CloseHandle(file);
     return ok;
@@ -439,7 +551,7 @@ DWORD WINAPI Worker(void *parameter) {
                     "ReShade did not deliver this group's display screenshot", true);
                 wchar_t seq[kMaxPath] = {};
                 swprintf_s(seq, L"%ls\\sequence-%u.bin", directory, i);
-                if (!WriteSequence(directory, i, group)) {
+                if (!WriteSequence(directory, i, *session, group)) {
                     char seq_name[128] = {};
                     std::snprintf(seq_name, sizeof(seq_name), "groups/%u/sequence.bin", i);
                     nr_bundle::AddMissing(*job, seq_name, "sequence writer failed", group.mode != GroupMode::NativeSr);
@@ -479,6 +591,7 @@ DWORD WINAPI Worker(void *parameter) {
         result.required_complete ? Status::Complete : Status::Partial,
         std::memory_order_release);
     ReleaseSRWLockExclusive(&g_lock);
+    delete[] session->raw_planes;
     delete session;
     return 0;
 }
@@ -512,6 +625,7 @@ void StartGroup(Session &session, unsigned int index) {
         } else if (RequestStageCapture()) {
             group.stage_request = g_stage_capture_request_id.load(
                 std::memory_order_acquire);
+            group.raw_stage_required = true;
         } else {
             std::strcpy(group.stage_reason,
                 "another stage request is already in progress");
@@ -560,6 +674,15 @@ void Present(reshade::api::effect_runtime *runtime) {
             } else {
                 session->started = GetTickCount64();
                 session->runtime_identity = runtime;
+                const std::size_t raw_values = static_cast<std::size_t>(
+                    kGroupCount) * kFrameCount * 4u * kRawTileValues;
+                session->raw_planes = new (std::nothrow) float[raw_values];
+                if (session->raw_planes == nullptr) {
+                    delete session;
+                    g_status.store(Status::Failed, std::memory_order_release);
+                    return;
+                }
+                std::fill(session->raw_planes, session->raw_planes + raw_values, NAN);
                 session->original = SnapshotConfig();
                 AcquireSRWLockExclusive(&g_lock);
                 session->options = g_pending_options;
@@ -569,6 +692,28 @@ void Present(reshade::api::effect_runtime *runtime) {
                 SetConfigHold(true);
                 StartGroup(*session, 0);
             }
+        }
+    }
+    // Stage exports retire on a worker. Re-arm the next bounded sample from
+    // Present after that exact fence has completed; no config generation or
+    // NR context rebuild is involved.
+    if (g_raw_stage_ready.exchange(false, std::memory_order_acq_rel)) {
+        bool retry = false;
+        AcquireSRWLockShared(&g_lock);
+        if (g_session != nullptr && g_session->group < kGroupCount) {
+            const Group &group = g_session->groups[g_session->group];
+            retry = group.mode != GroupMode::NativeSr &&
+                group.raw_stage_count < kFrameCount && group.stage_request == 0;
+        }
+        ReleaseSRWLockShared(&g_lock);
+        if (retry && !RequestStageCapture())
+            g_raw_stage_ready.store(true, std::memory_order_release);
+        else if (retry) {
+            AcquireSRWLockExclusive(&g_lock);
+            if (g_session != nullptr && g_session->group < kGroupCount)
+                g_session->groups[g_session->group].stage_request =
+                    g_stage_capture_request_id.load(std::memory_order_acquire);
+            ReleaseSRWLockExclusive(&g_lock);
         }
     }
     AcquireSRWLockExclusive(&g_lock);
@@ -596,7 +741,9 @@ void Present(reshade::api::effect_runtime *runtime) {
     }
     if (session->group < kGroupCount &&
         ((group.mode == GroupMode::NativeSr && group.screenshot_received) ||
-         group.sequence_complete) && now - group.started >= kCountdownMs) {
+         (group.sequence_complete && (!group.raw_stage_required ||
+            group.raw_stage_count >= kFrameCount))) &&
+        now - group.started >= kCountdownMs) {
         if (index + 1 < kGroupCount) {
             ++session->group;
             StartGroup(*session, session->group);
@@ -614,6 +761,7 @@ void Present(reshade::api::effect_runtime *runtime) {
         g_session = nullptr;
         ReleaseSRWLockExclusive(&g_lock);
         if (!QueueUserWorkItem(&Worker, session, WT_EXECUTEDEFAULT)) {
+            delete[] session->raw_planes;
             delete session;
             g_status.store(Status::Failed, std::memory_order_release);
         }

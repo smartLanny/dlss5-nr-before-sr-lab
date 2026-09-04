@@ -124,6 +124,7 @@ unsigned long long PreparedStageCaptureRequestId(
 }
 
 void RetireStaleStageCaptureLocked(NrContext &context, const NrSlot &current) {
+    if (nr_f8::KeepStageContext()) return;
     const unsigned long long request =
         g_stage_capture_request_id.load(std::memory_order_relaxed);
     if (StageCaptureStatus() != 2 || context.stage_capture_request_id != request)
@@ -154,6 +155,14 @@ void RetireStageCaptureOwnerLocked(NrSlot &slot) {
             if (&candidate != &slot) continue;
             // Do not append future frames to this capture's slot: otherwise
             // its latest fence/recording references can advance indefinitely.
+            if (nr_f8::KeepStageContext()) {
+                Log("Stage capture recorded for continuous F8 sequence: request=%llu "
+                    "instance=%llu frame=%llu; temporal context remains live for the next sample.",
+                    slot.stage_capture.info.request_id,
+                    slot.stage_capture.info.identity.instance_id,
+                    slot.stage_capture.info.identity.frame_id);
+                return;
+            }
             context.retired = true;
             Log("Stage capture recorded: request=%llu instance=%llu frame=%llu "
                 "sampled=%ux%u stride=%u; owner retired, awaiting exact fence and recording release.",
@@ -217,7 +226,7 @@ void DestroyStageCapture(NrSlot &slot) {
     ReleaseCom(slot.stage_capture.readback);
     ReleaseCom(slot.stage_capture.buffer);
     slot.stage_capture = {};
-    if (owned_request && request != 0 &&
+    if (owned_request && request != 0 && !nr_f8::KeepStageContext() &&
         request == g_stage_capture_request_id.load(std::memory_order_relaxed) &&
         StageCaptureStatus() == 2) {
         // A failed create/evaluate or discarded list must not silently consume
@@ -242,6 +251,12 @@ void DestroyStageCapture(NrSlot &slot) {
 
 void ArmStageCaptureLocked(NrContext &context, NrSlot &slot) {
     RetireStaleStageCaptureLocked(context, slot);
+    if (nr_f8::KeepStageContext() && StageCaptureStatus() == 1 &&
+        context.stage_capture_request_id !=
+            g_stage_capture_request_id.load(std::memory_order_relaxed)) {
+        context.stage_capture_request_id =
+            g_stage_capture_request_id.load(std::memory_order_relaxed);
+    }
     if (StageCaptureStatus() != 1 || slot.stage_capture.buffer != nullptr ||
         context.retired ||
         g_stage_capture_rebuild_pending.load(std::memory_order_acquire) ||
@@ -449,6 +464,8 @@ DWORD WINAPI ExportStageCapture(void *parameter) {
             CloseHandle(raw);
         }
         ok = raw_ok && ok;
+        nr_f8::StageCaptured(job->info, directory, pixels,
+            job->bytes > 16u ? job->bytes - 16u : job->bytes, ok);
         const D3D12_RANGE written_range = {0, 0};
         ID3D12Resource_Unmap(job->readback, 0, &written_range);
         ok = WriteStageCaptureMetadata(directory, job->info, ok) && ok;
