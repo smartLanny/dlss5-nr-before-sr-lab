@@ -999,6 +999,8 @@ void Present(reshade::api::effect_runtime *runtime) {
 
 void DrawControls() {
     const Status state = g_status.load(std::memory_order_acquire);
+    if (!IsActive() && state != Status::Packaging &&
+        !g_window_open.load(std::memory_order_acquire)) return;
     if (!IsActive() && state != Status::Packaging) {
         static int issue = 0;
         static int intensity = 0;
