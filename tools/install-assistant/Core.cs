@@ -97,9 +97,10 @@ public sealed class RuntimeStatus
 
 public static class SteamScanner
 {
-    public static IEnumerable<GameCandidate> Scan()
+    public static IEnumerable<GameCandidate> Scan() => Scan(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam"));
+    public static IEnumerable<GameCandidate> Scan(string steam)
     {
-        var steam = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam"); var roots = new List<string>(); var vdf = Path.Combine(steam, "steamapps", "libraryfolders.vdf");
+        var roots = new List<string>(); var vdf = Path.Combine(steam, "steamapps", "libraryfolders.vdf");
         if (File.Exists(vdf)) foreach (Match m in Regex.Matches(File.ReadAllText(vdf), "\\\"path\\\"\\s+\\\"([^\\\"]+)\\\"", RegexOptions.IgnoreCase)) roots.Add(m.Groups[1].Value.Replace("\\\\", "\\")); if (!roots.Contains(steam, StringComparer.OrdinalIgnoreCase)) roots.Add(steam);
         foreach (var root in roots.Distinct(StringComparer.OrdinalIgnoreCase)) { var apps = Path.Combine(root, "steamapps"); if (!Directory.Exists(apps)) continue; foreach (var af in Directory.EnumerateFiles(apps, "appmanifest_*.acf")) { var text = File.ReadAllText(af); var name = Regex.Match(text, "\\\"name\\\"\\s+\\\"([^\\\"]+)\\\"").Groups[1].Value; var id = Regex.Match(Path.GetFileName(af), "(\\d+)").Groups[1].Value; var dir = Regex.Match(text, "\\\"installdir\\\"\\s+\\\"([^\\\"]+)\\\"").Groups[1].Value; var folder = Path.Combine(apps, "common", dir); if (!Directory.Exists(folder)) continue; foreach (var exe in Directory.EnumerateFiles(folder, "*.exe", SearchOption.AllDirectories).Where(x => x.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase) || x.Contains("\\x64\\", StringComparison.OrdinalIgnoreCase) || Path.GetDirectoryName(x)!.Equals(folder, StringComparison.OrdinalIgnoreCase)).OrderByDescending(x => new FileInfo(x).Length).Take(8)) yield return GameInspector.Inspect(exe, id, name); } }
     }

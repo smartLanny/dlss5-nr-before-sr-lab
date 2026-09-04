@@ -4,7 +4,7 @@
    <Button Margin="2" Click="ScanSteam">扫描 Steam 游戏</Button><Button Margin="2" Click="ChooseExe">手动添加 EXE</Button><Button Margin="2" Click="ImportPackage">导入本地安装包</Button><Button Margin="2" Click="RefreshStatus">刷新运行状态</Button><Button Margin="2" Click="Recover">恢复中断事务</Button><Button Margin="2" Click="Restore">恢复最近备份</Button>
   </WrapPanel></StackPanel>
   <DataGrid x:Name="Games" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" Margin="0,10"><DataGrid.Columns><DataGridTextColumn Header="游戏" Binding="{Binding Name}" Width="2*"/><DataGridTextColumn Header="API" Binding="{Binding Api}" Width="90"/><DataGridTextColumn Header="DLSS 文件" Binding="{Binding NativeDlss}" Width="100"/><DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="220"/><DataGridTextColumn Header="路径" Binding="{Binding Directory}" Width="3*"/></DataGrid.Columns></DataGrid>
-  <WrapPanel Grid.Row="2" HorizontalAlignment="Right"><Button Margin="2" Click="Install">安装已导入包</Button><Button Margin="2" Click="Uninstall">卸载助手部署</Button><Button Margin="2" Click="Launch">启动游戏</Button></WrapPanel>
+  <WrapPanel Grid.Row="2" HorizontalAlignment="Right"><Button Margin="2" Click="Install">安装已导入包</Button><Button x:Name="CancelInstallButton" Margin="2" Click="CancelInstall" IsEnabled="False">取消安装</Button><Button Margin="2" Click="Uninstall">卸载助手部署</Button><Button Margin="2" Click="Launch">启动游戏</Button></WrapPanel>
   <TextBox x:Name="LogBox" Grid.Row="3" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0"/>
  </Grid>
 </Window>
