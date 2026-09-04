@@ -5349,13 +5349,20 @@ bool EnsureMotionProxy(ID3D12Device *device, NrSlot &slot,
         width == 0 || height == 0) return false;
     const D3D12_RESOURCE_DESC motion_desc = ID3D12Resource_GetDesc(motion);
     if ((motion_desc.Format != DXGI_FORMAT_R16G16_FLOAT &&
-         motion_desc.Format != DXGI_FORMAT_R32G32_FLOAT) ||
+         motion_desc.Format != DXGI_FORMAT_R32G32_FLOAT &&
+         motion_desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT) ||
         (motion_desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) != 0) {
-        Log("High-resolution motion conversion rejected format=%u (%s) "
-            "flags=0x%X; original SR retained.",
-            static_cast<unsigned int>(motion_desc.Format),
-            FormatName(motion_desc.Format),
-            static_cast<unsigned int>(motion_desc.Flags));
+        static unsigned int rejected_motion_sources = 0;
+        ++rejected_motion_sources;
+        if (rejected_motion_sources <= 3 ||
+            (rejected_motion_sources % 600) == 0) {
+            Log("High-resolution motion conversion rejected format=%u (%s) "
+                "flags=0x%X; original SR retained (count=%u).",
+                static_cast<unsigned int>(motion_desc.Format),
+                FormatName(motion_desc.Format),
+                static_cast<unsigned int>(motion_desc.Flags),
+                rejected_motion_sources);
+        }
         return false;
     }
     const bool mutates_descriptors =
