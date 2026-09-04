@@ -65,7 +65,7 @@ foreach ($variant in $variants) {
         [ordered]@{ path=$file.path; sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToUpperInvariant(); role=$file.role; source=$file.source; target=$file.target; required=$true; allowedExistingSha256=@() }
     }
     $manifest = [ordered]@{
-        schema='dlss5-install-manifest/v2'; id='nr-before-sr'; build='beta0.3.7-full-r3'; nativeD3D12=$true; onlineAllowed=$false
+        schema='dlss5-install-manifest/v2'; id='nr-before-sr'; build='beta0.3.7'; sourceBuild='beta0.3.7-full-r3'; nativeD3D12=$true; onlineAllowed=$false
         reshade=[ordered]@{ required=$true; addOnPathSource='ReShade.ini'; knownLoaderSha256=@(); installHint='请先安装并配置受支持的 ReShade，助手不会下载或代装 loader。' }
         verifiedNativeD3D12=[ordered]@{ verified=$true; method='beta0.3.7-full-r3-native-d3d12-validation'; api='D3D12'; evidenceDocument='docs/BETA_0_3_3_R4_VALIDATION.md' }
         compatibleProfiles=@(
