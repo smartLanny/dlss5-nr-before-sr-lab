@@ -1,7 +1,7 @@
-"""Exercise the production context lookup with fence-pending contexts.
+"""Exercise production guide/context lookup and work-raster conversion on CPU.
 
 This is a CPU regression seam, not a replacement for in-game temporal tests.
-The function and tuning declarations are extracted verbatim from the addon;
+The function and tuning declarations are extracted verbatim from the add-on;
 only device/lifetime services are stubbed (retirement remains fence-pending).
 """
 import argparse
@@ -32,6 +32,7 @@ guide_include = '#include "nr_guide_contract.h"' if has_guides else ""
 guide_fields = "NrGuideSignature guide_storage_signature{}; NrGuideHistory guide_history{};" if has_guides else ""
 guide_arg = ", guides" if has_guides else ""
 harness = r'''
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -120,7 +121,9 @@ struct FeatureRecord { int create_flags=2; };
 struct NgxParams {
     ID3D12Resource *depth=nullptr, *motion=nullptr, *output=nullptr;
     unsigned depth_x=0,depth_y=0,motion_x=0,motion_y=0,output_width=3840,output_height=2160;
-    float scale_x=-2,scale_y=4; bool has_scale_x=true,has_scale_y=true; int reset=0;
+    float scale_x=-2,scale_y=4,jitter_x=0.5f,jitter_y=-0.25f;
+    bool has_scale_x=true,has_scale_y=true,has_jitter_x=true,has_jitter_y=true;
+    int reset=0;
 };
 D3D12_RESOURCE_DESC ID3D12Resource_GetDesc(ID3D12Resource* r) { return r->desc; }
 bool GetResource(const NgxParams* p,const char* k,ID3D12Resource** out) {
@@ -136,9 +139,19 @@ bool GetUInt(const NgxParams* p,const char* k,unsigned* out) {
     return true;
 }
 bool GetFloat(const NgxParams* p,const char* k,float* out) {
-    const bool x=!std::strcmp(k,"MV.Scale.X");
-    if(x ? !p->has_scale_x : !p->has_scale_y) return false;
-    *out=x?p->scale_x:p->scale_y; return true;
+    if(!std::strcmp(k,"MV.Scale.X")) {
+        if(!p->has_scale_x) return false; *out=p->scale_x; return true;
+    }
+    if(!std::strcmp(k,"MV.Scale.Y")) {
+        if(!p->has_scale_y) return false; *out=p->scale_y; return true;
+    }
+    if(!std::strcmp(k,"Jitter.Offset.X")) {
+        if(!p->has_jitter_x) return false; *out=p->jitter_x; return true;
+    }
+    if(!std::strcmp(k,"Jitter.Offset.Y")) {
+        if(!p->has_jitter_y) return false; *out=p->jitter_y; return true;
+    }
+    return false;
 }
 bool GetInt(const NgxParams* p,const char*,int* out) { *out=p->reset; return true; }
 bool TextureContainsRegion(ID3D12Resource* r,unsigned x,unsigned y,unsigned w,unsigned h) {
@@ -152,6 +165,7 @@ bool ResolveOutputExtentFromEvaluate(const NgxParams* p,const FeatureRecord&, ID
     clear();
     guides.depth_format=40; guides.depth_physical_width=1920; guides.depth_physical_height=1080;
     guides.motion_format=34; guides.motion_physical_width=1920; guides.motion_physical_height=1080;
+    guides.color_format=10; guides.color_physical_width=1920; guides.color_physical_height=1080;
     guides.depth_width=guides.motion_source_width=guides.motion_bound_width=1920;
     guides.depth_height=guides.motion_source_height=guides.motion_bound_height=1080;
     auto* original=lookup(1,3840,2160);
@@ -174,12 +188,20 @@ bool ResolveOutputExtentFromEvaluate(const NgxParams* p,const FeatureRecord&, ID
     guides.motion_format=16;
     auto* changed_format=lookup(1,3840,2160);
     check(changed_flags->retired && changed_format!=changed_flags,"original motion format change rebuilds");
+    changed_format->guide_history.CommitOnEvaluate(guides,true);
     guides.depth_width=1280; guides.depth_height=720;
     auto* changed_guide_extent=lookup(1,3840,2160);
-    check(changed_format->retired && changed_guide_extent!=changed_format,"fixed post-SR output with DRS guides rebuilds");
+    check(changed_guide_extent==changed_format && !changed_format->retired,"DRS depth extent reuses the same Feature 18 context");
+    check(changed_guide_extent->guide_history.NeedsReset(guides),"DRS depth extent still resets temporal history");
+    changed_guide_extent->guide_history.CommitOnEvaluate(guides,true);
+    guides.depth_physical_width=2048; guides.depth_physical_height=1152;
+    auto* changed_physical=lookup(1,3840,2160);
+    check(changed_physical==changed_guide_extent,"rotating DRS allocation size does not exhaust the context pool");
+    check(changed_physical->guide_history.NeedsReset(guides),"physical guide reallocation is a history boundary");
+    changed_physical->guide_history.CommitOnEvaluate(guides,true);
     guides.resample_motion=true;
     auto* changed_mapping=lookup(1,3840,2160);
-    check(changed_guide_extent->retired && changed_mapping!=changed_guide_extent,"original/proxy binding change rebuilds");
+    check(changed_physical->retired && changed_mapping!=changed_physical,"original/proxy motion binding change rebuilds storage");
     ID3D12Resource depth{},motion{},color{},output{};
     motion.desc.Format=34;
     output.desc={3840,2160,10};
@@ -188,11 +210,17 @@ bool ResolveOutputExtentFromEvaluate(const NgxParams* p,const FeatureRecord&, ID
     NrGuideBinding resolved{};
     check(ResolveNrGuideBinding(&params,feature,2,1920,1080,1920,1080,&color,0,0,CodecColorMode::Automatic,resolved),"valid low-res guide entrance resolves");
     check((resolved.signature.normalized_create_flags&2)==0,"equal-sized pre-SR motion clears MVLowRes before lookup");
+    check(resolved.signature.motion_scale_x==-2 && resolved.signature.motion_scale_y==4,"reference raster preserves source-pixel motion units");
+    check(resolved.jitter_offset_x==0.5f && resolved.jitter_offset_y==-0.25f,"reference raster preserves source-pixel jitter");
     feature.create_flags=0; motion.desc={3840,2160,34};
     resolved={};
     check(ResolveNrGuideBinding(&params,feature,2,1920,1080,1920,1080,&color,0,0,CodecColorMode::Automatic,resolved),"full-resolution motion conversion resolves");
     check(resolved.signature.resample_motion && resolved.signature.motion_source_width==3840 && resolved.signature.motion_bound_width==1920,"motion signature retains original and converted domains");
-    check(resolved.signature.motion_scale_x==-2 && resolved.signature.motion_scale_y==4,"spatial resampling never scales vector units again");
+    check(resolved.signature.motion_scale_x==-2 && resolved.signature.motion_scale_y==4,"1:1 work raster preserves vector scale after spatial resampling");
+    NrGuideBinding reduced{};
+    check(ResolveNrGuideBinding(&params,feature,2,1440,810,1920,1080,&color,0,0,CodecColorMode::Automatic,reduced),"75-percent working raster resolves");
+    check(std::fabs(reduced.signature.motion_scale_x+1.5f)<1e-6f && std::fabs(reduced.signature.motion_scale_y-3.0f)<1e-6f,"motion scale converts render-pixel displacement into work-raster pixels");
+    check(std::fabs(reduced.jitter_offset_x-0.375f)<1e-6f && std::fabs(reduced.jitter_offset_y+0.1875f)<1e-6f,"jitter converts into the same Feature 18 source-pixel domain");
     NrGuideSignature unchanged=resolved.signature;
     ID3D12Resource rotated_motion=motion; params.motion=&rotated_motion; resolved={};
     check(ResolveNrGuideBinding(&params,feature,2,1920,1080,1920,1080,&color,0,0,CodecColorMode::Automatic,resolved) && SameNrGuideMappingContract(unchanged,resolved.signature),"rotating equivalent resource pointers do not reset history");
@@ -203,10 +231,11 @@ bool ResolveOutputExtentFromEvaluate(const NgxParams* p,const FeatureRecord&, ID
     check(!resolved.signature.resample_motion && resolved.signature.motion_bound_width==3840 && !(resolved.signature.normalized_create_flags&2),"post-SR full-res MV contract keeps original binding");
     feature.create_flags=2; motion.desc={1920,1080,34}; resolved={};
     check(ResolveNrGuideBinding(&params,feature,1,3840,2160,1920,1080,&output,0,0,CodecColorMode::Automatic,resolved) && (resolved.signature.normalized_create_flags&2),"post-SR low-res MV relationship is computed before creation");
-    params.scale_x=0; params.scale_y=NAN; resolved={};
+    params.scale_x=0; params.scale_y=NAN; params.has_jitter_x=false; params.has_jitter_y=false; resolved={};
     feature.create_flags=3;
     check(ResolveNrGuideBinding(&params,feature,2,1920,1080,1920,1080,&color,0,0,CodecColorMode::ModelEncodedValueDomain,resolved),"bounded-R8 guide contract resolves");
     check(resolved.signature.normalized_create_flags==0 && resolved.signature.motion_scale_x==1 && resolved.signature.motion_scale_y==1,"live bounded SDR normalizes HDR flag and invalid MV scales safely");
+    check(resolved.jitter_offset_x==0 && resolved.jitter_offset_y==0,"missing jitter falls back to zero");
     params.scale_x=8; params.reset=1;
     check(resolved.signature.motion_scale_x==1 && resolved.game_reset==0,"binding remains an immutable entrance snapshot across native SR");
 ''' if has_guides else "",

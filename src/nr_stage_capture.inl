@@ -220,11 +220,15 @@ void ArmStageCaptureLocked(NrContext &context, NrSlot &slot) {
             g_stage_capture_request_id.load(std::memory_order_relaxed) ||
         !CanMutateSlotLocked(slot)) return;
     NrStageCapture capture = {};
-    if (!ComputeStageCaptureGrid(context.width, context.height,
+    const unsigned int capture_source_width = slot.active_render_width != 0
+        ? slot.active_render_width : context.width;
+    const unsigned int capture_source_height = slot.active_render_height != 0
+        ? slot.active_render_height : context.height;
+    if (!ComputeStageCaptureGrid(capture_source_width, capture_source_height,
             capture.info.stride, capture.info.width, capture.info.height,
             capture.bytes)) {
         Log("Stage capture rejected unsupported source extent %ux%u.",
-            context.width, context.height);
+            capture_source_width, capture_source_height);
         g_stage_capture_last_result.store(-1, std::memory_order_relaxed);
         g_stage_capture_status.store(0, std::memory_order_release);
         return;
@@ -262,8 +266,10 @@ void ArmStageCaptureLocked(NrContext &context, NrSlot &slot) {
     }
     capture.info.request_id = g_stage_capture_request_id.load(std::memory_order_relaxed);
     capture.info.feature_generation = context.feature_generation;
-    capture.info.source_width = context.width;
-    capture.info.source_height = context.height;
+    capture.info.source_width = capture_source_width;
+    capture.info.source_height = capture_source_height;
+    capture.info.model_width = context.width;
+    capture.info.model_height = context.height;
     capture.info.source_format = static_cast<unsigned int>(slot.source_format);
     capture.info.result_format = static_cast<unsigned int>(slot.result_format);
     capture.info.mode = context.mode;
@@ -327,14 +333,16 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
     char text[4096] = {};
     const NrDiagnosticIdentity &id = info.identity;
     const int length = std::snprintf(text, sizeof(text),
-        "format=NRStageCapture-v1\nbuild=%s\ncomplete=%d\n"
+        "format=NRStageCapture-v2\nbuild=%s\ncomplete=%d\n"
         "request=%llu\ninstance=%llu\nfeatureGeneration=%llu\nframe=%llu\n"
         "configGeneration=%u\nevaluation=%u\nsinceReset=%u\nwarmedUp=%d\nmode=%d\n"
-        "sourceExtent=%ux%u\nsampledExtent=%ux%u\nstride=%u\n"
+        "sourceExtent=%ux%u\nmodelExtent=%ux%u\nsampledExtent=%ux%u\nstride=%u\n"
         "sourceBase=%u,%u\ndestinationBase=%u,%u\nsourceFormat=%u\nresultFormat=%u\n"
         "codecFlags=%u\nintensity=%.9g\nstyle=%u\nlocalTone=%.9g\n"
         "localStructure=%.9g\nskinStructure=%.9g\nautoMask=%d\nuiCorrection=%d\n"
         "proxyScale=%.9g\nproxyMapping=%s\ntransfer=%.9g\ncolorFollowEffective=%.9g\nmaxLumaRatio=%.9g\n"
+        "workMode=%d\nworkLinearScale=%.9g\nlightingLock=%.9g\nedgeGuard=%.9g\n"
+        "proxyCurve=%u\nframeConfidence=%.9g\n"
         "preExposure=%.9g\nhasPreExposure=%d\nscalarExposureScale=%.9g\nhasExposureScale=%d\n"
         "sampling=nearest grid at active-region coordinates (x*stride,y*stride)\n"
         "pixels=PFM little-endian float RGB, raw shader values; alpha omitted\n"
@@ -350,7 +358,8 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         kBuildIdentity, images_ok ? 1 : 0, info.request_id, id.instance_id,
         info.feature_generation, id.frame_id, id.config_generation, id.evaluation,
         id.since_reset, id.warmed_up ? 1 : 0, info.mode,
-        info.source_width, info.source_height, info.width, info.height, info.stride,
+        info.source_width, info.source_height, info.model_width, info.model_height,
+        info.width, info.height, info.stride,
         info.source_base_x, info.source_base_y, info.destination_base_x,
         info.destination_base_y, info.source_format, info.result_format, info.codec_flags,
         static_cast<double>(id.tuning.intensity), id.tuning.style,
@@ -359,7 +368,12 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         id.tuning.ui_correction ? 1 : 0, static_cast<double>(info.proxy_scale),
         (info.codec_flags & 256u) != 0u ? "rational-peak" : "existing",
         static_cast<double>(info.transfer_strength), static_cast<double>(info.color_strength),
-        static_cast<double>(info.max_luma_ratio), static_cast<double>(info.pre_exposure),
+        static_cast<double>(info.max_luma_ratio), info.work_mode,
+        static_cast<double>(info.work_linear_scale),
+        static_cast<double>(info.lighting_lock),
+        static_cast<double>(info.edge_guard), info.proxy_curve,
+        static_cast<double>(info.frame_confidence),
+        static_cast<double>(info.pre_exposure),
         info.has_pre_exposure ? 1 : 0, static_cast<double>(info.exposure_scale),
         info.has_exposure_scale ? 1 : 0,
         info.mode == 1 ? "represented by original stage (post-SR source/snapshot)"

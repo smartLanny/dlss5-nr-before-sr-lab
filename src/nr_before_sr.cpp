@@ -38,11 +38,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.3.3-dev-r4";
+constexpr const char *kAddonVersion = "beta0.4-perfect-chain-r4";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.3.3-dev-r4";
+constexpr const char *kBuildIdentity = "beta0.4-perfect-chain-r4";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -779,8 +779,21 @@ struct ChainConfig {
     bool enabled = false;
     int mode = 2;
     bool identity_use_original = false;
+    // V2 composition treats this as a multiplicative log-ratio exponent.
+    // 1.0 follows the model, 2.0 compounds the model ratio twice, 4.0 is
+    // deliberately strong, and 8.0 is an extreme diagnostic ceiling. HDR,
+    // finite-value and user-selected maximum-ratio guards remain authoritative.
     float transfer_strength = 0.0f;
     float post_transfer_strength = 1.0f;
+    // Independent Feature 18 working raster for Mode 2. 0 reference,
+    // 1 quality, 2 balanced, 3 performance, 4 ultra, 5 custom.
+    int work_mode = 1;
+    float custom_work_scale = 0.75f;
+    float lighting_lock = 0.20f;
+    float edge_guard = 0.25f;
+    unsigned int proxy_curve = 1; // 0 legacy, 1 hybrid, 2 reversible
+    bool allow_unverified_hdr_color = false;
+    bool suppress_reset_frame = true;
     float color_strength = 0.0f;
     float max_luma_ratio = 2.0f;
     bool preserve_lighting = false;
@@ -809,11 +822,17 @@ CRITICAL_SECTION g_chain_cs;
 std::atomic<bool> g_enabled_fast{false};
 std::atomic<ULONGLONG> g_next_config_poll_tick{0};
 std::atomic<unsigned int> g_config_generation{1};
+// Composition-only edits must not reset temporal Feature 18 history. This
+// generation changes only when the model input/guide/history contract changes.
+std::atomic<unsigned int> g_history_generation{1};
 std::atomic<bool> g_config_persistence_failed{false};
 std::atomic<unsigned long> g_config_persistence_error{ERROR_SUCCESS};
 std::atomic<unsigned long long> g_nr_successful_evaluations{0};
 std::atomic<unsigned int> g_last_nr_width{0};
 std::atomic<unsigned int> g_last_nr_height{0};
+std::atomic<unsigned int> g_last_nr_render_width{0};
+std::atomic<unsigned int> g_last_nr_render_height{0};
+std::atomic<float> g_last_nr_linear_scale{1.0f};
 std::atomic<unsigned int> g_last_dlss_input_width{0};
 std::atomic<unsigned int> g_last_dlss_input_height{0};
 std::atomic<unsigned int> g_last_dlss_output_width{0};
@@ -1040,15 +1059,29 @@ float ReadIniFloat(const wchar_t *key, float fallback) {
     return end != value ? parsed : fallback;
 }
 
+bool SameHistoryConfig(const ChainConfig &a, const ChainConfig &b) {
+    return a.enabled == b.enabled && a.mode == b.mode &&
+           a.work_mode == b.work_mode &&
+           a.custom_work_scale == b.custom_work_scale &&
+           a.proxy_scale == b.proxy_scale &&
+           a.proxy_curve == b.proxy_curve &&
+           a.depth_mode == b.depth_mode;
+}
+
 void NormalizeConfig(ChainConfig &config) {
     config.mode = config.mode == 2 ? 2 : 1;
-    config.transfer_strength = std::clamp(config.transfer_strength, 0.0f, 1.0f);
+    config.transfer_strength = std::clamp(config.transfer_strength, 0.0f, 8.0f);
     // One visible blend control owns both chains. Keeping the legacy field in
     // sync preserves compatibility with existing INI files without allowing a
     // mode switch to silently select a stale zero-strength value.
     config.post_transfer_strength = config.transfer_strength;
-    config.color_strength = std::clamp(config.color_strength, 0.0f, 1.0f);
-    config.max_luma_ratio = std::clamp(config.max_luma_ratio, 1.0f, 8.0f);
+    config.work_mode = std::clamp(config.work_mode, 0, 5);
+    config.custom_work_scale = std::clamp(config.custom_work_scale, 0.5f, 1.0f);
+    config.lighting_lock = std::clamp(config.lighting_lock, 0.0f, 1.0f);
+    config.edge_guard = std::clamp(config.edge_guard, 0.0f, 1.0f);
+    config.proxy_curve = std::min(config.proxy_curve, 2u);
+    config.color_strength = std::clamp(config.color_strength, 0.0f, 2.0f);
+    config.max_luma_ratio = std::clamp(config.max_luma_ratio, 1.0f, 16.0f);
     config.proxy_scale = std::clamp(config.proxy_scale, 0.25f, 2.0f);
     config.warmup_after_create = std::min(config.warmup_after_create, 60u);
     config.depth_mode = std::clamp(config.depth_mode, -1, 1);
@@ -1066,6 +1099,13 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.identity_use_original == b.identity_use_original &&
            a.transfer_strength == b.transfer_strength &&
            a.post_transfer_strength == b.post_transfer_strength &&
+           a.work_mode == b.work_mode &&
+           a.custom_work_scale == b.custom_work_scale &&
+           a.lighting_lock == b.lighting_lock &&
+           a.edge_guard == b.edge_guard &&
+           a.proxy_curve == b.proxy_curve &&
+           a.allow_unverified_hdr_color == b.allow_unverified_hdr_color &&
+           a.suppress_reset_frame == b.suppress_reset_frame &&
            a.color_strength == b.color_strength &&
            a.max_luma_ratio == b.max_luma_ratio &&
            a.preserve_lighting == b.preserve_lighting &&
@@ -1101,7 +1141,7 @@ void ReloadConfig(bool force = false) {
     const int config_version = GetPrivateProfileIntW(
         L"NRBeforeSR", L"ConfigVersion", 0, g_ini_path);
     next.mode = GetPrivateProfileIntW(L"NRBeforeSR", L"Mode", 2, g_ini_path);
-    if (config_version < 3) {
+    if (config_version < 4) {
         // beta0.2 shipped Mode 1 as the default.  Migrate that persisted value
         // once so installing the beta0.3 series cannot silently keep users on the
         // comparison-only full-resolution path.
@@ -1110,7 +1150,7 @@ void ReloadConfig(bool force = false) {
         const bool mode_written = WritePrivateProfileStringW(
             L"NRBeforeSR", L"Mode", L"2", g_ini_path) != FALSE;
         const bool version_written = WritePrivateProfileStringW(
-            L"NRBeforeSR", L"ConfigVersion", L"3", g_ini_path) != FALSE;
+            L"NRBeforeSR", L"ConfigVersion", L"4", g_ini_path) != FALSE;
         // Per the Win32 contract, the all-null cache-flush form returns zero
         // both when it flushes the cache and when it fails. It therefore must
         // never participate in the write-success predicate. The two concrete
@@ -1129,7 +1169,7 @@ void ReloadConfig(bool force = false) {
         static bool migration_logged = false;
         if (!migration_logged) {
             migration_logged = true;
-            Log("Migrated legacy beta0.2 configuration to beta0.3.3-dev in memory: "
+            Log("Migrated legacy configuration to beta0.4 perfect-chain in memory: "
                 "default mode is now render-resolution NR -> SR; persisted=%d.",
                 migration_persisted ? 1 : 0);
         }
@@ -1140,8 +1180,19 @@ void ReloadConfig(bool force = false) {
     const float legacy_post_transfer = ReadIniFloat(L"PostTransferStrength", 1.0f);
     next.transfer_strength = std::max(legacy_pre_transfer, legacy_post_transfer);
     next.post_transfer_strength = next.transfer_strength;
+    next.work_mode = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"WorkMode", 1, g_ini_path);
+    next.custom_work_scale = ReadIniFloat(L"CustomWorkScale", 0.75f);
+    next.lighting_lock = ReadIniFloat(L"LightingLock", 0.20f);
+    next.edge_guard = ReadIniFloat(L"EdgeGuard", 0.25f);
+    next.proxy_curve = static_cast<unsigned int>(GetPrivateProfileIntW(
+        L"NRBeforeSR", L"ProxyCurve", 1, g_ini_path));
+    next.allow_unverified_hdr_color = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"AllowUnverifiedHdrColor", 0, g_ini_path) != 0;
+    next.suppress_reset_frame = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"SuppressResetFrame", 1, g_ini_path) != 0;
     next.color_strength = ReadIniFloat(L"ColorStrength", 0.0f);
-    next.max_luma_ratio = ReadIniFloat(L"MaxLumaRatio", 2.0f);
+    next.max_luma_ratio = ReadIniFloat(L"MaxLumaRatio", 4.0f);
     next.preserve_lighting = GetPrivateProfileIntW(
         L"NRBeforeSR", L"PreserveLighting", 0, g_ini_path) != 0;
     next.proxy_scale = ReadIniFloat(L"ProxyScale", 1.0f);
@@ -1201,10 +1252,14 @@ void ReloadConfig(bool force = false) {
     }
 
     const bool changed = !SameConfig(next, g_config);
+    const bool history_changed = force || !SameHistoryConfig(next, g_config);
     g_config = next;
     g_enabled_fast.store(g_config.enabled, std::memory_order_release);
     if (changed || force) {
         g_config_generation.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (history_changed) {
+        g_history_generation.fetch_add(1, std::memory_order_relaxed);
     }
     if (changed || force) {
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
@@ -1263,12 +1318,21 @@ bool SaveConfig(const ChainConfig &config) {
         }
         ok = succeeded && ok;
     };
-    record_write(WriteIniInt(L"ConfigVersion", 3));
+    record_write(WriteIniInt(L"ConfigVersion", 4));
     record_write(WriteIniInt(L"Enabled", config.enabled ? 1 : 0));
     record_write(WriteIniInt(L"Mode", config.mode));
     record_write(WriteIniInt(L"IdentityUseOriginalColor", config.identity_use_original ? 1 : 0));
     record_write(WriteIniFloat(L"TransferStrength", config.transfer_strength));
     record_write(WriteIniFloat(L"PostTransferStrength", config.post_transfer_strength));
+    record_write(WriteIniInt(L"WorkMode", config.work_mode));
+    record_write(WriteIniFloat(L"CustomWorkScale", config.custom_work_scale));
+    record_write(WriteIniFloat(L"LightingLock", config.lighting_lock));
+    record_write(WriteIniFloat(L"EdgeGuard", config.edge_guard));
+    record_write(WriteIniInt(L"ProxyCurve", static_cast<int>(config.proxy_curve)));
+    record_write(WriteIniInt(L"AllowUnverifiedHdrColor",
+                             config.allow_unverified_hdr_color ? 1 : 0));
+    record_write(WriteIniInt(L"SuppressResetFrame",
+                             config.suppress_reset_frame ? 1 : 0));
     record_write(WriteIniFloat(L"ColorStrength", config.color_strength));
     record_write(WriteIniFloat(L"MaxLumaRatio", config.max_luma_ratio));
     record_write(WriteIniInt(L"PreserveLighting", config.preserve_lighting ? 1 : 0));
@@ -1330,6 +1394,7 @@ bool ApplyConfig(ChainConfig next, const char *source) {
         LeaveCriticalSection(&g_chain_cs);
         return false;
     }
+    const bool history_changed = !SameHistoryConfig(next, g_config);
     next.perf_epoch = g_config.perf_epoch + 1;
     g_config = next;
     g_config_read_tick = GetTickCount64();
@@ -1337,6 +1402,8 @@ bool ApplyConfig(ChainConfig next, const char *source) {
                                   std::memory_order_relaxed);
     g_enabled_fast.store(g_config.enabled, std::memory_order_release);
     g_config_generation.fetch_add(1, std::memory_order_relaxed);
+    if (history_changed)
+        g_history_generation.fetch_add(1, std::memory_order_relaxed);
     SetBypassReason(g_config.enabled
         ? BypassReason::WaitingForFeature1
         : BypassReason::MasterDisabled);
@@ -1629,6 +1696,9 @@ struct Codec {
     ID3D12RootSignature *root = nullptr;
     ID3D12PipelineState *encode = nullptr;
     ID3D12PipelineState *combine = nullptr;
+    // V2 is isolated so Mode 1 and the legacy reference path remain available.
+    ID3D12PipelineState *encode_v2 = nullptr;
+    ID3D12PipelineState *combine_v2 = nullptr;
     ID3D12PipelineState *copy = nullptr;
     ID3D12PipelineState *motion_resample = nullptr;
     UINT descriptor_size = 0;
@@ -1645,7 +1715,7 @@ constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
 constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
 constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
 constexpr UINT kCodecCaptureUavIndex = kCodecSrvCount + 4;
-constexpr UINT kCodecRootConstantCount = 18;
+constexpr UINT kCodecRootConstantCount = 26;
 
 const char kCodecShader[] = R"HLSL(
 // The HDR proxy keeps a linear mid-range and applies a luminance-preserving
@@ -1684,6 +1754,14 @@ cbuffer Constants : register(b0) {
     uint MotionSourceBaseY;
     float PreExposure;
     uint CaptureStride;
+    uint SourceWidth;
+    uint SourceHeight;
+    uint ModelWidth;
+    uint ModelHeight;
+    float LightingLock;
+    float EdgeGuard;
+    uint ProxyCurve;
+    float FrameConfidence;
 };
 
 static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
@@ -1891,6 +1969,270 @@ void RecordDiagnostics(uint2 coord, float3 original, float3 proxy,
     RecordDiagnosticStage(1u, proxy, coord);
     RecordDiagnosticStage(2u, neural, coord);
     RecordDiagnosticStage(3u, finalResult, coord);
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// beta0.4 V2: independent NR working raster + matched multiplicative residual.
+// Legacy EncodeCS/CombineCS remain intact for Mode 1 and regression comparison.
+// ---------------------------------------------------------------------------------------------
+float3 DecodeStoredForV2(float3 stored) {
+    const bool modelEncodedInput = (Passthrough & 1u) != 0u;
+    const bool linearSdrStorage = (Passthrough & 16u) != 0u;
+    const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
+    const bool pqEncodedHdr = (Passthrough & 128u) != 0u;
+    if (modelEncodedInput || linearSdrStorage)
+        return saturate(stored);
+    if (srgbSdrStorage)
+        return SRGBToLinear(saturate(stored));
+    if (pqEncodedHdr)
+        return PQToLinear(stored) *
+            (kPqToScrgbUnit * max(ProxyScale, 0.001));
+    return max(stored, 0.0.xxx) *
+        max(ProxyScale * ResolveSourceToCanonical(), 0.000001);
+}
+
+float HybridPeak(float peak) {
+    const float knee = 0.75;
+    if (peak <= knee) return peak;
+    float excess = (peak - knee) / (1.0 - knee);
+    return knee + (1.0 - knee) *
+        (excess * rsqrt(excess * excess + 1.0));
+}
+
+float3 ApplySelectedProxyCurve(float3 sceneLinear) {
+    sceneLinear = max(sceneLinear, 0.0.xxx);
+    const bool modelEncodedInput = (Passthrough & 1u) != 0u;
+    const bool linearSdrStorage = (Passthrough & 16u) != 0u;
+    const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
+    if (modelEncodedInput || linearSdrStorage || srgbSdrStorage)
+        return saturate(sceneLinear);
+
+    if (ProxyCurve == 0u) {
+        float luma = dot(sceneLinear, kLuma);
+        if (luma > 0.75) {
+            float rolled = 0.75 + 0.25 *
+                (1.0 - exp(-(luma - 0.75) / 0.25));
+            sceneLinear *= rolled / max(luma, 0.000001);
+        }
+        float peak = max(sceneLinear.r, max(sceneLinear.g, sceneLinear.b));
+        return saturate(sceneLinear * rcp(max(peak, 1.0)));
+    }
+
+    float peak = max(sceneLinear.r, max(sceneLinear.g, sceneLinear.b));
+    if (peak <= 0.000001) return sceneLinear;
+    float mapped = ProxyCurve == 1u
+        ? HybridPeak(peak)
+        : peak * rsqrt(peak * peak + 1.0);
+    return sceneLinear * (mapped / peak);
+}
+
+float3 EncodeProxyLinearV2(float3 sourceLinear) {
+    return ApplySelectedProxyCurve(sourceLinear);
+}
+
+float4 LoadSourceStoredV2(int2 local) {
+    int2 upper = int2(max(SourceWidth, 1u) - 1u,
+                      max(SourceHeight, 1u) - 1u);
+    local = clamp(local, int2(0, 0), upper);
+    return OriginalColor.Load(int3(
+        local + int2(SourceBaseX, SourceBaseY), 0));
+}
+
+float3 LoadSourceLinearV2(int2 local) {
+    return DecodeStoredForV2(LoadSourceStoredV2(local).rgb);
+}
+
+float3 LoadProxyLinearV2(int2 p) {
+    int2 upper = int2(max(ModelWidth, 1u) - 1u,
+                      max(ModelHeight, 1u) - 1u);
+    float3 stored = ProxyColor.Load(int3(clamp(p, int2(0, 0), upper), 0)).rgb;
+    return (Passthrough & 1u) != 0u ? stored : SRGBToLinear(stored);
+}
+
+float3 LoadNeuralLinearV2(int2 p) {
+    int2 upper = int2(max(ModelWidth, 1u) - 1u,
+                      max(ModelHeight, 1u) - 1u);
+    float3 stored = NeuralColor.Load(int3(clamp(p, int2(0, 0), upper), 0)).rgb;
+    return (Passthrough & 1u) != 0u ? stored : SRGBToLinear(stored);
+}
+
+bool IsFiniteModelStoredV2(float3 value) {
+    return all(value == value) && all(abs(value) <= 65504.0.xxx);
+}
+
+bool ModelNeighborhoodFiniteV2(float2 fullPixelCenter) {
+    float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
+        float2(max(Width, 1u), max(Height, 1u)) - 0.5;
+    int2 base = int2(floor(mapped));
+    int2 upper = int2(max(ModelWidth, 1u) - 1u,
+                      max(ModelHeight, 1u) - 1u);
+    int2 p00 = clamp(base, int2(0, 0), upper);
+    int2 p10 = clamp(base + int2(1, 0), int2(0, 0), upper);
+    int2 p01 = clamp(base + int2(0, 1), int2(0, 0), upper);
+    int2 p11 = clamp(base + int2(1, 1), int2(0, 0), upper);
+    return
+        IsFiniteModelStoredV2(ProxyColor.Load(int3(p00, 0)).rgb) &&
+        IsFiniteModelStoredV2(ProxyColor.Load(int3(p10, 0)).rgb) &&
+        IsFiniteModelStoredV2(ProxyColor.Load(int3(p01, 0)).rgb) &&
+        IsFiniteModelStoredV2(ProxyColor.Load(int3(p11, 0)).rgb) &&
+        IsFiniteModelStoredV2(NeuralColor.Load(int3(p00, 0)).rgb) &&
+        IsFiniteModelStoredV2(NeuralColor.Load(int3(p10, 0)).rgb) &&
+        IsFiniteModelStoredV2(NeuralColor.Load(int3(p01, 0)).rgb) &&
+        IsFiniteModelStoredV2(NeuralColor.Load(int3(p11, 0)).rgb);
+}
+
+float3 SampleProxyLinearV2(float2 fullPixelCenter) {
+    float2 p = fullPixelCenter * float2(ModelWidth, ModelHeight) /
+        float2(max(Width, 1u), max(Height, 1u)) - 0.5;
+    int2 base = int2(floor(p));
+    float2 f = frac(p);
+    float3 a = lerp(LoadProxyLinearV2(base),
+                    LoadProxyLinearV2(base + int2(1, 0)), f.x);
+    float3 b = lerp(LoadProxyLinearV2(base + int2(0, 1)),
+                    LoadProxyLinearV2(base + int2(1, 1)), f.x);
+    return lerp(a, b, f.y);
+}
+
+float3 SampleNeuralLinearV2(float2 fullPixelCenter) {
+    float2 p = fullPixelCenter * float2(ModelWidth, ModelHeight) /
+        float2(max(Width, 1u), max(Height, 1u)) - 0.5;
+    int2 base = int2(floor(p));
+    float2 f = frac(p);
+    float3 a = lerp(LoadNeuralLinearV2(base),
+                    LoadNeuralLinearV2(base + int2(1, 0)), f.x);
+    float3 b = lerp(LoadNeuralLinearV2(base + int2(0, 1)),
+                    LoadNeuralLinearV2(base + int2(1, 1)), f.x);
+    return lerp(a, b, f.y);
+}
+
+float3 SampleProxyStoredV2(float2 fullPixelCenter) {
+    float3 linearValue = SampleProxyLinearV2(fullPixelCenter);
+    return (Passthrough & 1u) != 0u ? linearValue : LinearToSRGB(linearValue);
+}
+
+float3 SampleNeuralStoredV2(float2 fullPixelCenter) {
+    float3 linearValue = SampleNeuralLinearV2(fullPixelCenter);
+    return (Passthrough & 1u) != 0u ? linearValue : LinearToSRGB(linearValue);
+}
+
+float ModelLumaRatioV2(float2 fullPixelCenter) {
+    float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
+        float2(max(Width, 1u), max(Height, 1u)) - 0.5;
+    int2 pxy = int2(round(mapped));
+    float p = max(dot(LoadProxyLinearV2(pxy), kLuma), 1.0 / 4096.0);
+    float n = max(dot(LoadNeuralLinearV2(pxy), kLuma), 1.0 / 4096.0);
+    return clamp(n / p, 1.0 / 256.0, 256.0);
+}
+
+float3 CompressNegativeTowardNeutral(float3 color) {
+    if (all(color >= 0.0.xxx)) return color;
+    float y = max(dot(color, kLuma), 0.0);
+    float3 neutral = y.xxx;
+    float scale = 1.0;
+    if (color.r < 0.0 && neutral.r > color.r)
+        scale = min(scale, neutral.r / max(neutral.r - color.r, 0.000001));
+    if (color.g < 0.0 && neutral.g > color.g)
+        scale = min(scale, neutral.g / max(neutral.g - color.g, 0.000001));
+    if (color.b < 0.0 && neutral.b > color.b)
+        scale = min(scale, neutral.b / max(neutral.b - color.b, 0.000001));
+    return neutral + (color - neutral) * saturate(scale);
+}
+
+// Bounded SDR cannot retain values outside [0,1]. A per-channel saturate would
+// change hue precisely when 2x-8x colour strength is most likely to leave the
+// display cube. Move the colour toward the equal-luminance neutral axis by one
+// scalar instead. HDR/PQ paths keep their positive headroom and use only the
+// negative-side guard above.
+float3 CompressBoundedTowardNeutral(float3 color) {
+    if (!all(color == color)) return 0.0.xxx;
+    float y = dot(color, kLuma);
+    if (!(y > 0.0)) return 0.0.xxx;
+    if (y > 1.0) {
+        color *= rcp(y);
+        y = 1.0;
+    }
+    float3 neutral = y.xxx;
+    float scale = 1.0;
+    if (color.r < 0.0 && neutral.r > color.r)
+        scale = min(scale, neutral.r / max(neutral.r - color.r, 0.000001));
+    if (color.g < 0.0 && neutral.g > color.g)
+        scale = min(scale, neutral.g / max(neutral.g - color.g, 0.000001));
+    if (color.b < 0.0 && neutral.b > color.b)
+        scale = min(scale, neutral.b / max(neutral.b - color.b, 0.000001));
+    if (color.r > 1.0 && color.r > neutral.r)
+        scale = min(scale, (1.0 - neutral.r) / max(color.r - neutral.r, 0.000001));
+    if (color.g > 1.0 && color.g > neutral.g)
+        scale = min(scale, (1.0 - neutral.g) / max(color.g - neutral.g, 0.000001));
+    if (color.b > 1.0 && color.b > neutral.b)
+        scale = min(scale, (1.0 - neutral.b) / max(color.b - neutral.b, 0.000001));
+    return saturate(neutral + (color - neutral) * saturate(scale));
+}
+
+float3 EncodeCompositionToStoredV2(float3 value) {
+    const bool modelEncodedInput = (Passthrough & 1u) != 0u;
+    const bool linearSdrStorage = (Passthrough & 16u) != 0u;
+    const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
+    const bool pqEncodedHdr = (Passthrough & 128u) != 0u;
+    if (modelEncodedInput || linearSdrStorage)
+        return saturate(value);
+    if (srgbSdrStorage)
+        return LinearToSRGB(saturate(value));
+    if (pqEncodedHdr)
+        return LinearToPQ(max(value, 0.0.xxx) /
+            max(kPqToScrgbUnit * max(ProxyScale, 0.001), 0.000001));
+    return clamp(value /
+        max(ProxyScale * ResolveSourceToCanonical(), 0.000001),
+        -65504.0.xxx, 65504.0.xxx);
+}
+
+[numthreads(8, 8, 1)]
+void EncodeV2CS(uint3 tid : SV_DispatchThreadID) {
+    if (tid.x >= Width || tid.y >= Height ||
+        SourceWidth == 0u || SourceHeight == 0u) return;
+
+    // ModelEncodedValueDomain deliberately preserves the live bounded R8
+    // numbers without guessing a gamma curve. At 1:1, encoded contracts stay
+    // byte-for-byte equivalent; scaled R8 is area-filtered in that same value
+    // domain instead of being accidentally encoded a second time.
+    const bool modelValueDomain = (Passthrough & 1u) != 0u;
+    const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
+    const bool encodedStorage = modelValueDomain || srgbSdrStorage;
+    if (SourceWidth == Width && SourceHeight == Height && encodedStorage) {
+        float4 exact = LoadSourceStoredV2(int2(tid.xy));
+        ProxyOut[tid.xy] = float4(exact.rgb, 1.0);
+        return;
+    }
+
+    float2 sourceStart = float2(tid.xy) *
+        float2(SourceWidth, SourceHeight) / float2(Width, Height);
+    float2 sourceEnd = float2(tid.xy + 1u) *
+        float2(SourceWidth, SourceHeight) / float2(Width, Height);
+    int2 first = int2(floor(sourceStart));
+    int2 last = int2(ceil(sourceEnd));
+    float3 total = 0.0.xxx;
+    float totalWeight = 0.0;
+    [loop]
+    for (int y = first.y; y < last.y; ++y) {
+        float wy = max(0.0, min(sourceEnd.y, float(y + 1)) -
+                            max(sourceStart.y, float(y)));
+        [loop]
+        for (int x = first.x; x < last.x; ++x) {
+            float wx = max(0.0, min(sourceEnd.x, float(x + 1)) -
+                                max(sourceStart.x, float(x)));
+            float w = wx * wy;
+            float3 sampleValue = modelValueDomain
+                ? saturate(LoadSourceStoredV2(int2(x, y)).rgb)
+                : LoadSourceLinearV2(int2(x, y));
+            total += sampleValue * w;
+            totalWeight += w;
+        }
+    }
+    float3 filteredValue = total / max(totalWeight, 0.000001);
+    float3 proxyValue = EncodeProxyLinearV2(filteredValue);
+    float3 storedProxy = modelValueDomain
+        ? saturate(proxyValue) : LinearToSRGB(proxyValue);
+    ProxyOut[tid.xy] = float4(storedProxy, 1.0);
 }
 
 [numthreads(8, 8, 1)]
@@ -2133,6 +2475,165 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
                       diagnosticDelta, finalRelativeDelta, false);
 }
 
+
+void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result) {
+    ResultOut[destinationCoord] = result;
+    if (CaptureStride == 0u ||
+        (coord.x & (CaptureStride - 1u)) != 0u ||
+        (coord.y & (CaptureStride - 1u)) != 0u) return;
+    uint captureWidth = (Width + CaptureStride - 1u) / CaptureStride;
+    uint captureHeight = (Height + CaptureStride - 1u) / CaptureStride;
+    uint planeBytes = captureWidth * captureHeight * 16u;
+    uint offset = ((coord.y / CaptureStride) * captureWidth +
+                   coord.x / CaptureStride) * 16u;
+    StageCapture.Store4(offset,
+        asuint(LoadSourceStoredV2(int2(coord))));
+    StageCapture.Store4(planeBytes + offset,
+        asuint(float4(SampleProxyStoredV2(float2(coord) + 0.5), 1.0)));
+    StageCapture.Store4(planeBytes * 2u + offset,
+        asuint(float4(SampleNeuralStoredV2(float2(coord) + 0.5), 1.0)));
+    StageCapture.Store4(planeBytes * 3u + offset, asuint(result));
+}
+
+[numthreads(8, 8, 1)]
+void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
+    if (tid.x >= Width || tid.y >= Height ||
+        ModelWidth == 0u || ModelHeight == 0u) return;
+    uint2 destinationCoord = tid.xy +
+        uint2(DestinationBaseX, DestinationBaseY);
+    float4 storedOriginal = LoadSourceStoredV2(int2(tid.xy));
+    float3 source = DecodeStoredForV2(storedOriginal.rgb);
+    float2 center = float2(tid.xy) + 0.5;
+    float3 proxy = SampleProxyLinearV2(center);
+    float3 neural = SampleNeuralLinearV2(center);
+    float3 fullProxy = EncodeProxyLinearV2(source);
+
+    bool finiteInputs = ModelNeighborhoodFiniteV2(center) &&
+        all(storedOriginal.rgb == storedOriginal.rgb) &&
+        all(source == source) && all(proxy == proxy) && all(neural == neural) &&
+        all(abs(source) <= 65504.0.xxx) && all(abs(proxy) <= 65504.0.xxx) &&
+        all(abs(neural) <= 65504.0.xxx);
+    float3 diagnosticOriginal = SourceToDiagnosticLinear(storedOriginal.rgb);
+    float3 diagnosticProxy = proxy;
+    float3 diagnosticNeural = neural;
+    float diagnosticDelta = max(abs(neural.r - proxy.r),
+        max(abs(neural.g - proxy.g), abs(neural.b - proxy.b)));
+    if (!finiteInputs || TransferStrength <= 0.000001 ||
+        FrameConfidence <= 0.000001 || diagnosticDelta <= 0.000001) {
+        WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
+        RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+            diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0,
+            !finiteInputs);
+        return;
+    }
+
+    float sourceLuma = max(dot(source, kLuma), 0.0);
+    float proxyLuma = max(dot(proxy, kLuma), 1.0 / 4096.0);
+    float neuralLuma = max(dot(neural, kLuma), 1.0 / 4096.0);
+    float fullProxyLuma = max(dot(fullProxy, kLuma), 1.0 / 4096.0);
+    float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
+
+    // Remove only the low-frequency component of model luminance drift. The
+    // centre plus four cross taps avoids the old 3x3 edge-heavy correction and
+    // keeps this branch completely free when LightingLock is zero.
+    if (LightingLock > 0.000001) {
+        const float radius = 8.0;
+        // The centre ratio is already available. Average four sparse
+        // neighbours in linear-ratio space, then take one logarithm. This
+        // preserves the broad-drift estimate while avoiding five extra
+        // log2 operations and a redundant centre texture pair per pixel.
+        float localRatio = 0.40 * (neuralLuma / proxyLuma);
+        localRatio += 0.15 * ModelLumaRatioV2(center + float2(radius, 0.0));
+        localRatio += 0.15 * ModelLumaRatioV2(center - float2(radius, 0.0));
+        localRatio += 0.15 * ModelLumaRatioV2(center + float2(0.0, radius));
+        localRatio += 0.15 * ModelLumaRatioV2(center - float2(0.0, radius));
+        float localMean = clamp(log2(max(localRatio, 1.0 / 256.0)),
+                                -8.0, 8.0);
+        logRatio = lerp(logRatio, logRatio - localMean,
+                        saturate(LightingLock));
+    }
+
+    float nearBlack = smoothstep(1.0 / 65536.0, 1.0 / 1024.0,
+                                 sourceLuma);
+    float edgeConfidence = 1.0;
+    if (EdgeGuard > 0.000001) {
+        int2 p = int2(tid.xy);
+        // Two forward taps are enough for a conservative edge guard and
+        // halve full-resolution source loads versus the old four-tap
+        // central difference. Boundary loads are clamped by the helper.
+        float r = dot(LoadSourceLinearV2(p + int2(1, 0)), kLuma);
+        float d = dot(LoadSourceLinearV2(p + int2(0, 1)), kLuma);
+        float gradient = max(abs(r - sourceLuma),
+                             abs(d - sourceLuma)) /
+            max(sourceLuma, 0.02);
+        float edge = smoothstep(0.10, 1.50, gradient);
+        edgeConfidence = lerp(1.0, 1.0 - edge, saturate(EdgeGuard));
+    }
+    float confidence = saturate(FrameConfidence) * nearBlack * edgeConfidence;
+    float maxRatio = max(MaxLumaRatio, 1.0);
+    float logLimit = log2(maxRatio);
+    float poweredLog = clamp(logRatio * TransferStrength * confidence,
+                             -logLimit, logLimit);
+    float modelProxyTargetLuma = fullProxyLuma * exp2(poweredLog);
+
+    // Preserve HDR energy above the bounded model proxy instead of multiplying
+    // the entire highlight by a potentially noisy ratio. In midtones/shadows,
+    // preserve the source/proxy relationship multiplicatively.
+    float targetLuma = sourceLuma > fullProxyLuma
+        ? modelProxyTargetLuma + (sourceLuma - fullProxyLuma)
+        : modelProxyTargetLuma * sourceLuma / fullProxyLuma;
+    if (sourceLuma > 1.0 / 65536.0)
+        targetLuma = clamp(targetLuma, sourceLuma / maxRatio,
+                          sourceLuma * maxRatio);
+    else
+        targetLuma = sourceLuma;
+    float3 lumaOnly = sourceLuma > 1.0 / 65536.0
+        ? source * (targetLuma / sourceLuma) : source;
+
+    float3 result = lumaOnly;
+    if (ColorStrength > 0.000001) {
+        float3 logRgbRatio = log2(
+            max(neural, (1.0 / 4096.0).xxx) /
+            max(proxy, (1.0 / 4096.0).xxx));
+        float3 chromaLog = clamp(logRgbRatio - logRatio.xxx,
+                                 -logLimit.xxx, logLimit.xxx);
+        float3 poweredChromaLog = clamp(chromaLog *
+            (TransferStrength * ColorStrength * confidence),
+            -logLimit.xxx, logLimit.xxx);
+        float3 chromaGain = exp2(poweredChromaLog);
+        float3 coloured = max(source, 0.0.xxx) * chromaGain;
+        float colouredLuma = dot(coloured, kLuma);
+        if (colouredLuma > 1.0 / 65536.0)
+            coloured *= targetLuma / colouredLuma;
+        else
+            coloured = lumaOnly;
+        result = coloured;
+    }
+    const bool boundedSdrStorage =
+        (Passthrough & (1u | 16u | 32u)) != 0u;
+    result = boundedSdrStorage
+        ? CompressBoundedTowardNeutral(result)
+        : CompressNegativeTowardNeutral(result);
+
+    float3 storedResult = EncodeCompositionToStoredV2(result);
+    if (!all(storedResult == storedResult) ||
+        any(abs(storedResult) > 65504.0.xxx)) {
+        storedResult = storedOriginal.rgb;
+        result = source;
+    }
+    WriteCombinedV2(tid.xy, destinationCoord,
+                    float4(storedResult, storedOriginal.a));
+    float originalMagnitude = max(
+        max(abs(source.r), max(abs(source.g), abs(source.b))),
+        1.0 / 1024.0);
+    float finalRelativeDelta = max(abs(result.r - source.r),
+        max(abs(result.g - source.g), abs(result.b - source.b))) /
+        originalMagnitude;
+    RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+        diagnosticNeural, SourceToDiagnosticLinear(storedResult),
+        diagnosticDelta, finalRelativeDelta, false);
+}
+
 [numthreads(8, 8, 1)]
 void CopyCS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height) return;
@@ -2240,12 +2741,16 @@ bool EnsureCodec(ID3D12Device *device) {
 
     ID3DBlob *encode = CompileCodecShader("EncodeCS");
     ID3DBlob *combine = CompileCodecShader("CombineCS");
+    ID3DBlob *encode_v2 = CompileCodecShader("EncodeV2CS");
+    ID3DBlob *combine_v2 = CompileCodecShader("CombineV2CS");
     ID3DBlob *copy = CompileCodecShader("CopyCS");
     ID3DBlob *motion_resample = CompileCodecShader("ResampleMotionCS");
-    if (encode == nullptr || combine == nullptr || copy == nullptr ||
-        motion_resample == nullptr) {
+    if (encode == nullptr || combine == nullptr || encode_v2 == nullptr ||
+        combine_v2 == nullptr || copy == nullptr || motion_resample == nullptr) {
         ReleaseCom(encode);
         ReleaseCom(combine);
+        ReleaseCom(encode_v2);
+        ReleaseCom(combine_v2);
         ReleaseCom(copy);
         ReleaseCom(motion_resample);
         g_codec.failed = true;
@@ -2267,6 +2772,20 @@ bool EnsureCodec(ID3D12Device *device) {
             reinterpret_cast<void **>(&g_codec.combine));
     }
     if (SUCCEEDED(hr)) {
+        pipeline.CS.pShaderBytecode = encode_v2->lpVtbl->GetBufferPointer(encode_v2);
+        pipeline.CS.BytecodeLength = encode_v2->lpVtbl->GetBufferSize(encode_v2);
+        hr = ID3D12Device_CreateComputePipelineState(
+            device, &pipeline, IID_ID3D12PipelineState,
+            reinterpret_cast<void **>(&g_codec.encode_v2));
+    }
+    if (SUCCEEDED(hr)) {
+        pipeline.CS.pShaderBytecode = combine_v2->lpVtbl->GetBufferPointer(combine_v2);
+        pipeline.CS.BytecodeLength = combine_v2->lpVtbl->GetBufferSize(combine_v2);
+        hr = ID3D12Device_CreateComputePipelineState(
+            device, &pipeline, IID_ID3D12PipelineState,
+            reinterpret_cast<void **>(&g_codec.combine_v2));
+    }
+    if (SUCCEEDED(hr)) {
         pipeline.CS.pShaderBytecode = copy->lpVtbl->GetBufferPointer(copy);
         pipeline.CS.BytecodeLength = copy->lpVtbl->GetBufferSize(copy);
         hr = ID3D12Device_CreateComputePipelineState(
@@ -2284,6 +2803,8 @@ bool EnsureCodec(ID3D12Device *device) {
     }
     ReleaseCom(encode);
     ReleaseCom(combine);
+    ReleaseCom(encode_v2);
+    ReleaseCom(combine_v2);
     ReleaseCom(copy);
     ReleaseCom(motion_resample);
     if (FAILED(hr)) {
@@ -2359,6 +2880,8 @@ struct NrStageCaptureInfo {
     unsigned int stride = 0;
     unsigned int source_width = 0;
     unsigned int source_height = 0;
+    unsigned int model_width = 0;
+    unsigned int model_height = 0;
     unsigned int source_base_x = 0;
     unsigned int source_base_y = 0;
     unsigned int destination_base_x = 0;
@@ -2370,6 +2893,12 @@ struct NrStageCaptureInfo {
     float transfer_strength = 1.0f;
     float color_strength = 0.0f;
     float max_luma_ratio = 1.0f;
+    int work_mode = 0;
+    float work_linear_scale = 1.0f;
+    float lighting_lock = 0.0f;
+    float edge_guard = 0.0f;
+    unsigned int proxy_curve = 0;
+    float frame_confidence = 1.0f;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;
     bool has_pre_exposure = false;
@@ -2435,6 +2964,9 @@ struct NrSlot {
     float diagnostic_color_strength = 0.0f;
     bool diagnostic_preserve_lighting = false;
     bool diagnostic_has_exposure_texture = false;
+    unsigned int active_render_width = 0;
+    unsigned int active_render_height = 0;
+    bool suppress_transfer_this_frame = false;
     NrDiagnosticIdentity diagnostic_identity = {};
 };
 
@@ -2481,6 +3013,7 @@ struct NrContext {
     unsigned int height = 0;
     unsigned int evaluations = 0;
     unsigned int config_generation = 0;
+    unsigned int history_generation = 0;
     CodecColorMode codec_color_mode = CodecColorMode::Automatic;
     bool codec_color_mode_initialized = false;
     bool codec_peak_shoulder = false;
@@ -4432,8 +4965,9 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     }
     if (!CreateTexture(device, width, height, L"NRChain.Proxy", &slot.proxy) ||
         !CreateTexture(device, width, height, L"NRChain.NeuralOutput", &slot.neural) ||
-        (!post_sr && !CreateTexture(device, width, height, L"NRChain.Result",
-                                    &slot.result)) ||
+        (!post_sr && !CreateTexture(
+            device, static_cast<unsigned int>(external_desc.Width),
+            external_desc.Height, L"NRChain.Result", &slot.result)) ||
         !CreateDeltaStatsBuffers(device, slot)) {
         DestroySlot(slot);
         return false;
@@ -4706,8 +5240,37 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
          pre_sr_color_mode == CodecColorMode::PqEncodedHdr) ||
         (external_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
          pre_sr_color_mode == CodecColorMode::ModelEncodedValueDomain);
-    if (slot.owns_source || !slot.owns_result || !pre_source_supported)
+    if (slot.owns_source || !slot.owns_result || !pre_source_supported ||
+        slot.result == nullptr)
         return false;
+
+    // A stable Feature 18 working bucket can outlive many physically different
+    // SceneColor allocations. When all rotating slots are occupied and one is
+    // recycled, its full-render Result surface must follow the new allocation;
+    // retaining the previous dimensions can truncate a larger active region or
+    // hand native SR a replacement Color texture with the wrong physical extent.
+    // CanMutateSlotLocked above proves the old Result is no longer referenced.
+    const D3D12_RESOURCE_DESC previous_result_desc =
+        ID3D12Resource_GetDesc(slot.result);
+    const bool result_extent_changed =
+        previous_result_desc.Width != external_desc.Width ||
+        previous_result_desc.Height != external_desc.Height;
+    ID3D12Resource *replacement_result = nullptr;
+    if (result_extent_changed) {
+        if (external_desc.Width > UINT_MAX ||
+            !CreateTexture(device,
+                           static_cast<unsigned int>(external_desc.Width),
+                           external_desc.Height, L"NRChain.Result",
+                           &replacement_result)) {
+            Log("Rotating pre-SR slot could not rebuild Result for a physical "
+                "extent change %llux%u -> %llux%u; native SR retained.",
+                static_cast<unsigned long long>(previous_result_desc.Width),
+                previous_result_desc.Height,
+                static_cast<unsigned long long>(external_desc.Width),
+                external_desc.Height);
+            return false;
+        }
+    }
 
     ID3D12Resource_AddRef(external);
     ReleaseCom(slot.source);
@@ -4724,6 +5287,26 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = 1;
     ID3D12Device_CreateShaderResourceView(device, slot.source, &srv, cpu);
+
+    if (replacement_result != nullptr) {
+        ReleaseCom(slot.result);
+        slot.result = replacement_result;
+        slot.result_state = D3D12_RESOURCE_STATE_COMMON;
+        D3D12_CPU_DESCRIPTOR_HANDLE result_cpu =
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
+        result_cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) *
+                          kCodecResultUavIndex;
+        D3D12_UNORDERED_ACCESS_VIEW_DESC result_uav = {};
+        result_uav.Format = slot.result_uav_format;
+        result_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        ID3D12Device_CreateUnorderedAccessView(
+            device, slot.result, nullptr, &result_uav, result_cpu);
+        Log("Rebuilt rotating pre-SR Result surface: %llux%u -> %llux%u.",
+            static_cast<unsigned long long>(previous_result_desc.Width),
+            previous_result_desc.Height,
+            static_cast<unsigned long long>(external_desc.Width),
+            external_desc.Height);
+    }
     RebindExposureSource(device, exposure, slot);
     slot.last_submission_queue = nullptr;
     slot.completion_fence_value = 0;
@@ -4815,7 +5398,17 @@ void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
                                 const ColorContract &color_contract) {
     CollectSlotDeltaStatsLocked(context, slot);
     ArmStageCaptureLocked(context, slot);
-    if (!slot.delta_stats_pending && slot.delta_stats != nullptr &&
+    // The diagnostic UAV clear, atomics, copy and readback are valuable
+    // evidence but should not tax every rendered frame. Sample the first
+    // successful frames, every committed configuration change, and then
+    // one periodic checkpoint. One-shot stage capture remains immediate.
+    const unsigned int current_generation =
+        g_config_generation.load(std::memory_order_relaxed);
+    const bool should_sample_delta = context.evaluations < 3 ||
+        context.config_generation != current_generation ||
+        (context.evaluations % 120) == 0;
+    if (should_sample_delta && !slot.delta_stats_pending &&
+        slot.delta_stats != nullptr &&
         slot.delta_stats_readback != nullptr) {
         slot.delta_stats_capture_armed = true;
         slot.diagnostic_mode = context.mode;
@@ -4826,7 +5419,9 @@ void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
         slot.diagnostic_pre_exposure = color_contract.pre_exposure;
         slot.diagnostic_transfer_strength = ActiveTransferStrength(g_config);
         slot.diagnostic_color_strength = g_config.color_strength;
-        slot.diagnostic_preserve_lighting = g_config.preserve_lighting;
+        slot.diagnostic_preserve_lighting = context.mode == 2
+            ? g_config.lighting_lock > 0.000001f
+            : g_config.preserve_lighting;
         slot.diagnostic_has_exposure_texture =
             color_contract.exposure_texture != nullptr;
     }
@@ -4871,6 +5466,14 @@ struct CodecConstants {
     unsigned int motion_source_base_y;
     float pre_exposure;
     unsigned int capture_stride;
+    unsigned int source_width;
+    unsigned int source_height;
+    unsigned int model_width;
+    unsigned int model_height;
+    float lighting_lock;
+    float edge_guard;
+    unsigned int proxy_curve;
+    float frame_confidence;
 };
 static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * sizeof(UINT));
 
@@ -4881,18 +5484,25 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    unsigned int source_base_y = 0,
                    unsigned int destination_base_x = 0,
                    unsigned int destination_base_y = 0,
-                   CodecColorMode color_mode = CodecColorMode::Automatic) {
+                   CodecColorMode color_mode = CodecColorMode::Automatic,
+                   unsigned int source_width = 0,
+                   unsigned int source_height = 0,
+                   unsigned int model_width = 0,
+                   unsigned int model_height = 0,
+                   float frame_confidence = 1.0f) {
     ID3D12DescriptorHeap *heaps[] = {slot.heap};
     ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, heaps);
     ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, g_codec.root);
     const D3D12_GPU_DESCRIPTOR_HANDLE gpu =
         ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.heap);
     ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu);
-    const bool capture_delta = pipeline == g_codec.combine &&
+    const bool v2_combine = pipeline == g_codec.combine_v2;
+    const bool any_combine = pipeline == g_codec.combine || v2_combine;
+    const bool capture_delta = any_combine &&
         slot.delta_stats_capture_armed && !slot.delta_stats_pending &&
         slot.delta_stats != nullptr && slot.delta_stats_readback != nullptr &&
         slot.stats_clear_heap != nullptr;
-    const bool capture_stages = pipeline == g_codec.combine &&
+    const bool capture_stages = any_combine &&
         CanRecordStageCapture(slot.stage_capture);
     if (capture_stages) {
         Transition(command_list, slot.stage_capture.buffer, slot.stage_capture.state,
@@ -4941,7 +5551,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     const bool unverified_hdr_color = hdr_input &&
         (color_mode == CodecColorMode::Automatic ||
          color_mode == CodecColorMode::PqEncodedHdr) &&
-        !verified_post_sr_fp16_color;
+        !verified_post_sr_fp16_color &&
+        !g_config.allow_unverified_hdr_color;
     const float effective_color_strength = unverified_hdr_color
         ? 0.0f : g_config.color_strength;
     if (capture_delta)
@@ -4955,15 +5566,38 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.destination_base_x = destination_base_x;
         info.destination_base_y = destination_base_y;
         info.codec_flags = codec_flags;
+        info.model_width = model_width != 0 ? model_width : width;
+        info.model_height = model_height != 0 ? model_height : height;
         info.proxy_scale = g_config.proxy_scale;
         info.transfer_strength = ActiveTransferStrength(g_config);
         info.color_strength = effective_color_strength;
         info.max_luma_ratio = g_config.max_luma_ratio;
+        info.work_mode = g_config.work_mode;
+        const unsigned int capture_model_width =
+            model_width != 0 ? model_width : width;
+        const unsigned int capture_model_height =
+            model_height != 0 ? model_height : height;
+        info.work_linear_scale = std::min(
+            static_cast<float>(capture_model_width) / std::max(width, 1u),
+            static_cast<float>(capture_model_height) / std::max(height, 1u));
+        info.lighting_lock = v2_combine ? g_config.lighting_lock :
+            (g_config.preserve_lighting ? 1.0f : 0.0f);
+        info.edge_guard = v2_combine ? g_config.edge_guard : 0.0f;
+        info.proxy_curve = g_config.proxy_curve;
+        info.frame_confidence = std::clamp(frame_confidence, 0.0f, 1.0f);
         info.pre_exposure = color_contract.pre_exposure;
         info.exposure_scale = color_contract.exposure_scale;
         info.has_pre_exposure = color_contract.has_pre_exposure;
         info.has_exposure_scale = color_contract.has_exposure_scale;
     }
+    const unsigned int resolved_source_width = source_width != 0
+        ? source_width : width;
+    const unsigned int resolved_source_height = source_height != 0
+        ? source_height : height;
+    const unsigned int resolved_model_width = model_width != 0
+        ? model_width : width;
+    const unsigned int resolved_model_height = model_height != 0
+        ? model_height : height;
     const CodecConstants constants = {
         width, height, g_config.proxy_scale, ActiveTransferStrength(g_config),
         color_contract.source_to_canonical, effective_color_strength,
@@ -4971,7 +5605,12 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         source_base_x, source_base_y,
         destination_base_x, destination_base_y,
         0, 0, 0, 0, color_contract.pre_exposure,
-        capture_stages ? slot.stage_capture.info.stride : 0u};
+        capture_stages ? slot.stage_capture.info.stride : 0u,
+        resolved_source_width, resolved_source_height,
+        resolved_model_width, resolved_model_height,
+        v2_combine ? g_config.lighting_lock : 0.0f,
+        v2_combine ? g_config.edge_guard : 0.0f,
+        g_config.proxy_curve, std::clamp(frame_confidence, 0.0f, 1.0f)};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
@@ -5016,7 +5655,8 @@ void DispatchMotionResample(ID3D12GraphicsCommandList *command_list,
     const CodecConstants constants = {
         width, height, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0,
         0, 0, 0, 0,
-        source_width, source_height, source_base_x, source_base_y, 1.0f, 0};
+        source_width, source_height, source_base_x, source_base_y, 1.0f, 0,
+        width, height, width, height, 0.0f, 0.0f, 0u, 1.0f};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(
@@ -5229,6 +5869,156 @@ bool ResolveOutputExtentFromEvaluate(const NgxParams *params,
     return false;
 }
 
+
+struct NrWorkExtent {
+    unsigned int render_width = 0;
+    unsigned int render_height = 0;
+    unsigned int work_width = 0;
+    unsigned int work_height = 0;
+    unsigned int output_width = 0;
+    unsigned int output_height = 0;
+    float linear_scale = 1.0f;
+    bool scaled = false;
+};
+
+const char *NrWorkModeName(int mode) {
+    switch (mode) {
+    case 0: return "Reference";
+    case 1: return "Quality";
+    case 2: return "Balanced";
+    case 3: return "Performance";
+    case 4: return "Ultra";
+    case 5: return "Custom";
+    default: return "Unknown";
+    }
+}
+
+unsigned int AlignWorkExtent(unsigned int value, unsigned int alignment,
+                             unsigned int ceiling) {
+    if (ceiling == 0) return 0;
+    value = std::min(value, ceiling);
+    if (value < alignment) return value;
+    unsigned int aligned = value - value % alignment;
+    return aligned != 0 ? aligned : std::min(value, alignment);
+}
+
+void SelectAlignedWorkExtent(unsigned int desired_width,
+                             unsigned int desired_height,
+                             unsigned int render_width,
+                             unsigned int render_height,
+                             unsigned int &selected_width,
+                             unsigned int &selected_height) {
+    const unsigned int width_floor = AlignWorkExtent(
+        desired_width, 32u, render_width);
+    const unsigned int height_floor = AlignWorkExtent(
+        desired_height, 8u, render_height);
+    const unsigned int width_ceil = width_floor < desired_width
+        ? std::min(render_width, width_floor + 32u) : width_floor;
+    const unsigned int height_ceil = height_floor < desired_height
+        ? std::min(render_height, height_floor + 8u) : height_floor;
+    const unsigned int widths[2] = {
+        std::max(1u, width_floor), std::max(1u, width_ceil)};
+    const unsigned int heights[2] = {
+        std::max(1u, height_floor), std::max(1u, height_ceil)};
+    const double target_aspect = static_cast<double>(render_width) /
+        std::max(render_height, 1u);
+    const double target_area = std::max(
+        static_cast<double>(desired_width) * desired_height, 1.0);
+    double best_score = std::numeric_limits<double>::infinity();
+    selected_width = widths[0];
+    selected_height = heights[0];
+    for (unsigned int candidate_width : widths) {
+        for (unsigned int candidate_height : heights) {
+            const double candidate_aspect =
+                static_cast<double>(candidate_width) / candidate_height;
+            const double candidate_area =
+                static_cast<double>(candidate_width) * candidate_height;
+            // Preserve geometry first, then stay close to the requested cost.
+            const double aspect_error = std::fabs(std::log2(
+                candidate_aspect / target_aspect));
+            const double area_error = std::fabs(std::log2(
+                candidate_area / target_area));
+            const double score = aspect_error * 12.0 + area_error;
+            if (score < best_score) {
+                best_score = score;
+                selected_width = candidate_width;
+                selected_height = candidate_height;
+            }
+        }
+    }
+}
+
+NrWorkExtent ResolveNrWorkExtent(const NgxParams *params,
+                                 const FeatureRecord &feature,
+                                 unsigned int render_width,
+                                 unsigned int render_height) {
+    NrWorkExtent result = {};
+    result.render_width = render_width;
+    result.render_height = render_height;
+    result.work_width = render_width;
+    result.work_height = render_height;
+    if (render_width == 0 || render_height == 0 || g_config.work_mode == 0)
+        return result;
+
+    ID3D12Resource *output = nullptr;
+    unsigned int output_x = 0, output_y = 0;
+    GetUInt(params, "DLSS.Output.Subrect.Base.X", &output_x);
+    GetUInt(params, "DLSS.Output.Subrect.Base.Y", &output_y);
+    if (GetResource(params, "Output", &output) && output != nullptr) {
+        ResolveOutputExtentFromEvaluate(params, feature, output, output_x,
+            output_y, render_width, render_height,
+            result.output_width, result.output_height);
+    }
+    if (result.output_width == 0 || result.output_height == 0) {
+        // Output-relative presets require an authoritative live output
+        // extent. Falling back to the render extent would silently turn a
+        // Quality bucket into 58% of *render* resolution. Keep the full
+        // render raster instead, preserving image quality and history.
+        static unsigned int unresolved_output_extents = 0;
+        ++unresolved_output_extents;
+        if (unresolved_output_extents <= 3 ||
+            (unresolved_output_extents % 600) == 0) {
+            Log("NR work preset could not prove the live SR output extent; "
+                "using the full render raster %ux%u (count=%u).",
+                render_width, render_height, unresolved_output_extents);
+        }
+        return result;
+    }
+
+    float desired_scale = 1.0f;
+    if (g_config.work_mode == 5) {
+        desired_scale = g_config.custom_work_scale;
+    } else {
+        // Output-relative buckets remain stable while the game varies DRS.
+        static const float output_scales[] = {
+            1.0f, 0.58f, 0.50f, 0.42f, 1.0f / 3.0f};
+        const float target_width = result.output_width *
+            output_scales[g_config.work_mode];
+        const float target_height = result.output_height *
+            output_scales[g_config.work_mode];
+        desired_scale = std::min(target_width / render_width,
+                                 target_height / render_height);
+    }
+    // Bound area-filter footprints and guide conversion cost. Ultra on DLAA is
+    // therefore a true 50% linear working raster rather than an unsafe 33%.
+    desired_scale = std::clamp(desired_scale, 0.5f, 1.0f);
+    unsigned int desired_width = static_cast<unsigned int>(
+        std::floor(render_width * desired_scale + 0.5f));
+    unsigned int desired_height = static_cast<unsigned int>(
+        std::floor(render_height * desired_scale + 0.5f));
+    SelectAlignedWorkExtent(desired_width, desired_height,
+        render_width, render_height, result.work_width, result.work_height);
+    const double work_area = static_cast<double>(result.work_width) *
+        result.work_height;
+    const double render_area = static_cast<double>(render_width) *
+        render_height;
+    result.linear_scale = static_cast<float>(std::sqrt(
+        work_area / std::max(render_area, 1.0)));
+    result.scaled = result.work_width != render_width ||
+                    result.work_height != render_height;
+    return result;
+}
+
 NgxResult ComputeScalingRatioCallback(NgxParams *params) {
     if (params == nullptr) return 0xBAD00005u;
     int upscaling = 0;
@@ -5250,6 +6040,8 @@ struct NrGuideBinding {
     ID3D12Resource *motion = nullptr;
     bool has_motion_scale_x = false, has_motion_scale_y = false;
     bool valid_motion_scale_x = false, valid_motion_scale_y = false;
+    float jitter_offset_x = 0.0f;
+    float jitter_offset_y = 0.0f;
     int game_reset = 0;
 };
 
@@ -5305,8 +6097,8 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
             if (!GetResource(sr_params, "Output", &output) || output == nullptr ||
                 !ResolveOutputExtentFromEvaluate(
                     sr_params, feature, output, output_x, output_y,
-                    width, height, output_width, output_height) ||
-                output_width < width || output_height < height ||
+                    guide_width, guide_height, output_width, output_height) ||
+                output_width < guide_width || output_height < guide_height ||
                 available_width < output_width || available_height < output_height) {
                 static unsigned int rejected_motion_extents = 0;
                 ++rejected_motion_extents;
@@ -5327,6 +6119,9 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
             s.motion_source_height = height;
         }
     }
+    if (mode == 2 && (s.motion_source_width != width ||
+                       s.motion_source_height != height))
+        s.resample_motion = true;
     s.motion_bound_width = s.resample_motion ? width : s.motion_source_width;
     s.motion_bound_height = s.resample_motion ? height : s.motion_source_height;
     if (guide_width == 0 || guide_height == 0 ||
@@ -5355,7 +6150,30 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
         std::isfinite(s.motion_scale_y) && std::abs(s.motion_scale_y) > 0.000001f;
     if (!binding.valid_motion_scale_x) s.motion_scale_x = 1.0f;
     if (!binding.valid_motion_scale_y) s.motion_scale_y = 1.0f;
-    // Resampling changes locations, never the units of stored vectors.
+
+    // The game's MV.Scale converts stored vectors into the game's DLSS source
+    // texel space. Mode 2 may use a smaller Feature 18 source, so convert those
+    // displacements into NR working-raster texels after spatially resampling
+    // the vector field. Reference mode remains exactly 1:1.
+    const float source_to_work_x = mode == 2 && guide_width != 0
+        ? static_cast<float>(width) / guide_width : 1.0f;
+    const float source_to_work_y = mode == 2 && guide_height != 0
+        ? static_cast<float>(height) / guide_height : 1.0f;
+    s.motion_scale_x *= source_to_work_x;
+    s.motion_scale_y *= source_to_work_y;
+
+    float jitter_x = 0.0f, jitter_y = 0.0f;
+    if (!GetFloat(sr_params, "Jitter.Offset.X", &jitter_x) ||
+        !std::isfinite(jitter_x)) jitter_x = 0.0f;
+    if (!GetFloat(sr_params, "Jitter.Offset.Y", &jitter_y) ||
+        !std::isfinite(jitter_y)) jitter_y = 0.0f;
+    // Jitter is also expressed in source-image pixels. Keep it in lockstep
+    // with the colour and motion coordinate system seen by Feature 18.
+    binding.jitter_offset_x = std::clamp(
+        jitter_x * source_to_work_x, -2.0f, 2.0f);
+    binding.jitter_offset_y = std::clamp(
+        jitter_y * source_to_work_y, -2.0f, 2.0f);
+
     s.normalized_create_flags = feature.create_flags;
     if (color_mode == CodecColorMode::ModelEncodedValueDomain)
         s.normalized_create_flags &= ~1;
@@ -5472,12 +6290,18 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
             reinterpret_cast<void *>(&ComputeScalingRatioCallback));
     SetFloat(params, "DLSSNR.MVecScaleX", mv_scale_x);
     SetFloat(params, "DLSSNR.MVecScaleY", mv_scale_y);
+    SetFloat(params, "Jitter.Offset.X", guides.jitter_offset_x);
+    SetFloat(params, "Jitter.Offset.Y", guides.jitter_offset_y);
 
     const int depth_inverted = s.depth_inverted;
     const unsigned int config_generation =
         g_config_generation.load(std::memory_order_relaxed);
-    const bool config_changed = context.config_generation != config_generation;
     context.config_generation = config_generation;
+    const unsigned int history_generation =
+        g_history_generation.load(std::memory_order_relaxed);
+    const bool history_changed =
+        context.history_generation != history_generation;
+    context.history_generation = history_generation;
 
     bool color_contract_reset = false;
     const bool has_exposure_texture = color_contract.exposure_texture != nullptr;
@@ -5553,8 +6377,10 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     SetFloat(params, "DLSS.Exposure.Scale", 1.0f);
     SetInt(params, "DLSSNR.DepthInverted", depth_inverted);
     SetInt(params, "DLSSNR.Enabled", 1);
-    const bool reset_requested = reset || game_reset != 0 || config_changed ||
+    const bool reset_requested = reset || game_reset != 0 || history_changed ||
         color_contract_reset || guide_reset || context.reset_retry_pending;
+    slot.suppress_transfer_this_frame =
+        g_config.suppress_reset_frame && reset_requested;
     context.diagnostic_reset_requested = reset_requested;
     // Binding may consume config/color transitions before Evaluate fails.
     // Only a successful Evaluate is allowed to consume a requested Reset.
@@ -5850,9 +6676,15 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
     const CodecColorMode pre_sr_color_mode =
         PreSrCodecColorMode(storage_contract);
+    const unsigned int render_width = width;
+    const unsigned int render_height = height;
+    const NrWorkExtent work = ResolveNrWorkExtent(
+        sr_params, feature, render_width, render_height);
+    width = work.work_width;
+    height = work.work_height;
     NrGuideBinding guides = {};
     if (!ResolveNrGuideBinding(sr_params, feature, 2, width, height,
-                               width, height, color, color_x, color_y,
+                               render_width, render_height, color, color_x, color_y,
                                pre_sr_color_mode, guides)) {
         ReleaseCom(device);
         return substitution;
@@ -5893,6 +6725,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    slot->active_render_width = render_width;
+    slot->active_render_height = render_height;
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
     if (context->retired) {
         ReleaseCom(device);
@@ -5941,9 +6775,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
     Transition(command_list, slot->proxy, slot->proxy_state,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    DispatchCodec(command_list, *slot, g_codec.encode, width, height,
+    DispatchCodec(command_list, *slot, g_codec.encode_v2, width, height,
                   color_contract, (feature.create_flags & 1) != 0,
-                  color_x, color_y, 0, 0, slot->codec_color_mode);
+                  color_x, color_y, 0, 0, slot->codec_color_mode,
+                  render_width, render_height, width, height, 1.0f);
     UavBarrier(command_list, slot->proxy);
     Transition(command_list, slot->proxy, slot->proxy_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -6015,12 +6850,17 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     g_pipeline_feature18_success.fetch_add(1, std::memory_order_relaxed);
     g_last_nr_width.store(width, std::memory_order_relaxed);
     g_last_nr_height.store(height, std::memory_order_relaxed);
+    g_last_nr_render_width.store(render_width, std::memory_order_relaxed);
+    g_last_nr_render_height.store(render_height, std::memory_order_relaxed);
+    g_last_nr_linear_scale.store(work.linear_scale, std::memory_order_relaxed);
     UavBarrier(command_list, slot->neural);
     Transition(command_list, slot->neural, slot->neural_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     if (context->evaluations <= 3 || (context->evaluations % 600) == 0) {
-        Log("NR-before-SR evaluate succeeded: count=%u extent=%ux%u identity=%d "
-            "transfer=%.3f", context->evaluations, width, height,
+        Log("NR-before-SR V2 evaluate succeeded: count=%u work=%ux%u "
+            "render=%ux%u mode=%s scale=%.3f identity=%d strength=%.3f",
+            context->evaluations, width, height, render_width, render_height,
+            NrWorkModeName(g_config.work_mode), static_cast<double>(work.linear_scale),
             g_config.identity_use_original ? 1 : 0,
             static_cast<double>(g_config.transfer_strength));
     }
@@ -6034,9 +6874,11 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    DispatchCodec(command_list, *slot, g_codec.combine, width, height,
-                  color_contract, (feature.create_flags & 1) != 0,
-                  color_x, color_y, 0, 0, slot->codec_color_mode);
+    DispatchCodec(command_list, *slot, g_codec.combine_v2,
+                  render_width, render_height, color_contract,
+                  (feature.create_flags & 1) != 0, color_x, color_y, 0, 0,
+                  slot->codec_color_mode, render_width, render_height,
+                  width, height, slot->suppress_transfer_this_frame ? 0.0f : 1.0f);
     UavBarrier(command_list, slot->result);
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -6410,7 +7252,10 @@ bool DispatchPostSrNativeSnapshot(
         substitution.width, substitution.height,
         1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0,
         substitution.output_base_x, substitution.output_base_y,
-        0, 0, 0, 0, 0, 0, 1.0f, 0};
+        0, 0, 0, 0, 0, 0, 1.0f, 0,
+        substitution.width, substitution.height,
+        substitution.width, substitution.height,
+        0.0f, 0.0f, 0u, 1.0f};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, g_codec.copy);
@@ -6540,6 +7385,9 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     g_pipeline_feature18_success.fetch_add(1, std::memory_order_relaxed);
     g_last_nr_width.store(width, std::memory_order_relaxed);
     g_last_nr_height.store(height, std::memory_order_relaxed);
+    g_last_nr_render_width.store(width, std::memory_order_relaxed);
+    g_last_nr_render_height.store(height, std::memory_order_relaxed);
+    g_last_nr_linear_scale.store(1.0f, std::memory_order_relaxed);
     UavBarrier(command_list, slot.neural);
     Transition(command_list, slot.neural, slot.neural_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -7313,6 +8161,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         // Explicit RR ownership ended. Any Feature 18 history from before RR is
         // stale, so reset on the first resumed ordinary-SR frame.
         g_config_generation.fetch_add(1, std::memory_order_relaxed);
+        g_history_generation.fetch_add(1, std::memory_order_relaxed);
         Log("Ray Reconstruction activity ended; ordinary SR processing resumed "
             "with a fresh NR history (live RR handles=%u).",
             live_rr_handles);
@@ -7386,8 +8235,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         before_state.command_list, handle, params, feature);
     PostSrSubstitution after_sr = PrepareAfterSr(
         before_state.command_list, handle, params, feature);
-    // Warmup/Create/Evaluate failure may have recorded NR work even though
-    // neither substitution is active. Always restore before native SR.
+    // Feature 18 warm-up, Create or Evaluate failure may still have changed
+    // the game's compute bindings. Restore the exact entry state before SR.
     before_state.Restore();
     if (!before_sr.active && !after_sr.active) {
         LeaveCriticalSection(&g_chain_cs);
@@ -7448,8 +8297,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     }
     if (used_after_sr) {
         if (result == kNgxSuccess) {
-            // Native SR may legitimately leave a different state from entry.
-            // Preserve that exact exit state around the post-SR NR work.
+            // Native SR is allowed to leave a different state from entry.
+            // Snapshot that state and restore it after the post-SR experiment.
             NativeCommandStateScope after_state(command_list);
             if (after_state.active) {
                 FinishAfterSr(after_state.command_list, params, feature, after_sr);
@@ -8770,8 +9619,8 @@ void DrawSettings(reshade::api::effect_runtime *) {
     };
 
     ImGui::SeparatorText(ui(
-        "DLSS 5 AI Rendering Upscaling Edition beta0.3.3-dev",
-        "DLSS 5 AI渲染超分版 beta0.3.3-dev"));
+        "DLSS 5 AI Rendering Perfect Chain beta0.4",
+        "DLSS 5 AI渲染完美链路 beta0.4"));
     ImGui::TextDisabled(
         ui("Version %s | Author %s", "版本 %s | 作者 %s"),
         kAddonVersion, kAddonAuthor);
@@ -9146,6 +9995,18 @@ void DrawSettings(reshade::api::effect_runtime *) {
         ImGui::TextDisabled("%s", ui("Game DLSS: waiting for resolution data",
                                       "游戏 DLSS：等待分辨率数据"));
     }
+    const unsigned int nr_render_width =
+        g_last_nr_render_width.load(std::memory_order_relaxed);
+    const unsigned int nr_render_height =
+        g_last_nr_render_height.load(std::memory_order_relaxed);
+    const float nr_linear_scale =
+        g_last_nr_linear_scale.load(std::memory_order_relaxed);
+    if (width != 0 && height != 0 && nr_render_width != 0 && nr_render_height != 0) {
+        ImGui::Text(ui("Perfect chain: NR %ux%u -> render %ux%u -> SR output | %.0f%%",
+                       "完美链路：NR %u x %u -> 渲染 %u x %u -> SR 输出 | %.0f%%"),
+                    width, height, nr_render_width, nr_render_height,
+                    static_cast<double>(nr_linear_scale * 100.0f));
+    }
     if (rr_protected) {
         ImGui::Text("%s", ui(
             "Protected game path: Ray Reconstruction ownership (Feature 13 pass-through)",
@@ -9505,8 +10366,28 @@ void DrawSettings(reshade::api::effect_runtime *) {
         "可选诊断：单次采集原图、代理图、NR 输出和合成结果。"
         "F7 请求阶段图；“-”独立截取显示画面。NR→SR 的阶段图止于原生 SR 之前，"
         "两者不是同一帧。"));
+    static const char *work_mode_items_en[] = {
+        "Reference (100%)", "Quality", "Balanced", "Performance",
+        "Ultra Performance", "Custom"};
+    static const char *work_mode_items_zh[] = {
+        "参考（100%）", "高画质", "平衡", "性能", "超级性能", "自定义"};
+    int work_mode = next.work_mode;
+    if (ImGui::Combo(ui("NR Working Resolution", "NR 工作分辨率"),
+                     &work_mode, kChineseUi ? work_mode_items_zh : work_mode_items_en, 6)) {
+        next.work_mode = work_mode;
+        changed = true;
+    }
+    if (next.work_mode == 5) {
+        changed |= ImGui::SliderFloat(
+            ui("Custom linear scale", "自定义线性比例"),
+            &next.custom_work_scale, 0.50f, 1.00f, "%.2f");
+    }
+    ImGui::TextDisabled("%s", ui(
+        "Mode 2 uses a stable output-relative bucket. The game's native SR still "
+        "receives the full render-resolution composite.",
+        "模式 2 使用相对输出分辨率的稳定档位；游戏原生 SR 仍接收完整渲染分辨率合成结果。"));
     changed |= ImGui::SliderFloat(
-        ui("NR Intensity", "NR 强度"), &next.intensity, 0.0f, 2.0f, "%.2f");
+        ui("NR Intensity", "NR 模型强度"), &next.intensity, 0.0f, 2.0f, "%.2f");
     static const char *style_items_en[] = {"Default", "Natural", "Cinematic"};
     static const char *style_items_zh[] = {"默认", "自然", "电影"};
     const char *const *style_items = kChineseUi ? style_items_zh : style_items_en;
@@ -9528,19 +10409,28 @@ void DrawSettings(reshade::api::effect_runtime *) {
         ui("Local Structure", "局部结构"), &next.local_structure,
         0.0f, 2.0f, "%.2f");
     if (ImGui::SliderFloat(
-            ui("NR Detail Blend", "NR 细节混合强度"),
-            &next.transfer_strength, 0.0f, 1.0f, "%.2f")) {
+            ui("NR Effect Strength (multiplicative)", "NR 效果强度（乘算）"),
+            &next.transfer_strength, 0.0f, 8.0f, "%.2f")) {
         next.post_transfer_strength = next.transfer_strength;
         changed = true;
     }
     ImGui::TextDisabled(
         "%s", ui(
-            "This controls how far the frame moves toward the NR picture; it "
-            "does not change render resolution and is shared by both chains.",
-            "此项控制画面向 NR 结果靠近多少，不改变渲染分辨率；两条链路共用同一数值。"));
+            "1 follows the model. Values above 1 compound the NR ratio in log "
+            "space for a deliberately stronger look; HDR headroom and Max Ratio still guard it.",
+            "1 为正常跟随；大于 1 会在对数域乘算叠加 NR 比例，得到更夸张效果，"
+            "同时仍受 HDR 高光保护和最大比例限制。"));
+    changed |= ImGui::SliderFloat(
+        ui("Maximum luminance ratio", "最大亮度倍率"),
+        &next.max_luma_ratio, 1.0f, 16.0f, "%.2f");
+    ImGui::TextDisabled(
+        "%s", ui(
+            "Hard safety ceiling for the powered NR luminance ratio. Raise it only "
+            "for controlled extreme-strength captures.",
+            "乘算后 NR 明暗倍率的硬上限；只有在受控的极限强度对比中才建议提高。"));
     changed |= ImGui::SliderFloat(
         ui("NR Color Follow", "NR 颜色跟随强度"),
-        &next.color_strength, 0.0f, 1.0f, "%.2f");
+        &next.color_strength, 0.0f, 2.0f, "%.2f");
     ImGui::TextDisabled(
         "%s", ui(
             "0 keeps the game's hue; 1 follows bounded NR chroma. It is "
@@ -9548,17 +10438,33 @@ void DrawSettings(reshade::api::effect_runtime *) {
             "verified SDR contracts. Unverified NR -> SR HDR remains luminance-only.",
             "0 保留游戏原始色相；1 跟随有界 NR 色彩。FP16、单位曝光的 SR -> NR "
             "对比链路及已验证 SDR 合同会采用此值；未验证的 NR -> SR HDR 仍只传递明暗。"));
+    changed |= ImGui::SliderFloat(
+        ui("Original Lighting Lock", "原始光照保护"),
+        &next.lighting_lock, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::SliderFloat(
+        ui("Edge / Hair Guard", "边缘 / 发丝保护"),
+        &next.edge_guard, 0.0f, 1.0f, "%.2f");
+    static const char *curve_items_en[] = {
+        "Legacy shoulder", "Hybrid (recommended)", "Reversible (aggressive)"};
+    static const char *curve_items_zh[] = {
+        "旧版压肩", "混合曲线（推荐）", "可逆曲线（激进）"};
+    int proxy_curve = static_cast<int>(next.proxy_curve);
+    if (ImGui::Combo(ui("HDR Proxy Curve", "HDR 代理曲线"), &proxy_curve,
+                     kChineseUi ? curve_items_zh : curve_items_en, 3)) {
+        next.proxy_curve = static_cast<unsigned int>(proxy_curve);
+        changed = true;
+    }
     changed |= ImGui::Checkbox(
-        ui("Experimental Lighting Match (NR -> SR)",
-           "实验性光照匹配（NR -> SR）"),
-        &next.preserve_lighting);
-    ImGui::TextDisabled(
-        "%s", ui(
-            "A sparse local correction that can reduce broad exposure drift, "
-            "but may alter faces and edges. Keep it off for the most faithful "
-            "NR result; it only affects NR -> SR.",
-            "稀疏局部修正可减轻整体曝光漂移，但可能改变人脸和边缘。若追求最忠实的 "
-            "NR 结果请保持关闭；仅影响 NR -> SR。"));
+        ui("Allow experimental HDR colour follow", "允许实验性 HDR 颜色跟随"),
+        &next.allow_unverified_hdr_color);
+    changed |= ImGui::Checkbox(
+        ui("Suppress correction on reset frame", "重置帧抑制 NR 校正"),
+        &next.suppress_reset_frame);
+    ImGui::TextDisabled("%s", ui(
+        "Lighting Lock removes broad model brightness drift; Edge Guard lowers "
+        "the edit at high-contrast boundaries. Reversible proxy may flicker on bright lights.",
+        "原始光照保护会压制模型整体明暗漂移；边缘保护会降低高反差边界修改。"
+        "可逆曲线在强光运动中可能闪烁。"));
     if (next.enabled && next.transfer_strength <= 0.001f) {
         ImGui::TextWrapped("%s", ui(
             next.identity_use_original
@@ -9628,14 +10534,21 @@ void DrawSettings(reshade::api::effect_runtime *) {
            "诊断直通模式（丢弃 NR 颜色结果）"),
         &next.identity_use_original);
 
-    if (ImGui::Button(ui("Restore recommended beta0.3.3 settings",
-                         "恢复 beta0.3.3 推荐设置"))) {
+    if (ImGui::Button(ui("Restore recommended beta0.4 settings",
+                         "恢复 beta0.4 推荐设置"))) {
         next.mode = 2;
         next.identity_use_original = false;
         next.post_transfer_strength = 1.0f;
         next.transfer_strength = 1.0f;
+        next.work_mode = 1;
+        next.custom_work_scale = 0.75f;
+        next.lighting_lock = 0.20f;
+        next.edge_guard = 0.25f;
+        next.proxy_curve = 1;
+        next.allow_unverified_hdr_color = false;
+        next.suppress_reset_frame = true;
         next.color_strength = 0.0f;
-        next.max_luma_ratio = 2.0f;
+        next.max_luma_ratio = 4.0f;
         next.preserve_lighting = false;
         next.proxy_scale = 1.0f;
         next.experimental_peak_shoulder = false;
@@ -9670,19 +10583,19 @@ void DrawSettings(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI渲染超分版 beta0.3.3-dev @野生的装机宅 Bilibili";
+    "DLSS 5 AI渲染完美链路 beta0.4 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
-    "主键盘 - 参数截图、三种风格和实时画质调节，输入分辨率严格跟随游戏 DLSS 挡位；检测到"
+    "主键盘 - 参数截图、独立 NR 工作分辨率、乘算强度与 HDR 匹配残差；检测到"
     "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Upscaling Edition beta0.3.3-dev @野生的装机宅 Bilibili";
+    "DLSS 5 AI Rendering Perfect Chain beta0.4 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Switches between output-resolution NR after Super Resolution and "
     "render-resolution NR before Super Resolution. Includes an F6 master "
-    "switch, '-' diagnostic screenshots, three styles and live image-tuning controls. Input resolution "
-    "strictly follows the in-game DLSS quality mode. DLSS Ray Reconstruction "
+    "switch, '-' diagnostic screenshots, independent NR working resolution, "
+    "multiplicative strength and HDR matched-residual composition. DLSS Ray Reconstruction "
     "is detected and passed through strictly unmodified to prevent double reconstruction.";
 #endif
 extern "C" __declspec(dllexport) const char *AUTHOR =
@@ -9739,8 +10652,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         }
         reshade::register_event<reshade::addon_event::destroy_command_queue>(
             OnDestroyCommandQueue);
-        reshade::register_event<reshade::addon_event::init_device>(OnCommandStateInitDevice);
-        reshade::register_event<reshade::addon_event::init_command_list>(OnCommandStateInitList);
+        reshade::register_event<reshade::addon_event::init_device>(
+            OnCommandStateInitDevice);
+        reshade::register_event<reshade::addon_event::init_command_list>(
+            OnCommandStateInitList);
         reshade::register_event<reshade::addon_event::execute_command_list>(
             OnExecuteCommandList);
         reshade::register_event<reshade::addon_event::reset_command_list>(
@@ -9757,9 +10672,11 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         HANDLE worker = CreateThread(nullptr, 0, &HookWorker, nullptr, 0, nullptr);
         if (worker == nullptr) {
             Log("Could not start NGX hook worker (error %lu).", GetLastError());
+            reshade::unregister_event<reshade::addon_event::init_command_list>(
+                OnCommandStateInitList);
+            reshade::unregister_event<reshade::addon_event::init_device>(
+                OnCommandStateInitDevice);
             reshade::unregister_overlay(nullptr, DrawSettings);
-            reshade::unregister_event<reshade::addon_event::init_command_list>(OnCommandStateInitList);
-            reshade::unregister_event<reshade::addon_event::init_device>(OnCommandStateInitDevice);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
             reshade::unregister_event<reshade::addon_event::present>(OnPresent);
@@ -9776,8 +10693,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         }
         CloseHandle(worker);
     } else if (reason == DLL_PROCESS_DETACH && reserved == nullptr) {
-        reshade::unregister_event<reshade::addon_event::init_command_list>(OnCommandStateInitList);
-        reshade::unregister_event<reshade::addon_event::init_device>(OnCommandStateInitDevice);
+        reshade::unregister_event<reshade::addon_event::init_command_list>(
+            OnCommandStateInitList);
+        reshade::unregister_event<reshade::addon_event::init_device>(
+            OnCommandStateInitDevice);
         reshade::unregister_overlay(nullptr, DrawSettings);
         reshade::unregister_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);

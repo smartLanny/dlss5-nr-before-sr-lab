@@ -1,0 +1,129 @@
+name: Validate beta0.4 perfect-chain r4
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/beta0.4-perfect-chain
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta04-r4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shader-structure-and-math:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Structural invariants
+        run: |
+          python scripts/validate-beta04-structure.py
+          python scripts/validate-beta04-result-resize.py
+      - name: Multiplicative HDR guide and gamut math
+        run: python scripts/test-beta04-math.py
+      - name: Compile every embedded Shader Model 5 entry
+        shell: pwsh
+        run: ./scripts/validate-codec-shader.ps1
+
+  full-contract-build-and-package:
+    needs: shader-structure-and-math
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch public build inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = @{ 'User-Agent' = 'beta04-r4-validator' }
+          $release = Invoke-RestMethod -Headers $headers `
+            'https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest'
+          $asset = $release.assets | Where-Object {
+            $_.name -match '^llvm-mingw-.*-ucrt-x86_64\.zip$'
+          } | Select-Object -First 1
+          if (-not $asset) { throw 'No llvm-mingw UCRT x86_64 archive found.' }
+          Invoke-WebRequest $asset.browser_download_url -OutFile llvm-mingw.zip
+          Expand-Archive llvm-mingw.zip -DestinationPath toolchain
+          $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
+          git clone --depth 1 --recurse-submodules --shallow-submodules `
+            https://github.com/crosire/reshade.git reshade-source
+          "TOOLCHAIN_ROOT=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "RESHADE_ROOT=$pwd\reshade-source" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: CPU temporal and diagnostic harnesses
+        shell: pwsh
+        run: |
+          $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
+          python scripts/validate-diagnostic-identity.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic identity harness failed.' }
+          python scripts/validate-guide-history.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw 'Guide/context history harness failed.' }
+      - name: Resource observer and capture contracts
+        shell: pwsh
+        run: |
+          ./scripts/validate-resource-contracts.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+          ./scripts/validate-observer.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+          ./scripts/validate-stage-capture.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+      - name: Native command-state CPU and stack envelope
+        shell: pwsh
+        run: ./scripts/validate-command-state-native.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+      - name: Native command-state D3D12 WARP oracle
+        shell: pwsh
+        run: |
+          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -NegativeControl
+      - name: Execute the D3D12 codec harness
+        shell: pwsh
+        run: ./scripts/validate-codec-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+      - name: LLVM static analysis
+        shell: pwsh
+        run: ./scripts/validate-static-analysis.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
+      - name: Build English and Chinese add-ons
+        shell: pwsh
+        run: ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
+      - name: Assemble and verify clean test package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item build/*.addon64 dist/
+          Copy-Item build/nrchain_nvngx.dll dist/
+          Copy-Item build/nr_before_sr.ini dist/
+          Copy-Item docs/BETA_0_4_TEST_MATRIX.md dist/README-TESTING.md
+          Copy-Item docs/BETA_0_4_PERFECT_CHAIN.md dist/TECHNICAL-NOTES.md
+          Copy-Item docs/COMMAND_STATE_CONTRACT.md dist/COMMAND-STATE-NOTES.md
+          @(
+            "branch=$env:GITHUB_REF_NAME"
+            "commit=$env:GITHUB_SHA"
+            "workflowRun=$env:GITHUB_RUN_ID"
+            "build=beta0.4-perfect-chain-r4"
+          ) | Set-Content -Encoding utf8NoBOM dist/BUILD-PROVENANCE.txt
+          Get-ChildItem dist -File | Where-Object Name -ne 'SHA256SUMS.txt' |
+            Get-FileHash -Algorithm SHA256 | ForEach-Object {
+              "$($_.Hash)  $([IO.Path]::GetFileName($_.Path))"
+            } | Set-Content -Encoding utf8NoBOM dist/SHA256SUMS.txt
+
+          $manifest = Get-Content -Encoding utf8 dist/SHA256SUMS.txt
+          foreach ($line in $manifest) {
+            if ($line -notmatch '^([0-9A-F]{64})  (.+)$') {
+              throw "Malformed checksum line: $line"
+            }
+            $expected = $Matches[1]
+            $name = $Matches[2]
+            $path = Join-Path dist $name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Checksum manifest names a missing file: $name"
+            }
+            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash
+            if ($actual -ne $expected) {
+              throw "Checksum mismatch for $name"
+            }
+          }
+          Write-Host "Verified $($manifest.Count) UTF-8 checksum entries."
+          Get-Content -Encoding utf8 dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beta04-perfect-chain-r4-test-package
+          path: dist/
+          if-no-files-found: error

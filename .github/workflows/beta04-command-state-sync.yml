@@ -1,0 +1,38 @@
+name: Audit beta0.4 command-state integration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify command-state envelope remains integrated
+        run: |
+          python scripts/validate-beta04-structure.py
+          python scripts/test-beta04-math.py
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('src/nr_before_sr.cpp').read_text(encoding='utf-8')
+          required = (
+              '#include "nr_command_state.inl"',
+              'NativeCommandStateScope before_state(command_list);',
+              'before_state.Restore();',
+              'NativeCommandStateScope after_state(command_list);',
+              'OnCommandStateResetResult(command_list, result, initial_state);',
+              'OnCommandStateBeforeReset(command_list);',
+              'OnCommandStateDestroyList(command_list);',
+              'OnCommandStateInitDevice',
+              'OnCommandStateInitList',
+              'CommandStateUnverified',
+          )
+          missing = [item for item in required if item not in source]
+          if missing:
+              raise SystemExit('missing command-state markers: ' + ', '.join(missing))
+          print('beta0.4 command-state integration markers passed')
+          PY
+          git diff --check
