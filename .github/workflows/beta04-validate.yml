@@ -82,9 +82,10 @@ jobs:
       - name: Build English and Chinese add-ons
         shell: pwsh
         run: ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
-      - name: Assemble clean test package
+      - name: Assemble and verify clean test package
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item build/*.addon64 dist/
           Copy-Item build/nrchain_nvngx.dll dist/
@@ -97,12 +98,30 @@ jobs:
             "commit=$env:GITHUB_SHA"
             "workflowRun=$env:GITHUB_RUN_ID"
             "build=beta0.4-perfect-chain-r4"
-          ) | Set-Content -Encoding utf8 dist/BUILD-PROVENANCE.txt
+          ) | Set-Content -Encoding utf8NoBOM dist/BUILD-PROVENANCE.txt
           Get-ChildItem dist -File | Where-Object Name -ne 'SHA256SUMS.txt' |
             Get-FileHash -Algorithm SHA256 | ForEach-Object {
               "$($_.Hash)  $([IO.Path]::GetFileName($_.Path))"
-            } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
-          Get-Content dist/SHA256SUMS.txt
+            } | Set-Content -Encoding utf8NoBOM dist/SHA256SUMS.txt
+
+          $manifest = Get-Content -Encoding utf8 dist/SHA256SUMS.txt
+          foreach ($line in $manifest) {
+            if ($line -notmatch '^([0-9A-F]{64})  (.+)$') {
+              throw "Malformed checksum line: $line"
+            }
+            $expected = $Matches[1]
+            $name = $Matches[2]
+            $path = Join-Path dist $name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Checksum manifest names a missing file: $name"
+            }
+            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash
+            if ($actual -ne $expected) {
+              throw "Checksum mismatch for $name"
+            }
+          }
+          Write-Host "Verified $($manifest.Count) UTF-8 checksum entries."
+          Get-Content -Encoding utf8 dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: beta04-perfect-chain-r4-test-package
