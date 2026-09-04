@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <cwchar>
 #include <cstdarg>
@@ -146,7 +147,13 @@ static NrDiagnosticIdentity g_applied_nr_identity;
 static CRITICAL_SECTION g_chain_cs;
 static std::atomic<unsigned> g_config_generation{3},g_last_bypass_reason{0};
 static std::atomic<unsigned long long> g_nr_successful_evaluations{10},g_nr_transfer_submitted_frames{8};
+static std::atomic<unsigned int> g_live_rr_handles{0},g_rr_create_in_progress{0};
+static std::atomic<unsigned long long> g_rr_passthrough_evaluations{0},g_carrier_evaluations{20};
+static std::atomic<int> g_last_carrier_feature{1};
+static std::atomic<bool> g_shortfuse_nr_enabled{false};
+// @production_rr_guard
 static std::atomic<unsigned long long> g_stage_capture_request_id{0};
+static unsigned stage_status=0,cancel_calls=0,cancelled_requests=0;
 static bool stage_available=true;
 static std::function<void()> during_stage_request;
 static const char *kBuildIdentity="fixture-build";
@@ -165,8 +172,17 @@ static bool WideToUtf8(const wchar_t *source,char *dest,std::size_t n) {
     return WideCharToMultiByte(CP_UTF8,0,source,-1,dest,static_cast<int>(n),nullptr,nullptr)!=0;
 }
 static bool RequestStageCapture() {
-    ++stage_calls;if(!stage_available)return false;++g_stage_capture_request_id;
+    ++stage_calls;if(!stage_available||stage_status!=0)return false;++g_stage_capture_request_id;stage_status=1;
     if(during_stage_request)during_stage_request();return true;
+}
+static bool CancelPendingStageCapture(unsigned long long request) {
+    ++cancel_calls;
+    // Lock-order assertion: the real helper takes g_chain_cs. It must never
+    // be called with the collector lock held (Evaluate takes them in reverse).
+    const bool unlocked=TryAcquireSRWLockExclusive(&g_feedback_lock)!=FALSE;
+    if(unlocked)ReleaseSRWLockExclusive(&g_feedback_lock);else std::abort();
+    if(!request||request!=g_stage_capture_request_id||stage_status!=1)return false;
+    stage_status=0;++cancelled_requests;return true;
 }
 
 namespace nr_bundle {
@@ -227,6 +243,9 @@ static void Reset() {
     directory_failure=DirectoryFailure::None;documents_calls=temp_calls=0;
     documents_root_exists=false;directory_attempts.clear();
     queue_calls=pin_calls=stage_calls=0;stage_available=true;during_stage_request={};
+    stage_status=cancel_calls=cancelled_requests=0;
+    g_live_rr_handles=0;g_rr_create_in_progress=0;g_rr_passthrough_evaluations=0;
+    g_carrier_evaluations=20;g_last_carrier_feature=1;g_shortfuse_nr_enabled=false;
     config={};fixture_bypass="fixture";g_nr_successful_evaluations=10;g_nr_transfer_submitted_frames=8;
     nr_bundle::created=nr_bundle::destroyed=nr_bundle::runs=0;
     nr_bundle::allocation_ok=nr_bundle::run_ok=true;nr_bundle::last={};nr_bundle::during_run={};
@@ -313,6 +332,7 @@ static void TestTimeoutAndNextSession() {
     Check(fake_now-start==30000,"missing GPU and screenshot callbacks time out at 30 seconds");
     Check(Find("stages")&&!Find("stages")->reason.empty(),"GPU timeout packaged with missing-stage reason");
     Check(g_feedback_status==4,"timeout yields usable partial bundle");
+    Check(stage_status==0&&cancelled_requests==1,"timeout cancels its unarmed request so subsequent F8 can capture");
     tick={};nr_bundle::during_run={};
     Check(RequestFeedbackBundle(),"new F8 accepted after timeout completion");FeedbackPresent(&r);
     OnFeedbackScreenshot(&r,(std::string("C:\\fixture\\game ")+old_tag+".png").c_str());
@@ -328,6 +348,7 @@ static void TestFailures() {
     Reset();queue_ok=false;wcscpy_s(g_feedback_last_zip,L"C:\\old-session\\feedback.zip");
     RequestFeedbackBundle();FeedbackPresent(&r);
     Check(g_feedback_status==5&&g_feedback_session==nullptr&&queued_worker==nullptr&&g_feedback_last_zip[0]==0,"queue failure clears shared session and previous path before delete");
+    Check(stage_status==0&&cancelled_requests==1,"queue failure cancels its own unarmed GPU request");
     for(unsigned failure=0;failure<3;++failure) {
         Reset();config.enabled=false;RequestFeedbackBundle();FeedbackPresent(&r);
         tick=[&]{FeedbackPresent(&r);};
@@ -340,6 +361,40 @@ static void TestFailures() {
     Check(g_feedback_session->stage_finished&&!g_feedback_session->stage_ok,"busy stage capture is not attached to new session");
     tick=[&]{FeedbackPresent(&r);};RunWorker();
     Check(Find("stages")&&Find("stages")->reason.find("already in progress")!=std::string::npos,"busy stage reason retained in bundle");
+}
+static void TestProtectedStageRequests() {
+    for(unsigned owner=0;owner<3;++owner) {
+        Reset();reshade::api::effect_runtime r;
+        if(owner==0)g_live_rr_handles=1;
+        if(owner==1)g_rr_create_in_progress=1;
+        if(owner==2)g_shortfuse_nr_enabled=true;
+        g_last_carrier_feature=13;g_rr_passthrough_evaluations=8400;
+        RequestFeedbackBundle();FeedbackPresent(&r);
+        Check(stage_calls==0&&g_feedback_session->stage_finished,
+            "past NR success cannot queue stages while RR or another NR owner is active");
+        const auto started=fake_now;tick=[&]{FeedbackPresent(&r);};RunWorker();
+        Check(fake_now-started==5000&&r.requested.size()==3,"protected path still collects three images promptly");
+        Check(Find("stages")&&Find("stages")->reason.find(owner==2?"another NR":"Ray Reconstruction")!=std::string::npos,
+            "blocked stages identify actual owner in ZIP");
+        Check(nr_bundle::last.metadata.find("end.rrEvaluations=8400")!=std::string::npos,
+            "RR activity survives even with no Feature1 parameter samples");
+    }
+    Reset();reshade::api::effect_runtime r;RequestFeedbackBundle();FeedbackPresent(&r);
+    const auto started=fake_now;
+    tick=[&]{FeedbackPresent(&r);if(fake_now-started>=1000)g_live_rr_handles=1;};RunWorker();
+    Check(fake_now-started==5000&&cancelled_requests==1&&stage_status==0,
+        "RR taking over during collection cancels only waiting stages and retains images");
+    Check(Find("stages")&&Find("stages")->reason.find("Ray Reconstruction")!=std::string::npos,
+        "RR takeover explains missing stages");
+    for(unsigned protected_state:{2u,3u}) {
+        Reset();RequestFeedbackBundle();FeedbackPresent(&r);stage_status=protected_state;
+        tick=[&]{FeedbackPresent(&r);};RunWorker();
+        Check(stage_status==protected_state&&cancelled_requests==0,
+            "collector timeout never cancels armed or exporting GPU work");
+    }
+    Reset();stage_available=false;stage_status=1;
+    RequestFeedbackBundle();FeedbackPresent(&r);tick=[&]{FeedbackPresent(&r);};RunWorker();
+    Check(stage_status==1&&cancelled_requests==0,"collector cannot cancel unrelated busy stage request");
 }
 static void TestInitializationReentry() {
     Reset();reshade::api::effect_runtime r,other;config.enabled=false;
@@ -473,7 +528,7 @@ int wmain(int argc,wchar_t **argv) {
     InitializeCriticalSection(&g_chain_cs);
     TestCallbacks();TestReadyAndZeroNr(true,true);TestReadyAndZeroNr(false,true);
     TestReadyAndZeroNr(true,false);TestTimeoutAndNextSession();TestFailures();
-    TestInitializationReentry();TestLongTimeline();TestStageRegistrationRace();
+    TestProtectedStageRequests();TestInitializationReentry();TestLongTimeline();TestStageRegistrationRace();
     TestDirectoryFallback();TestCanonicalScreenshotZip(argv[1]);
     DeleteCriticalSection(&g_chain_cs);
     std::printf("%u checks, %u failures\n",checks,failures);return failures?1:0;

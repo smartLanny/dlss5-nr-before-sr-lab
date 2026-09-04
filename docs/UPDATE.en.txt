@@ -1,35 +1,47 @@
-DLSS 5 AI Rendering Upscaling beta0.3.3.5 - Small Update
+DLSS 5 AI Rendering Upscaling beta0.3.3.6 - Small Update
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
-For existing installations only. Both DLLs are byte-identical to the previous r4 full packages. Keep the DLLs for your GPU and your existing nr_before_sr.ini. The same English addon update serves RTX 30, 40 and 50 installations; their NR runtime DLLs are still different and must not be swapped between GPU packages.
+What this update is
 
-This addon is identical to the just-released beta0.3.3.5 full package. Only packaging and instructions have changed.
+This is a small revision of the 0.3.5 (beta0.3.3.5) stable maintenance line. It fixes feedback collection and status messages. NR intensity, image processing and existing HDR colour-follow restrictions are unchanged.
 
-Update
-1. Exit the game completely.
-2. Find the existing addon, back it up outside the game folder, and replace it with this addon. Do not leave two versions active.
-3. Keep both existing DLLs and nr_before_sr.ini. Copy Collect-Feedback.cmd and collect-feedback.ps1 next to the addon.
-4. Open the addon panel and check that its Version line says beta0.3.3.5. The addon filename still contains beta0.3.3-dev to allow replacement.
+Use this package with an existing 0.3.5 maintenance installation. It contains four small files: the addon, Instructions.txt, Collect-Feedback.cmd and collect-feedback.ps1. Keep both existing DLLs and nr_before_sr.ini; there is no need to download the large runtime again.
 
-First-time users or installations with missing DLLs need the full package for their GPU.
+0.4 r4 belongs to a separate experimental line. Keep its installation and settings separate. Do not mix files and then treat the result as a comparison of the same version. To return from the experimental line, restore the maintenance installation and settings before applying this update. The 0.4 outdoor-image problem is still under investigation; this package does not establish a fix for it.
 
-Changes
-- Corrected a state check that could leave NR inactive even when enabled. Reports such as NTE still need a new game test.
-- Fixed handling of invalid exposure data. This does not resolve every brightness, colour or facial-detail issue.
-- The panel explains actual parameter values and restrictions more clearly.
-- F8 now collects a feedback ZIP automatically.
+How to update
 
-How to report a problem
-Stop at a scene showing the issue, press F8 or use Collect feedback ZIP, keep the camera still, and wait for completion. Collection waits up to about 30 seconds; saving may take longer. Send feedback.zip from Documents\DLSS5-Feedback and describe the game, GPU, HDR on/off and the problem. Use Copy ZIP path in the panel if needed; the in-game collector tries the temporary folder if Documents cannot be used.
+Exit the game completely. Back up the current addon outside the game directory, then replace it with this addon. Keep only one active copy; do not load old/new or Chinese/English copies together.
 
-The ZIP contains three current-view screenshots, available NR stages, rendering information, settings, versions and logs. It stays on your computer and is never uploaded automatically. Screenshots may include game chat or other overlays. A package with missing items is still useful; the reasons are recorded.
+Keep nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Place Collect-Feedback.cmd and collect-feedback.ps1 together beside the addon. Do not swap runtime DLLs between GPU packages.
 
-The three screenshots are not an automatic A/B test. For comparison, collect once with NR on, press F6 to turn it off, and collect again from the same camera position. Label the two ZIPs. Change only one setting at a time when comparing processing order, Natural/Cinematic style or HDR/SDR.
+Start the game and check that the addon panel says beta0.3.3.6. The filename still contains beta0.3.3-dev; use the panel to identify the version. First-time installations or missing runtime files require the full package for your GPU.
 
-Reports of weak Spider-Man HDR faces, Wuthering Waves colour, NTE inactivity and Dragon's Dogma 2 crashes still need retesting. Say whether the result improved, stayed the same or became worse.
+What changed
 
-Cannot start the game or it crashes?
-Double-click Collect-Feedback.cmd with collect-feedback.ps1 beside it. Send feedback-offline.zip from the path it prints. This cannot recover pictures from before a crash. Mention separately if the game generated a crash report. These two small files are optional for offline collection; F8 itself is built into the addon.
+When the game's Ray Reconstruction (RR) owns the rendering path, F8 collects screenshots, settings and logs and records why NR stage images are unavailable. It no longer waits for NR stages that cannot be produced while RR is active.
 
-Four files: addon, Instructions.txt, Collect-Feedback.cmd and collect-feedback.ps1. If you already installed the beta0.3.3.5 full package, you do not need to replace the addon again.
+If F8 times out, a stage request that has not started can be cancelled so the next F8 can retry. This does not force-stop work already started; not every timed-out capture can be cancelled.
+
+The panel shows the current bypass ahead of Settings pending, instead of hiding it behind that message. Your saved requests are retained.
+
+The two experimental controls now explain their scope: Lighting Match adjusts local brightness, and HDR Highlight Detail changes highlight mapping before NR. Neither unlocks colour follow. Check the effective value and reason beside Colour Follow.
+
+For NTE players reporting no effect
+
+The supplied NTE log shows that the game enabled Ray Reconstruction, RR took over, and this addon stopped NR. That is the current safety bypass. It is not evidence that RTX 40 cards are unsupported, or that every no-effect report has been fixed.
+
+To test this addon's NR, disable Ray Reconstruction in the game. If the panel still shows an RR bypass, exit the game completely and restart before testing. This update does not change that rule.
+
+Reporting a problem
+
+Stop where the issue is visible, press F8 or click Collect feedback ZIP, and keep the camera still until completion. Collection waits up to about 30 seconds; background packaging takes additional time, especially on a slow drive.
+
+feedback.zip normally appears under Documents/DLSS5-Feedback. If Documents cannot be used, collection tries the system temporary directory. Use the actual path shown in the panel or its copy-path button. A partial bundle is useful too.
+
+The ZIP contains three current-view screenshots, available NR stages, image information, settings and logs. The three screenshots are not an automatic on/off comparison. The program does not switch settings or upload files for you. For comparison, keep the camera fixed, toggle NR yourself with F6, collect once per setting, and label each bundle with its version and on/off state.
+
+Send the ZIP with the game name, GPU model, HDR or SDR setting, and the problem. Weak effects, Spider-Man and Wuthering Waves image quality, and Dragon's Dogma 2 crashes still need reports. Applied does not necessarily mean a stronger visible effect.
+
+If the game cannot start, double-click Collect-Feedback.cmd with collect-feedback.ps1 in the same directory. Send feedback-offline.zip from the printed path. It collects existing information and cannot recover unsaved images.

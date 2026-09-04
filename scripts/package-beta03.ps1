@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$Version = 'beta0.3.3.5'
+$Version = 'beta0.3.3.6'
 $BuildRoot = Join-Path $ProjectRoot 'build'
 if (-not $UpdateOnly) {
     if ([string]::IsNullOrWhiteSpace($Rtx50Runtime) -or

@@ -12,6 +12,13 @@ Runtime hotkeys are `F6` for the master comparison switch, `F8` for a local
 feedback ZIP, and main keyboard `-` for a ReShade screenshot whose filename
 records the current build, chain and selected settings.
 
+The beta0.3.3.6 maintenance update fixes feedback requests left waiting during
+RR ownership, cancels only unarmed session-owned requests on timeout, and gives
+current bypass status priority over pending settings. It does not change image
+strength or HDR admission. See the [September 4 feedback review](docs/COMMUNITY_FEEDBACK_20260904.zh-CN.md)
+and [plain-text update instructions](docs/UPDATE.en.txt). The separate beta0.4
+experimental renderer is not included in this maintenance build.
+
 This is a research project, not an NVIDIA product and not an official joint
 DLSS NR/SR implementation. NVIDIA, DLSS, GeForce, and related names are
 trademarks of their respective owners.

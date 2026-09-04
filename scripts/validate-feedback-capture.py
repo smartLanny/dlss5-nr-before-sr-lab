@@ -2,7 +2,8 @@
 from pathlib import Path
 import argparse,base64,datetime,hashlib,json,os,subprocess,zipfile
 
-FUNCTIONS=("void FeedbackAppend(","bool RequestFeedbackBundle(",
+FUNCTIONS=("void FeedbackAppend(","const char *FeedbackStageBlockReason(",
+           "void FeedbackAppendActivity(","bool RequestFeedbackBundle(",
            "void FeedbackStageExported(","void OnFeedbackScreenshot(",
            "void FeedbackObserveEvaluate(",
            "bool FeedbackCreateDirectory(",
@@ -49,6 +50,8 @@ def main():
     functions='\n\n'.join(extract_function(source,f) for f in FUNCTIONS)
     template=(root/'tests/feedback_capture_harness.cpp.in').read_text(encoding='utf-8')
     generated=template.replace('// @production_globals',globals_).replace('// @production_functions',functions)
+    ngx_source=(root/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
+    generated=generated.replace('// @production_rr_guard',extract_function(ngx_source,'bool ShouldGuardFeature1ForRayReconstruction('))
     generated=generated.replace('@bundle_helper_path@',(root/'src/nr_diagnostic_bundle.inl').as_posix())
     cpp=out/'feedback-capture-harness.cpp';cpp.write_text(generated,encoding='utf-8')
     compiler=Path(a.toolchain_root)/'bin/x86_64-w64-mingw32-clang++.exe'

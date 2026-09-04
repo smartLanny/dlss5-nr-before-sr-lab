@@ -26,7 +26,7 @@ unsigned int StageCaptureStatus() {
 bool RequestStageCapture() {
     unsigned int expected = 0;
     // Reserve the request before publishing its identity. State 4 is a brief
-    // UI-thread initialization state, never eligible for a render-thread arm.
+    // request publication/cancellation state, never eligible for render-thread arm.
     if (!g_stage_capture_status.compare_exchange_strong(
             expected, 4, std::memory_order_acq_rel)) return false;
     g_stage_capture_request_id.fetch_add(1, std::memory_order_relaxed);
@@ -40,6 +40,36 @@ bool RequestStageCapture() {
         "evaluations since Reset, then retires to drain exact-fence resources. "
         "This settling interval does not prove temporal convergence.");
     return true;
+}
+
+bool CancelPendingStageCapture(unsigned long long request) {
+    if (request == 0) return false;
+    bool cancelled = false;
+    // Prepare and Arm own this lock. Status 2/3 already owns resources or an
+    // export job and must retain its exact-fence lifetime, even after timeout.
+    EnterCriticalSection(&g_chain_cs);
+    unsigned int expected = 1;
+    if (g_stage_capture_status.compare_exchange_strong(
+            expected, 4, std::memory_order_acq_rel)) {
+        // Check identity after reserving status: RequestStageCapture publishes
+        // without g_chain_cs, so a check before the CAS could observe an older
+        // request, then accidentally cancel a newly published one.
+        if (g_stage_capture_request_id.load(std::memory_order_acquire) == request) {
+            g_stage_capture_prepared_context = {};
+            g_stage_capture_rebuild_pending.store(false, std::memory_order_relaxed);
+            g_stage_capture_retry_count.store(0, std::memory_order_relaxed);
+            g_stage_capture_last_result.store(-1, std::memory_order_relaxed);
+            g_stage_capture_status.store(0, std::memory_order_release);
+            cancelled = true;
+        } else {
+            g_stage_capture_status.store(1, std::memory_order_release);
+        }
+    }
+    LeaveCriticalSection(&g_chain_cs);
+    if (cancelled)
+        Log("Stage capture cancelled before arming: request=%llu; no capture GPU "
+            "resources were released and a new request may be accepted.", request);
+    return cancelled;
 }
 
 void PrepareStageCaptureContextLocked(const NgxHandle *sr_handle,

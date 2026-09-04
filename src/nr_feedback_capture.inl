@@ -45,6 +45,26 @@ void FeedbackAppend(FeedbackSession &s, const char *format, ...) {
     } else s.report_used += static_cast<std::size_t>(n);
 }
 
+const char *FeedbackStageBlockReason(const ChainConfig &config) {
+    if (!config.enabled) return "NR disabled; current-chain screenshots and logs collected without enabling NR";
+    if (ShouldGuardFeature1ForRayReconstruction())
+        return "Ray Reconstruction owns the path; disable RR in game to capture NR stages (restart if its handle remains live)";
+    if (g_shortfuse_nr_enabled.load(std::memory_order_acquire))
+        return "another NR addon owns the path; this addon's NR stages are unavailable";
+    return nullptr;
+}
+
+void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+    FeedbackAppend(s, "%s.nrSuccess=%llu\n%s.transferSubmitted=%llu\n%s.bypass=%s\n"
+        "%s.srCarrierEvaluations=%llu\n%s.lastCarrierFeature=%d\n%s.rrLiveHandles=%u\n"
+        "%s.rrCreatesInProgress=%u\n%s.rrEvaluations=%llu\n%s.otherNrOwner=%d\n",
+        prefix, g_nr_successful_evaluations.load(), prefix, g_nr_transfer_submitted_frames.load(),
+        prefix, BypassReasonName(static_cast<BypassReason>(g_last_bypass_reason.load())),
+        prefix, g_carrier_evaluations.load(), prefix, g_last_carrier_feature.load(),
+        prefix, g_live_rr_handles.load(), prefix, g_rr_create_in_progress.load(),
+        prefix, g_rr_passthrough_evaluations.load(), prefix, g_shortfuse_nr_enabled.load() ? 1 : 0);
+}
+
 bool RequestFeedbackBundle() {
     unsigned int status = g_feedback_status.load(std::memory_order_acquire);
     if (status == 1 || status == 2) return false;
@@ -223,10 +243,26 @@ void FeedbackAddLogBeside(nr_bundle::Job &job, const wchar_t *module_path,
 
 DWORD WINAPI FeedbackWorker(void *parameter) {
     auto *s = static_cast<FeedbackSession *>(parameter);
+    bool pending_cancelled = false;
     // A timeout freezes the file list; late GPU exports remain in the ordinary
     // stage directory and can never be mistaken for a different request.
     for (;;) {
         Sleep(100);
+        // Config takes the chain lock, so sample it before the feedback lock.
+        // A game can replace Feature1 with RR after this session was queued.
+        const char *blocked = FeedbackStageBlockReason(SnapshotConfig());
+        unsigned long long cancel_request = 0;
+        if (blocked != nullptr) {
+            AcquireSRWLockExclusive(&g_feedback_lock);
+            if (!s->stage_finished) {
+                s->stage_finished = true;
+                strcpy_s(s->stage_reason, blocked);
+                cancel_request = s->stage_request;
+            }
+            ReleaseSRWLockExclusive(&g_feedback_lock);
+        }
+        if (cancel_request != 0)
+            pending_cancelled = CancelPendingStageCapture(cancel_request) || pending_cancelled;
         AcquireSRWLockShared(&g_feedback_lock);
         bool ready = s->stage_finished;
         for (const auto &shot : s->screenshots) ready = ready && shot[0] != 0;
@@ -238,10 +274,18 @@ DWORD WINAPI FeedbackWorker(void *parameter) {
     g_feedback_status.store(2, std::memory_order_release);
     g_feedback_session = nullptr;
     ReleaseSRWLockExclusive(&g_feedback_lock);
+    // Only this session's unarmed request can be withdrawn. Recorded GPU work
+    // keeps its exact-fence lifetime and may export later outside this ZIP.
+    if (!s->stage_ok && s->stage_request != 0)
+        pending_cancelled = CancelPendingStageCapture(s->stage_request) || pending_cancelled;
+    if (!s->stage_finished)
+        strcpy_s(s->stage_reason, pending_cancelled ?
+            "no NR stage was armed within 30 seconds; waiting request cancelled so the next F8 can retry" :
+            "no exact-fence stage export within 30 seconds; any GPU work remains protected and may export later");
     FeedbackAppend(*s, "collection.elapsedMs=%llu\ncollection.parameterSamples=%u\n",
         GetTickCount64() - s->started, s->observations);
-    FeedbackAppend(*s, "stage.request=%llu\nstage.completed=%d\nstage.reason=%s\n",
-        s->stage_request, s->stage_ok ? 1 : 0, s->stage_reason);
+    FeedbackAppend(*s, "stage.request=%llu\nstage.completed=%d\nstage.pendingRequestCancelled=%d\nstage.reason=%s\n",
+        s->stage_request, s->stage_ok ? 1 : 0, pending_cancelled ? 1 : 0, s->stage_reason);
     for (unsigned int i = 0; i < 3; ++i)
         FeedbackAppend(*s, "screenshot.%u.savedElapsedMs=%llu\n", i,
             s->screenshot_ticks[i] ? s->screenshot_ticks[i] - s->started : 0);
@@ -254,9 +298,7 @@ DWORD WINAPI FeedbackWorker(void *parameter) {
         color.policy.requested_color_strength, color.policy.effective_color_strength,
         NrColorReasonName(color.policy.color_reason), color.policy.requested_preserve_lighting ? 1 : 0,
         color.policy.effective_preserve_lighting ? 1 : 0, NrLightingReasonName(color.policy.lighting_reason));
-    FeedbackAppend(*s, "end.nrSuccess=%llu\nend.transferSubmitted=%llu\nend.bypass=%s\n",
-        g_nr_successful_evaluations.load(), g_nr_transfer_submitted_frames.load(),
-        BypassReasonName(static_cast<BypassReason>(g_last_bypass_reason.load())));
+    FeedbackAppendActivity(*s, "end");
     // FeedbackAppend always preserves these final 256 bytes, even on overflow.
     const int summary_bytes = std::snprintf(s->report + s->report_used,
         sizeof(s->report) - s->report_used,
@@ -371,8 +413,8 @@ void FeedbackPresent(reshade::api::effect_runtime *runtime) {
             "requested.enabled=%d\nrequested.mode=%d\nrequested.config=%u\nrequested.intensity=%.9g\nrequested.style=%u\n"
             "requested.blend=%.9g\nrequested.color=%.9g\nrequested.lighting=%d\n"
             "applied.instance=%llu\napplied.frame=%llu\napplied.config=%u\napplied.intensity=%.9g\napplied.style=%u\n"
-            "start.nrSuccess=%llu\nstart.transferSubmitted=%llu\nstart.bypass=%s\n"
             "capture.automaticSettingChanges=none\ncapture.stageRequestRecreatesNRHistory=1\n"
+            "capture.activityCounters=cumulative process totals; compare start/end; applied settings can describe historical NR\n"
             "capture.displayFrames=three current-chain images, independent from NR stages, not controlled A/B\n"
             "capture.rawStageDomain=see stages/metadata.txt; before destination quantization\n"
             "capture.crashDump=not generated; game may supply crash report separately\n"
@@ -384,15 +426,18 @@ void FeedbackPresent(reshade::api::effect_runtime *runtime) {
             config.mode == 2 ? config.transfer_strength : config.post_transfer_strength,
             config.color_strength, config.preserve_lighting ? 1 : 0,
             applied.instance_id, applied.frame_id, applied.config_generation, applied.tuning.intensity,
-            applied.tuning.style, g_nr_successful_evaluations.load(), g_nr_transfer_submitted_frames.load(),
-            BypassReasonName(static_cast<BypassReason>(g_last_bypass_reason.load())));
+            applied.tuning.style);
+        FeedbackAppendActivity(*s, "start");
+        const char *stage_block = FeedbackStageBlockReason(config);
         // RequestStageCapture uses atomics and Log only, never g_chain_cs.
         // Keep session publication and request identity in this one lock so
         // an export completing on another worker cannot race past registration.
         AcquireSRWLockExclusive(&g_feedback_lock);
         g_feedback_session = s;
-        if (!config.enabled || g_nr_successful_evaluations.load() == 0) {
-            s->stage_finished = true; strcpy_s(s->stage_reason, "NR disabled or no successful NR frame yet; current-chain screenshots and logs collected without enabling NR");
+        if (stage_block != nullptr) {
+            s->stage_finished = true; strcpy_s(s->stage_reason, stage_block);
+        } else if (g_nr_successful_evaluations.load() == 0) {
+            s->stage_finished = true; strcpy_s(s->stage_reason, "no successful NR frame yet; current-chain screenshots and logs collected without enabling NR");
         } else if (RequestStageCapture()) {
             s->stage_request = g_stage_capture_request_id.load();
         } else {
@@ -402,6 +447,7 @@ void FeedbackPresent(reshade::api::effect_runtime *runtime) {
         ReleaseSRWLockExclusive(&g_feedback_lock);
         if (!QueueUserWorkItem(&FeedbackWorker, s, WT_EXECUTEDEFAULT)) {
             AcquireSRWLockExclusive(&g_feedback_lock); g_feedback_session = nullptr; ReleaseSRWLockExclusive(&g_feedback_lock);
+            if (s->stage_request != 0) CancelPendingStageCapture(s->stage_request);
             delete s; g_feedback_status.store(5); return;
         }
         Log("[feedback] one-click session requested; current settings retained, 3 display images, exact-fence stages, bounded 30-second wait.");

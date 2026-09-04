@@ -39,6 +39,14 @@ $exportType = [regex]::Match($capture, 'struct StageCaptureExport \{[\s\S]*?\r?\
 $arm = Extract $capture 'void ArmStageCaptureLocked('
 $guard = [regex]::Match($arm, '\{(?<guard>[\s\S]*?)NrStageCapture capture').Groups['guard'].Value.Replace('return;', 'return false;')
 $functions = (Extract $capture 'unsigned int StageCaptureStatus(') + "`n"
+$functions += (Extract $capture 'bool RequestStageCapture(') + "`n"
+if ($capture.Contains('bool CancelPendingStageCapture(')) {
+    $functions += (Extract $capture 'bool CancelPendingStageCapture(') + "`n"
+} else {
+    # Older production has no cancellation path: a timed-out feedback session
+    # leaves its request pending. Keep that absence runnable as the red control.
+    $functions += "bool CancelPendingStageCapture(unsigned long long) { return false; }`n"
+}
 $functions += (Extract $source 'bool CanMutateSlotLocked(') + "`n"
 if ($capture.Contains('void PrepareStageCaptureContextLocked(')) {
     $functions += (Extract $capture 'void PrepareStageCaptureContextLocked(') + "`n"
@@ -67,6 +75,9 @@ $harness = @'
 #include <cstddef>
 #include <cstdio>
 #include <new>
+#include <mutex>
+#include <thread>
+#include <chrono>
 using UINT64 = std::uint64_t;
 struct ID3D12Resource {};
 enum D3D12_RESOURCE_STATES { D3D12_RESOURCE_STATE_COMMON = 0 };
@@ -107,6 +118,12 @@ struct StageCapturePreparedContext {
     int mode = 0;
 };
 StageCapturePreparedContext g_stage_capture_prepared_context{};
+std::recursive_mutex g_chain_cs;
+std::atomic<unsigned int> chain_waiters{0};
+void EnterCriticalSection(std::recursive_mutex *lock) {
+    ++chain_waiters; lock->lock(); --chain_waiters;
+}
+void LeaveCriticalSection(std::recursive_mutex *lock) { lock->unlock(); }
 constexpr unsigned int WT_EXECUTEDEFAULT = 0;
 unsigned int releases = 0, descriptor_writes = 0;
 void *export_job = nullptr;
@@ -259,6 +276,110 @@ int main() {
             variant == 1 ? 4 : 3, variant == 2 ? 2 : 1);
         Check(g_stage_capture_status == 0 && g_stage_capture_last_result == -1,
               "unarmed preparation cancels/unlocks on carrier, generation or mode replacement");
+    }
+    // No eligible NR frame occurs (for example, real RR owns the carrier).
+    // Timeout must release this request so the next explicit capture can start.
+    const bool first_request = RequestStageCapture();
+    const auto timed_out_request = g_stage_capture_request_id.load();
+    const bool cancelled = CancelPendingStageCapture(timed_out_request);
+    const bool next_request = RequestStageCapture();
+    Check(first_request && cancelled && next_request &&
+          g_stage_capture_request_id.load() == timed_out_request + 1,
+          "timed-out unarmed capture releases reservation for the next request");
+    const auto active_request = g_stage_capture_request_id.load();
+    Check(!CancelPendingStageCapture(0) &&
+          !CancelPendingStageCapture(timed_out_request) &&
+          StageCaptureStatus() == 1 && g_stage_capture_rebuild_pending &&
+          g_stage_capture_request_id.load() == active_request &&
+          g_stage_capture_last_result == 0,
+          "zero or stale request cannot cancel a newer pending capture");
+    PrepareStageCaptureContextLocked(&carrier, 3, 1);
+    auto &cancel_context = g_contexts[6];
+    cancel_context.stage_capture_request_id = PreparedStageCaptureRequestId(&carrier, 3, 1);
+    Check(cancel_context.stage_capture_request_id == active_request &&
+          CancelPendingStageCapture(active_request) &&
+          g_stage_capture_prepared_context.request_id == 0 &&
+          !g_stage_capture_rebuild_pending && g_stage_capture_retry_count == 0 &&
+          g_stage_capture_last_result == -1 &&
+          !CanArm(cancel_context, cancel_context.slots[0]),
+          "cancelled prepared request cannot arm its previously selected context");
+    Check(RequestStageCapture() && g_stage_capture_last_result == 0,
+          "explicit retry after cancellation starts with a fresh result");
+    const auto owned_request = g_stage_capture_request_id.load();
+    auto &owned = cancel_context.slots[0];
+    owned.stage_capture.info.request_id = owned_request;
+    owned.stage_capture.buffer = &gpu; owned.stage_capture.readback = &readback;
+    owned.stage_capture.armed = true;
+    owned.recording_command_lists = 1; owned.fence_complete = false;
+    g_stage_capture_status = 2;
+    const auto before_cancel_writes = descriptor_writes;
+    const auto before_cancel_releases = releases;
+    Check(!CancelPendingStageCapture(owned_request) && StageCaptureStatus() == 2 &&
+          owned.stage_capture.armed && !owned.stage_capture.pending &&
+          owned.stage_capture.buffer == &gpu && owned.stage_capture.readback == &readback &&
+          owned.recording_command_lists == 1 && !owned.fence_complete &&
+          descriptor_writes == before_cancel_writes && releases == before_cancel_releases,
+          "armed capture timeout preserves GPU resources and exact-fence ownership");
+    owned.stage_capture.pending = true; owned.stage_capture.armed = false;
+    Check(!CancelPendingStageCapture(owned_request) && StageCaptureStatus() == 2 &&
+          owned.stage_capture.pending && descriptor_writes == before_cancel_writes &&
+          releases == before_cancel_releases,
+          "recorded capture timeout cannot discard in-flight readback");
+    owned.recording_command_lists = 0; owned.fence_complete = true;
+    CollectStageCaptureLocked(owned);
+    void *owned_job = export_job;
+    Check(owned_job && !CancelPendingStageCapture(owned_request) &&
+          StageCaptureStatus() == 3 && export_job == owned_job,
+          "exporting capture timeout leaves the detached worker ownership intact");
+    delete static_cast<StageCaptureExport *>(owned_job); export_job = nullptr;
+    g_stage_capture_status = 4;
+    Check(!CancelPendingStageCapture(owned_request) && StageCaptureStatus() == 4,
+          "cancellation cannot steal request publication reservation");
+    g_stage_capture_status = 0;
+    Check(!CancelPendingStageCapture(owned_request), "completed request is not cancelled twice");
+
+    // The OS critical-section calls are represented by a real recursive mutex.
+    // Hold the owner lock to deterministically pause cancellation before it can
+    // race either a newly published request or Arm's status-2 publication.
+    for (unsigned int winner = 0; winner != 2; ++winner) {
+        g_stage_capture_status = 0;
+        Check(RequestStageCapture(), "start capture before competing cancellation");
+        const auto waiting_request = g_stage_capture_request_id.load();
+        std::atomic<bool> finished{false};
+        bool worker_cancelled = false;
+        g_chain_cs.lock();
+        std::thread worker([&] {
+            worker_cancelled = CancelPendingStageCapture(waiting_request);
+            finished.store(true, std::memory_order_release);
+        });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (chain_waiters.load() == 0 && !finished.load(std::memory_order_acquire) &&
+               std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+        Check(chain_waiters.load() != 0 && !finished.load(std::memory_order_acquire),
+              "timeout cancellation waits for Prepare/Arm owner lock");
+        if (winner == 0) {
+            // Prior request completes, then the UI publishes a new one while
+            // the waiting old cancellation has not yet obtained the owner lock.
+            g_stage_capture_status = 0;
+            Check(RequestStageCapture(), "new request publishes before old cancellation obtains lock");
+        } else {
+            // A real Arm publishes this state under the same owner lock.
+            owned.stage_capture.buffer = &gpu; owned.stage_capture.readback = &readback;
+            owned.stage_capture.armed = true; owned.stage_capture.pending = false;
+            owned.stage_capture.info.request_id = waiting_request;
+            owned.recording_command_lists = 1; owned.fence_complete = false;
+            g_stage_capture_status = 2;
+        }
+        const auto expected_request = g_stage_capture_request_id.load();
+        const auto expected_status = StageCaptureStatus();
+        const auto saved_writes = descriptor_writes, saved_releases = releases;
+        g_chain_cs.unlock();
+        worker.join();
+        Check(!worker_cancelled && StageCaptureStatus() == expected_status &&
+              g_stage_capture_request_id.load() == expected_request &&
+              descriptor_writes == saved_writes && releases == saved_releases,
+              winner == 0 ? "late old cancellation preserves newly published request" :
+                            "Arm winning the owner lock keeps its GPU lifetime");
     }
 '@ + "`nCheck(" + $prepareWired.ToString().ToLowerInvariant() + ', "context preparation is wired into real lookup");' +
     "`nCheck(" + $retireWired.ToString().ToLowerInvariant() + ', "retirement is wired immediately after real capture dispatch");' + @'

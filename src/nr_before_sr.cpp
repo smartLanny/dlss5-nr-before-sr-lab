@@ -42,11 +42,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.3.3.5";
+constexpr const char *kAddonVersion = "beta0.3.3.6";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.3.3.5";
+constexpr const char *kBuildIdentity = "beta0.3.3.6";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -9598,7 +9598,8 @@ void DrawSettings(reshade::api::effect_runtime *) {
             "does not change render resolution and is shared by both chains.",
             "此项控制画面向 NR 结果靠近多少，不改变渲染分辨率；两条链路共用同一数值。"));
     NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();
-    if (has_pending || changed || color_policy_snapshot.mode != next.mode)
+    if (color_policy_snapshot.status != NrColorPolicyStatus::Bypassed &&
+        (has_pending || changed || color_policy_snapshot.mode != next.mode))
         color_policy_snapshot.status = NrColorPolicyStatus::Pending;
     const bool current_color_policy =
         color_policy_snapshot.status == NrColorPolicyStatus::Current;
@@ -9609,7 +9610,8 @@ void DrawSettings(reshade::api::effect_runtime *) {
         &next.color_strength, 0.0f, 1.0f, "%.2f");
     ImGui::EndDisabled();
     changed |= color_follow_changed;
-    if (color_follow_changed)
+    if (color_follow_changed &&
+        color_policy_snapshot.status != NrColorPolicyStatus::Bypassed)
         color_policy_snapshot.status = NrColorPolicyStatus::Pending;
     if (color_policy_snapshot.status == NrColorPolicyStatus::Current) {
         const NrColorPolicy &policy = color_policy_snapshot.policy;
@@ -9645,7 +9647,8 @@ void DrawSettings(reshade::api::effect_runtime *) {
         &next.preserve_lighting);
     ImGui::EndDisabled();
     changed |= lighting_match_changed;
-    if (lighting_match_changed)
+    if (lighting_match_changed &&
+        color_policy_snapshot.status != NrColorPolicyStatus::Bypassed)
         color_policy_snapshot.status = NrColorPolicyStatus::Pending;
     if (color_policy_snapshot.status == NrColorPolicyStatus::Current) {
         const NrColorPolicy &policy = color_policy_snapshot.policy;
@@ -9663,10 +9666,12 @@ void DrawSettings(reshade::api::effect_runtime *) {
     }
     ImGui::TextDisabled(
         "%s", ui(
-            "A sparse local correction that can reduce broad exposure drift, "
-            "but may alter faces and edges. Keep it off for the most faithful "
+            "A sparse local correction for brightness; it does not enable colour follow. "
+            "It can reduce broad exposure drift, but may alter faces and edges. "
+            "Keep it off for the most faithful "
             "NR result; it only affects NR -> SR.",
-            "稀疏局部修正可减轻整体曝光漂移，但可能改变人脸和边缘。若追求最忠实的 "
+            "只做局部明暗修正，不控制颜色跟随是否允许。可减轻整体曝光漂移，"
+            "但可能改变人脸和边缘。若追求最忠实的 "
             "NR 结果请保持关闭；仅影响 NR -> SR。"));
     if (next.enabled && next.transfer_strength <= 0.001f) {
         ImGui::TextWrapped("%s", ui(
@@ -9689,10 +9694,12 @@ void DrawSettings(reshade::api::effect_runtime *) {
         ui("Experimental HDR Highlight Detail", "实验性 HDR 高光细节"),
         &next.experimental_peak_shoulder);
     ImGui::TextDisabled("%s", ui(
-        "Off by default. Preserves more highlight variation in the HDR proxy, "
-        "but can change the NR appearance. Switching rebuilds NR and warms up. "
+        "Off by default. Changes highlight mapping before NR, not colour-follow eligibility. "
+        "It preserves more HDR highlight variation, but can change the NR appearance. "
+        "Switching rebuilds NR and warms up. "
         "SDR-encoded inputs are unaffected; compare fixed scenes before keeping it on.",
-        "默认关闭。可保留 HDR 代理中的更多高光变化，但可能改变 NR 外观。"
+        "默认关闭。只调整送入 NR 前的高光映射，不控制颜色跟随是否允许。"
+        "可保留更多 HDR 高光变化，但可能改变 NR 外观。"
         "切换会重建 NR 并重新预热；SDR 编码输入不受影响，请先在固定场景对照。"));
     float scene_paper_white_scale =
         1.0f / std::max(next.proxy_scale, 0.001f);

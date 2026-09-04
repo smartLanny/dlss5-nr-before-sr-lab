@@ -109,12 +109,14 @@ NrColorPolicyStatus ColorPolicyStatusFor(
     unsigned long long feature_generation, int mode, bool active,
     bool bypassed, unsigned long long now_ms) {
     if (!active) return NrColorPolicyStatus::Inactive;
+    // A current bypass explains why neither pending nor historical values
+    // are effective. Keep the recorded snapshot intact for later recovery.
+    if (bypassed) return NrColorPolicyStatus::Bypassed;
     if (snapshot.frame_id == 0) return NrColorPolicyStatus::NoFrame;
     if (snapshot.config_generation != config_generation || snapshot.mode != mode)
         return NrColorPolicyStatus::Pending;
     if (snapshot.feature_generation != feature_generation)
         return NrColorPolicyStatus::ContractChanged;
-    if (bypassed) return NrColorPolicyStatus::Bypassed;
     if (now_ms < snapshot.recorded_tick_ms ||
         now_ms - snapshot.recorded_tick_ms > 2000)
         return NrColorPolicyStatus::Stale;
