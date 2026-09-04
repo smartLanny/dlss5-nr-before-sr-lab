@@ -203,6 +203,16 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         }
         ImGui::TextWrapped("%s", ui("This is an experiment, not a confirmed jitter fix. Native SR jitter is unchanged. Rebuilds NR history when switched.",
             "此项用于实验，不代表 jitter 问题已修复；游戏原生 SR jitter 始终不变。切换后会重建 NR 历史。"));
+        const unsigned int jitter_status =
+            g_nr_jitter_status.load(std::memory_order_relaxed);
+        ImGui::TextDisabled("%s", jitter_status == 2
+            ? ui("Jitter actual: forwarded for this NR binding.",
+                 "Jitter 实况：已传递到本次 NR 参数。")
+            : (jitter_status == 1
+                ? ui("Jitter actual: requested, but current game input is unknown.",
+                     "Jitter 实况：已请求，但当前游戏输入未知。")
+                : ui("Jitter actual: legacy mode; no game jitter forwarded.",
+                     "Jitter 实况：旧模式，未传递游戏 jitter。")));
         changed |= ImGui::Checkbox(ui("Retry original SR on failure", "失败时重试原始 SR"), &next.retry_original_on_sr_failure);
         changed |= ImGui::Checkbox(ui("Run NR but discard its picture", "运行 NR 但丢弃其画面（诊断）"), &next.identity_use_original);
         int warmup = static_cast<int>(next.warmup_after_create);

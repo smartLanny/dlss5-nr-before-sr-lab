@@ -31,9 +31,12 @@ has_guides = "const NrGuideSignature &requested_guides" in source
 guide_include = '#include "nr_guide_contract.h"' if has_guides else ""
 guide_fields = "NrGuideSignature guide_storage_signature{}; NrGuideHistory guide_history{};" if has_guides else ""
 guide_arg = ", guides" if has_guides else ""
+jitter_types = definition(source, "struct NrJitterBinding", True) if has_guides else ""
+jitter_resolver = definition(source, "NrJitterBinding ResolveNrJitter(") if has_guides else ""
 harness = r'''
 #include <algorithm>
 #include <atomic>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cassert>
@@ -68,6 +71,7 @@ void Log(const char*, ...) {}
 // retirement behavior is exercised by validate-stage-capture-lifecycle.ps1.
 void PrepareStageCaptureContextLocked(const NgxHandle*, unsigned long long, int) {}
 unsigned long long PreparedStageCaptureRequestId(const NgxHandle*, unsigned long long, int) { return 0; }
+JITTER_TYPES
 GUIDE_RESOLVER
 LOOKUP
 int failures=0;
@@ -108,6 +112,7 @@ int main() {
 '''
 replacements = {
     "GUIDE_INCLUDE": guide_include,
+    "JITTER_TYPES": jitter_types,
     "GUIDE_FIELDS": guide_fields,
     "GUIDE_DECL": "NrGuideSignature guides{};" if has_guides else "",
     "GUIDE_ARG": guide_arg,

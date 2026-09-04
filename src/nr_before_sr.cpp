@@ -879,6 +879,10 @@ std::atomic<unsigned int> g_last_nr_create_result{kNgxSuccess};
 std::atomic<bool> g_nr_failed_create_process_latched{false};
 std::atomic<bool> g_shortfuse_loaded{false};
 std::atomic<bool> g_shortfuse_nr_enabled{false};
+// 0 = legacy/no game jitter forwarding, 1 = forwarding requested but the
+// current Evaluate did not provide a legal finite pair, 2 = values were
+// actually written to the NR parameter block for the current binding.
+std::atomic<unsigned int> g_nr_jitter_status{0};
 
 void BeginPipelineStatsScopeLocked(unsigned long long feature_generation,
                                    int mode) {
@@ -1081,7 +1085,11 @@ float ReadIniFloat(const wchar_t *key, float fallback) {
                              static_cast<DWORD>(std::size(value)), g_ini_path);
     wchar_t *end = nullptr;
     const float parsed = wcstof(value, &end);
-    return end != value ? parsed : fallback;
+    return end != value && std::isfinite(parsed) ? parsed : fallback;
+}
+
+float FiniteOr(float value, float fallback) {
+    return std::isfinite(value) ? value : fallback;
 }
 
 bool SameHistoryConfig(const ChainConfig &a, const ChainConfig &b) {
@@ -1095,27 +1103,31 @@ bool SameHistoryConfig(const ChainConfig &a, const ChainConfig &b) {
 
 void NormalizeConfig(ChainConfig &config) {
     config.mode = config.mode == 2 ? 2 : 1;
-    config.transfer_strength = std::clamp(config.transfer_strength, 0.0f, 8.0f);
+    config.transfer_strength = std::clamp(FiniteOr(config.transfer_strength, 0.0f), 0.0f, 8.0f);
     // One visible blend control owns both chains. Keeping the legacy field in
     // sync preserves compatibility with existing INI files without allowing a
     // mode switch to silently select a stale zero-strength value.
     config.post_transfer_strength = config.transfer_strength;
     config.work_mode = std::clamp(config.work_mode, 0, 5);
-    config.custom_work_scale = std::clamp(config.custom_work_scale, 0.5f, 1.0f);
-    config.lighting_lock = std::clamp(config.lighting_lock, 0.0f, 1.0f);
-    config.edge_guard = std::clamp(config.edge_guard, 0.0f, 1.0f);
+    config.custom_work_scale = std::clamp(FiniteOr(config.custom_work_scale, 0.75f), 0.5f, 1.0f);
+    config.lighting_lock = std::clamp(FiniteOr(config.lighting_lock, 0.20f), 0.0f, 1.0f);
+    config.edge_guard = std::clamp(FiniteOr(config.edge_guard, 0.25f), 0.0f, 1.0f);
     config.detail_stability = std::isfinite(config.detail_stability)
         ? std::clamp(config.detail_stability, 0.0f, 1.0f) : 0.0f;
     config.proxy_curve = std::min(config.proxy_curve, 2u);
-    config.color_strength = std::clamp(config.color_strength, 0.0f, 2.0f);
-    config.max_luma_ratio = std::clamp(config.max_luma_ratio, 1.0f, 16.0f);
-    config.proxy_scale = std::clamp(config.proxy_scale, 0.25f, 2.0f);
+    config.color_strength = std::clamp(FiniteOr(config.color_strength, 0.0f), 0.0f, 2.0f);
+    config.max_luma_ratio = std::clamp(FiniteOr(config.max_luma_ratio, 4.0f), 1.0f, 16.0f);
+    config.proxy_scale = std::clamp(FiniteOr(config.proxy_scale, 1.0f), 0.25f, 2.0f);
     config.warmup_after_create = std::min(config.warmup_after_create, 60u);
     config.depth_mode = std::clamp(config.depth_mode, -1, 1);
-    config.intensity = std::clamp(config.intensity, 0.0f, 2.0f);
-    config.local_tone = std::clamp(config.local_tone, 0.0f, 2.0f);
-    config.local_structure = std::clamp(config.local_structure, 0.0f, 2.0f);
-    config.skin_structure = std::clamp(config.skin_structure, -1.0f, 2.0f);
+    config.intensity = std::clamp(
+        FiniteOr(config.intensity, 1.0f), 0.0f, 2.0f);
+    config.local_tone = std::clamp(
+        FiniteOr(config.local_tone, 1.0f), 0.0f, 2.0f);
+    config.local_structure = std::clamp(
+        FiniteOr(config.local_structure, 1.0f), 0.0f, 2.0f);
+    config.skin_structure = std::clamp(
+        FiniteOr(config.skin_structure, -1.0f), -1.0f, 2.0f);
     config.style = std::min(config.style, 2u);
     config.r8_output_encoding = std::clamp(config.r8_output_encoding, 0, 2);
     const int jitter_mode = static_cast<int>(config.jitter_mode);
@@ -6351,12 +6363,21 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     if (g_config.depth_mode == 0) s.depth_inverted = 0;
     else if (g_config.depth_mode == 1) s.depth_inverted = 1;
     GetInt(sr_params, "Reset", &binding.game_reset);
+    // ResolveRenderExtentFromEvaluate supplied these logical guide dimensions
+    // to this function. They are the game's SR input grid even when the
+    // physical motion-vector texture is a high-resolution atlas. Capture the
+    // jitter before the opaque native call so the post-SR path has an immutable
+    // source snapshot.
+    binding.jitter = ResolveNrJitter(
+        sr_params, g_config.jitter_mode, guide_width, guide_height,
+        width, height);
     return true;
 }
 
+void RetireContextForHandle(const NgxHandle *sr_handle);
+
 bool BindNrParameters(NrContext &context, NrSlot &slot,
                       const NrGuideBinding &guides, const FeatureRecord &feature,
-                      const NgxParams *sr_params,
                       unsigned int width, unsigned int height,
                       const ColorContract &color_contract, bool reset,
                       ID3D12Resource *motion_override = nullptr) {
@@ -6374,8 +6395,9 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     const int game_reset = guides.game_reset;
     NgxParams *params = context.params;
     if (params == nullptr) return false;
-    (void)sr_params; // Guide snapshot was captured before native SR.
     const NrJitterBinding &jitter = guides.jitter;
+    g_nr_jitter_status.store(g_config.jitter_mode == NrJitterMode::Legacy
+        ? 0u : (jitter.known ? 2u : 1u), std::memory_order_relaxed);
     if (!context.jitter_status_initialized) {
         context.jitter_status_initialized = true;
         context.jitter_last_known = jitter.known;
@@ -6386,7 +6408,7 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
         // this also makes the transition observable as a history reset.
         const bool previous_known = context.jitter_last_known;
         context.jitter_last_known = jitter.known;
-        context.retired = true;
+        RetireContextForHandle(context.sr_handle);
         Log("NR jitter validity changed: previous=%s current=%s; retiring "
             "Feature 18 parameter block and history before continuing.",
             previous_known ? "valid" : "unknown",
@@ -7027,7 +7049,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         }
     }
     const bool first = context->nr_handle == nullptr;
-    if (!BindNrParameters(*context, *slot, guides, feature, sr_params,
+    if (!BindNrParameters(*context, *slot, guides, feature,
                           width, height, color_contract, first,
                           motion_override))
         return substitution;
@@ -7554,7 +7576,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     }
     const bool first = context.nr_handle == nullptr;
     if (!BindNrParameters(context, slot, substitution.guides, feature,
-                          sr_params, width, height, color_contract, first)) {
+                          width, height, color_contract, first)) {
         PreservePostSrOnFailure(command_list, substitution);
         return false;
     }
@@ -9687,8 +9709,8 @@ bool FormatScreenshotPostfix(char *postfix, std::size_t capacity,
         kBuildIdentity, mode, state, requested_generation,
         static_cast<double>(std::clamp(config.intensity, 0.0f, 2.0f)),
         std::min(config.style, 2u),
-        static_cast<double>(std::clamp(blend, 0.0f, 1.0f)),
-        static_cast<double>(std::clamp(config.color_strength, 0.0f, 1.0f)),
+        static_cast<double>(std::clamp(std::isfinite(blend) ? blend : 0.0f, 0.0f, 8.0f)),
+        static_cast<double>(std::clamp(std::isfinite(config.color_strength) ? config.color_strength : 0.0f, 0.0f, 2.0f)),
         config.experimental_peak_shoulder ? 1 : 0);
     return written > 0 && written <= 90 && static_cast<std::size_t>(written) < capacity;
 }
