@@ -1,4 +1,4 @@
-DLSS 5 AI渲染超分版 beta0.3.7
+DLSS 5 AI渲染超分版 beta0.3.7［HD2 诊断候选］
 作者：@野生的装机宅 Bilibili
 官方发布地址：https://space.bilibili.com/941799
 

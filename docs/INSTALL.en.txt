@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Upscaling Edition beta0.3.7
+DLSS 5 AI Rendering Upscaling Edition beta0.3.7 [HD2 diagnostic candidate]
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
