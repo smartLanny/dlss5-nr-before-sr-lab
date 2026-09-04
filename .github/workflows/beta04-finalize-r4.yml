@@ -1,0 +1,45 @@
+name: Finalize beta0.4 r4 identity
+
+on:
+  push:
+    branches:
+      - codex/beta0.4-perfect-chain
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta04-r4-finalization
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[beta04-r4-finalized]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/beta0.4-perfect-chain
+          fetch-depth: 0
+      - name: Finalize source, resources, package names and documentation
+        run: python scripts/finalize-beta04-r4.py
+      - name: Validate final identity and unchanged beta0.4 math
+        run: |
+          python scripts/validate-beta04-structure.py
+          python scripts/test-beta04-math.py
+          git diff --check
+      - name: Commit final identity
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "beta0.4 r4 identity is already final."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/nr_before_sr.cpp src/nr_before_sr.rc scripts/build.ps1 \
+            scripts/validate-beta04-structure.py config/nr_before_sr.ini \
+            docs/BETA_0_4_PERFECT_CHAIN.md docs/BETA_0_4_TEST_MATRIX.md
+          git commit -m "Finalize beta0.4 perfect-chain r4 identity [beta04-r4-finalized]"
+          git push origin HEAD:codex/beta0.4-perfect-chain
