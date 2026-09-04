@@ -1,47 +1,29 @@
-DLSS 5 AI Rendering Upscaling beta0.3.7 - Small Update
+DLSS 5 AI Rendering Perfect Chain beta0.4.1 Community Beta - Small Update
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
-What this update is
+Use this package with an installation that already has the runtime. Keep nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Replace only the addon and place both feedback-tool pairs beside it. Do not load old/new or Chinese/English addon copies together.
 
-This update adds the compact mode UI, the 0..2 final effect strength with an explicit 1.2 preset, and an opt-in game pixel-jitter developer path. Mode 2 remains the default and unknown HDR colour-follow restrictions remain unchanged.
+Picture defaults
 
-Use this package with an existing 0.3.5 maintenance installation. It contains six small files: the addon, Instructions.txt, the ordinary offline collector pair and the crash-feedback collector pair. Keep both existing DLLs and nr_before_sr.ini; there is no need to download the large runtime again.
+New installations start with final effect strength 1.2. The slider is the actual request, from 0 to 8; there is no hidden multiplier or 1.2 shortcut. New colour follow is 0.75. Unknown HDR contracts remain luminance-only. Explicit existing settings, including zero, are preserved.
 
-0.4 r4 belongs to a separate experimental line. Keep its installation and settings separate. Do not mix files and then treat the result as a comparison of the same version. To return from the experimental line, restore the maintenance installation and settings before applying this update. The 0.4 outdoor-image problem is still under investigation; this package does not establish a fix for it.
+The 0.4.1 NR quality setting changes only Feature 18's working resolution, not the game's DLSS mode. High strength at a low NR working resolution can amplify grain. Raise NR quality before attributing that result to jitter.
 
-How to update
+Stability changes
 
-Exit the game completely. Back up the current addon outside the game directory, then replace it with this addon. Keep only one active copy; do not load old/new or Chinese/English copies together.
+For the Forza Horizon crash regression first reported after 0.3.3, the stable path once again bypasses a command list whose PSO is null. It also avoids publishing the wider graphics-state hooks used only by that high-risk restore path. The report contained no crash dump, so this is a conservative fix based on the exact version boundary and still needs game confirmation. Keep ExperimentalNullPsoCarrier=0 unless running a controlled one-variable experiment; changing it requires a full game restart.
 
-Keep nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Place both Collect-*.cmd files and both collect-*.ps1 files beside the addon. Do not swap runtime DLLs between GPU packages.
+Older builds wrote DLSSNR.UICorrection using the wrong parameter type. It now uses the unsigned value read by the runtime. New installations enable “HUD / text protection (model)”; an existing explicit 0 or 1 is preserved. This can help only when a game supplies a separate UI layer and cannot discover subtitles or HUD already baked into SceneColor.
 
-Start the game and check that the addon panel says beta0.3.7. First-time installations or missing runtime files require the full package for your GPU.
+Updating
 
-What changed
+Exit the game completely, back up the old addon outside the game directory, then replace it. Keep both runtime DLLs and the existing configuration. In game, confirm beta0.4.1 in the ReShade addon panel, compare with F6, and verify that the NR-success counter continues increasing.
 
-When the game's Ray Reconstruction (RR) owns the rendering path, F8 collects screenshots, settings and logs and records why NR stage images are unavailable. It no longer waits for NR stages that cannot be produced while RR is active.
+Reporting
 
-If F8 times out, a stage request that has not started can be cancelled so the next F8 can retry. This does not force-stop work already started; not every timed-out capture can be cancelled.
+For picture problems, keep a fixed camera and press F8 or click Collect feedback ZIP. Wait about 30 seconds for completion and collect one package per setting. The package identifies display screenshots and GPU stages separately; it does not claim they are the same final-SR frame.
 
-The panel shows the current bypass ahead of Settings pending, instead of hiding it behind that message. Your saved requests are retained.
+After a crash, run Collect-Crash-Feedback.cmd. It derives one exact game EXE from the newest ReShade.log and collects only matching existing Windows 1000/1001 summaries, WER reports and dumps from the last 72 hours. It does not enable dumps, modify the registry, launch the game or upload. A dump can contain process memory and local paths, so decide whether to share it.
 
-The two experimental controls now explain their scope: Lighting Match adjusts local brightness, and HDR Highlight Detail changes highlight mapping before NR. Neither unlocks colour follow. Check the effective value and reason beside Colour Follow.
-
-For NTE players reporting no effect
-
-The supplied NTE log shows that the game enabled Ray Reconstruction, RR took over, and this addon stopped NR. That is the current safety bypass. It is not evidence that RTX 40 cards are unsupported, or that every no-effect report has been fixed.
-
-To test this addon's NR, disable Ray Reconstruction in the game. If the panel still shows an RR bypass, exit the game completely and restart before testing. This update does not change that rule.
-
-Reporting a problem
-
-Stop where the issue is visible, press F8 or click Collect feedback ZIP, and keep the camera still until completion. Collection waits up to about 30 seconds; background packaging takes additional time, especially on a slow drive.
-
-feedback.zip normally appears under Documents/DLSS5-Feedback. If Documents cannot be used, collection tries the system temporary directory. Use the actual path shown in the panel or its copy-path button. A partial bundle is useful too.
-
-The ZIP contains three current-view screenshots, available NR stages, image information, settings and logs. The three screenshots are not an automatic on/off comparison. The program does not switch settings or upload files for you. For comparison, keep the camera fixed, toggle NR yourself with F6, collect once per setting, and label each bundle with its version and on/off state.
-
-Send the ZIP with the game name, GPU model, HDR or SDR setting, and the problem. Weak effects, Spider-Man and Wuthering Waves image quality, and Dragon's Dogma 2 crashes still need reports. Applied does not necessarily mean a stronger visible effect.
-
-For a startup problem without crash evidence, run Collect-Feedback.cmd. After a crash, run Collect-Crash-Feedback.cmd; it derives one exact game EXE from the newest ReShade.log and collects only matching existing Windows events, WER reports and dumps from the last 72 hours. It does not enable dumps, change the registry or upload. Existing dumps can contain process memory and local paths, so decide whether to share them.
+For a startup problem without crash evidence, run Collect-Feedback.cmd. Keep each CMD beside its matching PowerShell script.

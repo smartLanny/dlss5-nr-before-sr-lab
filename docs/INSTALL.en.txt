@@ -4,6 +4,8 @@ Official releases: https://space.bilibili.com/941799
 
 First installation
 
+New installations start with final effect strength 1.2, colour follow 0.75, and the model HUD/text-protection parameter enabled. The slider is the actual request with no hidden multiplier. Explicit existing settings, including zero, are preserved; effective colour follow remains zero for unknown HDR inputs.
+
 Choose the full package for your GPU. The game needs D3D12, native DLSS Super Resolution, and ReShade / RHI with addon support. Use it only in offline environments that allow these addons and have no anti-cheat.
 
 Exit the game completely. Extract all nine files into the directory where ReShade loads addons. This is usually beside the game's actual 64-bit executable and the ReShade DLL. If you configured a custom addon directory, use that directory.
@@ -48,6 +50,8 @@ For a crash report, double-click Collect-Crash-Feedback.cmd after the crash. Kee
 Send the ZIP with the game name, GPU model, HDR or SDR setting, what went wrong and what you expected. Files stay on your computer until you share them. The collector does not upload automatically or switch image settings. Logs and screenshots may include installation paths and visible overlays.
 
 What changed in this version
+
+The stable build no longer forces NR insertion while the command list has a null PSO, reducing the regression surface behind the reported Forza Horizon crash. The submitted bundle had no crash dump, so game confirmation is still required. The model UI-correction parameter now uses the unsigned type actually read by the runtime. It can help text only when a game supplies a separate UI layer and cannot discover subtitles already baked into the picture.
 
 This version fixes a case where an unset game rendering state incorrectly prevented the addon from running. It also fixes invalid exposure-value handling and shows the currently effective value and restriction reason for options such as Colour Follow.
 

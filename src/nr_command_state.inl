@@ -272,13 +272,14 @@ void CommandStateSamples(NativeCommandState &state, UINT count, UINT pixels, D3D
     auto &d=state.dynamic; d.recorded |= kDynamicSamples; d.sample_count=count; d.sample_pixels=pixels;
     if (count*pixels) memcpy(d.samples, values, count*pixels*sizeof(*values));
 }
-bool CanRestoreNativeCommandState(const NativeCommandState &state) {
+bool CanRestoreNativeCommandState(const NativeCommandState &state,
+                                  bool allow_null_pso = false) {
     // A null pointer alone proves nothing. Only an observed successful native
     // Reset/ClearState establishes the dummy PSO and every ClearState domain.
     return state.known && state.unknown_domains == 0 &&
         (state.pipeline != nullptr || (state.dynamic.recorded & (kDynamicDepthBias | kDynamicStripCut)) == 0) &&
         (state.pipeline != nullptr || state.raytracing_pipeline != nullptr ||
-         state.null_pipeline_baseline);
+         (allow_null_pso && state.null_pipeline_baseline));
 }
 // ABI slots below are from Microsoft Agility SDK 1.714 d3d12.h/IDL. Install
 // verifies each corresponding interface is available and is not a tear-off.
@@ -878,6 +879,7 @@ bool AppendCommandStateInterfaceHooks(ID3D12GraphicsCommandList *native, REFIID 
 bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native) {
     CommandStateHookRequest requests[48] = {};
     unsigned int count = 0;
+    const bool allow_null_pso = AllowExperimentalNullPsoCarrier();
 #define NR_ADD_STATE_HOOK(NAME) requests[count++] = { &g_state_##NAME, reinterpret_cast<void *>(native->lpVtbl->NAME), g_state_detours_##NAME }
     NR_ADD_STATE_HOOK(SetPipelineState); NR_ADD_STATE_HOOK(ClearState);
     NR_ADD_STATE_HOOK(SetDescriptorHeaps); NR_ADD_STATE_HOOK(ExecuteBundle); NR_ADD_STATE_HOOK(ExecuteIndirect);
@@ -887,10 +889,12 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native) {
     NR_ADD_STATE_HOOK(Set##NAME##RootConstantBufferView); NR_ADD_STATE_HOOK(Set##NAME##RootShaderResourceView); \
     NR_ADD_STATE_HOOK(Set##NAME##RootUnorderedAccessView)
     NR_ADD_STATE_STAGE(Compute); NR_ADD_STATE_STAGE(Graphics);
-    NR_ADD_STATE_HOOK(IASetPrimitiveTopology); NR_ADD_STATE_HOOK(RSSetViewports); NR_ADD_STATE_HOOK(RSSetScissorRects);
-    NR_ADD_STATE_HOOK(OMSetBlendFactor); NR_ADD_STATE_HOOK(OMSetStencilRef); NR_ADD_STATE_HOOK(IASetIndexBuffer);
-    NR_ADD_STATE_HOOK(IASetVertexBuffers); NR_ADD_STATE_HOOK(SOSetTargets); NR_ADD_STATE_HOOK(OMSetRenderTargets);
-    NR_ADD_STATE_HOOK(SetPredication);
+    if (allow_null_pso) {
+        NR_ADD_STATE_HOOK(IASetPrimitiveTopology); NR_ADD_STATE_HOOK(RSSetViewports); NR_ADD_STATE_HOOK(RSSetScissorRects);
+        NR_ADD_STATE_HOOK(OMSetBlendFactor); NR_ADD_STATE_HOOK(OMSetStencilRef); NR_ADD_STATE_HOOK(IASetIndexBuffer);
+        NR_ADD_STATE_HOOK(IASetVertexBuffers); NR_ADD_STATE_HOOK(SOSetTargets); NR_ADD_STATE_HOOK(OMSetRenderTargets);
+        NR_ADD_STATE_HOOK(SetPredication);
+    }
 #undef NR_ADD_STATE_STAGE
 #undef NR_ADD_STATE_HOOK
     constexpr GUID list8={0xee936ef9,0x599d,0x4d28,{0x93,0x8e,0x23,0xc4,0xad,0x05,0xce,0x51}};
@@ -902,11 +906,12 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native) {
     const CommandStateExtendedHookRequest extra8[]={NR_EXTRA(OMSetFrontAndBackStencilRef,81)};
     const CommandStateExtendedHookRequest extra9[]={NR_EXTRA(RSSetDepthBias,82), NR_EXTRA(IASetIndexBufferStripCutValue,83)};
 #undef NR_EXTRA
-    if (!AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList1, requests,count,extra1,3) ||
-        !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList3, requests,count,extra3,1) ||
-        !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList5, requests,count,extra5,2) ||
-        !AppendCommandStateInterfaceHooks(native, list8, requests,count,extra8,1) ||
-        !AppendCommandStateInterfaceHooks(native, list9, requests,count,extra9,2)) return false;
+    if (allow_null_pso &&
+        (!AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList1, requests,count,extra1,3) ||
+         !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList3, requests,count,extra3,1) ||
+         !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList5, requests,count,extra5,2) ||
+         !AppendCommandStateInterfaceHooks(native, list8, requests,count,extra8,1) ||
+         !AppendCommandStateInterfaceHooks(native, list9, requests,count,extra9,2))) return false;
     ID3D12GraphicsCommandList4 *extended = nullptr;
     const HRESULT queried4=ID3D12GraphicsCommandList_QueryInterface(native, IID_ID3D12GraphicsCommandList4, reinterpret_cast<void **>(&extended));
     if (queried4 != E_NOINTERFACE && (FAILED(queried4) || extended == nullptr)) return false;
@@ -921,10 +926,12 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native) {
         requests[count++] = { &g_state_SetPipelineState1, reinterpret_cast<void *>(extended->lpVtbl->SetPipelineState1), g_state_detours_SetPipelineState1 };
         requests[count++] = { &g_state_InitializeMetaCommand, reinterpret_cast<void *>(extended->lpVtbl->InitializeMetaCommand), g_state_detours_InitializeMetaCommand };
         requests[count++] = { &g_state_ExecuteMetaCommand, reinterpret_cast<void *>(extended->lpVtbl->ExecuteMetaCommand), g_state_detours_ExecuteMetaCommand };
-        requests[count++] = { &g_state_BeginRenderPass, reinterpret_cast<void *>(extended->lpVtbl->BeginRenderPass), g_state_detours_BeginRenderPass };
+        if (allow_null_pso)
+            requests[count++] = { &g_state_BeginRenderPass, reinterpret_cast<void *>(extended->lpVtbl->BeginRenderPass), g_state_detours_BeginRenderPass };
     }
     IUnknown *latest = nullptr;
-    const HRESULT queried10=ID3D12GraphicsCommandList_QueryInterface(native, kCommandList10Interface, reinterpret_cast<void **>(&latest));
+    const HRESULT queried10 = allow_null_pso ? ID3D12GraphicsCommandList_QueryInterface(
+        native, kCommandList10Interface, reinterpret_cast<void **>(&latest)) : E_NOINTERFACE;
     if (queried10 != E_NOINTERFACE && (FAILED(queried10) || latest == nullptr)) {
         if (extended != nullptr) ID3D12GraphicsCommandList4_Release(extended);
         return false;
@@ -1045,11 +1052,14 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
         needs_install = record->state != nullptr && !record->hooks_ready;
         const bool meta_covered = record->meta_contract.known &&
             ((record->meta_contract.initialization_dirty | record->meta_contract.execution_dirty) & ~kCommandStateCoveredDomains) == 0;
-        captured = meta_covered && record->state != nullptr && record->hooks_ready && CanRestoreNativeCommandState(*record->state);
+        captured = meta_covered && record->state != nullptr && record->hooks_ready &&
+            CanRestoreNativeCommandState(*record->state,
+                AllowExperimentalNullPsoCarrier());
         unavailable_reason = !meta_covered ? "meta-command-coverage" : record->state == nullptr ? "snapshot-allocation" :
             !record->hooks_ready ? "native-hooks-unavailable" : !record->state->known ? record->state->unknown_reason :
             record->state->unknown_domains != 0 ? "meta-command-dirty-state" :
-            (record->state->dynamic.recorded & (kDynamicDepthBias | kDynamicStripCut)) && !record->state->pipeline ? "dynamic-raster-without-PSO" : "pipeline-unbound";
+            (record->state->dynamic.recorded & (kDynamicDepthBias | kDynamicStripCut)) && !record->state->pipeline ? "dynamic-raster-without-PSO" :
+            record->state->null_pipeline_baseline && !AllowExperimentalNullPsoCarrier() ? "null-pso-policy-disabled" : "pipeline-unbound";
         if (record->state != nullptr) {
             unknown_domains = record->state->unknown_domains;
             reset_serial=record->state->reset_serial; pipeline_writes=record->state->pipeline_writes;
