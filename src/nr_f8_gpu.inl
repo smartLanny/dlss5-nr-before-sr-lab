@@ -12,6 +12,14 @@ struct NrDiagnosticIdentity {
     unsigned int config_generation = 0;
     bool warmed_up = false;
 };
+struct NrStageCaptureInfo {
+    NrDiagnosticIdentity identity = {};
+    unsigned long long request_id = 0;
+    unsigned int width = 0, height = 0, stride = 1;
+    unsigned int source_width = 0, source_height = 0;
+    unsigned int region_x = 0, region_y = 0;
+    unsigned int region_width = 0, region_height = 0;
+};
 namespace nr_f8 {
 struct FrameTicket {
     unsigned long long session = 0;
@@ -156,6 +164,7 @@ struct ArmArgs {
     NrDiagnosticIdentity identity = {};
     unsigned int roi_width = 0;
     unsigned int roi_height = 0;
+    const NrStageCaptureInfo *info = nullptr;
 };
 
 struct ArmResult {
@@ -172,6 +181,9 @@ struct ReadbackJob {
     UINT64 bytes = 0;
     TokenIdentity key = {};
     nr_f8::FrameTicket ticket = {};
+    NrStageCaptureInfo info = {};
+    unsigned int ring_slot = 0;
+    unsigned long long recording_token = 0;
 };
 
 using FenceCompleteFn = bool (*)(void *queue_key, unsigned long long fence);
@@ -183,6 +195,7 @@ struct ResourceEntry {
     ID3D12DescriptorHeap *heap = nullptr;
     UINT64 bytes = 0;
     TokenIdentity key = {};
+    NrStageCaptureInfo info = {};
     unsigned int ledger_slot = 0;
     D3D12_RESOURCE_STATES buffer_state = D3D12_RESOURCE_STATE_COMMON;
 };
@@ -209,6 +222,11 @@ public:
         if (ledger_slot < 0) return false;
         ResourceEntry resource = {};
         resource.key = key;
+        if (args.info != nullptr) resource.info = *args.info;
+        resource.info.identity = args.identity;
+        resource.info.request_id = args.request;
+        resource.info.region_width = args.roi_width;
+        resource.info.region_height = args.roi_height;
         resource.ledger_slot = static_cast<unsigned int>(ledger_slot);
         resource.bytes = bytes;
         if (!CreateResources(args, resource)) {
@@ -291,6 +309,9 @@ public:
             job->key = resource.key;
             job->ticket = {resource.key.request, resource.key.group,
                            resource.key.frame_index};
+            job->info = resource.info;
+            job->ring_slot = i;
+            job->recording_token = entry.recording_token;
             resource.readback = nullptr;
             ReleaseCom(resource.buffer);
             ReleaseCom(resource.heap);
