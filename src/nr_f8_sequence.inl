@@ -194,8 +194,12 @@ void Screenshot(reshade::api::effect_runtime *runtime,const char *path) {
         char tag[80]={}; std::snprintf(tag,sizeof(tag),"DLSS5_F8_%llu_%u",g_session->id,g_session->group);
         const char *basename=path;
         for(const char *p=path;*p;++p)if(*p=='/' || *p=='\\')basename=p+1;
-        const char *match=std::strstr(basename,tag);
-        if(g.shot_requested && !g.shot_received && match && match[std::strlen(tag)]=='.') {
+        const char *extension=std::strrchr(basename,'.');
+        const std::size_t tag_length=std::strlen(tag);
+        const std::size_t stem_length=extension?static_cast<std::size_t>(extension-basename):0;
+        const bool exact_postfix=extension && extension[1] && stem_length>=tag_length &&
+            std::memcmp(basename+stem_length-tag_length,tag,tag_length)==0;
+        if(g.shot_requested && !g.shot_received && exact_postfix) {
             wchar_t decoded[1024]={},canonical[1024]={};
             if(MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path,-1,decoded,1024)) {
                 const DWORD n=GetFullPathNameW(decoded,1024,canonical,nullptr);

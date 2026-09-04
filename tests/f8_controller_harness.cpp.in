@@ -95,7 +95,10 @@ void TestDefaultsAndPictures(){
     Reset();Check(Options{}.comparison==Comparison::Current,"default is current");config.enabled=false;reshade::api::effect_runtime r;Start(r);Check(config_calls==0,"current does not call ApplyConfig");
     Check(!RequestWithOptions({Comparison::Standard,false,0,0}),"second request rejected");
     test_clock+=3100;Present(&r);reshade::api::effect_runtime wrong;Screenshot(&wrong,"C:\\wrong_DLSS5_F8_1_0.png");Check(!g_session->groups[0].shot_received,"wrong runtime rejected");
-    Screenshot(&r,"C:\\wrong_DLSS5_F8_1_00.png");Check(!g_session->groups[0].shot_received,"tag suffix rejected");Shot(r);Present(&r);Drain();
+    Screenshot(&r,"C:\\wrong_DLSS5_F8_1_00.png");Check(!g_session->groups[0].shot_received,"tag suffix rejected");
+    Screenshot(&r,"C:\\wrong_DLSS5_F8_1_0.decoy.png");Check(!g_session->groups[0].shot_received,"tag before extra stem text rejected");
+    Screenshot(&r,"C:\\wrong_DLSS5_F8_1_0.png.more");Check(!g_session->groups[0].shot_received,"tag before non-final extension rejected");
+    Shot(r);Present(&r);Drain();
     Check(g_status==Status::Complete && config_calls==0 && !g_config_hold,"off current ZIP completed without config writes");
     Check(g_last_zip[0]!=0,"first ZIP path exists");Check(RequestWithOptions({}),"request after completion");Check(!g_last_zip[0],"new request clears previous ZIP");pin_fail=true;Present(&r);pin_fail=false;Check(g_status==Status::Failed && !g_last_zip[0],"PIN failure exposes no old ZIP");
 }

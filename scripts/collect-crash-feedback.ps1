@@ -16,7 +16,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName System.IO.Compression
 
-$CollectorVersion = 'beta0.4.1-crash-evidence-1'
+$CollectorVersion = 'beta0.4.1-crash-evidence-2'
 $MaxLogBytes = 8MB
 $MaxEventCandidates = 256
 $MaxEventMatches = 16
@@ -122,6 +122,20 @@ function Get-AllowListedLogDirectories([string]$Source) {
     return @($result.ToArray())
 }
 
+function Get-NormalizedExecutablePath([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
+    try {
+        $candidate = [Environment]::ExpandEnvironmentVariables($Value.Trim())
+        if ($candidate.Length -ge 2 -and $candidate[0] -eq '"' -and
+            $candidate[$candidate.Length - 1] -eq '"') {
+            $candidate = $candidate.Substring(1, $candidate.Length - 2)
+        }
+        if (-not [IO.Path]::IsPathRooted($candidate) -or
+            [IO.Path]::GetExtension($candidate) -ine '.exe') { return '' }
+        return [IO.Path]::GetFullPath($candidate)
+    } catch { return '' }
+}
+
 function Find-ReShadeTarget([string]$Source) {
     $logs = New-Object 'System.Collections.Generic.List[object]'
     foreach ($directory in (Get-AllowListedLogDirectories $Source)) {
@@ -143,18 +157,13 @@ function Find-ReShadeTarget([string]$Source) {
     $paths = New-Object 'System.Collections.Generic.List[string]'
     $pathSet = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     foreach ($match in [regex]::Matches($text, $pattern)) {
-        try {
-            $candidate = [IO.Path]::GetFullPath($match.Groups['path'].Value)
-            if ([IO.Path]::GetExtension($candidate) -ine '.exe') { continue }
-            if ($pathSet.Add($candidate)) { $paths.Add($candidate) | Out-Null }
-        } catch { }
+        $candidate = Get-NormalizedExecutablePath $match.Groups['path'].Value
+        if ($candidate -and $pathSet.Add($candidate)) { $paths.Add($candidate) | Out-Null }
     }
     if ($paths.Count -eq 0) {
         return [pscustomobject]@{ status = 'unavailable'; executable = ''; path = ''; source_log = $newest.path; candidates = @() }
     }
-    $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    foreach ($path in $paths) { [void]$names.Add([IO.Path]::GetFileName($path)) }
-    if ($names.Count -ne 1) {
+    if ($paths.Count -ne 1) {
         return [pscustomobject]@{ status = 'ambiguous'; executable = ''; path = ''; source_log = $newest.path; candidates = @($paths.ToArray()) }
     }
     $selectedPath = $paths[$paths.Count - 1]
@@ -179,21 +188,40 @@ function Get-FileNameSafe([string]$Value) {
     try { return [IO.Path]::GetFileName($Value.Trim()) } catch { return '' }
 }
 
-function Test-ExactEventTarget([int]$Id, $Data, [string]$Target) {
-    $candidates = New-Object 'System.Collections.Generic.List[string]'
-    foreach ($key in @('AppName', 'AppPath')) {
-        if ($Data.Contains($key)) { $candidates.Add((Get-FileNameSafe ([string]$Data[$key]))) | Out-Null }
+function Get-EventTargetMatch([int]$Id, $Data, [string]$Target, [string]$TargetPath) {
+    if ($Data.Contains('AppPath') -and -not [string]::IsNullOrWhiteSpace([string]$Data['AppPath'])) {
+        $candidatePath = Get-NormalizedExecutablePath ([string]$Data['AppPath'])
+        if ($candidatePath -and [string]::Equals(
+                $candidatePath, $TargetPath, [StringComparison]::OrdinalIgnoreCase)) {
+            return 'path-exact'
+        }
+        return ''
+    }
+    $values = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($key in @('AppName')) {
+        if ($Data.Contains($key)) { $values.Add([string]$Data[$key]) | Out-Null }
     }
     if ($Id -eq 1001 -and $Data.Contains('P1')) {
-        $candidates.Add((Get-FileNameSafe ([string]$Data['P1']))) | Out-Null
+        $values.Add([string]$Data['P1']) | Out-Null
     }
-    foreach ($candidate in $candidates) {
-        if ([string]::Equals($candidate, $Target, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    $hasPath = $false
+    foreach ($value in $values) {
+        $candidatePath = Get-NormalizedExecutablePath $value
+        if (-not $candidatePath) { continue }
+        if (-not [string]::Equals($candidatePath, $TargetPath,
+                [StringComparison]::OrdinalIgnoreCase)) { return '' }
+        $hasPath = $true
     }
-    return $false
+    if ($hasPath) { return 'path-exact' }
+    foreach ($value in $values) {
+        $candidate = Get-FileNameSafe $value
+        if ([string]::Equals($candidate, $Target, [StringComparison]::OrdinalIgnoreCase)) { return 'name-only' }
+    }
+    return ''
 }
 
-function Convert-EventNode($EventNode, [string]$Target, [datetime]$CutoffUtc, [datetime]$ReferenceUtc) {
+function Convert-EventNode($EventNode, [string]$Target, [string]$TargetPath,
+        [datetime]$CutoffUtc, [datetime]$ReferenceUtc) {
     try {
         $system = $EventNode.SelectSingleNode("*[local-name()='System']")
         if (-not $system) { return $null }
@@ -211,7 +239,8 @@ function Convert-EventNode($EventNode, [string]$Target, [datetime]$CutoffUtc, [d
             [Globalization.DateTimeStyles]::AssumeUniversal).UtcDateTime
         if ($time -lt $CutoffUtc -or $time -gt $ReferenceUtc.AddMinutes(5)) { return $null }
         $data = Get-EventDataMap $EventNode
-        if (-not (Test-ExactEventTarget $id $data $Target)) { return $null }
+        $targetMatch = Get-EventTargetMatch $id $data $Target $TargetPath
+        if (-not $targetMatch) { return $null }
         $selected = [ordered]@{}
         $keys = if ($id -eq 1000) {
             @('AppName', 'AppVersion', 'AppTimeStamp', 'ModuleName', 'ModuleVersion',
@@ -231,11 +260,12 @@ function Convert-EventNode($EventNode, [string]$Target, [datetime]$CutoffUtc, [d
         $recordNode = $system.SelectSingleNode("*[local-name()='EventRecordID']")
         return [pscustomobject]@{ provider = $provider; event_id = $id;
             record_id = $(if ($recordNode) { [string]$recordNode.InnerText } else { '' });
-            time_utc = $time.ToString('o'); data = $selected }
+            time_utc = $time.ToString('o'); target_match = $targetMatch; data = $selected }
     } catch { return $null }
 }
 
-function Collect-EventSummaries([string]$Target, [datetime]$CutoffUtc, [datetime]$ReferenceUtc) {
+function Collect-EventSummaries([string]$Target, [string]$TargetPath,
+        [datetime]$CutoffUtc, [datetime]$ReferenceUtc) {
     $nodes = New-Object 'System.Collections.Generic.List[object]'
     $status = 'unavailable'
     try {
@@ -273,7 +303,7 @@ function Collect-EventSummaries([string]$Target, [datetime]$CutoffUtc, [datetime
             $status = 'windows-application-log-read'
         }
         foreach ($node in $nodes) {
-            $summary = Convert-EventNode $node $Target $CutoffUtc $ReferenceUtc
+            $summary = Convert-EventNode $node $Target $TargetPath $CutoffUtc $ReferenceUtc
             if (-not $summary) { continue }
             $EventSummaries.Add($summary) | Out-Null
             if ($EventSummaries.Count -ge $MaxEventMatches) {
@@ -312,13 +342,33 @@ function Read-WerKeyValues([string]$Path) {
     }
 }
 
-function Test-ExactWerTarget($Values, [string]$Target) {
-    foreach ($key in @('AppName', 'AppPath', 'Sig[0].Value')) {
-        if (-not $Values.Contains($key)) { continue }
-        $candidate = Get-FileNameSafe ([string]$Values[$key])
-        if ([string]::Equals($candidate, $Target, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+function Get-WerTargetMatch($Values, [string]$Target, [string]$TargetPath) {
+    if ($Values.Contains('AppPath') -and -not [string]::IsNullOrWhiteSpace([string]$Values['AppPath'])) {
+        $candidatePath = Get-NormalizedExecutablePath ([string]$Values['AppPath'])
+        if ($candidatePath -and [string]::Equals(
+                $candidatePath, $TargetPath, [StringComparison]::OrdinalIgnoreCase)) {
+            return 'path-exact'
+        }
+        return ''
     }
-    return $false
+    $candidates = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($key in @('AppName', 'Sig[0].Value')) {
+        if ($Values.Contains($key)) { $candidates.Add([string]$Values[$key]) | Out-Null }
+    }
+    $hasPath = $false
+    foreach ($value in $candidates) {
+        $candidatePath = Get-NormalizedExecutablePath $value
+        if (-not $candidatePath) { continue }
+        if (-not [string]::Equals($candidatePath, $TargetPath,
+                [StringComparison]::OrdinalIgnoreCase)) { return '' }
+        $hasPath = $true
+    }
+    if ($hasPath) { return 'path-exact' }
+    foreach ($value in $candidates) {
+        $candidate = Get-FileNameSafe $value
+        if ([string]::Equals($candidate, $Target, [StringComparison]::OrdinalIgnoreCase)) { return 'name-only' }
+    }
+    return ''
 }
 
 function Add-EvidenceFile([string]$Path, [string]$EntryName, [string]$Kind, [long]$IndividualLimit) {
@@ -436,7 +486,8 @@ function Collect-DumpsFromDirectory([string]$Directory, [string]$Target, [dateti
     }
 }
 
-function Collect-WerEvidence([string]$Target, [datetime]$CutoffUtc, [datetime]$ReferenceUtc, [string[]]$Roots) {
+function Collect-WerEvidence([string]$Target, [string]$TargetPath,
+        [datetime]$CutoffUtc, [datetime]$ReferenceUtc, [string[]]$Roots) {
     $candidates = New-Object 'System.Collections.Generic.List[IO.FileInfo]'
     $rootDirectories = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $directoryCount = 0
@@ -507,7 +558,8 @@ function Collect-WerEvidence([string]$Target, [datetime]$CutoffUtc, [datetime]$R
             }
             continue
         }
-        if (-not (Test-ExactWerTarget $values $Target)) { continue }
+        $targetMatch = Get-WerTargetMatch $values $Target $TargetPath
+        if (-not $targetMatch) { continue }
         $script:WerMatched++
         $entryName = 'crash/wer/{0:d2}-{1}' -f $script:WerCollected, $file.Name
         if (Add-EvidenceFile $file.FullName $entryName 'wer-report' $MaxWerBytes) {
@@ -591,10 +643,10 @@ try {
     $baseManifest = Read-ManifestFromArchive
 
     if ($target.status -eq 'identified') {
-        $eventStatus = Collect-EventSummaries $target.executable $cutoffUtc $referenceUtc
+        $eventStatus = Collect-EventSummaries $target.executable $target.path $cutoffUtc $referenceUtc
         $effectiveWerRoots = if ($WerRoots.Count) { @($WerRoots) } else { @(Get-DefaultWerRoots) }
         $effectiveDumpRoots = if ($DumpRoots.Count) { @($DumpRoots) } else { @(Get-DefaultDumpRoots) }
-        Collect-WerEvidence $target.executable $cutoffUtc $referenceUtc $effectiveWerRoots
+        Collect-WerEvidence $target.executable $target.path $cutoffUtc $referenceUtc $effectiveWerRoots
         foreach ($rootValue in $effectiveDumpRoots) {
             if ([string]::IsNullOrWhiteSpace($rootValue)) { continue }
             try { $root = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($rootValue)) } catch {
@@ -629,6 +681,12 @@ try {
         target_status = $target.status; target_executable = $target.executable
         target_path = $target.path; target_source_log = $target.source_log
         target_candidates = @($target.candidates)
+        identity_matching = [ordered]@{
+            reshade_log = 'one unique normalized absolute EXE path required'
+            event_and_wer = 'absolute AppPath must equal target_path; basename fallback only when AppPath is absent'
+            standalone_dumps = 'exact basename and recent timestamp only'
+            standalone_dump_limitation = 'CrashDumps filenames do not identify the source EXE path; another installation with the same EXE basename cannot be distinguished.'
+        }
         reference_utc = $referenceUtc.ToString('o'); cutoff_utc = $cutoffUtc.ToString('o')
         lookback_hours = $LookbackHours; event_query_status = $eventStatus
         matches = @{ event_summaries = $EventSummaries.Count; wer_reports_found = $WerMatched;
@@ -653,7 +711,8 @@ try {
         ('匹配 WER 报告：' + $WerCollected),
         ('已有转储：' + $DumpCollected),
         ('结果：' + $crashStatus), '',
-        '没有匹配材料不代表游戏没有崩溃，只表示 Windows 当前可读取的位置没有留下与目标 EXE 精确匹配的近期记录。',
+        '没有匹配材料不代表游戏没有崩溃，只表示 Windows 当前可读取的位置没有留下符合当前目标身份规则的近期记录。',
+        '单独的 CrashDumps 文件名不含程序完整路径；若电脑上另有同名 EXE，工具无法仅凭该 dump 区分，限制已写入 crash-evidence.json。',
         '本工具不会打开系统转储、不会修改注册表、不会启动游戏，也不会上传文件。已有转储可能包含进程内存和本机路径；发送 ZIP 前请按自己的隐私要求决定是否分享。',
         '详细范围、缺失原因、文件哈希和上限见 crash-evidence.json 与 manifest.json。'
     ) -join "`r`n") + "`r`n"
@@ -669,7 +728,7 @@ try {
     $ZipFile.Dispose(); $ZipFile = $null
     Write-Host 'Crash feedback package saved locally (nothing uploaded):'
     Write-Host $zipPath
-    Write-Host 'It only includes recent evidence exactly matched to the EXE parsed from ReShade.log.'
+    Write-Host 'It only includes bounded recent evidence under the identity rules recorded in crash-evidence.json.'
     if (-not $NoPause) { [void](Read-Host 'Press Enter to close') }
 } catch {
     Write-Host ('Crash feedback collection could not finish: ' + $_.Exception.Message)

@@ -126,6 +126,10 @@ with tempfile.TemporaryDirectory(prefix="dlss5-offline-fixture-") as temporary:
         ("Application Error", 1000, 105, old, {
             "AppName": "forzahorizon6.exe", "ExceptionCode": "BAD-OLD-MATCH",
         }),
+        ("Application Error", 1000, 106, fresh, {
+            "AppName": "forzahorizon6.exe", "ExceptionCode": "BAD-WRONG-PATH-MATCH",
+            "AppPath": r"D:\Other Games\Forza Horizon 6\forzahorizon6.exe",
+        }),
     ])
     wer_root = fixture / "WER root"
     matched_report = wer_root / "AppCrash_forzahorizon6_exact"
@@ -146,6 +150,13 @@ with tempfile.TemporaryDirectory(prefix="dlss5-offline-fixture-") as temporary:
         "EventType=APPCRASH\nAppName=forzahorizon6helper.exe\n"
         "ReportIdentifier=must-not-collect\n", encoding="utf-16")
     (unmatched_report / "unrelated.dmp").write_bytes(b"UNRELATED-WER-DUMP")
+    wrong_path_report = wer_root / "AppCrash_forzahorizon6_wrong_path"
+    wrong_path_report.mkdir()
+    (wrong_path_report / "Report.wer").write_text(
+        "EventType=APPCRASH\nAppName=forzahorizon6.exe\n"
+        "AppPath=D:\\Other Games\\Forza Horizon 6\\forzahorizon6.exe\n"
+        "ReportIdentifier=wrong-path-report\n", encoding="utf-16")
+    (wrong_path_report / "wrong-path.dmp").write_bytes(b"WRONG-PATH-WER-DUMP")
     (nested_report / "Report.wer").write_text(
         "AppName=forzahorizon6.exe\nReportIdentifier=too-deep\n", encoding="utf-16")
     dump_root = fixture / "CrashDumps"
@@ -164,6 +175,10 @@ with tempfile.TemporaryDirectory(prefix="dlss5-offline-fixture-") as temporary:
         check(crash["target_status"] == "identified" and
               crash["target_executable"].lower() == "forzahorizon6.exe", "strict target identity")
         check(crash["status"] == "matching-crash-evidence-collected", "matching evidence status")
+        check(crash["identity_matching"]["standalone_dumps"] ==
+              "exact basename and recent timestamp only" and
+              "cannot be distinguished" in crash["identity_matching"]["standalone_dump_limitation"],
+              "standalone CrashDumps path-identity limitation is explicit")
         check(crash["matches"] == {
             "event_summaries": 2, "wer_reports_found": 2, "wer_reports_collected": 2,
             "dumps_found": 2, "dumps_collected": 2,
@@ -171,6 +186,8 @@ with tempfile.TemporaryDirectory(prefix="dlss5-offline-fixture-") as temporary:
         summaries = json.loads(archive.read("crash/events.json"))
         check({event["event_id"] for event in summaries} == {1000, 1001},
               "Application 1000 and WER 1001 summaries")
+        check({event["target_match"] for event in summaries} == {"path-exact", "name-only"},
+              "event summaries distinguish exact path from name-only fallback")
         check(any(event["data"].get("ExceptionCode") == "c0000005" for event in summaries),
               "exception code retained in bounded summary")
         evidence_records = [record for record in crash["files"] if record["status"] == "collected"]
@@ -178,8 +195,11 @@ with tempfile.TemporaryDirectory(prefix="dlss5-offline-fixture-") as temporary:
         check(b"MATCHED-WER-DUMP" in payload and b"EXACT-LOCAL-DUMP" in payload,
               "matched existing dumps copied")
         check(b"UNRELATED-WER-DUMP" not in payload and b"UNRELATED-ROOT-WER-DUMP" not in payload and
-              b"BAD-SUBSTRING-DUMP" not in payload and b"BAD-OLD-DUMP" not in payload,
-              "substring, shared-root, unrelated and old dumps rejected")
+              b"WRONG-PATH-WER-DUMP" not in payload and b"BAD-SUBSTRING-DUMP" not in payload and
+              b"BAD-OLD-DUMP" not in payload and b"wrong-path-report" not in payload,
+              "substring, shared-root, wrong-path, unrelated and old evidence rejected")
+        check(not any(event["data"].get("ExceptionCode") == "BAD-WRONG-PATH-MATCH"
+                      for event in summaries), "same-basename event with another AppPath rejected")
         check(b"too-deep" not in payload, "WER traversal remains one level deep")
         check(not crash["registry_modified"] and not crash["dump_creation_performed"] and
               not crash["upload_performed"], "crash mode remains local and read-only")
@@ -199,6 +219,22 @@ with tempfile.TemporaryDirectory(prefix="dlss5-offline-fixture-") as temporary:
                                    "wer_reports_collected": 0, "dumps_found": 0,
                                    "dumps_collected": 0},
               "ambiguous target never queries or collects crash evidence")
+
+    same_name_source = fixture / "same basename different ReShade paths"
+    same_name_source.mkdir()
+    other_target_path = r"D:\Other Games\Forza Horizon 6\forzahorizon6.exe"
+    (same_name_source / "ReShade.log").write_text(
+        reshade_initialization(target_path) + reshade_initialization(other_target_path), encoding="utf-8")
+    with collect_crash(same_name_source, fixture / "same-name-output", (
+            "-EventLogXmlPath", events_xml, "-WerRoots", wer_root, "-DumpRoots", dump_root)) as archive:
+        crash = json.loads(archive.read("crash-evidence.json"))
+        check(crash["status"] == "target-ambiguous" and crash["target_path"] == "" and
+              len(crash["target_candidates"]) == 2,
+              "two normalized absolute ReShade paths with one basename fail closed")
+        check(crash["matches"] == {"event_summaries": 0, "wer_reports_found": 0,
+                                   "wer_reports_collected": 0, "dumps_found": 0,
+                                   "dumps_collected": 0},
+              "same-basename path ambiguity never expands standalone dump collection")
 
     oversized_source = fixture / "oversized dump target"
     oversized_source.mkdir()
