@@ -795,6 +795,67 @@ void Finish(Session &session) {
         session.report_truncated ? 1 : 0);
 }
 
+void FinalizeSession(Session *session) {
+    if (session == nullptr) return;
+    // Chain and filesystem operations stay outside g_lock.
+    g_group_transition.store(true, std::memory_order_release);
+    ApplyConfig(session->original, "F8 restore", false);
+    session->restore_issued = true;
+    session->restore_verified = SameConfig(SnapshotConfig(), session->original);
+    SetConfigHold(false);
+    Finish(*session);
+    AcquireSRWLockExclusive(&g_lock);
+    if (g_session == session) {
+        g_session = nullptr;
+        g_status.store(Status::Packaging, std::memory_order_release);
+    }
+    ReleaseSRWLockExclusive(&g_lock);
+    g_group_transition.store(false, std::memory_order_release);
+    if (!QueueUserWorkItem(&Worker, session, WT_EXECUTEDEFAULT)) {
+        delete[] session->raw_planes;
+        delete session;
+        g_status.store(Status::Failed, std::memory_order_release);
+    }
+    g_cancel.store(false, std::memory_order_release);
+}
+
+DWORD WINAPI F8Watchdog(void *parameter) {
+    auto *session = static_cast<Session *>(parameter);
+    for (;;) {
+        Sleep(250);
+        bool finalize = false;
+        AcquireSRWLockExclusive(&g_lock);
+        if (g_session != session ||
+            g_status.load(std::memory_order_relaxed) != Status::Running) {
+            ReleaseSRWLockExclusive(&g_lock);
+            return 0;
+        }
+        if (!g_group_transition.load(std::memory_order_acquire)) {
+            const unsigned int index = session->group;
+            const bool cancelled = g_cancel.load(std::memory_order_acquire);
+            const bool expired = index >= kGroupCount ||
+                GetTickCount64() >= session->groups[index].deadline;
+            if (cancelled || expired) {
+                if (index < kGroupCount) {
+                    Group &group = session->groups[index];
+                    group.partial = true;
+                    if (!group.break_reason[0]) std::strcpy(group.break_reason,
+                        cancelled ? "cancelled by user" : "group timed out");
+                }
+                session->partial = true;
+                session->group = kGroupCount;
+                g_group_transition.store(true, std::memory_order_release);
+                finalize = true;
+            }
+        }
+        ReleaseSRWLockExclusive(&g_lock);
+        if (finalize) {
+            FinalizeSession(session);
+            return 0;
+        }
+    }
+}
+
 void Present(reshade::api::effect_runtime *runtime) {
     if (runtime == nullptr) return;
     bool consume_request = false;
@@ -830,6 +891,8 @@ void Present(reshade::api::effect_runtime *runtime) {
                 ReleaseSRWLockExclusive(&g_lock);
                 SetConfigHold(true);
                 StartGroup(*session, 0);
+                if (!QueueUserWorkItem(&F8Watchdog, session, WT_EXECUTEDEFAULT))
+                    Log("F8 watchdog could not start; Present timeout recovery remains active.");
             }
     }
     // Stage exports retire on a worker. Re-arm the next bounded sample from
@@ -915,25 +978,7 @@ void Present(reshade::api::effect_runtime *runtime) {
     }
     if (!finalize) return;
 
-    // Restore and all other chain operations are deliberately outside g_lock.
-    ApplyConfig(session->original, "F8 restore", false);
-    session->restore_issued = true;
-    session->restore_verified = SameConfig(SnapshotConfig(), session->original);
-    SetConfigHold(false);
-    Finish(*session);
-    AcquireSRWLockExclusive(&g_lock);
-    if (g_session == session) {
-        g_session = nullptr;
-        g_status.store(Status::Packaging, std::memory_order_release);
-    }
-    ReleaseSRWLockExclusive(&g_lock);
-    g_group_transition.store(false, std::memory_order_release);
-    if (!QueueUserWorkItem(&Worker, session, WT_EXECUTEDEFAULT)) {
-        delete[] session->raw_planes;
-        delete session;
-        g_status.store(Status::Failed, std::memory_order_release);
-    }
-    g_cancel.store(false, std::memory_order_release);
+    FinalizeSession(session);
 }
 
 void DrawControls() {
