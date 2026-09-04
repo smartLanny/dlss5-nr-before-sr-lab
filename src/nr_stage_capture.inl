@@ -378,7 +378,8 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         "request=%llu\ninstance=%llu\nfeatureGeneration=%llu\nframe=%llu\n"
         "configGeneration=%u\nevaluation=%u\nsinceReset=%u\nwarmedUp=%d\nmode=%d\n"
         "sourceExtent=%ux%u\nsampledExtent=%ux%u\nstride=%u\n"
-        "sourceBase=%u,%u\ndestinationBase=%u,%u\nsourceFormat=%u\nresultFormat=%u\n"
+        "sourceBase=%u,%u\nf8Region=%u,%u,%u,%u;domain=original-pixel\n"
+        "destinationBase=%u,%u\nsourceFormat=%u\nresultFormat=%u\n"
         "codecFlags=%u\nintensity=%.9g\nstyle=%u\nlocalTone=%.9g\n"
         "localStructure=%.9g\nskinStructure=%.9g\nautoMask=%d\nuiCorrection=%d\n"
         "proxyScale=%.9g\nproxyMapping=%s\ntransfer=%.9g\ncolorFollowEffective=%.9g\nmaxLumaRatio=%.9g\n"
@@ -401,7 +402,8 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         info.feature_generation, id.frame_id, id.config_generation, id.evaluation,
         id.since_reset, id.warmed_up ? 1 : 0, info.mode,
         info.source_width, info.source_height, info.width, info.height, info.stride,
-        info.source_base_x, info.source_base_y, info.destination_base_x,
+        info.source_base_x, info.source_base_y, info.region_x, info.region_y,
+        info.region_width, info.region_height, info.destination_base_x,
         info.destination_base_y, info.source_format, info.result_format, info.codec_flags,
         static_cast<double>(id.tuning.intensity), id.tuning.style,
         static_cast<double>(id.tuning.local_tone), static_cast<double>(id.tuning.local_structure),

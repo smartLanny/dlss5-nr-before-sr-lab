@@ -105,6 +105,18 @@ std::atomic<bool> g_window_open{false};
 // Present uses this while publishing a new group or restoring the original
 // config. Diagnostic callbacks must not inspect a half-published group.
 std::atomic<bool> g_group_transition{false};
+std::atomic<unsigned int> g_active_roi_x{0};
+std::atomic<unsigned int> g_active_roi_y{0};
+std::atomic<unsigned int> g_active_roi_width{0};
+std::atomic<unsigned int> g_active_roi_height{0};
+
+void GetActiveRoi(unsigned int &x, unsigned int &y, unsigned int &width,
+                  unsigned int &height) {
+    x = g_active_roi_x.load(std::memory_order_acquire);
+    y = g_active_roi_y.load(std::memory_order_acquire);
+    width = g_active_roi_width.load(std::memory_order_acquire);
+    height = g_active_roi_height.load(std::memory_order_acquire);
+}
 
 float *RawPlane(Session &session, unsigned int group, unsigned int frame,
                 unsigned int plane) {
@@ -750,6 +762,10 @@ void StartGroup(Session &session, unsigned int index) {
         group.roi_y = g_last_nr_height.load(std::memory_order_relaxed) > 256
             ? (g_last_nr_height.load(std::memory_order_relaxed) - 256) / 2 : 0;
     }
+    g_active_roi_x.store(group.roi_x, std::memory_order_release);
+    g_active_roi_y.store(group.roi_y, std::memory_order_release);
+    g_active_roi_width.store(group.roi_width, std::memory_order_release);
+    g_active_roi_height.store(group.roi_height, std::memory_order_release);
     if (group.mode != GroupMode::NativeSr) {
         const char *blocked = FeedbackStageBlockReason(group.requested);
         if (blocked != nullptr) {

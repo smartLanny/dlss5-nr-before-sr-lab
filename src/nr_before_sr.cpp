@@ -2404,6 +2404,12 @@ struct NrStageCaptureInfo {
     unsigned int source_height = 0;
     unsigned int source_base_x = 0;
     unsigned int source_base_y = 0;
+    // F8 region in original source-pixel coordinates. The V2 shader path
+    // dispatches this rectangle directly; baseline paths leave it as metadata.
+    unsigned int region_x = 0;
+    unsigned int region_y = 0;
+    unsigned int region_width = 0;
+    unsigned int region_height = 0;
     unsigned int destination_base_x = 0;
     unsigned int destination_base_y = 0;
     unsigned int codec_flags = 0;
@@ -2426,6 +2432,7 @@ struct NrStageCaptureInfo {
 
 namespace nr_f8 {
 void StageCaptured(const NrStageCaptureInfo &, const wchar_t *, const float *, UINT64, bool);
+void GetActiveRoi(unsigned int &, unsigned int &, unsigned int &, unsigned int &);
 }
 
 struct NrStageCapture {
@@ -5017,6 +5024,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.result_format = static_cast<unsigned int>(slot.result_format);
         info.source_base_x = source_base_x;
         info.source_base_y = source_base_y;
+        nr_f8::GetActiveRoi(info.region_x, info.region_y,
+            info.region_width, info.region_height);
         info.destination_base_x = destination_base_x;
         info.destination_base_y = destination_base_y;
         info.codec_flags = codec_flags;
