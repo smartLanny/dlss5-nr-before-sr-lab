@@ -41,8 +41,12 @@ void TestSixteenAndFence() {
           "wrong fence rejected");
     Check(!ledger.Ready(0, reinterpret_cast<void *>(2), 1000, true),
           "wrong queue rejected");
+    Check(!ledger.Ready(0, reinterpret_cast<void *>(1), 1000, true),
+          "completed fence cannot bypass live recording token");
+    Check(ledger.Invalidate(500, false) == 1,
+          "submitted token reset is observed before release");
     Check(ledger.Ready(0, reinterpret_cast<void *>(1), 1000, true),
-          "exact fence completes");
+          "exact fence completes after token reset");
     Check(ledger.Reclaim(0), "completed entry reclaimed");
     Check(ledger.Arm(Key(77, 99)) >= 0, "reclaimed entry reusable");
 }
@@ -57,6 +61,8 @@ void TestDelayedInvalidation() {
           "unsubmitted invalidation cannot fabricate completion");
     Check(ledger.Submit(700, reinterpret_cast<void *>(3), 11),
           "delayed submission gets exact fence");
+    Check(ledger.Get(static_cast<unsigned int>(slot)).quarantined,
+          "delayed unknown submission remains quarantined");
     Check(ledger.Ready(static_cast<unsigned int>(slot), reinterpret_cast<void *>(3), 11, true),
           "delayed submitted fence completes");
     Check(ledger.Reclaim(static_cast<unsigned int>(slot)), "delayed entry reclaimed");
@@ -67,6 +73,33 @@ void TestDelayedInvalidation() {
     Check(ledger.Invalidate(701, true) == 1, "proven unsubmitted invalidation");
     Check(ledger.Reclaim(static_cast<unsigned int>(abandoned)),
           "proven unsubmitted entry reclaimed");
+
+    TokenLedger replay;
+    const int replay_slot = replay.Arm(Key(88, 2));
+    Check(replay_slot >= 0 &&
+              replay.Record(static_cast<unsigned int>(replay_slot), 702),
+          "replay record");
+    Check(replay.Submit(702, reinterpret_cast<void *>(4), 20),
+          "first execute is submitted");
+    Check(!replay.Submit(702, reinterpret_cast<void *>(5), 21),
+          "replay cannot migrate to another queue");
+    Check(!replay.Submit(702, reinterpret_cast<void *>(4), 20),
+          "replay fence must advance strictly");
+    Check(replay.Invalidate(702, false) == 1,
+          "first execute token invalidated");
+    Check(replay.Submit(702, reinterpret_cast<void *>(4), 21),
+          "replayed execute advances fence");
+    const TokenEntry &replayed = replay.Get(static_cast<unsigned int>(replay_slot));
+    Check(replayed.replayed && replayed.quarantined && !replayed.recording_alive,
+          "replay is quarantined and token is dead");
+    Check(!replay.Ready(static_cast<unsigned int>(replay_slot),
+                        reinterpret_cast<void *>(4), 20, true),
+          "stale replay fence cannot complete");
+    Check(replay.Ready(static_cast<unsigned int>(replay_slot),
+                       reinterpret_cast<void *>(4), 21, true),
+          "latest replay fence completes");
+    Check(replay.Reclaim(static_cast<unsigned int>(replay_slot)),
+          "replay entry reclaimed only after latest fence");
 }
 } // namespace
 

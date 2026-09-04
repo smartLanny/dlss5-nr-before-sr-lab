@@ -19,6 +19,7 @@ struct NrStageCaptureInfo {
     unsigned int source_width = 0, source_height = 0;
     unsigned int region_x = 0, region_y = 0;
     unsigned int region_width = 0, region_height = 0;
+    unsigned int codec_flags = 0;
 };
 namespace nr_f8 {
 struct FrameTicket {
@@ -32,11 +33,13 @@ struct FrameTicket {
 namespace nr_f8_gpu {
 
 constexpr unsigned int kGroupCount = 3;
-constexpr unsigned int kFramesPerGroup = 16;
+// Sixteen consecutive ROI frames plus one independent full-frame overview.
+constexpr unsigned int kFramesPerGroup = 17;
 constexpr unsigned int kCapacity = kGroupCount * kFramesPerGroup;
 constexpr unsigned int kPlaneCount = 4;
 constexpr unsigned int kExposureTrailerBytes = 16;
 constexpr unsigned int kMaxRoiSide = 256;
+constexpr unsigned int kMaxOverviewSide = 1024;
 
 enum class TokenState : unsigned int {
     Free, Armed, Recorded, Submitted, Invalidated, Completed
@@ -55,6 +58,12 @@ struct TokenEntry {
     void *queue_key = nullptr;
     unsigned long long fence_value = 0;
     TokenState state = TokenState::Free;
+    // The recording owner may keep replaying a command list after Execute.
+    // Resources stay quarantined until this becomes false and the latest
+    // exact submission fence has completed.
+    bool recording_alive = false;
+    bool replayed = false;
+    bool quarantined = false;
 };
 
 // This ledger is part of the production ring, rather than a test-only mock.
@@ -78,6 +87,7 @@ public:
         if (!Valid(slot) || entries_[slot].state != TokenState::Armed ||
             token == 0) return false;
         entries_[slot].recording_token = token;
+        entries_[slot].recording_alive = true;
         entries_[slot].state = TokenState::Recorded;
         return true;
     }
@@ -89,7 +99,19 @@ public:
         for (TokenEntry &entry : entries_) {
             if (entry.recording_token != token ||
                 (entry.state != TokenState::Recorded &&
-                 entry.state != TokenState::Invalidated)) continue;
+                 entry.state != TokenState::Invalidated &&
+                 entry.state != TokenState::Submitted)) continue;
+            if (entry.state == TokenState::Submitted) {
+                // A replay must use the same queue and advance the latest
+                // fence.  Keep the allocation quarantined and invalidate
+                // its data rather than pretending the first copy is final.
+                if (entry.queue_key != queue_key ||
+                    fence_value <= entry.fence_value) {
+                    continue;
+                }
+                entry.replayed = true;
+                entry.quarantined = true;
+            }
             entry.queue_key = queue_key;
             entry.fence_value = fence_value;
             entry.state = TokenState::Submitted;
@@ -106,9 +128,17 @@ public:
         for (TokenEntry &entry : entries_) {
             if (entry.recording_token != token ||
                 (entry.state != TokenState::Recorded &&
-                 entry.state != TokenState::Armed)) continue;
-            entry.state = definitely_unsubmitted ? TokenState::Completed
-                                                 : TokenState::Invalidated;
+                 entry.state != TokenState::Armed &&
+                 entry.state != TokenState::Submitted)) continue;
+            entry.recording_alive = false;
+            if (entry.state == TokenState::Submitted) {
+                // Keep the latest queue/fence so a delayed Execute cannot
+                // release the resource before the GPU copy is complete.
+            } else {
+                entry.quarantined = entry.quarantined || !definitely_unsubmitted;
+                entry.state = definitely_unsubmitted ? TokenState::Completed
+                                                     : TokenState::Invalidated;
+            }
             ++count;
         }
         return count;
@@ -118,7 +148,8 @@ public:
                bool fence_complete) {
         if (!Valid(slot) || entries_[slot].state != TokenState::Submitted ||
             entries_[slot].queue_key != queue_key ||
-            entries_[slot].fence_value != fence || !fence_complete) return false;
+            entries_[slot].fence_value != fence || !fence_complete ||
+            entries_[slot].recording_alive) return false;
         entries_[slot].state = TokenState::Completed;
         return true;
     }
@@ -165,6 +196,10 @@ struct ArmArgs {
     unsigned int roi_width = 0;
     unsigned int roi_height = 0;
     const NrStageCaptureInfo *info = nullptr;
+    // CopyDescriptorsSimple requires a CPU-only source heap.  A shader
+    // visible heap is valid for binding, but cannot be used as the copy
+    // source; callers must provide a CPU mirror.
+    bool source_heap_shader_visible = false;
 };
 
 struct ArmResult {
@@ -184,6 +219,7 @@ struct ReadbackJob {
     NrStageCaptureInfo info = {};
     unsigned int ring_slot = 0;
     unsigned long long recording_token = 0;
+    bool valid = false;
 };
 
 using FenceCompleteFn = bool (*)(void *queue_key, unsigned long long fence);
@@ -208,14 +244,34 @@ public:
             args.descriptor_count == 0 || args.descriptor_size == 0 ||
             args.capture_uav_index >= args.descriptor_count || args.request == 0 ||
             args.group >= kGroupCount || args.frame_index >= kFramesPerGroup ||
-            args.roi_width == 0 || args.roi_height == 0 ||
-            args.roi_width > kMaxRoiSide || args.roi_height > kMaxRoiSide)
+            args.source_heap_shader_visible)
             return false;
-        const UINT64 plane_values = static_cast<UINT64>(args.roi_width) *
-            args.roi_height * 4u;
-        const UINT64 bytes = plane_values * kPlaneCount * sizeof(float) +
+        const D3D12_DESCRIPTOR_HEAP_DESC source_desc =
+            ID3D12DescriptorHeap_GetDesc(args.source_heap);
+        if (source_desc.Flags != D3D12_DESCRIPTOR_HEAP_FLAG_NONE ||
+            source_desc.Type != D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV ||
+            source_desc.NumDescriptors < args.descriptor_count)
+            return false;
+        const bool overview = args.frame_index == kFramesPerGroup - 1;
+        const unsigned int capture_width = args.roi_width != 0
+            ? args.roi_width : (overview && args.info != nullptr ? args.info->width : 0);
+        const unsigned int capture_height = args.roi_height != 0
+            ? args.roi_height : (overview && args.info != nullptr ? args.info->height : 0);
+        const unsigned int max_side = overview ? kMaxOverviewSide : kMaxRoiSide;
+        if (capture_width == 0 || capture_height == 0 ||
+            capture_width > max_side || capture_height > max_side)
+            return false;
+        const unsigned int plane_count =
+            args.info != nullptr && (args.info->codec_flags & 512u) != 0
+                ? 5u : kPlaneCount;
+        const UINT64 plane_values = static_cast<UINT64>(capture_width) *
+            capture_height * 4u;
+        const UINT64 bytes = plane_values * plane_count * sizeof(float) +
             kExposureTrailerBytes;
-        if (bytes == 0 || bytes > 64ull * 1024ull * 1024ull) return false;
+        const UINT64 max_capture_bytes = (overview ? 64ull : 32ull) *
+            1024ull * 1024ull + kExposureTrailerBytes;
+        if (bytes == 0 || bytes > max_capture_bytes)
+            return false;
         TokenIdentity key = {args.request, args.group, args.frame_index,
                              args.identity};
         const int ledger_slot = ledger_.Arm(key);
@@ -225,8 +281,12 @@ public:
         if (args.info != nullptr) resource.info = *args.info;
         resource.info.identity = args.identity;
         resource.info.request_id = args.request;
-        resource.info.region_width = args.roi_width;
-        resource.info.region_height = args.roi_height;
+        // Overview keeps the region fields at zero to distinguish its full
+        // image metadata from the 256x256 ROI samples.
+        if (args.roi_width != 0 && args.roi_height != 0) {
+            resource.info.region_width = args.roi_width;
+            resource.info.region_height = args.roi_height;
+        }
         resource.ledger_slot = static_cast<unsigned int>(ledger_slot);
         resource.bytes = bytes;
         if (!CreateResources(args, resource)) {
@@ -243,6 +303,50 @@ public:
         return true;
     }
 
+    // ResolveNrColorPolicy can finish after Arm has allocated the detached
+    // resources.  Update only an Armed entry; once Begin/Finish records the
+    // command list, the metadata is immutable and belongs to that submission.
+    bool UpdateInfo(unsigned int slot, const NrStageCaptureInfo &info) {
+        if (slot >= kCapacity || ledger_.Get(slot).state != TokenState::Armed ||
+            resources_[slot].buffer == nullptr)
+            return false;
+        const TokenIdentity key = resources_[slot].key;
+        const unsigned int region_width = resources_[slot].info.region_width;
+        const unsigned int region_height = resources_[slot].info.region_height;
+        resources_[slot].info = info;
+        resources_[slot].info.identity = key.identity;
+        resources_[slot].info.request_id = key.request;
+        if (region_width != 0 && region_height != 0) {
+            resources_[slot].info.region_width = region_width;
+            resources_[slot].info.region_height = region_height;
+        }
+        return true;
+    }
+
+    bool BeginDispatch(unsigned int slot,
+                       ID3D12GraphicsCommandList *command_list) {
+        if (command_list == nullptr || slot >= kCapacity ||
+            resources_[slot].buffer == nullptr ||
+            ledger_.Get(slot).state != TokenState::Armed)
+            return false;
+        ResourceEntry &resource = resources_[slot];
+        if (resource.buffer_state != D3D12_RESOURCE_STATE_COMMON) return false;
+        D3D12_RESOURCE_BARRIER barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = resource.buffer;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barrier);
+        resource.buffer_state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        return true;
+    }
+
+    bool BeginDispatch(ID3D12GraphicsCommandList *command_list,
+                       unsigned int slot) {
+        return BeginDispatch(slot, command_list);
+    }
+
     bool FinishDispatch(nr_f8::FrameTicket ticket, unsigned int slot,
                         ID3D12GraphicsCommandList *command_list,
                         unsigned long long recording_token) {
@@ -254,24 +358,33 @@ public:
                         unsigned int slot, unsigned long long recording_token) {
         if (command_list == nullptr || slot >= kCapacity ||
             resources_[slot].buffer == nullptr ||
-            !ledger_.Record(slot, recording_token)) return false;
+            recording_token == 0 ||
+            resources_[slot].buffer_state != D3D12_RESOURCE_STATE_UNORDERED_ACCESS ||
+            ledger_.Get(slot).state != TokenState::Armed ||
+            !ledger_.Record(slot, recording_token))
+            return false;
         ResourceEntry &resource = resources_[slot];
         D3D12_RESOURCE_BARRIER barrier = {};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
         barrier.UAV.pResource = resource.buffer;
         ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barrier);
-        if (resource.buffer_state != D3D12_RESOURCE_STATE_COPY_SOURCE) {
-            barrier = {};
-            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            barrier.Transition.pResource = resource.buffer;
-            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-            barrier.Transition.StateBefore = resource.buffer_state;
-            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-            ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barrier);
-            resource.buffer_state = D3D12_RESOURCE_STATE_COPY_SOURCE;
-        }
+        barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = resource.buffer;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barrier);
         ID3D12GraphicsCommandList_CopyBufferRegion(
             command_list, resource.readback, 0, resource.buffer, 0, resource.bytes);
+        barrier = {};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition.pResource = resource.buffer;
+        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+        ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barrier);
+        resource.buffer_state = D3D12_RESOURCE_STATE_COMMON;
         return true;
     }
 
@@ -312,6 +425,10 @@ public:
             job->info = resource.info;
             job->ring_slot = i;
             job->recording_token = entry.recording_token;
+            // A replay or an unknown lifecycle path can still be handed to
+            // the worker after the latest fence completes, but it must be
+            // labelled partial and never treated as a valid 16-frame sample.
+            job->valid = !entry.replayed && !entry.quarantined;
             resource.readback = nullptr;
             ReleaseCom(resource.buffer);
             ReleaseCom(resource.heap);
