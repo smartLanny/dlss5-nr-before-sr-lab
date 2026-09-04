@@ -526,10 +526,18 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                     &expected_proxy,
                     &expected_neural,
                     &result.output[(source_y + dy) * output_width + source_x + dx]};
-                for (UINT stage = 0; stage < 4; ++stage)
-                    Require(std::memcmp(result.capture.data() + stage * plane_words +
-                        (y * capture_width + x) * 4, expected[stage], 16) == 0,
+                for (UINT stage = 0; stage < 4; ++stage) {
+                    const auto *words = result.capture.data() + stage * plane_words + (y*capture_width+x)*4;
+                    if (v2 && (flags & 1u) == 0 && (stage == 1 || stage == 2)) {
+                        // V2 interpolates in linear space then encodes again; source/output remain exact.
+                        Float4 actual{}; std::memcpy(&actual, words, sizeof(actual));
+                        Require(std::abs(actual.x-expected[stage]->x)<0.000002f &&
+                                std::abs(actual.y-expected[stage]->y)<0.000002f &&
+                                std::abs(actual.z-expected[stage]->z)<0.000002f && actual.w==1.0f,
+                                "V2 encoded sample differs beyond shader sRGB round-trip precision");
+                    } else Require(std::memcmp(words, expected[stage], 16)==0,
                         "Captured plane/grid/raw float4 differs from source or GPU output");
+                }
             }
     }
     for (UINT64 i = stride == 0 ? 0 : stage_bytes / 4; i < allocation_bytes / 4; ++i)
