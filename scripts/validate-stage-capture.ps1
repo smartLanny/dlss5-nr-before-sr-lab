@@ -27,7 +27,7 @@ function Read-Function([string]$Signature) {
     return $captureText.Substring($start, $end - $start)
 }
 
-$types = ''
+$types = [regex]::Match($sourceText, 'enum class NrJitterMode\s*:\s*int\s*\{[\s\S]*?\};').Value + "`n"
 foreach ($name in @('NrTuningSignature', 'NrDiagnosticIdentity', 'NrStageCaptureInfo')) {
     $match = [regex]::Match($sourceText, "struct $name \{[\s\S]*?\r?\n\};")
     if (-not $match.Success) { throw "Type not found: $name" }

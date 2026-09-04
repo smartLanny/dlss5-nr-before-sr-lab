@@ -154,6 +154,7 @@ std::atomic<bool> g_module_rescan_in_progress{false};
 std::atomic<unsigned long long> g_module_observer_epoch{0};
 std::atomic<unsigned long long> g_module_rescan_count{0};
 std::atomic<unsigned long long> g_feature1_create_entries{0};
+std::atomic<unsigned long long> g_feature1_evaluate_entries{0};
 std::atomic<unsigned long long> g_feature1_successful_creates{0};
 std::atomic<unsigned int> g_feature1_create_in_progress{0};
 std::atomic<unsigned long long> g_carrier_evaluations{0};
