@@ -109,6 +109,7 @@ std::atomic<unsigned int> g_active_roi_x{0};
 std::atomic<unsigned int> g_active_roi_y{0};
 std::atomic<unsigned int> g_active_roi_width{0};
 std::atomic<unsigned int> g_active_roi_height{0};
+std::atomic<bool> g_finalize_claimed{false};
 
 void GetActiveRoi(unsigned int &x, unsigned int &y, unsigned int &width,
                   unsigned int &height) {
@@ -813,6 +814,9 @@ void Finish(Session &session) {
 
 void FinalizeSession(Session *session) {
     if (session == nullptr) return;
+    bool expected = false;
+    if (!g_finalize_claimed.compare_exchange_strong(
+            expected, true, std::memory_order_acq_rel)) return;
     // Chain and filesystem operations stay outside g_lock.
     g_group_transition.store(true, std::memory_order_release);
     ApplyConfig(session->original, "F8 restore", false);
@@ -900,6 +904,7 @@ void Present(reshade::api::effect_runtime *runtime) {
                 }
                 std::fill(session->raw_planes, session->raw_planes + raw_values, NAN);
                 session->original = SnapshotConfig();
+                g_finalize_claimed.store(false, std::memory_order_release);
                 AcquireSRWLockExclusive(&g_lock);
                 session->options = g_pending_options;
                 g_pending_options = {};
