@@ -79,7 +79,11 @@ if "logRatio * TransferStrength" not in body:
 if ("float3 storedProxy = modelValueDomain" not in body or
         "? saturate(proxyValue)" not in body):
     raise SystemExit("bounded R8 value-domain preservation missing")
-if "std::clamp(config.transfer_strength, 0.0f, 8.0f)" not in source:
+if not re.search(
+    r"config\.transfer_strength\s*=\s*std::clamp\(\s*"
+    r"FiniteOr\(config\.transfer_strength,\s*0\.0f\),\s*0\.0f,\s*8\.0f\s*\)",
+    source,
+):
     raise SystemExit("8x strength ceiling missing")
 if "using the full render raster" not in source:
     raise SystemExit("unresolved output extent must fall back to reference")
