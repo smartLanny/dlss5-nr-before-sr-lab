@@ -1,4 +1,4 @@
-name: Validate beta0.4 perfect-chain command-state candidate
+name: Validate beta0.4 perfect-chain r4
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: beta04-command-state-${{ github.ref }}
+  group: beta04-r4-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $headers = @{ 'User-Agent' = 'beta04-command-state-validator' }
+          $headers = @{ 'User-Agent' = 'beta04-r4-validator' }
           $release = Invoke-RestMethod -Headers $headers `
             'https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest'
           $asset = $release.assets | Where-Object {
@@ -90,10 +90,19 @@ jobs:
           Copy-Item docs/BETA_0_4_TEST_MATRIX.md dist/README-TESTING.md
           Copy-Item docs/BETA_0_4_PERFECT_CHAIN.md dist/TECHNICAL-NOTES.md
           Copy-Item docs/COMMAND_STATE_CONTRACT.md dist/COMMAND-STATE-NOTES.md
-          Get-ChildItem dist -File | Get-FileHash -Algorithm SHA256 |
-            Format-Table -AutoSize
+          @(
+            "branch=$env:GITHUB_REF_NAME"
+            "commit=$env:GITHUB_SHA"
+            "workflowRun=$env:GITHUB_RUN_ID"
+            "build=beta0.4-perfect-chain-r4"
+          ) | Set-Content -Encoding utf8 dist/BUILD-PROVENANCE.txt
+          Get-ChildItem dist -File | Where-Object Name -ne 'SHA256SUMS.txt' |
+            Get-FileHash -Algorithm SHA256 | ForEach-Object {
+              "$($_.Hash)  $([IO.Path]::GetFileName($_.Path))"
+            } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          Get-Content dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: beta04-perfect-chain-command-state-test-package
+          name: beta04-perfect-chain-r4-test-package
           path: dist/
           if-no-files-found: error

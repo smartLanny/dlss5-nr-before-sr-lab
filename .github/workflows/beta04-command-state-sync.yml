@@ -1,30 +1,17 @@
-name: Integrate beta0.4 command-state safety
+name: Audit beta0.4 command-state integration
 
 on:
-  push:
-    branches:
-      - codex/beta0.4-perfect-chain
   workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: beta04-command-state-integration
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  apply:
-    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[beta04-command-state-integrated]')
+  audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: codex/beta0.4-perfect-chain
-          fetch-depth: 0
-      - name: Apply command-state envelope to current beta0.4 source
-        run: python scripts/apply-beta04-command-state.py
-      - name: Verify integration markers and existing beta0.4 invariants
+      - name: Verify command-state envelope remains integrated
         run: |
           python scripts/validate-beta04-structure.py
           python scripts/test-beta04-math.py
@@ -49,15 +36,3 @@ jobs:
           print('beta0.4 command-state integration markers passed')
           PY
           git diff --check
-      - name: Commit integration
-        shell: bash
-        run: |
-          if git diff --quiet; then
-            echo "Command-state integration already present."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/nr_before_sr.cpp
-          git commit -m "Integrate native D3D12 command-state safety [beta04-command-state-integrated]"
-          git push origin HEAD:codex/beta0.4-perfect-chain
