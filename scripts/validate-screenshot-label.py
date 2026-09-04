@@ -32,6 +32,7 @@ harness = r'''
 BUILD_IDENTITY
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 CHAIN_CONFIG
+FINITE_OR
 enum class BypassReason { None, Unsupported, Other };
 FORMATTER
 int checks=0,failures=0;
@@ -93,6 +94,7 @@ int main() {
 '''
 harness = harness.replace("BUILD_IDENTITY", re.search(r'constexpr const char \*kBuildIdentity = [^;]+;', source).group(0))
 harness = harness.replace("CHAIN_CONFIG", definition(source, "struct ChainConfig", True))
+harness = harness.replace("FINITE_OR", definition(source, "float FiniteOr("))
 harness = harness.replace("FORMATTER", definition(source, "bool FormatScreenshotPostfix("))
 with tempfile.TemporaryDirectory(prefix="nr-screenshot-label-") as temporary:
     cpp = Path(temporary) / "test.cpp"
