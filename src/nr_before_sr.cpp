@@ -864,7 +864,6 @@ std::atomic<bool> g_shortfuse_nr_enabled{false};
 // 0 = legacy/no game jitter forwarding, 1 = forwarding requested but the
 // current Evaluate did not provide a legal finite pair, 2 = values were
 // actually written to the NR parameter block for the current binding.
-std::atomic<unsigned int> g_nr_jitter_status{0};
 
 void BeginPipelineStatsScopeLocked(unsigned long long feature_generation,
                                    int mode) {
@@ -2627,6 +2626,7 @@ struct NrContext {
     bool exposure_texture_reset_pending = false;
     bool jitter_status_initialized = false;
     bool jitter_last_known = false;
+    bool jitter_binding_written = false;
     // Feature 18 Create/Evaluate is temporal state, not merely a collection of
     // textures. Multiple game command lists may record consecutive evaluations
     // before any one list is reset. Count every owning list and use the proven
@@ -2647,6 +2647,8 @@ struct NrContext {
 
 NrContext g_contexts[16] = {};
 
+#include "nr_jitter_status.inl"
+
 void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
     context.reset_retry_pending = false;
     if (context.diagnostic_reset_requested)
@@ -2655,6 +2657,7 @@ void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
     NrDiagnosticIdentity identity = {};
     identity.instance_id = context.instance_id;
     identity.frame_id = ++g_next_nr_frame_id;
+    RecordSuccessfulJitterBinding(context, identity.frame_id);
     identity.config_generation = context.config_generation;
     identity.evaluation = context.evaluations;
     identity.since_reset = context.successful_evaluations_since_reset;
@@ -5578,14 +5581,11 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     const float mv_scale_x = s.motion_scale_x, mv_scale_y = s.motion_scale_y;
     const int game_reset = guides.game_reset;
     NgxParams *params = context.params;
+    context.jitter_binding_written = false;
     if (params == nullptr) return false;
     // This is a pre-native-call snapshot captured by ResolveNrGuideBinding.
     // Post-SR must never inspect the game's mutable parameter block after SR.
     const NrJitterBinding &jitter = guides.jitter;
-    g_nr_jitter_status.store(
-        g_config.jitter_mode == NrJitterMode::Legacy
-            ? 0u : (jitter.known ? 2u : 1u),
-        std::memory_order_relaxed);
     if (!context.jitter_status_initialized) {
         context.jitter_status_initialized = true;
         context.jitter_last_known = jitter.known;
@@ -5830,6 +5830,7 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     SetInt(params, "DLSSNR.UICorrection", tuning.ui_correction ? 1 : 0);
     SetInt(params, "DLSS.Indicator.Invert.X.Axis", 0);
     SetInt(params, "DLSS.Indicator.Invert.Y.Axis", 0);
+    context.jitter_binding_written = true;
     return true;
 }
 

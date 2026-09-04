@@ -205,18 +205,27 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 ui("Do not forward\0Forward verified game pixel coordinates\0", "不传递\0传递已验证的游戏像素坐标\0"))) {
             next.jitter_mode = static_cast<NrJitterMode>(jitter); changed = true;
         }
-        ImGui::TextWrapped("%s", ui("This is an experiment, not a confirmed jitter fix. Native SR jitter is unchanged. Rebuilds NR history when switched.",
+        SettingsTooltip(ui("This is an experiment, not a confirmed jitter fix. Native SR jitter is unchanged. Rebuilds NR history when switched.",
             "此项用于实验，不代表 jitter 问题已修复；游戏原生 SR jitter 始终不变。切换后会重建 NR 历史。"));
-        const unsigned int jitter_status =
-            g_nr_jitter_status.load(std::memory_order_relaxed);
-        ImGui::TextDisabled("%s", jitter_status == 2
-            ? ui("Jitter actual: forwarded for this NR binding.",
-                 "Jitter 实况：已传递到本次 NR 参数。")
-            : (jitter_status == 1
-                ? ui("Jitter actual: requested, but current game input is unknown.",
-                     "Jitter 实况：已请求，但当前游戏输入未知。")
-                : ui("Jitter actual: no game jitter was forwarded yet.",
-                     "Jitter 实况：当前尚未传递游戏 jitter。")));
+        auto jitter_snapshot = SnapshotJitterStatus();
+        using JitterStatus = nr_jitter_status::Status;
+        if (jitter_snapshot.status != JitterStatus::Bypassed &&
+            (has_pending || changed)) jitter_snapshot.status = JitterStatus::Pending;
+        const char *jitter_text = ui("Jitter: no current successful NR binding; saved request retained.",
+            "Jitter：暂无当前配置的成功 NR 绑定，已保留请求。");
+        if (next.jitter_mode == NrJitterMode::Legacy)
+            jitter_text = ui("Jitter: forwarding is disabled.", "Jitter：未开启传递。");
+        else if (jitter_snapshot.status == JitterStatus::Bound)
+            jitter_text = ui("Jitter: parameters written for a recent successful NR evaluation; model use is unverified.",
+                "Jitter：近期成功 NR 调用已写入参数；模型是否使用仍未验证。");
+        else if (jitter_snapshot.status == JitterStatus::Unknown)
+            jitter_text = ui("Jitter: current game coordinates are missing or invalid.",
+                "Jitter：当前游戏坐标缺失或无效。");
+        else if (jitter_snapshot.status == JitterStatus::Bypassed)
+            jitter_text = ui("Jitter: NR is currently bypassed.", "Jitter：当前 NR 已旁路。");
+        else if (jitter_snapshot.status == JitterStatus::Pending)
+            jitter_text = ui("Jitter: waiting for the requested settings to apply.", "Jitter：等待请求的设置生效。");
+        ImGui::TextWrapped("%s", jitter_text);
         changed |= ImGui::Checkbox(ui("Retry original SR on failure", "失败时重试原始 SR"), &next.retry_original_on_sr_failure);
         changed |= ImGui::Checkbox(ui("Run NR but discard its picture", "运行 NR 但丢弃其画面（诊断）"), &next.identity_use_original);
         int warmup = static_cast<int>(next.warmup_after_create);
