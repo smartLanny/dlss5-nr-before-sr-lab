@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$Version = 'beta0.3.3-dev-r4'
+$Version = 'beta0.3.3.5'
 $BuildRoot = Join-Path $ProjectRoot 'build'
 $ResolvedRtx50Runtime = (Resolve-Path -LiteralPath $Rtx50Runtime).Path
 $ResolvedRtx3040Runtime = (Resolve-Path -LiteralPath $Rtx3040Runtime).Path
@@ -45,6 +45,8 @@ $EnglishAddon = Join-Path $BuildRoot `
     'DLSS5-AI-Rendering-Upscaling-beta0.3.3-dev-@野生的装机宅-Bilibili.en.addon64'
 $Bridge = Join-Path $BuildRoot 'nrchain_nvngx.dll'
 $Config = Join-Path $BuildRoot 'nr_before_sr.ini'
+$FeedbackScript = Join-Path $ProjectRoot 'scripts\collect-feedback.ps1'
+$FeedbackLauncher = Join-Path $ProjectRoot 'scripts\Collect-Feedback.cmd'
 
 $Packages = @(
     [pscustomobject]@{
@@ -75,7 +77,7 @@ $Packages = @(
 
 $Required = @(
     $ChineseAddon, $EnglishAddon, $Bridge, $Config,
-    $ResolvedRtx50Runtime, $ResolvedRtx3040Runtime
+    $ResolvedRtx50Runtime, $ResolvedRtx3040Runtime, $FeedbackScript, $FeedbackLauncher
 ) + $Packages.Readme
 foreach ($Path in $Required | Select-Object -Unique) {
     if (-not (Test-Path -LiteralPath $Path)) {
@@ -91,6 +93,8 @@ foreach ($Package in $Packages) {
     Copy-Item -LiteralPath $Package.Addon -Destination $PackagePath
     Copy-Item -LiteralPath $Bridge -Destination $PackagePath
     Copy-Item -LiteralPath $Config -Destination $PackagePath
+    Copy-Item -LiteralPath $FeedbackScript -Destination $PackagePath
+    Copy-Item -LiteralPath $FeedbackLauncher -Destination $PackagePath
     Copy-Item -LiteralPath $Package.Readme `
         -Destination (Join-Path $PackagePath 'README.md')
     Copy-Item -LiteralPath $Package.Runtime `

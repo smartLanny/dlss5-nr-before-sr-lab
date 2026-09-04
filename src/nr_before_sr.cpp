@@ -7,6 +7,8 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <d3dcompiler.h>
+#include <tlhelp32.h>
+#include <shlobj.h>
 
 #include <algorithm>
 #include <atomic>
@@ -34,15 +36,17 @@
 
 namespace {
 
+#include "nr_diagnostic_bundle.inl"
+
 using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.3.3-dev-r4";
+constexpr const char *kAddonVersion = "beta0.3.3.5";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.3.3-dev-r4";
+constexpr const char *kBuildIdentity = "beta0.3.3.5";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -176,6 +180,14 @@ void WideToUtf8(const wchar_t *source, char *destination,
 }
 
 void TruncateLog() {
+    wchar_t previous[MAX_PATH] = {};
+    wcsncpy_s(previous, g_log_path, _TRUNCATE);
+    wchar_t *leaf = wcsrchr(previous, L'\\');
+    if (leaf != nullptr) {
+        leaf[1] = 0;
+        if (wcscat_s(previous, L"nr-before-sr.previous.log") == 0)
+            MoveFileExW(g_log_path, previous, MOVEFILE_REPLACE_EXISTING);
+    }
     HANDLE file = CreateFileW(g_log_path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
                               nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
@@ -1691,7 +1703,9 @@ static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
 float ResolveExposureScale() {
     if ((Passthrough & 64u) != 0u) {
         float exposure = ExposureScaleTexture.Load(int3(0, 0, 0)).r;
-        if (!(exposure > 0.000001) || exposure != exposure ||
+        // fxc's default floating-point optimizations can discard x != x.
+        // Preserve the invalid-exposure fallback through an integer bit test.
+        if ((asuint(exposure) & 0x7f800000u) == 0x7f800000u || !(exposure > 0.000001) ||
             abs(exposure) > 65504.0)
             return 1.0;
         return clamp(exposure, 0.0009765625, 1024.0);
@@ -1945,6 +1959,12 @@ void WriteCombined(uint2 coord, uint2 destinationCoord, float4 result) {
     StageCapture.Store4(planeBytes * 2u + offset,
         asuint(NeuralColor.Load(int3(coord, 0))));
     StageCapture.Store4(planeBytes * 3u + offset, asuint(result));
+    if (coord.x == 0u && coord.y == 0u) {
+        float rawExposure = (Passthrough & 64u) != 0u
+            ? ExposureScaleTexture.Load(int3(0, 0, 0)).r : ResolveExposureScale();
+        StageCapture.Store4(planeBytes * 4u, asuint(float4(rawExposure,
+            ResolveExposureScale(), ResolveSourceToCanonical(), PreExposure)));
+    }
 }
 
 [numthreads(8, 8, 1)]
@@ -2316,6 +2336,8 @@ enum class CodecColorMode : unsigned int {
     ModelEncodedValueDomain,
 };
 
+#include "nr_color_policy.inl"
+
 bool UsePeakShoulder(CodecColorMode color_mode, bool hdr_input, bool requested) {
     return requested &&
         (color_mode == CodecColorMode::PqEncodedHdr ||
@@ -2374,6 +2396,10 @@ struct NrStageCaptureInfo {
     float exposure_scale = 1.0f;
     bool has_pre_exposure = false;
     bool has_exposure_scale = false;
+    float gpu_raw_exposure = 0.0f;
+    float gpu_resolved_exposure = 0.0f;
+    float gpu_source_to_canonical = 0.0f;
+    float gpu_pre_exposure = 0.0f;
     int mode = 0;
 };
 
@@ -2434,6 +2460,7 @@ struct NrSlot {
     float diagnostic_transfer_strength = 1.0f;
     float diagnostic_color_strength = 0.0f;
     bool diagnostic_preserve_lighting = false;
+    NrColorPolicy diagnostic_color_policy = {};
     bool diagnostic_has_exposure_texture = false;
     NrDiagnosticIdentity diagnostic_identity = {};
 };
@@ -2738,6 +2765,9 @@ bool CanMutateSlotLocked(const NrSlot &slot) {
            !slot.awaiting_fence_signal && IsSlotFenceCompleteLocked(slot);
 }
 
+void FeedbackStageExported(unsigned long long request, const wchar_t *directory, bool ok);
+void FeedbackObserveEvaluate(const NgxParams *params, const FeatureRecord &feature,
+                             unsigned long long carrier);
 #include "nr_stage_capture.inl"
 
 bool CanDestroyContextLocked(const NrContext &context) {
@@ -4825,8 +4855,10 @@ void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
         slot.diagnostic_serial = slot.last_used_serial;
         slot.diagnostic_pre_exposure = color_contract.pre_exposure;
         slot.diagnostic_transfer_strength = ActiveTransferStrength(g_config);
-        slot.diagnostic_color_strength = g_config.color_strength;
-        slot.diagnostic_preserve_lighting = g_config.preserve_lighting;
+        // Freeze effective policy only when a Combine is actually recorded.
+        slot.diagnostic_color_policy = {};
+        slot.diagnostic_color_strength = 0.0f;
+        slot.diagnostic_preserve_lighting = false;
         slot.diagnostic_has_exposure_texture =
             color_contract.exposure_texture != nullptr;
     }
@@ -4924,28 +4956,34 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         source_flags = 128u;
     else if (color_mode == CodecColorMode::ModelEncodedValueDomain)
         source_flags = 1u;
+    const NrColorPolicy color_policy = ResolveNrColorPolicy(g_config.mode,
+        hdr_input, color_mode,
+        slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT,
+        IsUnityExposureContract(color_contract), g_config.color_strength,
+        g_config.preserve_lighting);
     const unsigned int codec_flags = source_flags |
-        ((g_config.mode == 2 && g_config.preserve_lighting) ? 2u : 0u) |
+        (color_policy.effective_preserve_lighting ? 2u : 0u) |
         (capture_delta ? 8u : 0u) |
         ((hdr_input && color_contract.exposure_texture != nullptr) ? 64u : 0u) |
         (UsePeakShoulder(color_mode, hdr_input, g_config.experimental_peak_shoulder) ? 256u : 0u);
-    // Automatic HDR does not normally prove the engine working gamut. The
-    // post-SR FP16 + unit-exposure contract is the one narrow exception: both
-    // proxy and result are derived from the same output pixels, so an opt-in
-    // bounded per-channel ratio can follow Feature 18 colour without guessing
-    // a source-to-display exposure transform. NR -> SR stays luminance-only.
-    const bool verified_post_sr_fp16_color = g_config.mode == 1 && hdr_input &&
-        color_mode == CodecColorMode::Automatic &&
-        slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT &&
-        IsUnityExposureContract(color_contract);
-    const bool unverified_hdr_color = hdr_input &&
-        (color_mode == CodecColorMode::Automatic ||
-         color_mode == CodecColorMode::PqEncodedHdr) &&
-        !verified_post_sr_fp16_color;
-    const float effective_color_strength = unverified_hdr_color
-        ? 0.0f : g_config.color_strength;
-    if (capture_delta)
+    const float effective_color_strength = color_policy.effective_color_strength;
+    if (capture_delta) {
+        slot.diagnostic_color_policy = color_policy;
         slot.diagnostic_color_strength = effective_color_strength;
+        slot.diagnostic_preserve_lighting = color_policy.effective_preserve_lighting;
+    }
+    if (pipeline == g_codec.combine) {
+        // Encode/copy can use a different/default contract. Only an actual
+        // composition supplies a current policy for controls and diagnostics.
+        g_recorded_color_policy.policy = color_policy;
+        g_recorded_color_policy.config_generation =
+            g_config_generation.load(std::memory_order_relaxed);
+        g_recorded_color_policy.feature_generation =
+            g_pipeline_stats_generation.load(std::memory_order_relaxed);
+        g_recorded_color_policy.frame_id = g_applied_nr_identity.frame_id;
+        g_recorded_color_policy.mode = g_config.mode;
+        g_recorded_color_policy.recorded_tick_ms = GetTickCount64();
+    }
     if (capture_stages) {
         NrStageCaptureInfo &info = slot.stage_capture.info;
         info.source_format = static_cast<unsigned int>(slot.source_format);
@@ -7221,6 +7259,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     g_last_carrier_feature.store(feature.feature_id, std::memory_order_relaxed);
     TrackDlssResolution(params, feature);
     const unsigned long long carrier = ++g_carrier_evaluations;
+    FeedbackObserveEvaluate(params, feature, carrier);
     if (carrier <= 12 || (carrier % 600) == 0)
         DumpEvaluate(params, feature, carrier);
     if ((carrier % 600) == 0) {
@@ -8574,6 +8613,8 @@ DWORD WINAPI HookWorker(void *) {
     return 0;
 }
 
+#include "nr_feedback_capture.inl"
+
 void ToggleMasterFromHotkey() {
     ChainConfig next = SnapshotConfig();
     next.enabled = !next.enabled;
@@ -8633,6 +8674,14 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
         (minus_state & 0x0001) != 0 || (numpad_minus_state & 0x0001) != 0 ||
         (screenshot_key_is_down && !screenshot_key_was_down);
     const ULONGLONG now_ms = GetTickCount64();
+
+    static bool feedback_key_was_down = false;
+    const SHORT f8_state = GetAsyncKeyState(VK_F8);
+    const bool feedback_down = (f8_state & 0x8000) != 0;
+    if ((f8_state & 0x0001) != 0 || (feedback_down && !feedback_key_was_down))
+        RequestFeedbackBundle();
+    feedback_key_was_down = feedback_down;
+    FeedbackPresent(runtime);
 
     const SHORT f7_state = GetAsyncKeyState(VK_F7);
     const bool stage_key_is_down = (f7_state & 0x8000) != 0;
@@ -8711,7 +8760,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     ReleaseSRWLockExclusive(&screenshot_hotkey_lock);
 }
 
-void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *,
+void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swapchain,
                const reshade::api::rect *, const reshade::api::rect *,
                std::uint32_t, const reshade::api::rect *) {
     // ReShade can report Presents from more than one swapchain/thread. Module
@@ -8719,6 +8768,15 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *,
     // intentionally single-stream. Skip a concurrent auxiliary Present rather
     // than racing those diagnostics or toggling F6 twice.
     if (!TryAcquireSRWLockExclusive(&g_present_observer_lock)) return;
+    if (swapchain != nullptr) {
+        g_feedback_swap_color_space.store(static_cast<unsigned int>(swapchain->get_color_space()), std::memory_order_relaxed);
+        if (swapchain->get_device()->get_api() == reshade::api::device_api::d3d12) {
+            auto *native_swapchain = reinterpret_cast<IDXGISwapChain *>(swapchain->get_native());
+            DXGI_SWAP_CHAIN_DESC desc = {};
+            if (native_swapchain != nullptr && SUCCEEDED(native_swapchain->lpVtbl->GetDesc(native_swapchain, &desc)))
+                g_feedback_swap_format.store(static_cast<unsigned int>(desc.BufferDesc.Format), std::memory_order_relaxed);
+        }
+    }
     // A few engines load _nvngx.dll or nvngx_dlssd.dll only after the primary
     // SR wrapper. A one-second in-memory rescan records that transition and
     // installs any newly available lifecycle observers. It never scans disk.
@@ -9481,6 +9539,7 @@ void DrawSettings(reshade::api::effect_runtime *) {
             sample_identity.instance_id, sample_identity.frame_id,
             sample_identity.config_generation);
     }
+    DrawFeedbackControls();
     const unsigned int capture_status = StageCaptureStatus();
     if (capture_status == 0) {
         if (ImGui::Button(ui("Capture NR stages once", "采集一次 NR 各阶段")))
@@ -9538,20 +9597,70 @@ void DrawSettings(reshade::api::effect_runtime *) {
             "This controls how far the frame moves toward the NR picture; it "
             "does not change render resolution and is shared by both chains.",
             "此项控制画面向 NR 结果靠近多少，不改变渲染分辨率；两条链路共用同一数值。"));
-    changed |= ImGui::SliderFloat(
+    NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();
+    if (has_pending || changed || color_policy_snapshot.mode != next.mode)
+        color_policy_snapshot.status = NrColorPolicyStatus::Pending;
+    const bool current_color_policy =
+        color_policy_snapshot.status == NrColorPolicyStatus::Current;
+    ImGui::BeginDisabled(current_color_policy &&
+                         !color_policy_snapshot.policy.color_allowed);
+    const bool color_follow_changed = ImGui::SliderFloat(
         ui("NR Color Follow", "NR 颜色跟随强度"),
         &next.color_strength, 0.0f, 1.0f, "%.2f");
+    ImGui::EndDisabled();
+    changed |= color_follow_changed;
+    if (color_follow_changed)
+        color_policy_snapshot.status = NrColorPolicyStatus::Pending;
+    if (color_policy_snapshot.status == NrColorPolicyStatus::Current) {
+        const NrColorPolicy &policy = color_policy_snapshot.policy;
+        ImGui::TextDisabled(ui("Last recorded blend: requested %.2f / effective %.2f",
+            "最近记录的合成：请求 %.2f / 实际 %.2f"),
+            static_cast<double>(policy.requested_color_strength),
+            static_cast<double>(policy.effective_color_strength));
+        ImGui::TextWrapped("%s", !policy.color_allowed
+            ? ui("This HDR colour contract is unverified, so only luminance is transferred. "
+                 "The saved colour request can resume on a supported contract.",
+                 "当前 HDR 色彩合同未验证，仅传递明暗。颜色请求值已保留，"
+                 "切到受支持的合同后可恢复。")
+            : policy.color_reason == NrColorReason::PostSrFp16UnitExposure
+                ? ui("Colour follows the bounded FP16, unit-exposure SR -> NR contract.",
+                     "当前为 FP16、单位曝光的 SR -> NR 合同，采用有界颜色跟随。")
+                : ui("Colour follow is available for this SDR or bounded value-domain input.",
+                     "当前 SDR 或有界值域输入允许颜色跟随。"));
+    } else {
+        ImGui::TextWrapped("%s", NrColorPolicyStatusText(
+            color_policy_snapshot.status, kChineseUi));
+    }
     ImGui::TextDisabled(
         "%s", ui(
-            "0 keeps the game's hue; 1 follows bounded NR chroma. It is "
-            "honoured for the FP16, unit-exposure SR -> NR comparison and "
-            "verified SDR contracts. Unverified NR -> SR HDR remains luminance-only.",
-            "0 保留游戏原始色相；1 跟随有界 NR 色彩。FP16、单位曝光的 SR -> NR "
-            "对比链路及已验证 SDR 合同会采用此值；未验证的 NR -> SR HDR 仍只传递明暗。"));
-    changed |= ImGui::Checkbox(
+            "0 keeps the game's hue; 1 follows bounded NR chroma. "
+            "Recorded values describe composition settings, not measured image strength.",
+            "0 保留游戏原始色相；1 跟随有界 NR 色彩。记录值表示合成设置，"
+            "不代表测得的画面变化强度。"));
+    ImGui::BeginDisabled(current_color_policy &&
+        color_policy_snapshot.policy.lighting_reason == NrLightingReason::OnlyNrBeforeSr);
+    const bool lighting_match_changed = ImGui::Checkbox(
         ui("Experimental Lighting Match (NR -> SR)",
            "实验性光照匹配（NR -> SR）"),
         &next.preserve_lighting);
+    ImGui::EndDisabled();
+    changed |= lighting_match_changed;
+    if (lighting_match_changed)
+        color_policy_snapshot.status = NrColorPolicyStatus::Pending;
+    if (color_policy_snapshot.status == NrColorPolicyStatus::Current) {
+        const NrColorPolicy &policy = color_policy_snapshot.policy;
+        ImGui::TextDisabled(ui("Last recorded lighting match: requested %s / effective %s",
+            "最近记录的光照匹配：请求 %s / 实际 %s"),
+            policy.requested_preserve_lighting ? ui("on", "开") : ui("off", "关"),
+            policy.effective_preserve_lighting ? ui("on", "开") : ui("off", "关"));
+        if (policy.lighting_reason == NrLightingReason::OnlyNrBeforeSr)
+            ImGui::TextWrapped("%s", ui(
+                "SR -> NR does not apply Lighting Match. The request is saved for NR -> SR.",
+                "SR -> NR 不采用光照匹配。请求值已保留，切回 NR -> SR 后可恢复。"));
+    } else {
+        ImGui::TextWrapped("%s", NrColorPolicyStatusText(
+            color_policy_snapshot.status, kChineseUi));
+    }
     ImGui::TextDisabled(
         "%s", ui(
             "A sparse local correction that can reduce broad exposure drift, "
@@ -9750,6 +9859,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::register_event<reshade::addon_event::present>(OnPresent);
         reshade::register_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
+        reshade::register_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
         reshade::register_overlay(nullptr, DrawSettings);
         Log("Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot "
             "hotkey (API %u).",
@@ -9762,6 +9872,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             reshade::unregister_event<reshade::addon_event::init_device>(OnCommandStateInitDevice);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
+            reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
             reshade::unregister_event<reshade::addon_event::present>(OnPresent);
             reshade::unregister_event<reshade::addon_event::destroy_command_list>(
                 OnDestroyCommandList);
@@ -9781,6 +9892,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::unregister_overlay(nullptr, DrawSettings);
         reshade::unregister_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
+        reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
         reshade::unregister_event<reshade::addon_event::present>(OnPresent);
         reshade::unregister_event<reshade::addon_event::destroy_command_list>(
             OnDestroyCommandList);

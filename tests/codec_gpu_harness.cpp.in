@@ -333,8 +333,16 @@ struct RunResult {
     std::vector<std::uint32_t> capture;
 };
 
+struct ExposureCase {
+    float texture = 1.0f;
+    float pre_exposure = 1.0f;
+    float source_to_canonical = 1.0f;
+    Float4 expected_trailer{1.0f, 1.0f, 1.0f, 1.0f};
+};
+
 RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
-               UINT requested_stride, UINT flags, int variant) {
+               UINT requested_stride, UINT flags, int variant,
+               const ExposureCase &exposure_case = {}) {
     constexpr UINT sx = 3, sy = 2, dx = 2, dy = 1;
     const UINT source_width = width + sx + 2, source_height = height + sy + 2;
     const UINT output_width = width + dx + 2, output_height = height + dy + 2;
@@ -357,13 +365,16 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     auto proxy_texture = gpu.MakeTexture(width, height, proxy);
     auto neural_texture = gpu.MakeTexture(width, height, neural);
     auto output_texture = gpu.MakeTexture(output_width, output_height, destination);
+    auto exposure_texture = gpu.MakeTexture(1, 1,
+        {Float4{exposure_case.texture, -7.0f, 91.0f, 0.125f}});
     gpu.TextureState(source_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     gpu.TextureState(proxy_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     gpu.TextureState(neural_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     gpu.TextureState(output_texture, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    gpu.TextureState(exposure_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     const UINT capture_width = (width + requested_stride - 1) / requested_stride;
     const UINT capture_height = (height + requested_stride - 1) / requested_stride;
-    const UINT64 stage_bytes = static_cast<UINT64>(capture_width) * capture_height * 64;
+    const UINT64 stage_bytes = static_cast<UINT64>(capture_width) * capture_height * 64 + 16;
     const UINT64 allocation_bytes = stage_bytes + 64; // Tail sentinel outside the UAV.
     auto capture = gpu.Buffer(allocation_bytes, D3D12_HEAP_TYPE_DEFAULT,
         D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -382,7 +393,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.Srv(1, proxy_texture.resource.p);
     gpu.Srv(2, neural_texture.resource.p);
     gpu.Srv(3, nullptr);
-    gpu.Srv(kCodecExposureSrvIndex, nullptr);
+    gpu.Srv(kCodecExposureSrvIndex, (flags & 64u) ? exposure_texture.resource.p : nullptr);
     gpu.UavTexture(kCodecSrvCount, nullptr, DXGI_FORMAT_R32G32B32A32_FLOAT);
     gpu.UavTexture(kCodecResultUavIndex, output_texture.resource.p,
                    DXGI_FORMAT_R32G32B32A32_FLOAT);
@@ -390,8 +401,8 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.UavBuffer(kCodecStatsUavIndex, nullptr, 0);
     gpu.UavBuffer(kCodecCaptureUavIndex, stride == 0 ? nullptr : capture.p, stage_bytes);
     const CodecConstants constants = {width, height, 1.0f,
-        variant == 2 ? 0.0f : 0.8f, 1.0f, 0.25f, 2.0f, flags,
-        sx, sy, dx, dy, 0, 0, 0, 0, 1.0f, stride};
+        variant == 2 ? 0.0f : 0.8f, exposure_case.source_to_canonical, 0.25f, 2.0f, flags,
+        sx, sy, dx, dy, 0, 0, 0, 0, exposure_case.pre_exposure, stride};
     ID3D12DescriptorHeap *heaps[] = {gpu.heap.p};
     gpu.list->SetDescriptorHeaps(1, heaps);
     gpu.list->SetComputeRootSignature(gpu.root.p);
@@ -427,8 +438,23 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                             "Identity, zero-strength or invalid-neural fallback changed source");
             }
         }
-    const UINT64 plane_words = stage_bytes / 4 / 4;
+    const UINT64 plane_words = (stage_bytes - 16) / 4 / 4;
     if (stride != 0) {
+        float gpu_exposure[4] = {};
+        std::memcpy(gpu_exposure, result.capture.data() + (stage_bytes - 16) / 4, 16);
+        const float expected_exposure[] = {
+            exposure_case.expected_trailer.x, exposure_case.expected_trailer.y,
+            exposure_case.expected_trailer.z, exposure_case.expected_trailer.w};
+        for (unsigned int i = 0; i < 4; ++i) {
+            const bool equal = std::isnan(expected_exposure[i]) ? std::isnan(gpu_exposure[i]) :
+                gpu_exposure[i] == expected_exposure[i];
+            if (!equal) std::fprintf(stderr,
+                "Exposure flags=%u variant=%d channel=%u texture=%.9g pre=%.9g scalar=%.9g actual=%.9g expected=%.9g\n",
+                flags, variant, i, exposure_case.texture, exposure_case.pre_exposure,
+                exposure_case.source_to_canonical, gpu_exposure[i], expected_exposure[i]);
+            Require(equal,
+                "Exposure trailer raw/resolved/canonical/pre fields differ from fixed metadata expectations");
+        }
         for (UINT y = 0; y < capture_height; ++y)
             for (UINT x = 0; x < capture_width; ++x) {
                 const UINT source_x = x * stride, source_y = y * stride;
@@ -473,9 +499,36 @@ int main() {
         }
         Run(gpu, 4097, 513, 8, 8, 1, 0);
         ++scenarios;
+        // Fixed expected values, independent from the production resolver:
+        // RGBA channels other than exposure R are deliberately unrelated.
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const float inf = std::numeric_limits<float>::infinity();
+        const ExposureCase texture_cases[] = {
+            {0.5f, 2.0f, 0.375f, {0.5f, 0.5f, 0.25f, 2.0f}},
+            {2.0f, 0.5f, 0.375f, {2.0f, 2.0f, 4.0f, 0.5f}},
+            {nan, 0.25f, 0.375f, {nan, 1.0f, 4.0f, 0.25f}},
+            {0.0f, 0.5f, 0.375f, {0.0f, 1.0f, 2.0f, 0.5f}},
+            {inf, 2.0f, 0.375f, {inf, 1.0f, 0.5f, 2.0f}},
+            {0.00001f, 2.0f, 0.375f, {0.00001f, 0.0009765625f, 0.0009765625f, 2.0f}},
+            {2048.0f, 2.0f, 0.375f, {2048.0f, 1024.0f, 512.0f, 2.0f}},
+        };
+        for (UINT flags : {64u, 192u, 320u}) {
+            for (const auto &exposure : texture_cases) {
+                const auto off = Run(gpu, 13, 9, 0, 2, flags, 0, exposure);
+                const auto on = Run(gpu, 13, 9, 2, 2, flags, 0, exposure);
+                Require(std::memcmp(off.output.data(), on.output.data(),
+                    off.output.size() * sizeof(Float4)) == 0,
+                    "Exposure trailer capture changes composited output");
+                ++scenarios;
+            }
+        }
+        const ExposureCase scalar_case{nan, 2.0f, 0.375f, {0.75f, 0.75f, 0.375f, 2.0f}};
+        Run(gpu, 13, 9, 2, 2, 0, 0, scalar_case);
+        ++scenarios;
         std::printf("GPU codec validation passed: %u paired/grid scenarios; "
             "capture on/off bit identity, raw four-plane values, alpha, "
-            "subrect bounds, invalid/zero/identity paths, descriptor and root layout.\n",
+            "subrect bounds, invalid/zero/identity paths, descriptor and root layout; "
+            "fixed exposure trailer values (texture/scalar/invalid/clamps).\n",
             scenarios);
         return 0;
     } catch (const std::exception &error) {

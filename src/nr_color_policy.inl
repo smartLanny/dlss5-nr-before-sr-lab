@@ -1,0 +1,172 @@
+// One decision feeds composition constants, completed-sample diagnostics and
+// the controls. Admission of a new HDR contract belongs elsewhere; this policy
+// deliberately preserves the existing FP16/unit-exposure post-SR exception.
+enum class NrColorReason : unsigned int {
+    Unknown,
+    NonHdr,
+    LinearSdr,
+    SrgbSdr,
+    ModelValueDomain,
+    PostSrFp16UnitExposure,
+    UnverifiedHdr,
+};
+
+enum class NrLightingReason : unsigned int {
+    Unknown,
+    RequestedOff,
+    NrBeforeSr,
+    OnlyNrBeforeSr,
+};
+
+struct NrColorPolicy {
+    float requested_color_strength = 0.0f;
+    float effective_color_strength = 0.0f;
+    bool color_allowed = false;
+    NrColorReason color_reason = NrColorReason::Unknown;
+    bool requested_preserve_lighting = false;
+    bool effective_preserve_lighting = false;
+    NrLightingReason lighting_reason = NrLightingReason::Unknown;
+};
+
+NrColorPolicy ResolveNrColorPolicy(int mode, bool hdr_input,
+                                   CodecColorMode color_mode,
+                                   bool result_is_fp16, bool unity_exposure,
+                                   float requested_color_strength,
+                                   bool requested_preserve_lighting) {
+    NrColorPolicy result = {};
+    result.requested_color_strength = requested_color_strength;
+    result.requested_preserve_lighting = requested_preserve_lighting;
+    if (mode != 1 && mode != 2) return result;
+    const bool verified_post_sr_fp16 = mode == 1 && hdr_input &&
+        color_mode == CodecColorMode::Automatic && result_is_fp16 &&
+        unity_exposure;
+    const bool unverified_hdr = hdr_input &&
+        (color_mode == CodecColorMode::Automatic ||
+         color_mode == CodecColorMode::PqEncodedHdr) &&
+        !verified_post_sr_fp16;
+    result.color_allowed = !unverified_hdr;
+    result.effective_color_strength = result.color_allowed
+        ? requested_color_strength : 0.0f;
+    result.color_reason = unverified_hdr ? NrColorReason::UnverifiedHdr :
+        verified_post_sr_fp16 ? NrColorReason::PostSrFp16UnitExposure :
+        color_mode == CodecColorMode::LinearSdr ? NrColorReason::LinearSdr :
+        color_mode == CodecColorMode::SrgbEncodedSdr ? NrColorReason::SrgbSdr :
+        color_mode == CodecColorMode::ModelEncodedValueDomain
+            ? NrColorReason::ModelValueDomain : NrColorReason::NonHdr;
+    result.effective_preserve_lighting = mode == 2 && requested_preserve_lighting;
+    result.lighting_reason = mode != 2 ? NrLightingReason::OnlyNrBeforeSr :
+        requested_preserve_lighting ? NrLightingReason::NrBeforeSr :
+                                     NrLightingReason::RequestedOff;
+    return result;
+}
+
+const char *NrColorReasonName(NrColorReason reason) {
+    switch (reason) {
+    case NrColorReason::NonHdr: return "non-hdr-input";
+    case NrColorReason::LinearSdr: return "verified-linear-sdr";
+    case NrColorReason::SrgbSdr: return "verified-srgb-sdr";
+    case NrColorReason::ModelValueDomain: return "bounded-model-value-domain";
+    case NrColorReason::PostSrFp16UnitExposure: return "post-sr-fp16-unit-exposure";
+    case NrColorReason::UnverifiedHdr: return "unverified-hdr-luminance-only";
+    default: return "unknown-live-contract";
+    }
+}
+
+const char *NrLightingReasonName(NrLightingReason reason) {
+    switch (reason) {
+    case NrLightingReason::RequestedOff: return "requested-off";
+    case NrLightingReason::NrBeforeSr: return "nr-before-sr-local-match";
+    case NrLightingReason::OnlyNrBeforeSr: return "only-nr-before-sr";
+    default: return "unknown-live-contract";
+    }
+}
+
+enum class NrColorPolicyStatus : unsigned int {
+    NoFrame,
+    Current,
+    Inactive,
+    Pending,
+    Bypassed,
+    ContractChanged,
+    Stale,
+};
+
+struct NrColorPolicySnapshot {
+    NrColorPolicy policy = {};
+    NrColorPolicyStatus status = NrColorPolicyStatus::NoFrame;
+    unsigned int config_generation = 0;
+    unsigned long long feature_generation = 0;
+    unsigned long long frame_id = 0;
+    unsigned long long recorded_tick_ms = 0;
+    int mode = 0;
+};
+
+// Fresh means a recent recorded Combine with the same configuration/contract.
+// It is not a fence-completed or presented-frame claim. An absent or stale
+// sample must never be used to infer a game's current HDR/SDR contract.
+NrColorPolicyStatus ColorPolicyStatusFor(
+    const NrColorPolicySnapshot &snapshot, unsigned int config_generation,
+    unsigned long long feature_generation, int mode, bool active,
+    bool bypassed, unsigned long long now_ms) {
+    if (!active) return NrColorPolicyStatus::Inactive;
+    if (snapshot.frame_id == 0) return NrColorPolicyStatus::NoFrame;
+    if (snapshot.config_generation != config_generation || snapshot.mode != mode)
+        return NrColorPolicyStatus::Pending;
+    if (snapshot.feature_generation != feature_generation)
+        return NrColorPolicyStatus::ContractChanged;
+    if (bypassed) return NrColorPolicyStatus::Bypassed;
+    if (now_ms < snapshot.recorded_tick_ms ||
+        now_ms - snapshot.recorded_tick_ms > 2000)
+        return NrColorPolicyStatus::Stale;
+    return NrColorPolicyStatus::Current;
+}
+
+const char *NrColorPolicyStatusName(NrColorPolicyStatus status) {
+    switch (status) {
+    case NrColorPolicyStatus::Current: return "recent-recorded-combine";
+    case NrColorPolicyStatus::Inactive: return "inactive-or-identity";
+    case NrColorPolicyStatus::Pending: return "pending-settings";
+    case NrColorPolicyStatus::Bypassed: return "bypassed";
+    case NrColorPolicyStatus::ContractChanged: return "contract-changed";
+    case NrColorPolicyStatus::Stale: return "no-recent-combine";
+    default: return "no-combine-observed";
+    }
+}
+
+const char *NrColorPolicyStatusText(NrColorPolicyStatus status, bool chinese) {
+    switch (status) {
+    case NrColorPolicyStatus::Inactive:
+        return chinese ? "NR 合成未启用；实际值未知，设置已保留。" :
+            "NR composition is inactive; effective values are unknown. Requests are retained.";
+    case NrColorPolicyStatus::Pending:
+        return chinese ? "设置待应用；等待此配置的合成帧。" :
+            "Settings pending; waiting for a composition frame with this configuration.";
+    case NrColorPolicyStatus::Bypassed:
+        return chinese ? "当前帧已旁路；实际值未知，设置已保留。" :
+            "The current frame is bypassed; effective values are unknown. Requests are retained.";
+    case NrColorPolicyStatus::ContractChanged:
+        return chinese ? "游戏输入合同已变化；等待新的合成帧。" :
+            "The game input contract changed; waiting for a new composition frame.";
+    default:
+        return chinese ? "暂无当前合成合同；实际值未知，设置已保留。" :
+            "No current composition contract; effective values are unknown. Requests are retained.";
+    }
+}
+
+// Reads and writes use g_chain_cs, including bundle collection. Retain the
+// recorded values when status is not Current so exports can identify history.
+NrColorPolicySnapshot g_recorded_color_policy = {};
+
+NrColorPolicySnapshot SnapshotColorPolicy() {
+    EnterCriticalSection(&g_chain_cs);
+    NrColorPolicySnapshot snapshot = g_recorded_color_policy;
+    snapshot.status = ColorPolicyStatusFor(snapshot,
+        g_config_generation.load(std::memory_order_relaxed),
+        g_pipeline_stats_generation.load(std::memory_order_relaxed),
+        g_config.mode, g_config.enabled && !g_config.identity_use_original &&
+            ActiveTransferStrength(g_config) > 0.001f,
+        g_last_bypass_reason.load(std::memory_order_relaxed) !=
+            static_cast<int>(BypassReason::None), GetTickCount64());
+    LeaveCriticalSection(&g_chain_cs);
+    return snapshot;
+}

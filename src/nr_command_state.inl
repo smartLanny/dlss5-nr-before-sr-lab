@@ -7,6 +7,43 @@
 
 // BEGIN COMMAND_STATE_MODEL (extracted unchanged by the regression harness)
 enum class CommandRootKind : unsigned char { Empty, Table, Constants, Cbv, Srv, Uav };
+// ClearState(NULL) is the only public way to restore Reset(NULL)'s dummy PSO.
+// Its additional dynamic state lives in the existing heap snapshot, never on
+// the game worker stack. A recorded bit distinguishes an omitted/default setter.
+struct CommandDynamicState {
+    UINT64 recorded = 0;
+    D3D12_PRIMITIVE_TOPOLOGY topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
+    UINT viewport_count = 0, scissor_count = 0;
+    D3D12_VIEWPORT viewports[16] = {};
+    D3D12_RECT scissors[16] = {};
+    FLOAT blend[4] = {};
+    UINT stencil_front = 0, stencil_back = 0;
+    bool separate_stencil = false, has_index = false, has_depth_target = false;
+    D3D12_INDEX_BUFFER_VIEW index = {};
+    D3D12_VERTEX_BUFFER_VIEW vertices[32] = {};
+    UINT vertex_mask = 0;
+    D3D12_STREAM_OUTPUT_BUFFER_VIEW stream_output[4] = {};
+    UINT stream_mask = 0, target_count = 0;
+    BOOL contiguous_targets = FALSE;
+    D3D12_CPU_DESCRIPTOR_HANDLE targets[8] = {}, depth_target = {};
+    UINT64 predicate_offset = 0;
+    D3D12_PREDICATION_OP predicate_operation = D3D12_PREDICATION_OP_EQUAL_ZERO;
+    FLOAT depth_min = 0, depth_max = 1;
+    UINT sample_count = 0, sample_pixels = 0, view_mask = 0;
+    D3D12_SAMPLE_POSITION samples[64] = {};
+    D3D12_SHADING_RATE shading_rate = D3D12_SHADING_RATE_1X1;
+    D3D12_SHADING_RATE_COMBINER combiners[2] = {};
+    bool has_combiners = false;
+    FLOAT depth_bias = 0, depth_bias_clamp = 0, slope_bias = 0;
+    D3D12_INDEX_BUFFER_STRIP_CUT_VALUE strip_cut = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
+};
+enum : UINT64 {
+    kDynamicTopology=1, kDynamicViewport=2, kDynamicScissor=4, kDynamicBlend=8,
+    kDynamicStencil=16, kDynamicIndex=32, kDynamicTargets=64, kDynamicPredicate=128,
+    kDynamicDepthBounds=256, kDynamicSamples=512, kDynamicViewMask=1024,
+    kDynamicShadingRate=2048, kDynamicShadingImage=4096, kDynamicDepthBias=8192,
+    kDynamicStripCut=16384
+};
 struct CommandRootArgument {
     CommandRootKind kind = CommandRootKind::Empty;
     UINT64 value = 0;
@@ -23,6 +60,12 @@ struct NativeCommandState {
     ID3D12StateObject *raytracing_pipeline = nullptr;
     ID3D12RootSignature *roots[2] = {};
     ID3D12DescriptorHeap *heaps[2] = {}; // CBV/SRV/UAV, sampler
+    ID3D12Resource *predicate = nullptr, *shading_image = nullptr;
+    ID3D12DescriptorHeap *rtv_cache = nullptr, *dsv_cache = nullptr;
+    bool null_pipeline_baseline = false;
+    const char *baseline_origin = "unobserved";
+    UINT64 reset_serial = 0, pipeline_writes = 0;
+    CommandDynamicState dynamic;
     CommandRootArgument arguments[2][64] = {};
 };
 template <typename T> void CommandStateAssign(T *&destination, T *source) {
@@ -33,6 +76,10 @@ template <typename T> void CommandStateAssign(T *&destination, T *source) {
     destination = source;
 }
 void ReleaseNativeCommandState(NativeCommandState &state) {
+    CommandStateAssign(state.rtv_cache, static_cast<ID3D12DescriptorHeap *>(nullptr));
+    CommandStateAssign(state.dsv_cache, static_cast<ID3D12DescriptorHeap *>(nullptr));
+    CommandStateAssign(state.predicate, static_cast<ID3D12Resource *>(nullptr));
+    CommandStateAssign(state.shading_image, static_cast<ID3D12Resource *>(nullptr));
     CommandStateAssign(state.pipeline, static_cast<ID3D12PipelineState *>(nullptr));
     CommandStateAssign(state.raytracing_pipeline, static_cast<ID3D12StateObject *>(nullptr));
     for (unsigned int stage = 0; stage < 2; ++stage) {
@@ -47,20 +94,60 @@ void ReleaseNativeCommandState(NativeCommandState &state) {
     state.unknown_domains = 0;
     state.meta_initialization_dirty = 0;
     state.meta_execution_dirty = 0;
+    state.null_pipeline_baseline = false;
+    state.baseline_origin = "unobserved";
+    state.reset_serial = state.pipeline_writes = 0;
+    memset(&state.dynamic, 0, sizeof(state.dynamic));
 }
-void ResetNativeCommandState(NativeCommandState &state, ID3D12PipelineState *pipeline) {
+void ResetNativeCommandState(NativeCommandState &state, ID3D12PipelineState *pipeline,
+                             const char *origin = "Reset") {
     const UINT meta_initialization_dirty = state.meta_initialization_dirty;
     const UINT meta_execution_dirty = state.meta_execution_dirty;
+    const UINT64 serial = state.reset_serial + 1;
     ReleaseNativeCommandState(state);
     state.meta_initialization_dirty = meta_initialization_dirty;
     state.meta_execution_dirty = meta_execution_dirty;
     CommandStateAssign(state.pipeline, pipeline);
     state.known = true;
     state.unknown_reason = "none";
+    state.null_pipeline_baseline = pipeline == nullptr;
+    state.baseline_origin = origin;
+    state.reset_serial = serial;
 }
-void CopyNativeCommandState(NativeCommandState &destination, const NativeCommandState &source) {
+bool EnsureCommandCpuHeap(ID3D12Device *device, ID3D12DescriptorHeap *&heap,
+                          D3D12_DESCRIPTOR_HEAP_TYPE type, UINT count) {
+    if (heap != nullptr) return true;
+    D3D12_DESCRIPTOR_HEAP_DESC desc{}; desc.Type=type; desc.NumDescriptors=count;
+    return SUCCEEDED(ID3D12Device_CreateDescriptorHeap(device, &desc, IID_ID3D12DescriptorHeap,
+        reinterpret_cast<void **>(&heap))) && heap != nullptr;
+}
+bool CopyCommandCpuHeap(ID3D12DescriptorHeap *&destination, ID3D12DescriptorHeap *source,
+                        D3D12_DESCRIPTOR_HEAP_TYPE type, UINT count) {
+    if (source == nullptr || count == 0) return true;
+    ID3D12Device *device=nullptr;
+    if (FAILED(ID3D12DescriptorHeap_GetDevice(source, IID_ID3D12Device, reinterpret_cast<void **>(&device))) || !device) return false;
+    const bool ready=EnsureCommandCpuHeap(device, destination, type, type==D3D12_DESCRIPTOR_HEAP_TYPE_RTV ? 8 : 1);
+    if (ready) ID3D12Device_CopyDescriptorsSimple(device, count,
+        ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(destination),
+        ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(source), type);
+    ID3D12Device_Release(device);
+    return ready;
+}
+bool CopyNativeCommandState(NativeCommandState &destination, const NativeCommandState &source) {
+    if (&destination == &source) return true;
+    // RTV/DSV handles are consumed at recording time. Applications may recycle
+    // their original CPU slots immediately; snapshots must own descriptor copies.
+    // Copy rather than share the caches: a nested scope/setter may update either.
+    if (source.null_pipeline_baseline &&
+        (!CopyCommandCpuHeap(destination.rtv_cache, source.rtv_cache, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, source.dynamic.target_count) ||
+         !CopyCommandCpuHeap(destination.dsv_cache, source.dsv_cache, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, source.dynamic.has_depth_target ? 1 : 0))) {
+        destination.known=false; destination.unknown_reason="dynamic-descriptor-snapshot-allocation";
+        return false;
+    }
     CommandStateAssign(destination.pipeline, source.pipeline);
     CommandStateAssign(destination.raytracing_pipeline, source.raytracing_pipeline);
+    CommandStateAssign(destination.predicate, source.predicate);
+    CommandStateAssign(destination.shading_image, source.shading_image);
     for (unsigned int stage = 0; stage < 2; ++stage) {
         CommandStateAssign(destination.roots[stage], source.roots[stage]);
         CommandStateAssign(destination.heaps[stage], source.heaps[stage]);
@@ -71,6 +158,16 @@ void CopyNativeCommandState(NativeCommandState &destination, const NativeCommand
     destination.unknown_domains = source.unknown_domains;
     destination.meta_initialization_dirty = source.meta_initialization_dirty;
     destination.meta_execution_dirty = source.meta_execution_dirty;
+    destination.null_pipeline_baseline = source.null_pipeline_baseline;
+    destination.baseline_origin = source.baseline_origin;
+    destination.reset_serial = source.reset_serial;
+    destination.pipeline_writes = source.pipeline_writes;
+    memcpy(&destination.dynamic, &source.dynamic, sizeof(source.dynamic));
+    if (source.null_pipeline_baseline && source.rtv_cache && source.dynamic.target_count)
+        destination.dynamic.targets[0]=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(destination.rtv_cache);
+    if (source.null_pipeline_baseline && source.dsv_cache && source.dynamic.has_depth_target)
+        destination.dynamic.depth_target=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(destination.dsv_cache);
+    return true;
 }
 void CommandStateSetRoot(NativeCommandState &state, unsigned int stage, ID3D12RootSignature *root) {
     const UINT domain = stage == 0 ? D3D12_GRAPHICS_STATE_COMPUTE_ROOT_SIGNATURE : D3D12_GRAPHICS_STATE_GRAPHICS_ROOT_SIGNATURE;
@@ -118,14 +215,111 @@ void CommandStateSetConstants(NativeCommandState &state, unsigned int stage,
         argument.constant_mask |= UINT64{1} << (offset + i);
     }
 }
+void CommandStateInvalidDynamic(NativeCommandState &state) {
+    state.known = false; state.unknown_reason = "invalid-dynamic-state";
+}
+void CommandStateViewports(NativeCommandState &state, UINT count, const D3D12_VIEWPORT *values) {
+    if (count > 16 || (count && !values)) { CommandStateInvalidDynamic(state); return; }
+    state.dynamic.viewport_count=count; state.dynamic.recorded |= kDynamicViewport;
+    if (count) memcpy(state.dynamic.viewports, values, count*sizeof(*values));
+}
+void CommandStateScissors(NativeCommandState &state, UINT count, const D3D12_RECT *values) {
+    if (count > 16 || (count && !values)) { CommandStateInvalidDynamic(state); return; }
+    state.dynamic.scissor_count=count; state.dynamic.recorded |= kDynamicScissor;
+    if (count) memcpy(state.dynamic.scissors, values, count*sizeof(*values));
+}
+void CommandStateVertices(NativeCommandState &state, UINT first, UINT count, const D3D12_VERTEX_BUFFER_VIEW *values) {
+    if (first > 32 || count > 32-first) { CommandStateInvalidDynamic(state); return; }
+    for (UINT i=0; i<count; ++i) { state.dynamic.vertices[first+i] = values ? values[i] : D3D12_VERTEX_BUFFER_VIEW{}; state.dynamic.vertex_mask |= UINT{1}<<(first+i); }
+}
+void CommandStateStreamOutput(NativeCommandState &state, UINT first, UINT count, const D3D12_STREAM_OUTPUT_BUFFER_VIEW *values) {
+    if (first > 4 || count > 4-first) { CommandStateInvalidDynamic(state); return; }
+    for (UINT i=0; i<count; ++i) { state.dynamic.stream_output[first+i] = values ? values[i] : D3D12_STREAM_OUTPUT_BUFFER_VIEW{}; state.dynamic.stream_mask |= UINT{1}<<(first+i); }
+}
+void CommandStateTargets(NativeCommandState &state, ID3D12GraphicsCommandList *list, UINT count, const D3D12_CPU_DESCRIPTOR_HANDLE *values,
+                         BOOL contiguous, const D3D12_CPU_DESCRIPTOR_HANDLE *depth) {
+    if (count > 8 || (count && !values)) { CommandStateInvalidDynamic(state); return; }
+    auto &d=state.dynamic; d.recorded |= kDynamicTargets; d.target_count=count; d.contiguous_targets=contiguous;
+    d.has_depth_target=depth!=nullptr; d.depth_target=depth ? *depth : D3D12_CPU_DESCRIPTOR_HANDLE{};
+    if (count) memcpy(d.targets, values, (contiguous ? 1 : count)*sizeof(*values));
+    if (!state.null_pipeline_baseline || (!count && !depth)) return;
+    ID3D12Device *device=nullptr;
+    const bool device_ready=list && SUCCEEDED(ID3D12GraphicsCommandList_GetDevice(list, IID_ID3D12Device,
+        reinterpret_cast<void **>(&device))) && device;
+    if (!device_ready || (count && !EnsureCommandCpuHeap(device,state.rtv_cache,D3D12_DESCRIPTOR_HEAP_TYPE_RTV,8)) ||
+        (depth && !EnsureCommandCpuHeap(device,state.dsv_cache,D3D12_DESCRIPTOR_HEAP_TYPE_DSV,1))) {
+        if (device) ID3D12Device_Release(device);
+        state.known=false; state.unknown_reason="dynamic-descriptor-cache-allocation"; return;
+    }
+    if (count) {
+        const auto first=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(state.rtv_cache);
+        const UINT stride=ID3D12Device_GetDescriptorHandleIncrementSize(device,D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        if (contiguous) ID3D12Device_CopyDescriptorsSimple(device,count,first,values[0],D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        else for (UINT i=0;i<count;++i) {
+            D3D12_CPU_DESCRIPTOR_HANDLE target{first.ptr+static_cast<SIZE_T>(stride)*i};
+            ID3D12Device_CopyDescriptorsSimple(device,1,target,values[i],D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        }
+        d.targets[0]=first; d.contiguous_targets=TRUE;
+    }
+    if (depth) {
+        d.depth_target=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(state.dsv_cache);
+        ID3D12Device_CopyDescriptorsSimple(device,1,d.depth_target,*depth,D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+    }
+    ID3D12Device_Release(device);
+}
+void CommandStateSamples(NativeCommandState &state, UINT count, UINT pixels, D3D12_SAMPLE_POSITION *values) {
+    if (count > 16 || pixels > 4 || (count*pixels && !values)) { CommandStateInvalidDynamic(state); return; }
+    auto &d=state.dynamic; d.recorded |= kDynamicSamples; d.sample_count=count; d.sample_pixels=pixels;
+    if (count*pixels) memcpy(d.samples, values, count*pixels*sizeof(*values));
+}
 bool CanRestoreNativeCommandState(const NativeCommandState &state) {
-    // SetPipelineState(nullptr) is not a legal way to restore an unbound PSO.
-    // Clearing all graphics state here would require a much wider envelope.
+    // A null pointer alone proves nothing. Only an observed successful native
+    // Reset/ClearState establishes the dummy PSO and every ClearState domain.
     return state.known && state.unknown_domains == 0 &&
-        (state.pipeline != nullptr || state.raytracing_pipeline != nullptr);
+        (state.pipeline != nullptr || (state.dynamic.recorded & (kDynamicDepthBias | kDynamicStripCut)) == 0) &&
+        (state.pipeline != nullptr || state.raytracing_pipeline != nullptr ||
+         state.null_pipeline_baseline);
+}
+// ABI slots below are from Microsoft Agility SDK 1.714 d3d12.h/IDL. Install
+// verifies each corresponding interface is available and is not a tear-off.
+template <typename... Args> void CommandStateExtendedCall(ID3D12GraphicsCommandList *list,
+                                                         UINT slot, Args... args) {
+    using Fn = void (STDMETHODCALLTYPE *)(ID3D12GraphicsCommandList *, Args...);
+    auto **vtable = *reinterpret_cast<void ***>(list);
+    reinterpret_cast<Fn>(vtable[slot])(list, args...);
+}
+void RestoreCommandDynamicState(ID3D12GraphicsCommandList *list, const NativeCommandState &state) {
+    const auto &d = state.dynamic;
+    if (d.recorded & kDynamicTopology) ID3D12GraphicsCommandList_IASetPrimitiveTopology(list, d.topology);
+    if (d.recorded & kDynamicViewport) ID3D12GraphicsCommandList_RSSetViewports(list, d.viewport_count, d.viewports);
+    if (d.recorded & kDynamicScissor) ID3D12GraphicsCommandList_RSSetScissorRects(list, d.scissor_count, d.scissors);
+    if (d.recorded & kDynamicBlend) ID3D12GraphicsCommandList_OMSetBlendFactor(list, d.blend);
+    if (d.recorded & kDynamicStencil) {
+        if (d.separate_stencil) CommandStateExtendedCall(list, 81, d.stencil_front, d.stencil_back);
+        else ID3D12GraphicsCommandList_OMSetStencilRef(list, d.stencil_front);
+    }
+    if (d.recorded & kDynamicIndex) ID3D12GraphicsCommandList_IASetIndexBuffer(list, d.has_index ? &d.index : nullptr);
+    for (UINT i=0; i<32; ++i) if (d.vertex_mask & (UINT{1}<<i))
+        ID3D12GraphicsCommandList_IASetVertexBuffers(list, i, 1, &d.vertices[i]);
+    for (UINT i=0; i<4; ++i) if (d.stream_mask & (UINT{1}<<i))
+        ID3D12GraphicsCommandList_SOSetTargets(list, i, 1, &d.stream_output[i]);
+    if (d.recorded & kDynamicTargets) ID3D12GraphicsCommandList_OMSetRenderTargets(list,
+        d.target_count, d.targets, d.contiguous_targets, d.has_depth_target ? &d.depth_target : nullptr);
+    if (d.recorded & kDynamicDepthBounds) CommandStateExtendedCall(list, 62, d.depth_min, d.depth_max);
+    if (d.recorded & kDynamicSamples) CommandStateExtendedCall(list, 63, d.sample_count, d.sample_pixels,
+        const_cast<D3D12_SAMPLE_POSITION *>(d.samples));
+    if (d.recorded & kDynamicViewMask) CommandStateExtendedCall(list, 65, d.view_mask);
+    if (d.recorded & kDynamicShadingRate) CommandStateExtendedCall(list, 77, d.shading_rate,
+        d.has_combiners ? d.combiners : static_cast<const D3D12_SHADING_RATE_COMBINER *>(nullptr));
+    if (d.recorded & kDynamicShadingImage) CommandStateExtendedCall(list, 78, state.shading_image);
+    if (d.recorded & kDynamicPredicate) ID3D12GraphicsCommandList_SetPredication(list, state.predicate,
+        d.predicate_offset, d.predicate_operation);
 }
 void RestoreNativeCommandState(ID3D12GraphicsCommandList *command_list,
                                const NativeCommandState &state) {
+    const bool restore_dummy = state.pipeline == nullptr && state.raytracing_pipeline == nullptr &&
+        state.null_pipeline_baseline;
+    if (restore_dummy) ID3D12GraphicsCommandList_ClearState(command_list, nullptr);
     ID3D12DescriptorHeap *heaps[2] = {};
     UINT heap_count = 0;
     for (auto *heap : state.heaps) if (heap != nullptr) heaps[heap_count++] = heap;
@@ -169,6 +363,7 @@ void RestoreNativeCommandState(ID3D12GraphicsCommandList *command_list,
             }
         }
     }
+    if (restore_dummy) RestoreCommandDynamicState(command_list, state);
     if (state.pipeline != nullptr) ID3D12GraphicsCommandList_SetPipelineState(command_list, state.pipeline);
     else if (state.raytracing_pipeline != nullptr) {
         ID3D12GraphicsCommandList4 *extended = nullptr;
@@ -176,6 +371,14 @@ void RestoreNativeCommandState(ID3D12GraphicsCommandList *command_list,
             ID3D12GraphicsCommandList4_SetPipelineState1(extended, state.raytracing_pipeline);
             ID3D12GraphicsCommandList4_Release(extended);
         }
+    }
+    // SetPipelineState resets these CL9 values. Restore them only after the
+    // ordinary graphics/compute PSO; dummy/DXR recordings with such values
+    // are not admitted because their raster pipeline contract is unproven.
+    if (state.pipeline != nullptr) {
+        const auto &d=state.dynamic;
+        if (d.recorded & kDynamicDepthBias) CommandStateExtendedCall(command_list,82,d.depth_bias,d.depth_bias_clamp,d.slope_bias);
+        if (d.recorded & kDynamicStripCut) CommandStateExtendedCall(command_list,83,d.strip_cut);
     }
 }
 // END COMMAND_STATE_MODEL
@@ -259,9 +462,9 @@ struct CommandStateHookFamily {
         reinterpret_cast<void *>(&StateHook##NAME<2>), reinterpret_cast<void *>(&StateHook##NAME<3>) };
 
 NR_STATE_HOOK(SetPipelineState, (ID3D12GraphicsCommandList *command_list, ID3D12PipelineState *pipeline),
-    (command_list, pipeline), CommandStateAssign(state.pipeline, pipeline); CommandStateAssign(state.raytracing_pipeline, static_cast<ID3D12StateObject *>(nullptr)); state.unknown_domains &= ~D3D12_GRAPHICS_STATE_PIPELINE_STATE)
+    (command_list, pipeline), CommandStateAssign(state.pipeline, pipeline); CommandStateAssign(state.raytracing_pipeline, static_cast<ID3D12StateObject *>(nullptr)); state.unknown_domains &= ~D3D12_GRAPHICS_STATE_PIPELINE_STATE; state.dynamic.recorded &= ~(kDynamicDepthBias | kDynamicStripCut); state.null_pipeline_baseline=false; ++state.pipeline_writes; if (!pipeline) {state.known=false; state.unknown_reason="invalid-null-PSO-setter";})
 NR_STATE_HOOK(ClearState, (ID3D12GraphicsCommandList *command_list, ID3D12PipelineState *pipeline),
-    (command_list, pipeline), ResetNativeCommandState(state, pipeline))
+    (command_list, pipeline), ResetNativeCommandState(state, pipeline, "ClearState"))
 NR_STATE_HOOK(SetDescriptorHeaps, (ID3D12GraphicsCommandList *command_list, UINT count, ID3D12DescriptorHeap *const *heaps),
     (command_list, count, heaps), CommandStateSetHeaps(state, count, heaps))
 #define NR_STATE_STAGE(NAME, STAGE) \
@@ -283,8 +486,62 @@ NR_STATE_STAGE(Compute, 0)
 NR_STATE_STAGE(Graphics, 1)
 NR_STATE_HOOK(ExecuteBundle, (ID3D12GraphicsCommandList *command_list, ID3D12GraphicsCommandList *bundle),
     (command_list, bundle), state.known = false; state.unknown_reason = "execute-bundle")
+NR_STATE_HOOK(IASetPrimitiveTopology, (ID3D12GraphicsCommandList *command_list, D3D12_PRIMITIVE_TOPOLOGY topology),
+    (command_list, topology), state.dynamic.topology=topology; state.dynamic.recorded |= kDynamicTopology)
+NR_STATE_HOOK(RSSetViewports, (ID3D12GraphicsCommandList *command_list, UINT count, const D3D12_VIEWPORT *values),
+    (command_list, count, values), CommandStateViewports(state, count, values))
+NR_STATE_HOOK(RSSetScissorRects, (ID3D12GraphicsCommandList *command_list, UINT count, const D3D12_RECT *values),
+    (command_list, count, values), CommandStateScissors(state, count, values))
+NR_STATE_HOOK(OMSetBlendFactor, (ID3D12GraphicsCommandList *command_list, const FLOAT values[4]),
+    (command_list, values), if (!values) CommandStateInvalidDynamic(state); else {memcpy(state.dynamic.blend, values, sizeof(state.dynamic.blend)); state.dynamic.recorded |= kDynamicBlend;})
+NR_STATE_HOOK(OMSetStencilRef, (ID3D12GraphicsCommandList *command_list, UINT value),
+    (command_list, value), state.dynamic.stencil_front=state.dynamic.stencil_back=value; state.dynamic.separate_stencil=false; state.dynamic.recorded |= kDynamicStencil)
+NR_STATE_HOOK(IASetIndexBuffer, (ID3D12GraphicsCommandList *command_list, const D3D12_INDEX_BUFFER_VIEW *value),
+    (command_list, value), state.dynamic.has_index=value!=nullptr; state.dynamic.index=value ? *value : D3D12_INDEX_BUFFER_VIEW{}; state.dynamic.recorded |= kDynamicIndex)
+NR_STATE_HOOK(IASetVertexBuffers, (ID3D12GraphicsCommandList *command_list, UINT first, UINT count, const D3D12_VERTEX_BUFFER_VIEW *values),
+    (command_list, first, count, values), CommandStateVertices(state, first, count, values))
+NR_STATE_HOOK(SOSetTargets, (ID3D12GraphicsCommandList *command_list, UINT first, UINT count, const D3D12_STREAM_OUTPUT_BUFFER_VIEW *values),
+    (command_list, first, count, values), CommandStateStreamOutput(state, first, count, values))
+NR_STATE_HOOK(OMSetRenderTargets, (ID3D12GraphicsCommandList *command_list, UINT count, const D3D12_CPU_DESCRIPTOR_HANDLE *values, BOOL contiguous, const D3D12_CPU_DESCRIPTOR_HANDLE *depth),
+    (command_list, count, values, contiguous, depth), CommandStateTargets(state, command_list, count, values, contiguous, depth))
+NR_STATE_HOOK(SetPredication, (ID3D12GraphicsCommandList *command_list, ID3D12Resource *buffer, UINT64 offset, D3D12_PREDICATION_OP operation),
+    (command_list, buffer, offset, operation), CommandStateAssign(state.predicate, buffer); state.dynamic.predicate_offset=offset; state.dynamic.predicate_operation=operation; state.dynamic.recorded |= kDynamicPredicate)
 #undef NR_STATE_STAGE
 #undef NR_STATE_HOOK
+
+// CL1/3/4/5/8/9 ABI signatures are forwarded exactly. Metadata-only updates
+// happen after native execution, like the base setter family above.
+#define NR_EXTENDED_STATE_HOOK(NAME, PARAMETERS, ARGUMENTS, MUTATION) \
+    CommandStateHookFamily g_state_##NAME; \
+    template <unsigned int I> void STDMETHODCALLTYPE StateHook##NAME PARAMETERS { \
+        using Fn = void (STDMETHODCALLTYPE *) PARAMETERS; \
+        reinterpret_cast<Fn>(g_state_##NAME.originals[I]) ARGUMENTS; \
+        MutateNativeCommandState(command_list, [&](NativeCommandState &state) { MUTATION; }); \
+    } \
+    void *const g_state_detours_##NAME[4] = { \
+        reinterpret_cast<void *>(&StateHook##NAME<0>), reinterpret_cast<void *>(&StateHook##NAME<1>), \
+        reinterpret_cast<void *>(&StateHook##NAME<2>), reinterpret_cast<void *>(&StateHook##NAME<3>) };
+NR_EXTENDED_STATE_HOOK(OMSetDepthBounds, (ID3D12GraphicsCommandList *command_list, FLOAT low, FLOAT high),
+    (command_list, low, high), state.dynamic.depth_min=low; state.dynamic.depth_max=high; state.dynamic.recorded |= kDynamicDepthBounds)
+NR_EXTENDED_STATE_HOOK(SetSamplePositions, (ID3D12GraphicsCommandList *command_list, UINT count, UINT pixels, D3D12_SAMPLE_POSITION *values),
+    (command_list, count, pixels, values), CommandStateSamples(state, count, pixels, values))
+NR_EXTENDED_STATE_HOOK(SetViewInstanceMask, (ID3D12GraphicsCommandList *command_list, UINT mask),
+    (command_list, mask), state.dynamic.view_mask=mask; state.dynamic.recorded |= kDynamicViewMask)
+NR_EXTENDED_STATE_HOOK(SetProtectedResourceSession, (ID3D12GraphicsCommandList *command_list, ID3D12ProtectedResourceSession *session),
+    (command_list, session), state.known=false; state.unknown_reason="protected-resource-session")
+NR_EXTENDED_STATE_HOOK(BeginRenderPass, (ID3D12GraphicsCommandList *command_list, UINT count, const D3D12_RENDER_PASS_RENDER_TARGET_DESC *targets, const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC *depth, D3D12_RENDER_PASS_FLAGS flags),
+    (command_list, count, targets, depth, flags), state.known=false; state.unknown_reason="render-pass")
+NR_EXTENDED_STATE_HOOK(RSSetShadingRate, (ID3D12GraphicsCommandList *command_list, D3D12_SHADING_RATE rate, const D3D12_SHADING_RATE_COMBINER *combiners),
+    (command_list, rate, combiners), state.dynamic.shading_rate=rate; state.dynamic.has_combiners=combiners!=nullptr; if (combiners) memcpy(state.dynamic.combiners, combiners, sizeof(state.dynamic.combiners)); state.dynamic.recorded |= kDynamicShadingRate)
+NR_EXTENDED_STATE_HOOK(RSSetShadingRateImage, (ID3D12GraphicsCommandList *command_list, ID3D12Resource *resource),
+    (command_list, resource), CommandStateAssign(state.shading_image, resource); state.dynamic.recorded |= kDynamicShadingImage)
+NR_EXTENDED_STATE_HOOK(OMSetFrontAndBackStencilRef, (ID3D12GraphicsCommandList *command_list, UINT front, UINT back),
+    (command_list, front, back), state.dynamic.stencil_front=front; state.dynamic.stencil_back=back; state.dynamic.separate_stencil=true; state.dynamic.recorded |= kDynamicStencil)
+NR_EXTENDED_STATE_HOOK(RSSetDepthBias, (ID3D12GraphicsCommandList *command_list, FLOAT bias, FLOAT clamp, FLOAT slope),
+    (command_list, bias, clamp, slope), state.dynamic.depth_bias=bias; state.dynamic.depth_bias_clamp=clamp; state.dynamic.slope_bias=slope; state.dynamic.recorded |= kDynamicDepthBias)
+NR_EXTENDED_STATE_HOOK(IASetIndexBufferStripCutValue, (ID3D12GraphicsCommandList *command_list, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE value),
+    (command_list, value), state.dynamic.strip_cut=value; state.dynamic.recorded |= kDynamicStripCut)
+#undef NR_EXTENDED_STATE_HOOK
 
 struct CommandSignatureState {
     unsigned int stage = 1;
@@ -325,8 +582,10 @@ void DescribeCommandSignature(const D3D12_COMMAND_SIGNATURE_DESC &description,
         case D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS:
             terminal = true; info.stage = 0; break;
         case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
+            if (argument.VertexBuffer.Slot >= 32) info.valid = false;
+            break;
         case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
-            break; // These do not modify the root/heap/PSO envelope.
+            break;
         case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT:
             if (argument.Constant.RootParameterIndex >= 64 || argument.Constant.DestOffsetIn32BitValues > 64 ||
                 argument.Constant.Num32BitValuesToSet > 64 - argument.Constant.DestOffsetIn32BitValues) info.valid = false;
@@ -396,6 +655,10 @@ void ApplyIndirectCommandState(NativeCommandState &state, ID3D12CommandSignature
     for (UINT i = 0; i < info.count; ++i) {
         const auto &argument = info.arguments[i];
         switch (static_cast<unsigned int>(argument.Type)) {
+        case D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW:
+            CommandStateVertices(state, argument.VertexBuffer.Slot, 1, nullptr); break;
+        case D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW:
+            state.dynamic.has_index=false; state.dynamic.recorded |= kDynamicIndex; break;
         case D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT: {
             const UINT zero[64] = {};
             CommandStateSetConstants(state, info.stage, argument.Constant.RootParameterIndex,
@@ -438,6 +701,9 @@ template <unsigned int I> void STDMETHODCALLTYPE StateHookSetPipelineState1(
         CommandStateAssign(state.pipeline, static_cast<ID3D12PipelineState *>(nullptr));
         CommandStateAssign(state.raytracing_pipeline, pipeline);
         state.unknown_domains &= ~D3D12_GRAPHICS_STATE_PIPELINE_STATE;
+        state.null_pipeline_baseline=false; ++state.pipeline_writes;
+        state.dynamic.recorded &= ~(kDynamicDepthBias | kDynamicStripCut);
+        if (!pipeline) {state.known=false; state.unknown_reason="invalid-null-DXR-PSO-setter";}
     });
 }
 void *const g_state_detours_SetPipelineState1[4] = {
@@ -524,8 +790,9 @@ bool PublishCommandStateHooks(CommandStateHookRequest *requests, unsigned int co
     bool ok = true;
     const auto initialized = MH_Initialize();
     if (initialized != MH_OK && initialized != MH_ERROR_ALREADY_INITIALIZED) ok = false;
-    void *queued[32] = {};
-    bool *enabled_flags[32] = {};
+    void *queued[64] = {};
+    bool *enabled_flags[64] = {};
+    if (count > 64) ok = false;
     unsigned int queued_count = 0;
     for (unsigned int r = 0; ok && r < count; ++r) {
         auto &request = requests[r];
@@ -590,8 +857,26 @@ void OnCommandStateInitDevice(reshade::api::device *device) {
         reinterpret_cast<void *>(native->lpVtbl->CreateCommandSignature), g_state_detours_CreateCommandSignature};
     PublishCommandStateHooks(&request, 1);
 }
+struct CommandStateExtendedHookRequest { CommandStateHookFamily *family; UINT slot; void *const *detours; };
+bool AppendCommandStateInterfaceHooks(ID3D12GraphicsCommandList *native, REFIID iid,
+    CommandStateHookRequest *requests, unsigned int &count,
+    const CommandStateExtendedHookRequest *extra, unsigned int extra_count) {
+    IUnknown *queried=nullptr;
+    const HRESULT hr=ID3D12GraphicsCommandList_QueryInterface(native, iid, reinterpret_cast<void **>(&queried));
+    if (hr == E_NOINTERFACE) return true;
+    if (FAILED(hr) || queried == nullptr) return false;
+    if (count > 48 || extra_count > 48-count) { IUnknown_Release(queried); return false; }
+    const bool same=reinterpret_cast<void *>(native)==reinterpret_cast<void *>(queried);
+    if (same) {
+        auto **vtable=*reinterpret_cast<void ***>(queried);
+        for (unsigned int i=0; i<extra_count; ++i)
+            requests[count++]={extra[i].family, vtable[extra[i].slot], extra[i].detours};
+    } else Log("[command-state] extended interface tear-off refused; state cannot be reconstructed.");
+    IUnknown_Release(queried);
+    return same;
+}
 bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native) {
-    CommandStateHookRequest requests[24] = {};
+    CommandStateHookRequest requests[48] = {};
     unsigned int count = 0;
 #define NR_ADD_STATE_HOOK(NAME) requests[count++] = { &g_state_##NAME, reinterpret_cast<void *>(native->lpVtbl->NAME), g_state_detours_##NAME }
     NR_ADD_STATE_HOOK(SetPipelineState); NR_ADD_STATE_HOOK(ClearState);
@@ -602,10 +887,30 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native) {
     NR_ADD_STATE_HOOK(Set##NAME##RootConstantBufferView); NR_ADD_STATE_HOOK(Set##NAME##RootShaderResourceView); \
     NR_ADD_STATE_HOOK(Set##NAME##RootUnorderedAccessView)
     NR_ADD_STATE_STAGE(Compute); NR_ADD_STATE_STAGE(Graphics);
+    NR_ADD_STATE_HOOK(IASetPrimitiveTopology); NR_ADD_STATE_HOOK(RSSetViewports); NR_ADD_STATE_HOOK(RSSetScissorRects);
+    NR_ADD_STATE_HOOK(OMSetBlendFactor); NR_ADD_STATE_HOOK(OMSetStencilRef); NR_ADD_STATE_HOOK(IASetIndexBuffer);
+    NR_ADD_STATE_HOOK(IASetVertexBuffers); NR_ADD_STATE_HOOK(SOSetTargets); NR_ADD_STATE_HOOK(OMSetRenderTargets);
+    NR_ADD_STATE_HOOK(SetPredication);
 #undef NR_ADD_STATE_STAGE
 #undef NR_ADD_STATE_HOOK
+    constexpr GUID list8={0xee936ef9,0x599d,0x4d28,{0x93,0x8e,0x23,0xc4,0xad,0x05,0xce,0x51}};
+    constexpr GUID list9={0x34ed2808,0xffe6,0x4c2b,{0xb1,0x1a,0xca,0xbd,0x2b,0x0c,0x59,0xe1}};
+#define NR_EXTRA(NAME, SLOT) {&g_state_##NAME, SLOT, g_state_detours_##NAME}
+    const CommandStateExtendedHookRequest extra1[]={NR_EXTRA(OMSetDepthBounds,62), NR_EXTRA(SetSamplePositions,63), NR_EXTRA(SetViewInstanceMask,65)};
+    const CommandStateExtendedHookRequest extra3[]={NR_EXTRA(SetProtectedResourceSession,67)};
+    const CommandStateExtendedHookRequest extra5[]={NR_EXTRA(RSSetShadingRate,77), NR_EXTRA(RSSetShadingRateImage,78)};
+    const CommandStateExtendedHookRequest extra8[]={NR_EXTRA(OMSetFrontAndBackStencilRef,81)};
+    const CommandStateExtendedHookRequest extra9[]={NR_EXTRA(RSSetDepthBias,82), NR_EXTRA(IASetIndexBufferStripCutValue,83)};
+#undef NR_EXTRA
+    if (!AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList1, requests,count,extra1,3) ||
+        !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList3, requests,count,extra3,1) ||
+        !AppendCommandStateInterfaceHooks(native, IID_ID3D12GraphicsCommandList5, requests,count,extra5,2) ||
+        !AppendCommandStateInterfaceHooks(native, list8, requests,count,extra8,1) ||
+        !AppendCommandStateInterfaceHooks(native, list9, requests,count,extra9,2)) return false;
     ID3D12GraphicsCommandList4 *extended = nullptr;
-    if (SUCCEEDED(ID3D12GraphicsCommandList_QueryInterface(native, IID_ID3D12GraphicsCommandList4, reinterpret_cast<void **>(&extended)))) {
+    const HRESULT queried4=ID3D12GraphicsCommandList_QueryInterface(native, IID_ID3D12GraphicsCommandList4, reinterpret_cast<void **>(&extended));
+    if (queried4 != E_NOINTERFACE && (FAILED(queried4) || extended == nullptr)) return false;
+    if (SUCCEEDED(queried4)) {
         if (reinterpret_cast<void *>(extended) != reinterpret_cast<void *>(native)) {
             // Distinct tear-off interfaces need their own full setter family.
             // Do not silently miss base setters or the active DXR PSO.
@@ -616,9 +921,15 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native) {
         requests[count++] = { &g_state_SetPipelineState1, reinterpret_cast<void *>(extended->lpVtbl->SetPipelineState1), g_state_detours_SetPipelineState1 };
         requests[count++] = { &g_state_InitializeMetaCommand, reinterpret_cast<void *>(extended->lpVtbl->InitializeMetaCommand), g_state_detours_InitializeMetaCommand };
         requests[count++] = { &g_state_ExecuteMetaCommand, reinterpret_cast<void *>(extended->lpVtbl->ExecuteMetaCommand), g_state_detours_ExecuteMetaCommand };
+        requests[count++] = { &g_state_BeginRenderPass, reinterpret_cast<void *>(extended->lpVtbl->BeginRenderPass), g_state_detours_BeginRenderPass };
     }
     IUnknown *latest = nullptr;
-    if (SUCCEEDED(ID3D12GraphicsCommandList_QueryInterface(native, kCommandList10Interface, reinterpret_cast<void **>(&latest)))) {
+    const HRESULT queried10=ID3D12GraphicsCommandList_QueryInterface(native, kCommandList10Interface, reinterpret_cast<void **>(&latest));
+    if (queried10 != E_NOINTERFACE && (FAILED(queried10) || latest == nullptr)) {
+        if (extended != nullptr) ID3D12GraphicsCommandList4_Release(extended);
+        return false;
+    }
+    if (SUCCEEDED(queried10)) {
         if (reinterpret_cast<void *>(latest) != reinterpret_cast<void *>(native)) {
             IUnknown_Release(latest);
             if (extended != nullptr) ID3D12GraphicsCommandList4_Release(extended);
@@ -716,6 +1027,9 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
     bool captured = false;
     const char *unavailable_reason = "unregistered-list";
     UINT unknown_domains = 0;
+    UINT64 reset_serial=0, pipeline_writes=0;
+    const char *baseline_origin="unobserved";
+    bool null_baseline=false;
     AcquireSRWLockExclusive(&g_command_state_lock);
     auto *record = FindCommandStateTokenLocked(token);
     if (record != nullptr) {
@@ -734,11 +1048,17 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
         captured = meta_covered && record->state != nullptr && record->hooks_ready && CanRestoreNativeCommandState(*record->state);
         unavailable_reason = !meta_covered ? "meta-command-coverage" : record->state == nullptr ? "snapshot-allocation" :
             !record->hooks_ready ? "native-hooks-unavailable" : !record->state->known ? record->state->unknown_reason :
-            record->state->unknown_domains != 0 ? "meta-command-dirty-state" : "pipeline-unbound";
-        if (record->state != nullptr) unknown_domains = record->state->unknown_domains;
+            record->state->unknown_domains != 0 ? "meta-command-dirty-state" :
+            (record->state->dynamic.recorded & (kDynamicDepthBias | kDynamicStripCut)) && !record->state->pipeline ? "dynamic-raster-without-PSO" : "pipeline-unbound";
+        if (record->state != nullptr) {
+            unknown_domains = record->state->unknown_domains;
+            reset_serial=record->state->reset_serial; pipeline_writes=record->state->pipeline_writes;
+            baseline_origin=record->state->baseline_origin; null_baseline=record->state->null_pipeline_baseline;
+        }
         if (captured) {
-            CopyNativeCommandState(snapshot, *record->state);
-            if (native_output != nullptr) *native_output = native;
+            captured=CopyNativeCommandState(snapshot, *record->state);
+            if (!captured) unavailable_reason="dynamic-descriptor-snapshot-allocation";
+            if (captured && native_output != nullptr) *native_output = native;
         }
     }
     ReleaseSRWLockExclusive(&g_command_state_lock);
@@ -751,8 +1071,14 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
     if (!captured) {
         const auto count = g_command_state_bypasses.fetch_add(1, std::memory_order_relaxed) + 1;
         if (count <= 6 || (count % 600) == 0)
-            Log("[command-state] NR bypass: reason=%s token=%llu registered=%d installing=%d dirty=0x%X count=%llu; successful native Reset and game bindings can recover.", unavailable_reason, token, record != nullptr ? 1 : 0, needs_install ? 1 : 0, unknown_domains, count);
+            Log("[command-state] NR bypass: reason=%s token=%llu registered=%d installing=%d dirty=0x%X count=%llu baseline=%s resetSerial=%llu pipelineWrites=%llu nullBaseline=%d; successful native Reset and game bindings can recover.", unavailable_reason, token, record != nullptr ? 1 : 0, needs_install ? 1 : 0, unknown_domains, count, baseline_origin, reset_serial, pipeline_writes, null_baseline ? 1 : 0);
         SetBypassReason(BypassReason::CommandStateUnverified);
+    } else if (snapshot.null_pipeline_baseline) {
+        static std::atomic<unsigned int> null_snapshots{0};
+        if (null_snapshots.fetch_add(1, std::memory_order_relaxed) < 6)
+            Log("[command-state] known-null snapshot: token=%llu baseline=%s resetSerial=%llu pipelineWrites=%llu dynamic=0x%llX computeRoot=%p graphicsRoot=%p; restore uses ClearState(NULL) plus recorded dynamic state.",
+                token, snapshot.baseline_origin, snapshot.reset_serial, snapshot.pipeline_writes, snapshot.dynamic.recorded,
+                static_cast<void *>(snapshot.roots[0]), static_cast<void *>(snapshot.roots[1]));
     }
     return captured;
 }
@@ -789,6 +1115,12 @@ struct NativeCommandStateScope {
                 token, static_cast<void *>(saved->pipeline), static_cast<void *>(saved->raytracing_pipeline),
                 static_cast<void *>(saved->roots[0]), static_cast<void *>(saved->roots[1]),
                 static_cast<void *>(saved->heaps[0]), static_cast<void *>(saved->heaps[1]));
+        if (saved->null_pipeline_baseline) {
+            static std::atomic<unsigned int> null_restores{0};
+            if (null_restores.fetch_add(1, std::memory_order_relaxed) < 3)
+                Log("[command-state] restored known-null baseline: token=%llu origin=%s resetSerial=%llu dynamic=0x%llX.",
+                    token, saved->baseline_origin, saved->reset_serial, saved->dynamic.recorded);
+        }
         active = false;
     }
     NativeCommandStateScope(const NativeCommandStateScope &) = delete;
