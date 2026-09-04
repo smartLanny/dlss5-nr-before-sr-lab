@@ -15,13 +15,13 @@ foreach ($needle in @(
     'kGroupCount = 3', 'kFrameCount = 16', 'kCountdownMs = 3000',
     'sequence restarted', 'nativeSrOutput=unknown', 'config.writesToIni=0',
     'regionProtection.effective=',
-    'planeData=original,proxy,nr,composite RGBA32F ROI tiles', 'QueueUserWorkItem(&Worker',
-    'ApplyConfig(session->original, "F8 restore", false)')) {
+    "const char magic[8] = {'F', '8', 'S', 'E', 'Q'", 'WriteSequenceFrame',
+    'QueueUserWorkItem(&Worker', 'ApplyConfig(session->original, "F8 restore", false)')) {
     if (-not $text.Contains($needle)) { throw "F8 contract missing: $needle" }
 }
 foreach ($needle in @(
     '#include "nr_f8_sequence.inl"',
-    'nr_f8::RequestWithOptions', 'nr_f8::Present(runtime)',
+    'nr_f8::OpenWindow', 'nr_f8::Present(runtime)',
     'nr_f8::ObserveSuccess')) {
     if (-not $mainText.Contains($needle)) { throw "F8 integration missing: $needle" }
 }

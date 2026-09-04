@@ -102,6 +102,9 @@ wchar_t g_last_zip[kMaxPath] = {};
 std::atomic<bool> g_config_hold{false};
 std::atomic<bool> g_raw_stage_ready{false};
 std::atomic<bool> g_window_open{false};
+// Present uses this while publishing a new group or restoring the original
+// config. Diagnostic callbacks must not inspect a half-published group.
+std::atomic<bool> g_group_transition{false};
 
 float *RawPlane(Session &session, unsigned int group, unsigned int frame,
                 unsigned int plane) {
@@ -259,7 +262,8 @@ bool IdentityMatches(const Group &group, const NrDiagnosticIdentity &identity,
 }
 
 void ObserveParams(const NgxParams *params, const FeatureRecord &, unsigned long long) {
-    if (!IsActive() || params == nullptr) return;
+    if (!IsActive() || g_group_transition.load(std::memory_order_acquire) ||
+        params == nullptr) return;
     // CompleteNrDiagnosticEvaluation runs under g_chain_cs. Keep this path
     // try-only so Present's short session lock cannot invert the chain lock.
     if (!TryAcquireSRWLockExclusive(&g_lock)) return;
@@ -286,7 +290,8 @@ void ObserveParams(const NgxParams *params, const FeatureRecord &, unsigned long
 
 void ObserveSuccess(const NrDiagnosticIdentity &identity, unsigned int width,
                     unsigned int height, bool reset) {
-    if (g_status.load(std::memory_order_relaxed) != Status::Running) return;
+    if (g_status.load(std::memory_order_relaxed) != Status::Running ||
+        g_group_transition.load(std::memory_order_acquire)) return;
     // CompleteNrDiagnosticEvaluation runs under g_chain_cs. Keep this path
     // try-only so Present's short session lock cannot invert the chain lock.
     if (!TryAcquireSRWLockExclusive(&g_lock)) return;
@@ -353,6 +358,7 @@ void ObserveSuccess(const NrDiagnosticIdentity &identity, unsigned int width,
 }
 
 void StageExported(unsigned long long request, const wchar_t *directory, bool ok) {
+    if (g_group_transition.load(std::memory_order_acquire)) return;
     AcquireSRWLockExclusive(&g_lock);
     if (g_session != nullptr) {
       for (unsigned int i = 0; i < kGroupCount; ++i) {
@@ -372,6 +378,7 @@ void StageExported(unsigned long long request, const wchar_t *directory, bool ok
 
 void StageCaptured(const NrStageCaptureInfo &info, const wchar_t *directory,
                    const float *mapped, UINT64 bytes, bool ok) {
+    if (g_group_transition.load(std::memory_order_acquire)) return;
     AcquireSRWLockExclusive(&g_lock);
     if (g_session != nullptr) {
         for (unsigned int i = 0; i < kGroupCount; ++i) {
@@ -721,6 +728,7 @@ DWORD WINAPI Worker(void *parameter) {
 }
 
 void StartGroup(Session &session, unsigned int index) {
+    g_group_transition.store(true, std::memory_order_release);
     Group &group = session.groups[index];
     group = {};
     group.mode = index == 0 ? GroupMode::NativeSr :
@@ -758,6 +766,7 @@ void StartGroup(Session &session, unsigned int index) {
     session.group_started = group.started;
     Log("[F8] group=%u mode=%s started; config is transient and will be restored",
         index, ModeName(group.mode));
+    g_group_transition.store(false, std::memory_order_release);
 }
 
 void Finish(Session &session) {
@@ -788,10 +797,16 @@ void Finish(Session &session) {
 
 void Present(reshade::api::effect_runtime *runtime) {
     if (runtime == nullptr) return;
-    if (g_request.exchange(false, std::memory_order_acq_rel)) {
-        Status expected = Status::Requested;
-        if (g_status.compare_exchange_strong(expected, Status::Running,
-                std::memory_order_acq_rel)) {
+    bool consume_request = false;
+    AcquireSRWLockExclusive(&g_lock);
+    if (g_request.load(std::memory_order_relaxed) &&
+        g_status.load(std::memory_order_relaxed) == Status::Requested) {
+        g_request.store(false, std::memory_order_release);
+        g_status.store(Status::Running, std::memory_order_release);
+        consume_request = true;
+    }
+    ReleaseSRWLockExclusive(&g_lock);
+    if (consume_request) {
             auto *session = new (std::nothrow) Session{};
             if (session == nullptr) {
                 g_status.store(Status::Failed, std::memory_order_release);
@@ -816,7 +831,6 @@ void Present(reshade::api::effect_runtime *runtime) {
                 SetConfigHold(true);
                 StartGroup(*session, 0);
             }
-        }
     }
     // Stage exports retire on a worker. Re-arm the next bounded sample from
     // Present after that exact fence has completed; no config generation or
@@ -840,59 +854,86 @@ void Present(reshade::api::effect_runtime *runtime) {
             ReleaseSRWLockExclusive(&g_lock);
         }
     }
-    AcquireSRWLockExclusive(&g_lock);
-    Session *session = g_session;
-    if (session == nullptr) {
+    Session *session = nullptr;
+    unsigned int next_group = kGroupCount;
+    bool request_screenshot = false;
+    bool finalize = false;
+    {
+        AcquireSRWLockExclusive(&g_lock);
+        session = g_session;
+        if (session == nullptr) {
+            ReleaseSRWLockExclusive(&g_lock);
+            return;
+        }
+        const unsigned int index = session->group;
+        if (index >= kGroupCount) {
+            finalize = true;
+        } else {
+            Group &group = session->groups[index];
+            const ULONGLONG now = GetTickCount64();
+            const bool cancelled = g_cancel.load(std::memory_order_acquire);
+            if (cancelled || now >= group.deadline) {
+                group.partial = true;
+                if (!group.break_reason[0]) std::strcpy(group.break_reason,
+                    cancelled ? "cancelled by user" : "group timed out");
+                session->partial = true;
+                session->group = kGroupCount;
+                finalize = true;
+                g_group_transition.store(true, std::memory_order_release);
+            } else if (!group.screenshot_requested &&
+                       now - group.started >= kCountdownMs) {
+                group.screenshot_requested = true;
+                request_screenshot = true;
+            }
+            const bool ready =
+                (group.mode == GroupMode::NativeSr && group.screenshot_received) ||
+                (group.sequence_complete && (!group.raw_stage_required ||
+                    group.raw_stage_count >= kFrameCount));
+            if (!finalize && ready && now - group.started >= kCountdownMs) {
+                if (index + 1 < kGroupCount) {
+                    ++session->group;
+                    next_group = session->group;
+                    g_group_transition.store(true, std::memory_order_release);
+                } else {
+                    session->group = kGroupCount;
+                    finalize = true;
+                    g_group_transition.store(true, std::memory_order_release);
+                }
+            }
+        }
         ReleaseSRWLockExclusive(&g_lock);
-        return;
     }
-    const unsigned int index = session->group;
-    Group &group = session->groups[index];
-    const ULONGLONG now = GetTickCount64();
-    if (g_cancel.load(std::memory_order_acquire) || now >= group.deadline) {
-        group.partial = true;
-        if (!group.break_reason[0]) std::strcpy(group.break_reason,
-            g_cancel.load() ? "cancelled by user" : "group timed out");
-        session->partial = true;
-        session->group = kGroupCount;
-    } else if (!group.screenshot_requested && now - group.started >= kCountdownMs) {
+    if (request_screenshot) {
         char tag[96] = {};
-        std::snprintf(tag, sizeof(tag), "DLSS5_F8_%u", index);
-        group.screenshot_requested = true;
-        // The callback validates the returned path and runtime identity in
-        // OnFeedbackScreenshot; the tag itself is collision-resistant per group.
+        std::snprintf(tag, sizeof(tag), "DLSS5_F8_%u", session->group);
+        // Screenshot is a ReShade call and must never run under g_lock.
         runtime->save_screenshot(tag);
     }
-    if (session->group < kGroupCount &&
-        ((group.mode == GroupMode::NativeSr && group.screenshot_received) ||
-         (group.sequence_complete && (!group.raw_stage_required ||
-            group.raw_stage_count >= kFrameCount))) &&
-        now - group.started >= kCountdownMs) {
-        if (index + 1 < kGroupCount) {
-            ++session->group;
-            StartGroup(*session, session->group);
-        } else {
-            session->group = kGroupCount;
-        }
-    }
-    if (session->group >= kGroupCount) {
-        ApplyConfig(session->original, "F8 restore", false);
-        session->restore_issued = true;
-        session->restore_verified = SameConfig(SnapshotConfig(), session->original);
-        SetConfigHold(false);
-        Finish(*session);
-        g_status.store(Status::Packaging, std::memory_order_release);
-        g_session = nullptr;
-        ReleaseSRWLockExclusive(&g_lock);
-        if (!QueueUserWorkItem(&Worker, session, WT_EXECUTEDEFAULT)) {
-            delete[] session->raw_planes;
-            delete session;
-            g_status.store(Status::Failed, std::memory_order_release);
-        }
-        g_cancel.store(false, std::memory_order_release);
+    if (next_group < kGroupCount) {
+        StartGroup(*session, next_group);
         return;
     }
+    if (!finalize) return;
+
+    // Restore and all other chain operations are deliberately outside g_lock.
+    ApplyConfig(session->original, "F8 restore", false);
+    session->restore_issued = true;
+    session->restore_verified = SameConfig(SnapshotConfig(), session->original);
+    SetConfigHold(false);
+    Finish(*session);
+    AcquireSRWLockExclusive(&g_lock);
+    if (g_session == session) {
+        g_session = nullptr;
+        g_status.store(Status::Packaging, std::memory_order_release);
+    }
     ReleaseSRWLockExclusive(&g_lock);
+    g_group_transition.store(false, std::memory_order_release);
+    if (!QueueUserWorkItem(&Worker, session, WT_EXECUTEDEFAULT)) {
+        delete[] session->raw_planes;
+        delete session;
+        g_status.store(Status::Failed, std::memory_order_release);
+    }
+    g_cancel.store(false, std::memory_order_release);
 }
 
 void DrawControls() {
