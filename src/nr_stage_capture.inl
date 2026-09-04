@@ -101,6 +101,7 @@ void PrepareStageCaptureContextLocked(const NgxHandle *sr_handle,
     for (auto &context : g_contexts) {
         if (context.sr_handle == sr_handle && !context.retired &&
             context.feature_generation == feature_generation && context.mode == mode) {
+            if (nr_f8::KeepStageContext()) continue;
             context.retired = true;
             Log("Stage capture preparing fresh NR instance: request=%llu "
                 "previousInstance=%llu mode=%d; old resources keep their exact fences.",
@@ -179,7 +180,8 @@ void RetireStageCaptureOwnerLocked(NrSlot &slot) {
 bool CanRecordStageCapture(const NrStageCapture &capture) {
     return capture.armed && !capture.pending && capture.buffer != nullptr &&
            capture.readback != nullptr && capture.info.identity.warmed_up &&
-           capture.info.identity.since_reset >= kStageCaptureMinimumEvaluations;
+           (nr_f8::KeepStageContext() ||
+            capture.info.identity.since_reset >= kStageCaptureMinimumEvaluations);
 }
 
 bool ComputeStageCaptureGrid(unsigned int source_width,
