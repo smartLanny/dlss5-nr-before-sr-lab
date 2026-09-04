@@ -6832,28 +6832,33 @@ using ResetCommandListFn = HRESULT (STDMETHODCALLTYPE *)(
 CreateFeatureFn g_original_create = nullptr;
 CreateFeatureFn g_original_core_create = nullptr;
 CreateFeatureFn g_original_dlssd_create = nullptr;
+CreateFeatureFn g_original_dlssg_create = nullptr;
 EvaluateFeatureFn g_original_evaluate = nullptr;
 EvaluateFeatureFn g_original_evaluate_c = nullptr;
 EvaluateFeatureFn g_original_core_evaluate = nullptr;
 EvaluateFeatureFn g_original_dlssd_evaluate = nullptr;
+EvaluateFeatureFn g_original_dlssg_evaluate = nullptr;
 ReleaseFeatureFn g_original_release = nullptr;
 ReleaseFeatureFn g_original_core_release = nullptr;
 ReleaseFeatureFn g_original_dlssd_release = nullptr;
+ReleaseFeatureFn g_original_dlssg_release = nullptr;
 std::atomic<unsigned long long> g_carrier_evaluations{0};
 std::atomic<unsigned long long> g_all_evaluations{0};
 std::atomic<unsigned int> g_wrapper_calls{0};
 std::atomic<unsigned int> g_core_calls{0};
 std::atomic<unsigned int> g_dlssd_evaluate_calls{0};
+std::atomic<unsigned int> g_dlssg_evaluate_calls{0};
 std::atomic<unsigned int> g_wrapper_create_entries{0};
 std::atomic<unsigned int> g_core_create_entries{0};
 std::atomic<unsigned int> g_dlssd_create_entries{0};
+std::atomic<unsigned int> g_dlssg_create_entries{0};
 thread_local bool g_inside_ngx_evaluate = false;
 // The public nvngx_dlss wrapper may call the identically named export in
 // _nvngx.dll. Both exports are hooked for games that call either layer, but
 // ownership must be recorded exactly once for a nested wrapper -> core call.
 thread_local unsigned int g_create_hook_depth = 0;
 thread_local unsigned int g_release_hook_depth = 0;
-void *g_evaluate_hook_targets[4] = {};
+void *g_evaluate_hook_targets[8] = {};
 std::size_t g_evaluate_hook_target_count = 0;
 SRWLOCK g_evaluate_hook_lock = SRWLOCK_INIT;
 #include "nr_command_state.inl"
@@ -6872,8 +6877,10 @@ SRWLOCK g_module_rescan_lock = SRWLOCK_INIT;
 SRWLOCK g_present_observer_lock = SRWLOCK_INIT;
 HMODULE g_hooked_core_module = nullptr;
 HMODULE g_hooked_dlssd_module = nullptr;
+HMODULE g_hooked_dlssg_module = nullptr;
 std::atomic<bool> g_core_lifecycle_hooks_ready{false};
 std::atomic<bool> g_dlssd_lifecycle_hooks_ready{false};
+std::atomic<bool> g_dlssg_lifecycle_hooks_ready{false};
 std::atomic<bool> g_core_unknown_handle_guard{false};
 std::atomic<bool> g_module_observer_gap_detected{false};
 std::atomic<bool> g_startup_deferred_module_coverage{false};
@@ -7392,6 +7399,73 @@ NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
     return result;
 }
 
+NgxResult HookDlssgCreate(ID3D12GraphicsCommandList *command_list,
+                          int feature_id, NgxParams *params,
+                          NgxHandle **out_handle) {
+    const unsigned int entry =
+        g_dlssg_create_entries.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (entry <= 3 || feature_id != 11) {
+        Log("[module] nvngx_dlssg CreateFeature entered: call=%u id=%d (%s)",
+            entry, feature_id, FeatureName(feature_id));
+    }
+    const bool outermost = g_create_hook_depth++ == 0;
+    const bool creating_feature1 = outermost && feature_id == 1;
+    if (creating_feature1) {
+        g_feature1_create_entries.fetch_add(1, std::memory_order_release);
+        g_feature1_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
+    }
+    const unsigned long long observer_epoch_at_entry = creating_feature1
+        ? g_module_observer_epoch.load() : 0;
+    if (outermost && out_handle != nullptr) *out_handle = nullptr;
+    const bool creating_rr = outermost && feature_id == 13;
+    ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
+    if (creating_rr && rr_gate.is_nested())
+        LatchNestedRrOwnershipChange("DLSSG Feature 13 Create");
+    else if (creating_rr && rr_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("DLSSG Feature 13 Create");
+    if (creating_rr)
+        g_rr_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
+    const NgxResult result = g_original_dlssg_create(
+        command_list, feature_id, params, out_handle);
+    --g_create_hook_depth;
+    if (!outermost) return result;
+
+    NgxHandle *handle = out_handle != nullptr ? *out_handle : nullptr;
+    if (feature_id == 11 || feature_id == 13 || result != kNgxSuccess) {
+        Log("DLSSG CreateFeature id=%d (%s) result=0x%08X(%s) handle=%p",
+            feature_id, FeatureName(feature_id), result, ResultName(result),
+            static_cast<void *>(handle));
+    }
+    // The returned feature_id is the only authoritative public identity. In
+    // particular, remember Feature 11 here before a DLSSG wrapper forwards its
+    // Evaluate call into the separately hooked _nvngx core export.
+    if (result == kNgxSuccess && handle != nullptr) {
+        RememberFeature(handle, feature_id, params);
+        if (feature_id == 1)
+            g_feature1_successful_creates.fetch_add(1);
+    }
+    FinishFeature1CreateObservation(
+        creating_feature1, result, handle, observer_epoch_at_entry,
+        "DLSSG Feature 1 Create");
+    if (creating_rr &&
+        ((result == kNgxSuccess) != (handle != nullptr))) {
+        LatchRrOwnershipUncertain(
+            "DLSSG Feature 13 Create",
+            "the native result/handle pair was inconsistent");
+    }
+    if (creating_rr) {
+        const unsigned int previous =
+            g_rr_create_in_progress.fetch_sub(1, std::memory_order_acq_rel);
+        if (previous == 0) {
+            g_rr_create_in_progress.store(0, std::memory_order_release);
+            LatchRrOwnershipUncertain(
+                "DLSSG Feature 13 Create",
+                "the in-progress counter underflowed");
+        }
+    }
+    return result;
+}
+
 bool ShouldGuardFeature1ForRayReconstruction() {
     return g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
            g_live_rr_handles.load(std::memory_order_acquire) != 0;
@@ -7895,6 +7969,43 @@ NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
         g_original_dlssd_evaluate, command_list, handle, params, callback);
 }
 
+NgxResult HookDlssgEvaluate(ID3D12GraphicsCommandList *command_list,
+                            const NgxHandle *handle, const NgxParams *params,
+                            void *callback) {
+    if (!g_inside_ngx_evaluate && handle == nullptr)
+        ObserveNullEvaluateHandle("direct DLSSG Feature Evaluate");
+    if (handle != nullptr && !g_inside_ngx_evaluate &&
+        FindFeature(handle).handle == nullptr) {
+        // Do not infer Feature 11 from the module name or mutable Evaluate
+        // parameters. Only an observed successful Create may classify it.
+        LatchUnknownFeatureHandle(
+            "direct DLSSG Feature Evaluate",
+            "a non-null handle unknown to the lifecycle observer reached "
+            "the distinct nvngx_dlssg Evaluate entry point");
+        return CallNativeEvaluatePassThrough(
+            g_original_dlssg_evaluate, command_list, handle, params, callback);
+    }
+    if (!g_enabled_fast.load(std::memory_order_acquire) ||
+        g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
+        g_evaluate_target_overflow.load(std::memory_order_acquire)) {
+        return g_original_dlssg_evaluate(
+            command_list, handle, params, callback);
+    }
+    const unsigned int call = ++g_dlssg_evaluate_calls;
+    if (call <= 3) {
+        const FeatureRecord feature = FindFeature(handle);
+        Log("[module] nvngx_dlssg EvaluateFeature reached: call=%u "
+            "handle=%p observedId=%d (%s)", call,
+            static_cast<const void *>(handle), feature.feature_id,
+            FeatureName(feature.feature_id));
+    }
+    // Dispatch marks the downstream core call as nested. A Feature 11 handle
+    // classified by HookDlssgCreate therefore cannot be mistaken for an
+    // unknown pre-observer core handle.
+    return DispatchEvaluate(
+        g_original_dlssg_evaluate, command_list, handle, params, callback);
+}
+
 NgxResult HookRelease(NgxHandle *handle) {
     const bool outermost = g_release_hook_depth++ == 0;
     const FeatureRecord feature = FindFeature(handle);
@@ -8021,6 +8132,52 @@ NgxResult HookDlssdRelease(NgxHandle *handle) {
         if (feature.feature_id == 13) {
             LatchRrOwnershipUncertain(
                 "DLSSD Feature 13 Release",
+                "the native release failed for a tracked RR handle");
+        }
+    }
+    return result;
+}
+
+NgxResult HookDlssgRelease(NgxHandle *handle) {
+    const bool outermost = g_release_hook_depth++ == 0;
+    const FeatureRecord feature = FindFeature(handle);
+    if (outermost && handle != nullptr && feature.handle == nullptr) {
+        // Unknown non-null handles remain fail-closed. The DLSSG module name
+        // alone is not enough evidence to adopt ownership as Feature 11.
+        LatchUnknownFeatureHandle(
+            "direct DLSSG Feature Release",
+            "a non-null handle unknown to the lifecycle observer reached "
+            "the distinct nvngx_dlssg Release entry point");
+    }
+    const bool releasing_rr = outermost && feature.feature_id == 13;
+    ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
+    if (releasing_rr && rr_gate.is_nested())
+        LatchNestedRrOwnershipChange("DLSSG Feature 13 Release");
+    else if (releasing_rr && rr_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("DLSSG Feature 13 Release");
+    const NgxResult result = g_original_dlssg_release(handle);
+    --g_release_hook_depth;
+    if (!outermost) return result;
+    if (feature.handle != nullptr) {
+        Log("DLSSG ReleaseFeature handle=%p id=%d (%s)",
+            static_cast<void *>(handle), feature.feature_id,
+            FeatureName(feature.feature_id));
+    }
+    if ((result == kNgxSuccess || result == kNgxFeatureNotFound) &&
+        feature.handle != nullptr) {
+        if (feature.feature_id == 1) {
+            EnterCriticalSection(&g_chain_cs);
+            RetireContextForHandle(handle);
+            LeaveCriticalSection(&g_chain_cs);
+        }
+        ForgetFeature(handle);
+    } else if (feature.handle != nullptr) {
+        Log("DLSSG ReleaseFeature failed for tracked handle=%p "
+            "result=0x%08X (%s); ownership retained.",
+            static_cast<void *>(handle), result, ResultName(result));
+        if (feature.feature_id == 13) {
+            LatchRrOwnershipUncertain(
+                "DLSSG Feature 13 Release",
                 "the native release failed for a tracked RR handle");
         }
     }
@@ -8275,7 +8432,7 @@ void RememberEvaluateHookTarget(void *target) {
     for (std::size_t i = 0; i < g_evaluate_hook_target_count; ++i) {
         if (g_evaluate_hook_targets[i] == target) return;
     }
-    if (g_evaluate_hook_target_count < 4) {
+    if (g_evaluate_hook_target_count < std::size(g_evaluate_hook_targets)) {
         g_evaluate_hook_targets[g_evaluate_hook_target_count++] = target;
     } else if (!g_evaluate_target_overflow.exchange(
                    true, std::memory_order_release)) {
@@ -8382,8 +8539,8 @@ bool PinHookAddress(const void *address, const char *name,
 
 // This table records hooks that were actually created, not merely exported.
 // All entries are private to the startup worker, then the module-rescan lock.
-// Operation-specific lookup handles both orders of core/DLSSD forwarding and
-// prevents an Evaluate_C alias from being hooked twice.
+// Operation-specific lookup handles every order of core/DLSSD/DLSSG
+// forwarding and prevents an Evaluate_C alias from being hooked twice.
 enum class NgxHookOperation { Release, Create, Evaluate };
 const char *NgxHookOperationName(NgxHookOperation operation) {
     switch (operation) {
@@ -8400,7 +8557,7 @@ struct NgxHookTarget {
     bool published = false;
     bool queued = false;
 };
-NgxHookTarget g_ngx_hook_targets[10] = {};
+NgxHookTarget g_ngx_hook_targets[16] = {};
 std::size_t g_ngx_hook_target_count = 0;
 
 NgxHookTarget *FindNgxHookTarget(NgxHookOperation operation, void *target) {
@@ -8478,7 +8635,7 @@ void MarkNgxHooksPublished(bool initial_install) {
 
 struct LateNgxModulePlan {
     HMODULE module = nullptr;
-    bool core = false;
+    enum class Role { Core, Dlssd, Dlssg } role = Role::Core;
     void *release = nullptr;
     void *create = nullptr;
     void *evaluate = nullptr;
@@ -8486,10 +8643,36 @@ struct LateNgxModulePlan {
     bool prepared = false;
 };
 
-LateNgxModulePlan InspectLateNgxModule(HMODULE module, bool core) {
+const wchar_t *LateNgxModuleNameW(LateNgxModulePlan::Role role) {
+    switch (role) {
+    case LateNgxModulePlan::Role::Core: return L"_nvngx.dll";
+    case LateNgxModulePlan::Role::Dlssd: return L"nvngx_dlssd.dll";
+    case LateNgxModulePlan::Role::Dlssg: return L"nvngx_dlssg.dll";
+    default: return L"unknown NGX module";
+    }
+}
+
+const char *LateNgxModuleName(LateNgxModulePlan::Role role) {
+    switch (role) {
+    case LateNgxModulePlan::Role::Core: return "_nvngx";
+    case LateNgxModulePlan::Role::Dlssd: return "DLSSD";
+    case LateNgxModulePlan::Role::Dlssg: return "DLSSG";
+    default: return "unknown NGX module";
+    }
+}
+
+bool IsRrCapableLifecycleObserver(LateNgxModulePlan::Role role) {
+    // DLSSG is observed only to classify its authoritative Feature 11 Create
+    // before a wrapper call enters the core hook. Its publication cannot
+    // imply that a Feature 13 owner existed before coverage.
+    return role != LateNgxModulePlan::Role::Dlssg;
+}
+
+LateNgxModulePlan InspectLateNgxModule(
+        HMODULE module, LateNgxModulePlan::Role role) {
     LateNgxModulePlan plan{};
     plan.module = module;
-    plan.core = core;
+    plan.role = role;
     if (module == nullptr) return plan;
     plan.release = reinterpret_cast<void *>(
         GetProcAddress(module, "NVSDK_NGX_D3D12_ReleaseFeature"));
@@ -8507,38 +8690,67 @@ LateNgxModulePlan InspectLateNgxModule(HMODULE module, bool core) {
 void PrepareLateNgxModule(LateNgxModulePlan &plan, bool &queued_any) {
     if (plan.module == nullptr) return;
     LogModuleObservation("late module discovered",
-        plan.core ? L"_nvngx.dll" : L"nvngx_dlssd.dll", plan.module);
-    if (!PinHookAddress(plan.module,
-            plan.core ? "_nvngx.dll" : "nvngx_dlssd.dll", plan.module))
+        LateNgxModuleNameW(plan.role), plan.module);
+    if (!PinHookAddress(plan.module, LateNgxModuleName(plan.role), plan.module))
         return;
-    if (plan.core && plan.introduces_distinct_entry)
+    if (plan.role == LateNgxModulePlan::Role::Core &&
+        plan.introduces_distinct_entry)
         g_core_unknown_handle_guard.store(true, std::memory_order_release);
+    void *release_detour = nullptr;
+    void *create_detour = nullptr;
+    void *evaluate_detour = nullptr;
+    void **release_original = nullptr;
+    void **create_original = nullptr;
+    void **evaluate_original = nullptr;
+    const char *release_name = nullptr;
+    const char *create_name = nullptr;
+    const char *evaluate_name = nullptr;
+    switch (plan.role) {
+    case LateNgxModulePlan::Role::Core:
+        release_detour = reinterpret_cast<void *>(&HookCoreRelease);
+        create_detour = reinterpret_cast<void *>(&HookCoreCreate);
+        evaluate_detour = reinterpret_cast<void *>(&HookCoreEvaluate);
+        release_original = reinterpret_cast<void **>(&g_original_core_release);
+        create_original = reinterpret_cast<void **>(&g_original_core_create);
+        evaluate_original = reinterpret_cast<void **>(&g_original_core_evaluate);
+        release_name = "late core ReleaseFeature";
+        create_name = "late core CreateFeature";
+        evaluate_name = "late core EvaluateFeature";
+        break;
+    case LateNgxModulePlan::Role::Dlssd:
+        release_detour = reinterpret_cast<void *>(&HookDlssdRelease);
+        create_detour = reinterpret_cast<void *>(&HookDlssdCreate);
+        evaluate_detour = reinterpret_cast<void *>(&HookDlssdEvaluate);
+        release_original = reinterpret_cast<void **>(&g_original_dlssd_release);
+        create_original = reinterpret_cast<void **>(&g_original_dlssd_create);
+        evaluate_original = reinterpret_cast<void **>(&g_original_dlssd_evaluate);
+        release_name = "late DLSSD ReleaseFeature";
+        create_name = "late DLSSD CreateFeature";
+        evaluate_name = "late DLSSD EvaluateFeature";
+        break;
+    case LateNgxModulePlan::Role::Dlssg:
+        release_detour = reinterpret_cast<void *>(&HookDlssgRelease);
+        create_detour = reinterpret_cast<void *>(&HookDlssgCreate);
+        evaluate_detour = reinterpret_cast<void *>(&HookDlssgEvaluate);
+        release_original = reinterpret_cast<void **>(&g_original_dlssg_release);
+        create_original = reinterpret_cast<void **>(&g_original_dlssg_create);
+        evaluate_original = reinterpret_cast<void **>(&g_original_dlssg_evaluate);
+        release_name = "late DLSSG ReleaseFeature";
+        create_name = "late DLSSG CreateFeature";
+        evaluate_name = "late DLSSG EvaluateFeature";
+        break;
+    }
     // Queue both modules before a single publication. Duplicate exports in
     // either plan reuse the registry entry and its existing owner/trampoline.
     const bool release = QueueLateHook(
-        NgxHookOperation::Release, plan.release,
-        plan.core ? reinterpret_cast<void *>(&HookCoreRelease)
-                  : reinterpret_cast<void *>(&HookDlssdRelease),
-        plan.core ? reinterpret_cast<void **>(&g_original_core_release)
-                  : reinterpret_cast<void **>(&g_original_dlssd_release),
-        plan.core ? "late core ReleaseFeature" : "late DLSSD ReleaseFeature",
-        queued_any);
+        NgxHookOperation::Release, plan.release, release_detour,
+        release_original, release_name, queued_any);
     const bool create = QueueLateHook(
-        NgxHookOperation::Create, plan.create,
-        plan.core ? reinterpret_cast<void *>(&HookCoreCreate)
-                  : reinterpret_cast<void *>(&HookDlssdCreate),
-        plan.core ? reinterpret_cast<void **>(&g_original_core_create)
-                  : reinterpret_cast<void **>(&g_original_dlssd_create),
-        plan.core ? "late core CreateFeature" : "late DLSSD CreateFeature",
-        queued_any);
+        NgxHookOperation::Create, plan.create, create_detour,
+        create_original, create_name, queued_any);
     const bool evaluate = QueueLateHook(
-        NgxHookOperation::Evaluate, plan.evaluate,
-        plan.core ? reinterpret_cast<void *>(&HookCoreEvaluate)
-                  : reinterpret_cast<void *>(&HookDlssdEvaluate),
-        plan.core ? reinterpret_cast<void **>(&g_original_core_evaluate)
-                  : reinterpret_cast<void **>(&g_original_dlssd_evaluate),
-        plan.core ? "late core EvaluateFeature" : "late DLSSD EvaluateFeature",
-        queued_any);
+        NgxHookOperation::Evaluate, plan.evaluate, evaluate_detour,
+        evaluate_original, evaluate_name, queued_any);
     plan.prepared = release && create && evaluate;
 }
 
@@ -8550,16 +8762,21 @@ bool FinishLateNgxModule(const LateNgxModulePlan &plan) {
     const bool evaluate = IsNgxHookPublished(
         NgxHookOperation::Evaluate, plan.evaluate);
     const bool covered = plan.prepared && release && create && evaluate;
-    if (plan.core) {
+    if (plan.role == LateNgxModulePlan::Role::Core) {
         g_hooked_core_module = plan.module;
         g_core_lifecycle_hooks_ready.store(covered, std::memory_order_release);
-    } else {
+    } else if (plan.role == LateNgxModulePlan::Role::Dlssd) {
         g_hooked_dlssd_module = plan.module;
         g_dlssd_lifecycle_hooks_ready.store(covered, std::memory_order_release);
+    } else {
+        g_hooked_dlssg_module = plan.module;
+        g_dlssg_lifecycle_hooks_ready.store(covered, std::memory_order_release);
     }
     Log("[module] late %s coverage: create=%d evaluate=%d release=%d; "
-        "RR-lifecycle=%s.", plan.core ? "_nvngx" : "DLSSD",
+        "%s=%s.", LateNgxModuleName(plan.role),
         create ? 1 : 0, evaluate ? 1 : 0, release ? 1 : 0,
+        IsRrCapableLifecycleObserver(plan.role)
+            ? "RR-lifecycle" : "Feature11-lifecycle",
         covered ? "covered" : "UNCERTAIN");
     return covered;
 }
@@ -8590,21 +8807,29 @@ void PollNgxLifecycleModules() {
         g_module_rescan_count.fetch_add(1, std::memory_order_relaxed) + 1;
     LoadedNgxModule core_ref(L"_nvngx.dll");
     LoadedNgxModule dlssd_ref(L"nvngx_dlssd.dll");
+    LoadedNgxModule dlssg_ref(L"nvngx_dlssg.dll");
     HMODULE core = core_ref.handle;
     HMODULE dlssd = dlssd_ref.handle;
+    HMODULE dlssg = dlssg_ref.handle;
     // Resolve while ordinary loader references are held. A module with only
     // absent/forwarded/already-published exports does not change the epoch and
     // cannot poison a concurrent successful HDR Feature 1 rebuild.
     LateNgxModulePlan core_plan = InspectLateNgxModule(
-        g_hooked_core_module == nullptr ? core : nullptr, true);
+        g_hooked_core_module == nullptr ? core : nullptr,
+        LateNgxModulePlan::Role::Core);
     LateNgxModulePlan dlssd_plan = InspectLateNgxModule(
-        g_hooked_dlssd_module == nullptr ? dlssd : nullptr, false);
+        g_hooked_dlssd_module == nullptr ? dlssd : nullptr,
+        LateNgxModulePlan::Role::Dlssd);
+    LateNgxModulePlan dlssg_plan = InspectLateNgxModule(
+        g_hooked_dlssg_module == nullptr ? dlssg : nullptr,
+        LateNgxModulePlan::Role::Dlssg);
     const bool discovered_late =
-        core_plan.module != nullptr || dlssd_plan.module != nullptr;
-    const bool introduced_distinct_lifecycle_entry =
+        core_plan.module != nullptr || dlssd_plan.module != nullptr ||
+        dlssg_plan.module != nullptr;
+    const bool introduced_distinct_rr_lifecycle_entry =
         core_plan.introduces_distinct_entry ||
         dlssd_plan.introduces_distinct_entry;
-    const bool bracket_publication = introduced_distinct_lifecycle_entry;
+    const bool bracket_publication = introduced_distinct_rr_lifecycle_entry;
     unsigned long long observer_epoch = g_module_observer_epoch.load();
     if (bracket_publication) {
         const unsigned long long previous_epoch =
@@ -8626,6 +8851,7 @@ void PollNgxLifecycleModules() {
     bool queued_any = false;
     PrepareLateNgxModule(core_plan, queued_any);
     PrepareLateNgxModule(dlssd_plan, queued_any);
+    PrepareLateNgxModule(dlssg_plan, queued_any);
     bool transaction_applied = true;
     if (queued_any) {
         const MH_STATUS applied = MH_ApplyQueued();
@@ -8636,8 +8862,10 @@ void PollNgxLifecycleModules() {
     }
     const bool core_covered = FinishLateNgxModule(core_plan);
     const bool dlssd_covered = FinishLateNgxModule(dlssd_plan);
-    const bool lifecycle_coverage_failed =
-        !transaction_applied || !core_covered || !dlssd_covered;
+    const bool dlssg_covered = FinishLateNgxModule(dlssg_plan);
+    const bool rr_lifecycle_coverage_failed =
+        (introduced_distinct_rr_lifecycle_entry && !transaction_applied) ||
+        !core_covered || !dlssd_covered;
     ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
     const unsigned long long feature1_create_entries =
         g_feature1_create_entries.load(std::memory_order_acquire);
@@ -8649,17 +8877,18 @@ void PollNgxLifecycleModules() {
     const bool feature1_activity_observed = feature1_active_before ||
         feature1_successful_creates != 0 || carrier_evaluations != 0;
     if (LateLifecycleDiscoveryRequiresIsolation(
-            lifecycle_coverage_failed, introduced_distinct_lifecycle_entry,
+            rr_lifecycle_coverage_failed,
+            introduced_distinct_rr_lifecycle_entry,
             feature1_activity_observed)) {
         g_module_observer_gap_detected.store(true, std::memory_order_release);
         LatchRrOwnershipUncertain(
             "lazy module rescan",
-            lifecycle_coverage_failed
+            rr_lifecycle_coverage_failed
                 ? "a late RR-capable NGX module could not be fully covered"
                 : "a late RR-capable NGX module introduced a distinct "
                   "Create/Release entry point after Feature 1 activity; a "
                   "pre-hook Feature 13 handle cannot be ruled out");
-    } else if (introduced_distinct_lifecycle_entry) {
+    } else if (introduced_distinct_rr_lifecycle_entry) {
         g_startup_deferred_module_coverage.store(true, std::memory_order_release);
         Log("[module] startup-deferred RR-capable module entry points were "
             "fully hooked before the first observed Feature 1 Create/Evaluate; "
@@ -8667,6 +8896,11 @@ void PollNgxLifecycleModules() {
     } else if (discovered_late) {
         Log("[module] late module exports were absent or aliased lifecycle "
             "targets already covered by the observer; observer epoch unchanged.");
+    }
+    if (dlssg_plan.module != nullptr && !dlssg_covered) {
+        Log("[module] DLSSG Feature 11 lifecycle coverage is incomplete. "
+            "Ordinary SR/RR ownership remains unchanged; a later unknown "
+            "non-null DLSSG/core handle will still fail closed.");
     }
     if (bracket_publication) {
         const unsigned long long previous_epoch =
@@ -8680,7 +8914,8 @@ void PollNgxLifecycleModules() {
     }
     if (scan <= 3 || (scan % 60) == 0) {
         Log("[module] lazy rescan #%llu core=%p coreLifecycle=%d "
-            "dlssd=%p dlssdLifecycle=%d observerGap=%d startupCovered=%d "
+            "dlssd=%p dlssdLifecycle=%d dlssg=%p dlssgLifecycle=%d "
+            "observerGap=%d startupCovered=%d "
             "feature1CreateAttempts=%llu feature1CreateSuccess=%llu "
             "feature1EvaluateObserved=%llu "
             "feature1CreateInFlight=%u observerEpoch=%llu "
@@ -8689,6 +8924,8 @@ void PollNgxLifecycleModules() {
             g_core_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
             static_cast<void *>(dlssd),
             g_dlssd_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
+            static_cast<void *>(dlssg),
+            g_dlssg_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
             g_module_observer_gap_detected.load(std::memory_order_relaxed) ? 1 : 0,
             g_startup_deferred_module_coverage.load(
                 std::memory_order_relaxed) ? 1 : 0,
@@ -8711,12 +8948,22 @@ bool InstallHooks(HMODULE ngx) {
     }
     LoadedNgxModule core_ref(L"_nvngx.dll");
     LoadedNgxModule dlssd_ref(L"nvngx_dlssd.dll");
+    LoadedNgxModule dlssg_ref(L"nvngx_dlssg.dll");
     HMODULE core = core_ref.handle;
     HMODULE dlssd = dlssd_ref.handle;
+    HMODULE dlssg = dlssg_ref.handle;
     if (core != nullptr && !PinHookAddress(core, "_nvngx.dll", core))
         return false;
     if (dlssd != nullptr && !PinHookAddress(dlssd, "nvngx_dlssd.dll", dlssd))
         return false;
+    if (dlssg != nullptr && !PinHookAddress(dlssg, "nvngx_dlssg.dll", dlssg)) {
+        // DLSSG observation improves Feature 11 classification but is not an
+        // RR ownership boundary. Keep the ordinary SR hooks usable and let a
+        // later unknown non-null handle trigger the existing fail-closed gate.
+        Log("[module] initial DLSSG module could not be pinned; Feature 11 "
+            "observation remains diagnostic and will be retried lazily.");
+        dlssg = nullptr;
+    }
 
     void *create = reinterpret_cast<void *>(
         GetProcAddress(ngx, "NVSDK_NGX_D3D12_CreateFeature"));
@@ -8726,8 +8973,12 @@ bool InstallHooks(HMODULE ngx) {
         GetProcAddress(ngx, "NVSDK_NGX_D3D12_EvaluateFeature_C"));
     void *release = reinterpret_cast<void *>(
         GetProcAddress(ngx, "NVSDK_NGX_D3D12_ReleaseFeature"));
-    LateNgxModulePlan core_plan = InspectLateNgxModule(core, true);
-    LateNgxModulePlan dlssd_plan = InspectLateNgxModule(dlssd, false);
+    LateNgxModulePlan core_plan = InspectLateNgxModule(
+        core, LateNgxModulePlan::Role::Core);
+    LateNgxModulePlan dlssd_plan = InspectLateNgxModule(
+        dlssd, LateNgxModulePlan::Role::Dlssd);
+    LateNgxModulePlan dlssg_plan = InspectLateNgxModule(
+        dlssg, LateNgxModulePlan::Role::Dlssg);
     // An alias uses its existing detour, never HookCoreEvaluate. Keeping the
     // guard armed also covers a primary optional alias whose first hook failed
     // and was subsequently installed through the core export.
@@ -8754,30 +9005,61 @@ bool InstallHooks(HMODULE ngx) {
 
     // Initial modules share the same operation registry as later modules. A
     // failed optional target must not make a forwarding alias appear covered.
-    for (LateNgxModulePlan *plan : {&core_plan, &dlssd_plan}) {
+    for (LateNgxModulePlan *plan : {&core_plan, &dlssd_plan, &dlssg_plan}) {
         if (plan->module == nullptr) continue;
-        const bool is_core = plan->core;
+        void *create_detour = nullptr;
+        void *evaluate_detour = nullptr;
+        void *release_detour = nullptr;
+        void **create_original = nullptr;
+        void **evaluate_original = nullptr;
+        void **release_original = nullptr;
+        const char *create_name = nullptr;
+        const char *evaluate_name = nullptr;
+        const char *release_name = nullptr;
+        switch (plan->role) {
+        case LateNgxModulePlan::Role::Core:
+            create_detour = reinterpret_cast<void *>(&HookCoreCreate);
+            evaluate_detour = reinterpret_cast<void *>(&HookCoreEvaluate);
+            release_detour = reinterpret_cast<void *>(&HookCoreRelease);
+            create_original = reinterpret_cast<void **>(&g_original_core_create);
+            evaluate_original = reinterpret_cast<void **>(&g_original_core_evaluate);
+            release_original = reinterpret_cast<void **>(&g_original_core_release);
+            create_name = "core CreateFeature";
+            evaluate_name = "core EvaluateFeature";
+            release_name = "core ReleaseFeature";
+            break;
+        case LateNgxModulePlan::Role::Dlssd:
+            create_detour = reinterpret_cast<void *>(&HookDlssdCreate);
+            evaluate_detour = reinterpret_cast<void *>(&HookDlssdEvaluate);
+            release_detour = reinterpret_cast<void *>(&HookDlssdRelease);
+            create_original = reinterpret_cast<void **>(&g_original_dlssd_create);
+            evaluate_original = reinterpret_cast<void **>(&g_original_dlssd_evaluate);
+            release_original = reinterpret_cast<void **>(&g_original_dlssd_release);
+            create_name = "DLSSD CreateFeature";
+            evaluate_name = "DLSSD EvaluateFeature";
+            release_name = "DLSSD ReleaseFeature";
+            break;
+        case LateNgxModulePlan::Role::Dlssg:
+            create_detour = reinterpret_cast<void *>(&HookDlssgCreate);
+            evaluate_detour = reinterpret_cast<void *>(&HookDlssgEvaluate);
+            release_detour = reinterpret_cast<void *>(&HookDlssgRelease);
+            create_original = reinterpret_cast<void **>(&g_original_dlssg_create);
+            evaluate_original = reinterpret_cast<void **>(&g_original_dlssg_evaluate);
+            release_original = reinterpret_cast<void **>(&g_original_dlssg_release);
+            create_name = "DLSSG CreateFeature";
+            evaluate_name = "DLSSG EvaluateFeature";
+            release_name = "DLSSG ReleaseFeature";
+            break;
+        }
         const bool create_ok = plan->create == nullptr || PrepareNgxHook(
-            NgxHookOperation::Create, plan->create,
-            is_core ? reinterpret_cast<void *>(&HookCoreCreate)
-                    : reinterpret_cast<void *>(&HookDlssdCreate),
-            is_core ? reinterpret_cast<void **>(&g_original_core_create)
-                    : reinterpret_cast<void **>(&g_original_dlssd_create),
-            is_core ? "core CreateFeature" : "DLSSD CreateFeature");
+            NgxHookOperation::Create, plan->create, create_detour,
+            create_original, create_name);
         const bool evaluate_ok = plan->evaluate == nullptr || PrepareNgxHook(
-            NgxHookOperation::Evaluate, plan->evaluate,
-            is_core ? reinterpret_cast<void *>(&HookCoreEvaluate)
-                    : reinterpret_cast<void *>(&HookDlssdEvaluate),
-            is_core ? reinterpret_cast<void **>(&g_original_core_evaluate)
-                    : reinterpret_cast<void **>(&g_original_dlssd_evaluate),
-            is_core ? "core EvaluateFeature" : "DLSSD EvaluateFeature");
+            NgxHookOperation::Evaluate, plan->evaluate, evaluate_detour,
+            evaluate_original, evaluate_name);
         const bool release_ok = plan->release == nullptr || PrepareNgxHook(
-            NgxHookOperation::Release, plan->release,
-            is_core ? reinterpret_cast<void *>(&HookCoreRelease)
-                    : reinterpret_cast<void *>(&HookDlssdRelease),
-            is_core ? reinterpret_cast<void **>(&g_original_core_release)
-                    : reinterpret_cast<void **>(&g_original_dlssd_release),
-            is_core ? "core ReleaseFeature" : "DLSSD ReleaseFeature");
+            NgxHookOperation::Release, plan->release, release_detour,
+            release_original, release_name);
         plan->prepared = create_ok && evaluate_ok && release_ok;
     }
     if (!okay) return false;
@@ -8813,15 +9095,20 @@ bool InstallHooks(HMODULE ngx) {
     // Publish complete optional-module status before Present can start rescans.
     const bool core_covered = FinishLateNgxModule(core_plan);
     const bool dlssd_covered = FinishLateNgxModule(dlssd_plan);
+    const bool dlssg_covered = FinishLateNgxModule(dlssg_plan);
     if (!core_covered || !dlssd_covered) {
         LatchRrOwnershipUncertain(
             "initial module scan",
             "initial NGX Create/Evaluate/Release lifecycle hooks are incomplete");
     }
+    if (!dlssg_covered) {
+        Log("[module] initial DLSSG Feature 11 observer is incomplete. "
+            "SR remains available; unknown non-null handles stay fail-closed.");
+    }
     g_evaluate_hooks_ready.store(true, std::memory_order_release);
-    Log("[module] initial scan complete: sr=%p core=%p dlssd=%p.",
+    Log("[module] initial scan complete: sr=%p core=%p dlssd=%p dlssg=%p.",
         static_cast<void *>(ngx), static_cast<void *>(core),
-        static_cast<void *>(dlssd));
+        static_cast<void *>(dlssd), static_cast<void *>(dlssg));
     UpdateEvaluateHookActivation();
     return true;
 }
@@ -9273,6 +9560,8 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
         g_core_lifecycle_hooks_ready.load(std::memory_order_relaxed);
     const bool dlssd_observer_ready =
         g_dlssd_lifecycle_hooks_ready.load(std::memory_order_relaxed);
+    const bool dlssg_observer_ready =
+        g_dlssg_lifecycle_hooks_ready.load(std::memory_order_relaxed);
 
     const char *brief_status_en = "Active";
     const char *brief_status_zh = "运行中";
@@ -9376,10 +9665,11 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
     ImGui::TextWrapped(ui("Reason: %s", "原因：%s"),
                        ui(brief_reason_en, brief_reason_zh));
     ImGui::TextDisabled(
-        ui("Module observer: rescans=%llu core=%s DLSSD=%s observer-gap=%s startup-covered=%s F1-create=%llu/%llu F1-evaluate=%llu in-flight=%u null-evals=%llu",
-           "模块观察器：重扫=%llu core=%s DLSSD=%s 观察缺口=%s 启动补挂=%s F1创建=%llu/%llu F1评估=%llu 进行中=%u 空句柄调用=%llu"),
+        ui("Module observer: rescans=%llu core=%s DLSSD=%s DLSSG=%s observer-gap=%s startup-covered=%s F1-create=%llu/%llu F1-evaluate=%llu in-flight=%u null-evals=%llu",
+           "模块观察器：重扫=%llu core=%s DLSSD=%s DLSSG=%s 观察缺口=%s 启动补挂=%s F1创建=%llu/%llu F1评估=%llu 进行中=%u 空句柄调用=%llu"),
         module_rescans, core_observer_ready ? "ready" : "waiting",
         dlssd_observer_ready ? "ready" : "waiting",
+        dlssg_observer_ready ? "ready" : "waiting",
         module_observer_uncertain ? "yes" : "no",
         startup_deferred_covered ? "yes" : "no",
         feature1_create_successes, feature1_create_attempts,

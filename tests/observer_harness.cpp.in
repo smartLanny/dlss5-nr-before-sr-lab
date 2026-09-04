@@ -19,7 +19,8 @@ struct FakeModule {
     int pins = 0;
 };
 FakeModule modules[] = {{L"nvngx_dlss.dll"}, {L"_nvngx.dll"},
-    {L"nvngx_dlssd.dll"}, {L"forwarded-owner.dll"}};
+    {L"nvngx_dlssd.dll"}, {L"nvngx_dlssg.dll"},
+    {L"forwarded-owner.dll"}};
 struct FakeTarget {
     FakeModule *owner = nullptr;
     bool created = false;
@@ -29,7 +30,7 @@ struct FakeTarget {
     bool fail_queue = false;
     bool fail_pin = false;
 };
-FakeTarget targets[24];
+FakeTarget targets[32];
 unsigned int create_calls = 0, apply_calls = 0;
 bool fail_apply = false;
 std::function<void()> during_apply;
@@ -136,10 +137,15 @@ void HookCoreRelease() {}
 void HookDlssdCreate() {}
 void HookDlssdEvaluate() {}
 void HookDlssdRelease() {}
+void HookDlssgCreate() {}
+void HookDlssgEvaluate() {}
+void HookDlssgRelease() {}
 void *g_original_create, *g_original_evaluate, *g_original_evaluate_c;
 void *g_original_release, *g_original_core_create, *g_original_core_evaluate;
 void *g_original_core_release, *g_original_dlssd_create;
 void *g_original_dlssd_evaluate, *g_original_dlssd_release;
+void *g_original_dlssg_create, *g_original_dlssg_evaluate;
+void *g_original_dlssg_release;
 using NgxResult = unsigned int;
 constexpr NgxResult kNgxSuccess = 1;
 struct NgxHandle {};
@@ -148,6 +154,7 @@ std::atomic<bool> g_evaluate_hooks_enabled{false};
 std::atomic<bool> g_core_unknown_handle_guard{false};
 std::atomic<bool> g_core_lifecycle_hooks_ready{false};
 std::atomic<bool> g_dlssd_lifecycle_hooks_ready{false};
+std::atomic<bool> g_dlssg_lifecycle_hooks_ready{false};
 std::atomic<bool> g_module_observer_gap_detected{false};
 std::atomic<bool> g_startup_deferred_module_coverage{false};
 std::atomic<bool> g_module_rescan_in_progress{false};
@@ -161,6 +168,7 @@ std::atomic<unsigned long long> g_carrier_evaluations{0};
 std::atomic<unsigned long long> g_null_feature_evaluations{0};
 std::atomic<ULONGLONG> g_next_module_rescan_tick{0};
 HMODULE g_hooked_core_module = nullptr, g_hooked_dlssd_module = nullptr;
+HMODULE g_hooked_dlssg_module = nullptr;
 SRWLOCK g_module_rescan_lock = SRWLOCK_INIT;
 SRWLOCK g_evaluate_hook_lock = SRWLOCK_INIT;
 void LatchRrOwnershipUncertain(const char *, const char *) {
@@ -196,6 +204,7 @@ void Reset() {
     g_evaluate_hooks_ready = g_evaluate_hooks_enabled = false;
     g_core_unknown_handle_guard = false;
     g_core_lifecycle_hooks_ready = g_dlssd_lifecycle_hooks_ready = false;
+    g_dlssg_lifecycle_hooks_ready = false;
     g_module_observer_gap_detected = g_startup_deferred_module_coverage = false;
     g_module_rescan_in_progress = false;
     g_module_observer_epoch = g_module_rescan_count = 0;
@@ -204,6 +213,7 @@ void Reset() {
     g_carrier_evaluations = g_null_feature_evaluations = 0;
     g_next_module_rescan_tick = 0;
     g_hooked_core_module = g_hooked_dlssd_module = nullptr;
+    g_hooked_dlssg_module = nullptr;
     create_calls = apply_calls = 0;
     fail_apply = false;
     during_apply = {};
@@ -289,10 +299,38 @@ int main() {
         assert(!IsNgxHookPublished(NgxHookOperation::Create, &targets[5]));
     }
 
-    Reset(); modules[3].loaded = true;
-    targets[3].owner = &modules[3]; // Optional Evaluate_C in another image.
+    // DLSSG is an authoritative Feature 11 lifecycle observer, not an
+    // RR-capable module. Discovering it after SR activity must publish its
+    // three wrappers without advancing the RR observer epoch or latching a
+    // permanent Feature 1 bypass.
+    Reset(); InstallPrimary(); SetExports(modules[3], 8);
+    g_feature1_successful_creates = 1;
+    Scan();
+    assert(g_dlssg_lifecycle_hooks_ready);
+    assert(g_module_observer_epoch == 0 && !g_module_observer_gap_detected);
+    assert(create_calls == 7 && apply_calls == 1);
+
+    // A DLSSG-only optional observer failure is diagnostic. It must not poison
+    // ordinary SR/RR ownership for the lifetime of the process.
+    for (int failure = 0; failure < 4; ++failure) {
+        Reset(); InstallPrimary(); SetExports(modules[3], 8);
+        targets[9].fail_create = failure == 0;
+        targets[9].fail_queue = failure == 1;
+        targets[9].fail_pin = failure == 2;
+        fail_apply = failure == 3;
+        g_feature1_successful_creates = 1;
+        Scan();
+        assert(!g_dlssg_lifecycle_hooks_ready);
+        assert(g_module_observer_epoch == 0 && !g_module_observer_gap_detected);
+    }
+
+    static_assert(std::size(g_ngx_hook_targets) >= 16,
+                  "DLSSG adds three lifecycle targets; registry must leave headroom");
+
+    Reset(); modules[4].loaded = true;
+    targets[3].owner = &modules[4]; // Optional Evaluate_C in another image.
     InstallPrimary();
-    assert(modules[3].pins == 1 && targets[3].enabled);
+    assert(modules[4].pins == 1 && targets[3].enabled);
     assert(evaluate_targets.size() == 2);
 
     Reset(); SetExports(modules[1], 4);
@@ -303,6 +341,7 @@ int main() {
     assert(g_core_unknown_handle_guard); // Failed alias never disables guard.
 
     std::puts("Observer regression scenarios passed: absent/aliases/reverse aliases, "
-        "single publication, Create overlap/null/failure, hook failures and forwarded PIN.");
+        "single publication, Create overlap/null/failure, hook failures, DLSSG Feature 11 "
+        "coverage without RR epoch poisoning, and forwarded PIN.");
     return 0;
 }

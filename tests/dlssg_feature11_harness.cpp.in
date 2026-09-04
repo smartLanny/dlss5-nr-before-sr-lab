@@ -1,0 +1,199 @@
+// The three production DLSSG wrappers are inserted by the validation script.
+// NGX itself is simulated so the test can force wrapper -> core nesting.
+#include <windows.h>
+#include <atomic>
+#include <cassert>
+#include <cstdarg>
+#include <cstdio>
+
+using NgxResult = unsigned int;
+constexpr NgxResult kNgxSuccess = 1;
+constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
+struct ID3D12GraphicsCommandList {};
+struct NgxParams {};
+struct NgxHandle { int value = 0; };
+using CreateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *, int,
+                                      NgxParams *, NgxHandle **);
+using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *,
+                                        const NgxHandle *, const NgxParams *,
+                                        void *);
+using ReleaseFeatureFn = NgxResult (*)(NgxHandle *);
+
+struct FeatureRecord {
+    const NgxHandle *handle = nullptr;
+    int feature_id = -1;
+};
+
+NgxHandle feature11_handle{11};
+FeatureRecord tracked{};
+unsigned int remember_calls = 0;
+unsigned int forget_calls = 0;
+unsigned int uncertain_calls = 0;
+unsigned int null_calls = 0;
+unsigned int downstream_core_calls = 0;
+bool downstream_saw_nested = false;
+
+FeatureRecord FindFeature(const NgxHandle *handle) {
+    return tracked.handle == handle ? tracked : FeatureRecord{};
+}
+void RememberFeature(const NgxHandle *handle, int feature_id,
+                     const NgxParams *) {
+    ++remember_calls;
+    tracked = {handle, feature_id};
+}
+void ForgetFeature(const NgxHandle *handle) {
+    if (tracked.handle == handle) tracked = {};
+    ++forget_calls;
+}
+const char *FeatureName(int id) {
+    return id == 11 ? "FrameGeneration" : "Other";
+}
+const char *ResultName(NgxResult result) {
+    return result == kNgxSuccess ? "Success" : "Failure";
+}
+void Log(const char *, ...) {}
+
+std::atomic<unsigned int> g_dlssg_create_entries{0};
+std::atomic<unsigned int> g_dlssg_evaluate_calls{0};
+std::atomic<unsigned long long> g_feature1_create_entries{0};
+std::atomic<unsigned int> g_feature1_create_in_progress{0};
+std::atomic<unsigned long long> g_feature1_successful_creates{0};
+std::atomic<unsigned long long> g_module_observer_epoch{0};
+std::atomic<unsigned int> g_rr_create_in_progress{0};
+std::atomic<bool> g_enabled_fast{true};
+std::atomic<bool> g_shortfuse_nr_enabled{false};
+std::atomic<bool> g_evaluate_target_overflow{false};
+thread_local unsigned int g_create_hook_depth = 0;
+thread_local unsigned int g_release_hook_depth = 0;
+thread_local bool g_inside_ngx_evaluate = false;
+CRITICAL_SECTION g_chain_cs;
+
+class ScopedRrOwnershipGate {
+public:
+    ScopedRrOwnershipGate(bool, bool, bool) {}
+    bool is_nested() const { return false; }
+    bool acquisition_failed() const { return false; }
+};
+void LatchNestedRrOwnershipChange(const char *) { ++uncertain_calls; }
+void LatchConcurrentRrOwnershipChange(const char *) { ++uncertain_calls; }
+void LatchRrOwnershipUncertain(const char *, const char *) {
+    ++uncertain_calls;
+}
+void LatchUnknownFeatureHandle(const char *, const char *) {
+    ++uncertain_calls;
+}
+void ObserveNullEvaluateHandle(const char *) { ++null_calls; }
+void FinishFeature1CreateObservation(bool creating_feature1, NgxResult,
+                                     const NgxHandle *, unsigned long long,
+                                     const char *) {
+    if (creating_feature1) --g_feature1_create_in_progress;
+}
+void RetireContextForHandle(const NgxHandle *) {}
+
+NgxResult DispatchEvaluate(EvaluateFeatureFn original,
+                           ID3D12GraphicsCommandList *command_list,
+                           const NgxHandle *handle, const NgxParams *params,
+                           void *callback) {
+    if (g_inside_ngx_evaluate)
+        return original(command_list, handle, params, callback);
+    g_inside_ngx_evaluate = true;
+    const NgxResult result = original(command_list, handle, params, callback);
+    g_inside_ngx_evaluate = false;
+    return result;
+}
+NgxResult CallNativeEvaluatePassThrough(EvaluateFeatureFn original,
+                                        ID3D12GraphicsCommandList *command_list,
+                                        const NgxHandle *handle,
+                                        const NgxParams *params,
+                                        void *callback) {
+    const bool previous = g_inside_ngx_evaluate;
+    g_inside_ngx_evaluate = true;
+    const NgxResult result = original(command_list, handle, params, callback);
+    g_inside_ngx_evaluate = previous;
+    return result;
+}
+
+bool native_create_success = true;
+NgxResult NativeDlssgCreate(ID3D12GraphicsCommandList *, int,
+                            NgxParams *, NgxHandle **out_handle) {
+    if (!native_create_success) return 0xBAD00005u;
+    if (out_handle != nullptr) *out_handle = &feature11_handle;
+    return kNgxSuccess;
+}
+NgxResult NativeDlssgEvaluate(ID3D12GraphicsCommandList *,
+                              const NgxHandle *handle, const NgxParams *,
+                              void *) {
+    ++downstream_core_calls;
+    downstream_saw_nested = g_inside_ngx_evaluate;
+    if (!g_inside_ngx_evaluate && FindFeature(handle).handle == nullptr)
+        LatchUnknownFeatureHandle("simulated core", "unknown outermost handle");
+    return kNgxSuccess;
+}
+NgxResult NativeDlssgRelease(NgxHandle *) { return kNgxSuccess; }
+CreateFeatureFn g_original_dlssg_create = &NativeDlssgCreate;
+EvaluateFeatureFn g_original_dlssg_evaluate = &NativeDlssgEvaluate;
+ReleaseFeatureFn g_original_dlssg_release = &NativeDlssgRelease;
+
+// @PRODUCTION_DLSSG_CREATE@
+// @PRODUCTION_DLSSG_EVALUATE@
+// @PRODUCTION_DLSSG_RELEASE@
+
+void Reset() {
+    tracked = {};
+    remember_calls = forget_calls = uncertain_calls = null_calls = 0;
+    downstream_core_calls = 0;
+    downstream_saw_nested = false;
+    native_create_success = true;
+    g_dlssg_create_entries = g_dlssg_evaluate_calls = 0;
+    g_feature1_create_entries = g_feature1_successful_creates = 0;
+    g_feature1_create_in_progress = g_rr_create_in_progress = 0;
+    g_module_observer_epoch = 0;
+    g_enabled_fast = true;
+    g_shortfuse_nr_enabled = g_evaluate_target_overflow = false;
+    g_create_hook_depth = g_release_hook_depth = 0;
+    g_inside_ngx_evaluate = false;
+}
+
+int main() {
+    InitializeCriticalSection(&g_chain_cs);
+    ID3D12GraphicsCommandList command_list;
+    NgxParams params;
+
+    Reset();
+    NgxHandle *created = reinterpret_cast<NgxHandle *>(0x1);
+    assert(HookDlssgCreate(&command_list, 11, &params, &created) == kNgxSuccess);
+    assert(created == &feature11_handle);
+    assert(remember_calls == 1 && tracked.feature_id == 11);
+    assert(HookDlssgEvaluate(&command_list, created, &params, nullptr) ==
+           kNgxSuccess);
+    assert(downstream_core_calls == 1 && downstream_saw_nested);
+    assert(uncertain_calls == 0);
+    assert(HookDlssgRelease(created) == kNgxSuccess);
+    assert(forget_calls == 1 && tracked.handle == nullptr);
+
+    Reset();
+    native_create_success = false;
+    created = reinterpret_cast<NgxHandle *>(0x1);
+    assert(HookDlssgCreate(&command_list, 11, &params, &created) != kNgxSuccess);
+    assert(created == nullptr && remember_calls == 0 && uncertain_calls == 0);
+
+    Reset();
+    assert(HookDlssgEvaluate(&command_list, &feature11_handle, &params,
+                             nullptr) == kNgxSuccess);
+    assert(uncertain_calls == 1 && remember_calls == 0);
+    assert(downstream_saw_nested);
+
+    Reset();
+    assert(HookDlssgEvaluate(&command_list, nullptr, &params, nullptr) ==
+           kNgxSuccess);
+    assert(null_calls == 1 && uncertain_calls == 0);
+
+    Reset();
+    assert(HookDlssgRelease(&feature11_handle) == kNgxSuccess);
+    assert(uncertain_calls == 1 && remember_calls == 0);
+
+    DeleteCriticalSection(&g_chain_cs);
+    std::puts("DLSSG Feature 11 wrapper regression passed: authoritative Create "
+              "classification, nested core Evaluate, null and unknown guards.");
+    return 0;
+}
