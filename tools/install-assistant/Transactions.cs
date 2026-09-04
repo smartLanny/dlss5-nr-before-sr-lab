@@ -279,7 +279,7 @@ public static class Deployer
     static void ValidateRecord(GameCandidate game, OwnedFile r)
     {
         var path = ResolveOwned(game, r); var leaf = Path.GetFileName(path);
-        if (leaf is not ("dxgi.dll" or "ReShade.ini" or "nrchain_nvngx.dll" or "nvngx_dlssnr.dll" or "nr_before_sr.ini" or "Collect-Feedback.cmd" or "collect-feedback.ps1") && !leaf.EndsWith(".addon64", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("安装记录目标不是托管文件。");
+        if (leaf is not ("dxgi.dll" or "ReShade.ini" or "nrchain_nvngx.dll" or "nvngx_dlssnr.dll" or "nr_before_sr.ini" or "Collect-Feedback.cmd" or "collect-feedback.ps1" or "Collect-Crash-Feedback.cmd" or "collect-crash-feedback.ps1") && !leaf.EndsWith(".addon64", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("安装记录目标不是托管文件。");
         if ((r.Before != null && !PackageManifest.IsHex(r.Before, 64)) || (r.After != null && !PackageManifest.IsHex(r.After, 64)) || !Guid.TryParseExact(r.BackupTransactionId, "N", out _) || PackageManifest.NormalizeLeaf(r.BackupFile) != r.BackupFile) throw new InvalidDataException("备份记录身份无效。");
     }
     static string ResolveOwned(GameCandidate game, OwnedFile r) { var path = PackageManifest.SafePath(game.Directory, r.RelativePath); EnsureInside(game, path); return path; }

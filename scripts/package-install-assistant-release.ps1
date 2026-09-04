@@ -28,7 +28,7 @@ foreach ($variant in $payload.variants) {
     if ($variant.gpuFamily -notin @('RTX50','RTX30-40') -or $variant.language -notin @('zh-CN','en') -or -not $variants.Add($variant.gpuFamily + '/' + $variant.language)) { throw 'Invalid or duplicate GPU/language variant.' }
     $roles = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($file in $variant.files) {
-        if ($file.role -notin @('addon','bridge','runtime','config','feedback-launcher','feedback-collector') -or -not $roles.Add($file.role) -or -not [IO.Path]::IsPathFullyQualified($file.sourcePath) -or $file.sha256 -notmatch '^[0-9a-fA-F]{64}$') { throw 'Explicit source path/hash/role required.' }
+        if ($file.role -notin @('addon','bridge','runtime','config','feedback-launcher','feedback-collector','crash-feedback-launcher','crash-feedback-collector') -or -not $roles.Add($file.role) -or -not [IO.Path]::IsPathFullyQualified($file.sourcePath) -or $file.sha256 -notmatch '^[0-9a-fA-F]{64}$') { throw 'Explicit source path/hash/role required.' }
         if ((Get-FileHash -LiteralPath $file.sourcePath -Algorithm SHA256).Hash -ne $file.sha256) { throw "Final payload hash mismatch: $($file.sourcePath)" }
         if ($file.role -eq 'addon') {
             $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($file.sourcePath))

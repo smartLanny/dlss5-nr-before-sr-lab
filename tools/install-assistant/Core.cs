@@ -79,7 +79,7 @@ public sealed class PackageManifest
         var p = JsonSerializer.Deserialize<PackageManifest>(File.ReadAllText(path), JsonOptions()) ?? throw new InvalidDataException("安装清单无法读取。");
         p.Root = root; p.TrustKey = trustKey; p.ManifestSha256 = Hash(path);
         if (p.Schema != "dlss5-install-manifest/v3" || p.Id != "nr-before-sr" || string.IsNullOrWhiteSpace(p.Build) ||
-            !IsHex(p.PayloadSourceCommit, 40) || !p.NativeD3D12 || p.OnlineAllowed || p.Files.Count < 4 || p.Files.Count > 6 ||
+            !IsHex(p.PayloadSourceCommit, 40) || !p.NativeD3D12 || p.OnlineAllowed || p.Files.Count < 4 || p.Files.Count > 8 ||
             p.CompatibleProfiles.Count == 0 || p.GpuFamily is not ("RTX50" or "RTX30-40") || p.Language is not ("zh-CN" or "en"))
             throw new InvalidDataException("安装清单身份、版本、显卡或兼容声明不完整。");
         foreach (var profile in p.CompatibleProfiles)
@@ -96,7 +96,10 @@ public sealed class PackageManifest
                 throw new InvalidDataException("载荷校验失败：" + f.Path);
             var validName = f.Role switch { "addon" => f.Path.EndsWith(".addon64", StringComparison.OrdinalIgnoreCase),
                 "bridge" => f.Path == "nrchain_nvngx.dll", "runtime" => f.Path == "nvngx_dlssnr.dll",
-                "config" => f.Path == "nr_before_sr.ini", "feedback-launcher" => f.Path == "Collect-Feedback.cmd", "feedback-collector" => f.Path == "collect-feedback.ps1", _ => false };
+                "config" => f.Path == "nr_before_sr.ini", "feedback-launcher" => f.Path == "Collect-Feedback.cmd",
+                "feedback-collector" => f.Path == "collect-feedback.ps1",
+                "crash-feedback-launcher" => f.Path == "Collect-Crash-Feedback.cmd",
+                "crash-feedback-collector" => f.Path == "collect-crash-feedback.ps1", _ => false };
             if (!validName) throw new InvalidDataException("载荷角色与文件名不匹配：" + f.Path);
             if (f.Role is "addon" or "bridge" or "runtime" && !PeFacts.IsX64(q)) throw new InvalidDataException("载荷不是有效 x64 PE：" + f.Path);
         }

@@ -43,6 +43,6 @@ ReShade 只从固定官方地址下载，安装程序和实际宿主均验证固
 
 `scripts/package-install-assistant-release.ps1` 必须显式提供 `-PayloadCatalogPath`、`-LegacyCatalogPath`、`-OutputRoot`，源码提交后才可运行。它不会按旧版目录或 glob 猜载荷，逐文件核对输入 SHA256，并为应用目录、每个组件目录签名。
 
-载荷目录清单 schema：`dlss5-installer-payloads/v1`，包含 `build`、`payloadSourceCommit` 和四个 `variants`。每项 variant 声明 `gpuFamily`（RTX50/RTX30-40）、`language`（zh-CN/en）、`files`（每文件的绝对 `sourcePath`、`sha256`、`role`）。必需角色为 addon/bridge/runtime/config；可选角色为 feedback-launcher/feedback-collector。
+载荷目录清单 schema：`dlss5-installer-payloads/v1`，包含 `build`、`payloadSourceCommit` 和四个 `variants`。每项 variant 声明 `gpuFamily`（RTX50/RTX30-40）、`language`（zh-CN/en）、`files`（每文件的绝对 `sourcePath`、`sha256`、`role`）。必需角色为 addon/bridge/runtime/config；可选角色为 feedback-launcher/feedback-collector 和 crash-feedback-launcher/crash-feedback-collector。两个崩溃采集角色只接受固定文件名 `Collect-Crash-Feedback.cmd`、`collect-crash-feedback.ps1`。
 
 旧版清单 schema：`dlss5-installer-legacy/v1`。`aliases` 列出允许迁移的旧 addon 文件名及 SHA256；`knownFiles` 列出允许更新的固定文件名及 SHA256。未知文件不通过名字推断归属。产出的安装 manifest 使用 v3，并将插件 artifactId 绑定到实际 SHA256。
