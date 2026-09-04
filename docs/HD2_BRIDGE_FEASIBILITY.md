@@ -1,7 +1,7 @@
 # Helldivers 2 bridge feasibility
 
 Status: bounded investigation; **no Helldivers 2 compatibility implementation
-or successful native-SR/NR integration is claimed by r3**.
+or successful native-SR/NR integration is claimed by beta0.3.7**.
 Prepared on 2026-09-04. This task remains lower priority than the confirmed
 lifecycle fixes and Spider-Man image-quality investigation.
 
@@ -54,11 +54,29 @@ hook-enabling failure. The logs alone also do not identify the exact failing
 target or the reason Windows rejected that protection change. Do not attribute
 it to a protection product or anti-cheat without evidence.
 
-The r3 diagnostic addition records each registered candidate target's name,
+The beta0.3.7 diagnostic addition records each registered candidate target's name,
 address and `VirtualQuery` memory information after initial enable failure.
-It explicitly calls them **candidates**, because `MH_EnableHook(MH_ALL_HOOKS)`
-does not identify which target failed. This improves the next investigation;
-it is not a workaround, a successful hook installation, or a per-target proof.
+It also records operation, published/queued state, and every observed native
+Feature 1 Evaluate boundary. It explicitly calls enable entries
+**candidates**, because `MH_EnableHook(MH_ALL_HOOKS)` does not identify which
+target failed. This improves the next investigation; it is not a workaround,
+a successful hook installation, or a per-target proof.
+
+## beta0.3.7 confirmation procedure
+
+Use the beta0.3.7 addon and its matching log on a clean Helldivers 2 launch,
+with `zz-hd2-dlss5-typeless-bridge.addon64` absent. Preserve the supplied
+bridge only as an inspection reference; its confirmed SHA-256 is
+`6296E34825196AD5EBF4FAFD86F0089E06C09FF5C57BB2D9748728157C57E5E2`.
+
+Before judging image quality, the log must show `MH_EnableHook all status=0`,
+per-target published lifecycle hooks, and a nonzero `F1-evaluate` count in the
+panel or `[module] lazy rescan` line. A loaded DLL, a menu setting, or a
+successful hook creation alone is insufficient evidence of native SR
+visibility. If enabling still fails, preserve the per-target candidate lines,
+the exact status code, renderer/API, addon and runtime hashes, then stop the
+experiment. Do not load, bundle, imitate, or bypass the supplied bridge and do
+not change memory protection or hook protection policy.
 
 ## Bounded next experiment
 

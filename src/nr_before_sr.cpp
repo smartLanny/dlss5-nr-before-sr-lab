@@ -463,6 +463,10 @@ std::atomic<unsigned long long> g_null_feature_evaluations{0};
 // deferred startup dependency, not by itself evidence that a processed SR
 // frame raced an unobserved Feature 13 owner.
 std::atomic<unsigned long long> g_feature1_create_entries{0};
+// Counts every observed outermost Feature 1 Evaluate boundary, including
+// calls that are kept native by a safety gate. This distinguishes an actual
+// native SR observation from a loaded module or menu setting.
+std::atomic<unsigned long long> g_feature1_evaluate_entries{0};
 // Brackets the opaque native Create call. The module-rescan observer samples
 // this together with the entry counter so a successful Create cannot race all
 // the way through a late lifecycle-hook transaction without being noticed.
@@ -7372,6 +7376,14 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
     const FeatureRecord feature = FindFeature(handle);
+    if (feature.feature_id == 1) {
+        const unsigned long long observed =
+            g_feature1_evaluate_entries.fetch_add(1, std::memory_order_release) + 1;
+        if (observed <= 3)
+            Log("Native Feature 1 Evaluate observed: count=%llu handle=%p "
+                "generation=%llu; SR boundary is visible to the observer.",
+                observed, static_cast<const void *>(handle), feature.generation);
+    }
     if (feature.feature_id == 13) {
         SetBypassReason(BypassReason::RayReconstructionGuard);
         g_last_carrier_feature.store(13, std::memory_order_relaxed);
@@ -8314,6 +8326,14 @@ bool PinHookAddress(const void *address, const char *name,
 // Operation-specific lookup handles both orders of core/DLSSD forwarding and
 // prevents an Evaluate_C alias from being hooked twice.
 enum class NgxHookOperation { Release, Create, Evaluate };
+const char *NgxHookOperationName(NgxHookOperation operation) {
+    switch (operation) {
+    case NgxHookOperation::Release: return "Release";
+    case NgxHookOperation::Create: return "Create";
+    case NgxHookOperation::Evaluate: return "Evaluate";
+    default: return "Unknown";
+    }
+}
 struct NgxHookTarget {
     NgxHookOperation operation = NgxHookOperation::Release;
     void *target = nullptr;
@@ -8341,7 +8361,12 @@ bool IsNgxHookPublished(NgxHookOperation operation, void *target) {
 
 bool PrepareNgxHook(NgxHookOperation operation, void *target, void *detour,
                     void **original, const char *name) {
-    if (target == nullptr) return false;
+    if (target == nullptr) {
+        Log("[module] hook target missing operation=%s name=%s; native "
+            "Feature 1 visibility may be incomplete.",
+            NgxHookOperationName(operation), name != nullptr ? name : "<unknown>");
+        return false;
+    }
     if (FindNgxHookTarget(operation, target) != nullptr) return true;
     if (g_ngx_hook_target_count == std::size(g_ngx_hook_targets)) {
         Log("[module] NGX hook registry exhausted at %s; failing closed.", name);
@@ -8598,6 +8623,7 @@ void PollNgxLifecycleModules() {
         Log("[module] lazy rescan #%llu core=%p coreLifecycle=%d "
             "dlssd=%p dlssdLifecycle=%d observerGap=%d startupCovered=%d "
             "feature1CreateAttempts=%llu feature1CreateSuccess=%llu "
+            "feature1EvaluateObserved=%llu "
             "feature1CreateInFlight=%u observerEpoch=%llu "
             "nullEvals=%llu carrierEvals=%llu.", scan,
             static_cast<void *>(core),
@@ -8608,6 +8634,7 @@ void PollNgxLifecycleModules() {
             g_startup_deferred_module_coverage.load(
                 std::memory_order_relaxed) ? 1 : 0,
             feature1_create_entries, feature1_successful_creates,
+            g_feature1_evaluate_entries.load(std::memory_order_acquire),
             feature1_creates_in_progress, observer_epoch,
             g_null_feature_evaluations.load(std::memory_order_relaxed),
             carrier_evaluations);
@@ -8711,11 +8738,14 @@ bool InstallHooks(HMODULE ngx) {
             MEMORY_BASIC_INFORMATION memory{};
             const SIZE_T queried = VirtualQuery(
                 entry.target, &memory, sizeof(memory));
-            Log("[module] enable-failure candidate name=%s target=%p "
-                "query=%llu state=%lu protect=0x%lx allocationProtect=0x%lx. "
-                "This lists candidates, not a proven failing target.",
-                entry.name, entry.target, static_cast<unsigned long long>(queried),
-                memory.State, memory.Protect, memory.AllocationProtect);
+            Log("[module] enable-failure target operation=%s name=%s target=%p "
+                "published=%d queued=%d query=%llu state=%lu protect=0x%lx "
+                "allocationProtect=0x%lx; candidate only, MinHook did not "
+                "identify the failing target.",
+                NgxHookOperationName(entry.operation), entry.name, entry.target,
+                entry.published ? 1 : 0, entry.queued ? 1 : 0,
+                static_cast<unsigned long long>(queried), memory.State,
+                memory.Protect, memory.AllocationProtect);
         }
         return false;
     }
@@ -9340,13 +9370,14 @@ void DrawSettings(reshade::api::effect_runtime *) {
     ImGui::TextWrapped(ui("Reason: %s", "原因：%s"),
                        ui(brief_reason_en, brief_reason_zh));
     ImGui::TextDisabled(
-        ui("Module observer: rescans=%llu core=%s DLSSD=%s observer-gap=%s startup-covered=%s F1-create=%llu/%llu in-flight=%u null-evals=%llu",
-           "模块观察器：重扫=%llu core=%s DLSSD=%s 观察缺口=%s 启动补挂=%s F1创建=%llu/%llu 进行中=%u 空句柄调用=%llu"),
+        ui("Module observer: rescans=%llu core=%s DLSSD=%s observer-gap=%s startup-covered=%s F1-create=%llu/%llu F1-evaluate=%llu in-flight=%u null-evals=%llu",
+           "模块观察器：重扫=%llu core=%s DLSSD=%s 观察缺口=%s 启动补挂=%s F1创建=%llu/%llu F1评估=%llu 进行中=%u 空句柄调用=%llu"),
         module_rescans, core_observer_ready ? "ready" : "waiting",
         dlssd_observer_ready ? "ready" : "waiting",
         module_observer_uncertain ? "yes" : "no",
         startup_deferred_covered ? "yes" : "no",
         feature1_create_successes, feature1_create_attempts,
+        g_feature1_evaluate_entries.load(std::memory_order_relaxed),
         feature1_creates_in_progress,
         null_feature_evaluations);
     if (input_width != 0 && input_height != 0 &&
