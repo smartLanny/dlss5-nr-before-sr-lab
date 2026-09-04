@@ -1,1062 +1,424 @@
-// F8 controlled comparison session.  This file is included by the addon after
-// nr_feedback_capture.inl, so it deliberately uses only fixed-size state on
-// render/Preset callbacks.  The worker owns all filesystem and ZIP work.
-#ifndef NR_HAS_DETAIL_STABILITY
-#define NR_HAS_DETAIL_STABILITY 0
-#endif
-
+// Control runs under g_control, metadata under g_lock. Never acquire g_chain_cs
+// while holding g_lock. GPU callbacks only publish small immutable records.
 namespace nr_f8 {
-
-constexpr unsigned int kGroupCount = 3;
-constexpr unsigned int kFrameCount = 16;
-constexpr unsigned int kMaxReport = 32768;
-constexpr unsigned int kMaxPath = 1024;
-constexpr unsigned int kMaxSequenceBytes = 64u * 1024u * 1024u;
-constexpr unsigned int kRawTileSide = 256;
-constexpr unsigned int kRawTileValues = kRawTileSide * kRawTileSide * 4;
-constexpr ULONGLONG kCountdownMs = 3000;
-constexpr ULONGLONG kGroupTimeoutMs = 30000;
-
-enum class Status : unsigned int { Idle, Requested, Running, Restoring,
-    Packaging, Complete, Partial, Failed };
-enum class GroupMode : unsigned int { NativeSr, NrToSr, SrToNr };
-
-struct Options {
-    unsigned int issue = 0; // all, detail, halo, flicker, colour
-    float intensity = 1.0f;
-    bool intensity_override = false;
-    bool region_protection = false;
-    bool nr_jitter_experiment = false;
-    unsigned int roi_x = 0;
-    unsigned int roi_y = 0;
-    bool custom_roi = false;
-};
-
+constexpr unsigned kFrames = 16, kSlots = 17, kGroups = 3;
+enum class Status { Idle, Requested, Running, Packaging, Complete, Partial, Failed };
+enum class Comparison { Standard, Current, Strength, Protection, Jitter };
+struct Options { Comparison comparison = Comparison::Current; bool custom_roi = false; unsigned x = 0, y = 0; };
 struct Frame {
-    NrDiagnosticIdentity identity = {};
-    unsigned int width = 0, height = 0;
-    unsigned int reset = 0;
-    float jitter_x = NAN, jitter_y = NAN;
-    float mv_x = NAN, mv_y = NAN;
-    float exposure_scale = NAN;
-    bool exposure_valid = false;
-    bool params_known = false;
-    bool reset_known = false;
-    // The means remain useful when a GPU stage callback is unavailable. When
-    // available, raw_planes carries four actual RGBA32F ROI tiles per frame.
-    float plane_mean[4] = {NAN, NAN, NAN, NAN};
-    unsigned int raw_width = 0, raw_height = 0, raw_stride = 0;
-    bool raw_available = false;
+    NrStageCaptureInfo info = {};
+    NrCaptureParams params = {};
+    wchar_t spool[1024] = {};
+    UINT64 bytes = 0;
+    bool reserved = false, delivered = false, valid = false;
 };
-
 struct Group {
-    GroupMode mode = GroupMode::NativeSr;
     ChainConfig requested = {};
-    unsigned int config_generation = 0;
-    ULONGLONG started = 0, deadline = 0;
-    bool applied = false;
-    bool screenshot_requested = false;
-    bool screenshot_received = false;
-    bool sequence_complete = false;
-    bool partial = false;
-    bool stage_available = false;
-    bool stage_complete = false;
-    unsigned long long stage_request = 0;
-    unsigned int raw_stage_count = 0;
-    bool raw_stage_required = false;
-    char stage_reason[192] = {};
-    char break_reason[192] = {};
-    wchar_t screenshot[kMaxPath] = {};
-    wchar_t stage_directory[kMaxPath] = {};
-    Frame frames[kFrameCount] = {};
-    unsigned int frame_count = 0;
-    unsigned int segment_count = 0;
-    unsigned int dropped_frames = 0;
-    unsigned int roi_x = 0, roi_y = 0, roi_width = 0, roi_height = 0;
-    Frame pending_params = {};
-    bool pending_params_valid = false;
+    ChainConfig actual = {};
+    unsigned generation = 0, count = 0, delivered = 0;
+    unsigned long long started = 0, shot_present = 0;
+    bool applied = false, sealed = false, partial = false;
+    bool shot_requested = false, shot_received = false;
+    char reason[160] = {};
+    wchar_t screenshot[1024] = {};
+    Frame frames[kSlots] = {};
 };
-
 struct Session {
-    ULONGLONG started = 0, group_started = 0;
-    ChainConfig original = {};
+    unsigned long long id = 0, started = 0;
     Options options = {};
-    Group groups[kGroupCount] = {};
-    unsigned int group = 0;
-    bool restore_issued = false;
-    bool restore_verified = false;
-    reshade::api::effect_runtime *runtime_identity = nullptr;
-    bool report_truncated = false;
-    bool partial = false;
-    unsigned int report_used = 0;
-    char report[kMaxReport] = {};
-    float *raw_planes = nullptr; // [group][frame][plane][RGBA tile]
+    ChainConfig original = {};
+    Group groups[kGroups] = {};
+    unsigned group = 0, group_count = 3;
+    bool restored = false, partial = false;
+    UINT64 payload_bytes = 0;
+    wchar_t directory[1024] = {};
+    FeedbackSession activity = {};
+    reshade::api::effect_runtime *runtime = nullptr;
 };
-
+#include "nr_f8_stream.inl"
+SRWLOCK g_lock = SRWLOCK_INIT, g_control = SRWLOCK_INIT;
 std::atomic<Status> g_status{Status::Idle};
-std::atomic<bool> g_request{false};
-std::atomic<bool> g_cancel{false};
-SRWLOCK g_lock = SRWLOCK_INIT;
+std::atomic<bool> g_config_hold{false}, g_cancel{false}, g_window_open{false};
+std::atomic<unsigned long long> g_present{0};
+std::atomic<unsigned> g_hotkey{VK_F8};
 Session *g_session = nullptr;
-wchar_t g_last_zip[kMaxPath] = {};
-std::atomic<bool> g_config_hold{false};
-std::atomic<bool> g_raw_stage_ready{false};
-std::atomic<bool> g_window_open{false};
-// Present uses this while publishing a new group or restoring the original
-// config. Diagnostic callbacks must not inspect a half-published group.
-std::atomic<bool> g_group_transition{false};
-std::atomic<unsigned int> g_active_roi_x{0};
-std::atomic<unsigned int> g_active_roi_y{0};
-std::atomic<unsigned int> g_active_roi_width{0};
-std::atomic<unsigned int> g_active_roi_height{0};
-std::atomic<bool> g_finalize_claimed{false};
+Options g_options = {};
+unsigned long long g_next_session = 0;
+wchar_t g_last_zip[1024] = {};
 
-void GetActiveRoi(unsigned int &x, unsigned int &y, unsigned int &width,
-                  unsigned int &height) {
-    x = g_active_roi_x.load(std::memory_order_acquire);
-    y = g_active_roi_y.load(std::memory_order_acquire);
-    width = g_active_roi_width.load(std::memory_order_acquire);
-    height = g_active_roi_height.load(std::memory_order_acquire);
-}
-
-float *RawPlane(Session &session, unsigned int group, unsigned int frame,
-                unsigned int plane) {
-    const std::size_t index = (((static_cast<std::size_t>(group) * kFrameCount +
-        frame) * 4u + plane) * kRawTileValues);
-    return session.raw_planes != nullptr ? session.raw_planes + index : nullptr;
-}
-
-const float *RawPlane(const Session &session, unsigned int group,
-                      unsigned int frame, unsigned int plane) {
-    const std::size_t index = (((static_cast<std::size_t>(group) * kFrameCount +
-        frame) * 4u + plane) * kRawTileValues);
-    return session.raw_planes != nullptr ? session.raw_planes + index : nullptr;
-}
-
-void Append(Session &s, const char *format, ...) {
-    if (s.report_used >= sizeof(s.report) - 256) {
-        s.report_truncated = true;
-        return;
-    }
-    va_list args;
-    va_start(args, format);
-    const int n = std::vsnprintf(s.report + s.report_used,
-        sizeof(s.report) - s.report_used - 256, format, args);
-    va_end(args);
-    if (n < 0 || static_cast<std::size_t>(n) >= sizeof(s.report) -
-            s.report_used - 256) {
-        s.report_truncated = true;
-        s.report[s.report_used] = 0;
-    } else {
-        s.report_used += static_cast<unsigned int>(n);
-    }
-}
-
-const char *ModeName(GroupMode mode) {
-    return mode == GroupMode::NativeSr ? "native-sr" :
-        mode == GroupMode::NrToSr ? "mode2-nr-to-sr" : "mode1-sr-to-nr";
-}
-
-const char *IssueName(unsigned int issue) {
-    switch (issue) {
-    case 1: return "detail";
-    case 2: return "halo";
-    case 3: return "flicker";
-    case 4: return "colour";
-    default: return "all";
-    }
-}
-
-const char *StatusName(Status status) {
-    switch (status) {
-    case Status::Requested: return "requested";
-    case Status::Running: return "running";
-    case Status::Restoring: return "restoring";
-    case Status::Packaging: return "packaging";
-    case Status::Complete: return "complete";
-    case Status::Partial: return "partial";
-    case Status::Failed: return "failed";
-    default: return "idle";
-    }
-}
-
-void SetConfigHold(bool enabled) {
-    g_config_hold.store(enabled, std::memory_order_release);
-}
-
-bool KeepStageContext() {
-    const Status state = g_status.load(std::memory_order_acquire);
-    return state == Status::Running;
-}
-
-bool IsActive() {
-    const Status state = g_status.load(std::memory_order_acquire);
-    return state == Status::Requested || state == Status::Running ||
-        state == Status::Restoring;
-}
-
-// UI choices are published before Present consumes the request. This remains
-// a tiny fixed record and does not call ApplyConfig under the ImGui lock.
-Options g_pending_options = {};
-
+bool IsActive() { const auto s=g_status.load(); return s==Status::Requested || s==Status::Running; }
+void OpenWindow() { g_window_open.store(true); }
+void Cancel() { g_cancel.store(true); }
 bool RequestWithOptions(const Options &options) {
-    AcquireSRWLockExclusive(&g_lock);
-    const Status state = g_status.load(std::memory_order_relaxed);
-    if ((state != Status::Idle && state != Status::Complete &&
-         state != Status::Partial && state != Status::Failed) ||
-        g_request.load(std::memory_order_relaxed)) {
-        ReleaseSRWLockExclusive(&g_lock);
-        return false;
+    AcquireSRWLockExclusive(&g_control);
+    bool accepted = !IsActive() && g_status.load()!=Status::Packaging && StageCaptureStatus()!=1 && StageCaptureStatus()!=2;
+    if (accepted) {
+        g_options=options; g_cancel.store(false);
+        AcquireSRWLockExclusive(&g_lock); g_last_zip[0]=0; ReleaseSRWLockExclusive(&g_lock);
+        g_status.store(Status::Requested);
     }
-    g_pending_options = options;
-    g_request.store(true, std::memory_order_release);
-    g_window_open.store(false, std::memory_order_release);
-    g_status.store(Status::Requested, std::memory_order_release);
-    ReleaseSRWLockExclusive(&g_lock);
-    return true;
+    ReleaseSRWLockExclusive(&g_control);
+    return accepted;
+}
+ChainConfig GroupConfig(const ChainConfig &base, Comparison kind, unsigned index) {
+    ChainConfig c=base;
+    if (kind==Comparison::Standard) { c.enabled=index!=0; c.mode=index==2?1:2; }
+    else if (kind!=Comparison::Current) {
+        c.enabled=true;
+        if (kind==Comparison::Strength) c.transfer_strength=c.post_transfer_strength=index==0?1.f:index==1?1.2f:1.5f;
+        if (kind==Comparison::Protection) { c.mode=2; c.detail_stability=index==0?0.f:1.f; }
+        if (kind==Comparison::Jitter) c.jitter_mode=index==0?NrJitterMode::Legacy:NrJitterMode::GameInputPixel;
+    }
+    if (kind!=Comparison::Current) NormalizeConfig(c);
+    return c;
+}
+void Break(Group &g, const char *reason) {
+    g.partial=true; g.sealed=true;
+    if (!g.reason[0]) std::snprintf(g.reason,sizeof(g.reason),"%s",reason);
 }
 
-void OpenWindow() {
-    if (!IsActive()) g_window_open.store(true, std::memory_order_release);
-}
-
-void Cancel() {
-    AcquireSRWLockExclusive(&g_lock);
-    const Status state = g_status.load(std::memory_order_relaxed);
-    if (state == Status::Requested && g_session == nullptr) {
-        g_pending_options = {};
-        g_request.store(false, std::memory_order_release);
-        g_status.store(Status::Idle, std::memory_order_release);
-        g_window_open.store(false, std::memory_order_release);
-    } else if (state == Status::Running || state == Status::Restoring) {
-        g_cancel.store(true, std::memory_order_release);
-    } else if (state == Status::Idle) {
-        g_window_open.store(false, std::memory_order_release);
-    }
-    ReleaseSRWLockExclusive(&g_lock);
-}
-
-void ResetWindowAfterStart() {
-    g_window_open.store(false, std::memory_order_release);
-}
-
-ChainConfig GroupConfig(const ChainConfig &base, GroupMode mode,
-                        const Options &options) {
-    ChainConfig config = base;
-    config.enabled = mode != GroupMode::NativeSr;
-    config.mode = mode == GroupMode::SrToNr ? 1 : 2;
-    if (options.intensity_override) config.intensity = options.intensity;
-#if NR_HAS_DETAIL_STABILITY
-    config.detail_stability = options.region_protection ? 1.0f : 0.0f;
-    config.motion_stability = options.region_protection;
-#else
-    (void)options;
-#endif
-    return config;
-}
-
-void MarkBreak(Group &group, const char *reason) {
-    group.partial = true;
-    group.sequence_complete = false;
-    std::strncpy(group.break_reason, reason, sizeof(group.break_reason) - 1);
-    group.break_reason[sizeof(group.break_reason) - 1] = 0;
-    ++group.segment_count;
-    group.frame_count = 0;
-}
-
-bool IdentityMatches(const Group &group, const NrDiagnosticIdentity &identity,
-                     unsigned int width, unsigned int height) {
-    if (group.frame_count == 0) return true;
-    const Frame &previous = group.frames[group.frame_count - 1];
-    return previous.identity.instance_id == identity.instance_id &&
-        previous.identity.config_generation == identity.config_generation &&
-        identity.frame_id == previous.identity.frame_id + 1 &&
-        previous.width == width && previous.height == height;
-}
-
-void ObserveParams(const NgxParams *params, const FeatureRecord &, unsigned long long) {
-    if (!IsActive() || g_group_transition.load(std::memory_order_acquire) ||
-        params == nullptr) return;
-    // CompleteNrDiagnosticEvaluation runs under g_chain_cs. Keep this path
-    // try-only so Present's short session lock cannot invert the chain lock.
-    if (!TryAcquireSRWLockExclusive(&g_lock)) return;
-    if (g_session != nullptr && g_session->group < kGroupCount) {
-        Group &group = g_session->groups[g_session->group];
-        // Store the newest parameters in an unused frame until the matching
-        // successful identity arrives. A successful callback then consumes it.
-        Frame &frame = group.pending_params;
-        frame = {};
-        frame.params_known = true;
-        int reset_value = 0;
-        frame.reset_known = GetInt(params, "Reset", &reset_value) != false;
-        frame.reset = reset_value != 0 ? 1u : 0u;
-        frame.exposure_valid = GetFloat(params, "DLSS.Exposure.Scale", &frame.exposure_scale) &&
-            std::isfinite(frame.exposure_scale) && frame.exposure_scale > 0.0f;
-        GetFloat(params, "Jitter.Offset.X", &frame.jitter_x);
-        GetFloat(params, "Jitter.Offset.Y", &frame.jitter_y);
-        GetFloat(params, "MV.Scale.X", &frame.mv_x);
-        GetFloat(params, "MV.Scale.Y", &frame.mv_y);
-        group.pending_params_valid = true;
-    }
-    ReleaseSRWLockExclusive(&g_lock);
-}
-
-void ObserveSuccess(const NrDiagnosticIdentity &identity, unsigned int width,
-                    unsigned int height, bool reset) {
-    if (g_status.load(std::memory_order_relaxed) != Status::Running ||
-        g_group_transition.load(std::memory_order_acquire)) return;
-    // CompleteNrDiagnosticEvaluation runs under g_chain_cs. Keep this path
-    // try-only so Present's short session lock cannot invert the chain lock.
-    if (!TryAcquireSRWLockExclusive(&g_lock)) return;
-    Session *session = g_session;
-    if (session == nullptr || session->group >= kGroupCount) {
-        ReleaseSRWLockExclusive(&g_lock);
-        return;
-    }
-    Group &group = session->groups[session->group];
-    if (group.mode == GroupMode::NativeSr) {
-        ReleaseSRWLockExclusive(&g_lock);
-        return;
-    }
-    if (!group.applied && identity.config_generation == group.config_generation)
-        group.applied = true;
-    if (!group.applied || !identity.warmed_up) {
-        group.pending_params_valid = false;
-        ReleaseSRWLockExclusive(&g_lock);
-        return;
-    }
-    group.roi_width = std::min(256u, width);
-    group.roi_height = std::min(256u, height);
-    group.roi_x = group.roi_x < width ? group.roi_x : 0;
-    group.roi_y = group.roi_y < height ? group.roi_y : 0;
-    if (group.roi_x + group.roi_width > width)
-        group.roi_x = width > group.roi_width ? width - group.roi_width : 0;
-    if (group.roi_y + group.roi_height > height)
-        group.roi_y = height > group.roi_height ? height - group.roi_height : 0;
-    if (identity.config_generation != group.config_generation) {
-        MarkBreak(group, "config generation changed; sequence restarted");
-        group.applied = false;
-        group.pending_params_valid = false;
-        ReleaseSRWLockExclusive(&g_lock);
-        return;
-    }
-    if (reset) {
-        MarkBreak(group, "Reset boundary; sequence restarted");
-        group.pending_params_valid = false;
-        ReleaseSRWLockExclusive(&g_lock);
-        return;
-    }
-    if (!IdentityMatches(group, identity, width, height)) {
-        MarkBreak(group, "instance or extent changed; sequence restarted");
-    }
-    if (group.frame_count < kFrameCount) {
-        Frame pending = group.pending_params_valid ? group.pending_params : Frame{};
-        group.pending_params_valid = false;
-        Frame &frame = group.frames[group.frame_count++];
-        frame = pending;
-        frame.identity = identity;
-        frame.width = width;
-        frame.height = height;
-        frame.reset = reset ? 1u : 0u;
-        // If ObserveParams supplied a matching slot, preserve those fields;
-        // otherwise they remain NaN/unknown. No values are invented.
-        frame.params_known = frame.params_known && frame.identity.frame_id != 0;
-        frame.plane_mean[0] = g_last_diagnostic_luma[0].load(std::memory_order_relaxed);
-        frame.plane_mean[1] = g_last_diagnostic_luma[1].load(std::memory_order_relaxed);
-        frame.plane_mean[2] = g_last_diagnostic_luma[2].load(std::memory_order_relaxed);
-        frame.plane_mean[3] = g_last_diagnostic_luma[3].load(std::memory_order_relaxed);
-        if (group.frame_count == kFrameCount) group.sequence_complete = true;
-    }
-    ReleaseSRWLockExclusive(&g_lock);
-}
-
-void StageExported(unsigned long long request, const wchar_t *directory, bool ok) {
-    if (g_group_transition.load(std::memory_order_acquire)) return;
-    AcquireSRWLockExclusive(&g_lock);
-    if (g_session != nullptr) {
-      for (unsigned int i = 0; i < kGroupCount; ++i) {
-        Group &group = g_session->groups[i];
-        if (group.stage_request != request) continue;
-        group.stage_complete = true;
-        group.stage_available = ok;
-        if (ok && directory != nullptr) wcsncpy_s(group.stage_directory,
-            directory, _TRUNCATE);
-        std::strcpy(group.stage_reason, ok ? "exported after exact GPU fence" :
-            "stage export failed; raw four-plane sample unavailable");
-        break;
-      }
-    }
-    ReleaseSRWLockExclusive(&g_lock);
-}
-
-void StageCaptured(const NrStageCaptureInfo &info, const wchar_t *directory,
-                   const float *mapped, UINT64 bytes, bool ok) {
-    if (g_group_transition.load(std::memory_order_acquire)) return;
-    AcquireSRWLockExclusive(&g_lock);
-    if (g_session != nullptr) {
-        for (unsigned int i = 0; i < kGroupCount; ++i) {
-            Group &group = g_session->groups[i];
-            if (group.stage_request != info.request_id) continue;
-            group.stage_complete = true;
-            const bool ordinary_stage_export = !KeepStageContext();
-            group.stage_available = group.stage_available || (ok && ordinary_stage_export);
-            if (ok) {
-                ++group.raw_stage_count;
-                if (directory != nullptr) wcsncpy_s(group.stage_directory,
-                    directory, _TRUNCATE);
-                for (unsigned int frame_index = 0;
-                     frame_index < group.frame_count; ++frame_index) {
-                    Frame &frame = group.frames[frame_index];
-                    if (frame.identity.instance_id != info.identity.instance_id ||
-                        frame.identity.frame_id != info.identity.frame_id ||
-                        frame.identity.config_generation != info.identity.config_generation)
-                        continue;
-                    const unsigned int stride = std::max(1u, info.stride);
-                    const unsigned int tile_width = std::min(kRawTileSide,
-                        (group.roi_width + stride - 1) / stride);
-                    const unsigned int tile_height = std::min(kRawTileSide,
-                        (group.roi_height + stride - 1) / stride);
-                    const std::size_t plane_values = static_cast<std::size_t>(
-                        info.width) * info.height * 4u;
-                    const unsigned int sx = std::min(info.width,
-                        group.roi_x / stride);
-                    const unsigned int sy = std::min(info.height,
-                        group.roi_y / stride);
-                    const float *raw_end = mapped != nullptr ? mapped +
-                        std::min<std::size_t>(bytes / sizeof(float),
-                            plane_values * 4u) : nullptr;
-                    bool copied = raw_end != nullptr && info.width != 0 &&
-                        info.height != 0 && sx < info.width && sy < info.height;
-                    for (unsigned int plane = 0; copied && plane < 4; ++plane) {
-                        float *destination = RawPlane(*g_session, i,
-                            frame_index, plane);
-                        const float *source = mapped + plane * plane_values;
-                        for (unsigned int y = 0; y < tile_height && copied; ++y) {
-                            const unsigned int source_y = sy + y;
-                            if (source_y >= info.height) { copied = false; break; }
-                            for (unsigned int x = 0; x < tile_width; ++x) {
-                                const unsigned int source_x = sx + x;
-                                if (source_x >= info.width) { copied = false; break; }
-                                const float *pixel = source +
-                                    (static_cast<std::size_t>(source_y) * info.width + source_x) * 4u;
-                                std::memcpy(destination +
-                                    (static_cast<std::size_t>(y) * tile_width + x) * 4u,
-                                    pixel, 4u * sizeof(float));
-                            }
-                        }
-                    }
-                    if (copied) {
-                        frame.raw_width = tile_width;
-                        frame.raw_height = tile_height;
-                        frame.raw_stride = stride;
-                        frame.raw_available = true;
-                    }
-                    break;
-                }
+// Called only for an actual successful composition, under the chain lock.
+// Frames are reserved at record time; readiness is driven by exact-fence pixels.
+bool ReserveFrame(NrStageCaptureInfo &info, const NrCaptureParams &params, FrameTicket &ticket) {
+    if (g_status.load()!=Status::Running || !TryAcquireSRWLockExclusive(&g_lock)) return false;
+    Session *s=g_session;
+    bool accepted=false;
+    if (s && s->group<s->group_count) {
+        Group &g=s->groups[s->group];
+        if (g.applied && g.requested.enabled && !g.sealed && g.count<kSlots &&
+            GetTickCount64()-g.started>=3000 && info.identity.warmed_up &&
+            info.identity.since_reset>=64 && info.identity.config_generation==g.generation &&
+            g.generation==g_config_generation.load() && info.mode==g.requested.mode) {
+            if (g.count>0 && g.count<kFrames) {
+                const auto &last=g.frames[g.count-1].info;
+                if (last.identity.instance_id!=info.identity.instance_id ||
+                    last.feature_generation!=info.feature_generation ||
+                    (last.codec_flags&~8u)!=(info.codec_flags&~8u) ||
+                    last.source_format!=info.source_format || last.result_format!=info.result_format ||
+                    last.identity.frame_id+1!=info.identity.frame_id ||
+                    last.source_width!=info.source_width || last.source_height!=info.source_height ||
+                    last.model_width!=info.model_width || last.model_height!=info.model_height ||
+                    params.reset) Break(g,"reset, instance/size change or gap in successful composition frames");
             }
-            group.stage_request = 0;
-            if (!ordinary_stage_export)
-                std::strcpy(group.stage_reason, "raw ROI four-plane tile embedded in sequence.bin");
-            g_raw_stage_ready.store(true, std::memory_order_release);
-            break;
-        }
-    }
-    ReleaseSRWLockExclusive(&g_lock);
-}
-
-void Screenshot(reshade::api::effect_runtime *runtime, const char *path) {
-    if (runtime == nullptr || path == nullptr) return;
-    AcquireSRWLockExclusive(&g_lock);
-    if (g_session != nullptr && g_session->runtime_identity == runtime &&
-        g_session->group < kGroupCount) {
-        Group &group = g_session->groups[g_session->group];
-        if (group.screenshot_requested && !group.screenshot_received) {
-            const char *base = path;
-            for (const char *p = path; *p; ++p)
-                if (*p == '/' || *p == '\\') base = p + 1;
-            char tag[96] = {};
-            std::snprintf(tag, sizeof(tag), "DLSS5_F8_%u", g_session->group);
-            if (std::strstr(base, tag) != nullptr &&
-                MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1,
-                    group.screenshot, static_cast<int>(std::size(group.screenshot))) != 0) {
-                wchar_t canonical[kMaxPath] = {};
-                const DWORD n = GetFullPathNameW(group.screenshot, kMaxPath,
-                    canonical, nullptr);
-                if (n != 0 && n < kMaxPath) {
-                    std::wcscpy(group.screenshot, canonical);
-                    group.screenshot_received = true;
-                }
-            }
-        }
-    }
-    ReleaseSRWLockExclusive(&g_lock);
-}
-
-void AppendFrameMetadata(Session &session, Group &group) {
-    Append(session, "group.%u.mode=%s\n", session.group, ModeName(group.mode));
-    Append(session, "group.%u.sequenceFrames=%u\n", session.group, group.frame_count);
-    Append(session, "group.%u.sequenceComplete=%d\n", session.group,
-        group.sequence_complete ? 1 : 0);
-    Append(session, "group.%u.segmentCount=%u\n", session.group, group.segment_count);
-    Append(session, "group.%u.roi=%u,%u,%u,%u;domain=original-pixel\n", session.group,
-        group.roi_x, group.roi_y, group.roi_width, group.roi_height);
-    Append(session, "group.%u.partial=%d\n", session.group, group.partial ? 1 : 0);
-    Append(session, "group.%u.breakReason=%s\n", session.group,
-        group.break_reason[0] ? group.break_reason : "none");
-    for (unsigned int i = 0; i < group.frame_count; ++i) {
-        const Frame &frame = group.frames[i];
-        Append(session, "frame,%u,%llu,%llu,%u,%ux%u,%u,%.9g,%.9g,%.9g,%.9g,%.9g,%d,%s,planes=%.9g/%.9g/%.9g/%.9g\n",
-            i, frame.identity.frame_id, frame.identity.instance_id,
-            frame.identity.config_generation, frame.width, frame.height,
-            frame.reset, frame.jitter_x, frame.jitter_y, frame.mv_x, frame.mv_y,
-            frame.exposure_scale, frame.exposure_valid ? 1 : 0,
-            frame.params_known ? "known" : "unknown", frame.plane_mean[0],
-            frame.plane_mean[1], frame.plane_mean[2], frame.plane_mean[3]);
-        Append(session, "frame.%u.rawROI=%d,%ux%u,stride=%u\n", i,
-            frame.raw_available ? 1 : 0, frame.raw_width, frame.raw_height,
-            frame.raw_stride);
-    }
-}
-
-bool WriteSequenceBytes(HANDLE file, const void *data, std::size_t bytes) {
-    if (bytes == 0) return true;
-    if (data == nullptr || bytes > static_cast<std::size_t>(0xffffffffull)) return false;
-    DWORD written = 0;
-    return WriteFile(file, data, static_cast<DWORD>(bytes), &written, nullptr) != FALSE &&
-        written == static_cast<DWORD>(bytes);
-}
-
-bool WriteSequenceU32(HANDLE file, std::uint32_t value) {
-    unsigned char bytes[4] = {
-        static_cast<unsigned char>(value & 0xffu),
-        static_cast<unsigned char>((value >> 8) & 0xffu),
-        static_cast<unsigned char>((value >> 16) & 0xffu),
-        static_cast<unsigned char>((value >> 24) & 0xffu)};
-    return WriteSequenceBytes(file, bytes, sizeof(bytes));
-}
-
-bool WriteSequenceU64(HANDLE file, std::uint64_t value) {
-    unsigned char bytes[8] = {};
-    for (unsigned int i = 0; i < 8; ++i)
-        bytes[i] = static_cast<unsigned char>((value >> (i * 8u)) & 0xffu);
-    return WriteSequenceBytes(file, bytes, sizeof(bytes));
-}
-
-bool WriteSequenceF32(HANDLE file, float value) {
-    std::uint32_t bits = 0;
-    static_assert(sizeof(bits) == sizeof(value), "unexpected float size");
-    std::memcpy(&bits, &value, sizeof(bits));
-    return WriteSequenceU32(file, bits);
-}
-
-// Fixed on-disk sequence format. Every field is written explicitly so the
-// output never depends on Frame's padding, bool representation, or compiler.
-bool WriteSequenceFrame(HANDLE file, const Frame &frame, const Session &session,
-                        unsigned int group_index, unsigned int frame_index) {
-    constexpr std::uint32_t kFrameVersion = 1;
-    constexpr std::uint32_t kParamsKnown = 1u << 0;
-    constexpr std::uint32_t kResetKnown = 1u << 1;
-    constexpr std::uint32_t kExposureValid = 1u << 2;
-    constexpr std::uint32_t kRawAvailable = 1u << 3;
-    const std::uint32_t flags = (frame.params_known ? kParamsKnown : 0u) |
-        (frame.reset_known ? kResetKnown : 0u) |
-        (frame.exposure_valid ? kExposureValid : 0u) |
-        (frame.raw_available ? kRawAvailable : 0u);
-    bool ok = WriteSequenceU32(file, kFrameVersion) &&
-        WriteSequenceU32(file, frame_index) &&
-        WriteSequenceU64(file, frame.identity.frame_id) &&
-        WriteSequenceU64(file, frame.identity.instance_id) &&
-        WriteSequenceU32(file, frame.identity.config_generation) &&
-        WriteSequenceU32(file, frame.width) && WriteSequenceU32(file, frame.height) &&
-        WriteSequenceU32(file, frame.reset) && WriteSequenceU32(file, flags) &&
-        WriteSequenceF32(file, frame.jitter_x) && WriteSequenceF32(file, frame.jitter_y) &&
-        WriteSequenceF32(file, frame.mv_x) && WriteSequenceF32(file, frame.mv_y) &&
-        WriteSequenceF32(file, frame.exposure_scale);
-    for (float value : frame.plane_mean) ok = ok && WriteSequenceF32(file, value);
-    ok = ok && WriteSequenceU32(file, frame.raw_width) &&
-        WriteSequenceU32(file, frame.raw_height) &&
-        WriteSequenceU32(file, frame.raw_stride);
-    const std::size_t raw_bytes = frame.raw_available ?
-        static_cast<std::size_t>(frame.raw_width) * frame.raw_height * 4u * sizeof(float) : 0u;
-    ok = ok && raw_bytes <= static_cast<std::size_t>(0xffffffffull) &&
-        WriteSequenceU32(file, static_cast<std::uint32_t>(raw_bytes));
-    if (!ok || raw_bytes == 0) return ok;
-    if (session.raw_planes == nullptr || frame.raw_width == 0 || frame.raw_height == 0)
-        return false;
-    for (unsigned int plane = 0; plane < 4; ++plane) {
-        const float *values = RawPlane(session, group_index, frame_index, plane);
-        if (values == nullptr || !WriteSequenceBytes(file, values, raw_bytes)) return false;
-    }
-    return true;
-}
-
-bool WriteSequence(const wchar_t *directory, unsigned int index,
-                   const Session &session, const Group &group) {
-    wchar_t path[kMaxPath] = {};
-    if (swprintf_s(path, L"%ls\\sequence-%u.bin", directory, index) < 0) return false;
-    HANDLE file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr,
-        CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return false;
-    const char magic[8] = {'F', '8', 'S', 'E', 'Q', 0, 0, 2};
-    bool ok = WriteSequenceBytes(file, magic, sizeof(magic)) &&
-        WriteSequenceU32(file, 2) && // format version
-        WriteSequenceU32(file, static_cast<std::uint32_t>(group.mode)) &&
-        WriteSequenceU32(file, group.roi_x) && WriteSequenceU32(file, group.roi_y) &&
-        WriteSequenceU32(file, group.roi_width) && WriteSequenceU32(file, group.roi_height) &&
-        WriteSequenceU32(file, group.frame_count) && WriteSequenceU32(file, 4) &&
-        WriteSequenceU32(file, 1); // ROI coordinates are original pixels.
-    for (unsigned int i = 0; ok && i < group.frame_count; ++i) {
-        const Frame &frame = group.frames[i];
-        ok = WriteSequenceFrame(file, frame, session,
-            static_cast<unsigned int>(&group - session.groups), i);
-    }
-    CloseHandle(file);
-    if (!ok) DeleteFileW(path);
-    return ok;
-}
-
-bool AddStageFiles(nr_bundle::Job &job, const Group &group,
-                   unsigned int index) {
-    if (!group.stage_available || !group.stage_directory[0]) return false;
-    for (const wchar_t *leaf : {L"original.pfm", L"proxy.pfm", L"neural.pfm",
-                                L"composited.pfm", L"metadata.txt", L"stages.rgba32f"}) {
-        wchar_t source[kMaxPath] = {};
-        if (swprintf_s(source, L"%ls\\%ls", group.stage_directory, leaf) < 0) return false;
-        char leaf8[64] = {};
-        WideToUtf8(leaf, leaf8, sizeof(leaf8));
-        char name[160] = {};
-        std::snprintf(name, sizeof(name), "groups/%u/stages/%s", index, leaf8);
-        nr_bundle::AddFile(job, source, name, nr_bundle::FileKind::Copy, false);
-    }
-    return true;
-}
-
-bool WriteOverview(const wchar_t *directory, const Session &session) {
-    wchar_t path[kMaxPath] = {};
-    if (swprintf_s(path, L"%ls\\overview.txt", directory) < 0) return false;
-    HANDLE file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr,
-        CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return false;
-    char text[4096] = {};
-    int used = std::snprintf(text, sizeof(text),
-        "format=DLSS5-F8-overview-v1\n"
-        "identity=three independent Present screenshots; no same-frame final SR claim\n"
-        "nativeSrOutput=unknown\n");
-    for (unsigned int i = 0; used > 0 && static_cast<std::size_t>(used) < sizeof(text) &&
-         i < kGroupCount; ++i) {
-        const Group &group = session.groups[i];
-        const int n = std::snprintf(text + used, sizeof(text) - used,
-            "group.%u.mode=%s\nscreenshot=%s\nsequenceFrames=%u\nrawROIFrames=%u\n",
-            i, ModeName(group.mode), group.screenshot_received ? "present" : "missing",
-            group.frame_count, group.raw_stage_count);
-        if (n <= 0) break;
-        used += n;
-    }
-    DWORD written = 0;
-    const bool ok = used > 0 && static_cast<std::size_t>(used) < sizeof(text) &&
-        WriteFile(file, text, static_cast<DWORD>(used), &written, nullptr) != FALSE &&
-        written == static_cast<DWORD>(used);
-    CloseHandle(file);
-    return ok;
-}
-
-DWORD WINAPI Worker(void *parameter) {
-    Session *session = static_cast<Session *>(parameter);
-    nr_bundle::Result result = {};
-    result.status = nr_bundle::Status::Failed;
-    wchar_t directory[kMaxPath] = {};
-    if (FeedbackCreateDirectory(directory)) {
-        auto *job = nr_bundle::CreateJob(directory, session->report);
-        if (job != nullptr) {
-            nr_bundle::AddFile(*job, g_log_path, "logs/nr-current.log",
-                nr_bundle::FileKind::LogTail, true);
-            nr_bundle::AddFile(*job, g_ini_path, "settings/nr_before_sr.ini",
-                nr_bundle::FileKind::Copy, false);
-            nr_bundle::AddFile(*job, g_reshade_ini_path, "settings/ReShade.ini",
-                nr_bundle::FileKind::Copy, false);
-            FeedbackSession module_metadata = {};
-            FeedbackAddModules(*job, module_metadata);
-            for (unsigned int i = 0; i < kGroupCount; ++i) {
-                const Group &group = session->groups[i];
-                char name[128] = {};
-                const wchar_t *extension = wcsrchr(group.screenshot, L'.');
-                char ext[16] = {};
-                if (extension != nullptr) WideToUtf8(extension, ext, sizeof(ext));
-                std::snprintf(name, sizeof(name), "groups/%u/display%s", i, ext);
-                if (group.screenshot_received)
-                    nr_bundle::AddFile(*job, group.screenshot, name,
-                        nr_bundle::FileKind::Copy, true, 128ull * 1024 * 1024);
-                else nr_bundle::AddMissing(*job, name,
-                    "ReShade did not deliver this group's display screenshot", true);
-                wchar_t seq[kMaxPath] = {};
-                swprintf_s(seq, L"%ls\\sequence-%u.bin", directory, i);
-                if (!WriteSequence(directory, i, *session, group)) {
-                    char seq_name[128] = {};
-                    std::snprintf(seq_name, sizeof(seq_name), "groups/%u/sequence.bin", i);
-                    nr_bundle::AddMissing(*job, seq_name, "sequence writer failed", group.mode != GroupMode::NativeSr);
-                } else if (group.mode != GroupMode::NativeSr && !group.sequence_complete) {
-                    char seq_name[128] = {};
-                    std::snprintf(seq_name, sizeof(seq_name), "groups/%u/sequence.bin", i);
-                    nr_bundle::AddMissing(*job, seq_name,
-                        group.break_reason[0] ? group.break_reason :
-                        "fewer than 16 consecutive successful samples", true);
+            if (!g.sealed && info.source_width && info.source_height) {
+                const bool overview=g.count==kFrames;
+                if (overview) {
+                    UINT64 bytes=0;
+                    if (!ComputeStageCaptureGrid(info.source_width,info.source_height,
+                        info.stride,info.width,info.height,bytes)) {
+                        Break(g,"unsupported overview dimensions");
+                        ReleaseSRWLockExclusive(&g_lock); return false;
+                    }
+                    info.region_x=info.region_y=info.region_width=info.region_height=0;
                 } else {
-                    char seq_name[128] = {};
-                    std::snprintf(seq_name, sizeof(seq_name), "groups/%u/sequence.bin", i);
-                    nr_bundle::AddFile(*job, seq, seq_name, nr_bundle::FileKind::Copy, false,
-                        kMaxSequenceBytes);
+                    info.stride=1;
+                    info.width=info.region_width=std::min(256u,info.source_width);
+                    info.height=info.region_height=std::min(256u,info.source_height);
+                    info.region_x=s->options.custom_roi?std::min(s->options.x,info.source_width-info.width):(info.source_width-info.width)/2;
+                    info.region_y=s->options.custom_roi?std::min(s->options.y,info.source_height-info.height):(info.source_height-info.height)/2;
                 }
-                if (!AddStageFiles(*job, group, i)) {
-                    char missing_name[96] = {};
-                    std::snprintf(missing_name, sizeof(missing_name),
-                        "groups/%u/stages", i);
-                    nr_bundle::AddMissing(*job, missing_name,
-                        group.stage_reason[0] ? group.stage_reason :
-                        "four-plane GPU stage readback unavailable", false);
+                const UINT64 bytes=static_cast<UINT64>(info.width)*info.height*80u+16u;
+                if (bytes>nr_f8_budget::kPayloadLimit-s->payload_bytes) {
+                    Break(g,"session payload budget exhausted");
+                    ReleaseSRWLockExclusive(&g_lock); return false;
                 }
+                s->payload_bytes+=bytes;
+                ticket={s->id,s->group,g.count};
+                Frame &f=g.frames[g.count++]; f.info=info; f.params=params; f.reserved=true;
+                if (g.count==kSlots) g.sealed=true;
+                accepted=true;
             }
-            wchar_t overview[kMaxPath] = {};
-            swprintf_s(overview, L"%ls\\overview.txt", directory);
-            if (WriteOverview(directory, *session))
-                nr_bundle::AddFile(*job, overview, "overview.txt",
-                    nr_bundle::FileKind::Copy, false);
-            else nr_bundle::AddMissing(*job, "overview.txt",
-                "overview writer failed", false);
-            nr_bundle::AddMissing(*job, "native-sr-same-frame",
-                "native SR output state cannot be proven or read; display screenshots are separate Present events", false);
-            result = nr_bundle::Run(*job);
-            nr_bundle::DestroyJob(job);
         }
     }
+    ReleaseSRWLockExclusive(&g_lock); return accepted;
+}
+struct ReadbackJob {
+    FrameTicket ticket; NrStageCaptureInfo info; NrCaptureParams params;
+    ChainConfig requested, actual; ID3D12Resource *readback; UINT64 bytes; bool ok;
+    wchar_t spool[1024] = {};
+};
+DWORD WINAPI ReadbackWorker(void *opaque) {
+    auto *job=static_cast<ReadbackJob *>(opaque);
+    bool ok=job->ok && job->readback && job->bytes>=16 && job->bytes<=40ull*1024*1024;
+    void *mapped=nullptr;
+    if(ok) {
+        const D3D12_RANGE range={0,static_cast<SIZE_T>(job->bytes)};
+        ok=SUCCEEDED(ID3D12Resource_Map(job->readback,0,&range,&mapped)) && mapped;
+        if(ok) {
+            const auto *e=reinterpret_cast<const float *>(static_cast<const unsigned char *>(mapped)+job->bytes-16);
+            job->info.gpu_raw_exposure=e[0];job->info.gpu_resolved_exposure=e[1];
+            job->info.gpu_source_to_canonical=e[2];job->info.gpu_pre_exposure=e[3];
+            HANDLE file=CreateFileW(job->spool,GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+            ok=file!=INVALID_HANDLE_VALUE;
+            if(ok){ok=WriteRecord(file,job->ticket,job->info,job->params,job->requested,job->actual,mapped,job->bytes-16,true);CloseHandle(file);}
+            const D3D12_RANGE written={0,0};ID3D12Resource_Unmap(job->readback,0,&written);
+        }
+    }
+    if(job->readback){ReleaseCom(job->readback);nr_f8_budget::cpu_bytes.fetch_sub(job->bytes+nr_f8_budget::kWorkerReserve);}
+    bool retained=false;
     AcquireSRWLockExclusive(&g_lock);
-    if (result.zip_path[0]) std::wcscpy(g_last_zip, result.zip_path);
-    g_session = nullptr;
-    g_status.store(result.status == nr_bundle::Status::Failed ? Status::Failed :
-        result.required_complete ? Status::Complete : Status::Partial,
-        std::memory_order_release);
+    if(g_session && g_session->id==job->ticket.session && job->ticket.group<g_session->group_count && job->ticket.index<kSlots) {
+        Group &g=g_session->groups[job->ticket.group];Frame &f=g.frames[job->ticket.index];
+        if(f.reserved && !f.delivered && f.info.identity.frame_id==job->info.identity.frame_id &&
+           f.info.identity.instance_id==job->info.identity.instance_id && f.info.identity.config_generation==job->info.identity.config_generation) {
+            f.delivered=true;f.valid=ok;f.info=job->info;++g.delivered;
+            if(ok){wcscpy_s(f.spool,job->spool);f.bytes=job->bytes-16;retained=true;}
+            else Break(g,"GPU proof, budget, readback or stream write failed");
+        }
+    }
     ReleaseSRWLockExclusive(&g_lock);
-    delete[] session->raw_planes;
-    delete session;
+    if(!retained && job->spool[0])DeleteFileW(job->spool);
+    delete job;return 0;
+}
+void RawReady(FrameTicket ticket,NrStageCaptureInfo info,ID3D12Resource *readback,UINT64 bytes,bool ok) {
+    auto *job=new(std::nothrow) ReadbackJob{};bool current=false;
+    if(job) {
+        job->ticket=ticket;job->info=info;job->readback=readback;job->bytes=bytes;job->ok=ok;
+        AcquireSRWLockExclusive(&g_lock);
+        if(g_session && g_session->id==ticket.session && ticket.group<g_session->group_count && ticket.index<kSlots) {
+            const auto &g=g_session->groups[ticket.group];job->requested=g.requested;job->actual=g.actual;
+            job->params=g.frames[ticket.index].params;
+            swprintf_s(job->spool,L"%ls\\frame-%u-%u.tmp",g_session->directory,ticket.group,ticket.index);current=true;
+        }
+        ReleaseSRWLockExclusive(&g_lock);
+        if(current && QueueUserWorkItem(ReadbackWorker,job,WT_EXECUTEDEFAULT))return;
+    }
+    if(readback){ReleaseCom(readback);nr_f8_budget::cpu_bytes.fetch_sub(bytes+nr_f8_budget::kWorkerReserve);}
+    delete job; // Timeout retains explicit missing records; render thread never maps or writes.
+}
+void Screenshot(reshade::api::effect_runtime *runtime,const char *path) {
+    if (!path) return;
+    AcquireSRWLockExclusive(&g_lock);
+    if (g_session && g_session->runtime==runtime && g_session->group<g_session->group_count) {
+        Group &g=g_session->groups[g_session->group];
+        char tag[80]={}; std::snprintf(tag,sizeof(tag),"DLSS5_F8_%llu_%u",g_session->id,g_session->group);
+        const char *basename=path;
+        for(const char *p=path;*p;++p)if(*p=='/' || *p=='\\')basename=p+1;
+        const char *match=std::strstr(basename,tag);
+        if(g.shot_requested && !g.shot_received && match && match[std::strlen(tag)]=='.') {
+            wchar_t decoded[1024]={},canonical[1024]={};
+            if(MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path,-1,decoded,1024)) {
+                const DWORD n=GetFullPathNameW(decoded,1024,canonical,nullptr);
+                if(n && n<1024 && nr_bundle::LocalAbsolutePath(canonical)) {
+                    wcscpy_s(g.screenshot,canonical);g.shot_received=true;
+                }
+            }
+        }
+    }
+    ReleaseSRWLockExclusive(&g_lock);
+}
+
+bool Complete(const Group &g) {
+    if (!g.applied || g.partial || !g.shot_received) return false;
+    if (!g.requested.enabled) return true;
+    if (g.count!=kSlots) return false;
+    for (const auto &f:g.frames) if (!f.valid) return false;
+    return true;
+}
+void WriteTimeline(FILE *out,const Session &s) {
+    std::fprintf(out,"group,index,overview,valid,instance,frame,config,sinceReset,mode,sourceW,sourceH,modelW,modelH,roiX,roiY,sampleW,sampleH,stride,sourceBaseX,sourceBaseY,outputBaseX,outputBaseY,sourceFormat,outputFormat,reset,resetKnown,gameJitterValid,gameJitterX,gameJitterY,nrJitterForwarded,nrJitterX,nrJitterY,gameMvValid,gameMvX,gameMvY,nrMvX,nrMvY,depthW,depthH,mvW,mvH,preExposure,hasPreExposure,exposureScale,hasExposureScale,gpuRawExposure,gpuResolvedExposure,gpuSourceToCanonical,gpuPreExposure,transfer,color,maxLumaRatio,proxyScale,proxyCurve,frameConfidence,detailStability,lightingLock,motionRequested,motionAvailable,modelIntensity,skinStructure\n");
+    for(unsigned g=0;g<s.group_count;++g) for(unsigned i=0;i<s.groups[g].count;++i) {
+        const auto &f=s.groups[g].frames[i];const auto &n=f.info;const auto &p=f.params;
+        std::fprintf(out,"%u,%u,%d,%d,%llu,%llu,%u,%u,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%.9g,%.9g,%d,%.9g,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%u,%u,%u,%u,%.9g,%d,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%u,%.9g,%.9g,%.9g,%d,0,%.9g,%.9g\n",
+            g,i,i==kFrames,f.valid,n.identity.instance_id,n.identity.frame_id,n.identity.config_generation,n.identity.since_reset,n.mode,
+            n.source_width,n.source_height,n.model_width,n.model_height,n.region_x,n.region_y,n.width,n.height,n.stride,
+            n.source_base_x,n.source_base_y,n.destination_base_x,n.destination_base_y,n.source_format,n.result_format,
+            p.reset,p.reset_known,p.game_jitter_valid,p.game_jitter_x,p.game_jitter_y,p.nr_jitter_forwarded,p.nr_jitter_x,p.nr_jitter_y,
+            p.game_mv_valid,p.game_mv_x,p.game_mv_y,p.nr_mv_x,p.nr_mv_y,p.depth_width,p.depth_height,p.mv_width,p.mv_height,
+            n.pre_exposure,n.has_pre_exposure,n.exposure_scale,n.has_exposure_scale,n.gpu_raw_exposure,n.gpu_resolved_exposure,n.gpu_source_to_canonical,n.gpu_pre_exposure,
+            n.transfer_strength,n.color_strength,n.max_luma_ratio,n.proxy_scale,n.proxy_curve,n.frame_confidence,n.detail_stability,n.lighting_lock,n.motion_requested,
+            n.identity.tuning.intensity,n.identity.tuning.skin_structure);
+    }
+}
+DWORD WINAPI PackageWorker(void *opaque) {
+    const auto &module_identity = EnsureRuntimeIdentityOnWorker();
+    auto *s=static_cast<Session *>(opaque);
+    FeedbackAppend(s->activity, "artifact.sourceCommit=%s\nartifact.sourceDirty=%d\n"
+        "artifact.addonSha256=%s\nartifact.identityStatus=%s\n"
+        "artifact.hashMeasurement=loaded-path-file-once-worker\n",
+        kSourceCommit, kSourceDirty ? 1 : 0, module_identity.sha256, module_identity.status);nr_bundle::Result result={};result.status=nr_bundle::Status::Failed;
+    bool complete=s->restored && !s->partial;
+    for(unsigned i=0;i<s->group_count;++i)complete=Complete(s->groups[i]) && complete;
+    FeedbackAppend(s->activity,"format=DLSS5-F8-v4\nsession=%llu\ncomparison=%u\ngroups=%u\ncapture.complete=%d\nconfig.restored=%d\nconfig.writesToIni=0\nnativeSrOutput=not-obtained\nmvDepthPixels=not-obtained; resource read contract unavailable\nmotionProtection=unavailable\npayloadBytes=%llu\ngpuBudgetBytes=%llu\ncpuBudgetBytes=%llu\n",
+        s->id,static_cast<unsigned>(s->options.comparison),s->group_count,complete,s->restored,s->payload_bytes,nr_f8_budget::kGpuLimit,nr_f8_budget::kCpuLimit);
+    auto *job=nr_bundle::CreateJob(s->directory,s->activity.report);
+    if(job) {
+        nr_bundle::AddFile(*job,g_log_path,"logs/nr-current.log",nr_bundle::FileKind::LogTail,true);
+        FeedbackAddLogBeside(*job,g_log_path,L"nr-before-sr.previous.log","logs/nr-previous.log",false);
+        FeedbackAddLogBeside(*job,g_log_path,L"ReShade.log","logs/reshade-addon-dir.log",false);
+        wchar_t exe[1024]={},reshade_path[1024]={};GetModuleFileNameW(nullptr,exe,1024);
+        FeedbackAddLogBeside(*job,exe,L"ReShade.log","logs/reshade-game-dir.log",false);
+        if(GetModuleFileNameW(reshade::internal::get_reshade_module_handle(),reshade_path,1024))
+            FeedbackAddLogBeside(*job,reshade_path,L"ReShade.log","logs/reshade-module-dir.log",true);
+        nr_bundle::AddFile(*job,g_ini_path,"settings/nr_before_sr.ini",nr_bundle::FileKind::Copy,false);
+        nr_bundle::AddFile(*job,g_reshade_ini_path,"settings/ReShade.ini",nr_bundle::FileKind::Copy,false);
+        FeedbackAddModules(*job,s->activity);
+        nr_bundle::CopyText(job->metadata,sizeof(job->metadata),s->activity.report);
+        wchar_t path[1024]={};swprintf_s(path,L"%ls\\timeline.csv",s->directory);FILE *file=nullptr;
+        _wfopen_s(&file,path,L"wb");
+        if(file){WriteTimeline(file,*s);const bool ok=std::ferror(file)==0;std::fclose(file);
+            if(ok)nr_bundle::AddFile(*job,path,"timeline.csv",nr_bundle::FileKind::Copy,true);
+            else nr_bundle::AddMissing(*job,"timeline.csv","timeline write failed",true);}
+        else nr_bundle::AddMissing(*job,"timeline.csv","timeline open failed",true);
+        swprintf_s(path,L"%ls\\capture-analysis.txt",s->directory);_wfopen_s(&file,path,L"wb");
+        if(file) {
+            std::fprintf(file,"DLSS5 %s 本地采集 / local capture\n完整采集=%d；原设置恢复=%d；不自动上传。\n默认仅采当前状态，不启用NR也不切换模式。只有用户选择对比时临时切换。\n\n",kBuildIdentity,complete,s->restored);
+            for(unsigned i=0;i<s->group_count;++i){const auto &g=s->groups[i];unsigned valid=0;for(unsigned f=0;f<std::min(g.count,kFrames);++f)valid+=g.frames[f].valid;
+                std::fprintf(file,"Group %u: mode=%d enabled=%d requestedStrength=%.4g actualStrength=%.4g ROI=%u/16 overview=%d screenshotPresent=%llu complete=%d reason=%s\n",i,g.requested.mode,g.requested.enabled,ActiveTransferStrength(g.requested),ActiveTransferStrength(g.actual),valid,g.frames[16].valid,g.shot_present,Complete(g),g.reason);}
+            std::fprintf(file,"\n分块格式 F8CHK004：每块最多4帧，overview单独保存。原图/代理/NR/合成/保护五平面是同一次Combine dispatch的原像素ROI；曝光尾部写入每条JSON。代理/NR按合成时工作网格映射采样。索引0-15要求NR帧连续、instance/config/尺寸相同；16为独立概览。缺失帧保留元数据而不是拼接。\n截图是独立Present，不是同帧最终SR证据。原生最终SR纹理、MV/Depth像素未取得，不能验证时域重投影。\n保护数据RGBA=权重、原因位、原始log残差、空间保护后log残差；原因1低采样/2细碎不一致/4近黑/8极端比值/16关闭/32输入无效/64零强度/128历史抑制/256无残差/512后置不可用。这是空间保护，不是人脸/HUD识别，也不证明运动保护。\n每帧JSON含完整请求/实际参数、codecFlags、曝光有效性、jitter、MV比例与实际模型tuning；请在相同颜色域分析，不独立归一化或用均值替代画质。部分包请检查manifest缺失原因。\n");
+            const bool ok=std::ferror(file)==0;std::fclose(file);
+            if(ok){nr_bundle::AddFile(*job,path,"capture-analysis.txt",nr_bundle::FileKind::Copy,true);
+                nr_bundle::AddFile(*job,path,"分析说明.txt",nr_bundle::FileKind::Copy,true);}
+            else nr_bundle::AddMissing(*job,"capture-analysis.txt","explanation write failed",true);
+        } else nr_bundle::AddMissing(*job,"capture-analysis.txt","explanation open failed",true);
+        for(unsigned i=0;i<s->group_count;++i) {
+            const auto &g=s->groups[i];char name[128]={};
+            for(unsigned chunk=0;chunk<5;++chunk) {
+                if(chunk*4>=g.count)continue;
+                swprintf_s(path,L"%ls\\group-%u-chunk-%u.f8c",s->directory,i,chunk);
+                if(chunk==4)std::snprintf(name,sizeof(name),"groups/%u/overview.f8c",i);
+                else std::snprintf(name,sizeof(name),"groups/%u/chunk-%03u.f8c",i,chunk);
+                if(WriteChunk(path,*s,i,chunk))nr_bundle::AddFile(*job,path,name,nr_bundle::FileKind::Copy,true);
+                else nr_bundle::AddMissing(*job,name,"chunk stream failed or exceeded 64 MiB",true);
+            }
+            const wchar_t *extension=wcsrchr(g.screenshot,L'.');char ext[16]={};
+            if(extension)WideToUtf8(extension,ext,sizeof(ext));
+            std::snprintf(name,sizeof(name),"groups/%u/display%s",i,ext[0]?ext:".missing");
+            if(g.shot_received)nr_bundle::AddFile(*job,g.screenshot,name,nr_bundle::FileKind::Copy,true);
+            else nr_bundle::AddMissing(*job,name,"matching screenshot callback was not received",true);
+            if(!Complete(g)){std::snprintf(name,sizeof(name),"groups/%u/incomplete",i);nr_bundle::AddMissing(*job,name,g.reason[0]?g.reason:"missing exact-fence ROI, overview or screenshot",true);}
+        }
+        result=nr_bundle::Run(*job);nr_bundle::DestroyJob(job);
+    }
+    AcquireSRWLockExclusive(&g_lock);
+    if(result.zip_path[0])wcscpy_s(g_last_zip,result.zip_path);
+    g_status.store(result.status==nr_bundle::Status::Failed?Status::Failed:complete && result.required_complete?Status::Complete:Status::Partial);
+    ReleaseSRWLockExclusive(&g_lock);
+    // Every path was generated in this unique session directory, never discovered recursively.
+    for(auto &g:s->groups)for(auto &f:g.frames)if(f.spool[0])DeleteFileW(f.spool);
+    delete s;return 0;
+}
+
+void StartGroup(Session &s) {
+    const unsigned index=s.group;
+    const ChainConfig requested=GroupConfig(s.original,s.options.comparison,index);
+    if(s.options.comparison!=Comparison::Current)ApplyConfig(requested,"F8 transient comparison",false);
+    ChainConfig actual=SnapshotConfig();
+    actual.perf_epoch=requested.perf_epoch; // internal monotonic statistics epoch is not a user setting
+    AcquireSRWLockExclusive(&g_lock);
+    Group &g=s.groups[index];g.requested=requested;g.actual=actual;g.generation=g_config_generation.load();
+    g.applied=SameConfig(requested,actual);g.started=GetTickCount64();
+    if(!g.applied)Break(g,"configuration was not applied");
+    ReleaseSRWLockExclusive(&g_lock);
+}
+void Finish(Session *s) {
+    AcquireSRWLockExclusive(&g_lock);g_session=nullptr;g_status.store(Status::Packaging);ReleaseSRWLockExclusive(&g_lock);
+    if(s->options.comparison!=Comparison::Current)ApplyConfig(s->original,"F8 restore original",false);
+    ChainConfig restored=SnapshotConfig();restored.perf_epoch=s->original.perf_epoch;
+    s->restored=SameConfig(s->original,restored);
+    g_config_hold.store(false);
+    FeedbackAppendActivity(s->activity,"end");
+    if(!QueueUserWorkItem(PackageWorker,s,WT_EXECUTEDEFAULT)) {
+        for(auto &g:s->groups)for(auto &f:g.frames)if(f.spool[0])DeleteFileW(f.spool);delete s;g_status.store(Status::Failed);
+    }
+}
+// Caller holds g_control. A watchdog calls this with no runtime so stopped
+// Presents cannot strand transient settings. Screenshots only run on Present.
+void Tick(reshade::api::effect_runtime *runtime) {
+    bool advance=false,finish=false,shot=false;char tag[80]={};
+    AcquireSRWLockExclusive(&g_lock);Session *s=g_session;
+    if(s && s->group<s->group_count) {
+        Group &g=s->groups[s->group];const auto age=GetTickCount64()-g.started;
+        if(g_cancel.load() || age>=30000) {
+            Break(g,g_cancel.load()?"cancelled":age>=30000?"group timeout; missing pixels retained as partial":"Ray Reconstruction owns the rendering path");
+            s->partial=true;finish=true;
+        } else {
+            if(g.requested.enabled && (ShouldGuardFeature1ForRayReconstruction() || g_shortfuse_nr_enabled.load()))
+                Break(g,"RR or another NR addon owns this path; only screenshots/logs available");
+            if(runtime && runtime==s->runtime && !g.shot_requested && age>=3000) {
+                g.shot_requested=true;g.shot_present=g_present.load();shot=true;
+                std::snprintf(tag,sizeof(tag),"DLSS5_F8_%llu_%u",s->id,s->group);
+            }
+            bool ready=g.applied && g.shot_received && (!g.requested.enabled || (g.sealed && g.delivered==g.count));
+            if(ready) {s->partial|=!Complete(g);if(s->group+1<s->group_count){++s->group;advance=true;}else finish=true;}
+        }
+    }
+    ReleaseSRWLockExclusive(&g_lock);
+    if(shot)runtime->save_screenshot(tag); // failure is recorded by the bounded callback timeout
+    if(finish && s)Finish(s);else if(advance && s)StartGroup(*s);
+}
+DWORD WINAPI Watchdog(void *opaque) {
+    const auto session_id=static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(opaque));
+    for(;;) {
+        Sleep(250);AcquireSRWLockExclusive(&g_control);
+        AcquireSRWLockShared(&g_lock);bool current=g_session && g_session->id==session_id;ReleaseSRWLockShared(&g_lock);
+        if(current)Tick(nullptr);ReleaseSRWLockExclusive(&g_control);if(!current)break;
+    }
     return 0;
 }
-
-void StartGroup(Session &session, unsigned int index) {
-    g_group_transition.store(true, std::memory_order_release);
-    Group &group = session.groups[index];
-    group = {};
-    group.mode = index == 0 ? GroupMode::NativeSr :
-        index == 1 ? GroupMode::NrToSr : GroupMode::SrToNr;
-    group.segment_count = 1;
-    group.requested = GroupConfig(session.original, group.mode, session.options);
-    group.started = GetTickCount64();
-    group.deadline = group.started + kGroupTimeoutMs;
-    ApplyConfig(group.requested, "F8 comparison group", false);
-    group.config_generation = g_config_generation.load(std::memory_order_acquire);
-    group.roi_width = 256;
-    group.roi_height = 256;
-    if (session.options.custom_roi) {
-        group.roi_x = session.options.roi_x;
-        group.roi_y = session.options.roi_y;
-    } else {
-        group.roi_x = g_last_nr_width.load(std::memory_order_relaxed) > 256
-            ? (g_last_nr_width.load(std::memory_order_relaxed) - 256) / 2 : 0;
-        group.roi_y = g_last_nr_height.load(std::memory_order_relaxed) > 256
-            ? (g_last_nr_height.load(std::memory_order_relaxed) - 256) / 2 : 0;
-    }
-    g_active_roi_x.store(group.roi_x, std::memory_order_release);
-    g_active_roi_y.store(group.roi_y, std::memory_order_release);
-    g_active_roi_width.store(group.roi_width, std::memory_order_release);
-    g_active_roi_height.store(group.roi_height, std::memory_order_release);
-    if (group.mode != GroupMode::NativeSr) {
-        const char *blocked = FeedbackStageBlockReason(group.requested);
-        if (blocked != nullptr) {
-            std::strncpy(group.stage_reason, blocked, sizeof(group.stage_reason) - 1);
-        } else if (RequestStageCapture()) {
-            group.stage_request = g_stage_capture_request_id.load(
-                std::memory_order_acquire);
-            group.raw_stage_required = true;
-        } else {
-            std::strcpy(group.stage_reason,
-                "another stage request is already in progress");
-        }
-    }
-    session.group_started = group.started;
-    Log("[F8] group=%u mode=%s started; config is transient and will be restored",
-        index, ModeName(group.mode));
-    g_group_transition.store(false, std::memory_order_release);
-}
-
-void Finish(Session &session) {
-    for (unsigned int i = 0; i < kGroupCount; ++i)
-        session.partial = session.partial || session.groups[i].partial;
-    session.partial = session.partial || session.report_truncated;
-    for (unsigned int i = 0; i < kGroupCount; ++i) {
-        session.group = i;
-        AppendFrameMetadata(session, session.groups[i]);
-    }
-    Append(session, "capture.format=DLSS5-F8-v2\nstatus=%s\nissue=%s\n"
-        "intensity=%.9g\nregionProtection.requested=%d\n"
-        "regionProtection.effective=%s\nNRjitterExperiment.requested=%d\n"
-        "NRjitterExperiment.effective=unknown\nroi=%s\n"
-        "nativeSrOutput=unknown\ndisplayScreenshotIdentity=Present-only; not same-frame final SR\n"
-        "config.restored=%d\nconfig.writesToIni=0\nmetadata.truncated=%d\n",
-        session.partial ? "partial" : "complete", IssueName(session.options.issue),
-        static_cast<double>(session.options.intensity), session.options.region_protection ? 1 : 0,
-#if NR_HAS_DETAIL_STABILITY
-        session.options.region_protection ? "applied" : "off",
-#else
-        session.options.region_protection ? "unknown-baseline-no-protection-field" : "off",
-#endif
-        session.options.nr_jitter_experiment ? 1 : 0,
-        session.options.custom_roi ? "custom" : "center-256x256-original-pixel", session.restore_verified ? 1 : 0,
-        session.report_truncated ? 1 : 0);
-}
-
-void FinalizeSession(Session *session) {
-    if (session == nullptr) return;
-    bool expected = false;
-    if (!g_finalize_claimed.compare_exchange_strong(
-            expected, true, std::memory_order_acq_rel)) return;
-    // Chain and filesystem operations stay outside g_lock.
-    g_group_transition.store(true, std::memory_order_release);
-    ApplyConfig(session->original, "F8 restore", false);
-    session->restore_issued = true;
-    session->restore_verified = SameConfig(SnapshotConfig(), session->original);
-    SetConfigHold(false);
-    Finish(*session);
-    AcquireSRWLockExclusive(&g_lock);
-    if (g_session == session) {
-        g_session = nullptr;
-        g_status.store(Status::Packaging, std::memory_order_release);
-    }
-    ReleaseSRWLockExclusive(&g_lock);
-    g_group_transition.store(false, std::memory_order_release);
-    if (!QueueUserWorkItem(&Worker, session, WT_EXECUTEDEFAULT)) {
-        delete[] session->raw_planes;
-        delete session;
-        g_status.store(Status::Failed, std::memory_order_release);
-    }
-    g_cancel.store(false, std::memory_order_release);
-}
-
-DWORD WINAPI F8Watchdog(void *parameter) {
-    auto *session = static_cast<Session *>(parameter);
-    for (;;) {
-        Sleep(250);
-        bool finalize = false;
-        AcquireSRWLockExclusive(&g_lock);
-        if (g_session != session ||
-            g_status.load(std::memory_order_relaxed) != Status::Running) {
-            ReleaseSRWLockExclusive(&g_lock);
-            return 0;
-        }
-        if (!g_group_transition.load(std::memory_order_acquire)) {
-            const unsigned int index = session->group;
-            const bool cancelled = g_cancel.load(std::memory_order_acquire);
-            const bool expired = index >= kGroupCount ||
-                GetTickCount64() >= session->groups[index].deadline;
-            if (cancelled || expired) {
-                if (index < kGroupCount) {
-                    Group &group = session->groups[index];
-                    group.partial = true;
-                    if (!group.break_reason[0]) std::strcpy(group.break_reason,
-                        cancelled ? "cancelled by user" : "group timed out");
-                }
-                session->partial = true;
-                session->group = kGroupCount;
-                g_group_transition.store(true, std::memory_order_release);
-                finalize = true;
-            }
-        }
-        ReleaseSRWLockExclusive(&g_lock);
-        if (finalize) {
-            FinalizeSession(session);
-            return 0;
-        }
-    }
-}
-
 void Present(reshade::api::effect_runtime *runtime) {
-    if (runtime == nullptr) return;
-    bool consume_request = false;
-    AcquireSRWLockExclusive(&g_lock);
-    if (g_request.load(std::memory_order_relaxed) &&
-        g_status.load(std::memory_order_relaxed) == Status::Requested) {
-        g_request.store(false, std::memory_order_release);
-        g_status.store(Status::Running, std::memory_order_release);
-        consume_request = true;
-    }
-    ReleaseSRWLockExclusive(&g_lock);
-    if (consume_request) {
-            auto *session = new (std::nothrow) Session{};
-            if (session == nullptr) {
-                g_status.store(Status::Failed, std::memory_order_release);
-            } else {
-                session->started = GetTickCount64();
-                session->runtime_identity = runtime;
-                const std::size_t raw_values = static_cast<std::size_t>(
-                    kGroupCount) * kFrameCount * 4u * kRawTileValues;
-                session->raw_planes = new (std::nothrow) float[raw_values];
-                if (session->raw_planes == nullptr) {
-                    delete session;
-                    g_status.store(Status::Failed, std::memory_order_release);
-                    return;
-                }
-                std::fill(session->raw_planes, session->raw_planes + raw_values, NAN);
-                session->original = SnapshotConfig();
-                g_finalize_claimed.store(false, std::memory_order_release);
-                AcquireSRWLockExclusive(&g_lock);
-                session->options = g_pending_options;
-                g_pending_options = {};
-                g_session = session;
-                ReleaseSRWLockExclusive(&g_lock);
-                SetConfigHold(true);
-                StartGroup(*session, 0);
-                if (!QueueUserWorkItem(&F8Watchdog, session, WT_EXECUTEDEFAULT))
-                    Log("F8 watchdog could not start; Present timeout recovery remains active.");
-            }
-    }
-    // Stage exports retire on a worker. Re-arm the next bounded sample from
-    // Present after that exact fence has completed; no config generation or
-    // NR context rebuild is involved.
-    if (g_raw_stage_ready.exchange(false, std::memory_order_acq_rel)) {
-        bool retry = false;
-        AcquireSRWLockShared(&g_lock);
-        if (g_session != nullptr && g_session->group < kGroupCount) {
-            const Group &group = g_session->groups[g_session->group];
-            retry = group.mode != GroupMode::NativeSr &&
-                group.raw_stage_count < kFrameCount && group.stage_request == 0;
+    ++g_present;
+    if(!TryAcquireSRWLockExclusive(&g_control))return;
+    if(g_status.load()==Status::Requested) {
+        if(g_cancel.load()){g_status.store(Status::Idle);ReleaseSRWLockExclusive(&g_control);return;}
+        HMODULE pinned=nullptr;
+        auto *s=new(std::nothrow) Session{};
+        if(!s || !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,reinterpret_cast<LPCWSTR>(&Watchdog),&pinned)){
+            delete s;g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;
         }
-        ReleaseSRWLockShared(&g_lock);
-        if (retry && !RequestStageCapture())
-            g_raw_stage_ready.store(true, std::memory_order_release);
-        else if (retry) {
-            AcquireSRWLockExclusive(&g_lock);
-            if (g_session != nullptr && g_session->group < kGroupCount)
-                g_session->groups[g_session->group].stage_request =
-                    g_stage_capture_request_id.load(std::memory_order_acquire);
-            ReleaseSRWLockExclusive(&g_lock);
-        }
+        if(!FeedbackCreateDirectory(s->directory)){delete s;g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;}
+        s->id=++g_next_session;s->options=g_options;s->runtime=runtime;s->started=GetTickCount64();
+        s->group_count=s->options.comparison==Comparison::Current?1:(s->options.comparison==Comparison::Protection || s->options.comparison==Comparison::Jitter)?2:3;
+        g_config_hold.store(true);s->original=SnapshotConfig();
+        FeedbackAppend(s->activity,"build=%s\n",kBuildIdentity);FeedbackAppendActivity(s->activity,"start");
+        AcquireSRWLockExclusive(&g_lock);g_session=s;g_status.store(Status::Running);ReleaseSRWLockExclusive(&g_lock);
+        StartGroup(*s);
+        if(!QueueUserWorkItem(Watchdog,reinterpret_cast<void *>(static_cast<std::uintptr_t>(s->id)),WT_EXECUTEDEFAULT)){s->partial=true;Finish(s);}
     }
-    Session *session = nullptr;
-    unsigned int next_group = kGroupCount;
-    bool request_screenshot = false;
-    bool finalize = false;
-    {
-        AcquireSRWLockExclusive(&g_lock);
-        session = g_session;
-        if (session == nullptr) {
-            ReleaseSRWLockExclusive(&g_lock);
-            return;
-        }
-        const unsigned int index = session->group;
-        if (index >= kGroupCount) {
-            finalize = true;
-        } else {
-            Group &group = session->groups[index];
-            const ULONGLONG now = GetTickCount64();
-            const bool cancelled = g_cancel.load(std::memory_order_acquire);
-            if (cancelled || now >= group.deadline) {
-                group.partial = true;
-                if (!group.break_reason[0]) std::strcpy(group.break_reason,
-                    cancelled ? "cancelled by user" : "group timed out");
-                session->partial = true;
-                session->group = kGroupCount;
-                finalize = true;
-                g_group_transition.store(true, std::memory_order_release);
-            } else if (!group.screenshot_requested &&
-                       now - group.started >= kCountdownMs) {
-                group.screenshot_requested = true;
-                request_screenshot = true;
-            }
-            const bool ready =
-                (group.mode == GroupMode::NativeSr && group.screenshot_received) ||
-                (group.sequence_complete && (!group.raw_stage_required ||
-                    group.raw_stage_count >= kFrameCount));
-            if (!finalize && ready && now - group.started >= kCountdownMs) {
-                if (index + 1 < kGroupCount) {
-                    ++session->group;
-                    next_group = session->group;
-                    g_group_transition.store(true, std::memory_order_release);
-                } else {
-                    session->group = kGroupCount;
-                    finalize = true;
-                    g_group_transition.store(true, std::memory_order_release);
-                }
-            }
-        }
-        ReleaseSRWLockExclusive(&g_lock);
-    }
-    if (request_screenshot) {
-        char tag[96] = {};
-        std::snprintf(tag, sizeof(tag), "DLSS5_F8_%u", session->group);
-        // Screenshot is a ReShade call and must never run under g_lock.
-        runtime->save_screenshot(tag);
-    }
-    if (next_group < kGroupCount) {
-        StartGroup(*session, next_group);
-        return;
-    }
-    if (!finalize) return;
-
-    FinalizeSession(session);
+    Tick(runtime);ReleaseSRWLockExclusive(&g_control);
 }
-
+void F8Tooltip(const char *text) {
+    if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::BeginTooltip();ImGui::PushTextWrapPos(ImGui::GetFontSize()*32.f);
+        ImGui::TextUnformatted(text);ImGui::PopTextWrapPos();ImGui::EndTooltip();
+    }
+}
 void DrawControls() {
-    const Status state = g_status.load(std::memory_order_acquire);
-    if (!IsActive() && state != Status::Packaging &&
-        !g_window_open.load(std::memory_order_acquire)) return;
-    if (!IsActive() && state != Status::Packaging) {
-        static int issue = 0;
-        static int intensity = 0;
-        static bool protection = false;
-        static bool jitter = false;
-        ImGui::SeparatorText(kChineseUi ? "F8 标准对比采集" : "F8 standard comparison capture");
-        ImGui::Combo(kChineseUi ? "当前问题" : "Current issue", &issue,
-            kChineseUi ? "全部\0细节\0光晕\0闪烁\0颜色\0" : "All\0Detail\0Halo\0Flicker\0Colour\0");
-        const char *intensities = "1.0\0 1.2\0 1.5\0";
-        ImGui::Combo(kChineseUi ? "强度" : "Intensity", &intensity, intensities);
-        ImGui::Checkbox(kChineseUi ? "区域保护（当前版本能力未知时标 unknown）" :
-            "Region protection (unknown when baseline has no field)", &protection);
-        ImGui::Checkbox(kChineseUi ? "NR jitter 传递实验" : "NR jitter pass experiment", &jitter);
-        if (ImGui::Button(kChineseUi ? "开始 F8 三组采集" : "Start F8 three-group capture")) {
-            Options options = {};
-            options.issue = static_cast<unsigned int>(issue);
-            options.intensity = intensity == 0 ? 1.0f : intensity == 1 ? 1.2f : 1.5f;
-            options.intensity_override = intensity != 0;
-            options.region_protection = protection;
-            options.nr_jitter_experiment = jitter;
-            RequestWithOptions(options);
+    const auto state=g_status.load();
+    if(!IsActive() && state!=Status::Packaging) {
+        static int comparison=1,x=0,y=0,key=VK_F8;static bool custom=false;
+        if(ImGui::Button(kChineseUi?"采集当前问题（F8）":"Capture current issue (F8)"))RequestWithOptions({Comparison::Current,false,0,0});
+        F8Tooltip(kChineseUi?"只记录当前状态，不启用 NR、不切换模式、不修改设置。":"Records the current state without enabling NR, switching modes or changing settings.");
+        if(ImGui::TreeNode(kChineseUi?"对比采集与区域设置":"Comparison and region options")) {
+        ImGui::Combo(kChineseUi?"采集内容":"Comparison",&comparison,kChineseUi?"标准三组对比\0只采当前问题\0强度 1.0 / 1.2 / 1.5\0细节保护关闭 / 开启\0NR jitter 未传递 / 传递\0":"Standard three groups\0Current issue only\0Strength 1.0 / 1.2 / 1.5\0Detail protection off / on\0NR jitter off / on\0");
+        F8Tooltip(kChineseUi?"对比采集会临时切换所选参数；固定镜头，不改变游戏 DLSS/HDR。每组等待3秒与64次成功 NR，结束后恢复。":"Comparison capture temporarily changes the selected parameter. Keep the camera fixed; game DLSS/HDR stays unchanged. Waits 3 seconds and 64 successful NR evaluations, then restores settings.");
+        ImGui::Checkbox(kChineseUi?"指定问题位置（原图像素）":"Custom source-pixel region",&custom);
+        if(custom){ImGui::InputInt("X",&x);ImGui::InputInt("Y",&y);}else ImGui::TextDisabled("%s",kChineseUi?"默认中央 256×256 原像素区域":"Default: central 256 x 256 native pixels");
+        if(ImGui::Button(kChineseUi?"开始采集":"Start capture"))RequestWithOptions({static_cast<Comparison>(comparison),custom,static_cast<unsigned>(std::max(x,0)),static_cast<unsigned>(std::max(y,0))});
+        ImGui::TreePop();
+        }
+        if(ImGui::TreeNode(kChineseUi?"快捷键设置":"Shortcut")) {
+            key=static_cast<int>(g_hotkey.load());
+            if(ImGui::SliderInt(kChineseUi?"功能键":"Function key",&key,VK_F1,VK_F12,"%d"))g_hotkey.store(static_cast<unsigned>(key));
+            ImGui::Text("F%d",key-VK_F1+1);
+            if(ImGui::Button(kChineseUi?"保存快捷键":"Save shortcut")){wchar_t value[16]={};swprintf_s(value,L"%u",g_hotkey.load());WritePrivateProfileStringW(L"NRBeforeSR",L"FeedbackVirtualKey",value,g_ini_path);}
+            ImGui::TreePop();
         }
     } else {
-        ImGui::TextWrapped("%s", kChineseUi ? "F8 正在按原生 SR、Mode2 NR→SR、Mode1 SR→NR 顺序采集；每组先倒计时 3 秒并等待实际应用与连续样本。" :
-            "F8 is collecting native SR, Mode 2 NR-to-SR and Mode 1 SR-to-NR; each group counts down 3 seconds and waits for applied continuous samples.");
-        if (ImGui::Button(kChineseUi ? "取消 F8 采集" : "Cancel F8 capture")) Cancel();
+        AcquireSRWLockShared(&g_lock);
+        if(g_session){const auto &s=*g_session;const auto &g=s.groups[s.group];ImGui::Text(kChineseUi?"第 %u/%u 组，已记录 %u/16 帧，后台取得 %u 帧":"Group %u/%u, recorded %u/16 frames, delivered %u",s.group+1,s.group_count,std::min(g.count,kFrames),g.delivered);}
+        ReleaseSRWLockShared(&g_lock);
+        if(IsActive() && ImGui::Button(kChineseUi?"取消并恢复设置":"Cancel and restore"))Cancel();
     }
-    ImGui::TextDisabled("%s: %s", kChineseUi ? "状态" : "Status",
-        StatusName(state));
-    if (state == Status::Complete || state == Status::Partial) {
-        char path[4096] = {};
-        AcquireSRWLockShared(&g_lock); WideToUtf8(g_last_zip, path, sizeof(path)); ReleaseSRWLockShared(&g_lock);
-        ImGui::TextWrapped("%s", path[0] ? path : (kChineseUi ? "反馈包已完成。" : "Feedback package completed."));
+    if(state==Status::Complete || state==Status::Partial || state==Status::Failed) {
+        ImGui::TextWrapped("%s",state==Status::Complete?(kChineseUi?"完整反馈包已生成。":"Complete package saved."):state==Status::Partial?(kChineseUi?"部分反馈包已生成，缺失原因已记录，仍可上传分析。":"Partial package saved with missing-data reasons."):(kChineseUi?"保存失败，请检查日志及磁盘空间。":"Package failed; check log and disk space."));
+        char path[4096]={};AcquireSRWLockShared(&g_lock);WideToUtf8(g_last_zip,path,sizeof(path));ReleaseSRWLockShared(&g_lock);
+        if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(kChineseUi?"复制路径":"Copy path"))ImGui::SetClipboardText(path);}
     }
 }
-
-// Dedicated titled overlay. The F8 hotkey requests ReShade to make its
-// overlay surface visible, so this window can appear even when the settings
-// panel was closed; it does not depend on the settings overlay registration.
-void DrawOverlay(reshade::api::effect_runtime *runtime) {
-    if (runtime == nullptr) return;
-    const Status state = g_status.load(std::memory_order_acquire);
-    if (!g_window_open.load(std::memory_order_acquire) && !IsActive() &&
-        state != Status::Packaging) return;
-    bool open = true;
-    if (ImGui::Begin(kChineseUi ? "F8 标准对比采集" : "F8 standard comparison capture",
-                     &open, ImGuiWindowFlags_AlwaysAutoResize)) {
-        DrawControls();
-    }
-    ImGui::End();
-    if (!open) Cancel();
+void DrawOverlay(reshade::api::effect_runtime *) {
+    if(!g_window_open.load() && !IsActive() && g_status.load()!=Status::Packaging)return;
+    bool open=true;if(ImGui::Begin(kChineseUi?"DLSS5 反馈采集":"DLSS5 feedback capture",&open,ImGuiWindowFlags_AlwaysAutoResize))DrawControls();ImGui::End();
+    if(!open){g_window_open.store(false);if(IsActive())Cancel();}
 }
-
 } // namespace nr_f8

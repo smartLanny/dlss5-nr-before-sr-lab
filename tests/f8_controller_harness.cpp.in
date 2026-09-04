@@ -1,0 +1,153 @@
+// Current production coordinator + real stream writer and ZIP. Only GPU/NGX,
+// scheduling and observed runtime services are seams; all artifacts use real IO.
+#include <windows.h>
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstdint>
+#include <cstdarg>
+#include <cstring>
+#include <cwchar>
+#include <new>
+#include <fstream>
+#include <string>
+#include <vector>
+#include "nr_f8_budget.h"
+#include "nr_diagnostic_bundle.inl"
+namespace reshade { namespace api {
+struct effect_runtime { unsigned shots=0; std::string tag; bool save_screenshot(const char *p){++shots;tag=p;return true;} };
+} namespace internal { HMODULE get_reshade_module_handle(){return GetModuleHandleW(nullptr);} } }
+enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
+CHAIN_CONFIG
+TUNING_SIGNATURE
+DIAGNOSTIC_IDENTITY
+STAGE_INFO
+#include "nr_f8_types.h"
+FINITE_OR
+NORMALIZE_CONFIG
+SAME_CONFIG
+ACTIVE_TRANSFER
+CAPTURE_GRID
+struct ID3D12Resource { std::vector<float> values; bool map_fail=false; };
+struct D3D12_RANGE { SIZE_T Begin,End; };
+HRESULT ID3D12Resource_Map(ID3D12Resource *p,UINT,const D3D12_RANGE *,void **out){*out=p->values.data();return p->map_fail?E_FAIL:S_OK;}
+void ID3D12Resource_Unmap(ID3D12Resource *,UINT,const D3D12_RANGE *){}
+void ReleaseCom(ID3D12Resource *&p){delete p;p=nullptr;}
+struct FeedbackSession {char report[32768]={};std::size_t used=0;};
+void FeedbackAppend(FeedbackSession &s,const char *format,...){va_list a;va_start(a,format);const int n=std::vsnprintf(s.report+s.used,sizeof(s.report)-s.used,format,a);va_end(a);if(n>0 && static_cast<size_t>(n)<sizeof(s.report)-s.used)s.used+=n;}
+void FeedbackAppendActivity(FeedbackSession &s,const char *p){FeedbackAppend(s,"%s.mockRuntime=1\n",p);}
+std::atomic<unsigned> g_config_generation{1};std::atomic<bool> g_shortfuse_nr_enabled{false};
+ChainConfig config={};unsigned config_calls=0,stage_status=0,dir_count=0;bool rr=false,pin_fail=false,queue_fail=false;
+ULONGLONG test_clock=100000;
+std::wstring output_root;wchar_t g_log_path[1024]={},g_ini_path[1024]={},g_reshade_ini_path[1024]={};
+const char *kBuildIdentity="beta0.4.1-controller-fixture";
+constexpr const char *kSourceCommit="fixture";constexpr bool kSourceDirty=true;
+struct ModuleIdentity { const char *sha256="fixture-unavailable", *status="fixture"; };
+const ModuleIdentity &EnsureRuntimeIdentityOnWorker(){static ModuleIdentity value;return value;}
+unsigned StageCaptureStatus(){return stage_status;}
+bool ShouldGuardFeature1ForRayReconstruction(){return rr;}
+bool ApplyConfig(ChainConfig c,const char *,bool persist){if(persist)std::abort();++config_calls;if(SameConfig(c,config))return false;config=c;++g_config_generation;return true;}
+ChainConfig SnapshotConfig(){return config;}
+bool FeedbackCreateDirectory(wchar_t (&p)[1024]){swprintf_s(p,L"%ls\\session-%u",output_root.c_str(),++dir_count);return CreateDirectoryW(p,nullptr)!=FALSE;}
+void FeedbackAddLogBeside(nr_bundle::Job &j,const wchar_t *,const wchar_t *,const char *name,bool required){nr_bundle::AddFile(j,g_log_path,name,nr_bundle::FileKind::LogTail,required);}
+void FeedbackAddModules(nr_bundle::Job &,FeedbackSession &s){FeedbackAppend(s,"fixture.modules=unavailable\n");}
+void WideToUtf8(const wchar_t *w,char *p,size_t n){WideCharToMultiByte(CP_UTF8,0,w,-1,p,static_cast<int>(n),nullptr,nullptr);}
+struct Work{DWORD (WINAPI *fn)(void *);void *arg;};std::vector<Work> queued;
+BOOL TestQueue(DWORD (WINAPI *fn)(void *),void *arg,ULONG){if(queue_fail){queue_fail=false;return FALSE;}queued.push_back({fn,arg});return TRUE;}
+BOOL TestPin(DWORD,LPCWSTR,HMODULE *p){*p=GetModuleHandleW(nullptr);return !pin_fail;}
+#define GetTickCount64() test_clock
+#define QueueUserWorkItem TestQueue
+#define GetModuleHandleExW TestPin
+PRODUCTION_SEQUENCE
+#undef GetTickCount64
+#undef QueueUserWorkItem
+#undef GetModuleHandleExW
+using namespace nr_f8;
+unsigned checks=0;
+void Check(bool ok,const char *why){++checks;if(!ok){std::fprintf(stderr,"FAIL: %s\n",why);std::exit(1);}}
+void Drain(){while(!queued.empty()){auto w=queued.front();queued.erase(queued.begin());if(w.fn!=Watchdog)w.fn(w.arg);}}
+void Reset(){Drain();Check(!g_session,"previous session is detached");g_status.store(Status::Idle);g_cancel=false;g_config_hold=false;stage_status=0;rr=false;g_shortfuse_nr_enabled=false;config_calls=0;config={};NormalizeConfig(config);g_config_generation=1;test_clock+=100000;}
+void Start(reshade::api::effect_runtime &r,Comparison kind=Comparison::Current){Check(RequestWithOptions({kind,false,0,0}),"request accepted");Present(&r);Check(g_session && g_status==Status::Running,"production Present starts session");}
+void Shot(reshade::api::effect_runtime &r){
+    std::wstring path=output_root+L"\\shot_"+std::wstring(r.tag.begin(),r.tag.end())+L".png";
+    HANDLE f=CreateFileW(path.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);
+    const unsigned char png[]={137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,2,0,0,0,144,119,83,222,0,0,0,12,73,68,65,84,120,156,99,112,112,112,0,0,1,132,0,193,131,95,105,148,0,0,0,0,73,69,78,68,174,66,96,130};DWORD n;WriteFile(f,png,sizeof(png),&n,nullptr);CloseHandle(f);
+    std::wstring dotted=output_root+L"\\.\\shot_"+std::wstring(r.tag.begin(),r.tag.end())+L".png";char utf8[4096]={};WideToUtf8(dotted.c_str(),utf8,sizeof(utf8));
+    Screenshot(&r,utf8);Check(g_session->groups[g_session->group].shot_received,"canonical screenshot accepted");
+    Check(std::wcsstr(g_session->groups[g_session->group].screenshot,L"\\.\\")==nullptr,"saved screenshot canonicalized");
+    const std::wstring old=g_session->groups[g_session->group].screenshot;
+    Screenshot(&r,(std::string(utf8)+".more").c_str());Check(old==g_session->groups[g_session->group].screenshot,"duplicate cannot replace");
+}
+NrStageCaptureInfo Info(unsigned long long frame,unsigned width,unsigned height){NrStageCaptureInfo n={};n.identity.frame_id=frame;n.identity.instance_id=7;n.identity.config_generation=g_config_generation;n.identity.since_reset=64;n.identity.warmed_up=true;n.identity.evaluation=frame;n.identity.tuning.intensity=config.intensity;n.feature_generation=8;n.mode=config.mode;n.source_width=n.model_width=width;n.source_height=n.model_height=height;n.codec_flags=513;n.source_format=n.result_format=10;return n;}
+void DeliverFrame(unsigned long long frame,unsigned width=3840,unsigned height=2160,bool map_fail=false){
+    auto n=Info(frame,width,height);NrCaptureParams p={};p.game_jitter_valid=true;p.game_jitter_x=.25f;p.game_jitter_y=-.25f;p.reset_known=true;FrameTicket t={};
+    Check(ReserveFrame(n,p,t),"production frame reservation");
+    const UINT64 bytes=static_cast<UINT64>(n.width)*n.height*80+16;Check(nr_f8_budget::ReservePair(bytes),"readback budget reserved");
+    auto *resource=new ID3D12Resource;resource->map_fail=map_fail;resource->values.resize(static_cast<size_t>(bytes/4),.25f);
+    for(size_t i=resource->values.size()-4;i<resource->values.size();++i)resource->values[i]=1.f;
+    nr_f8_budget::gpu_bytes.fetch_sub(bytes); // exact GPU handoff seam: default resource released
+    RawReady(t,n,resource,bytes,true);Drain();
+}
+void FinishOff(reshade::api::effect_runtime &r){test_clock+=3100;Present(&r);Shot(r);Present(&r);Drain();}
+void TestDefaultsAndPictures(){
+    Reset();Check(Options{}.comparison==Comparison::Current,"default is current");config.enabled=false;reshade::api::effect_runtime r;Start(r);Check(config_calls==0,"current does not call ApplyConfig");
+    Check(!RequestWithOptions({Comparison::Standard,false,0,0}),"second request rejected");
+    test_clock+=3100;Present(&r);reshade::api::effect_runtime wrong;Screenshot(&wrong,"C:\\wrong_DLSS5_F8_1_0.png");Check(!g_session->groups[0].shot_received,"wrong runtime rejected");
+    Screenshot(&r,"C:\\wrong_DLSS5_F8_1_00.png");Check(!g_session->groups[0].shot_received,"tag suffix rejected");Shot(r);Present(&r);Drain();
+    Check(g_status==Status::Complete && config_calls==0 && !g_config_hold,"off current ZIP completed without config writes");
+    Check(g_last_zip[0]!=0,"first ZIP path exists");Check(RequestWithOptions({}),"request after completion");Check(!g_last_zip[0],"new request clears previous ZIP");pin_fail=true;Present(&r);pin_fail=false;Check(g_status==Status::Failed && !g_last_zip[0],"PIN failure exposes no old ZIP");
+}
+void TestContinuous(unsigned width,unsigned height){
+    Reset();config.enabled=true;config.mode=1;reshade::api::effect_runtime r;Start(r);test_clock+=3100;
+    for(unsigned i=0;i<16;++i)DeliverFrame(100+i,width,height);
+    DeliverFrame(999,width,height);Check(g_session->groups[0].frames[16].info.stride>1,"overview separate sampled grid");
+    Present(&r);Shot(r);Present(&r);Drain();
+    Check(g_status==Status::Complete && config_calls==0,"complete 16-frame plus overview ZIP");
+    Check(!nr_f8_budget::gpu_bytes && !nr_f8_budget::cpu_bytes,"budget drained after worker");
+    std::printf("ZIP %u x %u: ",width,height);char z[4096];WideToUtf8(g_last_zip,z,sizeof(z));std::puts(z);
+    if(width==3840 && height==2160){std::wstring dest=output_root+L"\\feedback.zip";Check(CopyFileW(g_last_zip,dest.c_str(),TRUE)!=FALSE,"publish parser fixture");}
+}
+void TestPartialAndRestore(){
+    Reset();config.enabled=true;config.mode=1;config.transfer_strength=config.post_transfer_strength=.7f;const auto original=config;reshade::api::effect_runtime r;Start(r,Comparison::Standard);
+    Check(config_calls==1 && !config.enabled,"explicit comparison switches chain");Cancel();Present(&r);Drain();Check(SameConfig(config,original) && config_calls==2 && !g_config_hold && g_status==Status::Partial,"cancel restores exact settings and creates partial ZIP");
+    Reset();config.enabled=true;Start(r);test_clock+=3100;DeliverFrame(100);auto gap=Info(102,3840,2160);FrameTicket t;Check(!ReserveFrame(gap,{},t) && g_session->groups[0].partial,"gap seals partial sequence");
+    Present(&r);Shot(r);Present(&r);Drain();Check(g_status==Status::Partial,"gap retained in partial ZIP");
+    Reset();config.enabled=true;Start(r);test_clock+=3100;DeliverFrame(100,3840,2160,true);Present(&r);Shot(r);Present(&r);Drain();Check(g_status==Status::Partial,"map failure partial");
+    Reset();config.enabled=true;Start(r);rr=true;test_clock+=3100;Present(&r);Shot(r);Present(&r);Drain();Check(g_status==Status::Partial,"RR still collects screenshot and logs");
+    Reset();config.enabled=true;Start(r,Comparison::Standard);test_clock+=30001;AcquireSRWLockExclusive(&g_control);Tick(nullptr);ReleaseSRWLockExclusive(&g_control);Drain();Check(g_status==Status::Partial && !g_config_hold,"watchdog timeout restores without Present");
+}
+void TestFailuresAndLateDelivery(){
+    reshade::api::effect_runtime runtime;
+    Reset();config.enabled=true;config.transfer_strength=config.post_transfer_strength=0;Start(runtime);test_clock+=3100;Present(&runtime);Shot(runtime);
+    Check(g_session->groups[0].shot_received && g_session->groups[0].count==0,"enabled zero-strength still gets display evidence");test_clock+=30001;Present(&runtime);Drain();Check(g_status==Status::Partial,"zero NR records retain screenshot in partial ZIP");
+    Reset();config.enabled=true;const auto original=config;Check(RequestWithOptions({Comparison::Standard,false,0,0}),"queue-failure request");queue_fail=true;Present(&runtime);Drain();
+    Check(g_status==Status::Partial && SameConfig(config,original) && !g_config_hold,"watchdog queue failure restores comparison and packages partial");
+    Reset();config.enabled=true;Start(runtime,Comparison::Standard);Cancel();queue_fail=true;Present(&runtime);Drain();Check(g_status==Status::Failed && !g_config_hold && !g_last_zip[0],"packager queue failure releases configuration hold with no stale ZIP");
+    Reset();config.enabled=true;Start(runtime);test_clock+=3100;auto info=Info(100,256,256);FrameTicket old;
+    Check(ReserveFrame(info,{},old),"reserve outstanding readback");const UINT64 bytes=256ull*256*80+16;
+    auto *resource=new ID3D12Resource;resource->values.resize(bytes/4,.25f);Check(nr_f8_budget::ReservePair(bytes),"queued readback budget");nr_f8_budget::gpu_bytes.fetch_sub(bytes);
+    RawReady(old,info,resource,bytes,true);Cancel();Present(&runtime);Drain();Check(!nr_f8_budget::cpu_bytes,"readback arriving after detach releases budget");
+    Reset();config.enabled=true;Start(runtime);resource=new ID3D12Resource;resource->values.resize(bytes/4,.25f);Check(nr_f8_budget::ReservePair(bytes),"stale readback budget");nr_f8_budget::gpu_bytes.fetch_sub(bytes);RawReady(old,info,resource,bytes,true);
+    Check(g_session->groups[0].count==0 && !nr_f8_budget::cpu_bytes,"previous session completion cannot attach to a new session");Cancel();Present(&runtime);Drain();
+    for(unsigned change=0;change<5;++change){
+        Reset();config.enabled=true;Start(runtime);test_clock+=3100;info=Info(100,256,256);FrameTicket ticket;Check(ReserveFrame(info,{},ticket),"identity first frame");
+        auto next=Info(101,256,256);NrCaptureParams params;
+        if(change==0)++next.feature_generation;else if(change==1)++next.source_width;else if(change==2)++next.source_format;else if(change==3)next.codec_flags^=16;else params.reset=true;
+        Check(!ReserveFrame(next,params,ticket) && g_session->groups[0].partial,"changed contract cannot continue existing sequence");Cancel();Present(&runtime);Drain();
+    }
+    Reset();config.enabled=true;Start(runtime);test_clock+=3100;info=Info(100,256,256);FrameTicket t;Check(ReserveFrame(info,{},t),"statistics first frame");info=Info(101,256,256);info.codec_flags|=8;
+    Check(ReserveFrame(info,{},t),"statistics-only codec bit may vary without changing color contract");Cancel();Present(&runtime);Drain();
+}
+void TestBudgetAndLegacyFailure(){
+    using namespace nr_f8_budget;Check(ReservePair(80ull*1024*1024),"budget first allocation");Check(!ReservePair(80ull*1024*1024),"budget denies second concurrent allocation");ReleasePair(80ull*1024*1024);Check(!gpu_bytes && !cpu_bytes,"failed reservation rolls back");
+    wchar_t directory[1024]={};Check(FeedbackCreateDirectory(directory),"oversize fixture directory");std::wstring path=std::wstring(directory)+L"\\old-sequence.bin";
+    HANDLE f=CreateFileW(path.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);LARGE_INTEGER size;size.QuadPart=80ll*1024*1024;SetFilePointerEx(f,size,nullptr,FILE_BEGIN);SetEndOfFile(f);CloseHandle(f);
+    auto *job=nr_bundle::CreateJob(directory,"fixture=old-monolithic\n");Check(nr_bundle::AddFile(*job,path.c_str(),"sequence.bin",nr_bundle::FileKind::Copy,true,112ull*1024*1024),"legacy AddFile accepted reservation");auto result=nr_bundle::Run(*job);Check(!result.required_complete,"actual ZIP proves old80MiB sequence rejected despite112MiB argument");nr_bundle::DestroyJob(job);DeleteFileW(path.c_str());
+}
+int main(int argc,char **argv){Check(argc==2,"output argument");wchar_t wide[1024]={};MultiByteToWideChar(CP_UTF8,0,argv[1],-1,wide,1024);output_root=wide;output_root+=L"\\run-"+std::to_wstring(GetCurrentProcessId());Check(CreateDirectoryW(output_root.c_str(),nullptr)!=FALSE,"unique fixture directory");
+    const std::wstring log=output_root+L"\\fixture.log";wcscpy_s(g_log_path,log.c_str());wcscpy_s(g_ini_path,log.c_str());wcscpy_s(g_reshade_ini_path,log.c_str());FILE *f=nullptr;_wfopen_s(&f,log.c_str(),L"wb");std::fputs("fixture-only=true\n",f);std::fclose(f);
+    TestDefaultsAndPictures();TestContinuous(3840,2160);TestContinuous(3840,2400);TestPartialAndRestore();TestFailuresAndLateDelivery();TestBudgetAndLegacyFailure();
+    std::printf("PASS production F8 controller/stream/ZIP: %u checks\n",checks);return 0;
+}

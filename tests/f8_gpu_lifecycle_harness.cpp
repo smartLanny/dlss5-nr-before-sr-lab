@@ -81,10 +81,6 @@ void TestDelayedInvalidation() {
           "replay record");
     Check(replay.Submit(702, reinterpret_cast<void *>(4), 20),
           "first execute is submitted");
-    Check(!replay.Submit(702, reinterpret_cast<void *>(5), 21),
-          "replay cannot migrate to another queue");
-    Check(!replay.Submit(702, reinterpret_cast<void *>(4), 20),
-          "replay fence must advance strictly");
     Check(replay.Invalidate(702, false) == 1,
           "first execute token invalidated");
     Check(replay.Submit(702, reinterpret_cast<void *>(4), 21),
@@ -100,6 +96,17 @@ void TestDelayedInvalidation() {
           "latest replay fence completes");
     Check(replay.Reclaim(static_cast<unsigned int>(replay_slot)),
           "replay entry reclaimed only after latest fence");
+    for(unsigned variant=0;variant<2;++variant) {
+        TokenLedger unknown;
+        const int index=unknown.Arm(Key(90,0));
+        Check(index>=0 && unknown.Record(static_cast<unsigned>(index),900),"unknown submission record");
+        Check(unknown.Submit(900,reinterpret_cast<void *>(4),20),"known first queue fence");
+        Check(!unknown.Submit(900,reinterpret_cast<void *>(variant==0?5:4),variant==0?21:20),"ambiguous cross-queue or non-advancing submission rejected");
+        unknown.Invalidate(900,false);
+        Check(!unknown.Ready(static_cast<unsigned>(index),reinterpret_cast<void *>(4),20,true),"old fence cannot retire unknown additional GPU use");
+        Check(!unknown.Reclaim(static_cast<unsigned>(index)),"unknown additional submission remains quarantined");
+    }
+
 }
 } // namespace
 

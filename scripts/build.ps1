@@ -46,6 +46,14 @@ if ($Clean -and (Test-Path -LiteralPath $Build)) {
 }
 New-Item -ItemType Directory -Path $Objects -Force | Out-Null
 
+$SourceCommit = (& git -C $ProjectRoot rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $SourceCommit -notmatch '^[0-9a-f]{40}$') {
+    throw 'Cannot establish the source commit for this build.'
+}
+$TrackedChanges = @(& git -C $ProjectRoot status --porcelain --untracked-files=no)
+if ($LASTEXITCODE -ne 0) { throw 'Cannot establish tracked source dirtiness.' }
+$SourceDirty = if ($TrackedChanges.Count -eq 0) { '0' } else { '1' }
+
 $Common = @(
     '-O2', '-DNDEBUG', '-DUNICODE', '-D_UNICODE', '-D_WIN64',
     '-flto',
@@ -55,6 +63,7 @@ $Common = @(
     "-I$(Join-Path $ReShade 'include')",
     "-I$(Join-Path $ReShade 'deps\imgui')"
 )
+$SourceDefines = @(('-DNR_SOURCE_COMMIT="' + $SourceCommit + '"'), ('-DNR_SOURCE_DIRTY=' + $SourceDirty))
 
 $CFiles = @(
     'src\buffer.c',
@@ -107,7 +116,7 @@ foreach ($AddonBuild in $AddonBuilds) {
         throw "Resource compilation failed ($($AddonBuild.Language)): $ResourceSource"
     }
     $AddonObject = Join-Path $Objects $AddonBuild.Object
-    & $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' $AddonBuild.Define '-c' $AddonSource '-o' $AddonObject
+    & $CppCompiler @Common @SourceDefines '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' $AddonBuild.Define '-c' $AddonSource '-o' $AddonObject
     if ($LASTEXITCODE -ne 0) {
         throw "C++ compilation failed ($($AddonBuild.Language)): $AddonSource"
     }

@@ -49,6 +49,14 @@ constexpr const char *kAddonVersion = "beta0.4.1";
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
 constexpr const char *kBuildIdentity = "beta0.4.1";
+#ifndef NR_SOURCE_COMMIT
+#define NR_SOURCE_COMMIT "unknown"
+#endif
+#ifndef NR_SOURCE_DIRTY
+#define NR_SOURCE_DIRTY 1
+#endif
+constexpr const char *kSourceCommit = NR_SOURCE_COMMIT;
+constexpr bool kSourceDirty = NR_SOURCE_DIRTY != 0;
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -802,8 +810,8 @@ struct ChainConfig {
     // 1.0 follows the model, 2.0 compounds the model ratio twice, 4.0 is
     // deliberately strong, and 8.0 is an extreme diagnostic ceiling. HDR,
     // finite-value and user-selected maximum-ratio guards remain authoritative.
-    float transfer_strength = 0.0f;
-    float post_transfer_strength = 1.0f;
+    float transfer_strength = 1.2f;
+    float post_transfer_strength = 1.2f;
     // Independent Feature 18 working raster for Mode 2. 0 reference,
     // 1 quality, 2 balanced, 3 performance, 4 ultra, 5 custom.
     int work_mode = 1;
@@ -815,7 +823,7 @@ struct ChainConfig {
     unsigned int proxy_curve = 1; // 0 legacy, 1 hybrid, 2 reversible
     bool allow_unverified_hdr_color = false;
     bool suppress_reset_frame = true;
-    float color_strength = 0.0f;
+    float color_strength = 0.5f;
     float max_luma_ratio = 2.0f;
     bool preserve_lighting = false;
     float proxy_scale = 1.0f;
@@ -882,7 +890,6 @@ std::atomic<bool> g_shortfuse_nr_enabled{false};
 // 0 = legacy/no game jitter forwarding, 1 = forwarding requested but the
 // current Evaluate did not provide a legal finite pair, 2 = values were
 // actually written to the NR parameter block for the current binding.
-std::atomic<unsigned int> g_nr_jitter_status{0};
 
 namespace nr_f8 { extern std::atomic<bool> g_config_hold; }
 
@@ -1107,6 +1114,41 @@ int MigrateConfigMode(int config_version, int configured_mode) {
     return config_version < 4 ? 2 : configured_mode;
 }
 
+bool WriteIniInt(const wchar_t *key, int value);
+bool WriteIniFloat(const wchar_t *key, float value);
+
+// ConfigVersion 3 predates the shared strength control. Its mode-1 post value
+// can intentionally be zero while its inactive pre value is still one.
+float ReadConfiguredTransferStrength(int configured_mode) {
+    const int version = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"StrengthConfigVersion", 0, g_ini_path);
+    const float pre = ReadIniFloat(L"TransferStrength", std::nanf(""));
+    const float post = ReadIniFloat(L"PostTransferStrength", std::nanf(""));
+    const float selected = version >= 1 || configured_mode != 1 ? pre : post;
+    const float alternate = version >= 1 || configured_mode != 1 ? post : pre;
+    const float strength = std::isfinite(selected) ? selected :
+        (std::isfinite(alternate) ? alternate : 1.2f);
+    if (version < 1) {
+        // Publish the independent marker only after both compatible fields
+        // are saved. Failure keeps the requested value for this process.
+        SetLastError(ERROR_SUCCESS);
+        const bool pre_written = WriteIniFloat(L"TransferStrength", strength);
+        const bool post_written = WriteIniFloat(L"PostTransferStrength", strength);
+        const bool persisted = pre_written && post_written &&
+            WriteIniInt(L"StrengthConfigVersion", 1);
+        if (!persisted) {
+            const auto error = GetLastError();
+            g_config_persistence_error.store(error ? error : ERROR_WRITE_FAULT,
+                                             std::memory_order_relaxed);
+            g_config_persistence_failed.store(true, std::memory_order_release);
+        }
+        Log("Shared strength migration: sourceMode=%d selected=%.9g "
+            "strengthConfigVersion=1 persisted=%d.", configured_mode,
+            static_cast<double>(strength), persisted ? 1 : 0);
+    }
+    return strength;
+}
+
 void NormalizeConfig(ChainConfig &config) {
     config.mode = config.mode == 2 ? 2 : 1;
     config.transfer_strength = std::clamp(FiniteOr(config.transfer_strength, 0.0f), 0.0f, 8.0f);
@@ -1191,9 +1233,11 @@ void ReloadConfig(bool force = false) {
     next.enabled = GetPrivateProfileIntW(L"NRBeforeSR", L"Enabled", 0, g_ini_path) != 0;
     const int config_version = GetPrivateProfileIntW(
         L"NRBeforeSR", L"ConfigVersion", 0, g_ini_path);
-    next.mode = GetPrivateProfileIntW(L"NRBeforeSR", L"Mode", 2, g_ini_path);
-    next.mode = MigrateConfigMode(config_version, next.mode);
-    if (config_version < 4) {
+    const int configured_mode = GetPrivateProfileIntW(L"NRBeforeSR", L"Mode", 2, g_ini_path);
+    next.transfer_strength = ReadConfiguredTransferStrength(configured_mode);
+    next.post_transfer_strength = next.transfer_strength;
+    next.mode = MigrateConfigMode(config_version, configured_mode);
+    if (config_version < 4 && !g_config_persistence_failed.load(std::memory_order_acquire)) {
         // beta0.2 shipped Mode 1 as the default.  Migrate that persisted value
         // once so installing the beta0.3 series cannot silently keep users on the
         // comparison-only full-resolution path.
@@ -1227,10 +1271,6 @@ void ReloadConfig(bool force = false) {
     }
     next.identity_use_original = GetPrivateProfileIntW(
         L"NRBeforeSR", L"IdentityUseOriginalColor", 0, g_ini_path) != 0;
-    const float legacy_pre_transfer = ReadIniFloat(L"TransferStrength", 1.0f);
-    const float legacy_post_transfer = ReadIniFloat(L"PostTransferStrength", 1.0f);
-    next.transfer_strength = std::max(legacy_pre_transfer, legacy_post_transfer);
-    next.post_transfer_strength = next.transfer_strength;
     next.work_mode = GetPrivateProfileIntW(
         L"NRBeforeSR", L"WorkMode", 1, g_ini_path);
     next.custom_work_scale = ReadIniFloat(L"CustomWorkScale", 0.75f);
@@ -1244,7 +1284,7 @@ void ReloadConfig(bool force = false) {
         L"NRBeforeSR", L"AllowUnverifiedHdrColor", 0, g_ini_path) != 0;
     next.suppress_reset_frame = GetPrivateProfileIntW(
         L"NRBeforeSR", L"SuppressResetFrame", 1, g_ini_path) != 0;
-    next.color_strength = ReadIniFloat(L"ColorStrength", 0.0f);
+    next.color_strength = ReadIniFloat(L"ColorStrength", 0.5f);
     next.max_luma_ratio = ReadIniFloat(L"MaxLumaRatio", 4.0f);
     next.preserve_lighting = GetPrivateProfileIntW(
         L"NRBeforeSR", L"PreserveLighting", 0, g_ini_path) != 0;
@@ -1380,6 +1420,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"IdentityUseOriginalColor", config.identity_use_original ? 1 : 0));
     record_write(WriteIniFloat(L"TransferStrength", config.transfer_strength));
     record_write(WriteIniFloat(L"PostTransferStrength", config.post_transfer_strength));
+    if (ok) record_write(WriteIniInt(L"StrengthConfigVersion", 1));
     record_write(WriteIniInt(L"WorkMode", config.work_mode));
     record_write(WriteIniFloat(L"CustomWorkScale", config.custom_work_scale));
     record_write(WriteIniFloat(L"LightingLock", config.lighting_lock));
@@ -1443,6 +1484,7 @@ void PollConfigFromPresent() {
         return;
     }
     EnterCriticalSection(&g_chain_cs);
+    if(nr_f8::g_config_hold.load()){LeaveCriticalSection(&g_chain_cs);return;}
     ReloadConfig();
     LeaveCriticalSection(&g_chain_cs);
 }
@@ -1460,6 +1502,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
     }
     NormalizeConfig(next);
     EnterCriticalSection(&g_chain_cs);
+    if(persist_to_ini && nr_f8::g_config_hold.load()){LeaveCriticalSection(&g_chain_cs);return false;}
     if (SameConfig(next, g_config)) {
         LeaveCriticalSection(&g_chain_cs);
         return false;
@@ -2205,8 +2248,8 @@ float ModelLumaRatioV2(float2 fullPixelCenter) {
 
 // Only the residual is filtered. Uniform edits and the original image remain intact.
 // No temporal/face-mask claim: this confidence uses same-dispatch model samples only.
-float StabilizeDetailLogV2(float2 center, float rawLog, float proxyLuma) {
-    if (DetailStability <= 0.000001) return rawLog;
+float4 DetailDecisionV2(float2 center, float rawLog, float proxyLuma) {
+    if (DetailStability <= 0.000001) return float4(1.0,16.0,rawLog,rawLog);
     float2 stepPixels = float2(Width, Height) / float2(ModelWidth, ModelHeight);
     float mean = 0.0;
     float second = 0.0;
@@ -2226,7 +2269,13 @@ float StabilizeDetailLogV2(float2 center, float rawLog, float proxyLuma) {
     float extreme = smoothstep(1.0, 4.0, abs(rawLog));
     float risk = incoherent * saturate(0.5 + lowSampling + 0.25*dark + 0.25*extreme);
     float detailWeight = 1.0 - saturate(DetailStability)*risk;
-    return mean + (rawLog - mean)*detailWeight;
+    uint reasons = (lowSampling > 0.0 ? 1u : 0u) | (incoherent > 0.0 ? 2u : 0u) |
+        (dark > 0.0 ? 4u : 0u) | (extreme > 0.0 ? 8u : 0u);
+    return float4(detailWeight,float(reasons),rawLog,mean+(rawLog-mean)*detailWeight);
+}
+
+float StabilizeDetailLogV2(float2 center, float rawLog, float proxyLuma) {
+    return DetailDecisionV2(center,rawLog,proxyLuma).w;
 }
 
 float3 CompressNegativeTowardNeutral(float3 color) {
@@ -2411,10 +2460,12 @@ void WriteCombined(uint2 coord, uint2 destinationCoord, float4 result) {
     StageCapture.Store4(planeBytes * 2u + offset,
         asuint(NeuralColor.Load(int3(coord, 0))));
     StageCapture.Store4(planeBytes * 3u + offset, asuint(result));
+    if ((Passthrough & 512u) != 0u)
+        StageCapture.Store4(planeBytes * 4u + offset,asuint(float4(1.0,512.0,0.0,0.0)));
     if (offset == 0u) {
         float rawExposure = (Passthrough & 64u) != 0u
             ? ExposureScaleTexture.Load(int3(0, 0, 0)).r : ResolveExposureScale();
-        StageCapture.Store4(planeBytes * 4u, asuint(float4(rawExposure,
+        StageCapture.Store4(planeBytes * ((Passthrough & 512u) != 0u ? 5u : 4u), asuint(float4(rawExposure,
             ResolveExposureScale(), ResolveSourceToCanonical(), PreExposure)));
     }
 }
@@ -2617,10 +2668,25 @@ void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result) {
     StageCapture.Store4(planeBytes * 2u + offset,
         asuint(float4(SampleNeuralStoredV2(float2(coord) + 0.5), 1.0)));
     StageCapture.Store4(planeBytes * 3u + offset, asuint(result));
+    if ((Passthrough & 512u) != 0u) {
+        float2 center=float2(coord)+0.5;
+        float3 p=SampleProxyLinearV2(center), n=SampleNeuralLinearV2(center);
+        float4 decision=float4(1.0,32.0,0.0,0.0);
+        if(ModelNeighborhoodFiniteV2(center) && all(p==p) && all(n==n)) {
+            float pl=max(dot(p,kLuma),1.0/4096.0), nl=max(dot(n,kLuma),1.0/4096.0);
+            float raw=clamp(log2(nl/pl),-8.0,8.0);
+            decision=DetailDecisionV2(center,raw,pl);
+            if(TransferStrength<=0.000001)decision=float4(1.0,64.0,raw,raw);
+            else if(FrameConfidence<=0.000001)decision=float4(1.0,128.0,raw,raw);
+            else if(max(abs(n.r-p.r),max(abs(n.g-p.g),abs(n.b-p.b)))<=0.000001)
+                decision=float4(1.0,256.0,raw,raw);
+        }
+        StageCapture.Store4(planeBytes*4u+offset,asuint(decision));
+    }
     if (offset == 0u) {
         float rawExposure = (Passthrough & 64u) != 0u
             ? ExposureScaleTexture.Load(int3(0, 0, 0)).r : ResolveExposureScale();
-        StageCapture.Store4(planeBytes * 4u, asuint(float4(rawExposure,
+        StageCapture.Store4(planeBytes * ((Passthrough & 512u) != 0u ? 5u : 4u), asuint(float4(rawExposure,
             ResolveExposureScale(), ResolveSourceToCanonical(), PreExposure)));
     }
 }
@@ -2997,13 +3063,6 @@ struct NrDiagnosticIdentity {
     NrTuningSignature tuning = {};
 };
 
-namespace nr_f8 {
-void ObserveSuccess(const NrDiagnosticIdentity &, unsigned int, unsigned int, bool);
-void ObserveParams(const NgxParams *, const FeatureRecord &, unsigned long long);
-void StageExported(unsigned long long, const wchar_t *, bool);
-bool KeepStageContext();
-void Screenshot(reshade::api::effect_runtime *, const char *);
-}
 
 // Protected by g_chain_cs. An instance means a successful, non-null Create;
 // a frame means one successful Feature 18 Evaluate, not a presented/FG frame.
@@ -3012,6 +3071,8 @@ unsigned long long g_next_nr_frame_id = 0;
 NrDiagnosticIdentity g_applied_nr_identity = {};
 int g_applied_nr_mode = 0;
 NrDiagnosticIdentity g_last_sample_identity = {}; // diagnostic snapshot lock
+
+#include "nr_f8_types.h"
 
 struct NrStageCaptureInfo {
     NrDiagnosticIdentity identity = {};
@@ -3047,6 +3108,8 @@ struct NrStageCaptureInfo {
     float edge_guard = 0.0f;
     unsigned int proxy_curve = 0;
     float frame_confidence = 1.0f;
+    float detail_stability = 0.0f;
+    bool motion_requested = false;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;
     bool has_pre_exposure = false;
@@ -3059,8 +3122,9 @@ struct NrStageCaptureInfo {
 };
 
 namespace nr_f8 {
-void StageCaptured(const NrStageCaptureInfo &, const wchar_t *, const float *, UINT64, bool);
-void GetActiveRoi(unsigned int &, unsigned int &, unsigned int &, unsigned int &);
+bool ReserveFrame(NrStageCaptureInfo &, const NrCaptureParams &, FrameTicket &);
+void RawReady(FrameTicket, NrStageCaptureInfo, ID3D12Resource *, UINT64, bool);
+void Screenshot(reshade::api::effect_runtime *, const char *);
 }
 
 struct NrStageCapture {
@@ -3074,6 +3138,7 @@ struct NrStageCapture {
 };
 
 struct NrSlot {
+    NrCaptureParams capture_params = {};
     NrStageCapture stage_capture = {};
     ID3D12Resource *key = nullptr;
     ID3D12Resource *source = nullptr;
@@ -3089,6 +3154,7 @@ struct NrSlot {
     // ClearUnorderedAccessViewUint requires its CPU descriptor to come from a
     // non-shader-visible heap, while the GPU descriptor remains in heap.
     ID3D12DescriptorHeap *stats_clear_heap = nullptr;
+    ID3D12DescriptorHeap *capture_cpu_heap = nullptr;
     ID3D12DescriptorHeap *snapshot_heap = nullptr;
     DXGI_FORMAT source_format = DXGI_FORMAT_UNKNOWN;
     DXGI_FORMAT result_format = DXGI_FORMAT_UNKNOWN;
@@ -3211,6 +3277,7 @@ struct NrContext {
     bool exposure_texture_reset_pending = false;
     bool jitter_status_initialized = false;
     bool jitter_last_known = false;
+    bool jitter_binding_written = false;
     // Feature 18 Create/Evaluate is temporal state, not merely a collection of
     // textures. Multiple game command lists may record consecutive evaluations
     // before any one list is reset. Count every owning list and use the proven
@@ -3231,6 +3298,8 @@ struct NrContext {
 
 NrContext g_contexts[16] = {};
 
+#include "nr_jitter_status.inl"
+
 void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
     context.reset_retry_pending = false;
     if (context.diagnostic_reset_requested)
@@ -3239,6 +3308,7 @@ void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
     NrDiagnosticIdentity identity = {};
     identity.instance_id = context.instance_id;
     identity.frame_id = ++g_next_nr_frame_id;
+    RecordSuccessfulJitterBinding(context, identity.frame_id);
     identity.config_generation = context.config_generation;
     identity.evaluation = context.evaluations;
     identity.since_reset = context.successful_evaluations_since_reset;
@@ -3252,8 +3322,6 @@ void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
         slot.stage_capture.info.identity = identity;
     g_applied_nr_identity = identity;
     g_applied_nr_mode = context.mode;
-    nr_f8::ObserveSuccess(identity, context.width, context.height,
-                          context.diagnostic_reset_requested);
 }
 // Ready contexts are detached from the live table under g_chain_cs, then their
 // NGX and COM objects are released after all lifecycle locks have been dropped.
@@ -3350,6 +3418,22 @@ std::atomic<bool> g_lifecycle_tracking_uncertain{false};
 // remains non-zero until that list is reset or destroyed.
 std::atomic<unsigned int> g_lifecycle_active_command_lists{0};
 
+#include "nr_f8_gpu.inl"
+nr_f8_gpu::CaptureRing g_f8_gpu;
+
+void CollectF8GpuLocked() {
+    if(g_lifecycle_tracking_uncertain.load()) return; // preserve unproven GPU resources
+    g_f8_gpu.Collect([](void *key,unsigned long long fence) {
+        auto *q=static_cast<LifecycleQueue *>(key);
+        if(!q || !q->fence || !fence)return false;
+        const auto completed=ID3D12Fence_GetCompletedValue(q->fence);
+        return completed!=UINT64_MAX && completed>=fence;
+    },[](void *,nr_f8_gpu::ReadbackJob *job) {
+        nr_f8::RawReady(job->ticket,job->info,job->readback,job->bytes,job->valid);
+        job->readback=nullptr;delete job;
+    },nullptr);
+}
+
 void MarkLifecycleUncertain(const char *reason) {
     if (!g_lifecycle_tracking_uncertain.exchange(true,
                                                   std::memory_order_acq_rel)) {
@@ -3366,6 +3450,7 @@ void DestroySlot(NrSlot &slot) {
     ReleaseCom(slot.delta_stats_readback);
     ReleaseCom(slot.delta_stats);
     ReleaseCom(slot.stats_clear_heap);
+    ReleaseCom(slot.capture_cpu_heap);
     ReleaseCom(slot.snapshot_heap);
     ReleaseCom(slot.heap);
     ReleaseCom(slot.result);
@@ -4251,6 +4336,7 @@ void DetachLifecycleCommandListTokenLocked(
             context->pending_recording_token = 0;
         --context->recording_command_lists;
     }
+    g_f8_gpu.OnRecordingInvalidated(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
     record->detached = true;
     const unsigned int active =
         g_lifecycle_active_command_lists.load(std::memory_order_relaxed);
@@ -4570,6 +4656,7 @@ bool CaptureSubmissionBatchLocked(
         // successful Reset on another thread from mistaking this list for
         // never-submitted work in the narrow post-Execute return window.
         ++record->submission_count;
+        g_f8_gpu.OnSubmit(record->token,queue_state,batch.fence_value);
         if (batch.quarantine)
             record->execution_attempted_without_proof = true;
     }
@@ -5037,6 +5124,8 @@ bool SupportsPostSrStorage(ID3D12Device *device,
     return true;
 }
 
+#include "nr_codec_descriptors.inl"
+
 void WriteExposureSrv(ID3D12Device *device, ID3D12Resource *exposure,
                       ID3D12DescriptorHeap *heap) {
     if (device == nullptr || heap == nullptr) return;
@@ -5240,30 +5329,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
             DestroySlot(slot);
             return false;
         }
-        D3D12_CPU_DESCRIPTOR_HANDLE snapshot_cpu =
-            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
-                slot.snapshot_heap);
-        const D3D12_CPU_DESCRIPTOR_HANDLE main_cpu =
-            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
-        ID3D12Device_CopyDescriptorsSimple(
-            device, kCodecDescriptorCount, snapshot_cpu, main_cpu,
-            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        D3D12_SHADER_RESOURCE_VIEW_DESC external_srv = {};
-        external_srv.Format = slot.result_format;
-        external_srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        external_srv.Shader4ComponentMapping =
-            D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        external_srv.Texture2D.MipLevels = 1;
-        ID3D12Device_CreateShaderResourceView(
-            device, slot.result, &external_srv, snapshot_cpu);
-        snapshot_cpu.ptr +=
-            static_cast<SIZE_T>(g_codec.descriptor_size) *
-            kCodecResultUavIndex;
-        D3D12_UNORDERED_ACCESS_VIEW_DESC source_uav = {};
-        source_uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-        source_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-        ID3D12Device_CreateUnorderedAccessView(
-            device, slot.source, nullptr, &source_uav, snapshot_cpu);
+        WritePostSrSnapshotDescriptors(device, slot);
         Log("Post-SR native output snapshot enabled: %s active=%ux%u -> "
             "controlled FP16 intermediate.",
             FormatName(slot.result_format), width, height);
@@ -5662,41 +5728,12 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    unsigned int model_width = 0,
                    unsigned int model_height = 0,
                    float frame_confidence = 1.0f) {
-    ID3D12DescriptorHeap *heaps[] = {slot.heap};
-    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, heaps);
-    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, g_codec.root);
-    const D3D12_GPU_DESCRIPTOR_HANDLE gpu =
-        ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.heap);
-    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list, 0, gpu);
     const bool v2_combine = pipeline == g_codec.combine_v2;
     const bool any_combine = pipeline == g_codec.combine || v2_combine;
     const bool capture_delta = any_combine &&
         slot.delta_stats_capture_armed && !slot.delta_stats_pending &&
         slot.delta_stats != nullptr && slot.delta_stats_readback != nullptr &&
         slot.stats_clear_heap != nullptr;
-    const bool capture_stages = any_combine &&
-        CanRecordStageCapture(slot.stage_capture);
-    if (capture_stages) {
-        Transition(command_list, slot.stage_capture.buffer, slot.stage_capture.state,
-                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    }
-    if (capture_delta) {
-        Transition(command_list, slot.delta_stats, slot.delta_stats_state,
-                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        D3D12_GPU_DESCRIPTOR_HANDLE stats_gpu = gpu;
-        stats_gpu.ptr += static_cast<UINT64>(g_codec.descriptor_size) *
-                         kCodecStatsUavIndex;
-        const D3D12_CPU_DESCRIPTOR_HANDLE stats_cpu =
-            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
-                slot.stats_clear_heap);
-        const UINT clear_values[4] = {};
-        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(
-            command_list, stats_gpu, stats_cpu, slot.delta_stats,
-            clear_values, 0, nullptr);
-        // The following dispatch performs atomics against the same UAV. Make
-        // the clear visible before any diagnostic thread updates the buffer.
-        UavBarrier(command_list, slot.delta_stats);
-    }
     unsigned int source_flags = hdr_input ? 0u : 1u;
     if (color_mode == CodecColorMode::LinearSdr)
         source_flags = 16u;
@@ -5720,12 +5757,84 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         color_policy.effective_color_strength = g_config.color_strength;
         color_policy.color_reason = NrColorReason::ExperimentalUnverifiedHdr;
     }
-    const unsigned int codec_flags = source_flags |
+    const unsigned int base_codec_flags = source_flags |
         (color_policy.effective_preserve_lighting ? 2u : 0u) |
         (capture_delta ? 8u : 0u) |
         ((hdr_input && color_contract.exposure_texture != nullptr) ? 64u : 0u) |
         (UsePeakShoulder(color_mode, hdr_input, g_config.experimental_peak_shoulder) ? 256u : 0u);
     const float effective_color_strength = color_policy.effective_color_strength;
+    nr_f8_gpu::ArmResult f8_capture={};
+    bool f8_armed=false;
+    unsigned long long f8_token=0;
+    NrStageCaptureInfo f8_info={};
+    if(any_combine && nr_f8::g_config_hold.load() && ReadLifecycleToken(command_list,f8_token) &&
+       FindLifecycleCommandListLocked(f8_token)!=nullptr) {
+        f8_info.identity=g_applied_nr_identity;f8_info.codec_flags=base_codec_flags|512u;
+        f8_info.color_strength=effective_color_strength;
+        f8_info.feature_generation=g_pipeline_stats_generation.load();f8_info.mode=g_config.mode;
+        f8_info.source_width=width;f8_info.source_height=height;
+        f8_info.model_width=model_width?model_width:width;f8_info.model_height=model_height?model_height:height;
+        f8_info.source_base_x=source_base_x;f8_info.source_base_y=source_base_y;
+        f8_info.destination_base_x=destination_base_x;f8_info.destination_base_y=destination_base_y;
+        f8_info.source_format=static_cast<unsigned>(slot.source_format);f8_info.result_format=static_cast<unsigned>(slot.result_format);
+        f8_info.pre_exposure=color_contract.pre_exposure;f8_info.exposure_scale=color_contract.exposure_scale;
+        f8_info.has_pre_exposure=color_contract.has_pre_exposure;f8_info.has_exposure_scale=color_contract.has_exposure_scale;
+        f8_info.proxy_scale=g_config.proxy_scale;f8_info.transfer_strength=ActiveTransferStrength(g_config);
+        f8_info.max_luma_ratio=g_config.max_luma_ratio;f8_info.work_mode=g_config.work_mode;
+        f8_info.work_linear_scale=static_cast<float>(f8_info.model_width)/std::max(width,1u);
+        f8_info.lighting_lock=v2_combine?g_config.lighting_lock:(g_config.preserve_lighting?1.f:0.f);
+        f8_info.detail_stability=v2_combine?g_config.detail_stability:0.f;f8_info.motion_requested=g_config.motion_stability;
+        f8_info.edge_guard=v2_combine?g_config.edge_guard:0.f;f8_info.proxy_curve=g_config.proxy_curve;
+        f8_info.frame_confidence=std::clamp(frame_confidence,0.f,1.f);
+        nr_f8::FrameTicket ticket={};
+        if(nr_f8::ReserveFrame(f8_info,slot.capture_params,ticket)) {
+            if(!slot.capture_cpu_heap){D3D12_DESCRIPTOR_HEAP_DESC d={};d.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;d.NumDescriptors=kCodecDescriptorCount;
+                ID3D12Device_CreateDescriptorHeap(g_codec.device,&d,IID_ID3D12DescriptorHeap,reinterpret_cast<void **>(&slot.capture_cpu_heap));}
+            if(slot.capture_cpu_heap){
+                WriteCodecDescriptorSet(g_codec.device,slot,slot.capture_cpu_heap);
+                nr_f8_gpu::ArmArgs args={};args.device=g_codec.device;args.source_heap=slot.capture_cpu_heap;
+                args.descriptor_count=kCodecDescriptorCount;args.descriptor_size=g_codec.descriptor_size;args.capture_uav_index=kCodecCaptureUavIndex;
+                args.request=ticket.session;args.group=ticket.group;args.frame_index=ticket.index;args.identity=f8_info.identity;
+                args.roi_width=f8_info.region_width;args.roi_height=f8_info.region_height;args.info=&f8_info;
+                f8_armed=g_f8_gpu.Arm(args,f8_capture);
+            }
+            if(!f8_armed)nr_f8::RawReady(ticket,f8_info,nullptr,0,false);
+        }
+    }
+    if(f8_armed && !g_f8_gpu.BeginDispatch(command_list,f8_capture.slot,f8_token)) {
+        g_f8_gpu.DiscardUnrecorded(f8_capture.slot);
+        nr_f8::RawReady(f8_capture.ticket,f8_info,nullptr,0,false);f8_armed=false;
+    }
+    ID3D12DescriptorHeap *selected_heap=f8_armed?f8_capture.heap:slot.heap;
+    ID3D12DescriptorHeap *heaps[] = {selected_heap};
+    ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list, 1, heaps);
+    ID3D12GraphicsCommandList_SetComputeRootSignature(command_list, g_codec.root);
+    const D3D12_GPU_DESCRIPTOR_HANDLE gpu = ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(selected_heap);
+    ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list,0,gpu);
+    const bool capture_stages = !f8_armed && any_combine &&
+        CanRecordStageCapture(slot.stage_capture);
+    if (capture_stages) {
+        Transition(command_list, slot.stage_capture.buffer, slot.stage_capture.state,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
+    if (capture_delta) {
+        Transition(command_list, slot.delta_stats, slot.delta_stats_state,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        D3D12_GPU_DESCRIPTOR_HANDLE stats_gpu = gpu;
+        stats_gpu.ptr += static_cast<UINT64>(g_codec.descriptor_size) *
+                         kCodecStatsUavIndex;
+        const D3D12_CPU_DESCRIPTOR_HANDLE stats_cpu =
+            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
+                slot.stats_clear_heap);
+        const UINT clear_values[4] = {};
+        ID3D12GraphicsCommandList_ClearUnorderedAccessViewUint(
+            command_list, stats_gpu, stats_cpu, slot.delta_stats,
+            clear_values, 0, nullptr);
+        // The following dispatch performs atomics against the same UAV. Make
+        // the clear visible before any diagnostic thread updates the buffer.
+        UavBarrier(command_list, slot.delta_stats);
+    }
+    const unsigned int codec_flags = base_codec_flags | (f8_armed?512u:0u);
     if (capture_delta) {
         slot.diagnostic_color_policy = color_policy;
         slot.diagnostic_color_strength = effective_color_strength;
@@ -5749,8 +5858,6 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.result_format = static_cast<unsigned int>(slot.result_format);
         info.source_base_x = source_base_x;
         info.source_base_y = source_base_y;
-        nr_f8::GetActiveRoi(info.region_x, info.region_y,
-            info.region_width, info.region_height);
         info.destination_base_x = destination_base_x;
         info.destination_base_y = destination_base_y;
         info.codec_flags = codec_flags;
@@ -5793,18 +5900,21 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         source_base_x, source_base_y,
         destination_base_x, destination_base_y,
         0, 0, 0, 0, color_contract.pre_exposure,
-        capture_stages ? slot.stage_capture.info.stride : 0u,
+        f8_armed ? f8_info.stride : capture_stages ? slot.stage_capture.info.stride : 0u,
         resolved_source_width, resolved_source_height,
         resolved_model_width, resolved_model_height,
         v2_combine ? g_config.lighting_lock : 0.0f,
         v2_combine ? g_config.edge_guard : 0.0f,
         g_config.proxy_curve, std::clamp(frame_confidence, 0.0f, 1.0f),
-        v2_combine ? g_config.detail_stability : 0.0f, 0u, 0u, 0u, 0u};
+        v2_combine ? g_config.detail_stability : 0.0f,
+        f8_armed?f8_info.region_x:0u,f8_armed?f8_info.region_y:0u,
+        f8_armed?f8_info.region_width:0u,f8_armed?f8_info.region_height:0u};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
     ID3D12GraphicsCommandList_Dispatch(
         command_list, (width + 7) / 8, (height + 7) / 8, 1);
+    if(f8_armed)g_f8_gpu.FinishDispatch(command_list,f8_capture.slot,f8_token);
     if (capture_stages) {
         UavBarrier(command_list, slot.stage_capture.buffer);
         Transition(command_list, slot.stage_capture.buffer, slot.stage_capture.state,
@@ -6225,6 +6335,7 @@ NgxResult ComputeScalingRatioCallback(NgxParams *params) {
 
 struct NrJitterBinding {
     bool known = false;
+    float source_x = NAN, source_y = NAN;
     bool valid_x = false;
     bool valid_y = false;
     float x = 0.0f;
@@ -6236,6 +6347,7 @@ struct NrJitterBinding {
 };
 
 struct NrGuideBinding {
+    NrCaptureParams capture_params = {};
     NrGuideSignature signature = {};
     NrJitterBinding jitter = {};
     ID3D12Resource *depth = nullptr;
@@ -6265,11 +6377,12 @@ NrJitterBinding ResolveNrJitter(const NgxParams *sr_params, NrJitterMode mode,
     result.scale_y = source_height != 0
         ? static_cast<float>(work_height) / static_cast<float>(source_height)
         : 1.0f;
-    if (mode != NrJitterMode::GameInputPixel || sr_params == nullptr)
-        return result;
+    if (sr_params == nullptr) return result;
     float x = 0.0f, y = 0.0f;
     const bool present_x = GetFloat(sr_params, "Jitter.Offset.X", &x);
     const bool present_y = GetFloat(sr_params, "Jitter.Offset.Y", &y);
+    result.source_x = present_x ? x : NAN;
+    result.source_y = present_y ? y : NAN;
     result.valid_x = present_x && std::isfinite(x);
     result.valid_y = present_y && std::isfinite(y);
     // A pixel jitter larger than the source image cannot be a legal camera
@@ -6279,7 +6392,7 @@ NrJitterBinding ResolveNrJitter(const NgxParams *sr_params, NrJitterMode mode,
         1u, std::max(source_width, source_height)));
     if (result.valid_x && std::fabs(x) > limit) result.valid_x = false;
     if (result.valid_y && std::fabs(y) > limit) result.valid_y = false;
-    result.known = result.valid_x && result.valid_y &&
+    result.known = mode == NrJitterMode::GameInputPixel && result.valid_x && result.valid_y &&
         source_width != 0 && source_height != 0 &&
         work_width != 0 && work_height != 0 &&
         std::isfinite(result.scale_x) && std::isfinite(result.scale_y) &&
@@ -6391,6 +6504,11 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     }
     binding.has_motion_scale_x = GetFloat(sr_params, "MV.Scale.X", &s.motion_scale_x);
     binding.has_motion_scale_y = GetFloat(sr_params, "MV.Scale.Y", &s.motion_scale_y);
+    auto &capture = binding.capture_params;
+    capture.game_mv_x = binding.has_motion_scale_x ? s.motion_scale_x : NAN;
+    capture.game_mv_y = binding.has_motion_scale_y ? s.motion_scale_y : NAN;
+    capture.game_mv_valid = binding.has_motion_scale_x && binding.has_motion_scale_y &&
+        std::isfinite(capture.game_mv_x) && std::isfinite(capture.game_mv_y);
     binding.valid_motion_scale_x = binding.has_motion_scale_x &&
         std::isfinite(s.motion_scale_x) && std::abs(s.motion_scale_x) > 0.000001f;
     binding.valid_motion_scale_y = binding.has_motion_scale_y &&
@@ -6419,7 +6537,7 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     s.depth_inverted = (feature.create_flags & 8) != 0 ? 1 : 0;
     if (g_config.depth_mode == 0) s.depth_inverted = 0;
     else if (g_config.depth_mode == 1) s.depth_inverted = 1;
-    GetInt(sr_params, "Reset", &binding.game_reset);
+    binding.capture_params.reset_known = GetInt(sr_params, "Reset", &binding.game_reset);
     // ResolveRenderExtentFromEvaluate supplied these logical guide dimensions
     // to this function. They are the game's SR input grid even when the
     // physical motion-vector texture is a high-resolution atlas. Capture the
@@ -6428,6 +6546,9 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     binding.jitter = ResolveNrJitter(
         sr_params, g_config.jitter_mode, guide_width, guide_height,
         width, height);
+    capture.game_jitter_x = binding.jitter.source_x;
+    capture.game_jitter_y = binding.jitter.source_y;
+    capture.game_jitter_valid = binding.jitter.valid_x && binding.jitter.valid_y;
     binding.jitter_offset_x = binding.jitter.x;
     binding.jitter_offset_y = binding.jitter.y;
     return true;
@@ -6453,10 +6574,9 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     const float mv_scale_x = s.motion_scale_x, mv_scale_y = s.motion_scale_y;
     const int game_reset = guides.game_reset;
     NgxParams *params = context.params;
+    context.jitter_binding_written = false;
     if (params == nullptr) return false;
     const NrJitterBinding &jitter = guides.jitter;
-    g_nr_jitter_status.store(g_config.jitter_mode == NrJitterMode::Legacy
-        ? 0u : (jitter.known ? 2u : 1u), std::memory_order_relaxed);
     if (!context.jitter_status_initialized) {
         context.jitter_status_initialized = true;
         context.jitter_last_known = jitter.known;
@@ -6687,11 +6807,22 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     SetFloat(params, "DLSS.Exposure.Scale", 1.0f);
     SetInt(params, "DLSSNR.DepthInverted", depth_inverted);
     SetInt(params, "DLSSNR.Enabled", 1);
+    slot.capture_params = guides.capture_params;
+    slot.capture_params.nr_jitter_forwarded = jitter.known;
+    slot.capture_params.nr_jitter_x = jitter.known ? jitter.x : NAN;
+    slot.capture_params.nr_jitter_y = jitter.known ? jitter.y : NAN;
+    slot.capture_params.nr_mv_x = mv_scale_x;
+    slot.capture_params.nr_mv_y = mv_scale_y;
+    slot.capture_params.depth_width = guide_width;
+    slot.capture_params.depth_height = guide_height;
+    slot.capture_params.mv_width = motion_width;
+    slot.capture_params.mv_height = motion_height;
     const bool reset_requested = reset || game_reset != 0 || history_changed ||
         color_contract_reset || guide_reset || context.reset_retry_pending;
     slot.suppress_transfer_this_frame =
         g_config.suppress_reset_frame && reset_requested;
     context.diagnostic_reset_requested = reset_requested;
+    slot.capture_params.reset = reset_requested;
     // Binding may consume config/color transitions before Evaluate fails.
     // Only a successful Evaluate is allowed to consume a requested Reset.
     context.reset_retry_pending = reset_requested;
@@ -6706,6 +6837,7 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     SetInt(params, "DLSSNR.UICorrection", tuning.ui_correction ? 1 : 0);
     SetInt(params, "DLSS.Indicator.Invert.X.Axis", 0);
     SetInt(params, "DLSS.Indicator.Invert.Y.Axis", 0);
+    context.jitter_binding_written = true;
     return true;
 }
 
@@ -9734,6 +9866,7 @@ DWORD WINAPI HookWorker(void *) {
     return 0;
 }
 
+#include "nr_runtime_identity.inl"
 #include "nr_feedback_capture.inl"
 #include "nr_runtime_status.inl"
 #include "nr_f8_sequence.inl"
@@ -9800,15 +9933,20 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     const ULONGLONG now_ms = GetTickCount64();
 
     static bool feedback_key_was_down = false;
-    const SHORT f8_state = GetAsyncKeyState(VK_F8);
+    static bool feedback_key_loaded=false;
+    if(!feedback_key_loaded){unsigned key=GetPrivateProfileIntW(L"NRBeforeSR",L"FeedbackVirtualKey",VK_F8,g_ini_path);
+        nr_f8::g_hotkey.store(key>=VK_F1 && key<=VK_F12?key:VK_F8);feedback_key_loaded=true;}
+    const SHORT f8_state = GetAsyncKeyState(static_cast<int>(nr_f8::g_hotkey.load()));
     const bool feedback_down = (f8_state & 0x8000) != 0;
     if ((f8_state & 0x0001) != 0 || (feedback_down && !feedback_key_was_down)) {
+        nr_f8::RequestWithOptions({nr_f8::Comparison::Current,false,0,0});
         nr_f8::OpenWindow();
         runtime->open_overlay(true, reshade::api::input_source::keyboard);
     }
     feedback_key_was_down = feedback_down;
-    FeedbackPresent(runtime);
+    if(!nr_f8::IsActive())FeedbackPresent(runtime);
     QueueRuntimeStatus();
+    EnterCriticalSection(&g_chain_cs);CollectF8GpuLocked();LeaveCriticalSection(&g_chain_cs);
     nr_f8::Present(runtime);
 
     const SHORT f7_state = GetAsyncKeyState(VK_F7);
@@ -9816,7 +9954,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     // Like '-', keep the transition fallback for short taps between Presents.
     const bool stage_pressed = (f7_state & 0x0001) != 0 ||
         (stage_key_is_down && !stage_key_was_down);
-    if (stage_pressed && now_ms - last_stage_request_ms >= 350) {
+    if (stage_pressed && !nr_f8::IsActive() && now_ms - last_stage_request_ms >= 350) {
         last_stage_request_ms = now_ms;
         const bool accepted = RequestStageCapture();
         Log("[stage-capture] F7 request=%s; next eligible warmed-up NR "
@@ -10713,10 +10851,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             snprintf(addon_leaf_utf8, sizeof(addon_leaf_utf8), "%s",
                      "<module-path-unavailable-or-truncated>");
         Log("DLSS 5 AI Rendering Upscaling Edition %s attached | author=%s | "
-            "official_release=%s | language=%s | file=%s | build_id=%s",
+            "official_release=%s | language=%s | file=%s | build_id=%s | sourceCommit=%s sourceDirty=%d",
             kAddonVersion, kAddonAuthor, kOfficialReleaseUrl,
             kChineseUi ? "zh-CN" : "en",
-            addon_leaf_utf8, kBuildIdentity);
+            addon_leaf_utf8, kBuildIdentity, kSourceCommit, kSourceDirty ? 1 : 0);
         ReloadConfig(true);
         if (!reshade::register_addon(module)) {
             Log("ReShade add-on registration failed.");

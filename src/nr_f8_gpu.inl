@@ -4,6 +4,7 @@
 #define NR_F8_GPU_INL
 
 #include <cstdint>
+#include "nr_f8_budget.h"
 
 #ifdef NR_F8_GPU_LIFECYCLE_ONLY
 struct NrDiagnosticIdentity {
@@ -36,7 +37,7 @@ constexpr unsigned int kGroupCount = 3;
 // Sixteen consecutive ROI frames plus one independent full-frame overview.
 constexpr unsigned int kFramesPerGroup = 17;
 constexpr unsigned int kCapacity = kGroupCount * kFramesPerGroup;
-constexpr unsigned int kPlaneCount = 4;
+constexpr unsigned int kPlaneCount = 5; // F8 v4 includes the spatial-protection telemetry plane.
 constexpr unsigned int kExposureTrailerBytes = 16;
 constexpr unsigned int kMaxRoiSide = 256;
 constexpr unsigned int kMaxOverviewSide = 1024;
@@ -64,6 +65,7 @@ struct TokenEntry {
     bool recording_alive = false;
     bool replayed = false;
     bool quarantined = false;
+    bool unknown_submission = false; // No single exact queue/fence can prove retirement.
 };
 
 // This ledger is part of the production ring, rather than a test-only mock.
@@ -107,6 +109,8 @@ public:
                 // its data rather than pretending the first copy is final.
                 if (entry.queue_key != queue_key ||
                     fence_value <= entry.fence_value) {
+                    entry.quarantined = true;
+                    entry.unknown_submission = true;
                     continue;
                 }
                 entry.replayed = true;
@@ -149,7 +153,7 @@ public:
         if (!Valid(slot) || entries_[slot].state != TokenState::Submitted ||
             entries_[slot].queue_key != queue_key ||
             entries_[slot].fence_value != fence || !fence_complete ||
-            entries_[slot].recording_alive) return false;
+            entries_[slot].recording_alive || entries_[slot].unknown_submission) return false;
         entries_[slot].state = TokenState::Completed;
         return true;
     }
@@ -232,6 +236,7 @@ struct ResourceEntry {
     UINT64 bytes = 0;
     TokenIdentity key = {};
     NrStageCaptureInfo info = {};
+    bool copy_recorded = false;
     unsigned int ledger_slot = 0;
     D3D12_RESOURCE_STATES buffer_state = D3D12_RESOURCE_STATE_COMMON;
 };
@@ -244,7 +249,8 @@ public:
             args.descriptor_count == 0 || args.descriptor_size == 0 ||
             args.capture_uav_index >= args.descriptor_count || args.request == 0 ||
             args.group >= kGroupCount || args.frame_index >= kFramesPerGroup ||
-            args.source_heap_shader_visible)
+            args.source_heap_shader_visible || args.info == nullptr ||
+            (args.info->codec_flags & 512u) == 0)
             return false;
         const D3D12_DESCRIPTOR_HEAP_DESC source_desc =
             ID3D12DescriptorHeap_GetDesc(args.source_heap);
@@ -261,9 +267,7 @@ public:
         if (capture_width == 0 || capture_height == 0 ||
             capture_width > max_side || capture_height > max_side)
             return false;
-        const unsigned int plane_count =
-            args.info != nullptr && (args.info->codec_flags & 512u) != 0
-                ? 5u : kPlaneCount;
+        const unsigned int plane_count = kPlaneCount;
         const UINT64 plane_values = static_cast<UINT64>(capture_width) *
             capture_height * 4u;
         const UINT64 bytes = plane_values * plane_count * sizeof(float) +
@@ -289,7 +293,11 @@ public:
         }
         resource.ledger_slot = static_cast<unsigned int>(ledger_slot);
         resource.bytes = bytes;
+        if (!nr_f8_budget::ReservePair(bytes)) {
+            ledger_.DiscardArmed(resource.ledger_slot); return false;
+        }
         if (!CreateResources(args, resource)) {
+            nr_f8_budget::ReleasePair(bytes);
             ledger_.DiscardArmed(resource.ledger_slot);
             return false;
         }
@@ -304,11 +312,12 @@ public:
     }
 
     // ResolveNrColorPolicy can finish after Arm has allocated the detached
-    // resources.  Update only an Armed entry; once Begin/Finish records the
-    // command list, the metadata is immutable and belongs to that submission.
+    // resources. Metadata may be completed while recording, but never after
+    // FinishDispatch records the immutable readback copy.
     bool UpdateInfo(unsigned int slot, const NrStageCaptureInfo &info) {
-        if (slot >= kCapacity || ledger_.Get(slot).state != TokenState::Armed ||
-            resources_[slot].buffer == nullptr)
+        if (slot >= kCapacity ||
+            (ledger_.Get(slot).state != TokenState::Armed && ledger_.Get(slot).state != TokenState::Recorded) ||
+            resources_[slot].copy_recorded || resources_[slot].buffer == nullptr)
             return false;
         const TokenIdentity key = resources_[slot].key;
         const unsigned int region_width = resources_[slot].info.region_width;
@@ -324,13 +333,17 @@ public:
     }
 
     bool BeginDispatch(unsigned int slot,
-                       ID3D12GraphicsCommandList *command_list) {
+                       ID3D12GraphicsCommandList *command_list,
+                       unsigned long long recording_token) {
         if (command_list == nullptr || slot >= kCapacity ||
             resources_[slot].buffer == nullptr ||
             ledger_.Get(slot).state != TokenState::Armed)
             return false;
         ResourceEntry &resource = resources_[slot];
-        if (resource.buffer_state != D3D12_RESOURCE_STATE_COMMON) return false;
+        if (resource.buffer_state != D3D12_RESOURCE_STATE_COMMON ||
+            !ledger_.Record(slot, recording_token)) return false;
+        // Establish ownership before the first barrier references this allocation.
+        // Even an interrupted/failed Finish must never look like an unreferenced Arm.
         D3D12_RESOURCE_BARRIER barrier = {};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         barrier.Transition.pResource = resource.buffer;
@@ -343,8 +356,15 @@ public:
     }
 
     bool BeginDispatch(ID3D12GraphicsCommandList *command_list,
-                       unsigned int slot) {
-        return BeginDispatch(slot, command_list);
+                       unsigned int slot, unsigned long long recording_token) {
+        return BeginDispatch(slot, command_list, recording_token);
+    }
+
+    bool DiscardUnrecorded(unsigned int slot) {
+        if (slot >= kCapacity || ledger_.Get(slot).state != TokenState::Armed) return false;
+        ReleaseCom(resources_[slot].readback); ReleaseCom(resources_[slot].buffer);
+        ReleaseCom(resources_[slot].heap); nr_f8_budget::ReleasePair(resources_[slot].bytes);
+        resources_[slot] = {}; return ledger_.DiscardArmed(slot);
     }
 
     bool FinishDispatch(nr_f8::FrameTicket ticket, unsigned int slot,
@@ -360,8 +380,8 @@ public:
             resources_[slot].buffer == nullptr ||
             recording_token == 0 ||
             resources_[slot].buffer_state != D3D12_RESOURCE_STATE_UNORDERED_ACCESS ||
-            ledger_.Get(slot).state != TokenState::Armed ||
-            !ledger_.Record(slot, recording_token))
+            ledger_.Get(slot).state != TokenState::Recorded ||
+            ledger_.Get(slot).recording_token != recording_token || resources_[slot].copy_recorded)
             return false;
         ResourceEntry &resource = resources_[slot];
         D3D12_RESOURCE_BARRIER barrier = {};
@@ -385,6 +405,7 @@ public:
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
         ID3D12GraphicsCommandList_ResourceBarrier(command_list, 1, &barrier);
         resource.buffer_state = D3D12_RESOURCE_STATE_COMMON;
+        resource.copy_recorded = true;
         return true;
     }
 
@@ -428,10 +449,11 @@ public:
             // A replay or an unknown lifecycle path can still be handed to
             // the worker after the latest fence completes, but it must be
             // labelled partial and never treated as a valid 16-frame sample.
-            job->valid = !entry.replayed && !entry.quarantined;
+            job->valid = resource.copy_recorded && !entry.replayed && !entry.quarantined;
             resource.readback = nullptr;
             ReleaseCom(resource.buffer);
             ReleaseCom(resource.heap);
+            nr_f8_budget::gpu_bytes.fetch_sub(resource.bytes);
             resource.buffer = nullptr;
             resource.heap = nullptr;
             handoff(context, job);
@@ -448,6 +470,7 @@ public:
             ReleaseCom(resources_[i].readback);
             ReleaseCom(resources_[i].buffer);
             ReleaseCom(resources_[i].heap);
+            nr_f8_budget::ReleasePair(resources_[i].bytes);
             resources_[i] = {};
             ledger_.Reclaim(i);
         }
@@ -466,6 +489,7 @@ public:
             ReleaseCom(resources_[i].readback);
             ReleaseCom(resources_[i].buffer);
             ReleaseCom(resources_[i].heap);
+            nr_f8_budget::ReleasePair(resources_[i].bytes);
             resources_[i] = {};
             if (state == TokenState::Armed)
                 ledger_.DiscardArmed(i);

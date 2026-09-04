@@ -21,7 +21,12 @@ args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 source = (root / "src/nr_before_sr.cpp").read_text(encoding="utf-8-sig")
 dispatch = source[source.index("    NrColorPolicy color_policy = ResolveNrColorPolicy("):]
-dispatch = dispatch[:dispatch.index("    if (capture_stages) {")]
+if "    nr_f8_gpu::ArmResult" in dispatch:
+    # Extract both actual policy/publication ranges around the separately tested GPU path.
+    tail = dispatch[dispatch.index("    const unsigned int codec_flags = base_codec_flags"):]
+    dispatch = dispatch[:dispatch.index("    nr_f8_gpu::ArmResult")] + tail[:tail.index("    if (capture_stages) {")]
+else:
+    dispatch = dispatch[:dispatch.index("    if (capture_stages) {")]
 ui_source = (root / "src/nr_settings_ui.inl").read_text(encoding="utf-8")
 ui_block = ui_source[ui_source.index("    NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();"):]
 ui_block = ui_block[:ui_block.index("\n}\n")]
@@ -70,6 +75,7 @@ unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_con
     const bool v2_combine = pipeline == g_codec.combine_v2;
     const bool any_combine = pipeline == g_codec.combine || v2_combine;
     const unsigned source_flags=0;
+    const bool f8_armed=false;
     DISPATCH
     return codec_flags;
 }
@@ -98,6 +104,7 @@ namespace ImGui {
         TextDisabled(fmt,args...);
     }
 }
+void SettingsTooltip(const char*) {}
 void Controls(Config& next,bool has_pending,bool& changed) {
     UI_BLOCK
 }

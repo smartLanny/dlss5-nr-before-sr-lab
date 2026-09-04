@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,
     [string]$Revision = ''
 )
@@ -29,7 +29,7 @@ function Extract([string]$Text, [string]$Signature) {
     if ($depth -ne 0) { throw "Unterminated function: $Signature" }
     return $Text.Substring($start, $end - $start)
 }
-$types = ''
+$types = [regex]::Match($source, 'enum class NrJitterMode\s*:\s*int\s*\{[\s\S]*?\};').Value + "`n"
 foreach ($name in @('NrTuningSignature', 'NrDiagnosticIdentity', 'NrStageCaptureInfo', 'NrStageCapture')) {
     $match = [regex]::Match($source, "struct $name \{[\s\S]*?\r?\n\};")
     if (-not $match.Success) { throw "Missing type: $name" }
@@ -79,7 +79,6 @@ $harness = @'
 #include <thread>
 #include <chrono>
 using UINT64 = std::uint64_t;
-enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 struct ID3D12Resource {};
 enum D3D12_RESOURCE_STATES { D3D12_RESOURCE_STATE_COMMON = 0 };
 struct NgxHandle {};

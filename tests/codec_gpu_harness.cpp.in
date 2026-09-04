@@ -343,6 +343,8 @@ struct Gpu {
     }
 };
 
+// @PRODUCTION_DESCRIPTOR_TESTS@
+
 struct RunResult {
     std::vector<Float4> output;
     std::vector<std::uint32_t> capture;
@@ -406,7 +408,8 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.TextureState(exposure_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     const UINT capture_width = roi.width ? std::min(roi.width, width - roi.x) : (width + requested_stride - 1) / requested_stride;
     const UINT capture_height = roi.height ? std::min(roi.height, height - roi.y) : (height + requested_stride - 1) / requested_stride;
-    const UINT64 stage_bytes = static_cast<UINT64>(capture_width) * capture_height * 64 + 16;
+    const UINT plane_count=(flags & 512u)?5u:4u;
+    const UINT64 stage_bytes = static_cast<UINT64>(capture_width) * capture_height * plane_count * 16 + 16;
     const UINT64 allocation_bytes = stage_bytes + 64; // Tail sentinel outside the UAV.
     auto capture = gpu.Buffer(allocation_bytes, D3D12_HEAP_TYPE_DEFAULT,
         D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -492,7 +495,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                             "8x V2 colour escaped the bounded SDR cube");
             }
         }
-    const UINT64 plane_words = (stage_bytes - 16) / 4 / 4;
+    const UINT64 plane_words = (stage_bytes - 16) / 4 / plane_count;
     if (stride != 0) {
         float gpu_exposure[4] = {};
         std::memcpy(gpu_exposure, result.capture.data() + (stage_bytes - 16) / 4, 16);
@@ -552,6 +555,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
 int main() {
     try {
         Gpu gpu;
+        ValidateProductionDescriptors(gpu);
         unsigned int scenarios = 0;
         for (UINT flags : {0u, 1u, 16u, 32u, 128u, 256u, 384u}) {
             for (int variant = 0; variant < 4; ++variant) {
@@ -630,6 +634,20 @@ int main() {
             const auto captured = Run(gpu,13,9,1,1,64u,0,v2,0,0,texture_cases[0],0.f,roi);
             Require(std::memcmp(plain.output.data(),captured.output.data(),plain.output.size()*sizeof(Float4))==0,
                     "Native-pixel ROI capture changes the displayed composition");
+            ++scenarios;
+        }
+        for(bool v2:{false,true}) for(float protection:{0.f,1.f}) {
+            auto no=Run(gpu,32,32,0,1,1u,6,v2,0,0,{},protection);
+            auto yes=Run(gpu,32,32,1,1,513u,6,v2,0,0,{},protection,{4,5,16,16});
+            Require(std::memcmp(no.output.data(),yes.output.data(),no.output.size()*sizeof(Float4))==0,"F8 telemetry changes output");
+            const float *telemetry=reinterpret_cast<const float *>(yes.capture.data()+16*16*4*4);
+            bool reduced=false;
+            for(unsigned i=0;i<16*16;++i) {
+                Require(std::isfinite(telemetry[i*4]) && telemetry[i*4]>=0.f && telemetry[i*4]<=1.f,"invalid GPU detail weight");
+                if(telemetry[i*4]<.99f)reduced=true;
+                if(!v2)Require(telemetry[i*4+1]==512.f,"post-SR telemetry applicability");
+            }
+            if(v2 && protection>0.f)Require(reduced,"detail protection has no captured weights");
             ++scenarios;
         }
         const ExposureCase scalar_case{nan, 2.0f, 0.375f, {0.75f, 0.75f, 0.375f, 2.0f}};
