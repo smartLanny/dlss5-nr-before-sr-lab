@@ -17,7 +17,7 @@ Collect-Feedback.cmd
 collect-feedback.ps1
 Instructions.txt
 
-Keep these files together. Remove the old build or other language version of this addon, and do not run two addons that both process NR. Start the game and check for beta0.3.3.6 in the ReShade addon panel.
+Keep these files together. Remove the old build or other language version of this addon, and do not run two addons that both process NR. Start the game and check for beta0.3.7 in the ReShade addon panel.
 
 If you already have a working full installation, you can use the small update package and keep the existing large runtime DLL, bridge DLL and settings file. Follow the instructions in that update package. It cannot be used for a first installation.
 

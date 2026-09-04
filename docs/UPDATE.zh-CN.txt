@@ -4,7 +4,7 @@ DLSS 5 AI渲染超分版 beta0.3.3.6 轻量更新说明
 
 这是什么更新
 
-这是 0.3.5（beta0.3.3.5）稳定维护线的小修订，主要修反馈采集和状态提示。没有调整 NR 强度、画质算法，也没有放开原来受限的 HDR 颜色跟随。
+本次更新加入简化处理模式界面、0 到 2 的最终效果强度（含显式 1.2 预设）以及开发者用的游戏像素 jitter 传递选项。Mode 2 仍为默认，未知 HDR 颜色跟随限制保持不变。
 
 本包面向已经装好 0.3.5 维护线的玩家。包内只有四个小文件：addon、说明.txt、Collect-Feedback.cmd、collect-feedback.ps1。沿用原来的两个 DLL 和 nr_before_sr.ini，不需要重新下载大运行库。
 
@@ -16,7 +16,7 @@ DLSS 5 AI渲染超分版 beta0.3.3.6 轻量更新说明
 
 原来的 nrchain_nvngx.dll、nvngx_dlssnr.dll 和 nr_before_sr.ini 保留。把 Collect-Feedback.cmd 与 collect-feedback.ps1 一起放在 addon 旁边。不要把不同显卡完整包里的运行库互换。
 
-进游戏后，在插件面板确认版本为 beta0.3.3.6。addon 文件名仍含 beta0.3.3-dev，以面板版本为准。第一次安装或缺少运行文件的玩家，需要使用对应显卡的完整包。
+进游戏后，在插件面板确认版本为 beta0.3.7。第一次安装或缺少运行文件的玩家，需要使用对应显卡的完整包。
 
 这次修了什么
 

@@ -42,11 +42,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.3.3.6";
+constexpr const char *kAddonVersion = "beta0.3.7";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.3.3.6";
+constexpr const char *kBuildIdentity = "beta0.3.7";
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
 
@@ -78,6 +78,11 @@ using SetD3D12Fn = void (*)(NgxParams *, const char *, ID3D12Resource *);
 using SetIntFn = void (*)(NgxParams *, const char *, int);
 using SetUIntFn = void (*)(NgxParams *, const char *, unsigned int);
 using SetFloatFn = void (*)(NgxParams *, const char *, float);
+
+enum class NrJitterMode : int {
+    Legacy = 0,
+    GameInputPixel = 1,
+};
 
 bool GetResource(const NgxParams *params, const char *key, ID3D12Resource **value) {
     if (value == nullptr) return false;
@@ -813,6 +818,10 @@ struct ChainConfig {
     // sRGB-encoded values stored through an UNORM view. This is a profile
     // contract, not a general user image-tuning option.
     int r8_output_encoding = 0;
+    // Developer-only temporal input selection. Legacy preserves the previous
+    // behaviour; GameInputPixel forwards finite game pixel jitter to NR after
+    // converting from the game's SR input grid to the NR work grid.
+    NrJitterMode jitter_mode = NrJitterMode::Legacy;
 };
 
 ChainConfig g_config = {};
@@ -1054,7 +1063,7 @@ float ReadIniFloat(const wchar_t *key, float fallback) {
 
 void NormalizeConfig(ChainConfig &config) {
     config.mode = config.mode == 2 ? 2 : 1;
-    config.transfer_strength = std::clamp(config.transfer_strength, 0.0f, 1.0f);
+    config.transfer_strength = std::clamp(config.transfer_strength, 0.0f, 2.0f);
     // One visible blend control owns both chains. Keeping the legacy field in
     // sync preserves compatibility with existing INI files without allowing a
     // mode switch to silently select a stale zero-strength value.
@@ -1070,6 +1079,9 @@ void NormalizeConfig(ChainConfig &config) {
     config.skin_structure = std::clamp(config.skin_structure, -1.0f, 2.0f);
     config.style = std::min(config.style, 2u);
     config.r8_output_encoding = std::clamp(config.r8_output_encoding, 0, 2);
+    const int jitter_mode = static_cast<int>(config.jitter_mode);
+    config.jitter_mode = jitter_mode == static_cast<int>(NrJitterMode::GameInputPixel)
+        ? NrJitterMode::GameInputPixel : NrJitterMode::Legacy;
 }
 
 bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
@@ -1094,7 +1106,8 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.style == b.style &&
            a.ui_correction == b.ui_correction &&
            a.perf_epoch == b.perf_epoch &&
-           a.r8_output_encoding == b.r8_output_encoding;
+           a.r8_output_encoding == b.r8_output_encoding &&
+           a.jitter_mode == b.jitter_mode;
 }
 
 void ReloadConfig(bool force = false) {
@@ -1141,7 +1154,7 @@ void ReloadConfig(bool force = false) {
         static bool migration_logged = false;
         if (!migration_logged) {
             migration_logged = true;
-            Log("Migrated legacy beta0.2 configuration to beta0.3.3-dev in memory: "
+            Log("Migrated legacy beta0.2 configuration to beta0.3.7 in memory: "
                 "default mode is now render-resolution NR -> SR; persisted=%d.",
                 migration_persisted ? 1 : 0);
         }
@@ -1179,6 +1192,8 @@ void ReloadConfig(bool force = false) {
         L"NRBeforeSR", L"PerfEpoch", 0, g_ini_path);
     next.r8_output_encoding = GetPrivateProfileIntW(
         L"NRBeforeSR", L"R8OutputEncoding", 0, g_ini_path);
+    next.jitter_mode = static_cast<NrJitterMode>(GetPrivateProfileIntW(
+        L"NRBeforeSR", L"JitterMode", 0, g_ini_path));
     NormalizeConfig(next);
 
     const bool shortfuse_loaded =
@@ -1224,6 +1239,7 @@ void ReloadConfig(bool force = false) {
             "paperWhiteScale=%.3f peakShoulderRequested=%d warmup=%u intensity=%.3f localTone=%.3f "
             "localStructure=%.3f skinStructure=%.3f autoMask=%d style=%u "
             "uiCorrection=%d r8OutputEncoding=%d perfEpoch=%d "
+            "jitterMode=%d "
             "feature18Evals=%llu",
             g_config.enabled ? 1 : 0, g_config.mode,
             g_config.identity_use_original ? 1 : 0,
@@ -1241,7 +1257,7 @@ void ReloadConfig(bool force = false) {
             static_cast<double>(g_config.skin_structure),
             g_config.auto_mask ? 1 : 0, g_config.style,
             g_config.ui_correction ? 1 : 0, g_config.r8_output_encoding,
-            g_config.perf_epoch,
+            g_config.perf_epoch, static_cast<int>(g_config.jitter_mode),
             g_nr_successful_evaluations.load(std::memory_order_relaxed));
     }
 }
@@ -1298,6 +1314,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"UICorrection", config.ui_correction ? 1 : 0));
     record_write(WriteIniInt(L"PerfEpoch", config.perf_epoch));
     record_write(WriteIniInt(L"R8OutputEncoding", config.r8_output_encoding));
+    record_write(WriteIniInt(L"JitterMode", static_cast<int>(config.jitter_mode)));
     // Remove the obsolete option from configs created by older builds.
     // Removing an already-absent legacy key is best effort and must not turn a
     // successfully persisted current configuration into a false failure.
@@ -1357,7 +1374,7 @@ bool ApplyConfig(ChainConfig next, const char *source) {
     LeaveCriticalSection(&g_chain_cs);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
         "colorFollowRequested=%.3f intensity=%.3f style=%u autoMask=%d skin=%.3f localTone=%.3f "
-        "localStructure=%.3f uiCorrection=%d paperWhiteScale=%.3f peakShoulderRequested=%d "
+        "localStructure=%.3f uiCorrection=%d jitterMode=%d paperWhiteScale=%.3f peakShoulderRequested=%d "
         "epoch=%d feature18Evals=%llu",
         source, applied.enabled ? 1 : 0, applied.mode == 2 ? 1 : 0,
         static_cast<double>(ActiveTransferStrength(applied)),
@@ -1368,6 +1385,7 @@ bool ApplyConfig(ChainConfig next, const char *source) {
         static_cast<double>(applied.local_tone),
         static_cast<double>(applied.local_structure),
         applied.ui_correction ? 1 : 0,
+        static_cast<int>(applied.jitter_mode),
         static_cast<double>(1.0f / applied.proxy_scale),
         applied.experimental_peak_shoulder ? 1 : 0, applied.perf_epoch,
         g_nr_successful_evaluations.load(std::memory_order_relaxed));
@@ -2352,6 +2370,7 @@ struct NrTuningSignature {
     bool auto_mask = false;
     unsigned int style = 0;
     bool ui_correction = false;
+    NrJitterMode jitter_mode = NrJitterMode::Legacy;
 };
 
 struct NrDiagnosticIdentity {
@@ -2478,6 +2497,7 @@ NrTuningSignature CurrentNrTuningSignature() {
     signature.auto_mask = g_config.auto_mask;
     signature.style = g_config.style;
     signature.ui_correction = g_config.ui_correction;
+    signature.jitter_mode = g_config.jitter_mode;
     return signature;
 }
 
@@ -2489,7 +2509,8 @@ bool SameNrTuningSignature(const NrTuningSignature &a,
            a.skin_structure == b.skin_structure &&
            a.auto_mask == b.auto_mask &&
            a.style == b.style &&
-           a.ui_correction == b.ui_correction;
+           a.ui_correction == b.ui_correction &&
+           a.jitter_mode == b.jitter_mode;
 }
 
 struct NrContext {
@@ -2543,6 +2564,8 @@ struct NrContext {
     unsigned long long last_sampled_exposure_serial = 0;
     bool sampled_exposure_initialized = false;
     bool exposure_texture_reset_pending = false;
+    bool jitter_status_initialized = false;
+    bool jitter_last_known = false;
     // Feature 18 Create/Evaluate is temporal state, not merely a collection of
     // textures. Multiple game command lists may record consecutive evaluations
     // before any one list is reset. Count every owning list and use the proven
@@ -5291,6 +5314,63 @@ struct NrGuideBinding {
     int game_reset = 0;
 };
 
+struct NrJitterBinding {
+    bool known = false;
+    bool valid_x = false;
+    bool valid_y = false;
+    float x = 0.0f;
+    float y = 0.0f;
+    float scale_x = 1.0f;
+    float scale_y = 1.0f;
+    unsigned int source_width = 0;
+    unsigned int source_height = 0;
+};
+
+// Jitter is expressed in source pixels by the game's SR call. The signed NR
+// feature receives work-grid pixels, so scale each axis independently. A
+// missing or non-finite value is unknown and is deliberately omitted from the
+// NR parameter block; zero is a valid pixel jitter and cannot mean "missing".
+NrJitterBinding ResolveNrJitter(const NgxParams *sr_params, NrJitterMode mode,
+                                unsigned int source_width,
+                                unsigned int source_height,
+                                unsigned int work_width,
+                                unsigned int work_height) {
+    NrJitterBinding result = {};
+    result.source_width = source_width;
+    result.source_height = source_height;
+    result.scale_x = source_width != 0
+        ? static_cast<float>(work_width) / static_cast<float>(source_width)
+        : 1.0f;
+    result.scale_y = source_height != 0
+        ? static_cast<float>(work_height) / static_cast<float>(source_height)
+        : 1.0f;
+    if (mode != NrJitterMode::GameInputPixel || sr_params == nullptr)
+        return result;
+    float x = 0.0f, y = 0.0f;
+    const bool present_x = GetFloat(sr_params, "Jitter.Offset.X", &x);
+    const bool present_y = GetFloat(sr_params, "Jitter.Offset.Y", &y);
+    result.valid_x = present_x && std::isfinite(x);
+    result.valid_y = present_y && std::isfinite(y);
+    // A pixel jitter larger than the source image cannot be a legal camera
+    // sample. Reject it as unknown rather than allowing an invalid guide to
+    // poison temporal state.
+    const float limit = static_cast<float>(std::max(
+        1u, std::max(source_width, source_height)));
+    if (result.valid_x && std::fabs(x) > limit) result.valid_x = false;
+    if (result.valid_y && std::fabs(y) > limit) result.valid_y = false;
+    result.known = result.valid_x && result.valid_y &&
+        source_width != 0 && source_height != 0 &&
+        work_width != 0 && work_height != 0 &&
+        std::isfinite(result.scale_x) && std::isfinite(result.scale_y) &&
+        result.scale_x > 0.0f && result.scale_y > 0.0f;
+    if (result.known) {
+        result.x = x * result.scale_x;
+        result.y = y * result.scale_y;
+        result.known = std::isfinite(result.x) && std::isfinite(result.y);
+    }
+    return result;
+}
+
 // Resolve the complete guide contract before selecting temporal history or
 // recording codec commands. The post-SR path retains this entrance snapshot
 // across native SR instead of re-reading its mutable parameter block.
@@ -5410,6 +5490,7 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
 
 bool BindNrParameters(NrContext &context, NrSlot &slot,
                       const NrGuideBinding &guides, const FeatureRecord &feature,
+                      const NgxParams *sr_params,
                       unsigned int width, unsigned int height,
                       const ColorContract &color_contract, bool reset,
                       ID3D12Resource *motion_override = nullptr) {
@@ -5425,6 +5506,76 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     const unsigned int motion_height = s.motion_bound_height;
     const float mv_scale_x = s.motion_scale_x, mv_scale_y = s.motion_scale_y;
     const int game_reset = guides.game_reset;
+    NgxParams *params = context.params;
+    if (params == nullptr) return false;
+    const unsigned int jitter_source_width = context.mode == 2
+        ? width : (s.motion_source_width != 0 ? s.motion_source_width : width);
+    const unsigned int jitter_source_height = context.mode == 2
+        ? height : (s.motion_source_height != 0 ? s.motion_source_height : height);
+    const NrJitterBinding jitter = ResolveNrJitter(
+        sr_params, g_config.jitter_mode,
+        jitter_source_width, jitter_source_height, width, height);
+    if (!context.jitter_status_initialized) {
+        context.jitter_status_initialized = true;
+        context.jitter_last_known = jitter.known;
+    } else if (context.jitter_last_known != jitter.known) {
+        // A reused parameter block cannot safely carry a previously valid
+        // jitter into a frame where the game omitted or invalidated it.
+        // Retire the complete temporal context so a fresh block is allocated;
+        // this also makes the transition observable as a history reset.
+        const bool previous_known = context.jitter_last_known;
+        context.jitter_last_known = jitter.known;
+        context.retired = true;
+        Log("NR jitter validity changed: previous=%s current=%s; retiring "
+            "Feature 18 parameter block and history before continuing.",
+            previous_known ? "valid" : "unknown",
+            jitter.known ? "valid" : "unknown");
+        return false;
+    }
+    if (jitter.known) {
+        SetFloat(params, "Jitter.Offset.X", jitter.x);
+        SetFloat(params, "Jitter.Offset.Y", jitter.y);
+        SetFloat(params, "DLSSNR.Jitter.Offset.X", jitter.x);
+        SetFloat(params, "DLSSNR.Jitter.Offset.Y", jitter.y);
+        SetFloat(params, "DLSSNR.Jitter.Scale.X", jitter.scale_x);
+        SetFloat(params, "DLSSNR.Jitter.Scale.Y", jitter.scale_y);
+        SetUInt(params, "DLSSNR.Jitter.SourceWidth", jitter.source_width);
+        SetUInt(params, "DLSSNR.Jitter.SourceHeight", jitter.source_height);
+        SetUInt(params, "DLSSNR.Jitter.WorkWidth", width);
+        SetUInt(params, "DLSSNR.Jitter.WorkHeight", height);
+        SetInt(params, "DLSSNR.Jitter.Valid", 1);
+    } else {
+        // Valid=0 is a state marker, not a fake zero jitter. The pixel values
+        // are intentionally untouched so no caller can mistake them for data.
+        SetInt(params, "DLSSNR.Jitter.Valid", 0);
+    }
+    if (!context.guide_contract_logged || context.jitter_status_initialized) {
+        static unsigned int jitter_logs = 0;
+        if (jitter_logs < 3 || (++jitter_logs % 600) == 0) {
+            const char *state = g_config.jitter_mode == NrJitterMode::Legacy
+                ? "legacy" : (jitter.known ? "forwarded" : "unknown");
+            if (jitter.known) {
+                Log("NR jitter actual: mode=%d state=%s input=%s,%s "
+                    "source=%ux%u work=%ux%u scale=%.6f,%.6f "
+                    "value=%.6f,%.6f.", static_cast<int>(g_config.jitter_mode),
+                    state, jitter.valid_x ? "valid" : "missing/invalid",
+                    jitter.valid_y ? "valid" : "missing/invalid",
+                    jitter.source_width, jitter.source_height, width, height,
+                    static_cast<double>(jitter.scale_x),
+                    static_cast<double>(jitter.scale_y),
+                    static_cast<double>(jitter.x), static_cast<double>(jitter.y));
+            } else {
+                Log("NR jitter actual: mode=%d state=%s input=%s,%s "
+                    "source=%ux%u work=%ux%u scale=%.6f,%.6f value=unknown.",
+                    static_cast<int>(g_config.jitter_mode), state,
+                    jitter.valid_x ? "valid" : "missing/invalid",
+                    jitter.valid_y ? "valid" : "missing/invalid",
+                    jitter.source_width, jitter.source_height, width, height,
+                    static_cast<double>(jitter.scale_x),
+                    static_cast<double>(jitter.scale_y));
+            }
+        }
+    }
     const bool guide_reset = context.guide_history.NeedsReset(s);
     if (!context.guide_contract_logged || guide_reset) {
         context.guide_contract_logged = true;
@@ -5445,7 +5596,6 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
             "(present=%d,%d).", guides.has_motion_scale_x ? 1 : 0,
             guides.has_motion_scale_y ? 1 : 0);
     }
-    NgxParams *params = context.params;
     SetResource(params, "DLSSNR.Color", slot.proxy);
     SetResource(params, "DLSSNR.Output", slot.neural);
     SetResource(params, "DLSSNR.MVec", motion);
@@ -6001,7 +6151,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         }
     }
     const bool first = context->nr_handle == nullptr;
-    if (!BindNrParameters(*context, *slot, guides, feature,
+    if (!BindNrParameters(*context, *slot, guides, feature, sr_params,
                           width, height, color_contract, first,
                           motion_override))
         return substitution;
@@ -6518,7 +6668,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     }
     const bool first = context.nr_handle == nullptr;
     if (!BindNrParameters(context, slot, substitution.guides, feature,
-                          width, height, color_contract, first)) {
+                          sr_params, width, height, color_contract, first)) {
         PreservePostSrOnFailure(command_list, substitution);
         return false;
     }
@@ -8828,8 +8978,8 @@ void DrawSettings(reshade::api::effect_runtime *) {
     };
 
     ImGui::SeparatorText(ui(
-        "DLSS 5 AI Rendering Upscaling Edition beta0.3.3-dev",
-        "DLSS 5 AI渲染超分版 beta0.3.3-dev"));
+        "DLSS 5 AI Rendering Upscaling Edition beta0.3.7",
+        "DLSS 5 AI渲染超分版 beta0.3.7"));
     ImGui::TextDisabled(
         ui("Version %s | Author %s", "版本 %s | 作者 %s"),
         kAddonVersion, kAddonAuthor);
@@ -8873,11 +9023,15 @@ void DrawSettings(reshade::api::effect_runtime *) {
     }
 
     bool before_sr = next.mode == 2;
-    if (ImGui::Checkbox(
-            ui("Use render-resolution NR -> SR",
-               "使用渲染分辨率 NR -> SR"),
-            &before_sr)) {
-        next.mode = before_sr ? 2 : 1;
+    ImGui::Text("%s", ui("Processing mode", "处理模式"));
+    if (ImGui::RadioButton(
+            ui("Performance: NR -> SR", "性能：NR -> SR"), before_sr)) {
+        next.mode = 2;
+        changed = true;
+    }
+    if (ImGui::RadioButton(
+            ui("Quality: SR -> NR", "高画质：SR -> NR"), !before_sr)) {
+        next.mode = 1;
         changed = true;
     }
     ImGui::TextWrapped(
@@ -9564,8 +9718,6 @@ void DrawSettings(reshade::api::effect_runtime *) {
         "可选诊断：单次采集原图、代理图、NR 输出和合成结果。"
         "F7 请求阶段图；“-”独立截取显示画面。NR→SR 的阶段图止于原生 SR 之前，"
         "两者不是同一帧。"));
-    changed |= ImGui::SliderFloat(
-        ui("NR Intensity", "NR 强度"), &next.intensity, 0.0f, 2.0f, "%.2f");
     static const char *style_items_en[] = {"Default", "Natural", "Cinematic"};
     static const char *style_items_zh[] = {"默认", "自然", "电影"};
     const char *const *style_items = kChineseUi ? style_items_zh : style_items_en;
@@ -9587,16 +9739,23 @@ void DrawSettings(reshade::api::effect_runtime *) {
         ui("Local Structure", "局部结构"), &next.local_structure,
         0.0f, 2.0f, "%.2f");
     if (ImGui::SliderFloat(
-            ui("NR Detail Blend", "NR 细节混合强度"),
-            &next.transfer_strength, 0.0f, 1.0f, "%.2f")) {
+            ui("Final effect strength", "最终效果强度"),
+            &next.transfer_strength, 0.0f, 2.0f, "%.2f")) {
         next.post_transfer_strength = next.transfer_strength;
+        changed = true;
+    }
+    if (ImGui::Button(ui("Use 1.2 comparison preset", "使用 1.2 对比预设"))) {
+        next.transfer_strength = 1.2f;
+        next.post_transfer_strength = 1.2f;
         changed = true;
     }
     ImGui::TextDisabled(
         "%s", ui(
-            "This controls how far the frame moves toward the NR picture; it "
-            "does not change render resolution and is shared by both chains.",
-            "此项控制画面向 NR 结果靠近多少，不改变渲染分辨率；两条链路共用同一数值。"));
+            "0 to 1 retains the previous blend response. 1.2 is an explicit "
+            "comparison preset; 2 is the maximum request. It does not change "
+            "render resolution and is shared by both chains.",
+            "0 到 1 完全保持原有混合响应；1.2 是显式对比预设，2 为请求上限。"
+            "它不改变渲染分辨率，两条链路共用。"));
     NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();
     if (color_policy_snapshot.status != NrColorPolicyStatus::Bypassed &&
         (has_pending || changed || color_policy_snapshot.mode != next.mode))
@@ -9689,7 +9848,14 @@ void DrawSettings(reshade::api::effect_runtime *) {
     changed |= ImGui::Checkbox(ui("UI Correction", "界面修正"),
                                &next.ui_correction);
 
-    ImGui::SeparatorText(ui("Advanced / Recovery", "高级 / 故障恢复"));
+    if (ImGui::CollapsingHeader(ui("Advanced / Recovery", "高级 / 故障恢复"),
+                                ImGuiTreeNodeFlags_DefaultOpen)) {
+    changed |= ImGui::SliderFloat(
+        ui("Model intensity", "模型强度"), &next.intensity, 0.0f, 2.0f, "%.2f");
+    ImGui::TextDisabled("%s", ui(
+        "This is a model control. A higher request does not guarantee a "
+        "stronger visible result when the model saturates.",
+        "这是模型参数；模型饱和时，提高请求不代表画面一定更强。"));
     changed |= ImGui::Checkbox(
         ui("Experimental HDR Highlight Detail", "实验性 HDR 高光细节"),
         &next.experimental_peak_shoulder);
@@ -9743,9 +9909,29 @@ void DrawSettings(reshade::api::effect_runtime *) {
         ui("Diagnostic identity mode (discard NR color)",
            "诊断直通模式（丢弃 NR 颜色结果）"),
         &next.identity_use_original);
+    int jitter_mode = static_cast<int>(next.jitter_mode);
+    static const char *jitter_items_en[] = {
+        "Legacy (do not forward game jitter)",
+        "Developer: forward game pixel jitter"};
+    static const char *jitter_items_zh[] = {
+        "旧行为（不向 NR 传递游戏 jitter）",
+        "开发者：传递游戏像素 jitter"};
+    if (ImGui::Combo(ui("NR jitter input", "NR jitter 输入"), &jitter_mode,
+                     kChineseUi ? jitter_items_zh : jitter_items_en, 2)) {
+        next.jitter_mode = static_cast<NrJitterMode>(jitter_mode);
+        changed = true;
+    }
+    ImGui::TextWrapped("%s", ui(
+        "Developer option. Valid finite game pixel jitter is scaled from the "
+        "SR input grid to the NR work grid. Missing or invalid input is shown "
+        "as unknown and does not change the game's SR jitter. Toggling this "
+        "option rebuilds NR history.",
+        "开发者选项：仅将合法有限的游戏像素 jitter 按 SR 输入网格到 NR 工作网格"
+        "的比例传递。缺失或非法值显示为 unknown，不改游戏 SR jitter；切换选项"
+        "会重建 NR 历史。"));
 
-    if (ImGui::Button(ui("Restore recommended beta0.3.3 settings",
-                         "恢复 beta0.3.3 推荐设置"))) {
+    if (ImGui::Button(ui("Restore recommended beta0.3.7 settings",
+                         "恢复 beta0.3.7 推荐设置"))) {
         next.mode = 2;
         next.identity_use_original = false;
         next.post_transfer_strength = 1.0f;
@@ -9767,6 +9953,7 @@ void DrawSettings(reshade::api::effect_runtime *) {
         next.ui_correction = false;
         changed = true;
     }
+    }
     // Commit UI edits after the active control is released. This prevents one
     // slider drag from producing hundreds of config generations, NR history
     // resets, warm-ups and performance epochs.
@@ -9786,14 +9973,14 @@ void DrawSettings(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI渲染超分版 beta0.3.3-dev @野生的装机宅 Bilibili";
+    "DLSS 5 AI渲染超分版 beta0.3.7 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
     "主键盘 - 参数截图、三种风格和实时画质调节，输入分辨率严格跟随游戏 DLSS 挡位；检测到"
     "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Upscaling Edition beta0.3.3-dev @野生的装机宅 Bilibili";
+    "DLSS 5 AI Rendering Upscaling Edition beta0.3.7 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Switches between output-resolution NR after Super Resolution and "
     "render-resolution NR before Super Resolution. Includes an F6 master "

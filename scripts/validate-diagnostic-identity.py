@@ -37,6 +37,7 @@ harness = r'''
 #include <atomic>
 #include <cstdio>
 #include "nr_guide_contract.h"
+enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 TUNING
 IDENTITY
 struct Config { unsigned warmup_after_create=2; } g_config;
