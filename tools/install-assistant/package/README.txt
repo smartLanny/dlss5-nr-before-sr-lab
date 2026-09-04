@@ -1,1 +1,1 @@
-将经签名/哈希验证的本地包文件放在此目录，并通过界面选择包目录中的 manifest.json。
+请导入已解压的签名组件目录，保留 manifest.json、RELEASE_MANIFEST.json、RELEASE_MANIFEST.sig 及全部载荷。应用仅信任内置发行公钥；不要将旧版未签名清单当作新版本安装包。

@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
-  <ItemGroup><Compile Include="../install-assistant/Core.cs" Link="Core.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../install-assistant/*.cs" Exclude="../install-assistant/App.xaml.cs" Link="%(Filename)%(Extension)" /></ItemGroup>
 </Project>

@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using Microsoft.Win32;
@@ -10,35 +9,87 @@ public partial class MainWindow : Window
 {
     readonly ObservableCollection<GameCandidate> games = new();
     PackageManifest? package;
-    CancellationTokenSource? installCancellation;
-    bool installBusy;
+    CancellationTokenSource? cancellation;
+    bool busy;
     public MainWindow() { InitializeComponent(); Games.ItemsSource = games; }
-    void Note(string s) { LogBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {s}\n"); LogBox.ScrollToEnd(); }
-    void ScanSteam(object s, RoutedEventArgs e) { foreach (var g in SteamScanner.Scan()) Add(g); Note($"Steam 扫描完成：发现 {games.Count} 个候选。扫描不提权，也不修改文件。"); }
-    void RefreshStatus(object s, RoutedEventArgs e) { foreach (var g in games) { var status = Launcher.ReadStatus(g); g.Status = status is null ? "已部署/待运行时确认" : $"已生效（{status.BuildId}，PID {status.ProcessId}）"; } Games.Items.Refresh(); Note("已刷新当前运行时状态；过期或非当前进程状态不会计为生效。"); }
-    void ChooseExe(object s, RoutedEventArgs e) { var d = new OpenFileDialog { Filter="游戏程序 (*.exe)|*.exe", Multiselect=true }; if (d.ShowDialog()!=true) return; foreach(var p in d.FileNames) Add(GameInspector.Inspect(p, null)); Note("已添加手选 EXE；是否兼容仍以运行时状态为准。"); }
-    void Add(GameCandidate g) { if (!games.Any(x=>String.Equals(x.Executable,g.Executable,StringComparison.OrdinalIgnoreCase))) games.Add(g); }
-    void ImportPackage(object s, RoutedEventArgs e) { var d=new OpenFileDialog { Filter="安装包清单 (manifest.json)|manifest.json|JSON (*.json)|*.json" }; if(d.ShowDialog()!=true)return; try { package=PackageManifest.Load(Path.GetDirectoryName(d.FileName)!); Note($"已验证安装包：{package.Id}，{package.Files.Count} 个文件。"); } catch(Exception ex){ Note("安装包拒绝："+ex.Message); } }
     GameCandidate? Selected => Games.SelectedItem as GameCandidate;
-    async void Install(object s, RoutedEventArgs e)
+    void Note(string text) { LogBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}\n"); LogBox.ScrollToEnd(); }
+    void SetBusy(bool value)
     {
-        if (installBusy) { Note("已有安装事务正在运行。"); return; }
-        if(Selected is null || package is null){Note("请先选择游戏并导入本地安装包。");return;}
-        var selected = Selected; var imported = package;
-        try
-        {
-            var plan=Deployer.Inspect(selected,imported); Note($"检查通过：{plan.Files.Count} 个文件将写入映射目标。计划如下："); foreach(var item in plan.Files) Note($"  {item.Source.Role}/{item.Source.Path} -> {item.Destination}");
-            installBusy = true; installCancellation = new CancellationTokenSource(); CancelInstallButton.IsEnabled = true;
-            var r = await Task.Run(() => Deployer.Apply(plan, installCancellation.Token)); Note(r.Message); selected.Status=r.Message; Games.Items.Refresh();
-        }
-        catch(OperationCanceledException) { Note("安装已取消，事务已回滚；后来修改的文件已保留。"); }
-        catch(UnauthorizedAccessException) { if(ElevationHelper.TryRunFor("--install",selected,imported.Root,out var m)) Note("需要管理员权限，已启动最小 helper："+m); else Note("安装需要管理员权限："+m); }
-        catch(Exception ex){Note("安装未完成，已尝试回滚："+ex.Message);}
-        finally { installCancellation?.Dispose(); installCancellation = null; installBusy = false; CancelInstallButton.IsEnabled = false; }
+        busy = value; ControlsPanel.IsEnabled = !value; ActionPanel.IsEnabled = !value; Games.IsEnabled = !value;
+        CancelInstallButton.IsEnabled = value;
     }
-    void CancelInstall(object s, RoutedEventArgs e) { if (installBusy) { installCancellation?.Cancel(); Note("已请求取消；正在完成安全回滚。"); } }
-    void Uninstall(object s, RoutedEventArgs e) { if(Selected is null){Note("请先选择游戏。");return;} try { Note(Deployer.Uninstall(Selected)); } catch(UnauthorizedAccessException) { if(ElevationHelper.TryRunFor("--uninstall",Selected,null,out var m)) Note(m); else Note("卸载需要管理员权限："+m); } catch(Exception ex){Note("卸载失败："+ex.Message);} }
-    void Restore(object s, RoutedEventArgs e) { if(Selected is null){Note("请先选择游戏。");return;} try { Note(Deployer.RestoreLatest(Selected)); } catch(UnauthorizedAccessException) { if(ElevationHelper.TryRunFor("--restore",Selected,null,out var m)) Note(m); else Note("恢复需要管理员权限："+m); } catch(Exception ex){Note("恢复失败："+ex.Message);} }
-    void Recover(object s, RoutedEventArgs e) { if(Selected is null){Note("请先选择游戏。");return;} try { Note(Deployer.Recover(Selected)); } catch(UnauthorizedAccessException) { if(ElevationHelper.TryRunFor("--recover",Selected,null,out var m)) Note(m); else Note("中断事务恢复需要管理员权限："+m); } catch(Exception ex){Note("中断事务恢复失败："+ex.Message);} }
-    void Launch(object s, RoutedEventArgs e) { if(Selected is null){Note("请先选择游戏。");return;} try { Launcher.Start(Selected); Note("已请求启动；安装状态与运行时生效状态分开显示。"); }catch(Exception ex){Note("启动失败："+ex.Message);} }
+    async Task Run(Func<CancellationToken, Task> action)
+    {
+        if (busy) return; SetBusy(true); cancellation = new();
+        try { await action(cancellation.Token); }
+        catch (OperationCanceledException) { Note("操作已取消；已开始的事务会安全回滚。"); }
+        catch (Exception ex) { Note("未完成：" + ex.Message); }
+        finally { cancellation.Dispose(); cancellation = null; SetBusy(false); Games.Items.Refresh(); }
+    }
+    async void ScanSteam(object sender, RoutedEventArgs e) => await Run(async token =>
+    {
+        var found = await Task.Run(() => SteamScanner.Scan().ToList(), token);
+        foreach (var game in found) Add(game); Note($"发现 {found.Count} 个候选；首版自动安装支持赛博朋克2077和巫师3的 D3D12 版本。");
+    });
+    async void ChooseExe(object sender, RoutedEventArgs e)
+    {
+        if (busy) return; var picker = new OpenFileDialog { Filter = "游戏程序 (*.exe)|*.exe", Multiselect = true };
+        if (picker.ShowDialog() != true) return;
+        await Run(async token => { foreach (var path in picker.FileNames) Add(await Task.Run(() => GameInspector.Inspect(path, null), token)); Note("已添加。手选同样核对游戏身份与原生 D3D12 SR。"); });
+    }
+    void Add(GameCandidate game) { if (!games.Any(x => SafeFiles.PathEquals(x.Executable, game.Executable))) games.Add(game); }
+    async void ImportPackage(object sender, RoutedEventArgs e)
+    {
+        if (busy) return; var picker = new OpenFileDialog { Filter = "安装清单 (manifest.json)|manifest.json" }; if (picker.ShowDialog() != true) return;
+        package = null; PackageLabel.Text = "尚未导入安装包";
+        await Run(async token => { var loaded = await Task.Run(() => PackageManifest.Load(Path.GetDirectoryName(picker.FileName)!), token); package = loaded;
+            PackageLabel.Text = $"{loaded.Build} · {loaded.GpuFamily} · {loaded.Language} · 签名及文件校验通过"; Note(PackageLabel.Text); });
+    }
+    async void ImportReShade(object sender, RoutedEventArgs e)
+    {
+        if (busy) return; var picker = new OpenFileDialog { Filter = "官方 ReShade 6.8 FullAddon 安装程序|ReShade_Setup_6.8.0_Addon.exe|程序 (*.exe)|*.exe" }; if (picker.ShowDialog() != true) return;
+        await Run(async token => { await ReShadeHost.ImportSetupAsync(picker.FileName, ElevationHelper.CacheRoot, token); Note("官方 ReShade 6.8 FullAddon 已在本地缓存准备好；尚未写入游戏。"); });
+    }
+    async Task<DeploymentPlan> PreparePlan(GameCandidate game, PackageManifest selectedPackage, CancellationToken token)
+    {
+        Note("核对游戏和官方 ReShade 6.8 FullAddon；只在缓存中准备宿主。");
+        var host = await ReShadeHost.PrepareAsync(ElevationHelper.CacheRoot, token);
+        var plan = await Task.Run(() => Deployer.Inspect(game, selectedPackage, host), token);
+        PlanBox.Text = string.Join(Environment.NewLine, plan.Files.Select(f => $"{f.Action switch { FileAction.Reuse => "保留 / 复用", FileAction.Remove => "备份后移除旧版", _ => "备份后写入" }}  {f.Destination}"));
+        return plan;
+    }
+    async void Inspect(object sender, RoutedEventArgs e)
+    { if (Selected is not { } game || package is not { } selectedPackage) { Note("请选择游戏并导入对应显卡的签名安装包。"); return; } await Run(async token => { await PreparePlan(game, selectedPackage, token); Note("安装计划已显示，尚未写入游戏。"); }); }
+    async void Install(object sender, RoutedEventArgs e)
+    {
+        if (Selected is not { } game || package is not { } selectedPackage) { Note("请选择游戏并导入对应显卡的签名安装包。"); return; }
+        await Run(async token =>
+        {
+            var plan = await PreparePlan(game, selectedPackage, token);
+            OperationResult result;
+            try { result = await Task.Run(() => Deployer.Apply(plan, token), token); }
+            catch (UnauthorizedAccessException) { Note("游戏目录需要管理员权限；等待系统授权和安装结果。"); result = await ElevationHelper.TryRunForAsync("install", game, selectedPackage.Root, token); }
+            Note(result.Message); game.Status = Launcher.Describe(game);
+        });
+    }
+    void CancelInstall(object sender, RoutedEventArgs e) { cancellation?.Cancel(); Note("已请求取消；请等待当前文件操作和回滚结束。"); }
+    async Task Mutate(string operation)
+    {
+        if (Selected is not { } game) { Note("请选择游戏。"); return; }
+        await Run(async token =>
+        {
+            OperationResult result;
+            try { result = await Task.Run(() => operation switch { "recover" => Deployer.Recover(game), "restore" => Deployer.RestoreLatest(game), _ => Deployer.Uninstall(game) }, token); }
+            catch (UnauthorizedAccessException) { result = await ElevationHelper.TryRunForAsync(operation, game, null, token); }
+            Note(result.Message); game.Status = Launcher.Describe(game);
+        });
+    }
+    async void Uninstall(object sender, RoutedEventArgs e) => await Mutate("uninstall");
+    async void Restore(object sender, RoutedEventArgs e) => await Mutate("restore");
+    async void Recover(object sender, RoutedEventArgs e) => await Mutate("recover");
+    async void Launch(object sender, RoutedEventArgs e)
+    { if (Selected is not { } game) return; await Run(token => { Launcher.Start(game); Note("已请求启动游戏；稍后刷新可确认实际加载与 NR 提交。"); return Task.CompletedTask; }); }
+    async void RefreshStatus(object sender, RoutedEventArgs e) => await Run(async token =>
+    { foreach (var game in games) { try { game.Status = await Task.Run(() => Launcher.Describe(game), token); } catch (Exception ex) { game.Status = "无法验证：" + ex.Message; } } Note("状态已刷新。只有实际加载路径、插件哈希和当前进程一致才匹配此次部署。"); });
 }
