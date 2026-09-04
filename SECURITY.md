@@ -1,33 +1,26 @@
-# Security Policy
+# Security policy
 
-## Scope
+## Supported branch
 
-Security-relevant reports include device removal, GPU hangs, use-after-free,
-incorrect D3D12 resource-state transitions, out-of-bounds subrect access,
-unrestored NGX parameters, unsafe hook teardown, and accidental collection or
-publication of sensitive local data.
-
-Visual-quality disagreement and unsupported Feature 18 result codes are usually
-compatibility issues rather than security vulnerabilities, unless they lead to a
-crash, memory corruption, or persistent modification of another component.
+Security fixes for the current foundation are developed on
+`product/xiaofeng-manager-foundation` until the product is moved to its own
+repository.
 
 ## Reporting
 
-Use a private GitHub security advisory when available. Otherwise contact the
-repository owner privately before filing a public issue. Include only:
+Do not attach proprietary NVIDIA binaries, game files, raw crash dumps or logs
+that contain usernames, installation paths, process addresses or account data.
+A useful report should include:
 
-- a concise reproduction sequence;
-- GPU generation, driver version, API, render/output dimensions, formats, flags,
-  and sanitized result codes;
-- the smallest source revision or commit that reproduces the problem;
-- a redacted log excerpt with paths and pointer values removed.
+- manager version and commit;
+- game name and graphics API;
+- the copied, text-only diagnostics from the Repair page;
+- minimal reproduction steps;
+- sanitized excerpts from `nr-before-sr.log` where relevant.
 
-Do not upload vendor DLLs, modified runtimes, game files, model payloads, raw
-process dumps, access tokens, or full unredacted logs.
+## Design guarantees
 
-## Operational warning
-
-This project hooks graphics calls inside another process. Use it only with
-software that explicitly permits ReShade add-ons. The project does not support
-anti-cheat-protected or competitive multiplayer environments and does not attempt
-to bypass integrity or signature checks.
+The manager refuses unknown `dxgi.dll` conflicts, anti-cheat targets, unsupported
+architectures and payload hash mismatches. Installation operations use a
+write-ahead transaction and persistent original-file backups. These checks must
+not be weakened merely to increase the number of games shown as supported.

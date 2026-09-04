@@ -1,0 +1,3 @@
+[submodule "vendor/DLSS5-Swapper"]
+	path = vendor/DLSS5-Swapper
+	url = https://github.com/rakanki911/DLSS5-Swapper.git

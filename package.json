@@ -1,0 +1,62 @@
+{
+  "name": "xiaofeng-dlss5-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A beginner-friendly desktop manager for the DLSS 5 NR-before-SR add-on.",
+  "main": "main.js",
+  "author": "野生的装机宅 / Xiaofeng Edition contributors",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "verify:payload": "node scripts/verify-payload.js",
+    "build": "npm run verify:vendor && npm run verify:payload && electron-builder --win",
+    "build:portable": "npm run verify:vendor && npm run verify:payload && electron-builder --win portable",
+    "verify:vendor": "node scripts/verify-vendor.js"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.xiaofeng.dlss5.manager",
+    "productName": "DLSS 5 AI 超分管理器",
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "vendor/DLSS5-Swapper/LICENSE",
+      "vendor/DLSS5-Swapper/src/library.js",
+      "vendor/DLSS5-Swapper/src/core/pe.js",
+      "vendor/DLSS5-Swapper/src/core/emulators.js",
+      "vendor/DLSS5-Swapper/src/core/feeder-release.js",
+      "vendor/DLSS5-Swapper/src/core/file-journal.js",
+      "vendor/DLSS5-Swapper/src/core/scan.js",
+      "vendor/DLSS5-Swapper/src/core/install-guards.js",
+      "package.json",
+      "product.json",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
+      "UPSTREAM.md"
+    ],
+    "extraResources": [
+      {
+        "from": "payload",
+        "to": "payload",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": { "target": ["nsis", "portable"] },
+    "portable": { "artifactName": "Xiaofeng-DLSS5-Manager-${version}-portable.exe" },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "DLSS 5 AI 超分管理器",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Xiaofeng-DLSS5-Manager-Setup-${version}.exe"
+    }
+  }
+}

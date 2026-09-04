@@ -1,110 +1,73 @@
-# DLSS5 NR-Before-SR Lab
+# DLSS 5 AI 超分管理器 · 装机宅版
 
-Experimental, source-only ReShade D3D12 add-on for studying two neural-rendering
-orders around a game's ordinary DLSS Super Resolution call:
+一个面向中国普通玩家的 **NR→SR 安装、设置与修复基础工程**。
 
-- Mode 1: game DLSS SR, then output-resolution neural rendering (`SR -> NR`).
-- Mode 2: render-resolution neural rendering at 1:1, then the game's original
-  DLSS SR (`NR -> SR`).
+它不是新的游戏内 HUD，也不尝试重造 ReShade。桌面端只负责把现有
+NR-before-SR 插件变得更容易安装和调节：打开软件即可看到游戏，卡片内
+直接一键安装、修改常用参数、检查组件、修复或卸载。
 
-This is a research project, not an NVIDIA product and not an official joint
-DLSS NR/SR implementation. NVIDIA, DLSS, GeForce, and related names are
-trademarks of their respective owners.
+## 当前范围
 
-## Repository boundary
+- Windows 10 / 11；
+- 64 位 DirectX 11 / DirectX 12；
+- 游戏本身已经集成普通 DLSS Super Resolution；
+- 使用现有 ReShade Add-on 作为插件宿主和游戏内设置页；
+- 不支持反作弊游戏、模拟器、x86、Vulkan、OpenGL、Feeder、OptiScaler。
 
-This repository intentionally contains only source code, a default configuration,
-build instructions, sanitized test summaries, and redistributable third-party
-source notices. It does **not** contain or redistribute:
+这些限制是有意的：先把最常用、最安全的一条链路做稳定，再逐层扩展。
 
-- NVIDIA DLLs, SDK binaries, neural-network weights, kernels, or model payloads;
-- ShortFuse or other community-modified runtime binaries;
-- game files, game configuration backups, or screenshots extracted from games;
-- compiled ReShade add-ons, bridge DLLs, executables, crash dumps, or packages;
-- raw logs containing usernames, installation paths, process addresses, or other
-  machine-specific information.
-
-Do not open an issue or pull request containing any of those materials. Runtime
-components must come from lawful sources and remain outside this repository.
-
-## Safety model
-
-The add-on deliberately limits itself to ordinary DLSS Super Resolution
-(NGX feature 1). Ray Reconstruction (feature 13) is passed through unmodified;
-while RR is active, companion feature-1 evaluations are also protected from a
-second NR pass. The process-lifetime detours remain installed, but the master-off
-path takes an atomic first-branch bypass before Feature 18, resource conversion,
-parameter substitution, or GPU work. If a resource, subrect, guide, format,
-create, or evaluate contract is not accepted, the intended behavior is to retain
-the game's original SR result.
-
-This code injects into a game process and hooks graphics API entry points. Use it
-only in offline/single-player environments that allow ReShade add-ons. Do not use
-it with anti-cheat-protected or competitive multiplayer software.
-
-## Included source
-
-- `src/nr_before_sr.cpp`: ReShade add-on, NGX observation/substitution, HDR proxy
-  composition, resource adaptation, overlay, and fail-safe behavior.
-- `src/nrchain_nvngx.cpp`: small forwarding bridge used by the experiment.
-- `config/nr_before_sr.ini`: conservative default settings.
-- `third_party/minhook`: minimal x64 MinHook source subset required by the build.
-- `docs/TEST_EVIDENCE.md`: sanitized, non-authoritative runtime observations.
-
-## Build prerequisites
-
-The repository does not download or vendor the toolchain or ReShade headers.
-Provide both explicitly:
-
-1. An LLVM-MinGW x86_64 toolchain containing
-   `x86_64-w64-mingw32-clang.exe` and `x86_64-w64-mingw32-clang++.exe`.
-2. A ReShade source checkout containing `include/reshade.hpp` and
-   `deps/imgui/imgui.h`.
-
-From PowerShell:
+## 使用源码
 
 ```powershell
-./scripts/build.ps1 `
-  -ToolchainRoot 'D:\path\to\llvm-mingw' `
-  -ReShadeSourceRoot 'D:\path\to\reshade'
+git submodule update --init --recursive
+npm install
+npm start
 ```
 
-Alternatively set `DLSS5_LLVM_MINGW_ROOT` and `DLSS5_RESHADE_ROOT`. Build output
-is written only to `build/`, which is ignored by Git.
+通过 GitHub 的“Download ZIP”获取源码时，压缩包没有 submodule 元数据，请改用：
 
-No proprietary runtime is needed to compile the source. This repository does not
-provide runtime installation instructions or download links for vendor binaries.
+```powershell
+./scripts/bootstrap-vendor.ps1
+npm install
+npm start
+```
 
-## Current research status
+管理器可以在没有 payload 时启动、扫描游戏和查看兼容性；安装操作会被
+安全阻止。准备发布组件的方法见：
 
-The two chains have executed successfully in several D3D12 titles, including
-contracts with FP16 SceneColor, UE-style `R11G11B10_FLOAT` SceneColor, padded
-active regions, low-resolution depth/motion guides, and high-resolution motion
-conversion. Results are engine- and runtime-dependent. Important unresolved
-areas are documented in [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
+```powershell
+./scripts/prepare-payload.ps1 `
+  -NrBuildDir D:\nr-build `
+  -NeuralRuntime D:\runtime\nvngx_dlssnr.dll `
+  -ReShadeAddonRuntime D:\reshade\ReShade64.dll
+```
 
-The 2026-09-02 tree is an **early bug-fix candidate**, not a universal release.
-It compiles cleanly in the maintained local toolchain and has received a focused
-P0/P1 source review. Its newest command-list lifetime, RR exclusion, and extent
-resolution changes still require fresh in-game stress testing before a public
-binary release.
+脚本会复制五个必要文件并生成 SHA-256 `bundle.json`。
 
-The project should not claim exact visual equivalence between Mode 1 and Mode 2:
-Mode 2 gives the neural model fewer source pixels and then asks the game's SR to
-reconstruct the result. Global lighting drift is considered a correctable color
-contract problem; some local face and texture differences are inherent to the
-different processing order.
+## 用户路径
 
-## Contributing and security
+1. 自动扫描或“添加游戏”；
+2. 在游戏卡片点击“一键安装”；
+3. 原地展开卡片，调整性能/画质模式、AI 强度、风格和人脸保护；
+4. 游戏内仍使用原来的 ReShade 设置页；
+5. 出问题时进入“修复”，检查组件并一键恢复。
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before sharing changes and
-[SECURITY.md](SECURITY.md) before reporting a crash or unsafe resource-lifetime
-problem. Reports must be sanitized and must never include proprietary binaries.
+## 安全模型
 
-## Licensing status
+- 所有安装组件必须匹配 `bundle.json`；
+- 写入前确认游戏已关闭；
+- 检测到反作弊时停止；
+- 不覆盖未知 `dxgi.dll`；
+- 每次操作使用写前日志，失败自动回滚；
+- 首次被替换的文件单独备份，卸载时恢复；
+- 默认保留用户的 `nr_before_sr.ini` 参数；
+- 不在仓库提交 NVIDIA runtime 或其他未审查二进制。
 
-No project-wide open-source license has been selected yet. Until the repository
-owner confirms contributor rights and adds a `LICENSE`, this source remains
-unlicensed and should stay private. See
-[LICENSE_RECOMMENDATION.md](LICENSE_RECOMMENDATION.md). Third-party components
-retain their own licenses; see [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
+## 上游与署名
+
+桌面基础通过固定版本 Git submodule 复用了 MIT 许可的
+[DLSS5-Swapper](https://github.com/rakanki911/DLSS5-Swapper) 部分本地扫描与
+文件安全实现。原作者和许可证见 `UPSTREAM.md`、`LICENSE` 与
+`THIRD_PARTY_NOTICES.md`。
+
+产品维护：**野生的装机宅**。品牌名、Bilibili 主页、群号和更新地址统一在根目录 `product.json` 配置，空群号不会显示入口。
