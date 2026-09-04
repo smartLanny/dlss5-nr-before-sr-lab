@@ -4410,6 +4410,8 @@ bool SupportsPostSrStorage(ID3D12Device *device,
     return true;
 }
 
+#include "nr_codec_descriptors.inl"
+
 void WriteExposureSrv(ID3D12Device *device, ID3D12Resource *exposure,
                       ID3D12DescriptorHeap *heap) {
     if (device == nullptr || heap == nullptr) return;
@@ -4615,11 +4617,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
         D3D12_CPU_DESCRIPTOR_HANDLE snapshot_cpu =
             ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
                 slot.snapshot_heap);
-        const D3D12_CPU_DESCRIPTOR_HANDLE main_cpu =
-            ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
-        ID3D12Device_CopyDescriptorsSimple(
-            device, kCodecDescriptorCount, snapshot_cpu, main_cpu,
-            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        WriteCodecDescriptorSet(device,slot,slot.snapshot_heap);
         D3D12_SHADER_RESOURCE_VIEW_DESC external_srv = {};
         external_srv.Format = slot.result_format;
         external_srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
