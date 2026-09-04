@@ -21,5 +21,6 @@ public partial class MainWindow : Window
     void Install(object s, RoutedEventArgs e) { if(Selected is null || package is null){Note("请先选择游戏并导入本地安装包。");return;} try { var r=Deployer.Install(Selected,package); Note(r.Message); Selected.Status=r.Message; Games.Items.Refresh(); }catch(Exception ex){Note("安装未完成，已尝试回滚："+ex.Message);} }
     void Uninstall(object s, RoutedEventArgs e) { if(Selected is null){Note("请先选择游戏。");return;} try { Note(Deployer.Uninstall(Selected)); }catch(Exception ex){Note("卸载失败："+ex.Message);} }
     void Restore(object s, RoutedEventArgs e) { if(Selected is null){Note("请先选择游戏。");return;} try { Note(Deployer.RestoreLatest(Selected)); }catch(Exception ex){Note("恢复失败："+ex.Message);} }
+    void Recover(object s, RoutedEventArgs e) { if(Selected is null){Note("请先选择游戏。");return;} try { Note(Deployer.Recover(Selected)); }catch(Exception ex){Note("中断事务恢复失败："+ex.Message);} }
     void Launch(object s, RoutedEventArgs e) { if(Selected is null){Note("请先选择游戏。");return;} try { Launcher.Start(Selected); Note("已请求启动；安装状态与运行时生效状态分开显示。"); }catch(Exception ex){Note("启动失败："+ex.Message);} }
 }

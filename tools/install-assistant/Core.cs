@@ -126,7 +126,7 @@ public static class Deployer
 
 public static class ElevationHelper
 {
-    public static bool TryRun(string executable, string arguments, out string message) { try { Process.Start(new ProcessStartInfo(executable, arguments) { UseShellExecute = true, Verb = "runas" }); message = "已请求最小权限 helper；游戏启动仍保持非管理员。"; return true; } catch (System.ComponentModel.Win32Exception) { message = "用户取消或系统拒绝提权，未执行写入。"; return false; } catch (Exception ex) { message = "提权 helper 失败：" + ex.Message; return false; } }
+    public static bool TryRun(string executable, string arguments, out string message) { try { var full = Path.GetFullPath(executable); if (!File.Exists(full) || !full.StartsWith(Path.GetFullPath(AppContext.BaseDirectory), StringComparison.OrdinalIgnoreCase) || !Path.GetFileName(full).Equals("DLSS5InstallAssistant.Helper.exe", StringComparison.OrdinalIgnoreCase)) { message = "提权 helper 路径未通过白名单校验，未执行。"; return false; } Process.Start(new ProcessStartInfo(full, arguments) { UseShellExecute = true, Verb = "runas" }); message = "已请求最小权限 helper；游戏启动仍保持非管理员。"; return true; } catch (System.ComponentModel.Win32Exception) { message = "用户取消或系统拒绝提权，未执行写入。"; return false; } catch (Exception ex) { message = "提权 helper 失败：" + ex.Message; return false; } }
 }
 
 public static class Launcher
