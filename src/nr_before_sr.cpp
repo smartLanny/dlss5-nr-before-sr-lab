@@ -884,6 +884,8 @@ std::atomic<bool> g_shortfuse_nr_enabled{false};
 // actually written to the NR parameter block for the current binding.
 std::atomic<unsigned int> g_nr_jitter_status{0};
 
+namespace nr_f8 { extern std::atomic<bool> g_config_hold; }
+
 void BeginPipelineStatsScopeLocked(unsigned long long feature_generation,
                                    int mode) {
     if (g_pipeline_stats_generation.load(std::memory_order_relaxed) ==
@@ -1432,6 +1434,7 @@ ChainConfig SnapshotConfig() {
 }
 
 void PollConfigFromPresent() {
+    if (nr_f8::g_config_hold.load(std::memory_order_acquire)) return;
     const ULONGLONG now = GetTickCount64();
     ULONGLONG next = g_next_config_poll_tick.load(std::memory_order_relaxed);
     if (now < next ||
@@ -1444,7 +1447,17 @@ void PollConfigFromPresent() {
     LeaveCriticalSection(&g_chain_cs);
 }
 
-bool ApplyConfig(ChainConfig next, const char *source) {
+bool ApplyConfig(ChainConfig next, const char *source,
+                 bool persist_to_ini = true) {
+    // F8 owns a transient three-group experiment. Block every ordinary
+    // writer, including F6 and pending overlay edits, while it is active;
+    // the F8 path passes persist_to_ini=false for its temporary transitions
+    // and final restoration.
+    if (persist_to_ini && nr_f8::g_config_hold.load(std::memory_order_acquire)) {
+        Log("Config update from %s ignored while F8 capture owns the transient "
+            "configuration; no INI write performed.", source);
+        return false;
+    }
     NormalizeConfig(next);
     EnterCriticalSection(&g_chain_cs);
     if (SameConfig(next, g_config)) {
@@ -1464,7 +1477,7 @@ bool ApplyConfig(ChainConfig next, const char *source) {
     SetBypassReason(g_config.enabled
         ? BypassReason::WaitingForFeature1
         : BypassReason::MasterDisabled);
-    const bool persisted = SaveConfig(g_config);
+    const bool persisted = persist_to_ini ? SaveConfig(g_config) : true;
     const ChainConfig applied = g_config;
     LeaveCriticalSection(&g_chain_cs);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
@@ -2984,6 +2997,14 @@ struct NrDiagnosticIdentity {
     NrTuningSignature tuning = {};
 };
 
+namespace nr_f8 {
+void ObserveSuccess(const NrDiagnosticIdentity &, unsigned int, unsigned int, bool);
+void ObserveParams(const NgxParams *, const FeatureRecord &, unsigned long long);
+void StageExported(unsigned long long, const wchar_t *, bool);
+bool KeepStageContext();
+void Screenshot(reshade::api::effect_runtime *, const char *);
+}
+
 // Protected by g_chain_cs. An instance means a successful, non-null Create;
 // a frame means one successful Feature 18 Evaluate, not a presented/FG frame.
 unsigned long long g_next_nr_instance_id = 0;
@@ -3005,6 +3026,12 @@ struct NrStageCaptureInfo {
     unsigned int model_height = 0;
     unsigned int source_base_x = 0;
     unsigned int source_base_y = 0;
+    // F8 region in original source-pixel coordinates. The V2 shader path
+    // dispatches this rectangle directly; baseline paths leave it as metadata.
+    unsigned int region_x = 0;
+    unsigned int region_y = 0;
+    unsigned int region_width = 0;
+    unsigned int region_height = 0;
     unsigned int destination_base_x = 0;
     unsigned int destination_base_y = 0;
     unsigned int codec_flags = 0;
@@ -3030,6 +3057,11 @@ struct NrStageCaptureInfo {
     float gpu_pre_exposure = 0.0f;
     int mode = 0;
 };
+
+namespace nr_f8 {
+void StageCaptured(const NrStageCaptureInfo &, const wchar_t *, const float *, UINT64, bool);
+void GetActiveRoi(unsigned int &, unsigned int &, unsigned int &, unsigned int &);
+}
 
 struct NrStageCapture {
     ID3D12Resource *buffer = nullptr;
@@ -3220,6 +3252,8 @@ void CompleteNrDiagnosticEvaluation(NrContext &context, NrSlot &slot) {
         slot.stage_capture.info.identity = identity;
     g_applied_nr_identity = identity;
     g_applied_nr_mode = context.mode;
+    nr_f8::ObserveSuccess(identity, context.width, context.height,
+                          context.diagnostic_reset_requested);
 }
 // Ready contexts are detached from the live table under g_chain_cs, then their
 // NGX and COM objects are released after all lifecycle locks have been dropped.
@@ -5715,6 +5749,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.result_format = static_cast<unsigned int>(slot.result_format);
         info.source_base_x = source_base_x;
         info.source_base_y = source_base_y;
+        nr_f8::GetActiveRoi(info.region_x, info.region_y,
+            info.region_width, info.region_height);
         info.destination_base_x = destination_base_x;
         info.destination_base_y = destination_base_y;
         info.codec_flags = codec_flags;
@@ -9700,6 +9736,7 @@ DWORD WINAPI HookWorker(void *) {
 
 #include "nr_feedback_capture.inl"
 #include "nr_runtime_status.inl"
+#include "nr_f8_sequence.inl"
 
 void ToggleMasterFromHotkey() {
     ChainConfig next = SnapshotConfig();
@@ -9765,11 +9802,14 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     static bool feedback_key_was_down = false;
     const SHORT f8_state = GetAsyncKeyState(VK_F8);
     const bool feedback_down = (f8_state & 0x8000) != 0;
-    if ((f8_state & 0x0001) != 0 || (feedback_down && !feedback_key_was_down))
-        RequestFeedbackBundle();
+    if ((f8_state & 0x0001) != 0 || (feedback_down && !feedback_key_was_down)) {
+        nr_f8::OpenWindow();
+        runtime->open_overlay(true, reshade::api::input_source::keyboard);
+    }
     feedback_key_was_down = feedback_down;
     FeedbackPresent(runtime);
     QueueRuntimeStatus();
+    nr_f8::Present(runtime);
 
     const SHORT f7_state = GetAsyncKeyState(VK_F7);
     const bool stage_key_is_down = (f7_state & 0x8000) != 0;
@@ -10582,7 +10622,7 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
             sample_identity.instance_id, sample_identity.frame_id,
             sample_identity.config_generation);
     }
-    DrawFeedbackControls();
+    nr_f8::DrawControls();
     const unsigned int capture_status = StageCaptureStatus();
     if (capture_status == 0) {
         if (ImGui::Button(ui("Capture NR stages once", "采集一次 NR 各阶段")))
@@ -10699,6 +10739,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnReShadePresent);
         reshade::register_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
         reshade::register_overlay(nullptr, DrawSettings);
+        reshade::register_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
         Log("Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot "
             "hotkey (API %u).",
             static_cast<unsigned int>(RESHADE_API_VERSION));
@@ -10710,6 +10751,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             reshade::unregister_event<reshade::addon_event::init_device>(
                 OnCommandStateInitDevice);
             reshade::unregister_overlay(nullptr, DrawSettings);
+            reshade::unregister_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
             reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
@@ -10732,6 +10774,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::unregister_event<reshade::addon_event::init_device>(
             OnCommandStateInitDevice);
         reshade::unregister_overlay(nullptr, DrawSettings);
+        reshade::unregister_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
         reshade::unregister_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
         reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
