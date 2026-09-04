@@ -4,7 +4,7 @@ Official releases: https://space.bilibili.com/941799
 
 First installation
 
-New installations request final strength 1.2 and colour follow 0.5. Updates preserve the previously selected mode's settings, including zero. Effective colour follow remains zero for unknown HDR inputs. Hover over controls for explanations. The post-SR comparison strength of 1.0 is a comparison baseline, not the new installation default.
+New installations request final strength 1.2 and colour follow 0.75, and enable the model HUD/text protection parameter. Updates preserve the previously selected mode's settings, including zero, and do not overwrite an existing UI-protection 0/1 value. Effective colour follow remains zero for unknown HDR inputs. Hover over controls for explanations. The post-SR comparison strength of 1.0 is a comparison baseline, not the new installation default.
 
 Choose the full package for your GPU. The game needs D3D12, native DLSS Super Resolution, and ReShade / RHI with addon support. Use it only in offline environments that allow these addons and have no anti-cheat.
 
@@ -46,6 +46,8 @@ Double-click Collect-Feedback.cmd in the installation directory. Keep collect-fe
 Send the ZIP with the game name, GPU model, HDR or SDR setting, what went wrong and what you expected. Files stay on your computer until you share them. The collector does not upload automatically or switch image settings. Logs and screenshots may include installation paths and visible overlays.
 
 What changed in this version
+
+The stable build no longer forces NR insertion while the command list has a null PSO, reducing the regression surface behind the reported Forza Horizon crash. The submitted bundle had no crash dump, so game confirmation is still required. The model UI-correction parameter now uses the unsigned type actually read by the runtime. It can help text only when a game supplies a separate UI layer and cannot discover subtitles already baked into the picture.
 
 This version fixes a case where an unset game rendering state incorrectly prevented the addon from running. It also fixes invalid exposure-value handling and shows the currently effective value and restriction reason for options such as Colour Follow.
 

@@ -70,7 +70,7 @@ int main() {
     fixture(3,1,L"0",nullptr); check(Load().transfer_strength==0,"missing active field falls back to existing valid zero");
     fixture(3,2,L"NaN",L"0"); check(Load().transfer_strength==0,"invalid active field falls back to valid zero");
     fixture(3,2,nullptr,nullptr); check(Load().transfer_strength==1.2f,"new installation default strength");
-    check(Load().color_strength==.5f,"missing colour uses new installation default");
+    check(Load().color_strength==.75f,"missing colour uses new installation default");
     put(L"ColorStrength",L"0"); check(Load().color_strength==0,"saved zero colour is preserved");
     DeleteFileW(g_ini_path);
     std::printf("actual Win32 INI strength migration: %d checks / %d failures\n",checks,failures);
