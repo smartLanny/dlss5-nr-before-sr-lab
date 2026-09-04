@@ -10,7 +10,7 @@ foreach ($required in @('Deployer.Inspect', 'Deployer.Apply', 'installCancellati
     if ($ui.IndexOf($required, [StringComparison]::Ordinal) -lt 0) { throw "UI engine contract missing: $required" }
 }
 Write-Host 'PASS UI engine contract: inspect/plan/apply/cancel/recover/uninstall/launch/status/elevation'
-$release = Join-Path (Split-Path -Parent $PSScriptRoot) 'release\install-assistant-beta0.3.7-r3-final2'
+$release = Join-Path (Split-Path -Parent $PSScriptRoot) 'release\install-assistant-beta0.3.7-r3-final3'
 if (Test-Path -LiteralPath $release) {
     foreach ($packageDir in Get-ChildItem -LiteralPath $release -Directory -Filter 'offline-package-*') {
         $manifest = Get-Content -Raw -Encoding UTF8 (Join-Path $packageDir.FullName 'manifest.json') | ConvertFrom-Json
