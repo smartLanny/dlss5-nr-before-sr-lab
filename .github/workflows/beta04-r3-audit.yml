@@ -1,88 +1,33 @@
-name: Fix beta0.4 r3 invalid model-sample fallback
+name: Audit beta0.4 r3 invalid model-sample fallback
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - codex/beta0.4-perfect-chain
 
 permissions:
-  contents: write
-
-concurrency:
-  group: beta04-r3-invalid-sample-fix
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  apply:
-    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[r3-invalid-sample-fix-applied]')
+  audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: codex/beta0.4-perfect-chain
-          fetch-depth: 0
-      - name: Check raw model taps before colour decoding
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('src/nr_before_sr.cpp')
-          text = path.read_text(encoding='utf-8')
-
-          old_decode = 'return (Passthrough & 1u) != 0u ? saturate(stored) : SRGBToLinear(stored);'
-          new_decode = 'return (Passthrough & 1u) != 0u ? stored : SRGBToLinear(stored);'
-          if text.count(old_decode) != 2:
-              raise SystemExit(f'model decode occurrence count={text.count(old_decode)}')
-          text = text.replace(old_decode, new_decode)
-
-          anchor = 'float3 SampleProxyLinearV2(float2 fullPixelCenter) {\n'
-          if text.count(anchor) != 1:
-              raise SystemExit(f'V2 sample anchor count={text.count(anchor)}')
-          guard = r'''bool IsFiniteModelStoredV2(float3 value) {
-              return all(value == value) && all(abs(value) <= 65504.0.xxx);
-          }
-
-          bool ModelNeighborhoodFiniteV2(float2 fullPixelCenter) {
-              float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
-                  float2(max(Width, 1u), max(Height, 1u)) - 0.5;
-              int2 base = int2(floor(mapped));
-              int2 upper = int2(max(ModelWidth, 1u) - 1u,
-                                max(ModelHeight, 1u) - 1u);
-              int2 p00 = clamp(base, int2(0, 0), upper);
-              int2 p10 = clamp(base + int2(1, 0), int2(0, 0), upper);
-              int2 p01 = clamp(base + int2(0, 1), int2(0, 0), upper);
-              int2 p11 = clamp(base + int2(1, 1), int2(0, 0), upper);
-              return
-                  IsFiniteModelStoredV2(ProxyColor.Load(int3(p00, 0)).rgb) &&
-                  IsFiniteModelStoredV2(ProxyColor.Load(int3(p10, 0)).rgb) &&
-                  IsFiniteModelStoredV2(ProxyColor.Load(int3(p01, 0)).rgb) &&
-                  IsFiniteModelStoredV2(ProxyColor.Load(int3(p11, 0)).rgb) &&
-                  IsFiniteModelStoredV2(NeuralColor.Load(int3(p00, 0)).rgb) &&
-                  IsFiniteModelStoredV2(NeuralColor.Load(int3(p10, 0)).rgb) &&
-                  IsFiniteModelStoredV2(NeuralColor.Load(int3(p01, 0)).rgb) &&
-                  IsFiniteModelStoredV2(NeuralColor.Load(int3(p11, 0)).rgb);
-          }
-
-          '''
-          text = text.replace(anchor, guard + anchor, 1)
-
-          combine = text.index('void CombineV2CS(uint3 tid : SV_DispatchThreadID)')
-          finite = text.index('    bool finiteInputs = ', combine)
-          equals = text.index('=', finite) + 1
-          text = text[:equals] + ' ModelNeighborhoodFiniteV2(center) &&\n       ' + text[equals:]
-
-          path.write_text(text, encoding='utf-8', newline='\n')
-          PY
-      - name: Validate source and shaders structurally
+      - name: Verify the applied fallback guard
         run: |
           python scripts/validate-beta04-structure.py
           python scripts/test-beta04-math.py
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('src/nr_before_sr.cpp').read_text(encoding='utf-8')
+          required = (
+              'bool ModelNeighborhoodFiniteV2(float2 fullPixelCenter)',
+              'ModelNeighborhoodFiniteV2(center) &&',
+              'return (Passthrough & 1u) != 0u ? stored : SRGBToLinear(stored);',
+          )
+          missing = [marker for marker in required if marker not in text]
+          if missing:
+              raise SystemExit('missing invalid-sample fallback markers: ' + ', '.join(missing))
+          print('V2 raw finite-sample fallback guard is present')
+          PY
           git diff --check
-      - name: Commit invalid-sample fallback fix
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/nr_before_sr.cpp
-          git commit -m "Fix V2 invalid model-sample fallback [r3-invalid-sample-fix-applied]"
-          git push origin HEAD:codex/beta0.4-perfect-chain
