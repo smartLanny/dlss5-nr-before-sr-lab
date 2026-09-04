@@ -6149,17 +6149,6 @@ NgxResult ComputeScalingRatioCallback(NgxParams *params) {
     return kNgxSuccess;
 }
 
-struct NrGuideBinding {
-    NrGuideSignature signature = {};
-    ID3D12Resource *depth = nullptr;
-    ID3D12Resource *motion = nullptr;
-    bool has_motion_scale_x = false, has_motion_scale_y = false;
-    bool valid_motion_scale_x = false, valid_motion_scale_y = false;
-    float jitter_offset_x = 0.0f;
-    float jitter_offset_y = 0.0f;
-    int game_reset = 0;
-};
-
 struct NrJitterBinding {
     bool known = false;
     bool valid_x = false;
@@ -6170,6 +6159,18 @@ struct NrJitterBinding {
     float scale_y = 1.0f;
     unsigned int source_width = 0;
     unsigned int source_height = 0;
+};
+
+struct NrGuideBinding {
+    NrGuideSignature signature = {};
+    NrJitterBinding jitter = {};
+    ID3D12Resource *depth = nullptr;
+    ID3D12Resource *motion = nullptr;
+    bool has_motion_scale_x = false, has_motion_scale_y = false;
+    bool valid_motion_scale_x = false, valid_motion_scale_y = false;
+    float jitter_offset_x = 0.0f;
+    float jitter_offset_y = 0.0f;
+    int game_reset = 0;
 };
 
 // Jitter is expressed in source pixels by the game's SR call. The signed NR
@@ -6334,17 +6335,10 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     s.motion_scale_x *= source_to_work_x;
     s.motion_scale_y *= source_to_work_y;
 
-    float jitter_x = 0.0f, jitter_y = 0.0f;
-    if (!GetFloat(sr_params, "Jitter.Offset.X", &jitter_x) ||
-        !std::isfinite(jitter_x)) jitter_x = 0.0f;
-    if (!GetFloat(sr_params, "Jitter.Offset.Y", &jitter_y) ||
-        !std::isfinite(jitter_y)) jitter_y = 0.0f;
-    // Jitter is also expressed in source-image pixels. Keep it in lockstep
-    // with the colour and motion coordinate system seen by Feature 18.
-    binding.jitter_offset_x = std::clamp(
-        jitter_x * source_to_work_x, -2.0f, 2.0f);
-    binding.jitter_offset_y = std::clamp(
-        jitter_y * source_to_work_y, -2.0f, 2.0f);
+    binding.jitter = ResolveNrJitter(sr_params, g_config.jitter_mode,
+        guide_width, guide_height, width, height);
+    binding.jitter_offset_x = binding.jitter.x;
+    binding.jitter_offset_y = binding.jitter.y;
 
     s.normalized_create_flags = feature.create_flags;
     if (color_mode == CodecColorMode::ModelEncodedValueDomain)
@@ -6380,11 +6374,8 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     const int game_reset = guides.game_reset;
     NgxParams *params = context.params;
     if (params == nullptr) return false;
-    const unsigned int jitter_source_width = s.render_width;
-    const unsigned int jitter_source_height = s.render_height;
-    const NrJitterBinding jitter = ResolveNrJitter(
-        sr_params, g_config.jitter_mode,
-        jitter_source_width, jitter_source_height, width, height);
+    (void)sr_params; // Guide snapshot was captured before native SR.
+    const NrJitterBinding &jitter = guides.jitter;
     if (!context.jitter_status_initialized) {
         context.jitter_status_initialized = true;
         context.jitter_last_known = jitter.known;
@@ -9870,6 +9861,8 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
 
 void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
     const ChainConfig next = SnapshotConfig();
+    const bool before_sr = next.mode == 2;
+    const bool has_pending = false;
     const auto ui = [](const char *en, const char *zh) { return kChineseUi ? zh : en; };
     const bool shortfuse_loaded =
         g_shortfuse_loaded.load(std::memory_order_relaxed);
