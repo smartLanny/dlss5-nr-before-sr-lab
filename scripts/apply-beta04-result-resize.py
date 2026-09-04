@@ -47,10 +47,10 @@ NEW = """    if (slot.owns_source || !slot.owns_result || !pre_source_supported 
         if (external_desc.Width > UINT_MAX ||
             !CreateTexture(device,
                            static_cast<unsigned int>(external_desc.Width),
-                           external_desc.Height, L\"NRChain.Result\",
+                           external_desc.Height, L"NRChain.Result",
                            &replacement_result)) {
-            Log(\"Rotating pre-SR slot could not rebuild Result for a physical \"
-                \"extent change %llux%u -> %llux%u; native SR retained.\",
+            Log("Rotating pre-SR slot could not rebuild Result for a physical "
+                "extent change %llux%u -> %llux%u; native SR retained.",
                 static_cast<unsigned long long>(previous_result_desc.Width),
                 previous_result_desc.Height,
                 static_cast<unsigned long long>(external_desc.Width),
@@ -88,7 +88,7 @@ NEW = """    if (slot.owns_source || !slot.owns_result || !pre_source_supported 
         result_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         ID3D12Device_CreateUnorderedAccessView(
             device, slot.result, nullptr, &result_uav, result_cpu);
-        Log(\"Rebuilt rotating pre-SR Result surface: %llux%u -> %llux%u.\",
+        Log("Rebuilt rotating pre-SR Result surface: %llux%u -> %llux%u.",
             static_cast<unsigned long long>(previous_result_desc.Width),
             previous_result_desc.Height,
             static_cast<unsigned long long>(external_desc.Width),
