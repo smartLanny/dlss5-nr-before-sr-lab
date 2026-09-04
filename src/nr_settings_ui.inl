@@ -1,3 +1,13 @@
+void SettingsTooltip(const char *text) {
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+        ImGui::TextUnformatted(text);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
+
 void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
     const auto ui = [](const char *en, const char *zh) { return kChineseUi ? zh : en; };
     NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();
@@ -11,6 +21,8 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
     const bool color_follow_changed = ImGui::SliderFloat(
         ui("NR Color Follow", "NR 颜色跟随强度"),
         &next.color_strength, 0.0f, 1.0f, "%.2f");
+    SettingsTooltip(ui("0 keeps the game's hue; 1 follows bounded NR chroma. New installations request 0.5. Unknown HDR stays luminance-only. Recorded values describe settings, not measured picture strength.",
+        "0 保留游戏色相；1 跟随有界 NR 色彩。新装默认请求 0.5；未知 HDR 仍只改明暗。记录值是参数设置，不代表测得的画面变化强度。"));
     ImGui::EndDisabled();
     changed |= color_follow_changed;
     if (color_follow_changed &&
@@ -36,12 +48,6 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
         ImGui::TextWrapped("%s", NrColorPolicyStatusText(
             color_policy_snapshot.status, kChineseUi));
     }
-    ImGui::TextDisabled(
-        "%s", ui(
-            "0 keeps the game's hue; 1 follows bounded NR chroma. "
-            "Recorded values describe composition settings, not measured image strength.",
-            "0 保留游戏原始色相；1 跟随有界 NR 色彩。记录值表示合成设置，"
-            "不代表测得的画面变化强度。"));
 #if !NR_HAS_DETAIL_STABILITY
     ImGui::BeginDisabled(current_color_policy &&
         color_policy_snapshot.policy.lighting_reason == NrLightingReason::OnlyNrBeforeSr);
@@ -112,12 +118,12 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     changed |= ImGui::Checkbox(ui("Enable (F6)", "启用（F6）"), &next.enabled);
     int mode = next.mode == 2 ? 0 : 1;
     if (ImGui::Combo(ui("Processing mode", "处理模式"), &mode,
-            ui("Performance: NR -> SR\0Post-processing quality: SR -> NR\0",
-               "性能优先：NR → SR\0后置高画质：SR → NR\0"))) {
+            ui("Before SR: NR -> SR\0After SR: SR -> NR\0",
+               "前置 NR → SR\0后置 SR → NR\0"))) {
         next.mode = mode == 0 ? 2 : 1; changed = true;
     }
-    ImGui::TextWrapped("%s", ui("Game DLSS quality stays unchanged. Disabling this plugin restores native SR; DLAA is never forced.",
-        "游戏内 DLSS 档位保持不变；关闭插件就是原生 SR，不会强制开启 DLAA。"));
+    SettingsTooltip(ui("Before SR usually costs less; after SR processes the complete SR output for comparison. Game DLSS quality stays unchanged. Disabling restores native SR; DLAA is never forced.",
+        "前置通常较省性能；后置处理完整 SR 输出，适合对照。游戏内 DLSS 档位不变，关闭插件就是原生 SR，不会强制开启 DLAA。"));
 #if NR_HAS_DETAIL_STABILITY
     constexpr float maximum_strength = 8.0f;
 #else
@@ -127,21 +133,19 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             &next.transfer_strength, 0.0f, maximum_strength, "%.2f")) {
         next.post_transfer_strength = next.transfer_strength; changed = true;
     }
+    SettingsTooltip(ui("Final NR blend strength. 0 keeps native SR; 1.0 is the unscaled effect. New installations start at 1.2. Existing settings, including 0, are retained. Higher values can amplify low-resolution noise; this is not the model's internal strength.",
+        "控制最终 NR 混合强度。0 保留原生 SR，1.0 是不额外放大的效果；新装默认 1.2。已有设置（包括 0）会保留。提高数值可能放大低分辨率噪点；这项不是模型内部强度。"));
     if (ImGui::Button(ui("Standard 1.0", "标准 1.0"))) {
         next.transfer_strength = next.post_transfer_strength = 1.0f; changed = true;
     }
     ImGui::SameLine();
-    if (ImGui::Button(ui("Enhanced 1.2", "增强 1.2"))) {
-        next.transfer_strength = next.post_transfer_strength = 1.2f; changed = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(ui("Post-processing preset", "后置高画质预设"))) {
+    if (ImGui::Button(ui("Post-SR comparison", "后置对照设置"))) {
         next.mode = 1; next.enabled = true;
         next.transfer_strength = next.post_transfer_strength = 1.0f;
         next.color_strength = 1.0f; changed = true;
     }
-    ImGui::TextDisabled("%s", ui("1.0 is the real default scale. More strength can expose noise in low-resolution samples.",
-        "1.0 保持真实默认标尺；采样较低时，提高强度也可能放大颗粒。"));
+    SettingsTooltip(ui("Sets SR -> NR with strength 1.0 and colour request 1.0 for comparison. These are comparison values, not the new installation defaults. Colour restrictions still apply.",
+        "切到 SR → NR，采用强度 1.0、颜色请求 1.0 进行对照。这是对照基准，不是新装默认值；颜色准入限制仍然生效。"));
     int style = static_cast<int>(next.style);
     if (ImGui::Combo(ui("Style", "风格"), &style,
             ui("Default\0Natural\0Cinematic\0", "默认\0自然\0电影\0"))) {
@@ -162,7 +166,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
 
     if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {
         changed |= ImGui::SliderFloat(ui("Model internal strength", "模型内部强度"), &next.intensity, 0.f, 2.f, "%.2f");
-        ImGui::TextWrapped("%s", ui("This tunes the model itself, not the final effect multiplier. Saturation can limit the visible change.",
+        SettingsTooltip(ui("This tunes the model itself, not the final effect multiplier. Saturation can limit the visible change.",
             "这项调整模型内部行为，不等于最终效果倍率；模型饱和时，继续提高也可能看不出变化。"));
         changed |= ImGui::SliderFloat(ui("Local tone", "局部影调"), &next.local_tone, 0.f, 2.f, "%.2f");
         changed |= ImGui::SliderFloat(ui("Local structure", "局部结构"), &next.local_structure, 0.f, 2.f, "%.2f");

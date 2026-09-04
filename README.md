@@ -1,5 +1,11 @@
 # DLSS5 NR-Before-SR Lab
 
+New beta0.3.7 installations request final strength **1.2** and colour follow
+**0.5**. Existing values, including zero, migrate from the previously selected
+mode. Unknown HDR inputs still have effective colour follow zero. Hover over
+controls for explanations; the 1.0 post-SR comparison preset is a comparison
+baseline, not the new installation default.
+
 Experimental, source-only ReShade D3D12 add-on for studying two neural-rendering
 orders around a game's ordinary DLSS Super Resolution call:
 

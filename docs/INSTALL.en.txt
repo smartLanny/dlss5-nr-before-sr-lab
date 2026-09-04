@@ -4,6 +4,8 @@ Official releases: https://space.bilibili.com/941799
 
 First installation
 
+New installations request final strength 1.2 and colour follow 0.5. Updates preserve the previously selected mode's settings, including zero. Effective colour follow remains zero for unknown HDR inputs. Hover over controls for explanations. The post-SR comparison strength of 1.0 is a comparison baseline, not the new installation default.
+
 Choose the full package for your GPU. The game needs D3D12, native DLSS Super Resolution, and ReShade / RHI with addon support. Use it only in offline environments that allow these addons and have no anti-cheat.
 
 Exit the game completely. Extract all seven files into the directory where ReShade loads addons. This is usually beside the game's actual 64-bit executable and the ReShade DLL. If you configured a custom addon directory, use that directory.
