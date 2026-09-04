@@ -1,0 +1,58 @@
+name: Integrate beta0.4 DRS result-surface safety
+
+on:
+  push:
+    branches:
+      - codex/beta0.4-perfect-chain
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta04-result-resize-integration
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[beta04-result-resize-integrated]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/beta0.4-perfect-chain
+          fetch-depth: 0
+      - name: Apply physical Result-surface rebind fix
+        run: python scripts/apply-beta04-result-resize.py
+      - name: Validate source structure and formatting
+        run: |
+          python scripts/validate-beta04-structure.py
+          python scripts/test-beta04-math.py
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('src/nr_before_sr.cpp').read_text(encoding='utf-8')
+          required = (
+              'const bool result_extent_changed =',
+              'previous_result_desc.Width != external_desc.Width',
+              'ID3D12_RESOURCE_STATE_COMMON;',
+              'Rebuilt rotating pre-SR Result surface',
+              'kCodecResultUavIndex',
+          )
+          missing = [item for item in required if item not in source]
+          if missing:
+              raise SystemExit('missing DRS result-surface markers: ' + ', '.join(missing))
+          print('DRS rotating Result-surface markers passed')
+          PY
+          git diff --check
+      - name: Commit DRS safety fix
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "DRS Result-surface safety is already present."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/nr_before_sr.cpp
+          git commit -m "Rebuild recycled Result surfaces across physical DRS reallocations [beta04-result-resize-integrated]"
+          git push origin HEAD:codex/beta0.4-perfect-chain
