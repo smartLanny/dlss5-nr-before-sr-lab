@@ -1,4 +1,4 @@
-# beta0.4 Perfect Chain r3 experiment
+# beta0.4 Perfect Chain r4 experiment
 
 Branch: `codex/beta0.4-perfect-chain`
 
@@ -96,3 +96,13 @@ This remains an experimental source candidate until those automated gates and li
 - Width/height alignment is selected as a pair, prioritizing the original render aspect ratio before small area differences.
 - Physical guide reallocations caused by DRS reset history but no longer force a new Feature 18 context when formats, working extent and normalized flags are unchanged.
 - Extreme SDR colour follow now compresses both negative and above-one channels toward an equal-luminance neutral axis instead of hard per-channel clipping. HDR positive headroom remains untouched.
+
+## r4 native command-state safety integration
+
+- The beta0.3.3 RE9-tested native D3D12 command-state envelope is now integrated around both the pre-SR and post-SR experimental work.
+- Descriptor heaps, compute/graphics root signatures, root arguments and PSO/state-object bindings are shadowed from native setter calls and restored before control returns to the game.
+- A command list with no proven Reset/ClearState baseline fails closed to native SR instead of guessing state.
+- Native Reset success, ReShade reset/destroy events and command-list lifetime are tied to the same state tracker.
+- CI now executes the source-extracted CPU/stack harness, a real D3D12 WARP restoration oracle, and a deliberately corrupted negative control before building either language DLL.
+
+This reduces the state-interference risk that caused the RE9 investigation. It does not replace live RE9, Cyberpunk, Witcher, Yanyun and HDR transition testing.

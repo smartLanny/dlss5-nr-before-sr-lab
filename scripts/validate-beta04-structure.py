@@ -10,7 +10,7 @@ guides = (root / "src" / "nr_guide_contract.h").read_text(encoding="utf-8")
 config = (root / "config" / "nr_before_sr.ini").read_text(encoding="utf-8")
 
 required = [
-    'kBuildIdentity = "beta0.4-perfect-chain-r3"',
+    'kBuildIdentity = "beta0.4-perfect-chain-r4"',
     'ID3D12PipelineState *encode_v2',
     'ID3D12PipelineState *combine_v2',
     'void EncodeV2CS(',

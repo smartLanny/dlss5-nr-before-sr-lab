@@ -1,4 +1,4 @@
-# beta0.4 Perfect Chain r3 实机验证表
+# beta0.4 Perfect Chain r4 实机验证表
 
 分支：`codex/beta0.4-perfect-chain`
 
@@ -58,3 +58,10 @@
 - WorkMode、Strength、MaxLumaRatio、LightingLock、EdgeGuard、ProxyCurve、ColorStrength
 
 若发生崩溃，请同时说明是在启动、Feature 18 创建、切档、开关 RR、读档还是退出阶段。
+
+## r4 命令状态专项
+
+- 《生化危机 9》：启动、进菜单、读档、切场景、退出，确认不再出现设备移除或进入游戏即崩溃。
+- 在日志中确认已建立 command-state baseline；若状态无法证明，应显示 `command-state-unverified` 并保留原生 SR，而不是继续写入。
+- 连续切换 F6、DLSS 档位、HDR 与全屏模式，确认游戏原有 Root Signature、Descriptor Heap、Root 参数和 PSO 没有被插件遗留状态污染。
+- 若某游戏仅在 Reference 正常而缩放档异常，同时保留日志、显示截图和一次阶段采集，优先排查 Guide/工作分辨率合同，而不是关闭状态保护。
