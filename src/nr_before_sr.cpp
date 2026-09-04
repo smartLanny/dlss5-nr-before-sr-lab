@@ -1232,7 +1232,7 @@ void ReloadConfig(bool force = false) {
     }
     next.identity_use_original = GetPrivateProfileIntW(
         L"NRBeforeSR", L"IdentityUseOriginalColor", 0, g_ini_path) != 0;
-    next.color_strength = ReadIniFloat(L"ColorStrength", 0.5f);
+    next.color_strength = ReadIniFloat(L"ColorStrength", 0.75f);
     next.max_luma_ratio = ReadIniFloat(L"MaxLumaRatio", 2.0f);
     next.preserve_lighting = GetPrivateProfileIntW(
         L"NRBeforeSR", L"PreserveLighting", 0, g_ini_path) != 0;
@@ -1254,7 +1254,7 @@ void ReloadConfig(bool force = false) {
     next.style = static_cast<unsigned int>(GetPrivateProfileIntW(
         L"NRBeforeSR", L"Style", 0, g_ini_path));
     next.ui_correction = GetPrivateProfileIntW(
-        L"NRBeforeSR", L"UICorrection", 0, g_ini_path) != 0;
+        L"NRBeforeSR", L"UICorrection", 1, g_ini_path) != 0;
     next.perf_epoch = GetPrivateProfileIntW(
         L"NRBeforeSR", L"PerfEpoch", 0, g_ini_path);
     next.r8_output_encoding = GetPrivateProfileIntW(
@@ -5816,7 +5816,9 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     SetFloat(params, "DLSSNR.SkinStructureStrength", tuning.skin_structure);
     SetInt(params, "DLSSNR.UseAutoMask", tuning.auto_mask ? 1 : 0);
     SetUInt(params, "DLSSNR.Style", tuning.style);
-    SetInt(params, "DLSSNR.UICorrection", tuning.ui_correction ? 1 : 0);
+    // 310.8 reads UICorrection through the unsigned NGX parameter slot.
+    // Writing the signed slot leaves the runtime unable to observe this value.
+    SetUInt(params, "DLSSNR.UICorrection", tuning.ui_correction ? 1u : 0u);
     SetInt(params, "DLSS.Indicator.Invert.X.Axis", 0);
     SetInt(params, "DLSS.Indicator.Invert.Y.Axis", 0);
     context.jitter_binding_written = true;
@@ -6861,6 +6863,13 @@ thread_local unsigned int g_release_hook_depth = 0;
 void *g_evaluate_hook_targets[8] = {};
 std::size_t g_evaluate_hook_target_count = 0;
 SRWLOCK g_evaluate_hook_lock = SRWLOCK_INIT;
+bool AllowExperimentalNullPsoCarrier() {
+    // Freeze this compatibility contract for the process. Changing it after
+    // command-list vtables have been observed would leave a mixed hook surface.
+    static const bool allowed = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"ExperimentalNullPsoCarrier", 0, g_ini_path) != 0;
+    return allowed;
+}
 #include "nr_command_state.inl"
 std::atomic<bool> g_evaluate_hooks_ready{false};
 std::atomic<bool> g_evaluate_hooks_enabled{false};

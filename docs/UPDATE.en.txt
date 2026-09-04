@@ -4,7 +4,7 @@ Official releases: https://space.bilibili.com/941799
 
 What this update is
 
-This update simplifies the controls and fixes a resource-binding problem when the post-SR mode copies the original picture. New installations request strength 1.2 and colour follow 0.5. Existing values, including zero, are preserved from the previously selected mode. The slider displays the actual request, from 0 to 2. Before-SR remains the default; effective colour follow stays zero for unknown HDR inputs.
+This update simplifies the controls and fixes a resource-binding problem when the post-SR mode copies the original picture. New installations request strength 1.2 and colour follow 0.75. Existing values, including zero, are preserved from the previously selected mode. The slider displays the actual request, from 0 to 2. Before-SR remains the default; effective colour follow stays zero for unknown HDR inputs.
 
 Use this package with an existing 0.3.5 maintenance installation. Its core update files are the addon, Instructions.txt, Collect-Feedback.cmd and collect-feedback.ps1, with additional verification and source manifests. Keep both existing DLLs and nr_before_sr.ini; there is no need to download the large runtime again.
 
@@ -19,6 +19,10 @@ Keep nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Place Collect-Fee
 Start the game and check that the addon panel says beta0.3.7. First-time installations or missing runtime files require the full package for your GPU.
 
 What changed
+
+For the new Forza Horizon crash report, the stable build once again refuses to insert NR while the command list has a null PSO. It also avoids publishing the wider graphics-state hooks used only by that high-risk restore path. The report contained no crash dump, so this is a conservative fix based on the exact version regression and still needs game testing. Keep ExperimentalNullPsoCarrier=0 unless you are running a controlled compatibility experiment; changing it requires a full game restart.
+
+The DLSSNR.UICorrection parameter now uses the unsigned type read by the runtime. New installations enable “HUD / text protection (model)”; an existing explicit 0 or 1 is preserved. This can help only when a game provides a separate UI layer. It cannot discover subtitles or HUD pixels already baked into SceneColor.
 
 Post-SR preserves the game's original output and copies it into an owned intermediate. Its resource descriptors are now created directly, avoiding a descriptor heap that is not a permitted CPU copy source. Software GPU checks passed; individual games still need testing.
 

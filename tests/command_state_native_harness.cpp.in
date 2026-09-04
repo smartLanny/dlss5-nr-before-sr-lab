@@ -34,6 +34,9 @@ void Log(const char *format, ...) {
     va_list args; va_start(args, format); vprintf(format, args); puts(""); va_end(args);
 }
 SRWLOCK g_evaluate_hook_lock = SRWLOCK_INIT;
+// Keep the wider restoration path covered as an explicit experiment. The
+// production default is verified separately and remains fail-closed.
+bool AllowExperimentalNullPsoCarrier() { return true; }
 // @PRODUCTION_COMMAND_STATE@
 
 bool PinHookAddress(const void *address, const char *, HMODULE expected_module) {

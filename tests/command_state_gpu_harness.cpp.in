@@ -134,7 +134,7 @@ std::unique_ptr<NativeCommandState> SnapshotUnderTest(ID3D12GraphicsCommandList 
             CommandStateSetValue(snapshot, stage, i == 0 ? 2 : i + 4,
                 CommandRootKind::Table, expected.tables[source_stage][i].ptr);
     }
-    Require(CanRestoreNativeCommandState(snapshot), "Prepared snapshot is not restorable");
+    Require(CanRestoreNativeCommandState(snapshot, true), "Prepared snapshot is not restorable");
     return owned_snapshot;
 }
 void RestoreUnderTest(ID3D12GraphicsCommandList *list, const ExpectedState &expected,
