@@ -75,13 +75,13 @@ void Grid(unsigned int source_width, unsigned int source_height) {
           width > 0 && height > 0 && width <= 1024 && height <= 1024 &&
           width == (source_width + stride - 1) / stride &&
           height == (source_height + stride - 1) / stride &&
-          bytes == static_cast<UINT64>(width) * height * 64 &&
+          bytes == static_cast<UINT64>(width) * height * 64 + 16 &&
           bytes * 2 <= 64u * 1024u * 1024u,
           "sample grid is exact, bounded and power-of-two");
     Check(ok && ((height - 1u) * stride < source_height) &&
           ((width - 1u) * stride < source_width) &&
           (static_cast<UINT64>(3) * width * height + (height - 1) * width +
-           (width - 1)) * 16 + 16 == bytes,
+           (width - 1)) * 16 + 16 == bytes - 16,
           "last sampled pixel covers exact final plane endpoint");
 }
 int wmain(int argc, wchar_t **argv) {

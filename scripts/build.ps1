@@ -118,7 +118,7 @@ foreach ($AddonBuild in $AddonBuilds) {
         '-Wl,--strip-all', '-Wl,--no-insert-timestamp'
     ) + $ObjectFiles + @(
         $AddonObject, $ResourceObject, '-o', $Output, '-lkernel32', '-luser32', '-ld3d12',
-        '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler'
+        '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'
     )
     & $CppCompiler @LinkArgs
     if ($LASTEXITCODE -ne 0) { throw "Link failed ($($AddonBuild.Language))." }

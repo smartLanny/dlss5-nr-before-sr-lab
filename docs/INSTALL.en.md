@@ -1,6 +1,12 @@
-# beta0.3.3-dev-r4 compatibility and diagnostic candidate quick install
+# beta0.3.3.5 feedback test build quick install
 
-Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.3.3-dev-r4**
+Press **F8** or click Collect feedback ZIP in the addon panel. Keep the camera still and wait for completion. `feedback.zip` normally goes under Documents/DLSS5-Feedback. If that directory cannot be created, collection tries DLSS5-Feedback under the system temporary directory; copy the actual path from the panel. A partial bundle includes missing-item reasons and can still be submitted. If the game cannot start, double-click `Collect-Feedback.cmd` beside `collect-feedback.ps1`. This offline collector creates `feedback-offline.zip` under Documents and needs no administrator privileges.
+
+The current full package contains **seven files**. The addon filename stays stable for replacement; verify beta0.3.3.5 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
+
+This version fixes the unit-exposure fallback when ExposureTexture contains NaN. **54 D3D12 WARP GPU cases passed**, including this path and checks that capture on/off preserves their composition output. This does not establish that all dynamic-exposure, colour-follow or face-quality problems are fixed; game testing is still required.
+
+Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.3.3.5**
 
 Author: **@野生的装机宅 Bilibili**
 
@@ -29,7 +35,9 @@ translation layer such as OptiScaler are outside this add-on's direct scope.
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - `nvngx_dlssnr.dll` from the matching GPU package
-5. Start the game and verify that the ReShade Add-ons page shows beta0.3.3-dev, the
+   - `Collect-Feedback.cmd`
+   - `collect-feedback.ps1`
+5. Start the game and verify that the ReShade Add-ons page shows beta0.3.3.5, the
    author and official release address at the top of this add-on's panel.
 
 The add-on loads its configuration, bridge and NR runtime from its own folder.
@@ -39,6 +47,12 @@ the panel may open but every option will appear ineffective.
 ## Quick use
 
 - `F6`: master toggle. Off must be native game SR with zero Feature 18 calls.
+- `F8`: collect three display screenshots with the current settings, one set of
+  NR stages from the same frame, effective parameters and logs. The three
+  screenshots are spaced about two seconds apart; **this is not automatic A/B**.
+  Change the toggle, chain or style yourself and collect a separate bundle from
+  the same camera position. Display screenshots and NR stages are not from the
+  same frame.
 - Main keyboard `-` (numpad subtract also works): save a screenshot. Its short
   name records build, chain, active/bypass state, requested configuration and
   `I/S/B/C/HP` (NR intensity, style, blend, colour follow, peak-shoulder experiment).
@@ -66,7 +80,10 @@ the panel may open but every option will appear ineffective.
   controlled captures of admitted HDR input. It has not been shown to improve
   Spider-Man faces or NR-to-SR quality; leave it off for normal testing.
 
-For a report, include the displayed version and bypass reason plus the smallest
+For a report, submit the F8 ZIP and describe the game, trigger and expected
+result. Use the offline collector if the game cannot start; partial bundles
+with missing images or logs can still help. If packaging fails, include the
+displayed version and bypass reason plus the smallest
 matching window from `nr-before-sr.log`. beta0.3.3 logs state-machine changes,
 deferred-module coverage, colour-stage attribution, early diagnostics and sparse
 performance summaries rather than writing every frame.
@@ -85,21 +102,30 @@ ShortFuse/RHI NR add-on at the same time.
 
 ## Package contents
 
-For simple copy-in installation, each full package contains only five files:
-the add-on, bridge DLL, configuration, matching NR runtime, and this README.
+For simple copy-in installation, each current full package contains **seven files**:
+the add-on, bridge DLL, configuration, matching NR runtime, this README, and the
+offline collector pair `Collect-Feedback.cmd` and `collect-feedback.ps1`.
 Separate signature files, verification scripts, and duplicate documents are no
 longer bundled. If the official release post publishes a ZIP SHA-256, that value
 can be used to check the downloaded archive.
-## r3 diagnostic additions
 
-This candidate adds compatibility fixes and attributable image diagnostics;
-default composition is unchanged. The panel distinguishes pending settings,
-the last applied NR intensity/style and warmup status. Visible style/intensity
+## Parameters and stage diagnostics
+
+The panel distinguishes requested settings, the last applied NR intensity/style
+and warmup status. Colour Follow and Lighting Match show current effective values
+and restriction reasons; without a current valid contract record, they show
+unknown. Restricted requested values are retained for a later compatible mode.
+Unknown HDR contracts still do not enable colour follow. Visible style/intensity
 differences still require controlled scene comparisons.
 
 Optional “Capture NR stages once” exports four raw floating-point PFM images
 and metadata under `nr-stage-captures` beside the log. It is off by default.
 NR-to-SR capture stops before native SR. Use `-` for a separate displayed-image
 screenshot. Press `F7` to request the stages independently (one pending request
-at a time). The two captures are not same-frame evidence. Wait for
-applied settings and warmup, keep the camera fixed and change one parameter at a time.
+at a time). The four stages share one composition frame, but do not share the
+display screenshot's frame. Stage capture recreates NR history, waits for 64
+successful evaluations, exports after the actual GPU fence and recreates history
+again. This waiting period is not proof of network convergence. F8 attempts to
+include the stages in the feedback ZIP. Keep the camera fixed, change one
+parameter at a time and use metadata to distinguish requested values, effective
+values and colour domains.

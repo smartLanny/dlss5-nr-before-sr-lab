@@ -50,6 +50,14 @@ struct ExpectedState {
     UINT constants[2][8]{};
     UINT64 cbv[2]{}, srv[2]{}, uav[2]{};
     D3D12_GPU_DESCRIPTOR_HANDLE tables[2][3]{}; // Root slots 2, 5, 6.
+    D3D12_VIEWPORT viewport{};
+    D3D12_RECT scissor{};
+    D3D12_CPU_DESCRIPTOR_HANDLE target{};
+    bool indexed_stencil = false;
+    D3D12_CPU_DESCRIPTOR_HANDLE depth{};
+    D3D12_VERTEX_BUFFER_VIEW vertex{};
+    D3D12_INDEX_BUFFER_VIEW index{};
+    FLOAT blend[4]{0.5f,0.25f,0.75f,1};
 };
 
 // C ABI names in production map directly to C++ COM calls in this WARP harness.
@@ -74,14 +82,44 @@ struct ExpectedState {
 #define ID3D12GraphicsCommandList_QueryInterface(p, ...) (p)->QueryInterface(__VA_ARGS__)
 #define ID3D12GraphicsCommandList4_SetPipelineState1(p, ...) (p)->SetPipelineState1(__VA_ARGS__)
 #define ID3D12GraphicsCommandList4_Release(p) (p)->Release()
+#define ID3D12DescriptorHeap_GetDevice(p, ...) (p)->GetDevice(__VA_ARGS__)
+#define ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(p) (p)->GetCPUDescriptorHandleForHeapStart()
+#define ID3D12GraphicsCommandList_GetDevice(p, ...) (p)->GetDevice(__VA_ARGS__)
+#define ID3D12Device_CreateDescriptorHeap(p, ...) (p)->CreateDescriptorHeap(__VA_ARGS__)
+#define ID3D12Device_CopyDescriptorsSimple(p, ...) (p)->CopyDescriptorsSimple(__VA_ARGS__)
+#define ID3D12Device_GetDescriptorHandleIncrementSize(p, ...) (p)->GetDescriptorHandleIncrementSize(__VA_ARGS__)
+#define ID3D12Device_Release(p) (p)->Release()
+#define ID3D12GraphicsCommandList_ClearState(p, ...) (p)->ClearState(__VA_ARGS__)
+#define ID3D12GraphicsCommandList_IASetPrimitiveTopology(p, ...) (p)->IASetPrimitiveTopology(__VA_ARGS__)
+#define ID3D12GraphicsCommandList_RSSetViewports(p, ...) (p)->RSSetViewports(__VA_ARGS__)
+#define ID3D12GraphicsCommandList_RSSetScissorRects(p, ...) (p)->RSSetScissorRects(__VA_ARGS__)
+#define ID3D12GraphicsCommandList_OMSetBlendFactor(p, ...) (p)->OMSetBlendFactor(__VA_ARGS__)
+#define ID3D12GraphicsCommandList_OMSetStencilRef(p, ...) (p)->OMSetStencilRef(__VA_ARGS__)
+#define ID3D12GraphicsCommandList_IASetIndexBuffer(p, ...) (p)->IASetIndexBuffer(__VA_ARGS__)
+#define ID3D12GraphicsCommandList_IASetVertexBuffers(p, ...) (p)->IASetVertexBuffers(__VA_ARGS__)
+#define ID3D12GraphicsCommandList_SOSetTargets(p, ...) (p)->SOSetTargets(__VA_ARGS__)
+#define ID3D12GraphicsCommandList_OMSetRenderTargets(p, ...) (p)->OMSetRenderTargets(__VA_ARGS__)
+#define ID3D12GraphicsCommandList_SetPredication(p, ...) (p)->SetPredication(__VA_ARGS__)
 
 // @NEGATIVE_CONTROL_CONSTANTS@
 // @PRODUCTION_STATE@
 
-void RestoreUnderTest(ID3D12GraphicsCommandList *list, const ExpectedState &expected) {
+std::unique_ptr<NativeCommandState> SnapshotUnderTest(ID3D12GraphicsCommandList *list, const ExpectedState &expected) {
     auto owned_snapshot = std::make_unique<NativeCommandState>();
     auto &snapshot = *owned_snapshot;
     ResetNativeCommandState(snapshot, expected.pipeline);
+    CommandStateViewports(snapshot, 1, &expected.viewport);
+    CommandStateScissors(snapshot, 1, &expected.scissor);
+    CommandStateTargets(snapshot, list, 1, &expected.target, FALSE, expected.indexed_stencil ? &expected.depth : nullptr);
+    snapshot.dynamic.topology=D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    snapshot.dynamic.recorded |= kDynamicTopology;
+    if (expected.indexed_stencil) {
+        CommandStateVertices(snapshot,0,1,&expected.vertex);
+        snapshot.dynamic.index=expected.index; snapshot.dynamic.has_index=true;
+        snapshot.dynamic.recorded |= kDynamicIndex|kDynamicBlend|kDynamicStencil;
+        memcpy(snapshot.dynamic.blend,expected.blend,sizeof(expected.blend));
+        snapshot.dynamic.stencil_front=snapshot.dynamic.stencil_back=37;
+    }
     CommandStateSetHeaps(snapshot, 2, expected.heaps);
     for (UINT stage = 0; stage < 2; ++stage) {
         const UINT source_stage = 1 - stage; // Production: compute, graphics.
@@ -97,9 +135,16 @@ void RestoreUnderTest(ID3D12GraphicsCommandList *list, const ExpectedState &expe
                 CommandRootKind::Table, expected.tables[source_stage][i].ptr);
     }
     Require(CanRestoreNativeCommandState(snapshot), "Prepared snapshot is not restorable");
+    return owned_snapshot;
+}
+void RestoreUnderTest(ID3D12GraphicsCommandList *list, const ExpectedState &expected,
+                      const NativeCommandState *recorded=nullptr) {
+    auto owned_snapshot = recorded ? std::make_unique<NativeCommandState>() : SnapshotUnderTest(list,expected);
+    auto &snapshot=*owned_snapshot;
+    if (recorded) Require(CopyNativeCommandState(snapshot,*recorded),"Copy recorded descriptor snapshot");
     auto owned_frozen = std::make_unique<NativeCommandState>();
     auto &frozen = *owned_frozen;
-    CopyNativeCommandState(frozen, snapshot);
+    Require(CopyNativeCommandState(frozen, snapshot),"Freeze descriptor snapshot");
     RestoreNativeCommandState(list, snapshot);
     Require(snapshot.known == frozen.known && snapshot.pipeline == frozen.pipeline &&
         snapshot.roots[0] == frozen.roots[0] && snapshot.roots[1] == frozen.roots[1] &&
@@ -134,6 +179,13 @@ float4 VS(uint vertex : SV_VertexID) : SV_POSITION {
 float4 PS() : SV_TARGET {
     return float4(Value() + Output.Load(0), 2, 3, 4);
 }
+struct VertexOut {float4 position:SV_POSITION; nointerpolation float marker:TEXCOORD0;};
+VertexOut VSB(float2 position:POSITION, float marker:TEXCOORD0) {
+    VertexOut o; o.position=float4(position,0,1); o.marker=marker; return o;
+}
+float4 PSB(VertexOut input) : SV_TARGET {
+    return float4(Value()+Output.Load(0)+input.marker,2,3,4);
+}
 )HLSL";
 const char kPluginShader[] = R"HLSL(
 cbuffer Constants : register(b0) { uint Value; };
@@ -160,8 +212,8 @@ struct Gpu {
     Com<ID3D12GraphicsCommandList> list;
     Com<ID3D12Fence> fence;
     Com<ID3D12RootSignature> game_root, plugin_root;
-    Com<ID3D12PipelineState> game_compute, game_graphics, plugin_pipeline;
-    Com<ID3D12DescriptorHeap> game_heap, sampler_heap, plugin_heap, plugin_sampler, rtv_heap;
+    Com<ID3D12PipelineState> game_compute, game_graphics, null_graphics, plugin_pipeline;
+    Com<ID3D12DescriptorHeap> game_heap, sampler_heap, plugin_heap, plugin_sampler, rtv_heap, dsv_heap;
     UINT increment = 0;
     UINT64 submitted = 0;
     HANDLE event = nullptr;
@@ -199,6 +251,7 @@ struct Gpu {
         plugin_heap = Heap(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1, true);
         plugin_sampler = Heap(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, 1, true);
         rtv_heap = Heap(D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 1, false);
+        dsv_heap = Heap(D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
         increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         D3D12_SAMPLER_DESC sampler{};
         sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
@@ -257,6 +310,18 @@ struct Gpu {
         graphics.SampleDesc.Count = 1;
         Check(device->CreateGraphicsPipelineState(&graphics, IID_ID3D12PipelineState,
             game_graphics.address()), "Create graphics PSO");
+        auto vsb=Compile(kGameShader,"VSB","vs_5_0"), psb=Compile(kGameShader,"PSB","ps_5_0");
+        graphics.VS={vsb->GetBufferPointer(),vsb->GetBufferSize()}; graphics.PS={psb->GetBufferPointer(),psb->GetBufferSize()};
+        const D3D12_INPUT_ELEMENT_DESC inputs[]={{"POSITION",0,DXGI_FORMAT_R32G32_FLOAT,0,0,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0},
+            {"TEXCOORD",0,DXGI_FORMAT_R32_FLOAT,0,8,D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,0}};
+        graphics.InputLayout={inputs,2};
+        auto &blend=graphics.BlendState.RenderTarget[0]; blend.BlendEnable=TRUE;
+        blend.SrcBlend=D3D12_BLEND_BLEND_FACTOR; blend.DestBlend=D3D12_BLEND_ZERO; blend.BlendOp=D3D12_BLEND_OP_ADD;
+        blend.SrcBlendAlpha=D3D12_BLEND_ONE; blend.DestBlendAlpha=D3D12_BLEND_ZERO; blend.BlendOpAlpha=D3D12_BLEND_OP_ADD;
+        auto &ds=graphics.DepthStencilState; ds.StencilEnable=TRUE; ds.StencilReadMask=ds.StencilWriteMask=0xff;
+        ds.FrontFace={D3D12_STENCIL_OP_KEEP,D3D12_STENCIL_OP_KEEP,D3D12_STENCIL_OP_KEEP,D3D12_COMPARISON_FUNC_EQUAL}; ds.BackFace=ds.FrontFace;
+        graphics.DSVFormat=DXGI_FORMAT_D24_UNORM_S8_UINT;
+        Check(device->CreateGraphicsPipelineState(&graphics,IID_ID3D12PipelineState,null_graphics.address()),"Create known-null indexed/blend/stencil PSO");
     }
     ~Gpu() { if (event != nullptr) CloseHandle(event); }
     Com<ID3D12DescriptorHeap> Heap(D3D12_DESCRIPTOR_HEAP_TYPE type, UINT count, bool visible) {
@@ -270,6 +335,7 @@ struct Gpu {
     Com<ID3D12RootSignature> Root(const D3D12_ROOT_PARAMETER *p, UINT count) {
         D3D12_ROOT_SIGNATURE_DESC d{};
         d.NumParameters = count; d.pParameters = p;
+        d.Flags=D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
         Com<ID3DBlob> blob, errors;
         const HRESULT hr = D3D12SerializeRootSignature(&d, D3D_ROOT_SIGNATURE_VERSION_1,
             &blob.p, &errors.p);
@@ -424,7 +490,7 @@ void BindExpected(ID3D12GraphicsCommandList *list, const ExpectedState &state) {
         list->SetGraphicsRootDescriptorTable(root, state.tables[0][i]);
         list->SetComputeRootDescriptorTable(root, state.tables[1][i]);
     }
-    list->SetPipelineState(state.pipeline);
+    if (state.pipeline != nullptr) list->SetPipelineState(state.pipeline);
 }
 
 UINT Value(const ExpectedState &state, UINT stage, UINT third) {
@@ -434,7 +500,7 @@ UINT Value(const ExpectedState &state, UINT stage, UINT third) {
 }
 
 void Run(Gpu &gpu, bool inject, bool change_graphics_root, bool graphics_first,
-         bool reverse_heaps, UINT variant) {
+         bool reverse_heaps, UINT variant, bool null_entry=false) {
     auto cbv = gpu.Buffer(256, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
     const UINT constants[4]{23, 29, 31, 37}; gpu.Write(cbv.p, constants, sizeof(constants));
     auto srv = gpu.Buffer(256, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
@@ -457,13 +523,14 @@ void Run(Gpu &gpu, bool inject, bool change_graphics_root, bool graphics_first,
     auto target = gpu.Resource(target_desc, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_RENDER_TARGET);
     const auto rtv = gpu.rtv_heap->GetCPUDescriptorHandleForHeapStart();
     gpu.device->CreateRenderTargetView(target.p, nullptr, rtv);
+    const FLOAT clear[4]{}; gpu.list->ClearRenderTargetView(rtv,clear,0,nullptr);
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
     UINT64 bytes = 0;
     gpu.device->GetCopyableFootprints(&target_desc, 0, 1, 0, &footprint, nullptr, nullptr, &bytes);
     auto pixels = gpu.Buffer(bytes, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
 
     ExpectedState expected{};
-    expected.pipeline = graphics_first ? gpu.game_graphics.p : gpu.game_compute.p;
+    expected.pipeline = null_entry ? nullptr : (graphics_first ? gpu.game_graphics.p : gpu.game_compute.p);
     expected.roots[0] = expected.roots[1] = gpu.game_root.p;
     expected.heaps[reverse_heaps ? 1 : 0] = gpu.game_heap.p;
     expected.heaps[reverse_heaps ? 0 : 1] = gpu.sampler_heap.p;
@@ -481,11 +548,38 @@ void Run(Gpu &gpu, bool inject, bool change_graphics_root, bool graphics_first,
     }
     const D3D12_VIEWPORT viewport{0, 0, 1, 1, 0, 1};
     const D3D12_RECT scissor{0, 0, 1, 1};
+    expected.viewport=viewport; expected.scissor=scissor; expected.target=rtv;
+    Com<ID3D12Resource> vertices, indices, depth, depth_decoy;
+    if (null_entry) {
+        expected.indexed_stencil=true;
+        const FLOAT v[9]={-1,1,7,3,1,7,-1,-3,7}; const UINT ix[3]={0,1,2};
+        vertices=gpu.Buffer(sizeof(v),D3D12_HEAP_TYPE_UPLOAD,D3D12_RESOURCE_STATE_GENERIC_READ);gpu.Write(vertices.p,v,sizeof(v));
+        indices=gpu.Buffer(sizeof(ix),D3D12_HEAP_TYPE_UPLOAD,D3D12_RESOURCE_STATE_GENERIC_READ);gpu.Write(indices.p,ix,sizeof(ix));
+        expected.vertex={vertices->GetGPUVirtualAddress(),sizeof(v),12};expected.index={indices->GetGPUVirtualAddress(),sizeof(ix),DXGI_FORMAT_R32_UINT};
+        auto dd=target_desc;dd.Format=DXGI_FORMAT_D24_UNORM_S8_UINT;dd.Flags=D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+        depth=gpu.Resource(dd,D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        depth_decoy=gpu.Resource(dd,D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        expected.depth=gpu.dsv_heap->GetCPUDescriptorHandleForHeapStart();gpu.device->CreateDepthStencilView(depth.p,nullptr,expected.depth);
+        gpu.list->ClearDepthStencilView(expected.depth,D3D12_CLEAR_FLAG_STENCIL,1,37,0,nullptr);
+        gpu.list->IASetVertexBuffers(0,1,&expected.vertex);gpu.list->IASetIndexBuffer(&expected.index);
+        gpu.list->OMSetBlendFactor(expected.blend);gpu.list->OMSetStencilRef(37);
+    }
     gpu.list->RSSetViewports(1, &viewport);
     gpu.list->RSSetScissorRects(1, &scissor);
     gpu.list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    gpu.list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+    gpu.list->OMSetRenderTargets(1, &rtv, FALSE, null_entry ? &expected.depth : nullptr);
     BindExpected(gpu.list.p, expected);
+    std::unique_ptr<NativeCommandState> recorded;
+    Com<ID3D12Resource> descriptor_decoy;
+    if (null_entry) {
+        recorded=SnapshotUnderTest(gpu.list.p,expected);
+        descriptor_decoy=gpu.Resource(target_desc,D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_STATE_RENDER_TARGET);
+        // Legal immediately after OM binding: the original CPU descriptor slot
+        // now names a different target. Restoration must use its frozen copy.
+        gpu.device->CreateRenderTargetView(descriptor_decoy.p,nullptr,rtv);
+        gpu.device->CreateDepthStencilView(depth_decoy.p,nullptr,expected.depth);
+        gpu.list->ClearDepthStencilView(expected.depth,D3D12_CLEAR_FLAG_STENCIL,1,38,0,nullptr);
+    }
 
     if (inject) {
         ID3D12DescriptorHeap *heaps[]{gpu.plugin_heap.p, gpu.plugin_sampler.p};
@@ -496,20 +590,22 @@ void Run(Gpu &gpu, bool inject, bool change_graphics_root, bool graphics_first,
         gpu.list->SetComputeRootDescriptorTable(1, gpu.plugin_heap->GetGPUDescriptorHandleForHeapStart());
         gpu.list->SetPipelineState(gpu.plugin_pipeline.p);
         gpu.list->Dispatch(1, 1, 1);
-        RestoreUnderTest(gpu.list.p, expected);
+        RestoreUnderTest(gpu.list.p, expected,recorded.get());
     }
 
     if (graphics_first) {
+        if (null_entry) gpu.list->SetPipelineState(gpu.null_graphics.p);
         // No root/table/PSO setters between restore and this graphics draw.
-        gpu.list->DrawInstanced(3, 1, 0, 0);
+        if (null_entry) gpu.list->DrawIndexedInstanced(3,1,0,0,0); else gpu.list->DrawInstanced(3, 1, 0, 0);
         gpu.list->SetPipelineState(gpu.game_compute.p);
     }
+    else if (null_entry) gpu.list->SetPipelineState(gpu.game_compute.p);
     // The reported engine pattern: only root parameter 2 changes before dispatch.
     gpu.list->SetComputeRootDescriptorTable(2, gpu.GpuHandle(1));
     gpu.list->Dispatch(1, 1, 1);
     if (!graphics_first) {
-        gpu.list->SetPipelineState(gpu.game_graphics.p);
-        gpu.list->DrawInstanced(3, 1, 0, 0);
+        gpu.list->SetPipelineState(null_entry ? gpu.null_graphics.p : gpu.game_graphics.p);
+        if (null_entry) gpu.list->DrawIndexedInstanced(3,1,0,0,0); else gpu.list->DrawInstanced(3, 1, 0, 0);
     }
     gpu.Barrier(b.p, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
     gpu.list->CopyBufferRegion(result.p, 0, b.p, 0, 16);
@@ -531,14 +627,15 @@ void Run(Gpu &gpu, bool inject, bool change_graphics_root, bool graphics_first,
     Require(actual == Value(expected, 1, 89 + variant), "Restored compute state produced wrong output");
     Check(pixels->Map(0, &range, &mapped), "Map graphics result");
     const auto *pixel = static_cast<const float *>(mapped);
-    const bool correct_pixel = pixel[0] == static_cast<float>(Value(expected, 0, 89 + variant) + 61) &&
-        pixel[1] == 2 && pixel[2] == 3 && pixel[3] == 4;
+    const bool correct_pixel = pixel[0] == static_cast<float>(Value(expected, 0, 89 + variant) + 61 + (null_entry ? 7 : 0))*(null_entry ? .5f : 1) &&
+        pixel[1] == (null_entry ? .5f : 2) && pixel[2] == (null_entry ? 2.25f : 3) && pixel[3] == 4;
     pixels->Unmap(0, nullptr);
     Require(correct_pixel, "Restored graphics state produced wrong output");
     Check(plugin_result->Map(0, &range, &mapped), "Map plugin result");
     const UINT plugin_value = *static_cast<const UINT *>(mapped);
     plugin_result->Unmap(0, nullptr);
     Require(plugin_value == (inject ? 997 + variant : 73), "Plugin dispatch/control did not execute as expected");
+    if (recorded) ReleaseNativeCommandState(*recorded);
 }
 
 void ProbeHardwareMetaCommands() {
@@ -602,13 +699,18 @@ int main(int argc, char **argv) {
         }
         Gpu gpu;
         unsigned int count = 0;
-        for (bool graphics_first : {false, true})
+        const bool null_only=argc==2 && std::strcmp(argv[1], "--known-null-only")==0;
+        if (!null_only) for (bool graphics_first : {false, true})
             for (bool reverse_heaps : {false, true}) {
                 Run(gpu, false, false, graphics_first, reverse_heaps, count++);
                 Run(gpu, true, false, graphics_first, reverse_heaps, count++);
                 Run(gpu, true, true, graphics_first, reverse_heaps, count++);
             }
-        std::printf("Command-state WARP validation: %u scenarios passed (4 native controls, 8 restores); compute, graphics, plugin outputs verified.\n", count);
+        for (bool graphics_first : {false, true}) {
+            Run(gpu, false, false, graphics_first, false, count++, true);
+            Run(gpu, true, true, graphics_first, false, count++, true);
+        }
+        std::printf("Command-state WARP validation: %u scenarios passed (including 2 known-null controls and 2 known-null restores); compute, graphics, plugin outputs verified.\n", count);
         std::puts("Scope: production restore and GPU bindings; native-hook observation and NGX metacommands require separate tests.");
         return 0;
     } catch (const std::exception &error) {

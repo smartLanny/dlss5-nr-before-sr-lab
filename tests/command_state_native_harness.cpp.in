@@ -120,6 +120,18 @@ const void *forwarded_program = nullptr;
 unsigned int meta_calls = 0;
 void STDMETHODCALLTYPE ProgramTrampoline(ID3D12GraphicsCommandList *, const void *description) { forwarded_program = description; }
 void STDMETHODCALLTYPE MetaTrampoline(ID3D12GraphicsCommandList4 *, ID3D12MetaCommand *, const void *, SIZE_T) { ++meta_calls; }
+void STDMETHODCALLTYPE ProtectedTrampoline(ID3D12GraphicsCommandList *, ID3D12ProtectedResourceSession *) {}
+void STDMETHODCALLTYPE RenderPassTrampoline(ID3D12GraphicsCommandList *, UINT, const D3D12_RENDER_PASS_RENDER_TARGET_DESC *, const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC *, D3D12_RENDER_PASS_FLAGS) {}
+struct RasterReplayProbe { void **vtable; UINT stage=0; FLOAT bias=0,clamp=0,slope=0; D3D12_INDEX_BUFFER_STRIP_CUT_VALUE cut=D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED; };
+void STDMETHODCALLTYPE ProbeHeaps(ID3D12GraphicsCommandList *, UINT, ID3D12DescriptorHeap *const *) {}
+void STDMETHODCALLTYPE ProbeRoot(ID3D12GraphicsCommandList *, ID3D12RootSignature *) {}
+void STDMETHODCALLTYPE ProbePso(ID3D12GraphicsCommandList *list, ID3D12PipelineState *) { reinterpret_cast<RasterReplayProbe *>(list)->stage=1; }
+void STDMETHODCALLTYPE ProbeBias(ID3D12GraphicsCommandList *list, FLOAT bias, FLOAT clamp, FLOAT slope) {
+    auto &p=*reinterpret_cast<RasterReplayProbe *>(list); Check(p.stage==1,"CL9 depth bias follows PSO restoration"); p.bias=bias;p.clamp=clamp;p.slope=slope;
+}
+void STDMETHODCALLTYPE ProbeCut(ID3D12GraphicsCommandList *list, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE cut) {
+    auto &p=*reinterpret_cast<RasterReplayProbe *>(list); Check(p.stage==1,"CL9 strip cut follows PSO restoration");p.cut=cut;
+}
 int main() {
     IDXGIFactory4 *factory = nullptr; IDXGIAdapter *adapter = nullptr; ID3D12Device *device = nullptr;
     Hr(CreateDXGIFactory1(IID_IDXGIFactory4, reinterpret_cast<void **>(&factory)), "factory");
@@ -145,6 +157,53 @@ int main() {
     if (record == nullptr || !record->hooks_ready) return 3;
     OnCommandStateBeforeReset(&owner);
     Hr(ID3D12GraphicsCommandList_Close(list), "close");
+    Hr(ID3D12GraphicsCommandList_Reset(list, allocator, nullptr), "null initial PSO reset");
+    D3D12_VIEWPORT null_entry_viewport{0, 0, 64, 32, 0, 1};
+    ID3D12GraphicsCommandList_RSSetViewports(list, 1, &null_entry_viewport);
+    Check(CaptureNativeCommandState(list, *snapshot), "known Reset(NULL) carrier with viewport admits state preservation");
+    {
+        NativeCommandStateScope scope(list); Check(scope.active,"known-null scope active before plugin PSO");
+        ID3D12GraphicsCommandList_SetPipelineState(list,other_pipeline);
+        const D3D12_VIEWPORT plugin_viewport{1,2,3,4,0,1};
+        ID3D12GraphicsCommandList_RSSetViewports(list,1,&plugin_viewport);
+        scope.Restore();
+        Check(record->state->null_pipeline_baseline && record->state->pipeline==nullptr &&
+            record->state->dynamic.viewports[0].Width==64,"known-null scope restores dummy provenance and saved viewport");
+    }
+    auto *unknown_null=new NativeCommandState; unknown_null->known=true;
+    Check(!CanRestoreNativeCommandState(*unknown_null),"unproven empty PSO cannot acquire Reset(NULL) provenance"); delete unknown_null;
+    OnCommandStateResetResult(list,E_FAIL,nullptr);
+    Check(!CaptureNativeCommandState(list,*snapshot),"failed Reset cannot establish known-null provenance");
+    ID3D12GraphicsCommandList_ClearState(list,nullptr);
+    Check(CaptureNativeCommandState(list,*snapshot),"observed ClearState(NULL) establishes known-null baseline");
+    void *protected_original=g_state_SetProtectedResourceSession.originals[3];
+    g_state_SetProtectedResourceSession.originals[3]=reinterpret_cast<void *>(&ProtectedTrampoline);
+    StateHookSetProtectedResourceSession<3>(list,nullptr);
+    g_state_SetProtectedResourceSession.originals[3]=protected_original;
+    Check(!CaptureNativeCommandState(list,*snapshot),"protected-session NULL clears state and must fail closed");
+    ID3D12GraphicsCommandList_ClearState(list,nullptr);
+    void *render_original=g_state_BeginRenderPass.originals[3];
+    g_state_BeginRenderPass.originals[3]=reinterpret_cast<void *>(&RenderPassTrampoline);
+    StateHookBeginRenderPass<3>(list,0,nullptr,nullptr,D3D12_RENDER_PASS_FLAG_NONE);
+    g_state_BeginRenderPass.originals[3]=render_original;
+    Check(!CaptureNativeCommandState(list,*snapshot),"render-pass cannot enter known-null restoration");
+    ID3D12GraphicsCommandList_ClearState(list,nullptr);
+    record->state->dynamic.recorded |= kDynamicDepthBias;
+    Check(!CaptureNativeCommandState(list,*snapshot),"raster dynamic values without ordinary PSO remain unverified");
+    ID3D12GraphicsCommandList_SetPipelineState(list,pipeline);
+    Check((record->state->dynamic.recorded & (kDynamicDepthBias|kDynamicStripCut))==0,"ordinary PSO resets CL9 dynamic overrides");
+    {
+        void *vt[86]{}; RasterReplayProbe probe{vt};
+        vt[25]=reinterpret_cast<void *>(&ProbePso); vt[28]=reinterpret_cast<void *>(&ProbeHeaps);
+        vt[29]=vt[30]=reinterpret_cast<void *>(&ProbeRoot); vt[82]=reinterpret_cast<void *>(&ProbeBias); vt[83]=reinterpret_cast<void *>(&ProbeCut);
+        auto *raster=new NativeCommandState; ResetNativeCommandState(*raster,pipeline);
+        raster->dynamic.recorded=kDynamicDepthBias|kDynamicStripCut; raster->dynamic.depth_bias=2.5f;
+        raster->dynamic.depth_bias_clamp=3.5f; raster->dynamic.slope_bias=4.5f; raster->dynamic.strip_cut=D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF;
+        RestoreNativeCommandState(reinterpret_cast<ID3D12GraphicsCommandList *>(&probe),*raster);
+        Check(probe.bias==2.5f && probe.clamp==3.5f && probe.slope==4.5f && probe.cut==D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF,"CL9 ABI forwards all dynamic fields unchanged");
+        ReleaseNativeCommandState(*raster); delete raster;
+    }
+    Hr(ID3D12GraphicsCommandList_Close(list), "close null initial PSO recording");
     Hr(ID3D12GraphicsCommandList_Reset(list, allocator, pipeline), "reset");
     Check(CaptureNativeCommandState(list, *snapshot), "successful reset recovers late instrumentation");
     ID3D12DescriptorHeap *heaps[]{heap, sampler_heap};
@@ -246,6 +305,33 @@ int main() {
         DescribeCommandSignature(description, classified);
         Check(!classified.valid, "multiple or nonterminal execution operations rejected");
     }
+    {
+        D3D12_INDIRECT_ARGUMENT_DESC arguments[3]{};
+        arguments[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_VERTEX_BUFFER_VIEW;
+        arguments[0].VertexBuffer.Slot = 7;
+        arguments[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_INDEX_BUFFER_VIEW;
+        arguments[2].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW_INDEXED;
+        D3D12_COMMAND_SIGNATURE_DESC description{};
+        description.NumArgumentDescs = 3; description.pArgumentDescs = arguments;
+        CommandSignatureState classified;
+        DescribeCommandSignature(description, classified);
+        Check(classified.valid && classified.stage == 1, "indirect IA views use graphics terminal");
+        Hr(ID3D12CommandSignature_SetPrivateData(signature, kCommandSignatureState, sizeof(classified), &classified), "test indirect IA metadata");
+        D3D12_VERTEX_BUFFER_VIEW vertex{0x7000, 128, 16};
+        CommandStateVertices(*record->state, 7, 1, &vertex);
+        vertex.BufferLocation = 0x8000;
+        CommandStateVertices(*record->state, 8, 1, &vertex);
+        record->state->dynamic.has_index = true;
+        record->state->dynamic.index = {0x9000, 64, DXGI_FORMAT_R16_UINT};
+        ApplyIndirectCommandState(*record->state, signature);
+        Check(record->state->known && record->state->dynamic.vertices[7].BufferLocation == 0 &&
+            record->state->dynamic.vertices[8].BufferLocation == 0x8000 &&
+            !record->state->dynamic.has_index && (record->state->dynamic.recorded & kDynamicIndex),
+            "indirect clears affected VB and IB while preserving other VB slots");
+        arguments[0].VertexBuffer.Slot = 32;
+        DescribeCommandSignature(description, classified);
+        Check(!classified.valid, "out-of-range indirect VB slot fails closed");
+    }
     ID3D12CommandSignature_SetPrivateData(signature, kCommandSignatureState, 0, nullptr);
     ApplyIndirectCommandState(*record->state, signature);
     Check(!CaptureNativeCommandState(list, *snapshot), "unknown signature fails closed");
@@ -287,11 +373,12 @@ int main() {
     reshade::api::command_list compute_owner{&owner_device, compute_list}; OnCommandStateInitList(&compute_owner);
     { NativeCommandStateScope scope(compute_list); Check(!scope.active && ReadCommandStateToken(compute_list) == 0, "COMPUTE scope rejected before any graphics restore command"); }
     Drop(compute_list); Drop(compute_allocator);
+    ID3D12GraphicsCommandList_ClearState(list,nullptr);
     HANDLE worker = CreateThread(nullptr, 64 * 1024, SmallStackProbe, list, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     Check(worker != nullptr, "64 KiB worker created");
     if (worker != nullptr) {
         WaitForSingleObject(worker, 10000); DWORD exit_code = 1; GetExitCodeThread(worker, &exit_code); CloseHandle(worker);
-        Check(exit_code == 0, "two simultaneous scopes fit a 64 KiB worker stack");
+        Check(exit_code == 0, "two simultaneous known-null scopes fit a 64 KiB worker stack");
     }
     const auto old_token = record->token;
     OnCommandStateDestroyList(&owner); OnCommandStateInitList(&owner);

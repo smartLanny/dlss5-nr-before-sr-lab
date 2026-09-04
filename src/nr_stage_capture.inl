@@ -26,7 +26,7 @@ unsigned int StageCaptureStatus() {
 bool RequestStageCapture() {
     unsigned int expected = 0;
     // Reserve the request before publishing its identity. State 4 is a brief
-    // UI-thread initialization state, never eligible for a render-thread arm.
+    // request publication/cancellation state, never eligible for render-thread arm.
     if (!g_stage_capture_status.compare_exchange_strong(
             expected, 4, std::memory_order_acq_rel)) return false;
     g_stage_capture_request_id.fetch_add(1, std::memory_order_relaxed);
@@ -40,6 +40,36 @@ bool RequestStageCapture() {
         "evaluations since Reset, then retires to drain exact-fence resources. "
         "This settling interval does not prove temporal convergence.");
     return true;
+}
+
+bool CancelPendingStageCapture(unsigned long long request) {
+    if (request == 0) return false;
+    bool cancelled = false;
+    // Prepare and Arm own this lock. Status 2/3 already owns resources or an
+    // export job and must retain its exact-fence lifetime, even after timeout.
+    EnterCriticalSection(&g_chain_cs);
+    unsigned int expected = 1;
+    if (g_stage_capture_status.compare_exchange_strong(
+            expected, 4, std::memory_order_acq_rel)) {
+        // Check identity after reserving status: RequestStageCapture publishes
+        // without g_chain_cs, so a check before the CAS could observe an older
+        // request, then accidentally cancel a newly published one.
+        if (g_stage_capture_request_id.load(std::memory_order_acquire) == request) {
+            g_stage_capture_prepared_context = {};
+            g_stage_capture_rebuild_pending.store(false, std::memory_order_relaxed);
+            g_stage_capture_retry_count.store(0, std::memory_order_relaxed);
+            g_stage_capture_last_result.store(-1, std::memory_order_relaxed);
+            g_stage_capture_status.store(0, std::memory_order_release);
+            cancelled = true;
+        } else {
+            g_stage_capture_status.store(1, std::memory_order_release);
+        }
+    }
+    LeaveCriticalSection(&g_chain_cs);
+    if (cancelled)
+        Log("Stage capture cancelled before arming: request=%llu; no capture GPU "
+            "resources were released and a new request may be accepted.", request);
+    return cancelled;
 }
 
 void PrepareStageCaptureContextLocked(const NgxHandle *sr_handle,
@@ -155,7 +185,7 @@ bool ComputeStageCaptureGrid(unsigned int source_width,
     for (;;) {
         width = (source_width + stride - 1) / stride;
         height = (source_height + stride - 1) / stride;
-        bytes = static_cast<UINT64>(width) * height * 4u * 16u;
+        bytes = static_cast<UINT64>(width) * height * 4u * 16u + 16u;
         // Count the GPU UAV and readback allocations together. The worker
         // streams rows from the mapped readback, without another image copy.
         if (width <= 1024 && height <= 1024 &&
@@ -346,11 +376,14 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         "preExposure=%.9g\nhasPreExposure=%d\nscalarExposureScale=%.9g\nhasExposureScale=%d\n"
         "sampling=nearest grid at active-region coordinates (x*stride,y*stride)\n"
         "pixels=PFM little-endian float RGB, raw shader values; alpha omitted\n"
+        "rawRGBA=stages.rgba32f; little-endian float32; four planar RGBA images original/proxy/neural/composited; top-down; sampledExtent\n"
         "original=storage-domain shader load; proxy/neural=model encoded domain\n"
         "composited=shader result BEFORE destination format quantization\n"
         "nativeSrOutput=%s\n"
         "displayScreenshot=not captured; separately triggered ReShade screenshots are NOT same-frame evidence\n"
-        "exposureTexture=when codecFlags bit64 is set, GPU samples external texture; this file records scalars only\n"
+        "exposureTexture=when codecFlags bit64 is set, gpuRawExposure is the external texture load; otherwise derived scalar\n"
+        "gpuRawExposure=%.9g\ngpuResolvedExposure=%.9g\ngpuSourceToCanonical=%.9g\ngpuPreExposure=%.9g\n"
+        "gpuExposureSampling=CombineCS pixel(0,0), same dispatch as stages; not an EncodeCS sample\n"
         "comparison=decode with the recorded codec contract; raw stages do not share a photometric domain\n"
         "captureRecreatedContext=1\nevaluationsSinceReset=%u\nminimumCaptureEvaluations=64\n"
         "temporalHistory=fresh NR context; 64 successful evaluations is a settling interval, NOT verified convergence\n"
@@ -378,6 +411,8 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         info.has_exposure_scale ? 1 : 0,
         info.mode == 1 ? "represented by original stage (post-SR source/snapshot)"
                        : "unavailable; arrival state not proven, so no extra output read/transition",
+        static_cast<double>(info.gpu_raw_exposure), static_cast<double>(info.gpu_resolved_exposure),
+        static_cast<double>(info.gpu_source_to_canonical), static_cast<double>(info.gpu_pre_exposure),
         id.since_reset);
     const bool ok = length > 0 && static_cast<std::size_t>(length) < sizeof(text) &&
         WriteStageCaptureBytes(file, text, static_cast<DWORD>(length));
@@ -406,11 +441,28 @@ DWORD WINAPI ExportStageCapture(void *parameter) {
         const float *pixels = static_cast<const float *>(mapped);
         const std::size_t plane_values =
             static_cast<std::size_t>(job->info.width) * job->info.height * 4;
+        const float *exposure = pixels + plane_values * 4;
+        job->info.gpu_raw_exposure = exposure[0];
+        job->info.gpu_resolved_exposure = exposure[1];
+        job->info.gpu_source_to_canonical = exposure[2];
+        job->info.gpu_pre_exposure = exposure[3];
         for (unsigned int stage = 0; stage < 4; ++stage) {
             const bool written = WriteStageCapturePfm(directory, names[stage],
                 pixels + stage * plane_values, job->info.width, job->info.height);
             ok = written && ok;
         }
+        // Keep alpha and non-finite bit patterns for debugging format/alpha
+        // faults. Four planar RGBA32F images in the same order as the PFM files.
+        wchar_t raw_path[MAX_PATH] = {};
+        bool raw_ok = swprintf_s(raw_path, L"%ls\\stages.rgba32f", directory) >= 0;
+        HANDLE raw = raw_ok ? CreateFileW(raw_path, GENERIC_WRITE, FILE_SHARE_READ,
+            nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr) : INVALID_HANDLE_VALUE;
+        raw_ok = raw != INVALID_HANDLE_VALUE;
+        if (raw_ok) {
+            raw_ok = job->bytes <= MAXDWORD && WriteStageCaptureBytes(raw, mapped, static_cast<DWORD>(job->bytes - 16u));
+            CloseHandle(raw);
+        }
+        ok = raw_ok && ok;
         const D3D12_RANGE written_range = {0, 0};
         ID3D12Resource_Unmap(job->readback, 0, &written_range);
         ok = WriteStageCaptureMetadata(directory, job->info, ok) && ok;
@@ -421,6 +473,7 @@ DWORD WINAPI ExportStageCapture(void *parameter) {
         job->info.request_id, job->info.identity.instance_id,
         job->info.identity.frame_id, job->info.width, job->info.height,
         job->info.stride, directory);
+    FeedbackStageExported(job->info.request_id, directory, ok);
     delete job;
     g_stage_capture_last_result.store(ok ? 1 : -1, std::memory_order_relaxed);
     g_stage_capture_status.store(0, std::memory_order_release);
