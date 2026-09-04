@@ -53,7 +53,7 @@ int main() {
         check(std::isfinite(c.transfer_strength) && c.transfer_strength==expected,"finite transfer normalization");
         check(std::isfinite(c.post_transfer_strength) && c.post_transfer_strength==expected,"finite post normalization");
         check(std::isfinite(c.color_strength) && c.color_strength==std::clamp(expected,0.0f,2.0f),"finite color normalization");
-        check(std::isfinite(c.max_luma_ratio) && c.max_luma_ratio==std::clamp(std::isfinite(inputs[i])?inputs[i]:2.0f,1.0f,16.0f),"finite luma normalization");
+        check(std::isfinite(c.max_luma_ratio) && c.max_luma_ratio==std::clamp(std::isfinite(inputs[i])?inputs[i]:4.0f,1.0f,16.0f),"finite luma normalization");
         check(std::isfinite(c.proxy_scale) && c.proxy_scale==std::clamp(std::isfinite(inputs[i])?inputs[i]:1.0f,.25f,2.0f),"finite proxy normalization");
         check(std::isfinite(c.intensity) && c.intensity==std::clamp(std::isfinite(inputs[i])?inputs[i]:1.0f,0.0f,2.0f),"finite model normalization");
         check(std::fabs(shader_ratio(c.transfer_strength)-ratios[i])<1e-6f,"GPU scalar strength reaches CombineCS");
