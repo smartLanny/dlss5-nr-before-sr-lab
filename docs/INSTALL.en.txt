@@ -51,6 +51,8 @@ Send the ZIP with the game name, GPU model, HDR or SDR setting, what went wrong 
 
 What changed in this version
 
+This build fixes a Cyberpunk 2077 case where typed four-channel half-float motion vectors made the default NR-quality path safely bypass and appear inactive. It reads only the XY motion components of this explicit format; unknown formats still bypass. A short local run confirmed continuous NR submission, which does not by itself validate picture quality.
+
 The stable build no longer forces NR insertion while the command list has a null PSO, reducing the regression surface behind the reported Forza Horizon crash. The submitted bundle had no crash dump, so game confirmation is still required. The model UI-correction parameter now uses the unsigned type actually read by the runtime. It can help text only when a game supplies a separate UI layer and cannot discover subtitles already baked into the picture.
 
 This version fixes a case where an unset game rendering state incorrectly prevented the addon from running. It also fixes invalid exposure-value handling and shows the currently effective value and restriction reason for options such as Colour Follow.

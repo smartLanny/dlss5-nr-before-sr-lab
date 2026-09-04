@@ -12,6 +12,8 @@ The 0.4.1 NR quality setting changes only Feature 18's working resolution, not t
 
 Stability changes
 
+A Cyberpunk 2077 run reproduced and fixed a default NR-quality path that submitted no NR work. The game supplied typed four-channel half-float motion vectors, while the older path accepted only two-channel formats and safely bypassed. This build admits only that explicit typed format and reads its XY motion components; other unknown formats still bypass. Automated GPU checks cover all three admitted formats, and a short local run reached 6,546 actual submissions with no queue-state mismatch. This validates the processing path, not picture quality.
+
 For the Forza Horizon crash regression first reported after 0.3.3, the stable path once again bypasses a command list whose PSO is null. It also avoids publishing the wider graphics-state hooks used only by that high-risk restore path. The report contained no crash dump, so this is a conservative fix based on the exact version boundary and still needs game confirmation. Keep ExperimentalNullPsoCarrier=0 unless running a controlled one-variable experiment; changing it requires a full game restart.
 
 Older builds wrote DLSSNR.UICorrection using the wrong parameter type. It now uses the unsigned value read by the runtime. New installations enable “HUD / text protection (model)”; an existing explicit 0 or 1 is preserved. This can help only when a game supplies a separate UI layer and cannot discover subtitles or HUD already baked into SceneColor.
