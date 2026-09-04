@@ -44,5 +44,6 @@ force. No shaders or rendering-hook code is replaced by this UI.
 The glass appearance is alpha-blended dark material with rounded borders. It is
 NOT an actual blurred game capture. No screenshot/readback/blur pass is added.
 
-Windows build, real-game input, HDR, font/DPI, hotkey collisions, device-loss and
-NVML shutdown behavior require the release test matrix in docs/VALIDATION.md.
+Quickbar Windows MSVC build/link and frame-history CTest passed in CI; see
+docs/CI_RESULTS.md. Real-game loading/input, HDR, font/DPI, hotkey collisions,
+device-loss and NVML shutdown still require the matrix in docs/VALIDATION.md.

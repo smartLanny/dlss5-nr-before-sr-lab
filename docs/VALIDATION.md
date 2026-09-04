@@ -8,9 +8,15 @@
 - Chromium DOM：游戏展开、v4强度、样例保存、诊断、设置选择组件包，无页面脚本错误。
   受当前浏览器导航限制，DOM测试用 set_content 注入本地代码，移除了CSP；它不验证 Electron IPC、安全沙箱或实际 CSP。
 
+远程验证：
+
+- Quickbar 在 GitHub Windows MSVC 环境编译、链接、CTest 和 artifact 上传成功。
+- 同一代码提交的 manager Node/UI 合约测试在 Windows、Ubuntu 两平台成功。
+- 具体 run ID、构建提交和校验和见 `CI_RESULTS.md`。
+
 尚未完成：
 
-- Windows MSVC Quickbar 编译/链接和真实核心 wrapper 构建。
+- 配套真实核心 wrapper 的 Windows 构建和游戏内 ABI 验证。
 - Electron44.2.0依赖安装、lockfile和Windows发行包。
 - ReShade6.8.0 加载、CJK字体、100/150/200%DPI、1080p/4K和HDR。
 - F10输入阻断、Esc/Home回退、Alt+Tab、多swapchain、多显示器。

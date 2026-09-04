@@ -2,7 +2,7 @@
 
 单页本地管理器 + ReShade 原生半透明调节面板。无账号、无广告、无独立注入器。
 
-**这是源码实验版本，不是已经完成 Windows 实机验收的发行包。** 当前环境验证了 Node 文件事务与配置测试、标准 C++ 帧率/ABI 合约测试、样例数据的浏览器界面。没有验证 Windows 原生构建、NVML 实机读取、游戏输入/HDR/插帧兼容。
+**这是未完成游戏实机验收的实验版，不是可直接公开发群的完整安装包。** Quickbar 已通过 GitHub Windows MSVC 编译、链接和 CTest，并产出 x64 Add-on；桌面测试已在 Windows/Linux 通过。配套核心 wrapper、Electron 安装包、NVML 实机读取、游戏输入/HDR/插帧兼容仍待验证。证据与构建编号见 `docs/CI_RESULTS.md`。
 
 ## 用户操作
 

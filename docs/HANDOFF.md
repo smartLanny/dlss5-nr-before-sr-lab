@@ -5,9 +5,9 @@ Core branch: ui/quickbar-control-v1; commit dfb8978fde3d845ccfe79bbe595701fbf062
 
 Do not merge the product-root branch into the core branch: they are separate project trees in the same private repository. The shared C ABI header is copied in core-integration/ and native/shared/ and must stay identical.
 
-Current state: source implementation + 20 passing Node tests + portable C++ tests + sample-data DOM checks. Windows binaries are not built locally. npm install failed with EAI_AGAIN for registry.npmjs.org. No game or real sensor data was used in the preview.
+Current state: source implementation + 20 passing Node tests + portable C++ tests + sample-data DOM checks. Quickbar Windows MSVC build/link/CTest passed remotely; see CI_RESULTS.md. Actual core wrapper and Electron binaries remain unbuilt. npm install failed with EAI_AGAIN for registry.npmjs.org. No game or real sensor data was used in the preview.
 
-First job: run Windows Quickbar CI/manual build, then core scripts/build-quickbar.ps1. Check ReShade API20/ImGui19250, input blocking and cursor restoration, Resize/AltTab/DPI/HDR, F8 capture lock and control generation conflicts. The experimental NVML provider loads System32/nvml.dll only, degrades to --, and needs real driver/unload tests.
+First job: build the paired core with scripts/build-quickbar.ps1; the separate Quickbar Add-on already passed Windows CI. Check ReShade API20/ImGui19250, input blocking and cursor restoration, Resize/AltTab/DPI/HDR, F8 capture lock and control generation conflicts. The experimental NVML provider loads System32/nvml.dll only, degrades to --, and needs real driver/unload tests.
 
 Second job: produce a lawful matching seven-file payload with prepare-payload.ps1. The initial manager receipt schema is now v2; v0.1 owners must uninstall using their old tool first. Do not improvise silent receipt migration.
 
