@@ -55,10 +55,10 @@ def main() -> None:
             text = text.replace(old, new)
         if path.name == "BETA_0_4_PERFECT_CHAIN.md" and \
                 "## r4 native command-state safety integration" not in text:
-            text = text.rstrip() + DOC_APPEND + "\n"
+            text = text.rstrip() + DOC_APPEND.rstrip() + "\n"
         if path.name == "BETA_0_4_TEST_MATRIX.md" and \
                 "## r4 命令状态专项" not in text:
-            text = text.rstrip() + TEST_APPEND + "\n"
+            text = text.rstrip() + TEST_APPEND.rstrip() + "\n"
         if text != original:
             path.write_text(text, encoding="utf-8", newline="\n")
             changed_files.append(str(path.relative_to(ROOT)))
