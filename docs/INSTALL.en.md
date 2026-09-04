@@ -1,12 +1,12 @@
-# beta0.3.3.5 feedback test build quick install
+# beta0.3.7 feedback test build quick install
 
 Press **F8** or click Collect feedback ZIP in the addon panel. Keep the camera still and wait for completion. `feedback.zip` normally goes under Documents/DLSS5-Feedback. If that directory cannot be created, collection tries DLSS5-Feedback under the system temporary directory; copy the actual path from the panel. A partial bundle includes missing-item reasons and can still be submitted. If the game cannot start, double-click `Collect-Feedback.cmd` beside `collect-feedback.ps1`. This offline collector creates `feedback-offline.zip` under Documents and needs no administrator privileges.
 
-The current full package contains **seven files**. The addon filename stays stable for replacement; verify beta0.3.3.5 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
+The current full package contains **seven files**. Verify beta0.3.7 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
 
 This version fixes the unit-exposure fallback when ExposureTexture contains NaN. **54 D3D12 WARP GPU cases passed**, including this path and checks that capture on/off preserves their composition output. This does not establish that all dynamic-exposure, colour-follow or face-quality problems are fixed; game testing is still required.
 
-Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.3.3.5**
+Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.3.7**
 
 Author: **@野生的装机宅 Bilibili**
 
@@ -31,13 +31,13 @@ translation layer such as OptiScaler are outside this add-on's direct scope.
 3. Remove old `nr-before-sr*.addon64` builds, the other language variant, and
    any second DLSS5/RenoDX/ShortFuse add-on that would own NR at the same time.
 4. Keep these files **together in that same directory**:
-   - `DLSS5-AI-Rendering-Upscaling-beta0.3.3-dev-@野生的装机宅-Bilibili.en.addon64`
+   - `DLSS5-AI-Rendering-Upscaling-beta0.3.7-@野生的装机宅-Bilibili.en.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - `nvngx_dlssnr.dll` from the matching GPU package
    - `Collect-Feedback.cmd`
    - `collect-feedback.ps1`
-5. Start the game and verify that the ReShade Add-ons page shows beta0.3.3.5, the
+5. Start the game and verify that the ReShade Add-ons page shows beta0.3.7, the
    author and official release address at the top of this add-on's panel.
 
 The add-on loads its configuration, bridge and NR runtime from its own folder.

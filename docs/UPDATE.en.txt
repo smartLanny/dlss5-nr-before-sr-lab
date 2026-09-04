@@ -4,7 +4,7 @@ Official releases: https://space.bilibili.com/941799
 
 What this update is
 
-This is a small revision of the 0.3.5 (beta0.3.3.5) stable maintenance line. It fixes feedback collection and status messages. NR intensity, image processing and existing HDR colour-follow restrictions are unchanged.
+This update adds the compact mode UI, the 0..2 final effect strength with an explicit 1.2 preset, and an opt-in game pixel-jitter developer path. Mode 2 remains the default and unknown HDR colour-follow restrictions remain unchanged.
 
 Use this package with an existing 0.3.5 maintenance installation. It contains four small files: the addon, Instructions.txt, Collect-Feedback.cmd and collect-feedback.ps1. Keep both existing DLLs and nr_before_sr.ini; there is no need to download the large runtime again.
 
@@ -16,7 +16,7 @@ Exit the game completely. Back up the current addon outside the game directory, 
 
 Keep nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Place Collect-Feedback.cmd and collect-feedback.ps1 together beside the addon. Do not swap runtime DLLs between GPU packages.
 
-Start the game and check that the addon panel says beta0.3.3.6. The filename still contains beta0.3.3-dev; use the panel to identify the version. First-time installations or missing runtime files require the full package for your GPU.
+Start the game and check that the addon panel says beta0.3.7. First-time installations or missing runtime files require the full package for your GPU.
 
 What changed
 

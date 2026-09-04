@@ -12,8 +12,10 @@ Runtime hotkeys are `F6` for the master comparison switch, `F8` for a local
 feedback ZIP, and main keyboard `-` for a ReShade screenshot whose filename
 records the current build, chain and selected settings.
 
-The beta0.3.3.6 maintenance update fixes feedback requests left waiting during
-RR ownership, cancels only unarmed session-owned requests on timeout, and gives
+The beta0.3.7 update adds a compact processing-mode UI, bounded final-strength
+presets, and an opt-in developer jitter forwarding path. It keeps Mode 2 as the
+default and retains the existing unknown-HDR colour protection. The collector
+cancels only unarmed session-owned requests on timeout and gives
 current bypass status priority over pending settings. It does not change image
 strength or HDR admission. See the [September 4 feedback review](docs/COMMUNITY_FEEDBACK_20260904.zh-CN.md)
 and [plain-text update instructions](docs/UPDATE.en.txt). The separate beta0.4

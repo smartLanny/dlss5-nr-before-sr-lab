@@ -43,7 +43,8 @@ harness = r'''
 GUIDE_INCLUDE
 struct NgxHandle { unsigned id; };
 enum class CodecColorMode : unsigned { Automatic, LinearSdr, ModelEncodedValueDomain };
-struct Config { float intensity=1, local_tone=1, local_structure=1, skin_structure=-1; bool auto_mask=false; unsigned style=1; bool ui_correction=false; int depth_mode=-1; } g_config;
+enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
+struct Config { float intensity=1, local_tone=1, local_structure=1, skin_structure=-1; bool auto_mask=false; unsigned style=1; bool ui_correction=false; int depth_mode=-1; NrJitterMode jitter_mode=NrJitterMode::Legacy; } g_config;
 TUNING
 CURRENT_TUNING
 SAME_TUNING

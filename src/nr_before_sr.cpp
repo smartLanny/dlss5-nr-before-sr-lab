@@ -81,6 +81,11 @@ using SetIntFn = void (*)(NgxParams *, const char *, int);
 using SetUIntFn = void (*)(NgxParams *, const char *, unsigned int);
 using SetFloatFn = void (*)(NgxParams *, const char *, float);
 
+enum class NrJitterMode : int {
+    Legacy = 0,
+    GameInputPixel = 1,
+};
+
 bool GetResource(const NgxParams *params, const char *key, ID3D12Resource **value) {
     if (value == nullptr) return false;
     *value = nullptr;
@@ -830,6 +835,10 @@ struct ChainConfig {
     // sRGB-encoded values stored through an UNORM view. This is a profile
     // contract, not a general user image-tuning option.
     int r8_output_encoding = 0;
+    // Developer-only temporal input selection. Legacy preserves the previous
+    // behaviour; GameInputPixel forwards finite game pixel jitter to NR after
+    // converting from the game's SR input grid to the NR work grid.
+    NrJitterMode jitter_mode = NrJitterMode::GameInputPixel;
 };
 
 ChainConfig g_config = {};
@@ -1109,6 +1118,9 @@ void NormalizeConfig(ChainConfig &config) {
     config.skin_structure = std::clamp(config.skin_structure, -1.0f, 2.0f);
     config.style = std::min(config.style, 2u);
     config.r8_output_encoding = std::clamp(config.r8_output_encoding, 0, 2);
+    const int jitter_mode = static_cast<int>(config.jitter_mode);
+    config.jitter_mode = jitter_mode == static_cast<int>(NrJitterMode::GameInputPixel)
+        ? NrJitterMode::GameInputPixel : NrJitterMode::Legacy;
 }
 
 bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
@@ -1142,7 +1154,8 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.style == b.style &&
            a.ui_correction == b.ui_correction &&
            a.perf_epoch == b.perf_epoch &&
-           a.r8_output_encoding == b.r8_output_encoding;
+           a.r8_output_encoding == b.r8_output_encoding &&
+           a.jitter_mode == b.jitter_mode;
 }
 
 void ReloadConfig(bool force = false) {
@@ -1189,7 +1202,7 @@ void ReloadConfig(bool force = false) {
         static bool migration_logged = false;
         if (!migration_logged) {
             migration_logged = true;
-            Log("Migrated legacy configuration to beta0.4 perfect-chain in memory: "
+            Log("Migrated legacy configuration to beta0.4.1 in memory: "
                 "default mode is now render-resolution NR -> SR; persisted=%d.",
                 migration_persisted ? 1 : 0);
         }
@@ -1240,6 +1253,8 @@ void ReloadConfig(bool force = false) {
         L"NRBeforeSR", L"PerfEpoch", 0, g_ini_path);
     next.r8_output_encoding = GetPrivateProfileIntW(
         L"NRBeforeSR", L"R8OutputEncoding", 0, g_ini_path);
+    next.jitter_mode = static_cast<NrJitterMode>(GetPrivateProfileIntW(
+        L"NRBeforeSR", L"JitterMode", 1, g_ini_path));
     NormalizeConfig(next);
 
     const bool shortfuse_loaded =
@@ -1289,6 +1304,7 @@ void ReloadConfig(bool force = false) {
             "paperWhiteScale=%.3f peakShoulderRequested=%d warmup=%u intensity=%.3f localTone=%.3f "
             "localStructure=%.3f skinStructure=%.3f autoMask=%d style=%u "
             "uiCorrection=%d r8OutputEncoding=%d perfEpoch=%d "
+            "jitterMode=%d "
             "feature18Evals=%llu",
             g_config.enabled ? 1 : 0, g_config.mode,
             g_config.identity_use_original ? 1 : 0,
@@ -1306,7 +1322,7 @@ void ReloadConfig(bool force = false) {
             static_cast<double>(g_config.skin_structure),
             g_config.auto_mask ? 1 : 0, g_config.style,
             g_config.ui_correction ? 1 : 0, g_config.r8_output_encoding,
-            g_config.perf_epoch,
+            g_config.perf_epoch, static_cast<int>(g_config.jitter_mode),
             g_nr_successful_evaluations.load(std::memory_order_relaxed));
     }
 }
@@ -1374,6 +1390,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"UICorrection", config.ui_correction ? 1 : 0));
     record_write(WriteIniInt(L"PerfEpoch", config.perf_epoch));
     record_write(WriteIniInt(L"R8OutputEncoding", config.r8_output_encoding));
+    record_write(WriteIniInt(L"JitterMode", static_cast<int>(config.jitter_mode)));
     // Remove the obsolete option from configs created by older builds.
     // Removing an already-absent legacy key is best effort and must not turn a
     // successfully persisted current configuration into a false failure.
@@ -1436,7 +1453,7 @@ bool ApplyConfig(ChainConfig next, const char *source) {
     LeaveCriticalSection(&g_chain_cs);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
         "colorFollowRequested=%.3f intensity=%.3f style=%u autoMask=%d skin=%.3f localTone=%.3f "
-        "localStructure=%.3f uiCorrection=%d paperWhiteScale=%.3f peakShoulderRequested=%d "
+        "localStructure=%.3f uiCorrection=%d jitterMode=%d paperWhiteScale=%.3f peakShoulderRequested=%d "
         "epoch=%d feature18Evals=%llu",
         source, applied.enabled ? 1 : 0, applied.mode == 2 ? 1 : 0,
         static_cast<double>(ActiveTransferStrength(applied)),
@@ -1447,6 +1464,7 @@ bool ApplyConfig(ChainConfig next, const char *source) {
         static_cast<double>(applied.local_tone),
         static_cast<double>(applied.local_structure),
         applied.ui_correction ? 1 : 0,
+        static_cast<int>(applied.jitter_mode),
         static_cast<double>(1.0f / applied.proxy_scale),
         applied.experimental_peak_shoulder ? 1 : 0, applied.perf_epoch,
         g_nr_successful_evaluations.load(std::memory_order_relaxed));
@@ -2919,6 +2937,7 @@ struct NrTuningSignature {
     bool auto_mask = false;
     unsigned int style = 0;
     bool ui_correction = false;
+    NrJitterMode jitter_mode = NrJitterMode::GameInputPixel;
 };
 
 struct NrDiagnosticIdentity {
@@ -3056,6 +3075,7 @@ NrTuningSignature CurrentNrTuningSignature() {
     signature.auto_mask = g_config.auto_mask;
     signature.style = g_config.style;
     signature.ui_correction = g_config.ui_correction;
+    signature.jitter_mode = g_config.jitter_mode;
     return signature;
 }
 
@@ -3067,7 +3087,8 @@ bool SameNrTuningSignature(const NrTuningSignature &a,
            a.skin_structure == b.skin_structure &&
            a.auto_mask == b.auto_mask &&
            a.style == b.style &&
-           a.ui_correction == b.ui_correction;
+           a.ui_correction == b.ui_correction &&
+           a.jitter_mode == b.jitter_mode;
 }
 
 struct NrContext {
@@ -3122,6 +3143,8 @@ struct NrContext {
     unsigned long long last_sampled_exposure_serial = 0;
     bool sampled_exposure_initialized = false;
     bool exposure_texture_reset_pending = false;
+    bool jitter_status_initialized = false;
+    bool jitter_last_known = false;
     // Feature 18 Create/Evaluate is temporal state, not merely a collection of
     // textures. Multiple game command lists may record consecutive evaluations
     // before any one list is reset. Count every owning list and use the proven
@@ -6137,6 +6160,63 @@ struct NrGuideBinding {
     int game_reset = 0;
 };
 
+struct NrJitterBinding {
+    bool known = false;
+    bool valid_x = false;
+    bool valid_y = false;
+    float x = 0.0f;
+    float y = 0.0f;
+    float scale_x = 1.0f;
+    float scale_y = 1.0f;
+    unsigned int source_width = 0;
+    unsigned int source_height = 0;
+};
+
+// Jitter is expressed in source pixels by the game's SR call. The signed NR
+// feature receives work-grid pixels, so scale each axis independently. A
+// missing or non-finite value is unknown and is deliberately omitted from the
+// NR parameter block; zero is a valid pixel jitter and cannot mean "missing".
+NrJitterBinding ResolveNrJitter(const NgxParams *sr_params, NrJitterMode mode,
+                                unsigned int source_width,
+                                unsigned int source_height,
+                                unsigned int work_width,
+                                unsigned int work_height) {
+    NrJitterBinding result = {};
+    result.source_width = source_width;
+    result.source_height = source_height;
+    result.scale_x = source_width != 0
+        ? static_cast<float>(work_width) / static_cast<float>(source_width)
+        : 1.0f;
+    result.scale_y = source_height != 0
+        ? static_cast<float>(work_height) / static_cast<float>(source_height)
+        : 1.0f;
+    if (mode != NrJitterMode::GameInputPixel || sr_params == nullptr)
+        return result;
+    float x = 0.0f, y = 0.0f;
+    const bool present_x = GetFloat(sr_params, "Jitter.Offset.X", &x);
+    const bool present_y = GetFloat(sr_params, "Jitter.Offset.Y", &y);
+    result.valid_x = present_x && std::isfinite(x);
+    result.valid_y = present_y && std::isfinite(y);
+    // A pixel jitter larger than the source image cannot be a legal camera
+    // sample. Reject it as unknown rather than allowing an invalid guide to
+    // poison temporal state.
+    const float limit = static_cast<float>(std::max(
+        1u, std::max(source_width, source_height)));
+    if (result.valid_x && std::fabs(x) > limit) result.valid_x = false;
+    if (result.valid_y && std::fabs(y) > limit) result.valid_y = false;
+    result.known = result.valid_x && result.valid_y &&
+        source_width != 0 && source_height != 0 &&
+        work_width != 0 && work_height != 0 &&
+        std::isfinite(result.scale_x) && std::isfinite(result.scale_y) &&
+        result.scale_x > 0.0f && result.scale_y > 0.0f;
+    if (result.known) {
+        result.x = x * result.scale_x;
+        result.y = y * result.scale_y;
+        result.known = std::isfinite(result.x) && std::isfinite(result.y);
+    }
+    return result;
+}
+
 // Resolve the complete guide contract before selecting temporal history or
 // recording codec commands. The post-SR path retains this entrance snapshot
 // across native SR instead of re-reading its mutable parameter block.
@@ -6282,6 +6362,7 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
 
 bool BindNrParameters(NrContext &context, NrSlot &slot,
                       const NrGuideBinding &guides, const FeatureRecord &feature,
+                      const NgxParams *sr_params,
                       unsigned int width, unsigned int height,
                       const ColorContract &color_contract, bool reset,
                       ID3D12Resource *motion_override = nullptr) {
@@ -6297,6 +6378,74 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     const unsigned int motion_height = s.motion_bound_height;
     const float mv_scale_x = s.motion_scale_x, mv_scale_y = s.motion_scale_y;
     const int game_reset = guides.game_reset;
+    NgxParams *params = context.params;
+    if (params == nullptr) return false;
+    const unsigned int jitter_source_width = s.render_width;
+    const unsigned int jitter_source_height = s.render_height;
+    const NrJitterBinding jitter = ResolveNrJitter(
+        sr_params, g_config.jitter_mode,
+        jitter_source_width, jitter_source_height, width, height);
+    if (!context.jitter_status_initialized) {
+        context.jitter_status_initialized = true;
+        context.jitter_last_known = jitter.known;
+    } else if (context.jitter_last_known != jitter.known) {
+        // A reused parameter block cannot safely carry a previously valid
+        // jitter into a frame where the game omitted or invalidated it.
+        // Retire the complete temporal context so a fresh block is allocated;
+        // this also makes the transition observable as a history reset.
+        const bool previous_known = context.jitter_last_known;
+        context.jitter_last_known = jitter.known;
+        context.retired = true;
+        Log("NR jitter validity changed: previous=%s current=%s; retiring "
+            "Feature 18 parameter block and history before continuing.",
+            previous_known ? "valid" : "unknown",
+            jitter.known ? "valid" : "unknown");
+        return false;
+    }
+    if (jitter.known) {
+        SetFloat(params, "Jitter.Offset.X", jitter.x);
+        SetFloat(params, "Jitter.Offset.Y", jitter.y);
+        SetFloat(params, "DLSSNR.Jitter.Offset.X", jitter.x);
+        SetFloat(params, "DLSSNR.Jitter.Offset.Y", jitter.y);
+        SetFloat(params, "DLSSNR.Jitter.Scale.X", jitter.scale_x);
+        SetFloat(params, "DLSSNR.Jitter.Scale.Y", jitter.scale_y);
+        SetUInt(params, "DLSSNR.Jitter.SourceWidth", jitter.source_width);
+        SetUInt(params, "DLSSNR.Jitter.SourceHeight", jitter.source_height);
+        SetUInt(params, "DLSSNR.Jitter.WorkWidth", width);
+        SetUInt(params, "DLSSNR.Jitter.WorkHeight", height);
+        SetInt(params, "DLSSNR.Jitter.Valid", 1);
+    } else {
+        // Valid=0 is a state marker, not a fake zero jitter. The pixel values
+        // are intentionally untouched so no caller can mistake them for data.
+        SetInt(params, "DLSSNR.Jitter.Valid", 0);
+    }
+    if (!context.guide_contract_logged || context.jitter_status_initialized) {
+        static unsigned int jitter_logs = 0;
+        if (++jitter_logs <= 3 || (jitter_logs % 600) == 0) {
+            const char *state = g_config.jitter_mode == NrJitterMode::Legacy
+                ? "legacy" : (jitter.known ? "forwarded" : "unknown");
+            if (jitter.known) {
+                Log("NR jitter actual: mode=%d state=%s input=%s,%s "
+                    "source=%ux%u work=%ux%u scale=%.6f,%.6f "
+                    "value=%.6f,%.6f.", static_cast<int>(g_config.jitter_mode),
+                    state, jitter.valid_x ? "valid" : "missing/invalid",
+                    jitter.valid_y ? "valid" : "missing/invalid",
+                    jitter.source_width, jitter.source_height, width, height,
+                    static_cast<double>(jitter.scale_x),
+                    static_cast<double>(jitter.scale_y),
+                    static_cast<double>(jitter.x), static_cast<double>(jitter.y));
+            } else {
+                Log("NR jitter actual: mode=%d state=%s input=%s,%s "
+                    "source=%ux%u work=%ux%u scale=%.6f,%.6f value=unknown.",
+                    static_cast<int>(g_config.jitter_mode), state,
+                    jitter.valid_x ? "valid" : "missing/invalid",
+                    jitter.valid_y ? "valid" : "missing/invalid",
+                    jitter.source_width, jitter.source_height, width, height,
+                    static_cast<double>(jitter.scale_x),
+                    static_cast<double>(jitter.scale_y));
+            }
+        }
+    }
     const bool guide_reset = context.guide_history.NeedsReset(s);
     if (!context.guide_contract_logged || guide_reset) {
         context.guide_contract_logged = true;
@@ -6317,7 +6466,6 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
             "(present=%d,%d).", guides.has_motion_scale_x ? 1 : 0,
             guides.has_motion_scale_y ? 1 : 0);
     }
-    NgxParams *params = context.params;
     SetResource(params, "DLSSNR.Color", slot.proxy);
     SetResource(params, "DLSSNR.Output", slot.neural);
     SetResource(params, "DLSSNR.MVec", motion);
@@ -6382,8 +6530,6 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
             reinterpret_cast<void *>(&ComputeScalingRatioCallback));
     SetFloat(params, "DLSSNR.MVecScaleX", mv_scale_x);
     SetFloat(params, "DLSSNR.MVecScaleY", mv_scale_y);
-    SetFloat(params, "Jitter.Offset.X", guides.jitter_offset_x);
-    SetFloat(params, "Jitter.Offset.Y", guides.jitter_offset_y);
 
     const int depth_inverted = s.depth_inverted;
     const unsigned int config_generation =
@@ -6890,7 +7036,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         }
     }
     const bool first = context->nr_handle == nullptr;
-    if (!BindNrParameters(*context, *slot, guides, feature,
+    if (!BindNrParameters(*context, *slot, guides, feature, sr_params,
                           width, height, color_contract, first,
                           motion_override))
         return substitution;
@@ -7417,7 +7563,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     }
     const bool first = context.nr_handle == nullptr;
     if (!BindNrParameters(context, slot, substitution.guides, feature,
-                          width, height, color_contract, first)) {
+                          sr_params, width, height, color_contract, first)) {
         PreservePostSrOnFailure(command_list, substitution);
         return false;
     }
@@ -9722,43 +9868,9 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     ReleaseSRWLockExclusive(&g_present_observer_lock);
 }
 
-void DrawSettings(reshade::api::effect_runtime *) {
-    static ChainConfig pending = {};
-    static bool has_pending = false;
-    static ULONGLONG pending_tick = 0;
-    ChainConfig next = has_pending ? pending : SnapshotConfig();
-    bool changed = false;
-    const auto ui = [](const char *english, const char *chinese) {
-        return kChineseUi ? chinese : english;
-    };
-
-    ImGui::SeparatorText(ui(
-        "DLSS 5 AI Rendering Perfect Chain beta0.4",
-        "DLSS 5 AI渲染完美链路 beta0.4"));
-    ImGui::TextDisabled(
-        ui("Version %s | Author %s", "版本 %s | 作者 %s"),
-        kAddonVersion, kAddonAuthor);
-    ImGui::TextWrapped(
-        ui("Official releases only: %s", "唯一官方发布地址：%s"),
-        kOfficialReleaseUrl);
-    ImGui::TextDisabled(
-        "%s", ui(
-            "Hotkeys: F6 master switch | - diagnostic screenshot (settings "
-            "are embedded in the filename)",
-            "快捷键：F6 总开关 | - 参数截图（当前设置会直接写入文件名）"));
-    changed |= ImGui::Checkbox(ui("Enabled (F6)", "启用（F6）"), &next.enabled);
-    if (g_config_persistence_failed.load(std::memory_order_acquire)) {
-        ImGui::TextWrapped(
-            ui("Warning: nr_before_sr.ini is not writable (Windows error %lu). "
-               "Your choices remain active for this game session but cannot "
-               "be saved. Move the add-on files to a writable ReShade "
-               "add-on folder or fix the file's read-only permission.",
-               "警告：nr_before_sr.ini 无法写入（Windows 错误 %lu）。当前选择在"
-               "本次游戏中仍会生效，但无法保存；请把插件文件放到可写的 "
-               "ReShade 插件目录，或取消该文件的只读权限。"),
-            g_config_persistence_error.load(std::memory_order_relaxed));
-    }
-
+void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
+    const ChainConfig next = SnapshotConfig();
+    const auto ui = [](const char *en, const char *zh) { return kChineseUi ? zh : en; };
     const bool shortfuse_loaded =
         g_shortfuse_loaded.load(std::memory_order_relaxed);
     const bool shortfuse_nr_enabled =
@@ -9776,31 +9888,6 @@ void DrawSettings(reshade::api::effect_runtime *) {
                 "ShortFuse sidecar loaded (NR off): safe for this chain.",
                 "ShortFuse 兼容插件已加载（NR 关闭）：可安全使用本链路。"));
     }
-
-    bool before_sr = next.mode == 2;
-    if (ImGui::Checkbox(
-            ui("Use render-resolution NR -> SR",
-               "使用渲染分辨率 NR -> SR"),
-            &before_sr)) {
-        next.mode = before_sr ? 2 : 1;
-        changed = true;
-    }
-    ImGui::TextWrapped(
-        "%s", ui(
-            "Off: game SR -> full output-resolution NR (quality/reference "
-            "mode).  On: render-resolution NR -> game SR (default "
-            "performance mode). Both remain available when the live resource "
-            "contract is valid.",
-            "关闭：游戏 SR -> 全输出分辨率 NR（高画质 / 对比模式）。  "
-            "开启：渲染分辨率 NR -> 游戏 SR（默认性能模式）。实时资源合同"
-            "通过时，两种模式都会完整保留。"));
-    ImGui::TextDisabled(
-        "%s", ui(
-            "NR -> SR reads the game's real DLSS render size. Changing the "
-            "in-game DLSS quality changes this input automatically. This "
-            "add-on does not override render resolution.",
-            "NR -> SR 直接读取游戏当前的 DLSS 渲染尺寸；切换游戏内 DLSS "
-            "挡位后，输入分辨率会自动跟随。本插件不会覆盖游戏渲染分辨率。"));
 
     const unsigned long long evaluations =
         g_nr_successful_evaluations.load(std::memory_order_relaxed);
@@ -10481,240 +10568,22 @@ void DrawSettings(reshade::api::effect_runtime *) {
         "可选诊断：单次采集原图、代理图、NR 输出和合成结果。"
         "F7 请求阶段图；“-”独立截取显示画面。NR→SR 的阶段图止于原生 SR 之前，"
         "两者不是同一帧。"));
-    static const char *work_mode_items_en[] = {
-        "Reference (100%)", "Quality", "Balanced", "Performance",
-        "Ultra Performance", "Custom"};
-    static const char *work_mode_items_zh[] = {
-        "参考（100%）", "高画质", "平衡", "性能", "超级性能", "自定义"};
-    int work_mode = next.work_mode;
-    if (ImGui::Combo(ui("NR Working Resolution", "NR 工作分辨率"),
-                     &work_mode, kChineseUi ? work_mode_items_zh : work_mode_items_en, 6)) {
-        next.work_mode = work_mode;
-        changed = true;
-    }
-    if (next.work_mode == 5) {
-        changed |= ImGui::SliderFloat(
-            ui("Custom linear scale", "自定义线性比例"),
-            &next.custom_work_scale, 0.50f, 1.00f, "%.2f");
-    }
-    ImGui::TextDisabled("%s", ui(
-        "Mode 2 uses a stable output-relative bucket. The game's native SR still "
-        "receives the full render-resolution composite.",
-        "模式 2 使用相对输出分辨率的稳定档位；游戏原生 SR 仍接收完整渲染分辨率合成结果。"));
-    changed |= ImGui::SliderFloat(
-        ui("NR Intensity", "NR 模型强度"), &next.intensity, 0.0f, 2.0f, "%.2f");
-    static const char *style_items_en[] = {"Default", "Natural", "Cinematic"};
-    static const char *style_items_zh[] = {"默认", "自然", "电影"};
-    const char *const *style_items = kChineseUi ? style_items_zh : style_items_en;
-    int style = static_cast<int>(next.style);
-    if (ImGui::Combo(ui("NR Style", "NR 风格"), &style, style_items, 3)) {
-        next.style = static_cast<unsigned int>(style);
-        changed = true;
-    }
-    changed |= ImGui::Checkbox(
-        ui("Automatic Face / Skin Mask", "自动人脸 / 皮肤遮罩"),
-        &next.auto_mask);
-    changed |= ImGui::SliderFloat(
-        ui("Skin Structure (-1 = follow Local Structure)",
-           "皮肤结构（-1 = 跟随局部结构）"), &next.skin_structure,
-        -1.0f, 2.0f, "%.2f");
-    changed |= ImGui::SliderFloat(
-        ui("Local Tone", "局部影调"), &next.local_tone, 0.0f, 2.0f, "%.2f");
-    changed |= ImGui::SliderFloat(
-        ui("Local Structure", "局部结构"), &next.local_structure,
-        0.0f, 2.0f, "%.2f");
-    if (ImGui::SliderFloat(
-            ui("NR Effect Strength (multiplicative)", "NR 效果强度（乘算）"),
-            &next.transfer_strength, 0.0f, 8.0f, "%.2f")) {
-        next.post_transfer_strength = next.transfer_strength;
-        changed = true;
-    }
-    ImGui::TextDisabled(
-        "%s", ui(
-            "1 follows the model. Values above 1 compound the NR ratio in log "
-            "space for a deliberately stronger look; HDR headroom and Max Ratio still guard it.",
-            "1 为正常跟随；大于 1 会在对数域乘算叠加 NR 比例，得到更夸张效果，"
-            "同时仍受 HDR 高光保护和最大比例限制。"));
-    changed |= ImGui::SliderFloat(
-        ui("Maximum luminance ratio", "最大亮度倍率"),
-        &next.max_luma_ratio, 1.0f, 16.0f, "%.2f");
-    ImGui::TextDisabled(
-        "%s", ui(
-            "Hard safety ceiling for the powered NR luminance ratio. Raise it only "
-            "for controlled extreme-strength captures.",
-            "乘算后 NR 明暗倍率的硬上限；只有在受控的极限强度对比中才建议提高。"));
-    changed |= ImGui::SliderFloat(
-        ui("NR Color Follow", "NR 颜色跟随强度"),
-        &next.color_strength, 0.0f, 2.0f, "%.2f");
-    ImGui::TextDisabled(
-        "%s", ui(
-            "0 keeps the game's hue; 1 follows bounded NR chroma. It is "
-            "honoured for the FP16, unit-exposure SR -> NR comparison and "
-            "verified SDR contracts. Unverified NR -> SR HDR remains luminance-only.",
-            "0 保留游戏原始色相；1 跟随有界 NR 色彩。FP16、单位曝光的 SR -> NR "
-            "对比链路及已验证 SDR 合同会采用此值；未验证的 NR -> SR HDR 仍只传递明暗。"));
-    changed |= ImGui::SliderFloat(
-        ui("Original Lighting Lock", "原始光照保护"),
-        &next.lighting_lock, 0.0f, 1.0f, "%.2f");
-    changed |= ImGui::SliderFloat(
-        ui("Edge / Hair Guard", "边缘 / 发丝保护"),
-        &next.edge_guard, 0.0f, 1.0f, "%.2f");
-    changed |= ImGui::SliderFloat(ui("Detail stability (experimental)", "细节稳定保护（实验）"),
-        &next.detail_stability, 0.0f, 1.0f, "%.2f");
-    ImGui::TextWrapped("%s", ui("Default off. Filters inconsistent fine NR residuals, not the original picture. "
-        "Motion protection unavailable: pixel depth/history is unverified. Skin controls use model parameters, not a face mask.",
-        "默认关闭。只抑制不稳定的细碎 AI 变化，不模糊原图。运动保护不可用：尚未验证逐像素深度历史。皮肤参数不等于人脸区域识别。"));
-    static const char *curve_items_en[] = {
-        "Legacy shoulder", "Hybrid (recommended)", "Reversible (aggressive)"};
-    static const char *curve_items_zh[] = {
-        "旧版压肩", "混合曲线（推荐）", "可逆曲线（激进）"};
-    int proxy_curve = static_cast<int>(next.proxy_curve);
-    if (ImGui::Combo(ui("HDR Proxy Curve", "HDR 代理曲线"), &proxy_curve,
-                     kChineseUi ? curve_items_zh : curve_items_en, 3)) {
-        next.proxy_curve = static_cast<unsigned int>(proxy_curve);
-        changed = true;
-    }
-    changed |= ImGui::Checkbox(
-        ui("Allow experimental HDR colour follow", "允许实验性 HDR 颜色跟随"),
-        &next.allow_unverified_hdr_color);
-    changed |= ImGui::Checkbox(
-        ui("Suppress correction on reset frame", "重置帧抑制 NR 校正"),
-        &next.suppress_reset_frame);
-    ImGui::TextDisabled("%s", ui(
-        "Lighting Lock removes broad model brightness drift; Edge Guard lowers "
-        "the edit at high-contrast boundaries. Reversible proxy may flicker on bright lights.",
-        "原始光照保护会压制模型整体明暗漂移；边缘保护会降低高反差边界修改。"
-        "可逆曲线在强光运动中可能闪烁。"));
-    if (next.enabled && next.transfer_strength <= 0.001f) {
-        ImGui::TextWrapped("%s", ui(
-            next.identity_use_original
-                ? "Diagnostic identity mode is active: NR still runs, but its "
-                  "color is discarded."
-                : "Blend is 0: Feature 18 is bypassed for a true native-SR "
-                  "image and performance reference.",
-            next.identity_use_original
-                ? "诊断直通模式已启用：NR 仍会运行，但会丢弃其颜色结果。"
-                : "混合强度为 0：已旁路 Feature 18，可作为真正的原生 SR "
-                  "画面与性能基准。"));
-    }
-
-    changed |= ImGui::Checkbox(ui("UI Correction", "界面修正"),
-                               &next.ui_correction);
-
-    ImGui::SeparatorText(ui("Advanced / Recovery", "高级 / 故障恢复"));
-    changed |= ImGui::Checkbox(
-        ui("Experimental HDR Highlight Detail", "实验性 HDR 高光细节"),
-        &next.experimental_peak_shoulder);
-    ImGui::TextDisabled("%s", ui(
-        "Off by default. Changes highlight mapping before NR, not colour-follow eligibility. "
-        "It preserves more HDR highlight variation, but can change the NR appearance. "
-        "Switching rebuilds NR and warms up. "
-        "SDR-encoded inputs are unaffected; compare fixed scenes before keeping it on.",
-        "默认关闭。只调整送入 NR 前的高光映射，不控制颜色跟随是否允许。"
-        "可保留更多 HDR 高光变化，但可能改变 NR 外观。"
-        "切换会重建 NR 并重新预热；SDR 编码输入不受影响，请先在固定场景对照。"));
-    float scene_paper_white_scale =
-        1.0f / std::max(next.proxy_scale, 0.001f);
-    if (ImGui::SliderFloat(
-            ui("Scene Paper-White Scale", "场景纸白缩放"),
-            &scene_paper_white_scale, 0.5f, 4.0f, "%.2f")) {
-        next.proxy_scale =
-            1.0f / std::max(scene_paper_white_scale, 0.001f);
-        changed = true;
-    }
-    ImGui::TextDisabled("%s", ui(
-        "Normalizes HDR scene brightness before NR. Values above 1 send a "
-        "darker image to the neural model; packed R10 HDR is PQ-decoded and "
-        "encoded back symmetrically. This is not final display brightness or "
-        "NR intensity. Leave at 1 unless making a controlled HDR comparison.",
-        "在 NR 前归一化 HDR 场景亮度。大于 1 会向神经网络送入更暗的图像；"
-        "打包 R10 HDR 会先解码 PQ，并在输出时对称编码回 PQ。它不是最终显示"
-        "亮度，也不是 NR 强度。除非进行受控 HDR 对比，建议保持 1。"));
-    static const char *depth_items_en[] = {
-        "Auto from DLSS", "Force normal", "Force inverted"};
-    static const char *depth_items_zh[] = {
-        "跟随游戏 DLSS", "强制普通深度", "强制反转深度"};
-    const char *const *depth_items = kChineseUi ? depth_items_zh : depth_items_en;
-    int depth_index = next.depth_mode + 1;
-    if (ImGui::Combo(ui("Depth Mode", "深度模式"), &depth_index,
-                     depth_items, 3)) {
-        next.depth_mode = depth_index - 1;
-        changed = true;
-    }
-    int warmup = static_cast<int>(next.warmup_after_create);
-    if (ImGui::SliderInt(ui("Warm-up Frames", "预热帧数"),
-                         &warmup, 0, 10)) {
-        next.warmup_after_create = static_cast<unsigned int>(warmup);
-        changed = true;
-    }
-    changed |= ImGui::Checkbox(
-        ui("Retry original SR after a derived-path failure",
-           "派生链路失败后重试原始 SR"),
-        &next.retry_original_on_sr_failure);
-    changed |= ImGui::Checkbox(
-        ui("Diagnostic identity mode (discard NR color)",
-           "诊断直通模式（丢弃 NR 颜色结果）"),
-        &next.identity_use_original);
-
-    if (ImGui::Button(ui("Restore recommended beta0.4 settings",
-                         "恢复 beta0.4 推荐设置"))) {
-        next.mode = 2;
-        next.identity_use_original = false;
-        next.post_transfer_strength = 1.0f;
-        next.transfer_strength = 1.0f;
-        next.work_mode = 1;
-        next.custom_work_scale = 0.75f;
-        next.lighting_lock = 0.20f;
-        next.edge_guard = 0.25f;
-        next.detail_stability = 0.0f;
-        next.motion_stability = false;
-        next.proxy_curve = 1;
-        next.allow_unverified_hdr_color = false;
-        next.suppress_reset_frame = true;
-        next.color_strength = 0.0f;
-        next.max_luma_ratio = 4.0f;
-        next.preserve_lighting = false;
-        next.proxy_scale = 1.0f;
-        next.experimental_peak_shoulder = false;
-        next.warmup_after_create = 2;
-        next.retry_original_on_sr_failure = true;
-        next.depth_mode = -1;
-        next.intensity = 1.0f;
-        next.local_tone = 1.0f;
-        next.local_structure = 1.0f;
-        next.skin_structure = -1.0f;
-        next.auto_mask = false;
-        next.style = 0;
-        next.ui_correction = false;
-        changed = true;
-    }
-    // Commit UI edits after the active control is released. This prevents one
-    // slider drag from producing hundreds of config generations, NR history
-    // resets, warm-ups and performance epochs.
-    if (changed) {
-        pending = next;
-        has_pending = true;
-        pending_tick = GetTickCount64();
-    }
-    if (has_pending &&
-        (!ImGui::IsAnyItemActive() || GetTickCount64() - pending_tick >= 500)) {
-        ApplyConfig(pending, "ReShade overlay committed edit");
-        has_pending = false;
-    }
 }
+
+#include "nr_settings_ui.inl"
 
 } // namespace
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI渲染完美链路 beta0.4 @野生的装机宅 Bilibili";
+    "DLSS 5 AI渲染完美链路 beta0.4.1 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
     "主键盘 - 参数截图、独立 NR 工作分辨率、乘算强度与 HDR 匹配残差；检测到"
     "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.4 @野生的装机宅 Bilibili";
+    "DLSS 5 AI Rendering Perfect Chain beta0.4.1 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Switches between output-resolution NR after Super Resolution and "
     "render-resolution NR before Super Resolution. Includes an F6 master "

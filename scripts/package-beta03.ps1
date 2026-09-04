@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$ReleaseRoot,
     [string]$Rtx50Runtime,
@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$Version = 'beta0.3.3.6'
+$Version = 'beta0.4.1'
 $BuildRoot = Join-Path $ProjectRoot 'build'
 if (-not $UpdateOnly) {
     if ([string]::IsNullOrWhiteSpace($Rtx50Runtime) -or
@@ -45,9 +45,9 @@ if (Test-Path -LiteralPath $ReleasePath) {
 New-Item -ItemType Directory -Path $ReleasePath | Out-Null
 
 $ChineseAddon = Join-Path $BuildRoot `
-    'DLSS5-AI渲染超分版-beta0.3.3-dev-@野生的装机宅-Bilibili.addon64'
+    'DLSS5-AI渲染超分版-beta0.4.1-@野生的装机宅-Bilibili.addon64'
 $EnglishAddon = Join-Path $BuildRoot `
-    'DLSS5-AI-Rendering-Upscaling-beta0.3.3-dev-@野生的装机宅-Bilibili.en.addon64'
+    'DLSS5-AI-Rendering-Upscaling-beta0.4.1-@野生的装机宅-Bilibili.en.addon64'
 $Bridge = Join-Path $BuildRoot 'nrchain_nvngx.dll'
 $Config = Join-Path $BuildRoot 'nr_before_sr.ini'
 $FeedbackScript = Join-Path $ProjectRoot 'scripts\collect-feedback.ps1'
