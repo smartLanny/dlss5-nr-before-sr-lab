@@ -19,7 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Structural invariants
-        run: python scripts/validate-beta04-structure.py
+        run: |
+          python scripts/validate-beta04-structure.py
+          python scripts/validate-beta04-result-resize.py
       - name: Multiplicative HDR guide and gamut math
         run: python scripts/test-beta04-math.py
       - name: Compile every embedded Shader Model 5 entry
