@@ -12,6 +12,13 @@ struct NrDiagnosticIdentity {
     unsigned int config_generation = 0;
     bool warmed_up = false;
 };
+namespace nr_f8 {
+struct FrameTicket {
+    unsigned long long session = 0;
+    unsigned int group = 0;
+    unsigned int index = 0;
+};
+}
 #endif
 
 namespace nr_f8_gpu {
@@ -22,14 +29,6 @@ constexpr unsigned int kCapacity = kGroupCount * kFramesPerGroup;
 constexpr unsigned int kPlaneCount = 4;
 constexpr unsigned int kExposureTrailerBytes = 16;
 constexpr unsigned int kMaxRoiSide = 256;
-
-struct FrameTicket {
-    unsigned long long session = 0;
-    unsigned int group = 0;
-    unsigned int index = 0;
-    unsigned int ring_slot = 0;
-    unsigned long long recording_token = 0;
-};
 
 enum class TokenState : unsigned int {
     Free, Armed, Recorded, Submitted, Invalidated, Completed
@@ -165,14 +164,14 @@ struct ArmResult {
     ID3D12Resource *buffer = nullptr;
     ID3D12Resource *readback = nullptr;
     UINT64 bytes = 0;
-    FrameTicket ticket = {};
+    nr_f8::FrameTicket ticket = {};
 };
 
 struct ReadbackJob {
     ID3D12Resource *readback = nullptr; // ownership transfers to handoff
     UINT64 bytes = 0;
     TokenIdentity key = {};
-    FrameTicket ticket = {};
+    nr_f8::FrameTicket ticket = {};
 };
 
 using FenceCompleteFn = bool (*)(void *queue_key, unsigned long long fence);
@@ -222,16 +221,15 @@ public:
         result.buffer = resource.buffer;
         result.readback = resource.readback;
         result.bytes = resource.bytes;
-        result.ticket = {args.request, args.group, args.frame_index,
-                         resource.ledger_slot, 0};
+        result.ticket = {args.request, args.group, args.frame_index};
         return true;
     }
 
-    bool FinishDispatch(FrameTicket &ticket,
+    bool FinishDispatch(nr_f8::FrameTicket ticket, unsigned int slot,
                         ID3D12GraphicsCommandList *command_list,
                         unsigned long long recording_token) {
-        ticket.recording_token = recording_token;
-        return FinishDispatch(command_list, ticket.ring_slot, recording_token);
+        (void)ticket;
+        return FinishDispatch(command_list, slot, recording_token);
     }
 
     bool FinishDispatch(ID3D12GraphicsCommandList *command_list,
@@ -292,7 +290,7 @@ public:
             job->bytes = resource.bytes;
             job->key = resource.key;
             job->ticket = {resource.key.request, resource.key.group,
-                           resource.key.frame_index, i, entry.recording_token};
+                           resource.key.frame_index};
             resource.readback = nullptr;
             ReleaseCom(resource.buffer);
             ReleaseCom(resource.heap);
