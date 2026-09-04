@@ -302,6 +302,7 @@ enum class BypassReason : int {
     FailedCreateQuarantine,
     ModuleObserverInstalling,
     ModuleObserverUncertain,
+    CommandStateUnverified,
 };
 
 std::atomic<int> g_last_bypass_reason{
@@ -394,6 +395,8 @@ const char *BypassReasonName(BypassReason reason) {
         return "module-observer-installing";
     case BypassReason::ModuleObserverUncertain:
         return "module-observer-uncertain";
+    case BypassReason::CommandStateUnverified:
+        return "command-state-unverified";
     default: return "unknown";
     }
 }
@@ -7348,6 +7351,7 @@ thread_local unsigned int g_release_hook_depth = 0;
 void *g_evaluate_hook_targets[4] = {};
 std::size_t g_evaluate_hook_target_count = 0;
 SRWLOCK g_evaluate_hook_lock = SRWLOCK_INIT;
+#include "nr_command_state.inl"
 std::atomic<bool> g_evaluate_hooks_ready{false};
 std::atomic<bool> g_evaluate_hooks_enabled{false};
 std::atomic<bool> g_evaluate_target_overflow{false};
@@ -7609,6 +7613,7 @@ HRESULT ProcessCommandListReset(
     unsigned long long token = 0;
     ReadLifecycleToken(command_list, token);
     const HRESULT result = original(command_list, allocator, initial_state);
+    OnCommandStateResetResult(command_list, result, initial_state);
     if (SUCCEEDED(result) && token != 0) {
         EnterCriticalSection(&g_chain_cs);
         if (QuarantineUnsubmittedLifecycleRecordLocked(
@@ -8117,10 +8122,19 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             scoped_success, scoped_attempted, scoped_recorded,
             scoped_bound, scoped_submitted);
     }
+    NativeCommandStateScope before_state(command_list);
+    if (!before_state.active) {
+        LeaveCriticalSection(&g_chain_cs);
+        rr_transaction.Release();
+        return original(command_list, handle, params, callback);
+    }
     Substitution before_sr = PrepareBeforeSr(
-        command_list, handle, params, feature);
+        before_state.command_list, handle, params, feature);
     PostSrSubstitution after_sr = PrepareAfterSr(
-        command_list, handle, params, feature);
+        before_state.command_list, handle, params, feature);
+    // Feature 18 warm-up, Create or Evaluate failure may still have changed
+    // the game's compute bindings. Restore the exact entry state before SR.
+    before_state.Restore();
     if (!before_sr.active && !after_sr.active) {
         LeaveCriticalSection(&g_chain_cs);
         rr_transaction.Release();
@@ -8180,7 +8194,17 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     }
     if (used_after_sr) {
         if (result == kNgxSuccess) {
-            FinishAfterSr(command_list, params, feature, after_sr);
+            // Native SR is allowed to leave a different state from entry.
+            // Snapshot that state and restore it after the post-SR experiment.
+            NativeCommandStateScope after_state(command_list);
+            if (after_state.active) {
+                FinishAfterSr(after_state.command_list, params, feature, after_sr);
+                after_state.Restore();
+            } else if (after_sr.redirected_output) {
+                Log("[command-state] post-SR state unavailable; native SR is "
+                    "re-evaluated to its original Output without NR work.");
+                result = original(command_list, handle, params, callback);
+            }
         } else if (after_sr.redirected_output &&
                    g_config.retry_original_on_sr_failure) {
             Log("%s failed while targeting the post-upscaling intermediate: "
@@ -8689,6 +8713,7 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
 }
 
 void OnResetCommandList(reshade::api::command_list *command_list) {
+    OnCommandStateBeforeReset(command_list);
     if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0)
         return;
     if (command_list == nullptr || command_list->get_device() == nullptr ||
@@ -8707,6 +8732,7 @@ void OnResetCommandList(reshade::api::command_list *command_list) {
 }
 
 void OnDestroyCommandList(reshade::api::command_list *command_list) {
+    OnCommandStateDestroyList(command_list);
     if (g_lifecycle_active_command_lists.load(std::memory_order_acquire) == 0)
         return;
     if (command_list == nullptr || command_list->get_device() == nullptr ||
@@ -10467,6 +10493,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         }
         reshade::register_event<reshade::addon_event::destroy_command_queue>(
             OnDestroyCommandQueue);
+        reshade::register_event<reshade::addon_event::init_device>(
+            OnCommandStateInitDevice);
+        reshade::register_event<reshade::addon_event::init_command_list>(
+            OnCommandStateInitList);
         reshade::register_event<reshade::addon_event::execute_command_list>(
             OnExecuteCommandList);
         reshade::register_event<reshade::addon_event::reset_command_list>(
@@ -10483,6 +10513,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         HANDLE worker = CreateThread(nullptr, 0, &HookWorker, nullptr, 0, nullptr);
         if (worker == nullptr) {
             Log("Could not start NGX hook worker (error %lu).", GetLastError());
+            reshade::unregister_event<reshade::addon_event::init_command_list>(
+                OnCommandStateInitList);
+            reshade::unregister_event<reshade::addon_event::init_device>(
+                OnCommandStateInitDevice);
             reshade::unregister_overlay(nullptr, DrawSettings);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
@@ -10500,6 +10534,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         }
         CloseHandle(worker);
     } else if (reason == DLL_PROCESS_DETACH && reserved == nullptr) {
+        reshade::unregister_event<reshade::addon_event::init_command_list>(
+            OnCommandStateInitList);
+        reshade::unregister_event<reshade::addon_event::init_device>(
+            OnCommandStateInitDevice);
         reshade::unregister_overlay(nullptr, DrawSettings);
         reshade::unregister_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
