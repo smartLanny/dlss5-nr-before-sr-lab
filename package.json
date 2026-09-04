@@ -8,11 +8,13 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test": "npm run test:unit && npm run test:ui-contract",
+    "test:unit": "node --test --test-concurrency=1 test/*.test.js",
+    "test:ui-contract": "node scripts/check-ui.js",
+    "verify:vendor": "node scripts/verify-vendor.js",
     "verify:payload": "node scripts/verify-payload.js",
     "build": "npm run verify:vendor && npm run verify:payload && electron-builder --win",
-    "build:portable": "npm run verify:vendor && npm run verify:payload && electron-builder --win portable",
-    "verify:vendor": "node scripts/verify-vendor.js"
+    "build:portable": "npm run verify:vendor && npm run verify:payload && electron-builder --win portable"
   },
   "devDependencies": {
     "electron": "^33.2.0",

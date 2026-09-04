@@ -13,7 +13,7 @@
 - file-level diagnostics and copyable support text;
 - product branding/community links centralized in `product.json`;
 - pinned DLSS5-Swapper submodule with explicit update boundary;
-- Windows CI and eight passing unit tests.
+- Windows CI, eight passing unit tests and a passing UI contract check.
 
 ## Needs release maintainer input
 
