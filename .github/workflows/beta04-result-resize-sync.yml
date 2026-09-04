@@ -34,7 +34,7 @@ jobs:
           required = (
               'const bool result_extent_changed =',
               'previous_result_desc.Width != external_desc.Width',
-              'ID3D12_RESOURCE_STATE_COMMON;',
+              'D3D12_RESOURCE_STATE_COMMON;',
               'Rebuilt rotating pre-SR Result surface',
               'kCodecResultUavIndex',
           )
