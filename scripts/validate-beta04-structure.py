@@ -9,8 +9,55 @@ source = (root / "src" / "nr_before_sr.cpp").read_text(encoding="utf-8")
 guides = (root / "src" / "nr_guide_contract.h").read_text(encoding="utf-8")
 config = (root / "config" / "nr_before_sr.ini").read_text(encoding="utf-8")
 
+current_identity_files = {
+    "source": source,
+    "resource": (root / "src" / "nr_before_sr.rc").read_text(encoding="utf-8"),
+    "build": (root / "scripts" / "build.ps1").read_text(encoding="utf-8-sig"),
+    "package": (root / "scripts" / "package-beta03.ps1").read_text(encoding="utf-8-sig"),
+    "feedback collector": (root / "scripts" / "collect-feedback.ps1").read_text(encoding="utf-8-sig"),
+    "crash collector": (root / "scripts" / "collect-crash-feedback.ps1").read_text(encoding="utf-8-sig"),
+    "config": config,
+    "README": (root / "README.md").read_text(encoding="utf-8"),
+    "Chinese install": (root / "docs" / "INSTALL.zh-CN.txt").read_text(encoding="utf-8"),
+    "English install": (root / "docs" / "INSTALL.en.txt").read_text(encoding="utf-8"),
+    "Chinese install markdown": (root / "docs" / "INSTALL.zh-CN.md").read_text(encoding="utf-8"),
+    "English install markdown": (root / "docs" / "INSTALL.en.md").read_text(encoding="utf-8"),
+    "Chinese update": (root / "docs" / "UPDATE.zh-CN.txt").read_text(encoding="utf-8"),
+    "English update": (root / "docs" / "UPDATE.en.txt").read_text(encoding="utf-8"),
+    "release notes": (root / "docs" / "BETA_0_4_1_RELEASE_NOTES.zh-CN.md").read_text(encoding="utf-8"),
+}
+
+identity_requirements = {
+    "source": ['kAddonVersion = "beta0.4.1-r2"', 'kBuildIdentity = "beta0.4.1-r2"',
+               "DLSS 5 AI渲染完美链路 beta0.4.1-r2",
+               "DLSS 5 AI Rendering Perfect Chain beta0.4.1-r2"],
+    "resource": ["FILEVERSION 0,4,1,2", "PRODUCTVERSION 0,4,1,2",
+                 '"0.4.1.2 beta\\0"', "beta0.4.1-r2-@"],
+    "build": ["DLSS5-AI渲染超分版-beta0.4.1-r2-@",
+              "DLSS5-AI-Rendering-Upscaling-beta0.4.1-r2-@"],
+    "package": ["$Version = 'beta0.4.1-r2'",
+                "DLSS5-AI渲染超分版-beta0.4.1-r2-@",
+                "DLSS5-AI-Rendering-Upscaling-beta0.4.1-r2-@"],
+    "feedback collector": ["collector_version = 'beta0.4.1-r2'"],
+    "crash collector": ["beta0.4.1-r2-crash-evidence-2"],
+    "config": ["beta0.4.1-r2 community candidate"],
+    "README": ["beta0.4.1-r2"],
+    "Chinese install": ["beta0.4.1-r2"],
+    "English install": ["beta0.4.1-r2"],
+    "Chinese install markdown": ["beta0.4.1-r2"],
+    "English install markdown": ["beta0.4.1-r2"],
+    "Chinese update": ["beta0.4.1-r2"],
+    "English update": ["beta0.4.1-r2"],
+    "release notes": ["beta0.4.1-r2"],
+}
+for label, tokens in identity_requirements.items():
+    missing_identity = [token for token in tokens if token not in current_identity_files[label]]
+    if missing_identity:
+        raise SystemExit(f"{label} has stale or incomplete beta0.4.1-r2 identity: {missing_identity}")
+
 required = [
-    'kBuildIdentity = "beta0.4.1"',
+    'kAddonVersion = "beta0.4.1-r2"',
+    'kBuildIdentity = "beta0.4.1-r2"',
     'ID3D12PipelineState *encode_v2',
     'ID3D12PipelineState *combine_v2',
     'void EncodeV2CS(',
@@ -97,4 +144,4 @@ if "source_to_work_x" not in source or "Jitter.Offset.X" not in source:
 if "FrameConfidence <= 0.000001" not in body:
     raise SystemExit("reset-frame confidence bypass missing")
 
-print("beta0.4 perfect-chain structural validation passed")
+print("beta0.4.1-r2 perfect-chain structural and release-identity validation passed")

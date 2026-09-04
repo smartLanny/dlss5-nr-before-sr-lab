@@ -1,12 +1,12 @@
-# beta0.3.7 feedback test build quick install
+# beta0.4.1-r2 feedback test build quick install
 
-Press **F8** or click Collect feedback ZIP in the addon panel. Keep the camera still and wait for completion. `feedback.zip` normally goes under Documents/DLSS5-Feedback. If that directory cannot be created, collection tries DLSS5-Feedback under the system temporary directory; copy the actual path from the panel. A partial bundle includes missing-item reasons and can still be submitted. For an ordinary startup problem, use `Collect-Feedback.cmd`. After a crash, use `Collect-Crash-Feedback.cmd`; it derives one exact game EXE from the newest ReShade log and reads only matching existing Windows events, WER reports and dumps from the last 72 hours. It does not enable dumps, modify the registry or upload.
+Press **F8** or click Collect feedback ZIP in the addon panel. Keep the camera still and wait for completion. `feedback.zip` normally goes under Documents/DLSS5-Feedback. If that directory cannot be created, collection tries DLSS5-Feedback under the system temporary directory; copy the actual path from the panel. A partial bundle includes missing-item reasons and can still be submitted. For an ordinary startup problem, use `Collect-Feedback.cmd`. After a crash, use `Collect-Crash-Feedback.cmd`; it derives one unique absolute game EXE path from the newest ReShade log and reads only existing Windows events, WER reports and dumps from the last 72 hours that pass its identity rules. It does not enable dumps, modify the registry or upload. Standalone CrashDumps do not contain their source path, so they can only be filtered by exact EXE basename and time; the package records this limitation.
 
-The current full package contains **nine files**. Verify beta0.3.7 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
+The current full package contains **nine files**. Verify beta0.4.1-r2 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
 
-This version fixes the unit-exposure fallback when ExposureTexture contains NaN. **54 D3D12 WARP GPU cases passed**, including this path and checks that capture on/off preserves their composition output. This does not establish that all dynamic-exposure, colour-follow or face-quality problems are fixed; game testing is still required.
+This version fixes the Cyberpunk 2077 four-channel half-float motion-vector bypass at the default NR quality setting and restores null-PSO insertion to a conservative default bypass to reduce the Forza Horizon crash regression surface. Automated GPU, resource, state and capture regressions pass; this does not establish real-game acceptance for every exposure, colour-follow, face-quality or crash report.
 
-Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.3.7**
+Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.4.1-r2**
 
 Author: **@野生的装机宅 Bilibili**
 
@@ -31,7 +31,7 @@ translation layer such as OptiScaler are outside this add-on's direct scope.
 3. Remove old `nr-before-sr*.addon64` builds, the other language variant, and
    any second DLSS5/RenoDX/ShortFuse add-on that would own NR at the same time.
 4. Keep these files **together in that same directory**:
-   - `DLSS5-AI-Rendering-Upscaling-beta0.3.7-@野生的装机宅-Bilibili.en.addon64`
+   - `DLSS5-AI-Rendering-Upscaling-beta0.4.1-r2-@野生的装机宅-Bilibili.en.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - `nvngx_dlssnr.dll` from the matching GPU package
@@ -39,7 +39,7 @@ translation layer such as OptiScaler are outside this add-on's direct scope.
    - `collect-feedback.ps1`
    - `Collect-Crash-Feedback.cmd`
    - `collect-crash-feedback.ps1`
-5. Start the game and verify that the ReShade Add-ons page shows beta0.3.7, the
+5. Start the game and verify that the ReShade Add-ons page shows beta0.4.1-r2, the
    author and official release address at the top of this add-on's panel.
 
 The add-on loads its configuration, bridge and NR runtime from its own folder.
@@ -49,20 +49,21 @@ the panel may open but every option will appear ineffective.
 ## Quick use
 
 - `F6`: master toggle. Off must be native game SR with zero Feature 18 calls.
-- `F8`: collect three display screenshots with the current settings, one set of
-  NR stages from the same frame, effective parameters and logs. The three
-  screenshots are spaced about two seconds apart; **this is not automatic A/B**.
-  Change the toggle, chain or style yourself and collect a separate bundle from
-  the same camera position. Display screenshots and NR stages are not from the
-  same frame.
+- `F8`: keep the current settings by default, collect one display screenshot,
+  and attempt to include 16 consecutive NR processing frames, one separate
+  overview, effective parameters and logs. Processing frames and the screenshot
+  are not guaranteed to share a frame. Only an explicit comparison selected in
+  the advanced feedback controls temporarily changes in-memory settings.
 - Main keyboard `-` (numpad subtract also works): save a screenshot. Its short
   name records build, chain, active/bypass state, requested configuration and
   `I/S/B/C/HP` (NR intensity, style, blend, colour follow, peak-shoulder experiment).
   Full extents, format and controls go into the matching log entry to avoid
   capture failures in long game paths. Names describe requested settings; use
   the log or stage metadata for the actual NR instance, configuration and frame.
-- The default `render-resolution NR -> SR` option follows the game's real DLSS
-  render extent, then passes the result into the game's native SR.
+- The default performance `NR -> SR` option runs the model on an independently
+  selected NR working raster, composites its matched residual back into the
+  game's render-resolution colour, then calls the game's native SR. NR quality
+  does not change the game's own DLSS mode.
 - Turn that option off for the full-output-resolution `SR -> NR` quality and
   performance reference path.
 - While Ray Reconstruction owns a live feature, the release candidate reports
@@ -70,10 +71,10 @@ the panel may open but every option will appear ineffective.
 - Committing Intensity, Style, mask, skin or local controls retires the old
   Feature 18 after its exact GPU fence and creates a new one. A short safe
   warm-up/bypass interval during this switch is expected.
-- Start with NR Intensity 1. In the current original 310.8 runtime, the path
-  used here without an external control mask does not amplify the model beyond
-  1. A setting can be applied successfully without a stronger 1-to-2 response.
-  This revision does not substitute extra darkening or contrast gain for it.
+- New installations use Final Effect Strength 1.2. The 0-to-8 slider is the
+  actual request with no hidden multiplier. Raising it amplifies NR changes
+  relative to the original image and can also amplify grain at a low NR working
+  resolution; raise NR quality before deciding whether high strength is useful.
 - `Scene Paper-White Scale` controls HDR normalization before NR; values above
   1 feed a darker normalized scene to the model. Format-24 HDR input is first
   PQ-decoded, uses this paper-white scale, and is symmetrically encoded back to
@@ -86,7 +87,7 @@ For a report, submit the F8 ZIP and describe the game, trigger and expected
 result. Use the offline collector if the game cannot start; partial bundles
 with missing images or logs can still help. If packaging fails, include the
 displayed version and bypass reason plus the smallest
-matching window from `nr-before-sr.log`. beta0.3.3 logs state-machine changes,
+matching window from `nr-before-sr.log`. beta0.4.1-r2 logs state-machine changes,
 deferred-module coverage, colour-stage attribution, early diagnostics and sparse
 performance summaries rather than writing every frame.
 Remove user names, absolute paths, account data, process addresses and runtime
@@ -129,7 +130,8 @@ screenshot. Press `F7` to request the stages independently (one pending request
 at a time). The four stages share one composition frame, but do not share the
 display screenshot's frame. Stage capture recreates NR history, waits for 64
 successful evaluations, exports after the actual GPU fence and recreates history
-again. This waiting period is not proof of network convergence. F8 attempts to
-include the stages in the feedback ZIP. Keep the camera fixed, change one
-parameter at a time and use metadata to distinguish requested values, effective
-values and colour domains.
+again. This waiting period is not proof of network convergence. F8 uses its own
+continuous small-region and overview format; the full F7 stage request remains
+separate and is never presented as the same frame as the display screenshot.
+Keep the camera fixed, change one parameter at a time and use metadata to
+distinguish requested values, effective values and colour domains.

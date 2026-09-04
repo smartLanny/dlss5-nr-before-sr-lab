@@ -44,11 +44,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.4.1";
+constexpr const char *kAddonVersion = "beta0.4.1-r2";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.4.1";
+constexpr const char *kBuildIdentity = "beta0.4.1-r2";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -1264,7 +1264,7 @@ void ReloadConfig(bool force = false) {
         static bool migration_logged = false;
         if (!migration_logged) {
             migration_logged = true;
-            Log("Migrated legacy configuration to beta0.4.1 in memory: "
+            Log("Migrated legacy configuration to beta0.4.1-r2 in memory: "
                 "default mode is now render-resolution NR -> SR; persisted=%d.",
                 migration_persisted ? 1 : 0);
         }
@@ -10809,14 +10809,14 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI渲染完美链路 beta0.4.1 @野生的装机宅 Bilibili";
+    "DLSS 5 AI渲染完美链路 beta0.4.1-r2 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
     "主键盘 - 参数截图、独立 NR 工作分辨率、乘算强度与 HDR 匹配残差；检测到"
     "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.4.1 @野生的装机宅 Bilibili";
+    "DLSS 5 AI Rendering Perfect Chain beta0.4.1-r2 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Switches between output-resolution NR after Super Resolution and "
     "render-resolution NR before Super Resolution. Includes an F6 master "

@@ -1,16 +1,16 @@
-name: Validate beta0.4 perfect-chain r4
+name: Validate beta0.4.1-r2
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - codex/beta0.4-perfect-chain
+      - codex/beta0.4.1
 
 permissions:
   contents: read
 
 concurrency:
-  group: beta04-r4-${{ github.ref }}
+  group: beta041-r2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -97,7 +97,7 @@ jobs:
             "branch=$env:GITHUB_REF_NAME"
             "commit=$env:GITHUB_SHA"
             "workflowRun=$env:GITHUB_RUN_ID"
-            "build=beta0.4-perfect-chain-r4"
+            "build=beta0.4.1-r2"
           ) | Set-Content -Encoding utf8NoBOM dist/BUILD-PROVENANCE.txt
           Get-ChildItem dist -File | Where-Object Name -ne 'SHA256SUMS.txt' |
             Get-FileHash -Algorithm SHA256 | ForEach-Object {
@@ -124,6 +124,6 @@ jobs:
           Get-Content -Encoding utf8 dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: beta04-perfect-chain-r4-test-package
+          name: beta041-r2-test-package
           path: dist/
           if-no-files-found: error

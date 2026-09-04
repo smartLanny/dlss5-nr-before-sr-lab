@@ -3,23 +3,27 @@
 Experimental, source-only ReShade D3D12 add-on for studying two neural-rendering
 orders around a game's ordinary DLSS Super Resolution call:
 
-- Mode 1: game DLSS SR, then output-resolution neural rendering (`SR -> NR`).
-- Mode 2: render-resolution neural rendering at 1:1, then the game's original
-  DLSS SR (`NR -> SR`). Mode 2 is the beta0.3.3 default performance path; Mode 1
-  remains the complete full-resolution quality/reference path.
+- Mode 1: game DLSS SR, then full-output-resolution neural rendering (`SR -> NR`).
+- Mode 2: neural rendering on an independently selected working raster, then a
+  matched-residual composition into the game's render-resolution colour before
+  the original DLSS SR call (`NR -> SR`). Mode 2 is the default performance path;
+  Mode 1 remains the full-output-resolution quality/reference path.
 
 Runtime hotkeys are `F6` for the master comparison switch, `F8` for a local
 feedback ZIP, and main keyboard `-` for a ReShade screenshot whose filename
 records the current build, chain and selected settings.
 
-The beta0.3.7 update adds a compact processing-mode UI, bounded final-strength
-presets, and an opt-in developer jitter forwarding path. It keeps Mode 2 as the
-default and retains the existing unknown-HDR colour protection. The collector
-cancels only unarmed session-owned requests on timeout and gives
-current bypass status priority over pending settings. It does not change image
-strength or HDR admission. See the [September 4 feedback review](docs/COMMUNITY_FEEDBACK_20260904.zh-CN.md)
-and [plain-text update instructions](docs/UPDATE.en.txt). The separate beta0.4
-experimental renderer is not included in this maintenance build.
+The current **beta0.4.1-r2** community build uses a simpler front page, a visible
+final-effect strength from 0 to 8 (1.2 for new installations), and an independent
+NR quality setting. It fixes the confirmed Cyberpunk 2077 RGBA16 motion-vector
+bypass, restores the conservative null-PSO policy used to reduce the Forza
+Horizon regression surface, and corrects the model UI parameter type. F8 keeps
+the current settings by default and attempts one display screenshot, 16
+consecutive NR processing frames and one overview. See the
+[community release notes](docs/BETA_0_4_1_RELEASE_NOTES.zh-CN.md) and
+[plain-text update instructions](docs/UPDATE.en.txt). Automated validation proves
+the stated code paths and package identity; picture quality still needs a fixed
+camera comparison in each game.
 
 This is a research project, not an NVIDIA product and not an official joint
 DLSS NR/SR implementation. NVIDIA, DLSS, GeForce, and related names are
@@ -28,11 +32,11 @@ trademarks of their respective owners.
 Project author: **@野生的装机宅 Bilibili**. The only official release location
 is https://space.bilibili.com/941799. The author and official address remain
 embedded in release binaries and the add-on UI. Each full distribution archive
-contains seven files: the add-on, bridge DLL, configuration, matching NR runtime,
+contains nine files: the add-on, bridge DLL, configuration, matching NR runtime,
 plain-text instructions (`说明.txt` in Chinese or `Instructions.txt` in English),
-`Collect-Feedback.cmd`, and `collect-feedback.ps1`.
-Small update archives contain four files: the add-on, the plain-text instructions, and
-the two offline collection scripts. Updates reuse an existing compatible full
+and the ordinary and crash-feedback CMD/PowerShell pairs.
+Small update archives contain six files: the add-on, the plain-text instructions,
+and both feedback-tool pairs. Updates reuse an existing compatible full
 installation's runtime, bridge and configuration; they are not first-install
 packages. Optional ZIP hashes may be published with the official release post.
 See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for the explicit prohibition on
@@ -92,6 +96,8 @@ implementations inside this project.
   diagnostic changes from the previous candidate.
 - `docs/BETA_0_3_3_RELEASE_NOTES.md`: create-time tuning reconstruction, live
   non-HDR R8 admission and Scene Paper-White diagnostics under current testing.
+- `docs/BETA_0_4_1_RELEASE_NOTES.zh-CN.md`: current beta0.4.1-r2 behaviour,
+  compatibility fixes, image controls and evidence boundaries.
 - `docs/BETA_0_3_TEST_MATRIX.md`: release qualification checklist.
 - `docs/COMMUNITY_FEEDBACK_BETA03.md`: sanitized mapping from early reports to
   current fixes, intentional bypasses, and remaining evidence gaps.
@@ -134,7 +140,7 @@ archives without copying the large runtime DLLs, use:
 
 ```powershell
 ./scripts/package-beta03.ps1 `
-  -ReleaseRoot 'D:\releases\beta0.3.3.5-update' `
+  -ReleaseRoot 'D:\releases\beta0.4.1-r2-update' `
   -UpdateOnly
 ```
 

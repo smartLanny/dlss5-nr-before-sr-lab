@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Perfect Chain beta0.4.1 Community Beta - Small Update
+DLSS 5 AI Rendering Perfect Chain beta0.4.1-r2 Community Beta - Small Update
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
@@ -8,7 +8,7 @@ Picture defaults
 
 New installations start with final effect strength 1.2. The slider is the actual request, from 0 to 8; there is no hidden multiplier or 1.2 shortcut. New colour follow is 0.75. Unknown HDR contracts remain luminance-only. Explicit existing settings, including zero, are preserved.
 
-The 0.4.1 NR quality setting changes only Feature 18's working resolution, not the game's DLSS mode. High strength at a low NR working resolution can amplify grain. Raise NR quality before attributing that result to jitter.
+The 0.4.1-r2 NR quality setting changes only Feature 18's working resolution, not the game's DLSS mode. High strength at a low NR working resolution can amplify grain. Raise NR quality before attributing that result to jitter.
 
 Stability changes
 
@@ -20,12 +20,12 @@ Older builds wrote DLSSNR.UICorrection using the wrong parameter type. It now us
 
 Updating
 
-Exit the game completely, back up the old addon outside the game directory, then replace it. Keep both runtime DLLs and the existing configuration. In game, confirm beta0.4.1 in the ReShade addon panel, compare with F6, and verify that the NR-success counter continues increasing.
+Exit the game completely, back up the old addon outside the game directory, then replace it. Keep both runtime DLLs and the existing configuration. In game, confirm beta0.4.1-r2 in the ReShade addon panel, compare with F6, and verify that the NR-success counter continues increasing.
 
 Reporting
 
 For picture problems, keep a fixed camera and press F8 or click Collect feedback ZIP. Wait about 30 seconds for completion and collect one package per setting. The package identifies display screenshots and GPU stages separately; it does not claim they are the same final-SR frame.
 
-After a crash, run Collect-Crash-Feedback.cmd. It derives one exact game EXE from the newest ReShade.log and collects only matching existing Windows 1000/1001 summaries, WER reports and dumps from the last 72 hours. It does not enable dumps, modify the registry, launch the game or upload. A dump can contain process memory and local paths, so decide whether to share it.
+After a crash, run Collect-Crash-Feedback.cmd. It derives one unique absolute game EXE path from the newest ReShade.log and collects only existing Windows 1000/1001 summaries, WER reports and dumps from the last 72 hours that pass its identity rules. A record containing AppPath must match the current game path. Standalone CrashDumps do not contain their source path, so they can only be filtered by exact EXE basename and time; the package records this limitation. The tool does not enable dumps, modify the registry, launch the game or upload. A dump can contain process memory and local paths, so decide whether to share it.
 
 For a startup problem without crash evidence, run Collect-Feedback.cmd. Keep each CMD beside its matching PowerShell script.
