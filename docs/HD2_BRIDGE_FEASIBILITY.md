@@ -2,8 +2,8 @@
 
 Status: bounded Feature 11 lifecycle experiment; **no successful Helldivers 2
 native-SR/NR integration or compatibility claim has been established**.
-This checkout's diagnostic build identity is `beta0.3.7-hd2-exp1` with edition
-label **HD2 Feature 11 observer experiment**. It is compiled and packaged
+This checkout's formal diagnostic identity is `beta0.3.7-hd2-exp2` with edition
+label **HD2 Feature 11 observer experiment exp2; compatibility unverified**. It is compiled and packaged
 separately from ordinary beta0.3.7 so logs cannot confuse the two editions.
 Updated on 2026-09-05.
 
@@ -90,9 +90,9 @@ injection path, or use the supplied bridge's COM/vtable substitution. It can
 only address the specific case where a real Feature 11 wrapper-to-core sequence
 previously arrived as an unknown non-null handle.
 
-## beta0.3.7 confirmation procedure
+## beta0.3.7-hd2-exp2 confirmation procedure
 
-Use the `beta0.3.7-hd2-exp1` addon and its matching log on a clean Helldivers 2 launch,
+Use the `beta0.3.7-hd2-exp2` addon and its matching log on a clean Helldivers 2 launch,
 with `zz-hd2-dlss5-typeless-bridge.addon64` absent. Preserve the supplied
 bridge only as an inspection reference; its confirmed SHA-256 is
 `6296E34825196AD5EBF4FAFD86F0089E06C09FF5C57BB2D9748728157C57E5E2`.

@@ -42,12 +42,13 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.3.7";
+constexpr const char *kAddonVersion = "beta0.3.7-hd2-exp2";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.3.7-hd2-exp1";
-constexpr const char *kEditionIdentity = "HD2 Feature 11 observer experiment";
+constexpr const char *kBuildIdentity = "beta0.3.7-hd2-exp2";
+constexpr const char *kEditionIdentity =
+    "HD2 Feature 11 observer experiment exp2; compatibility unverified";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -10099,14 +10100,14 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI渲染超分版 beta0.3.7 [HD2 Feature11实验] @野生的装机宅 Bilibili";
+    "DLSS 5 AI渲染超分版 beta0.3.7-hd2-exp2 [Feature11实验，兼容性待验证] @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
     "主键盘 - 参数截图、三种风格和实时画质调节，输入分辨率严格跟随游戏 DLSS 挡位；检测到"
     "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Upscaling Edition beta0.3.7 [HD2 Feature11 experiment] @野生的装机宅 Bilibili";
+    "DLSS 5 AI Rendering Upscaling beta0.3.7-hd2-exp2 [Feature11 experiment; unverified] @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Switches between output-resolution NR after Super Resolution and "
     "render-resolution NR before Super Resolution. Includes an F6 master "

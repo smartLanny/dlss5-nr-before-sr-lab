@@ -1,4 +1,4 @@
-DLSS 5 AI渲染超分版 beta0.3.7［HD2 Feature 11 实验版］轻量更新说明
+DLSS 5 AI渲染超分版 beta0.3.7-hd2-exp2［HD2 Feature 11 实验版］轻量更新说明
 作者：@野生的装机宅 Bilibili
 官方发布地址：https://space.bilibili.com/941799
 
@@ -16,11 +16,11 @@ DLSS 5 AI渲染超分版 beta0.3.7［HD2 Feature 11 实验版］轻量更新说�
 
 原来的 nrchain_nvngx.dll、nvngx_dlssnr.dll 和 nr_before_sr.ini 保留。把 Collect-Feedback.cmd 与 collect-feedback.ps1 一起放在 addon 旁边。不要把不同显卡完整包里的运行库互换。
 
-进游戏后，在插件面板确认版本为 beta0.3.7。第一次安装或缺少运行文件的玩家，需要使用对应显卡的完整包。
+进游戏后，在插件面板确认版本为 beta0.3.7-hd2-exp2，并明确显示实验性质。第一次安装或缺少运行文件的玩家，需要使用对应显卡的完整包。
 
 这次修了什么
 
-这是单独的 HD2 实验版，日志构建身份为 beta0.3.7-hd2-exp1。它补充观察 nvngx_dlssg.dll 的 Feature 11 创建、运行和释放，只接受成功创建返回的非空句柄。Feature 11 挂钩独立发布，失败不会把原本可用的 SR / RR 观察器一起判坏；未知非空句柄仍然安全旁路。没有复制外部桥的 COM / 虚表伪装，也不代表已经兼容 HD2。
+这是单独的 HD2 实验版，正式诊断身份为 beta0.3.7-hd2-exp2。它补充观察 nvngx_dlssg.dll 的 Feature 11 创建、运行和释放，只接受成功创建返回的非空句柄。Feature 11 挂钩独立发布，失败不会把原本可用的 SR / RR 观察器一起判坏；未知非空句柄仍然安全旁路。没有复制外部桥的 COM / 虚表伪装，也不代表已经兼容 HD2。
 
 针对《极限竞速：地平线》新反馈，稳定版恢复为不在空 PSO 命令状态中插入 NR，也不发布只为这条高风险恢复路径服务的扩展状态 Hook。反馈包没有崩溃转储，因此这是按版本回归面做的保守修复，仍需玩家实测确认。需要旧兼容实验的人可在配置中手动开启 ExperimentalNullPsoCarrier=1，并完全重启游戏；普通玩家请保持 0。
 
