@@ -1069,6 +1069,10 @@ float FiniteOr(float value, float fallback) {
     return std::isfinite(value) ? value : fallback;
 }
 
+int MigrateConfigMode(int config_version, int configured_mode) {
+    return config_version < 3 ? 2 : configured_mode;
+}
+
 void NormalizeConfig(ChainConfig &config) {
     config.mode = config.mode == 2 ? 2 : 1;
     config.transfer_strength = std::clamp(
@@ -1142,11 +1146,11 @@ void ReloadConfig(bool force = false) {
     const int config_version = GetPrivateProfileIntW(
         L"NRBeforeSR", L"ConfigVersion", 0, g_ini_path);
     next.mode = GetPrivateProfileIntW(L"NRBeforeSR", L"Mode", 2, g_ini_path);
+    next.mode = MigrateConfigMode(config_version, next.mode);
     if (config_version < 3) {
         // beta0.2 shipped Mode 1 as the default.  Migrate that persisted value
         // once so installing the beta0.3 series cannot silently keep users on the
         // comparison-only full-resolution path.
-        next.mode = 2;
         SetLastError(ERROR_SUCCESS);
         const bool mode_written = WritePrivateProfileStringW(
             L"NRBeforeSR", L"Mode", L"2", g_ini_path) != FALSE;
@@ -8824,10 +8828,12 @@ bool FormatScreenshotPostfix(char *postfix, std::size_t capacity,
     const int written = std::snprintf(postfix, capacity,
         "DLSS5_%.16s_%s_%s_REQ-G%u_I%.2f_S%u_B%.2f_C%.2f_HP%d",
         kBuildIdentity, mode, state, requested_generation,
-        static_cast<double>(std::clamp(config.intensity, 0.0f, 2.0f)),
+        static_cast<double>(std::clamp(FiniteOr(config.intensity, 1.0f),
+                                      0.0f, 2.0f)),
         std::min(config.style, 2u),
-        static_cast<double>(std::clamp(blend, 0.0f, 1.0f)),
-        static_cast<double>(std::clamp(config.color_strength, 0.0f, 1.0f)),
+        static_cast<double>(std::clamp(FiniteOr(blend, 0.0f), 0.0f, 2.0f)),
+        static_cast<double>(std::clamp(FiniteOr(config.color_strength, 0.0f),
+                                       0.0f, 1.0f)),
         config.experimental_peak_shoulder ? 1 : 0);
     return written > 0 && written <= 90 && static_cast<std::size_t>(written) < capacity;
 }

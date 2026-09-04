@@ -69,6 +69,10 @@ int main() {
     config.transfer_strength=1; config.color_strength=1; config.style=2; config.experimental_peak_shoulder=true;
     char complete[91]{};
     check(FormatScreenshotPostfix(complete,sizeof(complete),config,UINT_MAX,BypassReason::None),"max fields label");
+    config.transfer_strength=config.post_transfer_strength=1.2f;
+    char boosted[91]{};
+    check(FormatScreenshotPostfix(boosted,sizeof(boosted),config,UINT_MAX,BypassReason::None),"strength 1.2 label");
+    check(std::strstr(boosted,"_B1.20")!=nullptr,"strength above one is retained in screenshot label");
     const auto needed=std::strlen(complete)+1;
     for(std::size_t capacity=1;capacity<=91;++capacity) {
         std::array<char,95> guarded; guarded.fill('Q');
