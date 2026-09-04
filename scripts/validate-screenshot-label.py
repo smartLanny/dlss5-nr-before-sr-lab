@@ -30,6 +30,7 @@ harness = r'''
 #include <cstring>
 #include <limits>
 BUILD_IDENTITY
+enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 CHAIN_CONFIG
 enum class BypassReason { None, Unsupported, Other };
 FORMATTER

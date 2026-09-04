@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,
     [string]$Revision = ''
 )
@@ -79,6 +79,7 @@ $harness = @'
 #include <thread>
 #include <chrono>
 using UINT64 = std::uint64_t;
+enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 struct ID3D12Resource {};
 enum D3D12_RESOURCE_STATES { D3D12_RESOURCE_STATE_COMMON = 0 };
 struct NgxHandle {};

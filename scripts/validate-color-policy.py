@@ -20,11 +20,11 @@ parser.add_argument("--compiler", required=True)
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 source = (root / "src/nr_before_sr.cpp").read_text(encoding="utf-8-sig")
-dispatch = source[source.index("    const NrColorPolicy color_policy = ResolveNrColorPolicy("):]
+dispatch = source[source.index("    NrColorPolicy color_policy = ResolveNrColorPolicy("):]
 dispatch = dispatch[:dispatch.index("    if (capture_stages) {")]
-ui_block = source[source.index("    NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();"):]
-ui_block = ui_block[:ui_block.index('            "A sparse local correction')]
-ui_block = ui_block[:ui_block.rindex("    ImGui::TextDisabled(")]
+ui_source = (root / "src/nr_settings_ui.inl").read_text(encoding="utf-8")
+ui_block = ui_source[ui_source.index("    NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();"):]
+ui_block = ui_block[:ui_block.index("\n}\n")]
 
 harness = r'''
 #include <atomic>
@@ -40,7 +40,8 @@ UNITY_EXPOSURE
 CODEC_ENUM
 struct Config {
     bool enabled=true, identity_use_original=false, preserve_lighting=false;
-    bool experimental_peak_shoulder=false;
+    bool experimental_peak_shoulder=false, allow_unverified_hdr_color=false;
+    float lighting_lock=0;
     int mode=2;
     float transfer_strength=1, color_strength=1;
 } g_config;
@@ -62,10 +63,12 @@ struct Slot {
     float diagnostic_color_strength=-1;
     bool diagnostic_preserve_lighting=true;
 };
-struct { void* combine=reinterpret_cast<void*>(1); } g_codec;
+struct { void* combine=reinterpret_cast<void*>(1); void* combine_v2=reinterpret_cast<void*>(2); } g_codec;
 struct { unsigned long long frame_id=99; } g_applied_nr_identity;
 unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_contract,
                         bool hdr_input,CodecColorMode color_mode,bool capture_delta) {
+    const bool v2_combine = pipeline == g_codec.combine_v2;
+    const bool any_combine = pipeline == g_codec.combine || v2_combine;
     const unsigned source_flags=0;
     DISPATCH
     return codec_flags;

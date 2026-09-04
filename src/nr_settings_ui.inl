@@ -1,3 +1,76 @@
+void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
+    const auto ui = [](const char *en, const char *zh) { return kChineseUi ? zh : en; };
+    NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();
+    if (color_policy_snapshot.status != NrColorPolicyStatus::Bypassed &&
+        (has_pending || changed || color_policy_snapshot.mode != next.mode))
+        color_policy_snapshot.status = NrColorPolicyStatus::Pending;
+    const bool current_color_policy =
+        color_policy_snapshot.status == NrColorPolicyStatus::Current;
+    ImGui::BeginDisabled(current_color_policy &&
+                         !color_policy_snapshot.policy.color_allowed);
+    const bool color_follow_changed = ImGui::SliderFloat(
+        ui("NR Color Follow", "NR 颜色跟随强度"),
+        &next.color_strength, 0.0f, 1.0f, "%.2f");
+    ImGui::EndDisabled();
+    changed |= color_follow_changed;
+    if (color_follow_changed &&
+        color_policy_snapshot.status != NrColorPolicyStatus::Bypassed)
+        color_policy_snapshot.status = NrColorPolicyStatus::Pending;
+    if (color_policy_snapshot.status == NrColorPolicyStatus::Current) {
+        const NrColorPolicy &policy = color_policy_snapshot.policy;
+        ImGui::TextDisabled(ui("Last recorded blend: requested %.2f / effective %.2f",
+            "最近记录的合成：请求 %.2f / 实际 %.2f"),
+            static_cast<double>(policy.requested_color_strength),
+            static_cast<double>(policy.effective_color_strength));
+        ImGui::TextWrapped("%s", !policy.color_allowed
+            ? ui("This HDR colour contract is unverified, so only luminance is transferred. "
+                 "The saved colour request can resume on a supported contract.",
+                 "当前 HDR 色彩合同未验证，仅传递明暗。颜色请求值已保留，"
+                 "切到受支持的合同后可恢复。")
+            : policy.color_reason == NrColorReason::PostSrFp16UnitExposure
+                ? ui("Colour follows the bounded FP16, unit-exposure SR -> NR contract.",
+                     "当前为 FP16、单位曝光的 SR -> NR 合同，采用有界颜色跟随。")
+                : ui("Colour follow is available for this SDR or bounded value-domain input.",
+                     "当前 SDR 或有界值域输入允许颜色跟随。"));
+    } else {
+        ImGui::TextWrapped("%s", NrColorPolicyStatusText(
+            color_policy_snapshot.status, kChineseUi));
+    }
+    ImGui::TextDisabled(
+        "%s", ui(
+            "0 keeps the game's hue; 1 follows bounded NR chroma. "
+            "Recorded values describe composition settings, not measured image strength.",
+            "0 保留游戏原始色相；1 跟随有界 NR 色彩。记录值表示合成设置，"
+            "不代表测得的画面变化强度。"));
+#if !NR_HAS_DETAIL_STABILITY
+    ImGui::BeginDisabled(current_color_policy &&
+        color_policy_snapshot.policy.lighting_reason == NrLightingReason::OnlyNrBeforeSr);
+    const bool lighting_match_changed = ImGui::Checkbox(
+        ui("Experimental Lighting Match (NR -> SR)",
+           "实验性光照匹配（NR -> SR）"),
+        &next.preserve_lighting);
+    ImGui::EndDisabled();
+    changed |= lighting_match_changed;
+    if (lighting_match_changed &&
+        color_policy_snapshot.status != NrColorPolicyStatus::Bypassed)
+        color_policy_snapshot.status = NrColorPolicyStatus::Pending;
+    if (color_policy_snapshot.status == NrColorPolicyStatus::Current) {
+        const NrColorPolicy &policy = color_policy_snapshot.policy;
+        ImGui::TextDisabled(ui("Last recorded lighting match: requested %s / effective %s",
+            "最近记录的光照匹配：请求 %s / 实际 %s"),
+            policy.requested_preserve_lighting ? ui("on", "开") : ui("off", "关"),
+            policy.effective_preserve_lighting ? ui("on", "开") : ui("off", "关"));
+        if (policy.lighting_reason == NrLightingReason::OnlyNrBeforeSr)
+            ImGui::TextWrapped("%s", ui(
+                "SR -> NR does not apply Lighting Match. The request is saved for NR -> SR.",
+                "SR -> NR 不采用光照匹配。请求值已保留，切回 NR -> SR 后可恢复。"));
+    } else {
+        ImGui::TextWrapped("%s", NrColorPolicyStatusText(
+            color_policy_snapshot.status, kChineseUi));
+    }
+#endif
+}
+
 // The two maintained editions share the same small home screen. Technical
 // readouts remain available without putting implementation knobs on the home.
 void DrawSettings(reshade::api::effect_runtime *runtime) {
@@ -109,7 +182,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
 #endif
     }
     if (ImGui::CollapsingHeader(ui("HDR and colour", "HDR 与颜色"))) {
-        changed |= ImGui::SliderFloat(ui("Colour follow", "颜色跟随"), &next.color_strength, 0.f, 1.f, "%.2f");
+        DrawColorControls(next, has_pending, changed);
         ImGui::TextWrapped("%s", ui("Unknown HDR inputs remain luminance-only. The post-processing preset follows colour only when the live resource/exposure contract permits it.",
             "未知 HDR 输入仍只修改明暗。后置预设也只有在实际纹理和曝光条件允许时才跟随颜色。"));
         changed |= ImGui::Checkbox(ui("Experimental highlight mapping", "实验高光映射"), &next.experimental_peak_shoulder);
@@ -120,8 +193,6 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 ui("Legacy shoulder\0Hybrid\0Reversible (experimental)\0", "旧版压肩\0混合\0可逆（实验）\0"))) {
             next.proxy_curve = static_cast<unsigned>(curve); changed = true;
         }
-#else
-        changed |= ImGui::Checkbox(ui("Match original lighting", "匹配原始光照"), &next.preserve_lighting);
 #endif
     }
     if (ImGui::CollapsingHeader(ui("Compatibility and developer options", "兼容性与开发者选项"))) {
