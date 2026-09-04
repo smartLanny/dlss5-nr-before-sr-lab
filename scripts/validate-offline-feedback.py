@@ -138,6 +138,10 @@ with tempfile.TemporaryDirectory(prefix="dlss5-offline-fixture-") as temporary:
         "EventType=APPCRASH\nAppName=forzahorizon6.exe\n"
         f"AppPath={target_path}\nReportIdentifier=exact-report\n", encoding="utf-16")
     (matched_report / "triage.dmp").write_bytes(b"MATCHED-WER-DUMP")
+    (wer_root / "RootReport.wer").write_text(
+        "EventType=APPCRASH\nAppName=forzahorizon6.exe\n"
+        f"AppPath={target_path}\nReportIdentifier=exact-root-report\n", encoding="utf-16")
+    (wer_root / "unrelated-root.dmp").write_bytes(b"UNRELATED-ROOT-WER-DUMP")
     (unmatched_report / "Report.wer").write_text(
         "EventType=APPCRASH\nAppName=forzahorizon6helper.exe\n"
         "ReportIdentifier=must-not-collect\n", encoding="utf-16")
@@ -161,7 +165,7 @@ with tempfile.TemporaryDirectory(prefix="dlss5-offline-fixture-") as temporary:
               crash["target_executable"].lower() == "forzahorizon6.exe", "strict target identity")
         check(crash["status"] == "matching-crash-evidence-collected", "matching evidence status")
         check(crash["matches"] == {
-            "event_summaries": 2, "wer_reports_found": 1, "wer_reports_collected": 1,
+            "event_summaries": 2, "wer_reports_found": 2, "wer_reports_collected": 2,
             "dumps_found": 2, "dumps_collected": 2,
         }, "only exact and recent event/WER/dump evidence counted")
         summaries = json.loads(archive.read("crash/events.json"))
@@ -173,8 +177,9 @@ with tempfile.TemporaryDirectory(prefix="dlss5-offline-fixture-") as temporary:
         payload = b"".join(archive.read(record["entry"]) for record in evidence_records)
         check(b"MATCHED-WER-DUMP" in payload and b"EXACT-LOCAL-DUMP" in payload,
               "matched existing dumps copied")
-        check(b"UNRELATED-WER-DUMP" not in payload and b"BAD-SUBSTRING-DUMP" not in payload and
-              b"BAD-OLD-DUMP" not in payload, "substring, unrelated and old dumps rejected")
+        check(b"UNRELATED-WER-DUMP" not in payload and b"UNRELATED-ROOT-WER-DUMP" not in payload and
+              b"BAD-SUBSTRING-DUMP" not in payload and b"BAD-OLD-DUMP" not in payload,
+              "substring, shared-root, unrelated and old dumps rejected")
         check(b"too-deep" not in payload, "WER traversal remains one level deep")
         check(not crash["registry_modified"] and not crash["dump_creation_performed"] and
               not crash["upload_performed"], "crash mode remains local and read-only")

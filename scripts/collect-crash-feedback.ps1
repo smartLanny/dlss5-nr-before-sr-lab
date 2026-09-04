@@ -438,6 +438,7 @@ function Collect-DumpsFromDirectory([string]$Directory, [string]$Target, [dateti
 
 function Collect-WerEvidence([string]$Target, [datetime]$CutoffUtc, [datetime]$ReferenceUtc, [string[]]$Roots) {
     $candidates = New-Object 'System.Collections.Generic.List[IO.FileInfo]'
+    $rootDirectories = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $directoryCount = 0
     foreach ($rootValue in $Roots) {
         if ([string]::IsNullOrWhiteSpace($rootValue)) { continue }
@@ -453,6 +454,7 @@ function Collect-WerEvidence([string]$Target, [datetime]$CutoffUtc, [datetime]$R
             $RootSummaries.Add([pscustomobject]@{ kind = 'wer'; path = $root; status = 'skipped-reparse-point' }) | Out-Null
             $script:CollectionPartial = $true; continue
         }
+        $rootDirectories.Add($root.TrimEnd('\', '/')) | Out-Null
         $RootSummaries.Add([pscustomobject]@{ kind = 'wer'; path = $root; status = 'examined' }) | Out-Null
         foreach ($file in (Get-BoundedImmediateFiles $root $MaxWerRootEntries 'wer-root')) {
             if ($file.Extension -ieq '.wer' -and $candidates.Count -lt $MaxWerCandidates) { $candidates.Add($file) | Out-Null }
@@ -510,7 +512,14 @@ function Collect-WerEvidence([string]$Target, [datetime]$CutoffUtc, [datetime]$R
         $entryName = 'crash/wer/{0:d2}-{1}' -f $script:WerCollected, $file.Name
         if (Add-EvidenceFile $file.FullName $entryName 'wer-report' $MaxWerBytes) {
             $script:WerCollected++
-            Collect-DumpsFromDirectory $file.DirectoryName $Target $CutoffUtc $ReferenceUtc -MatchedWerDirectory
+            $reportDirectory = [IO.Path]::GetFullPath($file.DirectoryName).TrimEnd('\', '/')
+            if ($rootDirectories.Contains($reportDirectory)) {
+                # A WER root is shared by many applications. A matching report placed
+                # directly there must not authorize collection of unrelated sibling dumps.
+                Collect-DumpsFromDirectory $file.DirectoryName $Target $CutoffUtc $ReferenceUtc
+            } else {
+                Collect-DumpsFromDirectory $file.DirectoryName $Target $CutoffUtc $ReferenceUtc -MatchedWerDirectory
+            }
         }
     }
 }
