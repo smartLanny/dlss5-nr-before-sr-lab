@@ -355,11 +355,13 @@ struct ExposureCase {
     Float4 expected_trailer{1.0f, 1.0f, 1.0f, 1.0f};
 };
 
+struct CaptureRoi { UINT x=0, y=0, width=0, height=0; };
+
 RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
               UINT requested_stride, UINT flags, int variant,
               bool v2 = false, UINT requested_model_width = 0,
               UINT requested_model_height = 0,
-              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f) {
+              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}) {
     constexpr UINT sx = 3, sy = 2, dx = 2, dy = 1;
     const UINT model_width = requested_model_width != 0
         ? requested_model_width : width;
@@ -402,8 +404,8 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.TextureState(neural_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     gpu.TextureState(output_texture, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     gpu.TextureState(exposure_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    const UINT capture_width = (width + requested_stride - 1) / requested_stride;
-    const UINT capture_height = (height + requested_stride - 1) / requested_stride;
+    const UINT capture_width = roi.width ? std::min(roi.width, width - roi.x) : (width + requested_stride - 1) / requested_stride;
+    const UINT capture_height = roi.height ? std::min(roi.height, height - roi.y) : (height + requested_stride - 1) / requested_stride;
     const UINT64 stage_bytes = static_cast<UINT64>(capture_width) * capture_height * 64 + 16;
     const UINT64 allocation_bytes = stage_bytes + 64; // Tail sentinel outside the UAV.
     auto capture = gpu.Buffer(allocation_bytes, D3D12_HEAP_TYPE_DEFAULT,
@@ -439,7 +441,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
         transfer_strength, exposure_case.source_to_canonical, color_strength, max_luma_ratio, flags,
         sx, sy, dx, dy, 0, 0, 0, 0, exposure_case.pre_exposure, stride,
         width, height, model_width, model_height,
-        0.0f, 0.0f, 1u, frame_confidence, detail_stability};
+        0.0f, 0.0f, 1u, frame_confidence, detail_stability, roi.x, roi.y, roi.width, roi.height};
     ID3D12DescriptorHeap *heaps[] = {gpu.heap.p};
     gpu.list->SetDescriptorHeaps(1, heaps);
     gpu.list->SetComputeRootSignature(gpu.root.p);
@@ -509,7 +511,8 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
         }
         for (UINT y = 0; y < capture_height; ++y)
             for (UINT x = 0; x < capture_width; ++x) {
-                const UINT source_x = x * stride, source_y = y * stride;
+                const UINT source_x = roi.width ? roi.x+x : x*stride;
+                const UINT source_y = roi.height ? roi.y+y : y*stride;
                 const UINT model_index =
                     model_width == width && model_height == height
                         ? source_y * model_width + source_x : 0;
@@ -620,6 +623,13 @@ int main() {
             const auto on=Run(gpu,13,9,2,2,64u,0,true,7,5,exposure);
             Require(std::memcmp(off.output.data(),on.output.data(),off.output.size()*sizeof(Float4))==0,
                     "V2 exposure capture changed composition");
+            ++scenarios;
+        }
+        for (bool v2 : {false,true}) for (CaptureRoi roi : {CaptureRoi{3,2,5,4},CaptureRoi{10,6,99,99},CaptureRoi{0,0,1,1}}) {
+            const auto plain = Run(gpu,13,9,0,1,64u,0,v2,0,0,texture_cases[0]);
+            const auto captured = Run(gpu,13,9,1,1,64u,0,v2,0,0,texture_cases[0],0.f,roi);
+            Require(std::memcmp(plain.output.data(),captured.output.data(),plain.output.size()*sizeof(Float4))==0,
+                    "Native-pixel ROI capture changes the displayed composition");
             ++scenarios;
         }
         const ExposureCase scalar_case{nan, 2.0f, 0.375f, {0.75f, 0.75f, 0.375f, 2.0f}};

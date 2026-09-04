@@ -32,8 +32,8 @@ if missing:
     raise SystemExit("missing beta0.4 markers: " + ", ".join(missing))
 
 match = re.search(r"constexpr UINT kCodecRootConstantCount = (\d+);", source)
-if not match or int(match.group(1)) != 27:
-    raise SystemExit("kCodecRootConstantCount must be 27")
+if not match or int(match.group(1)) != 31:
+    raise SystemExit("kCodecRootConstantCount must be 31")
 
 hlsl = re.search(
     r'const char kCodecShader\[\] = R"HLSL\((?P<body>[\s\S]*?)\)HLSL";',
@@ -48,7 +48,7 @@ if not cbuffer or not cpp:
     raise SystemExit("constant layouts not found")
 hlsl_fields = re.findall(r"^\s*(?:uint|float)\s+([A-Za-z0-9_]+)\s*;", cbuffer.group("body"), re.M)
 cpp_fields = re.findall(r"^\s*(?:unsigned int|float)\s+([A-Za-z0-9_]+)\s*;", cpp.group("body"), re.M)
-if len(hlsl_fields) != 27 or len(cpp_fields) != 27:
+if len(hlsl_fields) != 31 or len(cpp_fields) != 31:
     raise SystemExit(f"constant layout count mismatch: HLSL={len(hlsl_fields)} C++={len(cpp_fields)}")
 normalize = lambda value: re.sub(r"[^a-z0-9]", "", value.lower())
 if [normalize(x) for x in hlsl_fields] != [normalize(x) for x in cpp_fields]:

@@ -1769,7 +1769,7 @@ constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
 constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
 constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
 constexpr UINT kCodecCaptureUavIndex = kCodecSrvCount + 4;
-constexpr UINT kCodecRootConstantCount = 27;
+constexpr UINT kCodecRootConstantCount = 31;
 
 const char kCodecShader[] = R"HLSL(
 // The HDR proxy keeps a linear mid-range and applies a luminance-preserving
@@ -1817,6 +1817,10 @@ cbuffer Constants : register(b0) {
     uint ProxyCurve;
     float FrameConfidence;
     float DetailStability;
+    uint CaptureRoiX;
+    uint CaptureRoiY;
+    uint CaptureRoiWidth;
+    uint CaptureRoiHeight;
 };
 
 static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
@@ -2351,17 +2355,37 @@ void EncodeCS(uint3 tid : SV_DispatchThreadID) {
         LinearToSRGB(HdrSourceToModelLinear(frame)), source.a);
 }
 
-void WriteCombined(uint2 coord, uint2 destinationCoord, float4 result) {
-    ResultOut[destinationCoord] = result;
-    // Disabled captures do not load, convert, or store any extra pixels.
-    if (CaptureStride == 0u ||
-        (coord.x & (CaptureStride - 1u)) != 0u ||
-        (coord.y & (CaptureStride - 1u)) != 0u) return;
+bool CapturePixelAddress(uint2 coord, out uint planeBytes, out uint offset) {
+    planeBytes = 0u;
+    offset = 0u;
+    if (CaptureStride == 0u) return false;
+    if (CaptureRoiWidth != 0u || CaptureRoiHeight != 0u) {
+        // ROI coordinates are active source pixels, never a sparse-grid crop.
+        // Validate subtraction before addition to avoid unsigned wraparound.
+        if (CaptureRoiX >= Width || CaptureRoiY >= Height ||
+            CaptureRoiWidth == 0u || CaptureRoiHeight == 0u ||
+            coord.x < CaptureRoiX || coord.y < CaptureRoiY) return false;
+        uint captureWidth = min(CaptureRoiWidth, Width - CaptureRoiX);
+        uint captureHeight = min(CaptureRoiHeight, Height - CaptureRoiY);
+        uint2 local = coord - uint2(CaptureRoiX, CaptureRoiY);
+        if (local.x >= captureWidth || local.y >= captureHeight) return false;
+        planeBytes = captureWidth * captureHeight * 16u;
+        offset = (local.y * captureWidth + local.x) * 16u;
+        return true;
+    }
+    if ((coord.x & (CaptureStride - 1u)) != 0u ||
+        (coord.y & (CaptureStride - 1u)) != 0u) return false;
     uint captureWidth = (Width + CaptureStride - 1u) / CaptureStride;
     uint captureHeight = (Height + CaptureStride - 1u) / CaptureStride;
-    uint planeBytes = captureWidth * captureHeight * 16u;
-    uint offset = ((coord.y / CaptureStride) * captureWidth +
-                   coord.x / CaptureStride) * 16u;
+    planeBytes = captureWidth * captureHeight * 16u;
+    offset = ((coord.y / CaptureStride) * captureWidth + coord.x / CaptureStride) * 16u;
+    return true;
+}
+
+void WriteCombined(uint2 coord, uint2 destinationCoord, float4 result) {
+    ResultOut[destinationCoord] = result;
+    uint planeBytes, offset;
+    if (!CapturePixelAddress(coord, planeBytes, offset)) return;
     uint2 sourceCoord = coord + uint2(SourceBaseX, SourceBaseY);
     StageCapture.Store4(offset,
         asuint(OriginalColor.Load(int3(sourceCoord, 0))));
@@ -2370,7 +2394,7 @@ void WriteCombined(uint2 coord, uint2 destinationCoord, float4 result) {
     StageCapture.Store4(planeBytes * 2u + offset,
         asuint(NeuralColor.Load(int3(coord, 0))));
     StageCapture.Store4(planeBytes * 3u + offset, asuint(result));
-    if (coord.x == 0u && coord.y == 0u) {
+    if (offset == 0u) {
         float rawExposure = (Passthrough & 64u) != 0u
             ? ExposureScaleTexture.Load(int3(0, 0, 0)).r : ResolveExposureScale();
         StageCapture.Store4(planeBytes * 4u, asuint(float4(rawExposure,
@@ -2567,14 +2591,8 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
 
 void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result) {
     ResultOut[destinationCoord] = result;
-    if (CaptureStride == 0u ||
-        (coord.x & (CaptureStride - 1u)) != 0u ||
-        (coord.y & (CaptureStride - 1u)) != 0u) return;
-    uint captureWidth = (Width + CaptureStride - 1u) / CaptureStride;
-    uint captureHeight = (Height + CaptureStride - 1u) / CaptureStride;
-    uint planeBytes = captureWidth * captureHeight * 16u;
-    uint offset = ((coord.y / CaptureStride) * captureWidth +
-                   coord.x / CaptureStride) * 16u;
+    uint planeBytes, offset;
+    if (!CapturePixelAddress(coord, planeBytes, offset)) return;
     StageCapture.Store4(offset,
         asuint(LoadSourceStoredV2(int2(coord))));
     StageCapture.Store4(planeBytes + offset,
@@ -2582,7 +2600,7 @@ void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result) {
     StageCapture.Store4(planeBytes * 2u + offset,
         asuint(float4(SampleNeuralStoredV2(float2(coord) + 0.5), 1.0)));
     StageCapture.Store4(planeBytes * 3u + offset, asuint(result));
-    if (coord.x == 0u && coord.y == 0u) {
+    if (offset == 0u) {
         float rawExposure = (Passthrough & 64u) != 0u
             ? ExposureScaleTexture.Load(int3(0, 0, 0)).r : ResolveExposureScale();
         StageCapture.Store4(planeBytes * 4u, asuint(float4(rawExposure,
@@ -5586,6 +5604,10 @@ struct CodecConstants {
     unsigned int proxy_curve;
     float frame_confidence;
     float detail_stability;
+    unsigned int capture_roi_x;
+    unsigned int capture_roi_y;
+    unsigned int capture_roi_width;
+    unsigned int capture_roi_height;
 };
 static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * sizeof(UINT));
 
@@ -5737,7 +5759,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         v2_combine ? g_config.lighting_lock : 0.0f,
         v2_combine ? g_config.edge_guard : 0.0f,
         g_config.proxy_curve, std::clamp(frame_confidence, 0.0f, 1.0f),
-        v2_combine ? g_config.detail_stability : 0.0f};
+        v2_combine ? g_config.detail_stability : 0.0f, 0u, 0u, 0u, 0u};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
@@ -5783,7 +5805,7 @@ void DispatchMotionResample(ID3D12GraphicsCommandList *command_list,
         width, height, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0,
         0, 0, 0, 0,
         source_width, source_height, source_base_x, source_base_y, 1.0f, 0,
-        width, height, width, height, 0.0f, 0.0f, 0u, 1.0f, 0.0f};
+        width, height, width, height, 0.0f, 0.0f, 0u, 1.0f, 0.0f, 0u, 0u, 0u, 0u};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(
@@ -7503,7 +7525,7 @@ bool DispatchPostSrNativeSnapshot(
         0, 0, 0, 0, 0, 0, 1.0f, 0,
         substitution.width, substitution.height,
         substitution.width, substitution.height,
-        0.0f, 0.0f, 0u, 1.0f, 0.0f};
+        0.0f, 0.0f, 0u, 1.0f, 0.0f, 0u, 0u, 0u, 0u};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, g_codec.copy);
