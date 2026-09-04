@@ -81,3 +81,6 @@ Desktop.ini
 *.p12
 *.key
 *.secrets.*
+tools/**/bin/
+tools/**/obj/
+build/
