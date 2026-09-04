@@ -32,6 +32,7 @@ harness = r'''
 BUILD_IDENTITY
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 CHAIN_CONFIG
+FINITE_OR
 enum class BypassReason { None, Unsupported, Other };
 FORMATTER
 int checks=0,failures=0;
@@ -69,6 +70,10 @@ int main() {
     config.transfer_strength=1; config.color_strength=1; config.style=2; config.experimental_peak_shoulder=true;
     char complete[91]{};
     check(FormatScreenshotPostfix(complete,sizeof(complete),config,UINT_MAX,BypassReason::None),"max fields label");
+    config.transfer_strength=config.post_transfer_strength=1.2f;
+    char boosted[91]{};
+    check(FormatScreenshotPostfix(boosted,sizeof(boosted),config,UINT_MAX,BypassReason::None),"strength 1.2 label");
+    check(std::strstr(boosted,"_B1.20")!=nullptr,"strength above one is retained in screenshot label");
     const auto needed=std::strlen(complete)+1;
     for(std::size_t capacity=1;capacity<=91;++capacity) {
         std::array<char,95> guarded; guarded.fill('Q');
@@ -89,6 +94,7 @@ int main() {
 '''
 harness = harness.replace("BUILD_IDENTITY", re.search(r'constexpr const char \*kBuildIdentity = [^;]+;', source).group(0))
 harness = harness.replace("CHAIN_CONFIG", definition(source, "struct ChainConfig", True))
+harness = harness.replace("FINITE_OR", definition(source, "float FiniteOr("))
 harness = harness.replace("FORMATTER", definition(source, "bool FormatScreenshotPostfix("))
 with tempfile.TemporaryDirectory(prefix="nr-screenshot-label-") as temporary:
     cpp = Path(temporary) / "test.cpp"

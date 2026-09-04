@@ -211,8 +211,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             : (jitter_status == 1
                 ? ui("Jitter actual: requested, but current game input is unknown.",
                      "Jitter 实况：已请求，但当前游戏输入未知。")
-                : ui("Jitter actual: legacy mode; no game jitter forwarded.",
-                     "Jitter 实况：旧模式，未传递游戏 jitter。")));
+                : ui("Jitter actual: no game jitter was forwarded yet.",
+                     "Jitter 实况：当前尚未传递游戏 jitter。")));
         changed |= ImGui::Checkbox(ui("Retry original SR on failure", "失败时重试原始 SR"), &next.retry_original_on_sr_failure);
         changed |= ImGui::Checkbox(ui("Run NR but discard its picture", "运行 NR 但丢弃其画面（诊断）"), &next.identity_use_original);
         int warmup = static_cast<int>(next.warmup_after_create);

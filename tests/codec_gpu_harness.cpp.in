@@ -361,7 +361,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
               UINT requested_stride, UINT flags, int variant,
               bool v2 = false, UINT requested_model_width = 0,
               UINT requested_model_height = 0,
-              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}) {
+              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f) {
     constexpr UINT sx = 3, sy = 2, dx = 2, dy = 1;
     const UINT model_width = requested_model_width != 0
         ? requested_model_width : width;
@@ -432,7 +432,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.UavTexture(kCodecMotionUavIndex, nullptr, DXGI_FORMAT_R32G32_FLOAT);
     gpu.UavBuffer(kCodecStatsUavIndex, nullptr, 0);
     gpu.UavBuffer(kCodecCaptureUavIndex, stride == 0 ? nullptr : capture.p, stage_bytes);
-    const float transfer_strength = variant == 2 ? 0.0f
+    const float transfer_strength = requested_strength >= 0.f ? requested_strength : variant == 2 ? 0.0f
         : (variant == 5 ? 8.0f : 0.8f);
     const float color_strength = variant == 5 ? 2.0f : 0.25f;
     const float max_luma_ratio = variant == 5 ? 16.0f : 2.0f;
@@ -654,9 +654,33 @@ int main() {
             Require(std::abs(uniform_off.output[i].x-uniform_on.output[i].x)<0.00001f,
                     "Detail stability changed a uniform model edit");
         scenarios += 2;
+        // Exercise the production CombineCS path numerically. The neural
+        // fixture has a positive residual, so increasing the transfer scalar
+        // must increase the composed luminance; 1.2 must remain distinct from
+        // 1.0, and the 2.0 request is bounded by MaxLumaRatio=2.
+        const auto strength0 = Run(gpu, 13, 9, 0, 2, 0, 0, false, 0, 0, {}, 0.f, {}, 0.0f);
+        const auto strength1 = Run(gpu, 13, 9, 0, 2, 0, 0, false, 0, 0, {}, 0.f, {}, 1.0f);
+        const auto strength12 = Run(gpu, 13, 9, 0, 2, 0, 0, false, 0, 0, {}, 0.f, {}, 1.2f);
+        const auto strength2 = Run(gpu, 13, 9, 0, 2, 0, 0, false, 0, 0, {}, 0.f, {}, 2.0f);
+        const auto luminance = [](const RunResult &result) {
+            const Float4 &pixel = result.output[1 * (13 + 2 + 2) + 2];
+            return 0.2126f * pixel.x + 0.7152f * pixel.y + 0.0722f * pixel.z;
+        };
+        const float l0 = luminance(strength0), l1 = luminance(strength1);
+        const float l12 = luminance(strength12), l2 = luminance(strength2);
+        std::printf("GPU strength luminance: 0=%.8f 1=%.8f 1.2=%.8f 2=%.8f\n",
+                    l0, l1, l12, l2);
+        Require(std::isfinite(l0) && std::isfinite(l1) &&
+                std::isfinite(l12) && std::isfinite(l2),
+                "strength outputs are finite on GPU");
+        Require(l1 > l0 && l12 > l1 && l2 > l12,
+                "GPU CombineCS preserves 0 < 1 < 1.2 < 2 strength response");
+        ++scenarios;
         std::printf("GPU codec validation passed: %u paired/grid scenarios; "
-            "legacy/V2 capture identity, scaled V2, 8x strength, reset "
-            "suppression, raw planes, alpha, subrects and root layout.\n",
+            "capture on/off bit identity, raw four-plane values, alpha, "
+            "subrect bounds, invalid/zero/identity paths, descriptor and root layout; "
+            "fixed exposure trailer values (texture/scalar/invalid/clamps); "
+            "strength 0/1/1.2/2 numeric monotonicity.\n",
             scenarios);
         return 0;
     } catch (const std::exception &error) {
