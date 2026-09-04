@@ -4,7 +4,7 @@ Official releases: https://space.bilibili.com/941799
 
 What this update is
 
-This update adds the compact mode UI, the 0..2 final effect strength with an explicit 1.2 preset, and an opt-in game pixel-jitter developer path. Mode 2 remains the default and unknown HDR colour-follow restrictions remain unchanged.
+This update adds the compact mode UI, 0..2 final effect strength, and an opt-in game pixel-jitter developer path. New installations request strength 1.2 and colour follow 0.5. Existing values, including zero, are preserved from the previously selected mode. There is no 1.2 shortcut: the slider displays the actual request. Mode 2 remains the default; effective colour follow remains zero for unknown HDR inputs.
 
 Use this package with an existing 0.3.5 maintenance installation. It contains four small files: the addon, Instructions.txt, Collect-Feedback.cmd and collect-feedback.ps1. Keep both existing DLLs and nr_before_sr.ini; there is no need to download the large runtime again.
 

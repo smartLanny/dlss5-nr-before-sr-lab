@@ -1073,6 +1073,41 @@ int MigrateConfigMode(int config_version, int configured_mode) {
     return config_version < 3 ? 2 : configured_mode;
 }
 
+bool WriteIniInt(const wchar_t *key, int value);
+bool WriteIniFloat(const wchar_t *key, float value);
+
+// ConfigVersion 3 predates the shared strength control. Its mode-1 post value
+// can intentionally be zero while its inactive pre value is still one.
+float ReadConfiguredTransferStrength(int configured_mode) {
+    const int version = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"StrengthConfigVersion", 0, g_ini_path);
+    const float pre = ReadIniFloat(L"TransferStrength", std::nanf(""));
+    const float post = ReadIniFloat(L"PostTransferStrength", std::nanf(""));
+    const float selected = version >= 1 || configured_mode != 1 ? pre : post;
+    const float alternate = version >= 1 || configured_mode != 1 ? post : pre;
+    const float strength = std::isfinite(selected) ? selected :
+        (std::isfinite(alternate) ? alternate : 1.2f);
+    if (version < 1) {
+        // Publish the independent marker only after both compatible fields
+        // are saved. Failure keeps the requested value for this process.
+        SetLastError(ERROR_SUCCESS);
+        const bool pre_written = WriteIniFloat(L"TransferStrength", strength);
+        const bool post_written = WriteIniFloat(L"PostTransferStrength", strength);
+        const bool persisted = pre_written && post_written &&
+            WriteIniInt(L"StrengthConfigVersion", 1);
+        if (!persisted) {
+            const auto error = GetLastError();
+            g_config_persistence_error.store(error ? error : ERROR_WRITE_FAULT,
+                                             std::memory_order_relaxed);
+            g_config_persistence_failed.store(true, std::memory_order_release);
+        }
+        Log("Shared strength migration: sourceMode=%d selected=%.9g "
+            "strengthConfigVersion=1 persisted=%d.", configured_mode,
+            static_cast<double>(strength), persisted ? 1 : 0);
+    }
+    return strength;
+}
+
 void NormalizeConfig(ChainConfig &config) {
     config.mode = config.mode == 2 ? 2 : 1;
     config.transfer_strength = std::clamp(
@@ -1145,9 +1180,13 @@ void ReloadConfig(bool force = false) {
     next.enabled = GetPrivateProfileIntW(L"NRBeforeSR", L"Enabled", 0, g_ini_path) != 0;
     const int config_version = GetPrivateProfileIntW(
         L"NRBeforeSR", L"ConfigVersion", 0, g_ini_path);
-    next.mode = GetPrivateProfileIntW(L"NRBeforeSR", L"Mode", 2, g_ini_path);
-    next.mode = MigrateConfigMode(config_version, next.mode);
-    if (config_version < 3) {
+    const int configured_mode = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"Mode", 2, g_ini_path);
+    next.transfer_strength = ReadConfiguredTransferStrength(configured_mode);
+    next.post_transfer_strength = next.transfer_strength;
+    next.mode = MigrateConfigMode(config_version, configured_mode);
+    if (config_version < 3 &&
+        !g_config_persistence_failed.load(std::memory_order_acquire)) {
         // beta0.2 shipped Mode 1 as the default.  Migrate that persisted value
         // once so installing the beta0.3 series cannot silently keep users on the
         // comparison-only full-resolution path.
@@ -1181,11 +1220,7 @@ void ReloadConfig(bool force = false) {
     }
     next.identity_use_original = GetPrivateProfileIntW(
         L"NRBeforeSR", L"IdentityUseOriginalColor", 0, g_ini_path) != 0;
-    const float legacy_pre_transfer = ReadIniFloat(L"TransferStrength", 1.0f);
-    const float legacy_post_transfer = ReadIniFloat(L"PostTransferStrength", 1.0f);
-    next.transfer_strength = std::max(legacy_pre_transfer, legacy_post_transfer);
-    next.post_transfer_strength = next.transfer_strength;
-    next.color_strength = ReadIniFloat(L"ColorStrength", 0.0f);
+    next.color_strength = ReadIniFloat(L"ColorStrength", 0.5f);
     next.max_luma_ratio = ReadIniFloat(L"MaxLumaRatio", 2.0f);
     next.preserve_lighting = GetPrivateProfileIntW(
         L"NRBeforeSR", L"PreserveLighting", 0, g_ini_path) != 0;
@@ -1317,6 +1352,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"IdentityUseOriginalColor", config.identity_use_original ? 1 : 0));
     record_write(WriteIniFloat(L"TransferStrength", config.transfer_strength));
     record_write(WriteIniFloat(L"PostTransferStrength", config.post_transfer_strength));
+    if (ok) record_write(WriteIniInt(L"StrengthConfigVersion", 1));
     record_write(WriteIniFloat(L"ColorStrength", config.color_strength));
     record_write(WriteIniFloat(L"MaxLumaRatio", config.max_luma_ratio));
     record_write(WriteIniInt(L"PreserveLighting", config.preserve_lighting ? 1 : 0));
