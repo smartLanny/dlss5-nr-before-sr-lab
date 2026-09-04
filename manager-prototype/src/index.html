@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DLSS 5 AI Rendering Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">AI</div>
+        <div>
+          <strong>DLSS 5 AI 超分</strong>
+          <span>装机宅 · 小白版</span>
+        </div>
+      </div>
+
+      <nav id="nav">
+        <button class="nav-item active" data-view="games">🎮 <span>我的游戏</span></button>
+        <button class="nav-item" data-view="install">⚡ <span>一键安装</span></button>
+        <button class="nav-item" data-view="repair">🩺 <span>问题修复</span></button>
+        <button class="nav-item" data-view="settings">⚙️ <span>设置</span></button>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <button class="support-link" id="communityBtn">💬 加入交流群</button>
+        <button class="support-link" id="announcementBtn">📢 更新公告</button>
+        <small id="versionLabel">原型版本</small>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div>
+          <h1 id="pageTitle">我的游戏</h1>
+          <p id="pageSubtitle">自动识别游戏，推荐最适合你的 DLSS 5 AI 超分设置</p>
+        </div>
+        <div class="status-pill"><i></i><span>Manager 正常</span></div>
+      </header>
+
+      <section class="view active" id="view-games">
+        <div class="hero-card">
+          <div>
+            <span class="eyebrow">第一次使用？</span>
+            <h2>不用研究 DLL、ReShade 和参数</h2>
+            <p>扫描游戏后，我们会自动判断兼容性并给出推荐设置。</p>
+          </div>
+          <button class="primary" data-jump="install">自动寻找支持的游戏</button>
+        </div>
+
+        <div class="section-heading">
+          <div><h2>已发现的游戏</h2><p>优先显示最适合直接开启的游戏</p></div>
+          <button class="secondary">＋ 手动添加游戏</button>
+        </div>
+
+        <article class="game-card" id="gameCard">
+          <div class="cover">2077</div>
+          <div class="game-main">
+            <div class="game-title-row">
+              <div><h3 id="gameName">赛博朋克 2077</h3><p id="gameMeta">DirectX 12 · RTX 5090</p></div>
+              <span class="badge good">✓ 完美支持</span>
+            </div>
+            <div class="recommend-line">
+              <b>🎯 晓风推荐</b>
+              <span>性能优先 + AI 强度 1.2 + 自然风格 + 人脸保护</span>
+            </div>
+            <div class="resolution-row">
+              <span>当前渲染 <b id="inputResolution">1920 × 1080</b></span>
+              <span>→</span>
+              <span>最终输出 <b id="outputResolution">3840 × 2160</b></span>
+            </div>
+            <div class="card-actions">
+              <button class="primary" data-jump="install">设置并安装</button>
+              <button class="secondary" id="quickRecommended">直接使用推荐设置</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" id="view-install">
+        <div class="install-grid">
+          <article class="panel main-panel">
+            <div class="panel-title"><div><span class="eyebrow">DLSS 5 AI 超分</span><h2 id="installGameName">赛博朋克 2077</h2></div><span class="badge good">推荐</span></div>
+
+            <h3>你更在意什么？</h3>
+            <div class="mode-grid">
+              <button class="mode-card selected" data-mode="performance">
+                <span class="mode-icon">🚀</span><strong>性能优先</strong><small>推荐绝大多数玩家</small><p>先 AI 渲染，再 DLSS 超分，帧数更高。</p><em>NR → SR</em>
+              </button>
+              <button class="mode-card" data-mode="quality">
+                <span class="mode-icon">✨</span><strong>画质优先</strong><small>显卡余量充足时使用</small><p>更高分辨率执行 AI 渲染，性能开销更高。</p><em>SR → NR</em>
+              </button>
+            </div>
+
+            <div class="setting-block">
+              <div class="setting-title"><div><h3>AI 增强强度</h3><p>越高越明显，也越容易出现噪点</p></div><b id="intensityValue">1.20</b></div>
+              <div class="preset-row" id="intensityPresets">
+                <button data-value="0.8">轻微 <small>0.8</small></button>
+                <button class="selected" data-value="1.2">推荐 <small>1.2</small></button>
+                <button data-value="1.5">强烈 <small>1.5</small></button>
+              </div>
+              <label class="custom-slider"><span>自定义</span><input id="intensitySlider" type="range" min="0" max="2" step="0.05" value="1.2"></label>
+            </div>
+
+            <div class="two-column-settings">
+              <label><span>AI 风格</span><select id="styleSelect"><option value="natural">自然（推荐）</option><option value="default">默认</option><option value="cinematic">电影感</option></select></label>
+              <label class="toggle-row"><div><span>人脸保护</span><small>减少脸部被 AI 过度重绘</small></div><input id="faceProtection" type="checkbox" checked></label>
+            </div>
+
+            <button class="recommended-btn" id="applyRecommended">🎯 使用晓风推荐设置</button>
+          </article>
+
+          <aside class="panel summary-panel">
+            <h3>当前方案</h3>
+            <div class="summary-item"><span>模式</span><b id="summaryMode">性能优先</b></div>
+            <div class="summary-item"><span>AI 强度</span><b id="summaryIntensity">1.20</b></div>
+            <div class="summary-item"><span>风格</span><b id="summaryStyle">自然</b></div>
+            <div class="summary-item"><span>人脸保护</span><b id="summaryFace">开启</b></div>
+            <hr>
+            <div class="summary-resolution"><span id="summaryInput">1920 × 1080</span><i>→</i><strong id="summaryOutput">3840 × 2160</strong></div>
+            <p class="hint">原型阶段不会真正写入游戏目录。下一阶段接入安装/恢复事务后，这里会变成一键安装按钮。</p>
+            <button class="primary full" id="prototypeInstall">一键安装（原型）</button>
+            <p class="prototype-note" id="installResult"></p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-repair">
+        <div class="hero-card compact">
+          <div><span class="eyebrow">一键体检</span><h2>不会排查？让软件自己找问题</h2><p>自动检查 ReShade、DLSS、AI 核心、NR→SR 链路和常见 Mod 冲突。</p></div>
+          <button class="primary" id="runDiagnosis">开始体检</button>
+        </div>
+        <div class="diagnosis-list" id="diagnosisList">
+          <div class="empty-state">点击“开始体检”查看结果</div>
+        </div>
+        <div class="repair-actions">
+          <button class="primary" id="repairAll" disabled>一键修复全部问题</button>
+          <button class="secondary" id="copyDiagnosis" disabled>复制诊断信息</button>
+        </div>
+      </section>
+
+      <section class="view" id="view-settings">
+        <article class="panel settings-panel">
+          <h2>常用设置</h2>
+          <label class="toggle-row"><div><span>开机后自动检查更新</span><small>只检查 Manager 和公开组件版本</small></div><input type="checkbox" checked></label>
+          <label class="toggle-row"><div><span>游戏内快捷面板</span><small>计划使用 F8 打开；ReShade 原生设置页仍保留作为备用</small></div><input type="checkbox" checked></label>
+          <label class="toggle-row danger-toggle"><div><span>高级模式</span><small>显示 Backend、Add-ons、Overlay、日志和工程参数</small></div><input id="advancedToggle" type="checkbox"></label>
+        </article>
+
+        <article class="panel advanced-panel hidden" id="advancedPanel">
+          <h2>高级模式</h2>
+          <div class="advanced-grid">
+            <div><span>Backend</span><b>Native ReShade（规划）</b></div>
+            <div><span>Overlay Profile</span><b id="overlayProfile">-</b></div>
+            <div><span>控制协议</span><b>NR Control Contract v1（占位）</b></div>
+            <div><span>鉴权方式</span><b>桌面 Entitlement / 游戏内离线验签（规划）</b></div>
+          </div>
+          <p class="hint">这些信息默认对普通玩家隐藏。核心 NR 参数和 ReShade 原生 UI 不会被删除。</p>
+        </article>
+
+        <article class="panel attribution-panel">
+          <h2>关于与开源致谢</h2>
+          <p>产品原型：野生的装机宅 / Xiaofeng Lab</p>
+          <p>产品设计参考 MIT 许可项目 DLSS5-Swapper by Rakan Alkhaldi。若后续直接合入其源代码，将完整保留原版权、MIT License 和第三方声明。</p>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
