@@ -31,7 +31,7 @@ DX11、Vulkan、没有原生 DLSS SR，或被 OptiScaler 等转换层完全接�
    个 DLSS5/RenoDX/ShortFuse addon；不要同时启用两个 NR 所有者。
 4. 把压缩包中的下列文件放在 **同一个目录**，不要把 DLL 与 addon
    分开：
-   - `DLSS5-AI渲染超分版-beta0.3.7-@野生的装机宅-Bilibili.addon64`
+   - `DLSS5-AI渲染超分版-beta0.3.7-HD2-Feature11-exp1-@野生的装机宅-Bilibili.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - 当前显卡完整包内的 `nvngx_dlssnr.dll`

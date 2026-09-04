@@ -45,9 +45,9 @@ if (Test-Path -LiteralPath $ReleasePath) {
 New-Item -ItemType Directory -Path $ReleasePath | Out-Null
 
 $ChineseAddon = Join-Path $BuildRoot `
-    'DLSS5-AI渲染超分版-beta0.3.7-@野生的装机宅-Bilibili.addon64'
+    'DLSS5-AI渲染超分版-beta0.3.7-HD2-Feature11-exp1-@野生的装机宅-Bilibili.addon64'
 $EnglishAddon = Join-Path $BuildRoot `
-    'DLSS5-AI-Rendering-Upscaling-beta0.3.7-@野生的装机宅-Bilibili.en.addon64'
+    'DLSS5-AI-Rendering-Upscaling-beta0.3.7-HD2-Feature11-exp1-@野生的装机宅-Bilibili.en.addon64'
 $Bridge = Join-Path $BuildRoot 'nrchain_nvngx.dll'
 $Config = Join-Path $BuildRoot 'nr_before_sr.ini'
 $FeedbackScript = Join-Path $ProjectRoot 'scripts\collect-feedback.ps1'

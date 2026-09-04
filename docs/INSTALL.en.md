@@ -31,7 +31,7 @@ translation layer such as OptiScaler are outside this add-on's direct scope.
 3. Remove old `nr-before-sr*.addon64` builds, the other language variant, and
    any second DLSS5/RenoDX/ShortFuse add-on that would own NR at the same time.
 4. Keep these files **together in that same directory**:
-   - `DLSS5-AI-Rendering-Upscaling-beta0.3.7-@野生的装机宅-Bilibili.en.addon64`
+   - `DLSS5-AI-Rendering-Upscaling-beta0.3.7-HD2-Feature11-exp1-@野生的装机宅-Bilibili.en.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - `nvngx_dlssnr.dll` from the matching GPU package
