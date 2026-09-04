@@ -6347,11 +6347,6 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     s.motion_scale_x *= source_to_work_x;
     s.motion_scale_y *= source_to_work_y;
 
-    binding.jitter = ResolveNrJitter(sr_params, g_config.jitter_mode,
-        guide_width, guide_height, width, height);
-    binding.jitter_offset_x = binding.jitter.x;
-    binding.jitter_offset_y = binding.jitter.y;
-
     s.normalized_create_flags = feature.create_flags;
     if (color_mode == CodecColorMode::ModelEncodedValueDomain)
         s.normalized_create_flags &= ~1;
@@ -6371,6 +6366,8 @@ bool ResolveNrGuideBinding(const NgxParams *sr_params,
     binding.jitter = ResolveNrJitter(
         sr_params, g_config.jitter_mode, guide_width, guide_height,
         width, height);
+    binding.jitter_offset_x = binding.jitter.x;
+    binding.jitter_offset_y = binding.jitter.y;
     return true;
 }
 
