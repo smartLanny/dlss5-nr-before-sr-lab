@@ -1,4 +1,4 @@
-DLSS 5 AI渲染超分版 beta0.3.3.6 轻量更新说明
+DLSS 5 AI渲染超分版 beta0.3.7 轻量更新说明
 作者：@野生的装机宅 Bilibili
 官方发布地址：https://space.bilibili.com/941799
 

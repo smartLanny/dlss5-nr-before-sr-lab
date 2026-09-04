@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Upscaling beta0.3.3.6 - Small Update
+DLSS 5 AI Rendering Upscaling beta0.3.7 - Small Update
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
