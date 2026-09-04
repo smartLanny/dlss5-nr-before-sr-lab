@@ -339,13 +339,20 @@ public:
 
     void Destroy() {
         for (unsigned int i = 0; i < kCapacity; ++i) {
+            const TokenState state = ledger_.Get(i).state;
+            // Armed means no command list has referenced the resources yet.
+            // Completed means the exact queue fence was observed. Every other
+            // state is quarantined: releasing it here could race delayed
+            // Execute/replay or an unsignaled submission fence.
+            if (state != TokenState::Armed && state != TokenState::Completed)
+                continue;
             ReleaseCom(resources_[i].readback);
             ReleaseCom(resources_[i].buffer);
             ReleaseCom(resources_[i].heap);
             resources_[i] = {};
-            if (ledger_.Get(i).state != TokenState::Free)
-                ledger_.Invalidate(ledger_.Get(i).recording_token, true);
-            if (ledger_.Get(i).state == TokenState::Completed)
+            if (state == TokenState::Armed)
+                ledger_.DiscardArmed(i);
+            else
                 ledger_.Reclaim(i);
         }
     }
