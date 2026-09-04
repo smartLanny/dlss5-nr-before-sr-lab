@@ -1,4 +1,4 @@
-DLSS 5 AI渲染超分版 beta0.3.7 轻量更新说明
+DLSS 5 AI渲染超分版 beta0.3.7-r2 轻量更新说明
 作者：@野生的装机宅 Bilibili
 官方发布地址：https://space.bilibili.com/941799
 
@@ -16,7 +16,7 @@ DLSS 5 AI渲染超分版 beta0.3.7 轻量更新说明
 
 原来的 nrchain_nvngx.dll、nvngx_dlssnr.dll 和 nr_before_sr.ini 保留。把 Collect-Feedback.cmd 与 collect-feedback.ps1 一起放在 addon 旁边。不要把不同显卡完整包里的运行库互换。
 
-进游戏后，在插件面板确认版本为 beta0.3.7。第一次安装或缺少运行文件的玩家，需要使用对应显卡的完整包。
+进游戏后，在插件面板确认版本为 beta0.3.7-r2。第一次安装或缺少运行文件的玩家，需要使用对应显卡的完整包。
 
 这次修了什么
 

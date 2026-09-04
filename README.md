@@ -1,6 +1,6 @@
 # DLSS5 NR-Before-SR Lab
 
-New beta0.3.7 installations request final strength **1.2** and colour follow
+New beta0.3.7-r2 installations request final strength **1.2** and colour follow
 **0.5**. Existing values, including zero, migrate from the previously selected
 mode. Unknown HDR inputs still have effective colour follow zero. Hover over
 controls for explanations; the 1.0 post-SR comparison preset is a comparison
@@ -18,7 +18,7 @@ Runtime hotkeys are `F6` for the master comparison switch, `F8` for a local
 feedback ZIP, and main keyboard `-` for a ReShade screenshot whose filename
 records the current build, chain and selected settings.
 
-The beta0.3.7 update adds a compact processing-mode UI, bounded final-strength
+The beta0.3.7-r2 update adds a compact processing-mode UI, bounded final-strength
 presets, and an opt-in developer jitter forwarding path. It keeps Mode 2 as the
 default and retains the existing unknown-HDR colour protection. The collector
 cancels only unarmed session-owned requests on timeout and gives

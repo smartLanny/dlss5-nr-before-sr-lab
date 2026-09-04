@@ -1,12 +1,12 @@
-# beta0.3.7 一键反馈测试版快速安装
+# beta0.3.7-r2 一键反馈测试版快速安装
 
 按 **F8** 或在插件面板点击“一键采集反馈包”，保持机位等待完成。`feedback.zip` 通常保存在系统“文档”的 `DLSS5-Feedback` 中；创建目录失败时会尝试系统临时目录，以面板可复制的实际路径为准。部分数据未采到仍会打包并说明原因。游戏无法启动时，双击同目录的 `Collect-Feedback.cmd`；它需要 `collect-feedback.ps1` 配套，会在“文档”中生成 `feedback-offline.zip`，不需要管理员权限。
 
-当前完整包共 **7 个文件**。请以面板、日志和文件属性的 beta0.3.7 及 SHA-256 确认版本。采集只保存到本机，不自动上传或修改设置。
+当前完整包共 **7 个文件**。请以面板、日志和文件属性的 beta0.3.7-r2 及 SHA-256 确认版本。采集只保存到本机，不自动上传或修改设置。
 
 本版修复了 ExposureTexture 为 NaN 时未正确回退到单位曝光的问题。包含该路径的 **54 个 D3D12 WARP GPU 用例已通过**，也验证了采集开关不改变这些用例的合成输出；这不代表所有动态曝光、颜色跟随或人脸画质问题已修复，仍需游戏实测。
 
-插件名称：**DLSS 5 AI渲染超分版 beta0.3.7**
+插件名称：**DLSS 5 AI渲染超分版 beta0.3.7-r2**
 
 作者：**@野生的装机宅 Bilibili**
 
@@ -31,13 +31,13 @@ DX11、Vulkan、没有原生 DLSS SR，或被 OptiScaler 等转换层完全接�
    个 DLSS5/RenoDX/ShortFuse addon；不要同时启用两个 NR 所有者。
 4. 把压缩包中的下列文件放在 **同一个目录**，不要把 DLL 与 addon
    分开：
-   - `DLSS5-AI渲染超分版-beta0.3.7-@野生的装机宅-Bilibili.addon64`
+   - `DLSS5-AI渲染超分版-beta0.3.7-r2-@野生的装机宅-Bilibili.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - 当前显卡完整包内的 `nvngx_dlssnr.dll`
    - `Collect-Feedback.cmd`
    - `collect-feedback.ps1`
-5. 启动游戏，在 ReShade 的“插件”页确认界面顶部显示 beta0.3.7、作者名和官方地址。
+5. 启动游戏，在 ReShade 的“插件”页确认界面顶部显示 beta0.3.7-r2、作者名和官方地址。
 
 插件会从自身目录读取配置、桥接 DLL 和 NR runtime。因此，仅让 ReShade
 看见 `.addon64`，但把其余文件放到另一个目录，会出现界面能打开、所有
