@@ -191,6 +191,12 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     SettingsTooltip(ui("Final NR blend strength. 0 keeps native SR; 1.0 is the unscaled effect. New installations start at 1.2. Existing settings, including 0, are retained. Higher values can amplify low-resolution noise; this is not the model's internal strength.",
         "控制最终 NR 混合强度。0 保留原生 SR，1.0 是不额外放大的效果；新装默认 1.2。已有设置（包括 0）会保留。提高数值可能放大低分辨率噪点；这项不是模型内部强度。"));
+    ImGui::BeginDisabled(next.mode != 2);
+    changed |= ImGui::Checkbox(ui("High-strength protection (experimental)",
+        "高强度保护（实验）"), &next.high_strength_protection);
+    SettingsTooltip(ui("Before-SR only, above 1x. Soft-limits the extra brightness/chroma edit; SDR brightening uses remaining source headroom. 0-1x and the full-resolution after-SR reference are unchanged. Off restores the old amplification for A/B. This does not fix an already clipped 1x model result or guarantee stable 8x pictures.",
+        "仅前置、强度高于 1 时生效。对额外明暗/颜色增强做软限制，SDR 提亮参考原图剩余空间；0-1 倍和完整后置参考不变。关闭可对比旧算法。不能修复 1 倍已经剪裁的模型结果，也不保证 8 倍画面稳定。"));
+    ImGui::EndDisabled();
     int style = static_cast<int>(next.style);
     if (ImGui::Combo(ui("Style", "风格"), &style,
             ui("Default\0Natural\0Cinematic\0", "默认\0自然\0电影\0"))) {

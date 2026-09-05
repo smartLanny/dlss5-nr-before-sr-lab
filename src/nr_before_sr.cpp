@@ -47,11 +47,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.4.3r3";
+constexpr const char *kAddonVersion = "beta0.5-dev1";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.4.3r3";
+constexpr const char *kBuildIdentity = "beta0.5-dev1";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -863,6 +863,7 @@ struct ChainConfig {
     float lighting_lock = 0.20f;
     float edge_guard = 0.25f;
     float detail_stability = 0.0f; // Experimental spatial residual protection; 0 preserves old output.
+    bool high_strength_protection = true; // Mode 2 composition only; does not reset NR history.
     bool motion_stability = false; // Requested only; requires a proven depth/history contract.
     unsigned int proxy_curve = 1; // 0 legacy, 1 hybrid, 2 reversible
     bool allow_unverified_hdr_color = false;
@@ -1276,6 +1277,7 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.lighting_lock == b.lighting_lock &&
            a.edge_guard == b.edge_guard &&
            a.detail_stability == b.detail_stability &&
+           a.high_strength_protection == b.high_strength_protection &&
            a.motion_stability == b.motion_stability &&
            a.proxy_curve == b.proxy_curve &&
            a.allow_unverified_hdr_color == b.allow_unverified_hdr_color &&
@@ -1359,6 +1361,8 @@ void ReloadConfig(bool force = false) {
     next.lighting_lock = ReadIniFloat(L"LightingLock", 0.20f);
     next.edge_guard = ReadIniFloat(L"EdgeGuard", 0.25f);
     next.detail_stability = ReadIniFloat(L"DetailStability", 0.0f);
+    next.high_strength_protection = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"HighStrengthProtection", 1, g_ini_path) != 0;
     next.motion_stability = GetPrivateProfileIntW(L"NRBeforeSR", L"MotionStability", 0, g_ini_path) != 0;
     next.proxy_curve = static_cast<unsigned int>(GetPrivateProfileIntW(
         L"NRBeforeSR", L"ProxyCurve", 1, g_ini_path));
@@ -1450,6 +1454,8 @@ void ReloadConfig(bool force = false) {
         g_history_generation.fetch_add(1, std::memory_order_relaxed);
     }
     if (changed || force) {
+        Log("HighStrengthProtection requested=%d; effective only in Mode 2 above 1x; codec flag=1024.",
+            g_config.high_strength_protection ? 1 : 0);
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
             "postTransfer=%.3f colorFollowRequested=%.3f preserveLighting=%d proxyScale=%.3f "
             "paperWhiteScale=%.3f peakShoulderRequested=%d warmup=%u intensity=%.3f localTone=%.3f "
@@ -1519,6 +1525,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniFloat(L"LightingLock", config.lighting_lock));
     record_write(WriteIniFloat(L"EdgeGuard", config.edge_guard));
     record_write(WriteIniFloat(L"DetailStability", config.detail_stability));
+    record_write(WriteIniInt(L"HighStrengthProtection", config.high_strength_protection ? 1 : 0));
     record_write(WriteIniInt(L"MotionStability", config.motion_stability ? 1 : 0));
     record_write(WriteIniInt(L"ProxyCurve", static_cast<int>(config.proxy_curve)));
     record_write(WriteIniInt(L"AllowUnverifiedHdrColor",
@@ -1616,6 +1623,8 @@ bool ApplyConfig(ChainConfig next, const char *source,
     const bool persisted = persist_to_ini ? SaveConfig(g_config) : true;
     const ChainConfig applied = g_config;
     LeaveCriticalSection(&g_chain_cs);
+    Log("HighStrengthProtection requested=%d; effective only in Mode 2 above 1x; codec flag=1024.",
+        applied.high_strength_protection ? 1 : 0);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
         "colorFollowRequested=%.3f intensity=%.3f style=%u autoMask=%d skin=%.3f localTone=%.3f "
         "localStructure=%.3f uiCorrection=%d jitterMode=%d paperWhiteScale=%.3f peakShoulderRequested=%d "
@@ -2811,6 +2820,18 @@ void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result) {
     }
 }
 
+// V3_BOOST_SCALAR_BEGIN
+// Preserve the one-times anchor. Only the extra edit approaches the remaining
+// budget asymptotically; no extra magnitude is invented or sign reversed.
+float SoftExtraMagnitudeV3(float base, float extraStrength, float limit) {
+    base = min(max(base, 0.0), max(limit, 0.0));
+    float room = max(limit - base, 0.0);
+    float extra = base * max(extraStrength, 0.0);
+    if (room <= 0.0 || extra <= 0.0) return base;
+    return base + room * (extra / (room + extra));
+}
+// V3_BOOST_SCALAR_END
+
 [numthreads(8, 8, 1)]
 void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height ||
@@ -2896,6 +2917,23 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float logLimit = log2(maxRatio);
     float poweredLog = clamp(logRatio * TransferStrength * confidence,
                              -logLimit, logLimit);
+    // beta0.5: the legacy path is retained exactly for <=1x and A/B off.
+    // This is a spatial composite guard, not a model/history or exposure fix.
+    const bool protectBoost = (Passthrough & 1024u) != 0u &&
+        TransferStrength > 1.0;
+    if (protectBoost) {
+        float baseLog = clamp(logRatio * confidence, -logLimit, logLimit);
+        float budget = logLimit;
+        if (baseLog > 0.0 && (Passthrough & (1u | 16u | 32u)) != 0u) {
+            // Only extra brightening is constrained. A pre-existing 1x clip is
+            // not silently tone-mapped, and HDR never receives an SDR ceiling.
+            float sourcePeak = max(source.r, max(source.g, source.b));
+            float sdrHeadroom = max(log2(rcp(max(sourcePeak, 0.000001))), 0.0);
+            budget = max(baseLog, min(logLimit, sdrHeadroom));
+        }
+        poweredLog = sign(baseLog) * SoftExtraMagnitudeV3(
+            abs(baseLog), TransferStrength - 1.0, budget);
+    }
     float modelProxyTargetLuma = fullProxyLuma * exp2(poweredLog);
 
     // Preserve HDR energy above the bounded model proxy instead of multiplying
@@ -2922,6 +2960,18 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         float3 poweredChromaLog = clamp(chromaLog *
             (TransferStrength * ColorStrength * confidence),
             -logLimit.xxx, logLimit.xxx);
+        if (protectBoost) {
+            // Keep the existing 1x chroma anchor. Scale its entire log-vector
+            // together, so extra amplification cannot clip each axis at a
+            // different strength and thereby rotate the edit direction.
+            float3 baseChroma = clamp(chromaLog * (ColorStrength * confidence),
+                                      -logLimit.xxx, logLimit.xxx);
+            float peakLog = max(abs(baseChroma.r),
+                max(abs(baseChroma.g), abs(baseChroma.b)));
+            float scale = peakLog > 0.0 ? SoftExtraMagnitudeV3(
+                peakLog, TransferStrength - 1.0, logLimit) / peakLog : 1.0;
+            poweredChromaLog = baseChroma * scale;
+        }
         float3 chromaGain = exp2(poweredChromaLog);
         float3 coloured = max(source, 0.0.xxx) * chromaGain;
         float colouredLuma = dot(coloured, kLuma);
@@ -5895,6 +5945,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         color_policy.color_reason = NrColorReason::ExperimentalUnverifiedHdr;
     }
     const unsigned int base_codec_flags = source_flags |
+        ((v2_combine && g_config.high_strength_protection) ? 1024u : 0u) |
         (color_policy.effective_preserve_lighting ? 2u : 0u) |
         (capture_delta ? 8u : 0u) |
         ((hdr_input && color_contract.exposure_texture != nullptr) ? 64u : 0u) |
@@ -11249,13 +11300,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dev1 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.4.3r3 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev1 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

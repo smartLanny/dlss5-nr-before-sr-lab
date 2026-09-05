@@ -1,40 +1,8 @@
-DLSS 5 AI Rendering Perfect Chain beta0.4.3r3 Community Beta - Small Update
-Author: @野生的装机宅 Bilibili
-Official releases: https://space.bilibili.com/941799
+DLSS 5 NR Before SR beta0.5-dev1 experimental candidate
 
-Scope
-
-Use this package with an existing compatible beta0.4.x runtime installation. Exit the game completely, back up the old addon outside the game directory, replace only the addon, and keep both Collect-Feedback / Collect-Crash-Feedback CMD + PowerShell pairs beside it. Keep the existing nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Do not load old/new, Chinese/English, HD2 experimental, or renodx-dlss5.addon64 copies together.
-
-What changed in 0.4.3r3
-
-r3 continues the compatibility and feedback hardening from r2: null-PSO command lists are admitted only for the narrow fresh guarded pristine-null subset; late lists can recover owner mapping from a real ReShade submission callback but still require a later successful Reset; F8 now records structured command-state / hook / guard / baseline evidence; pending UI edits no longer overwrite newer F6, config-reload or capture-restored state; and CI now propagates structural-validator failures correctly. MFG / RTX 40 unlock compatibility is not claimed as fixed in this release.
-
-1. Integrates the 0.4.2 bug sweep: narrows lighting-protection black-edge/reversed-residual risk, fixes mask-related parameter handling and panel isolation, and adds a conservative retry path for native NGX hooks. Null-PSO and wider high-risk graphics-state paths still bypass by default.
-2. F8 is now an independent small core-feedback package. The core ZIP has a hard 8 MiB limit, collects only known logs/runtime state, performs no texture readback, never uploads automatically, and does not change picture settings for collection.
-3. F7 image feedback first creates a core package associated with the session, then uses the existing image capture path. Core/image packages can verify session, source commit and measured addon SHA256 identity; a verified pair still does not mean the screenshots and GPU stages are the same frame.
-4. Feedback parsing now strictly validates completeness. Required logs must be declared, cancelled/incomplete/missing-input packages cannot be reported as complete, and packages from different addon binaries cannot be paired merely because they share a source commit.
-5. Hotkey and result-state handling is stricter: custom F8 bindings cannot collide with F6/F7, new requests clear stale result paths, and busy collection rejects duplicate work without damaging the active capture.
-6. New installations still default to Mode 2: run NR on the selected lower working raster, compose the matched residual back into game render resolution, then call the game's native DLSS SR. NR quality changes only Feature 18 working resolution; it does not change the game's own DLSS mode.
-
-Picture defaults
-
-New installations use final-effect strength 1.2. The slider is the actual request from 0 to 8. New colour follow is 0.75; unknown HDR contracts remain luminance-only. Explicit existing configuration values are preserved. Very high strength at a low NR working resolution can amplify grain, so raise NR quality before blaming jitter.
-
-Compatibility and safety boundary
-
-This release remains the native D3D12 DLSS Feature 1 path. DX11 is not part of this beta0.4.3r3 release and remains on a separate research branch. If resource, format, subrect, command-state, RR ownership, or HDR contracts cannot be proven, the preferred behavior is to bypass and retain the game's native SR result.
-
-Wuthering Waves, Where Winds Meet, Forza Horizon, Black Myth and other titles with prior intermittent or crash reports still need current beta0.4.3r3 in-game retesting. Automated regressions, D3D12 WARP, shader compilation and source builds passing do not equal NVIDIA-model or real-game runtime validation. The new null-PSO admission path does not mean every related title is already fixed.
-
-Updating
-
-Exit the game completely, back up the old addon outside the game directory, then replace it. Keep both runtime DLLs and the existing configuration. In game, confirm beta0.4.3r3 in the ReShade add-on panel, compare with F6, and verify that the NR-success counter continues increasing.
-
-Reporting
-
-For ordinary problems, use F8 first to create the small core package. It does not wait for a successful NR frame and does not take screenshots. Use F7 only when image evidence is needed, keep a fixed camera and collect one setting per package. If parsing reports partial / unpaired, keep the original archive and do not edit its manifest.
-
-After a crash, run Collect-Crash-Feedback.cmd. It only gathers already-existing Windows event, WER and dump evidence; it does not enable dumps, modify the registry, launch the game, or upload. Dumps can contain process memory and local paths, so decide whether to share them.
-
-For a startup problem without crash evidence, run Collect-Feedback.cmd. Keep each CMD beside its matching PowerShell script.
+Not a Release or OTA. Based on the complete beta0.4.3r3 maintenance head.
+Mode2 adds opt-out HighStrengthProtection for extra amplification above 1x.
+Mode1, 0-1x, native identity and the source HDR-headroom contract are unchanged.
+This does not recover clipping already present at 1x or establish 8x/game stability.
+Back up the existing addon/INI; never load both old and new NR addons together.
+See docs/BETA_0_5_DEVELOPMENT.md for scope, rollback and future 0.4.4 merges.

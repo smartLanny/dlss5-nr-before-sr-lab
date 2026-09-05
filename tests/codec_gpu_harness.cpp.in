@@ -394,6 +394,17 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
             neural[y*model_width+x] = {p.x*gain,p.y*gain,p.z*gain,1.0f};
         }
     }
+    if (variant == 8) {
+        std::fill(original.begin(), original.end(), Float4{0.60f, 0.55f, 0.50f, 0.625f});
+        std::fill(proxy.begin(), proxy.end(), Float4{0.60f, 0.55f, 0.50f, 0.75f});
+        std::fill(neural.begin(), neural.end(), Float4{0.84f, 0.77f, 0.70f, 0.875f});
+    }
+    if (variant == 9)
+        std::fill(original.begin(), original.end(), Float4{8.0f, 4.0f, 2.0f, 0.625f});
+    if (variant == 10) {
+        std::fill(original.begin(), original.end(), Float4{0.22f, 0.32f, 0.14f, 0.625f});
+        std::fill(neural.begin(), neural.end(), Float4{0.45f, 0.40f, 0.25f, 0.875f});
+    }
     if (variant == 3) neural[0].x = std::numeric_limits<float>::quiet_NaN();
     auto source_texture = gpu.MakeTexture(source_width, source_height, original);
     auto proxy_texture = gpu.MakeTexture(model_width, model_height, proxy);
@@ -552,12 +563,16 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     return result;
 }
 
-int main() {
+// @V3_BOOST_TESTS@
+
+int main(int argc, char **argv) {
     try {
         Gpu gpu;
+        const bool negative_control = argc == 2 && std::strcmp(argv[1], "--negative-control") == 0;
+        Require(argc == 1 || negative_control, "Unknown codec harness argument");
         ValidateProductionDescriptors(gpu);
         ValidateMotionResampleFormats(gpu);
-        unsigned int scenarios = 0;
+        unsigned int scenarios = ValidateHighStrengthV3(gpu, negative_control);
         for (UINT flags : {0u, 1u, 16u, 32u, 128u, 256u, 384u}) {
             for (int variant = 0; variant < 4; ++variant) {
                 const auto off = Run(gpu, 13, 9, 0, 2, flags, variant);

@@ -1,3 +1,14 @@
+# beta0.5-dev1 experimental development branch
+
+当前分支是基于完整 **beta0.4.3r3** 的 **0.5 开发候选**，不是新的正式 Release。
+首批加入可关闭的高强度保护；低分辨率 EditField / Lanczos2 / Catmull 尚在后续分阶段任务中。
+开发、验证、回退和持续合入 0.4.4 的规则：[BETA_0_5_DEVELOPMENT.md](docs/BETA_0_5_DEVELOPMENT.md)。
+当前验证状态请查看该提交的 Actions，不将 WARP 通过等同于游戏实测。
+
+---
+
+## 继承的 0.4 稳定线说明（历史基线，版本链接不代表本候选）
+
 # DLSS5 NR-Before-SR Lab
 
 Experimental, source-only ReShade D3D12 add-on for studying two neural-rendering

@@ -1,12 +1,14 @@
-# beta0.4.3 feedback test build quick install
+beta0.5-dev1 experimental candidate, not a Release. Back up the old version. See docs/BETA_0_5_DEVELOPMENT.md and the PR for validation limits.
+
+# beta0.5-dev1 feedback test build quick install
 
 Press **F8** or use the core-feedback control to create a small CPU-only package with no screenshot or texture readback. Use **F7** only when paired image evidence is needed. Feedback ZIPs normally go under Documents/DLSS5-Feedback. If that directory cannot be created, collection tries DLSS5-Feedback under the system temporary directory; copy the actual path from the panel. Missing or limited inputs are reported explicitly as partial rather than being treated as complete. For an ordinary startup problem, use `Collect-Feedback.cmd`. After a crash, use `Collect-Crash-Feedback.cmd`; it derives one unique absolute game EXE path from the newest ReShade log and reads only existing Windows events, WER reports and dumps from the last 72 hours that pass its identity rules. It does not enable dumps, modify the registry or upload. Standalone CrashDumps do not contain their source path, so they can only be filtered by exact EXE basename and time; the package records this limitation.
 
-The core full-install payload contains **nine files**. An official signed archive also includes verification files listed in its manifest. Verify beta0.4.3 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
+The core full-install payload contains **nine files**. An official signed archive also includes verification files listed in its manifest. Verify beta0.5-dev1 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
 
 This version fixes the Cyberpunk 2077 four-channel half-float motion-vector bypass, detects the exact competing `renodx-dlss5.addon64` module, and fixes the low-address NGX relay-allocation failure shown in a new log. It installs the narrow command-signature observer at device creation to fix the r3 intermittent bypass regression, while null-PSO and wider graphics-state paths remain disabled by default. The Forza report has no crash dump and still needs a game retest. Automated GPU, resource, state and capture regressions do not establish real-game acceptance for every exposure, colour-follow, face-quality or crash report.
 
-Displayed add-on name: **DLSS 5 AI Rendering Perfect Chain beta0.4.3**.
+Displayed add-on name: **DLSS 5 AI Rendering Perfect Chain beta0.5-dev1**.
 
 The update filename keeps “AI-Rendering-Upscaling” for continuity with older packages.
 
@@ -34,7 +36,7 @@ translation layer such as OptiScaler are outside this add-on's direct scope. The
    If the exact file `renodx-dlss5.addon64` is present, move it outside the game
    directory too; it is another NR owner and cannot coexist with this add-on.
 4. Keep these files **together in that same directory**:
-   - `DLSS5-AI-Rendering-Upscaling-beta0.4.3-@野生的装机宅-Bilibili.en.addon64`
+   - `DLSS5-AI-Rendering-Upscaling-beta0.5-dev1-@野生的装机宅-Bilibili.en.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - `nvngx_dlssnr.dll` from the matching GPU package
@@ -42,7 +44,7 @@ translation layer such as OptiScaler are outside this add-on's direct scope. The
    - `collect-feedback.ps1`
    - `Collect-Crash-Feedback.cmd`
    - `collect-crash-feedback.ps1`
-5. Start the game and verify that the ReShade Add-ons page shows beta0.4.3, the
+5. Start the game and verify that the ReShade Add-ons page shows beta0.5-dev1, the
    author and official release address at the top of this add-on's panel.
 
 The add-on loads its configuration, bridge and NR runtime from its own folder.
@@ -93,7 +95,7 @@ and expected result; add an F7 image package only when visual evidence is needed
 Use the offline collector if the game cannot start. Partial bundles can still
 help, but do not edit their manifest. If packaging fails, include the
 displayed version and bypass reason plus the smallest
-matching window from `nr-before-sr.log`. beta0.4.3 logs state-machine changes,
+matching window from `nr-before-sr.log`. beta0.5-dev1 logs state-machine changes,
 deferred-module coverage, colour-stage attribution, early diagnostics and sparse
 performance summaries rather than writing every frame.
 Remove user names, absolute paths, account data, process addresses and runtime
