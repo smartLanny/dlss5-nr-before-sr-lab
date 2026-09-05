@@ -21,13 +21,13 @@ class BranchOtaTests(unittest.TestCase):
         files={n:b'echo fixture\n' for n in ota.FEEDBACK}
         files[ota.ADDONS['Chinese']]=bytes(image);files['Instructions.txt']=b'Preserve existing configuration'
         return files
-    def write(self,folder,files,**overrides):
+    def write(self,folder,payload,**overrides):
         m={'schema':'nr-branch-ota-v1','version':ota.VERSION,'language':'Chinese','sourceCommit':SHA,
            'sourceDirty':False,'api':'D3D12-x64','includesDx11':False,
-           'files':[{'name':n,'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest()} for n,b in files.items()]}
+           'files':[{'name':n,'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest()} for n,b in payload.items()]}
         m.update(overrides);path=Path(folder)/'test.zip'
         with zipfile.ZipFile(path,'w') as z:
-            for n,b in files.items():z.writestr(n,b)
+            for n,b in payload.items():z.writestr(n,b)
             z.writestr('ota-manifest.json',json.dumps(m))
         return path
     def test_valid_owned_addon_only(self):
