@@ -1,7 +1,6 @@
-# bug-inbox/issue-43 (CORRECTED)
+# issue-43 Camellia926 / 0.4.2 荒野大镖客2 NR闪烁
 
-- Guest: Camellia926 (502780421)
-- Game: Red Dead Redemption 2 (RDR2.exe) — NOT 异环
-- Plugin: beta0.4.2 / RTX 3080 Ti / driver 61656
-- Real zip size: 57411072 B
-- Prior HTGame push was a mis-attribution from wrong local file; ignore it
+Correct DM zip (57411072 B, RDR2.exe / 3080 Ti).
+Wrong earlier analysis used /home/box/feedback.zip (异环) — discarded.
+Related: #17.
+Local: `_inbox/20260905-camellia-rdr2-real/`

@@ -1,17 +1,9 @@
-17:10:37.336  DLSS 5 AI Rendering Perfect Chain beta0.4.2 attached | build_id=beta0.4.2 | sourceCommit=15909ef10914fcdf151ee193460451667fbf31dc
-17:10:37.338  Config: enabled=1 mode=2 preTransfer=2.600 postTransfer=2.600 intensity=0.520 style=2
-17:10:39.709  Found SR NGX module: F:\Neverness To Everness\...\nvngx_dlss.dll
-17:10:41.588  [artifact-identity] addonPath=...\HT\Binaries\win64\DLSS5-...-beta0.4.2-...addon64 sha256=ccd7f1d8cd95a8559e5a629d3206bf586777173aa2309722202ec1a0a0b2d1e2
-17:10:50.103  NR bypass: native-hooks-unavailable count=1..6 then null-pso-policy-disabled count=600..4800
-17:10:50.103  bypass transition #1: waiting-feature1 -> command-state-unverified
-17:10:55.433  NR bypass: null-pso-policy-disabled count=600
-17:11:01.164  NR bypass: null-pso-policy-disabled count=1200
-17:11:07.741  NR bypass: null-pso-policy-disabled count=1800
-17:11:14.435  NR bypass: null-pso-policy-disabled count=2400
-17:11:36.345  NR bypass: null-pso-policy-disabled count=3000
-17:11:49.850  NR bypass: null-pso-policy-disabled count=3600
-17:11:58.457  bypass #2: command-state-unverified -> master-disabled
-17:11:59.761  bypass #4: waiting-feature1 -> command-state-unverified
-17:12:05.338  NR bypass: null-pso-policy-disabled count=4200
-17:12:19.028  NR bypass: null-pso-policy-disabled count=4800
-NOTE: full 63KB nr-current.log kept locally at bug-reports/_inbox/20260905-093300_.../logs/nr-current.log
+17:29:07.826  DLSS 5 AI Rendering Perfect Chain beta0.4.2 attached | RDR2 path
+17:29:11.308  [artifact-identity] addonPath=K:\Games\Red Dead Redemption 2\DLSS5-...-beta0.4.2-...addon64
+17:32:13.992  NR bypass: native-hooks-unavailable count=1..6
+17:32:13.992  bypass #1: waiting-feature1 -> command-state-unverified
+17:32:17.035  bypass #2: command-state-unverified -> queue-affinity-unverified
+17:32:17.049  bypass #3: queue-affinity-unverified -> command-state-unverified
+17:32:18.748..17:32:20.135  rapid command-state-unverified <-> none/active (matches UI 已跳过<->链路可用 flicker)
+17:32:28.881  Feature18-success=143 transfer-submitted=139 queue-affinity admitted=43 unknown-bypass=1
+NOTE: full nr-current.log in local _inbox/20260905-camellia-rdr2-real/logs/

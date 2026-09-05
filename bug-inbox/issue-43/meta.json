@@ -1,14 +1,16 @@
 {
-  "ts": "2026-09-05T09:35:58+0000",
+  "ts": "2026-09-05T09:33:31+0000",
   "user_id": "502780421",
   "nickname": "Camellia926",
   "version": "0.4.2",
-  "gpu": "NVIDIA GeForce RTX 5070 Ti (capture-info); historically 3080Ti on #17",
-  "driver": "616.56 / raw 61664",
-  "game_claimed": "荒野大镖客2",
-  "game_from_logs": "异环 / Neverness To Everness (HTGame.exe)",
+  "gpu": "RTX 3080 Ti",
+  "driver": "616.56",
+  "game": "荒野大镖客2",
+  "exe": "K:\\Games\\Red Dead Redemption 2\\RDR2.exe",
   "symptom": "NR跳过与链路可用闪烁 / 画面显示原版",
   "source": "qq-private",
-  "related_issues": [17, 37],
-  "attachments": ["feedback.zip", "logs/nr-current.log", "logs/reshade-addon-dir.log"]
+  "file_size": 57411072,
+  "related_issue_prior": 17,
+  "note": "Correct DM zip; earlier /home/box/feedback.zip was WRONG (异环 HTGame).",
+  "issue": 43
 }
