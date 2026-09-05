@@ -20,7 +20,14 @@ int RunPristineNullGate(bool negative) {
     auto *snapshot=new NativeCommandState;
     Check(!CaptureNativeCommandState(list,*snapshot),"missed init is not inferred from native pointer");
     Check(std::strcmp(SnapshotCommandStateEvidence().reason,"unregistered-list")==0,"unregistered reason retained");
+    ID3D12GraphicsCommandList *other=nullptr;
+    Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,nullptr,
+        IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&other)),"unrelated known list");
+    reshade::api::command_list other_owner{&od,other}; OnCommandStateInitList(&other_owner);
+    Check(!CaptureNativeCommandState(other,*snapshot),"unrelated known list still awaits its own baseline");
+    Check(g_command_state_registration_repair_needed.load(),"known carrier does not cancel missing-list recovery");
     OnCommandStateObserveSubmission(&owner);
+    OnCommandStateDestroyList(&other_owner);Drop(other);
     const auto token=ReadCommandStateToken(list);
     auto *record=FindCommandStateTokenLocked(token);
     Check(record && token && !record->state,"real ReShade submission repairs mapping only");
@@ -48,8 +55,21 @@ int RunPristineNullGate(bool negative) {
     Check(!CanRestoreNativeCommandState(*snapshot),"raw predicate still rejects null without explicit evidence");
     D3D12_VIEWPORT vp{0,0,2,2,0,1};
     ID3D12GraphicsCommandList_RSSetViewports(list,1,&vp);
-    Check(!CaptureNativeCommandState(list,*snapshot),"valid graphics state is not automatically replayed");
-    Check(SnapshotCommandStateEvidence().dynamic==kDynamicViewport,"dynamic field survives evidence snapshot");
+    Check(CaptureNativeCommandState(list,*snapshot),"fully observed bounded viewport is admitted without experimental replay");
+    Check(std::strcmp(SnapshotCommandStateEvidence().route,"guarded-null-raster")==0,"bounded raster route is explicit");
+    D3D12_RECT scissor{0,0,2,2};ID3D12GraphicsCommandList_RSSetScissorRects(list,1,&scissor);
+    Check(CaptureNativeCommandState(list,*snapshot),"viewport and scissor compose within the safe subset");
+    {
+        NativeCommandStateScope restore_raster(list);
+        Check(restore_raster.active,"actual raster scope can be acquired");
+        D3D12_VIEWPORT changed{0,0,1,1,0,1};
+        ID3D12GraphicsCommandList_RSSetViewports(list,1,&changed);
+        restore_raster.Restore();
+        Check(record->state->dynamic.viewports[0].Width==2,"native scope restores observed viewport bytes");
+    }
+    ID3D12GraphicsCommandList_IASetPrimitiveTopology(list,D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    Check(!CaptureNativeCommandState(list,*snapshot),"other graphics domains remain outside automatic subset");
+    Check(SnapshotCommandStateEvidence().dynamic==(kDynamicViewport|kDynamicScissor|kDynamicTopology),"dynamic field survives evidence snapshot");
     ID3D12GraphicsCommandList_ClearState(list,nullptr);
     Check(CaptureNativeCommandState(list,*snapshot),"tracked ClearState after fresh Reset erases graphics state");
     auto saved=g_state_BeginRenderPass.originals[3];

@@ -5,18 +5,18 @@
 #endif
 
 #if NR_UI_CHINESE
-#define NR_FILE_DESCRIPTION "DLSS 5 AI渲染完美链路 beta0.4.3r3"
-#define NR_ORIGINAL_FILENAME "DLSS5-AI渲染超分版-beta0.4.3r3-@野生的装机宅-Bilibili.addon64"
+#define NR_FILE_DESCRIPTION "DLSS 5 AI渲染完美链路 beta0.4.4-test1"
+#define NR_ORIGINAL_FILENAME "DLSS5-AI渲染超分版-beta0.4.4-test1-@野生的装机宅-Bilibili.addon64"
 #define NR_PRODUCT_NAME "DLSS 5 AI渲染完美链路"
 #else
-#define NR_FILE_DESCRIPTION "DLSS 5 AI Rendering Perfect Chain beta0.4.3r3"
-#define NR_ORIGINAL_FILENAME "DLSS5-AI-Rendering-Upscaling-beta0.4.3r3-@野生的装机宅-Bilibili.en.addon64"
+#define NR_FILE_DESCRIPTION "DLSS 5 AI Rendering Perfect Chain beta0.4.4-test1"
+#define NR_ORIGINAL_FILENAME "DLSS5-AI-Rendering-Upscaling-beta0.4.4-test1-@野生的装机宅-Bilibili.en.addon64"
 #define NR_PRODUCT_NAME "DLSS 5 AI Rendering Perfect Chain"
 #endif
 
 1 VERSIONINFO
-FILEVERSION 0,4,3,3
-PRODUCTVERSION 0,4,3,3
+FILEVERSION 0,4,4,1
+PRODUCTVERSION 0,4,4,1
 FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
 #ifdef _DEBUG
 FILEFLAGS VS_FF_DEBUG

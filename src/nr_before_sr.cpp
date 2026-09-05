@@ -47,11 +47,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.4.3r3";
+constexpr const char *kAddonVersion = "beta0.4.4-test1";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.4.3r3";
+constexpr const char *kBuildIdentity = "beta0.4.4-test1";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -9005,6 +9005,15 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                 Log("[command-state] post-SR state unavailable; native SR is "
                     "re-evaluated to its original Output without NR work.");
                 result = original(command_list, handle, params, callback);
+            } else {
+                static unsigned int post_state_failures = 0;
+                const unsigned int count = ++post_state_failures;
+                if (count <= 3 || (count % 600) == 0) {
+                    const auto state = SnapshotCommandStateEvidence();
+                    Log("[post-SR] stopped after successful native SR: stage=command-state "
+                        "reason=%s prepared-only=1 count=%u; original Output retained, "
+                        "no Feature18 call was made.", state.reason, count);
+                }
             }
         } else if (after_sr.redirected_output &&
                    g_config.retry_original_on_sr_failure) {
@@ -9098,7 +9107,8 @@ NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
-        return g_original_evaluate(command_list, handle, params, callback);
+        return CallNativeEvaluatePassThrough(
+            g_original_evaluate, command_list, handle, params, callback);
     }
     const unsigned int call = ++g_wrapper_calls;
     if (call <= 3) Log("nvngx_dlss EvaluateFeature reached: call=%u handle=%p", call,
@@ -9131,7 +9141,8 @@ NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
-        return g_original_evaluate_c(command_list, handle, params, callback);
+        return CallNativeEvaluatePassThrough(
+            g_original_evaluate_c, command_list, handle, params, callback);
     }
     return DispatchEvaluate(g_original_evaluate_c, command_list, handle, params, callback);
 }
@@ -9167,7 +9178,8 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
-        return g_original_core_evaluate(command_list, handle, params, callback);
+        return CallNativeEvaluatePassThrough(
+            g_original_core_evaluate, command_list, handle, params, callback);
     }
     const unsigned int call = ++g_core_calls;
     if (call <= 3) Log("_nvngx core EvaluateFeature reached: call=%u handle=%p", call,
@@ -9206,8 +9218,8 @@ NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
-        return g_original_dlssd_evaluate(
-            command_list, handle, params, callback);
+        return CallNativeEvaluatePassThrough(
+            g_original_dlssd_evaluate, command_list, handle, params, callback);
     }
     const unsigned int call = ++g_dlssd_evaluate_calls;
     if (call <= 3) {
@@ -11249,13 +11261,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.4.3r3 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.4.4-test1 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

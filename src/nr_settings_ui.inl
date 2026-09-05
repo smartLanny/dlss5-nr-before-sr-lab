@@ -204,17 +204,26 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsTooltip(ui(
         "Available only for Before SR. This changes Feature 18's working resolution; it does not switch to post-processing and does not change the game's DLSS quality.",
         "仅用于前置 NR → SR。这里只改变 Feature 18 的工作分辨率，不会切成后置处理，也不会改变游戏内 DLSS 档位。"));
-    if (next.work_mode == 5)
-        changed |= ImGui::SliderFloat(ui("NR size ratio", "NR 尺寸比例"), &next.custom_work_scale, .5f, 1.f, "%.2f");
+    if (next.work_mode == 5) {
+        float percent = next.custom_work_scale * 100.0f;
+        if (ImGui::SliderFloat(ui("NR work resolution (%)", "NR 工作分辨率（%）"), &percent, 50.0f, 100.0f, "%.0f%%")) {
+            next.custom_work_scale = percent * 0.01f; changed = true;
+        }
+        SettingsTooltip(ui("Linear NR size relative to game render input, not output or pixel count. 50% uses about 25% of the input pixels. The current safe range is 50-100%; use Enable/F6 to turn NR off. Native game rendering is unchanged.",
+            "NR 宽高相对游戏渲染输入的比例，不是相对显示分辨率，也不是像素百分比。50% 约为 25% 的输入像素；当前安全范围为 50–100%，关闭请用启用/F6。不会降低游戏原始渲染分辨率。"));
+    }
     if (next.mode != 2) {
         ImGui::EndDisabled();
         ImGui::TextDisabled("%s", ui("Post-processing mode uses the full SR output size.", "后置模式使用完整 SR 输出分辨率。"));
     }
 #endif
 
+    if (next.identity_use_original && ImGui::Button(ui("Show NR picture (leave diagnostic identity)", "显示 NR 效果（退出诊断原图）"))) {
+        next.identity_use_original = false; changed = true;
+    }
     if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {
         if (ImGui::Button(ui("Post-SR comparison", "后置对照设置"))) {
-            next.mode = 1; next.enabled = true;
+            next.mode = 1; next.enabled = true; next.identity_use_original = false;
             next.transfer_strength = next.post_transfer_strength = 1.0f;
             next.color_strength = 1.0f; changed = true;
         }
