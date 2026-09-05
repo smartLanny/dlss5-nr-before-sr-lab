@@ -42,14 +42,15 @@ jobs:
           python scripts/prepare-native-bridge.py --upstream external-carrier --output build/native-carrier
           if ($LASTEXITCODE -ne 0) { throw 'Pinned source staging failed' }
           $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
-          & $compiler '-std=c++17' '-Wall' '-Wextra' '-Werror' '-I.' tests/native_bridge/history.cpp '-o' history.exe
+          $env:PATH = "$(Join-Path $env:TOOLCHAIN_ROOT 'bin');$env:PATH"
+          & $compiler '-std=c++17' '-static' '-Wall' '-Wextra' '-Werror' '-I.' tests/native_bridge/history.cpp '-o' history.exe
           if ($LASTEXITCODE -ne 0) { throw 'History compile failed' }
           ./history.exe
-          if ($LASTEXITCODE -ne 0) { throw 'History tests failed' }
-          & $compiler '-std=c++17' '-Wall' '-Wextra' '-Werror' '-I.' tests/native_bridge/forward.cpp '-o' forward.exe
+          if ($LASTEXITCODE -ne 0) { throw "History tests failed: exit=$LASTEXITCODE" }
+          & $compiler '-std=c++17' '-static' '-Wall' '-Wextra' '-Werror' '-I.' tests/native_bridge/forward.cpp '-o' forward.exe
           if ($LASTEXITCODE -ne 0) { throw 'Forward routing compile failed' }
           ./forward.exe
-          if ($LASTEXITCODE -ne 0) { throw 'Forward routing tests failed' }
+          if ($LASTEXITCODE -ne 0) { throw "Forward routing tests failed: exit=$LASTEXITCODE" }
           ./build/native-carrier/core/scripts/build.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
       - name: Compile pinned external carrier with MSVC
         shell: cmd
