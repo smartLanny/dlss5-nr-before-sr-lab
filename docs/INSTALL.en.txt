@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Perfect Chain beta0.4.2 Community Beta
+DLSS 5 AI Rendering Perfect Chain beta0.4.3 Community Beta
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
@@ -21,7 +21,7 @@ Collect-Crash-Feedback.cmd
 collect-crash-feedback.ps1
 Instructions.txt
 
-Keep these files together. Remove old, HD2 experiment, or other-language copies of this addon. If `renodx-dlss5.addon64` is present, move it outside the game directory too; it is another NR owner and cannot coexist with this addon. Fully restart the game and check for beta0.4.2 in the ReShade addon panel.
+Keep these files together. Remove old, HD2 experiment, or other-language copies of this addon. If `renodx-dlss5.addon64` is present, move it outside the game directory too; it is another NR owner and cannot coexist with this addon. Fully restart the game and check for beta0.4.3 in the ReShade addon panel.
 
 If you already have a working full installation, you can use the small update package and keep the existing large runtime DLL, bridge DLL and settings file. Follow the instructions in that update package. It cannot be used for a first installation.
 
@@ -29,17 +29,15 @@ Using and comparing the effect
 
 Start with the defaults. F6 turns this addon on or off. With it off, you can compare against the game's original DLSS Super Resolution output.
 
-Keep the camera in the same position and change only one setting at a time. Let the image settle, then press F8 once for each setting. The default current-problem capture takes one display screenshot with the current settings and does not switch settings. Only an explicit comparison selected in the advanced feedback controls temporarily changes in-memory settings.
+Keep the camera in the same position and change only one setting at a time. Use F8 first for ordinary runtime problems; use F7 only when image evidence is needed.
 
-Press F8 when something looks wrong
+Press F8 first when something looks wrong
 
-Stop where the problem is visible, then press F8 or click Collect feedback ZIP in the panel. Keep the camera still until the panel reports completion.
+Press F8 or use the core-feedback control. F8 takes no screenshot, performs no texture readback, does not wait for a successful NR frame, and never changes picture settings for collection. The core ZIP has a hard 8 MiB limit and records known logs, build/configuration identity and runtime state. Missing or scan-limited inputs are reported explicitly as partial / missing reason.
 
-It collects one current display screenshot and attempts to include 16 consecutive NR processing frames, a separate overview, image information, requested and effective settings, and logs. A disabled or bypassed NR path can produce a screenshot-and-logs-only partial package. The processing frames come from the NR operation; they are not guaranteed to share a frame with the display screenshot.
+Use F7 when image evidence is required. F7 first creates a session-associated core package and then runs the heavier image/stage capture. The two packages can verify session, source commit and measured addon SHA256 identity, but a verified pair does not mean both captures came from the same frame.
 
-Collection waits up to about 30 seconds, then background packaging still needs time. A slow drive may take longer. A partial bundle is useful too; it records what could not be collected.
-
-feedback.zip normally appears in Documents/DLSS5-Feedback, in a separate folder for each capture. If that directory cannot be created, F8 tries the system temporary directory. Use the actual path shown in the panel, or click its copy-path button.
+Feedback ZIPs normally appear in Documents/DLSS5-Feedback, in a separate folder for each capture. If that directory cannot be created, collection tries the system temporary directory. Use the actual path shown in the panel, or click its copy-path button.
 
 If the game will not start
 
