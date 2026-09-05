@@ -84,6 +84,7 @@ ULONGLONG WINAPI FakeGetTickCount64() { return 10000; }
 enum MH_STATUS { MH_OK, MH_ERROR_ALREADY_INITIALIZED, MH_ERROR_ENABLED,
     MH_ERROR_ALREADY_CREATED, MH_ERROR_MEMORY_PROTECT };
 #define MH_ALL_HOOKS nullptr
+const char *MH_StatusToString(MH_STATUS) { return "fixture-status"; }
 MH_STATUS MH_Initialize() { return MH_OK; }
 MH_STATUS MH_CreateHook(void *address, void *, void **original) {
     auto &target = *static_cast<FakeTarget *>(address);
@@ -153,6 +154,12 @@ std::atomic<bool> g_startup_deferred_module_coverage{false};
 std::atomic<bool> g_module_rescan_in_progress{false};
 std::atomic<unsigned long long> g_module_observer_epoch{0};
 std::atomic<unsigned long long> g_module_rescan_count{0};
+enum class ModuleObserverFault : int {
+    None = 0, LateDistinctAfterActivity, CoverageFailed, CreateOverlap,
+    UnknownEvaluate, UnknownRelease, EpochCorrupt,
+};
+std::atomic<int> g_module_observer_fault{
+    static_cast<int>(ModuleObserverFault::None)};
 std::atomic<unsigned long long> g_feature1_create_entries{0};
 std::atomic<unsigned long long> g_feature1_evaluate_entries{0};
 std::atomic<unsigned long long> g_feature1_successful_creates{0};
@@ -166,7 +173,15 @@ SRWLOCK g_evaluate_hook_lock = SRWLOCK_INIT;
 void LatchRrOwnershipUncertain(const char *, const char *) {
     g_module_observer_gap_detected = true;
 }
-void LatchUnknownFeatureHandle(const char *source, const char *detail) {
+const char *ModuleObserverFaultName(ModuleObserverFault) { return "test"; }
+void RecordModuleObserverFault(ModuleObserverFault fault) {
+    int expected = static_cast<int>(ModuleObserverFault::None);
+    g_module_observer_fault.compare_exchange_strong(
+        expected, static_cast<int>(fault));
+}
+void LatchUnknownFeatureHandle(const char *source, const char *detail,
+                               ModuleObserverFault fault) {
+    RecordModuleObserverFault(fault);
     LatchRrOwnershipUncertain(source, detail);
 }
 
@@ -199,6 +214,7 @@ void Reset() {
     g_module_observer_gap_detected = g_startup_deferred_module_coverage = false;
     g_module_rescan_in_progress = false;
     g_module_observer_epoch = g_module_rescan_count = 0;
+    g_module_observer_fault = static_cast<int>(ModuleObserverFault::None);
     g_feature1_create_entries = g_feature1_successful_creates = 0;
     g_feature1_create_in_progress = 0;
     g_carrier_evaluations = g_null_feature_evaluations = 0;
@@ -216,7 +232,7 @@ void InstallPrimary() {
 }
 void Scan() {
     g_next_module_rescan_tick = 0;
-    PollNgxLifecycleModules();
+    PollNgxLifecycleModules(false);
     assert(!g_module_rescan_in_progress);
     assert((g_module_observer_epoch.load() & 1) == 0);
     for (auto &module : modules) assert(module.refs == 0);
@@ -254,10 +270,19 @@ int main() {
     assert(g_module_observer_epoch == 2 && !g_module_observer_gap_detected);
     assert(g_core_lifecycle_hooks_ready && g_dlssd_lifecycle_hooks_ready);
 
+    Reset(); InstallPrimary();
+    g_next_module_rescan_tick = 20000; // Present cadence would skip this scan.
+    SetExports(modules[1], 4);
+    PollNgxLifecycleModules(true); // Feature 1 entry preflight bypasses cadence.
+    assert(g_core_lifecycle_hooks_ready && !g_module_observer_gap_detected);
+    assert(g_module_observer_epoch == 2 && apply_calls == 1);
+
     Reset(); InstallPrimary(); SetExports(modules[1], 4);
     g_feature1_successful_creates = 1;
     Scan();
     assert(g_module_observer_gap_detected);
+    assert(g_module_observer_fault == static_cast<int>(
+        ModuleObserverFault::LateDistinctAfterActivity));
 
     for (int variant = 0; variant < 4; ++variant) {
         Reset(); InstallPrimary(); SetExports(modules[1], 4);
@@ -303,6 +328,6 @@ int main() {
     assert(g_core_unknown_handle_guard); // Failed alias never disables guard.
 
     std::puts("Observer regression scenarios passed: absent/aliases/reverse aliases, "
-        "single publication, Create overlap/null/failure, hook failures and forwarded PIN.");
+        "single/preflight publication, Create overlap/null/failure, hook failures and forwarded PIN.");
     return 0;
 }

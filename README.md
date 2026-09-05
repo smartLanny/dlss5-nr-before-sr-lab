@@ -1,6 +1,6 @@
 # DLSS5 NR-Before-SR Lab
 
-New beta0.3.7-r2 installations request final strength **1.2** and colour follow
+New beta0.3.7-r3 installations request final strength **1.2** and colour follow
 **0.5**. Existing values, including zero, migrate from the previously selected
 mode. Unknown HDR inputs still have effective colour follow zero. Hover over
 controls for explanations; the 1.0 post-SR comparison preset is a comparison
@@ -18,9 +18,13 @@ Runtime hotkeys are `F6` for the master comparison switch, `F8` for a local
 feedback ZIP, and main keyboard `-` for a ReShade screenshot whose filename
 records the current build, chain and selected settings.
 
-The beta0.3.7-r2 update adds a compact processing-mode UI, bounded final-strength
-presets, and an opt-in developer jitter forwarding path. It keeps Mode 2 as the
-default and retains the existing unknown-HDR colour protection. The collector
+The beta0.3.7-r3 update adds a compact processing-mode UI, bounded final-strength
+controls, and an opt-in developer jitter forwarding path. It keeps Mode 2 as the
+default and retains the existing unknown-HDR colour protection. It also detects
+the exact competing `renodx-dlss5.addon64` module, extends MinHook relay
+allocation for low-address NGX modules with signed-rel32 validation, preflights
+lifecycle observers before the first SR Create, and defers the command-signature
+hook only when the process starts with NR disabled. The collector
 cancels only unarmed session-owned requests on timeout and gives
 current bypass status priority over pending settings. It does not change image
 strength or HDR admission. See the [September 4 feedback review](docs/COMMUNITY_FEEDBACK_20260904.zh-CN.md)

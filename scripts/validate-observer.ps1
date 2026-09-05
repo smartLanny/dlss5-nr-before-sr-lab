@@ -11,6 +11,19 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $compiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang++.exe'
 $source = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_before_sr.cpp') -Raw
 $harness = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\observer_harness.cpp.in') -Raw
+$primaryStart = $source.IndexOf('NgxResult HookCreate(', [StringComparison]::Ordinal)
+$primaryEnd = $source.IndexOf('NgxResult HookCoreCreate(', $primaryStart, [StringComparison]::Ordinal)
+if ($primaryStart -lt 0 -or $primaryEnd -le $primaryStart) {
+    throw 'Cannot locate the primary Create hook for preflight ordering validation.'
+}
+$primaryCreate = $source.Substring($primaryStart, $primaryEnd - $primaryStart)
+$preflight = $primaryCreate.IndexOf('PreflightFeature1LifecycleModules();', [StringComparison]::Ordinal)
+$entryCounter = $primaryCreate.IndexOf('g_wrapper_create_entries.fetch_add', [StringComparison]::Ordinal)
+$depthCounter = $primaryCreate.IndexOf('g_create_hook_depth++', [StringComparison]::Ordinal)
+if ($preflight -lt 0 -or $entryCounter -lt 0 -or $depthCounter -lt 0 -or
+    $preflight -gt $entryCounter -or $preflight -gt $depthCounter) {
+    throw 'Feature 1 module preflight must run before primary Create activity/depth counters.'
+}
 function Read-SourceSlice([string]$begin, [string]$end) {
     $start = $source.IndexOf($begin, [StringComparison]::Ordinal)
     if ($start -lt 0) { throw "Missing source marker: $begin" }

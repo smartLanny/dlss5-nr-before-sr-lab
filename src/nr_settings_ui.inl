@@ -89,7 +89,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     ImGui::TextDisabled("%s | %s", kAddonVersion, kAddonAuthor);
     ImGui::TextDisabled("%s", kOfficialReleaseUrl);
     const auto reason = static_cast<BypassReason>(g_last_bypass_reason.load());
-    if (!next.enabled || ActiveTransferStrength(next) <= 0.000001f)
+    if (g_generic_renodx_conflict.load(std::memory_order_acquire))
+        ImGui::TextWrapped("%s", ui(
+            "Conflict detected: renodx-dlss5.addon64 is also loaded. Delete that file so only one NR add-on remains, then restart the game.",
+            "检测到冲突：renodx-dlss5.addon64 也已加载。请删除该文件，只保留一个 NR 插件，然后重启游戏。"));
+    else if (!next.enabled || ActiveTransferStrength(next) <= 0.000001f)
         ImGui::TextWrapped("%s", ui("Native game SR. Enable the plugin and raise effect strength to compare NR.",
             "当前为游戏原生 SR。启用插件并提高效果强度，即可对比 NR。"));
     else if (reason == BypassReason::RayReconstructionGuard)

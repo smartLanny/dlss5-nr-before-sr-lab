@@ -33,6 +33,8 @@ foreach ($source in @('buffer', 'hook', 'trampoline', 'hde\hde64')) {
 }
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' '-fstack-usage' "-I$(Join-Path $minHook 'include')" $generated @objects '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'Native command-state harness compilation failed.' }
+& $binary '--default-enabled'
+if ($LASTEXITCODE -ne 0) { throw 'Default-enabled command-state startup validation failed.' }
 & $binary
 if ($LASTEXITCODE -ne 0) { throw 'Native command-state validation failed.' }
 $stackFiles = Get-ChildItem -LiteralPath $build -Filter '*.su'

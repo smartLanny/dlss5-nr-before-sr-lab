@@ -107,7 +107,7 @@ namespace reshade::internal { static HMODULE get_reshade_module_handle() {return
 
 // @production_globals
 
-enum class BypassReason { None };
+enum class BypassReason { None, GenericRenoDxConflict };
 struct ChainConfig {
     bool enabled=true,preserve_lighting=true;
     int mode=2;unsigned style=0;
@@ -151,6 +151,21 @@ static std::atomic<unsigned int> g_live_rr_handles{0},g_rr_create_in_progress{0}
 static std::atomic<unsigned long long> g_rr_passthrough_evaluations{0},g_carrier_evaluations{20};
 static std::atomic<int> g_last_carrier_feature{1};
 static std::atomic<bool> g_shortfuse_nr_enabled{false};
+static std::atomic<bool> g_generic_renodx_conflict{false};
+enum class ModuleObserverFault : int {
+    None = 0, LateDistinctAfterActivity, CoverageFailed, CreateOverlap,
+    UnknownEvaluate, UnknownRelease, EpochCorrupt,
+};
+static std::atomic<int> g_module_observer_fault{
+    static_cast<int>(ModuleObserverFault::None)};
+static std::atomic<unsigned long long> g_feature1_preflight_attempts{0};
+static std::atomic<unsigned long long> g_feature1_preflight_covered{0};
+static std::atomic<bool> g_preflight_core_loaded{false};
+static std::atomic<bool> g_preflight_dlssd_loaded{false};
+static std::atomic<bool> g_command_signature_hook_published{false};
+static std::atomic<bool> g_command_signature_start_deferred{false};
+static std::atomic<unsigned long long> g_command_signature_create_calls{0};
+static std::atomic<unsigned long long> g_command_signature_unknown_uses{0};
 // @production_rr_guard
 static std::atomic<unsigned long long> g_stage_capture_request_id{0};
 static unsigned stage_status=0,cancel_calls=0,cancelled_requests=0;
@@ -168,6 +183,9 @@ static wchar_t g_ini_path[1024]=L"C:\\fixture\\nr_before_sr.ini";
 static wchar_t g_reshade_ini_path[1024]=L"C:\\fixture\\ReShade.ini";
 static std::string fixture_bypass="fixture";
 static const char *BypassReasonName(BypassReason) {return fixture_bypass.c_str();}
+static const char *ModuleObserverFaultName(ModuleObserverFault fault) {
+    return fault == ModuleObserverFault::None ? "none" : "fixture-fault";
+}
 static const char *NrColorPolicyStatusName(unsigned) {return "fixture";}
 static const char *NrColorReasonName(unsigned) {return "fixture";}
 static const char *NrLightingReasonName(unsigned) {return "fixture";}
@@ -252,6 +270,12 @@ static void Reset() {
     stage_status=cancel_calls=cancelled_requests=0;
     g_live_rr_handles=0;g_rr_create_in_progress=0;g_rr_passthrough_evaluations=0;
     g_carrier_evaluations=20;g_last_carrier_feature=1;g_shortfuse_nr_enabled=false;
+    g_generic_renodx_conflict=false;
+    g_module_observer_fault=static_cast<int>(ModuleObserverFault::None);
+    g_feature1_preflight_attempts=g_feature1_preflight_covered=0;
+    g_preflight_core_loaded=g_preflight_dlssd_loaded=false;
+    g_command_signature_hook_published=g_command_signature_start_deferred=false;
+    g_command_signature_create_calls=g_command_signature_unknown_uses=0;
     config={};fixture_bypass="fixture";g_nr_successful_evaluations=10;g_nr_transfer_submitted_frames=8;
     nr_bundle::created=nr_bundle::destroyed=nr_bundle::runs=0;
     nr_bundle::allocation_ok=nr_bundle::run_ok=true;nr_bundle::last={};nr_bundle::during_run={};
@@ -270,6 +294,10 @@ static std::string Tag(unsigned i) {
 }
 static void TestCallbacks() {
     Reset();reshade::api::effect_runtime r,other;r.deliver=false;
+    g_command_signature_hook_published=true;
+    g_command_signature_start_deferred=true;
+    g_command_signature_create_calls=16;
+    g_command_signature_unknown_uses=3;
     Check(RequestFeedbackBundle(),"first F8 accepted");
     Check(!RequestFeedbackBundle(),"second queued F8 rejected");
     FeedbackPresent(&r);
@@ -305,6 +333,11 @@ static void TestCallbacks() {
     };
     RunWorker();
     Check(g_feedback_status==4&&nr_bundle::runs==1,"missing images still produce one partial bundle");
+    Check(nr_bundle::last.metadata.find("start.commandSignatureHook=1")!=std::string::npos&&
+        nr_bundle::last.metadata.find("end.commandSignatureDeferredStart=1")!=std::string::npos&&
+        nr_bundle::last.metadata.find("end.commandSignatureObserved=16")!=std::string::npos&&
+        nr_bundle::last.metadata.find("end.commandSignatureUnknownUses=3")!=std::string::npos,
+        "command-signature startup and fail-closed telemetry are preserved");
     const auto *stage=Find("stages/original.pfm");
     Check(stage&&stage->source==L"C:\\right-stage\\original.pfm","late stage cannot replace frozen exact request directory");
     Check(Find("screenshots/current-1")&&Find("screenshots/current-2"),"unreceived screenshots explicitly missing");
@@ -314,6 +347,9 @@ static void TestCallbacks() {
 static void TestReadyAndZeroNr(bool nr_enabled,bool prior_success) {
     Reset();reshade::api::effect_runtime r;
     config.enabled=nr_enabled;g_nr_successful_evaluations=prior_success?10:0;
+    g_module_observer_fault=static_cast<int>(ModuleObserverFault::CoverageFailed);
+    g_feature1_preflight_attempts=3;g_feature1_preflight_covered=2;
+    g_preflight_core_loaded=true;g_preflight_dlssd_loaded=false;
     RequestFeedbackBundle();FeedbackPresent(&r);
     const auto start=fake_now;const bool stage_expected=nr_enabled&&prior_success;
     Check(stage_calls==(stage_expected?1u:0u),"disabled/never-success NR does not request stage or enable NR");
@@ -329,6 +365,11 @@ static void TestReadyAndZeroNr(bool nr_enabled,bool prior_success) {
     Check(config.enabled==nr_enabled,"collector leaves user's enabled setting unchanged");
     const auto *stage=Find("stages");
     Check(stage_expected?!stage:(stage&&!stage->reason.empty()),"zero-NR stage has explicit missing reason");
+    Check(nr_bundle::last.metadata.find("start.moduleObserverFault=fixture-fault")!=std::string::npos&&
+        nr_bundle::last.metadata.find("start.feature1Preflight=2/3")!=std::string::npos&&
+        nr_bundle::last.metadata.find("start.preflightCoreLoaded=1")!=std::string::npos&&
+        nr_bundle::last.metadata.find("start.preflightDlssdLoaded=0")!=std::string::npos,
+        "F8 metadata records observer first cause and Feature 1 preflight coverage");
 }
 static void TestTimeoutAndNextSession() {
     Reset();reshade::api::effect_runtime r;r.deliver=false;
@@ -369,21 +410,30 @@ static void TestFailures() {
     Check(Find("stages")&&Find("stages")->reason.find("already in progress")!=std::string::npos,"busy stage reason retained in bundle");
 }
 static void TestProtectedStageRequests() {
-    for(unsigned owner=0;owner<3;++owner) {
+    for(unsigned owner=0;owner<4;++owner) {
         Reset();reshade::api::effect_runtime r;
         if(owner==0)g_live_rr_handles=1;
         if(owner==1)g_rr_create_in_progress=1;
         if(owner==2)g_shortfuse_nr_enabled=true;
+        if(owner==3){g_generic_renodx_conflict=true;config.enabled=false;}
         g_last_carrier_feature=13;g_rr_passthrough_evaluations=8400;
         RequestFeedbackBundle();FeedbackPresent(&r);
         Check(stage_calls==0&&g_feedback_session->stage_finished,
             "past NR success cannot queue stages while RR or another NR owner is active");
         const auto started=fake_now;tick=[&]{FeedbackPresent(&r);};RunWorker();
         Check(fake_now-started==5000&&r.requested.size()==3,"protected path still collects three images promptly");
-        Check(Find("stages")&&Find("stages")->reason.find(owner==2?"another NR":"Ray Reconstruction")!=std::string::npos,
+        const char *expected_owner=owner==3?"renodx-dlss5.addon64":
+            (owner==2?"another NR":"Ray Reconstruction");
+        Check(Find("stages")&&Find("stages")->reason.find(expected_owner)!=std::string::npos,
             "blocked stages identify actual owner in ZIP");
         Check(nr_bundle::last.metadata.find("end.rrEvaluations=8400")!=std::string::npos,
             "RR activity survives even with no Feature1 parameter samples");
+        if(owner==3) {
+            Check(nr_bundle::last.metadata.find("start.genericRenoDxConflict=1")!=std::string::npos&&
+                nr_bundle::last.metadata.find("competingAddon.module=renodx-dlss5.addon64")!=std::string::npos&&
+                nr_bundle::last.metadata.find("competingAddon.action=remove it and restart")!=std::string::npos,
+                "Generic RenoDX collision and recovery action are explicit in metadata");
+        }
     }
     Reset();reshade::api::effect_runtime r;RequestFeedbackBundle();FeedbackPresent(&r);
     const auto started=fake_now;
@@ -392,6 +442,15 @@ static void TestProtectedStageRequests() {
         "RR taking over during collection cancels only waiting stages and retains images");
     Check(Find("stages")&&Find("stages")->reason.find("Ray Reconstruction")!=std::string::npos,
         "RR takeover explains missing stages");
+    Reset();RequestFeedbackBundle();FeedbackPresent(&r);
+    const auto conflict_started=fake_now;
+    tick=[&]{FeedbackPresent(&r);if(fake_now-conflict_started>=1000)g_generic_renodx_conflict=true;};
+    RunWorker();
+    Check(cancelled_requests==1&&stage_status==0,
+        "a competing Generic RenoDX add-on appearing during collection cancels only waiting stages");
+    Check(Find("stages")&&Find("stages")->reason.find("renodx-dlss5.addon64")!=std::string::npos&&
+        nr_bundle::last.metadata.find("end.genericRenoDxConflict=1")!=std::string::npos,
+        "late collision is named in the stage reason and end activity snapshot");
     for(unsigned protected_state:{2u,3u}) {
         Reset();RequestFeedbackBundle();FeedbackPresent(&r);stage_status=protected_state;
         tick=[&]{FeedbackPresent(&r);};RunWorker();

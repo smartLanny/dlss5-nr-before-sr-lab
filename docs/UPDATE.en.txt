@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Upscaling beta0.3.7-r2 - Small Update
+DLSS 5 AI Rendering Upscaling beta0.3.7-r3 - Small Update
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
@@ -16,7 +16,7 @@ Exit the game completely. Back up the current addon outside the game directory, 
 
 Keep nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Place Collect-Feedback.cmd and collect-feedback.ps1 together beside the addon. Do not swap runtime DLLs between GPU packages.
 
-Start the game and check that the addon panel says beta0.3.7-r2. First-time installations or missing runtime files require the full package for your GPU.
+Start the game and check that the addon panel says beta0.3.7-r3. First-time installations or missing runtime files require the full package for your GPU.
 
 What changed
 
