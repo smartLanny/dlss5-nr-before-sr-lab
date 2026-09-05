@@ -1,4 +1,4 @@
-name: Validate beta0.4.1-r2
+name: Validate beta0.4.1-r3
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: beta041-r2-${{ github.ref }}
+  group: beta041-r3-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -65,6 +65,12 @@ jobs:
           ./scripts/validate-resource-contracts.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
           ./scripts/validate-observer.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
           ./scripts/validate-stage-capture.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+      - name: Competing add-on and low-address hook regressions
+        shell: pwsh
+        run: |
+          python scripts/validate-generic-renodx-conflict.py --toolchain-root $env:TOOLCHAIN_ROOT
+          if ($LASTEXITCODE -ne 0) { throw 'Generic RenoDX conflict harness failed.' }
+          ./scripts/validate-minhook-extended-relay.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
       - name: Native command-state CPU and stack envelope
         shell: pwsh
         run: ./scripts/validate-command-state-native.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
@@ -97,7 +103,7 @@ jobs:
             "branch=$env:GITHUB_REF_NAME"
             "commit=$env:GITHUB_SHA"
             "workflowRun=$env:GITHUB_RUN_ID"
-            "build=beta0.4.1-r2"
+            "build=beta0.4.1-r3"
           ) | Set-Content -Encoding utf8NoBOM dist/BUILD-PROVENANCE.txt
           Get-ChildItem dist -File | Where-Object Name -ne 'SHA256SUMS.txt' |
             Get-FileHash -Algorithm SHA256 | ForEach-Object {
@@ -124,6 +130,6 @@ jobs:
           Get-Content -Encoding utf8 dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: beta041-r2-test-package
+          name: beta041-r3-test-package
           path: dist/
           if-no-files-found: error

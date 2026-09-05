@@ -1,4 +1,4 @@
-﻿param(
+param(
     [switch]$NoPause,
     [string]$SourceDirectory = $PSScriptRoot,
     [string]$OutputRoot = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'DLSS5-Feedback'),
@@ -16,7 +16,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName System.IO.Compression
 
-$CollectorVersion = 'beta0.4.1-r2-crash-evidence-2'
+$CollectorVersion = 'beta0.4.1-r3-crash-evidence-2'
 $MaxLogBytes = 8MB
 $MaxEventCandidates = 256
 $MaxEventMatches = 16

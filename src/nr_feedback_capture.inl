@@ -49,20 +49,39 @@ const char *FeedbackStageBlockReason(const ChainConfig &config) {
     if (!config.enabled) return "NR disabled; current-chain screenshots and logs collected without enabling NR";
     if (ShouldGuardFeature1ForRayReconstruction())
         return "Ray Reconstruction owns the path; disable RR in game to capture NR stages (restart if its handle remains live)";
-    if (g_shortfuse_nr_enabled.load(std::memory_order_acquire))
-        return "another NR addon owns the path; this addon's NR stages are unavailable";
+    if (OtherNrOwnerActive())
+        return g_generic_renodx_conflict.load(std::memory_order_acquire)
+            ? "renodx-dlss5.addon64 is also loaded; remove it and restart before capturing this addon's NR stages"
+            : "another NR addon owns the path; this addon's NR stages are unavailable";
     return nullptr;
 }
 
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
     FeedbackAppend(s, "%s.nrSuccess=%llu\n%s.transferSubmitted=%llu\n%s.bypass=%s\n"
         "%s.srCarrierEvaluations=%llu\n%s.lastCarrierFeature=%d\n%s.rrLiveHandles=%u\n"
-        "%s.rrCreatesInProgress=%u\n%s.rrEvaluations=%llu\n%s.otherNrOwner=%d\n",
+        "%s.rrCreatesInProgress=%u\n%s.rrEvaluations=%llu\n%s.otherNrOwner=%d\n"
+        "%s.genericRenoDxConflict=%d\n%s.moduleObserverFault=%s\n"
+        "%s.feature1Preflight=%llu/%llu\n%s.preflightCoreLoaded=%d\n"
+        "%s.preflightDlssdLoaded=%d\n%s.commandSignatureHook=%d\n"
+        "%s.commandSignatureDeferredStart=%d\n%s.commandSignatureObserved=%llu\n"
+        "%s.commandSignatureUnknownUses=%llu\n",
         prefix, g_nr_successful_evaluations.load(), prefix, g_nr_transfer_submitted_frames.load(),
         prefix, BypassReasonName(static_cast<BypassReason>(g_last_bypass_reason.load())),
         prefix, g_carrier_evaluations.load(), prefix, g_last_carrier_feature.load(),
         prefix, g_live_rr_handles.load(), prefix, g_rr_create_in_progress.load(),
-        prefix, g_rr_passthrough_evaluations.load(), prefix, g_shortfuse_nr_enabled.load() ? 1 : 0);
+        prefix, g_rr_passthrough_evaluations.load(), prefix,
+        OtherNrOwnerActive() ? 1 : 0,
+        prefix, g_generic_renodx_conflict.load() ? 1 : 0,
+        prefix, ModuleObserverFaultName(static_cast<ModuleObserverFault>(
+            g_module_observer_fault.load())),
+        prefix, g_feature1_preflight_covered.load(),
+        g_feature1_preflight_attempts.load(),
+        prefix, g_preflight_core_loaded.load() ? 1 : 0,
+        prefix, g_preflight_dlssd_loaded.load() ? 1 : 0,
+        prefix, g_command_signature_hook_published.load() ? 1 : 0,
+        prefix, g_command_signature_start_deferred.load() ? 1 : 0,
+        prefix, g_command_signature_create_calls.load(),
+        prefix, g_command_signature_unknown_uses.load());
 }
 
 bool RequestFeedbackBundle() {
@@ -305,6 +324,13 @@ DWORD WINAPI FeedbackWorker(void *parameter) {
         "artifact.hashMeasurement=loaded-path-file-once-worker\n",
         kSourceCommit, kSourceDirty ? 1 : 0,
         module_identity.sha256, module_identity.status);
+    FeedbackAppend(*s, "competingAddon.module=%s\ncompetingAddon.latched=%d\n"
+        "competingAddon.action=%s\n",
+        g_generic_renodx_conflict.load(std::memory_order_acquire)
+            ? "renodx-dlss5.addon64" : "none",
+        g_generic_renodx_conflict.load(std::memory_order_relaxed) ? 1 : 0,
+        g_generic_renodx_conflict.load(std::memory_order_relaxed)
+            ? "remove it and restart" : "none");
     FeedbackAppendActivity(*s, "end");
     // FeedbackAppend always preserves these final 256 bytes, even on overflow.
     const int summary_bytes = std::snprintf(s->report + s->report_used,

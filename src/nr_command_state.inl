@@ -621,6 +621,8 @@ std::atomic<unsigned long long> g_command_signature_metadata_writes{0};
 std::atomic<unsigned long long> g_command_signature_metadata_failures{0};
 std::atomic<unsigned long long> g_command_signature_invalid_descriptions{0};
 std::atomic<unsigned long long> g_command_signature_unknown_uses{0};
+std::atomic<bool> g_command_signature_hook_published{false};
+std::atomic<bool> g_command_signature_start_deferred{false};
 void FormatCommandSignatureTypes(const CommandSignatureState &info, char *text, size_t capacity) {
     if (capacity == 0) return;
     text[0] = '\0';
@@ -854,9 +856,35 @@ void OnCommandStateInitDevice(reshade::api::device *device) {
         Log("[command-state] device meta-command contract: known=%d initDirty=0x%X executeDirty=0x%X supportedMask=0x%X.",
             meta.known ? 1 : 0, meta.initialization_dirty, meta.execution_dirty, kCommandStateCoveredDomains);
     }
+    // The shipped configuration starts enabled and therefore retains early
+    // command-signature coverage. A deliberately disabled installation keeps
+    // the narrower native startup surface requested by the master switch.
+    if (!g_enabled_fast.load(std::memory_order_acquire)) {
+        g_command_signature_start_deferred.store(true,
+                                                 std::memory_order_release);
+        return;
+    }
     CommandStateHookRequest request{&g_state_CreateCommandSignature,
         reinterpret_cast<void *>(native->lpVtbl->CreateCommandSignature), g_state_detours_CreateCommandSignature};
-    PublishCommandStateHooks(&request, 1);
+    if (PublishCommandStateHooks(&request, 1))
+        g_command_signature_hook_published.store(true,
+                                                 std::memory_order_release);
+}
+bool EnsureCommandSignatureHook(reshade::api::device *device) {
+    if (device == nullptr || device->get_api() != reshade::api::device_api::d3d12)
+        return false;
+    // If the add-on started disabled, the first later NR request publishes the
+    // hook here. Signatures made in the disabled interval remain untrusted.
+    OnCommandStateInitDevice(device);
+    auto *native = reinterpret_cast<ID3D12Device *>(device->get_native());
+    if (native == nullptr) return false;
+    CommandStateHookRequest request{&g_state_CreateCommandSignature,
+        reinterpret_cast<void *>(native->lpVtbl->CreateCommandSignature), g_state_detours_CreateCommandSignature};
+    const bool published = PublishCommandStateHooks(&request, 1);
+    if (published)
+        g_command_signature_hook_published.store(true,
+                                                 std::memory_order_release);
+    return published;
 }
 struct CommandStateExtendedHookRequest { CommandStateHookFamily *family; UINT slot; void *const *detours; };
 bool AppendCommandStateInterfaceHooks(ID3D12GraphicsCommandList *native, REFIID iid,
@@ -991,7 +1019,10 @@ void OnCommandStateBeforeReset(reshade::api::command_list *owner) {
     }
     const bool install = active && !record->hooks_ready;
     ReleaseSRWLockExclusive(&g_command_state_lock);
-    const bool ready = active && (!install || InstallNativeCommandStateHooks(native)) && EnsureNativeCommandListResetHook(owner);
+    const bool ready = active &&
+        (!install || (EnsureCommandSignatureHook(owner->get_device()) &&
+                      InstallNativeCommandStateHooks(native))) &&
+        EnsureNativeCommandListResetHook(owner);
     AcquireSRWLockExclusive(&g_command_state_lock);
     if (record != nullptr && record->token == token) record->hooks_ready = ready;
     ReleaseSRWLockExclusive(&g_command_state_lock);
@@ -1073,7 +1104,10 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
     }
     ReleaseSRWLockExclusive(&g_command_state_lock);
     if (needs_install) {
-        const bool ready = InstallNativeCommandStateHooks(native) && EnsureNativeCommandListResetHook(owner);
+        const bool ready = owner != nullptr &&
+            EnsureCommandSignatureHook(owner->get_device()) &&
+            InstallNativeCommandStateHooks(native) &&
+            EnsureNativeCommandListResetHook(owner);
         AcquireSRWLockExclusive(&g_command_state_lock);
         if (record->token == token) record->hooks_ready = ready;
         ReleaseSRWLockExclusive(&g_command_state_lock);

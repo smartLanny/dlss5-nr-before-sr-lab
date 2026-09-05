@@ -337,7 +337,7 @@ void Tick(reshade::api::effect_runtime *runtime) {
             Break(g,g_cancel.load()?"cancelled":age>=30000?"group timeout; missing pixels retained as partial":"Ray Reconstruction owns the rendering path");
             s->partial=true;finish=true;
         } else {
-            if(g.requested.enabled && (ShouldGuardFeature1ForRayReconstruction() || g_shortfuse_nr_enabled.load()))
+            if(g.requested.enabled && (ShouldGuardFeature1ForRayReconstruction() || OtherNrOwnerActive()))
                 Break(g,"RR or another NR addon owns this path; only screenshots/logs available");
             if(runtime && runtime==s->runtime && !g.shot_requested && age>=3000) {
                 g.shot_requested=true;g.shot_present=g_present.load();shot=true;

@@ -151,6 +151,21 @@ static std::atomic<unsigned int> g_live_rr_handles{0},g_rr_create_in_progress{0}
 static std::atomic<unsigned long long> g_rr_passthrough_evaluations{0},g_carrier_evaluations{20};
 static std::atomic<int> g_last_carrier_feature{1};
 static std::atomic<bool> g_shortfuse_nr_enabled{false};
+static std::atomic<bool> g_generic_renodx_conflict{false};
+enum class ModuleObserverFault : int {
+    None = 0, LateDistinctAfterActivity, CoverageFailed, CreateOverlap,
+    UnknownEvaluate, UnknownRelease, EpochCorrupt,
+};
+static std::atomic<int> g_module_observer_fault{
+    static_cast<int>(ModuleObserverFault::None)};
+static std::atomic<unsigned long long> g_feature1_preflight_attempts{0};
+static std::atomic<unsigned long long> g_feature1_preflight_covered{0};
+static std::atomic<bool> g_preflight_core_loaded{false};
+static std::atomic<bool> g_preflight_dlssd_loaded{false};
+static std::atomic<bool> g_command_signature_hook_published{false};
+static std::atomic<bool> g_command_signature_start_deferred{false};
+static std::atomic<unsigned long long> g_command_signature_create_calls{0};
+static std::atomic<unsigned long long> g_command_signature_unknown_uses{0};
 // @production_rr_guard
 static std::atomic<unsigned long long> g_stage_capture_request_id{0};
 static unsigned stage_status=0,cancel_calls=0,cancelled_requests=0;
@@ -169,6 +184,12 @@ static wchar_t g_ini_path[1024]=L"C:\\fixture\\nr_before_sr.ini";
 static wchar_t g_reshade_ini_path[1024]=L"C:\\fixture\\ReShade.ini";
 static std::string fixture_bypass="fixture";
 static const char *BypassReasonName(BypassReason) {return fixture_bypass.c_str();}
+static bool OtherNrOwnerActive() {
+    return g_shortfuse_nr_enabled.load() || g_generic_renodx_conflict.load();
+}
+static const char *ModuleObserverFaultName(ModuleObserverFault fault) {
+    return fault == ModuleObserverFault::None ? "none" : "fixture-fault";
+}
 static const char *NrColorPolicyStatusName(unsigned) {return "fixture";}
 static const char *NrColorReasonName(unsigned) {return "fixture";}
 static const char *NrLightingReasonName(unsigned) {return "fixture";}
@@ -253,6 +274,12 @@ static void Reset() {
     stage_status=cancel_calls=cancelled_requests=0;
     g_live_rr_handles=0;g_rr_create_in_progress=0;g_rr_passthrough_evaluations=0;
     g_carrier_evaluations=20;g_last_carrier_feature=1;g_shortfuse_nr_enabled=false;
+    g_generic_renodx_conflict=false;
+    g_module_observer_fault=static_cast<int>(ModuleObserverFault::None);
+    g_feature1_preflight_attempts=g_feature1_preflight_covered=0;
+    g_preflight_core_loaded=g_preflight_dlssd_loaded=false;
+    g_command_signature_hook_published=g_command_signature_start_deferred=false;
+    g_command_signature_create_calls=g_command_signature_unknown_uses=0;
     config={};fixture_bypass="fixture";g_nr_successful_evaluations=10;g_nr_transfer_submitted_frames=8;
     nr_bundle::created=nr_bundle::destroyed=nr_bundle::runs=0;
     nr_bundle::allocation_ok=nr_bundle::run_ok=true;nr_bundle::last={};nr_bundle::during_run={};
@@ -271,6 +298,10 @@ static std::string Tag(unsigned i) {
 }
 static void TestCallbacks() {
     Reset();reshade::api::effect_runtime r,other;r.deliver=false;
+    g_command_signature_hook_published=true;
+    g_command_signature_start_deferred=true;
+    g_command_signature_create_calls=16;
+    g_command_signature_unknown_uses=3;
     Check(RequestFeedbackBundle(),"first F8 accepted");
     Check(!RequestFeedbackBundle(),"second queued F8 rejected");
     FeedbackPresent(&r);
@@ -306,6 +337,11 @@ static void TestCallbacks() {
     };
     RunWorker();
     Check(g_feedback_status==4&&nr_bundle::runs==1,"missing images still produce one partial bundle");
+    Check(nr_bundle::last.metadata.find("start.commandSignatureHook=1")!=std::string::npos&&
+        nr_bundle::last.metadata.find("end.commandSignatureDeferredStart=1")!=std::string::npos&&
+        nr_bundle::last.metadata.find("end.commandSignatureObserved=16")!=std::string::npos&&
+        nr_bundle::last.metadata.find("end.commandSignatureUnknownUses=3")!=std::string::npos,
+        "command-signature startup and fail-closed telemetry are preserved");
     const auto *stage=Find("stages/original.pfm");
     Check(stage&&stage->source==L"C:\\right-stage\\original.pfm","late stage cannot replace frozen exact request directory");
     Check(Find("screenshots/current-1")&&Find("screenshots/current-2"),"unreceived screenshots explicitly missing");

@@ -44,11 +44,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.4.1-r2";
+constexpr const char *kAddonVersion = "beta0.4.1-r3";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.4.1-r2";
+constexpr const char *kBuildIdentity = "beta0.4.1-r3";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -323,6 +323,7 @@ enum class BypassReason : int {
     RayReconstructionGuard,
     RuntimeRejected,
     ShortFuseOwnsNr,
+    GenericRenoDxConflict,
     LifecycleIsolation,
     Feature1TransactionBusy,
     QueueAffinityUnverified,
@@ -334,6 +335,8 @@ enum class BypassReason : int {
 
 std::atomic<int> g_last_bypass_reason{
     static_cast<int>(BypassReason::WaitingForFeature1)};
+std::atomic<bool> g_generic_renodx_conflict{false};
+std::atomic<HMODULE> g_addon_module{nullptr};
 std::atomic<unsigned long long> g_bypass_reason_transitions{0};
 std::atomic<unsigned int> g_last_output_format{DXGI_FORMAT_UNKNOWN};
 // "Recorded" means the final visible transfer commands were appended to a
@@ -412,6 +415,8 @@ const char *BypassReasonName(BypassReason reason) {
     case BypassReason::RayReconstructionGuard: return "rr-safe-bypass";
     case BypassReason::RuntimeRejected: return "runtime-rejected";
     case BypassReason::ShortFuseOwnsNr: return "shortfuse-owns-nr";
+    case BypassReason::GenericRenoDxConflict:
+        return "renodx-dlss5-conflict";
     case BypassReason::LifecycleIsolation: return "lifecycle-isolation";
     case BypassReason::Feature1TransactionBusy:
         return "feature1-transaction-busy";
@@ -429,9 +434,21 @@ const char *BypassReasonName(BypassReason reason) {
 }
 
 void SetBypassReason(BypassReason reason) {
-    const int next = static_cast<int>(reason);
-    const int previous = g_last_bypass_reason.exchange(
+    if (g_generic_renodx_conflict.load(std::memory_order_acquire))
+        reason = BypassReason::GenericRenoDxConflict;
+    int next = static_cast<int>(reason);
+    int previous = g_last_bypass_reason.exchange(
         next, std::memory_order_relaxed);
+    // Close the race where another thread latches the competing add-on after
+    // the first load but before this exchange. The latching thread also writes
+    // the specific reason, and this second acquire/exchange ensures neither
+    // ordering can leave a less useful status behind.
+    if (next != static_cast<int>(BypassReason::GenericRenoDxConflict) &&
+        g_generic_renodx_conflict.load(std::memory_order_acquire)) {
+        next = static_cast<int>(BypassReason::GenericRenoDxConflict);
+        previous = g_last_bypass_reason.exchange(
+            next, std::memory_order_relaxed);
+    }
     if (previous == next) return;
     const unsigned long long transition =
         g_bypass_reason_transitions.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -441,7 +458,7 @@ void SetBypassReason(BypassReason reason) {
     if (transition <= 12 || (transition % 600) == 0) {
         Log("[state] bypass transition #%llu: %s -> %s.", transition,
             BypassReasonName(static_cast<BypassReason>(previous)),
-            BypassReasonName(reason));
+            BypassReasonName(static_cast<BypassReason>(next)));
     }
 }
 
@@ -887,6 +904,38 @@ std::atomic<unsigned int> g_last_nr_create_result{kNgxSuccess};
 std::atomic<bool> g_nr_failed_create_process_latched{false};
 std::atomic<bool> g_shortfuse_loaded{false};
 std::atomic<bool> g_shortfuse_nr_enabled{false};
+constexpr wchar_t kGenericRenoDxModuleName[] = L"renodx-dlss5.addon64";
+
+bool LatchGenericRenoDxConflictIfLoaded() {
+    if (!g_generic_renodx_conflict.load(std::memory_order_acquire)) {
+        const HMODULE candidate = GetModuleHandleW(kGenericRenoDxModuleName);
+        if (candidate == nullptr ||
+            candidate == g_addon_module.load(std::memory_order_acquire))
+            return false;
+        bool expected = false;
+        if (g_generic_renodx_conflict.compare_exchange_strong(
+                expected, true, std::memory_order_acq_rel,
+                std::memory_order_acquire)) {
+            Log("[compat] renodx-dlss5.addon64 is loaded and also owns the "
+                "NGX NR lifecycle. This process is permanently using native "
+                "pass-through; hooks remain installed. Remove that file so "
+                "only one NR add-on remains, then restart the game.");
+        }
+    }
+    SetBypassReason(BypassReason::GenericRenoDxConflict);
+    return true;
+}
+
+bool OtherNrOwnerActive() {
+    return g_shortfuse_nr_enabled.load(std::memory_order_acquire) ||
+           g_generic_renodx_conflict.load(std::memory_order_acquire);
+}
+
+BypassReason OtherNrOwnerBypassReason() {
+    return g_generic_renodx_conflict.load(std::memory_order_relaxed)
+        ? BypassReason::GenericRenoDxConflict
+        : BypassReason::ShortFuseOwnsNr;
+}
 // 0 = legacy/no game jitter forwarding, 1 = forwarding requested but the
 // current Evaluate did not provide a legal finite pair, 2 = values were
 // actually written to the NR parameter block for the current binding.
@@ -1264,7 +1313,7 @@ void ReloadConfig(bool force = false) {
         static bool migration_logged = false;
         if (!migration_logged) {
             migration_logged = true;
-            Log("Migrated legacy configuration to beta0.4.1-r2 in memory: "
+            Log("Migrated legacy configuration to beta0.4.1-r3 in memory: "
                 "default mode is now render-resolution NR -> SR; persisted=%d.",
                 migration_persisted ? 1 : 0);
         }
@@ -1331,6 +1380,10 @@ void ReloadConfig(bool force = false) {
     // two add-ons can never submit feature 18 on the same frame.
     const bool shortfuse_nr_enabled = shortfuse_loaded &&
         (shortfuse_enabled_setting || shortfuse_hook_point != 0);
+    // Generic RenoDX DLSS5 is itself a complete Feature 18 owner. Presence is
+    // process-latched: unloading an add-on cannot prove that its hooks and
+    // private NGX handles disappeared safely.
+    const bool generic_renodx_loaded = LatchGenericRenoDxConflictIfLoaded();
     const bool previous_shortfuse_loaded =
         g_shortfuse_loaded.exchange(shortfuse_loaded, std::memory_order_relaxed);
     const bool previous_shortfuse_nr_enabled =
@@ -1344,6 +1397,13 @@ void ReloadConfig(bool force = false) {
             shortfuse_hook_point, shortfuse_nr_enabled ? 1 : 0,
             shortfuse_nr_enabled ? "bypassed to prevent a double NR pass"
                                   : "available");
+    }
+    if (force) {
+        Log("Generic RenoDX DLSS5 addon: loaded=%d; AI upscaling NR %s.",
+            generic_renodx_loaded ? 1 : 0,
+            generic_renodx_loaded
+                ? "bypassed to prevent two Feature 18 owners"
+                : "available");
     }
 
     const bool changed = !SameConfig(next, g_config);
@@ -1551,7 +1611,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
 
 struct PerfSignature {
     bool enabled = false;
-    bool shortfuse = false;
+    bool other_nr_owner = false;
     bool rr_bypass = false;
     int mode = 0;
     bool identity = true;
@@ -1575,14 +1635,15 @@ struct FrameMeter {
 FrameMeter g_frame_meter = {};
 
 bool SamePerfSignature(const PerfSignature &a, const PerfSignature &b) {
-    return a.enabled == b.enabled && a.shortfuse == b.shortfuse &&
+    return a.enabled == b.enabled &&
+           a.other_nr_owner == b.other_nr_owner &&
            a.rr_bypass == b.rr_bypass && a.mode == b.mode &&
            a.identity == b.identity && a.transfer == b.transfer &&
            a.epoch == b.epoch;
 }
 
 const char *PerfStageName(const PerfSignature &signature) {
-    if (signature.shortfuse) return "D-ShortFuse-NR";
+    if (signature.other_nr_owner) return "D-other-NR-owner";
     if (signature.rr_bypass) return "A1-native-RR-bypass";
     if (!signature.enabled) return "A-SR-only";
     if (signature.mode == 1) return "B-post-SR-NR";
@@ -1603,7 +1664,7 @@ void ObserveFrameCadence() {
     LeaveCriticalSection(&g_chain_cs);
     const PerfSignature current = {
         perf_config.enabled,
-        g_shortfuse_nr_enabled.load(std::memory_order_relaxed),
+        OtherNrOwnerActive(),
         g_live_rr_handles.load(std::memory_order_relaxed) != 0 ||
             g_rr_create_in_progress.load(std::memory_order_relaxed) != 0,
         perf_config.mode, perf_config.identity_use_original,
@@ -7888,6 +7949,17 @@ EvaluateFeatureFn g_original_dlssd_evaluate = nullptr;
 ReleaseFeatureFn g_original_release = nullptr;
 ReleaseFeatureFn g_original_core_release = nullptr;
 ReleaseFeatureFn g_original_dlssd_release = nullptr;
+
+NgxResult CallNativeCreatePassThrough(CreateFeatureFn original,
+                                      ID3D12GraphicsCommandList *command_list,
+                                      int feature_id, NgxParams *params,
+                                      NgxHandle **out_handle) {
+    // NGX Create owns this output slot. Clear it even on a conflict bypass so
+    // a native failure that does not write the slot cannot expose a stale
+    // handle to the game or another add-on.
+    if (out_handle != nullptr) *out_handle = nullptr;
+    return original(command_list, feature_id, params, out_handle);
+}
 std::atomic<unsigned long long> g_carrier_evaluations{0};
 std::atomic<unsigned long long> g_all_evaluations{0};
 std::atomic<unsigned int> g_wrapper_calls{0};
@@ -7935,12 +8007,50 @@ std::atomic<bool> g_module_observer_gap_detected{false};
 std::atomic<bool> g_startup_deferred_module_coverage{false};
 std::atomic<bool> g_module_rescan_in_progress{false};
 std::atomic<unsigned long long> g_module_rescan_count{0};
+enum class ModuleObserverFault : int {
+    None = 0,
+    LateDistinctAfterActivity,
+    CoverageFailed,
+    CreateOverlap,
+    UnknownEvaluate,
+    UnknownRelease,
+    EpochCorrupt,
+};
+std::atomic<int> g_module_observer_fault{
+    static_cast<int>(ModuleObserverFault::None)};
+std::atomic<unsigned long long> g_feature1_preflight_attempts{0};
+std::atomic<unsigned long long> g_feature1_preflight_covered{0};
+std::atomic<bool> g_preflight_core_loaded{false};
+std::atomic<bool> g_preflight_dlssd_loaded{false};
 // Even values mean no late lifecycle-hook transaction is being published;
 // odd values bracket the publication window. An outermost Feature 1 Create
 // samples this at entry and completion, so a successful overlapping Create
 // can fail closed itself without relying on a torn multi-counter snapshot.
 std::atomic<unsigned long long> g_module_observer_epoch{0};
 std::atomic<ULONGLONG> g_next_module_rescan_tick{0};
+
+const char *ModuleObserverFaultName(ModuleObserverFault fault) {
+    switch (fault) {
+    case ModuleObserverFault::None: return "none";
+    case ModuleObserverFault::LateDistinctAfterActivity:
+        return "late-distinct-after-activity";
+    case ModuleObserverFault::CoverageFailed: return "coverage-failed";
+    case ModuleObserverFault::CreateOverlap: return "create-overlap";
+    case ModuleObserverFault::UnknownEvaluate: return "unknown-evaluate";
+    case ModuleObserverFault::UnknownRelease: return "unknown-release";
+    case ModuleObserverFault::EpochCorrupt: return "epoch-corrupt";
+    default: return "unknown";
+    }
+}
+
+void RecordModuleObserverFault(ModuleObserverFault fault) {
+    int expected = static_cast<int>(ModuleObserverFault::None);
+    g_module_observer_fault.compare_exchange_strong(
+        expected, static_cast<int>(fault), std::memory_order_acq_rel,
+        std::memory_order_relaxed);
+}
+
+void PollNgxLifecycleModules(bool force = false);
 
 bool IsUnknownOutermostEvaluateHandle(const NgxHandle *handle) {
     // A null handle commonly follows a failed game Create while switching
@@ -7962,7 +8072,9 @@ void ObserveNullEvaluateHandle(const char *source) {
     }
 }
 
-void LatchUnknownFeatureHandle(const char *source, const char *detail) {
+void LatchUnknownFeatureHandle(const char *source, const char *detail,
+                               ModuleObserverFault fault) {
+    RecordModuleObserverFault(fault);
     g_module_observer_gap_detected.store(true, std::memory_order_release);
     LatchRrOwnershipUncertain(source, detail);
     SetBypassReason(BypassReason::ModuleObserverUncertain);
@@ -7984,7 +8096,8 @@ void FinishFeature1CreateObservation(bool creating_feature1,
         LatchUnknownFeatureHandle(
             source,
             "a successful Feature 1 Create overlapped publication of a late "
-            "RR-capable module lifecycle observer");
+            "RR-capable module lifecycle observer",
+            ModuleObserverFault::CreateOverlap);
     }
     const unsigned int previous =
         g_feature1_create_in_progress.fetch_sub(1, std::memory_order_acq_rel);
@@ -8253,8 +8366,50 @@ void TrackDlssResolution(const NgxParams *params, const FeatureRecord &feature) 
     }
 }
 
+void PreflightFeature1LifecycleModules() {
+    const unsigned long long attempt =
+        g_feature1_preflight_attempts.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+    const bool core_loaded = GetModuleHandleW(L"_nvngx.dll") != nullptr;
+    const bool dlssd_loaded = GetModuleHandleW(L"nvngx_dlssd.dll") != nullptr;
+    g_preflight_core_loaded.store(core_loaded, std::memory_order_relaxed);
+    g_preflight_dlssd_loaded.store(dlssd_loaded, std::memory_order_relaxed);
+
+    // A module can load after the previous Present scan but before the first
+    // native Feature 1 Create. Cover it while Feature 1 activity is still zero
+    // so the module is classified as startup-deferred rather than as a false
+    // observer gap. This never clears an existing process latch.
+    PollNgxLifecycleModules(true);
+    const bool covered =
+        !g_module_observer_gap_detected.load(std::memory_order_acquire) &&
+        (!core_loaded ||
+         g_core_lifecycle_hooks_ready.load(std::memory_order_acquire)) &&
+        (!dlssd_loaded ||
+         g_dlssd_lifecycle_hooks_ready.load(std::memory_order_acquire));
+    if (covered)
+        g_feature1_preflight_covered.fetch_add(1,
+                                               std::memory_order_relaxed);
+    if (attempt <= 3 || !covered) {
+        Log("[module] Feature 1 preflight #%llu coreLoaded=%d "
+            "dlssdLoaded=%d covered=%d priorF1Success=%llu "
+            "priorCarrier=%llu observerFault=%s.",
+            attempt, core_loaded ? 1 : 0, dlssd_loaded ? 1 : 0,
+            covered ? 1 : 0,
+            g_feature1_successful_creates.load(std::memory_order_relaxed),
+            g_carrier_evaluations.load(std::memory_order_relaxed),
+            ModuleObserverFaultName(static_cast<ModuleObserverFault>(
+                g_module_observer_fault.load(std::memory_order_relaxed))));
+    }
+}
+
 NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
                      NgxParams *params, NgxHandle **out_handle) {
+    if (g_create_hook_depth == 0 && LatchGenericRenoDxConflictIfLoaded()) {
+        return CallNativeCreatePassThrough(
+            g_original_create, command_list, feature_id, params, out_handle);
+    }
+    if (g_create_hook_depth == 0 && feature_id == 1)
+        PreflightFeature1LifecycleModules();
     const unsigned int entry =
         g_wrapper_create_entries.fetch_add(1, std::memory_order_relaxed) + 1;
     if (entry <= 3) {
@@ -8321,6 +8476,10 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
 
 NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
                          NgxParams *params, NgxHandle **out_handle) {
+    if (g_create_hook_depth == 0 && LatchGenericRenoDxConflictIfLoaded()) {
+        return CallNativeCreatePassThrough(
+            g_original_core_create, command_list, feature_id, params, out_handle);
+    }
     const unsigned int entry =
         g_core_create_entries.fetch_add(1, std::memory_order_relaxed) + 1;
     if (entry <= 3) {
@@ -8386,6 +8545,10 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
 NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
                           int feature_id, NgxParams *params,
                           NgxHandle **out_handle) {
+    if (g_create_hook_depth == 0 && LatchGenericRenoDxConflictIfLoaded()) {
+        return CallNativeCreatePassThrough(
+            g_original_dlssd_create, command_list, feature_id, params, out_handle);
+    }
     const unsigned int entry =
         g_dlssd_create_entries.fetch_add(1, std::memory_order_relaxed) + 1;
     if (entry <= 3) {
@@ -8462,15 +8625,15 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     // branch avoids parameter lookups, rendering locks, instrumentation and
     // GPU work; only a rate-limited bypass-state transition may be published.
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
-        g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
+        OtherNrOwnerActive() ||
         g_module_rescan_in_progress.load(std::memory_order_acquire) ||
         g_evaluate_target_overflow.load(std::memory_order_acquire) ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_nr_failed_create_process_latched.load(std::memory_order_acquire)) {
         if (!g_enabled_fast.load(std::memory_order_relaxed))
             SetBypassReason(BypassReason::MasterDisabled);
-        else if (g_shortfuse_nr_enabled.load(std::memory_order_relaxed))
-            SetBypassReason(BypassReason::ShortFuseOwnsNr);
+        else if (OtherNrOwnerActive())
+            SetBypassReason(OtherNrOwnerBypassReason());
         else if (g_module_rescan_in_progress.load(std::memory_order_relaxed))
             SetBypassReason(BypassReason::ModuleObserverInstalling);
         else if (g_nr_failed_create_process_latched.load(
@@ -8648,11 +8811,11 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         !g_config.identity_use_original &&
         ActiveTransferStrength(g_config) <= 0.000001f;
     if (!g_config.enabled || zero_transfer_native ||
-        g_shortfuse_nr_enabled.load(std::memory_order_relaxed)) {
+        OtherNrOwnerActive()) {
         SetBypassReason(!g_config.enabled
             ? BypassReason::MasterDisabled
-            : (g_shortfuse_nr_enabled.load(std::memory_order_relaxed)
-                ? BypassReason::ShortFuseOwnsNr
+            : (OtherNrOwnerActive()
+                ? OtherNrOwnerBypassReason()
                 : BypassReason::None));
         if (zero_transfer_native)
             g_unverified_exposure_texture_bypass.store(false,
@@ -8837,18 +9000,27 @@ NgxResult CallNativeEvaluatePassThrough(EvaluateFeatureFn original,
 NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
                        const NgxHandle *handle, const NgxParams *params,
                        void *callback) {
+    if (!g_inside_ngx_evaluate &&
+        (LatchGenericRenoDxConflictIfLoaded() ||
+         g_shortfuse_nr_enabled.load(std::memory_order_acquire))) {
+        if (!g_generic_renodx_conflict.load(std::memory_order_relaxed))
+            SetBypassReason(BypassReason::ShortFuseOwnsNr);
+        return CallNativeEvaluatePassThrough(
+            g_original_evaluate, command_list, handle, params, callback);
+    }
     if (!g_inside_ngx_evaluate && handle == nullptr)
         ObserveNullEvaluateHandle("primary Feature Evaluate");
     if (IsUnknownOutermostEvaluateHandle(handle)) {
         LatchUnknownFeatureHandle(
             "primary Feature Evaluate",
             "a non-null handle created before the primary nvngx_dlss "
-            "observer reached its Evaluate entry point");
+            "observer reached its Evaluate entry point",
+            ModuleObserverFault::UnknownEvaluate);
         return CallNativeEvaluatePassThrough(
             g_original_evaluate, command_list, handle, params, callback);
     }
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
-        g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
+        OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
         return g_original_evaluate(command_list, handle, params, callback);
     }
@@ -8861,18 +9033,27 @@ NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
 NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
                         const NgxHandle *handle, const NgxParams *params,
                         void *callback) {
+    if (!g_inside_ngx_evaluate &&
+        (LatchGenericRenoDxConflictIfLoaded() ||
+         g_shortfuse_nr_enabled.load(std::memory_order_acquire))) {
+        if (!g_generic_renodx_conflict.load(std::memory_order_relaxed))
+            SetBypassReason(BypassReason::ShortFuseOwnsNr);
+        return CallNativeEvaluatePassThrough(
+            g_original_evaluate_c, command_list, handle, params, callback);
+    }
     if (!g_inside_ngx_evaluate && handle == nullptr)
         ObserveNullEvaluateHandle("primary Feature Evaluate_C");
     if (IsUnknownOutermostEvaluateHandle(handle)) {
         LatchUnknownFeatureHandle(
             "primary Feature Evaluate_C",
             "a non-null handle created before the primary nvngx_dlss "
-            "observer reached its Evaluate_C entry point");
+            "observer reached its Evaluate_C entry point",
+            ModuleObserverFault::UnknownEvaluate);
         return CallNativeEvaluatePassThrough(
             g_original_evaluate_c, command_list, handle, params, callback);
     }
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
-        g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
+        OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
         return g_original_evaluate_c(command_list, handle, params, callback);
     }
@@ -8882,6 +9063,14 @@ NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
 NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
                            const NgxHandle *handle, const NgxParams *params,
                            void *callback) {
+    if (!g_inside_ngx_evaluate &&
+        (LatchGenericRenoDxConflictIfLoaded() ||
+         g_shortfuse_nr_enabled.load(std::memory_order_acquire))) {
+        if (!g_generic_renodx_conflict.load(std::memory_order_relaxed))
+            SetBypassReason(BypassReason::ShortFuseOwnsNr);
+        return CallNativeEvaluatePassThrough(
+            g_original_core_evaluate, command_list, handle, params, callback);
+    }
     // A core module first observed after hook startup can already own a handle
     // created in the sub-second load-to-rescan interval. All post-hook game
     // creates (including Feature 11) are classified by RememberFeature, so an
@@ -8894,12 +9083,13 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
         LatchUnknownFeatureHandle(
             "direct late-core Feature Evaluate",
             "a non-null handle created before the late _nvngx lifecycle "
-            "observer reached its distinct Evaluate entry point");
+            "observer reached its distinct Evaluate entry point",
+            ModuleObserverFault::UnknownEvaluate);
         return CallNativeEvaluatePassThrough(
             g_original_core_evaluate, command_list, handle, params, callback);
     }
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
-        g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
+        OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
         return g_original_core_evaluate(command_list, handle, params, callback);
     }
@@ -8912,6 +9102,14 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
 NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
                             const NgxHandle *handle, const NgxParams *params,
                             void *callback) {
+    if (!g_inside_ngx_evaluate &&
+        (LatchGenericRenoDxConflictIfLoaded() ||
+         g_shortfuse_nr_enabled.load(std::memory_order_acquire))) {
+        if (!g_generic_renodx_conflict.load(std::memory_order_relaxed))
+            SetBypassReason(BypassReason::ShortFuseOwnsNr);
+        return CallNativeEvaluatePassThrough(
+            g_original_dlssd_evaluate, command_list, handle, params, callback);
+    }
     // A direct call into a distinct DLSSD Evaluate export with an unknown
     // handle proves that its Create happened outside our observer. This is the
     // concrete signal that the startup-deferred admission rule needs in order
@@ -8924,12 +9122,13 @@ NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
         LatchUnknownFeatureHandle(
             "direct DLSSD Feature Evaluate",
             "a non-null handle unknown to the lifecycle observer reached "
-            "the distinct nvngx_dlssd Evaluate entry point");
+            "the distinct nvngx_dlssd Evaluate entry point",
+            ModuleObserverFault::UnknownEvaluate);
         return CallNativeEvaluatePassThrough(
             g_original_dlssd_evaluate, command_list, handle, params, callback);
     }
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
-        g_shortfuse_nr_enabled.load(std::memory_order_relaxed) ||
+        OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
         return g_original_dlssd_evaluate(
             command_list, handle, params, callback);
@@ -8944,6 +9143,13 @@ NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
 }
 
 NgxResult HookRelease(NgxHandle *handle) {
+    if (g_release_hook_depth == 0 &&
+        LatchGenericRenoDxConflictIfLoaded())
+        return g_original_release(handle);
+    if (g_release_hook_depth == 0 && handle != nullptr &&
+        FindFeature(handle).handle == nullptr &&
+        g_shortfuse_nr_enabled.load(std::memory_order_acquire))
+        return g_original_release(handle);
     const bool outermost = g_release_hook_depth++ == 0;
     const FeatureRecord feature = FindFeature(handle);
     if (outermost && handle != nullptr && feature.handle == nullptr) {
@@ -8951,7 +9157,8 @@ NgxResult HookRelease(NgxHandle *handle) {
             "primary Feature Release",
             "a non-null handle unknown to the lifecycle observer reached "
             "Release; its feature identity and prior RR ownership cannot be "
-            "proved");
+            "proved",
+            ModuleObserverFault::UnknownRelease);
     }
     const bool releasing_rr = outermost && feature.feature_id == 13;
     ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
@@ -8990,13 +9197,21 @@ NgxResult HookRelease(NgxHandle *handle) {
 }
 
 NgxResult HookCoreRelease(NgxHandle *handle) {
+    if (g_release_hook_depth == 0 &&
+        LatchGenericRenoDxConflictIfLoaded())
+        return g_original_core_release(handle);
+    if (g_release_hook_depth == 0 && handle != nullptr &&
+        FindFeature(handle).handle == nullptr &&
+        g_shortfuse_nr_enabled.load(std::memory_order_acquire))
+        return g_original_core_release(handle);
     const bool outermost = g_release_hook_depth++ == 0;
     const FeatureRecord feature = FindFeature(handle);
     if (outermost && handle != nullptr && feature.handle == nullptr) {
         LatchUnknownFeatureHandle(
             "direct core Feature Release",
             "a non-null handle unknown to the lifecycle observer reached "
-            "the distinct _nvngx Release entry point");
+            "the distinct _nvngx Release entry point",
+            ModuleObserverFault::UnknownRelease);
     }
     const bool releasing_rr = outermost && feature.feature_id == 13;
     ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
@@ -9032,13 +9247,21 @@ NgxResult HookCoreRelease(NgxHandle *handle) {
 }
 
 NgxResult HookDlssdRelease(NgxHandle *handle) {
+    if (g_release_hook_depth == 0 &&
+        LatchGenericRenoDxConflictIfLoaded())
+        return g_original_dlssd_release(handle);
+    if (g_release_hook_depth == 0 && handle != nullptr &&
+        FindFeature(handle).handle == nullptr &&
+        g_shortfuse_nr_enabled.load(std::memory_order_acquire))
+        return g_original_dlssd_release(handle);
     const bool outermost = g_release_hook_depth++ == 0;
     const FeatureRecord feature = FindFeature(handle);
     if (outermost && handle != nullptr && feature.handle == nullptr) {
         LatchUnknownFeatureHandle(
             "direct DLSSD Feature Release",
             "a non-null handle unknown to the lifecycle observer reached "
-            "the distinct nvngx_dlssd Release entry point");
+            "the distinct nvngx_dlssd Release entry point",
+            ModuleObserverFault::UnknownRelease);
     }
     const bool releasing_rr = outermost && feature.feature_id == 13;
     ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
@@ -9081,8 +9304,8 @@ bool CreateHook(void *target, void *detour, void **original, const char *name) {
         return false;
     }
     const MH_STATUS status = MH_CreateHook(target, detour, original);
-    Log("MH_CreateHook %-38s target=%p status=%d", name, target,
-        static_cast<int>(status));
+    Log("MH_CreateHook %-38s target=%p status=%d (%s)", name, target,
+        static_cast<int>(status), MH_StatusToString(status));
     return status == MH_OK;
 }
 
@@ -9611,14 +9834,19 @@ static_assert(!LateLifecycleDiscoveryRequiresIsolation(false, false, true));
 static_assert(LateLifecycleDiscoveryRequiresIsolation(false, true, true));
 static_assert(LateLifecycleDiscoveryRequiresIsolation(true, false, false));
 
-void PollNgxLifecycleModules() {
+void PollNgxLifecycleModules(bool force) {
     if (!g_evaluate_hooks_ready.load(std::memory_order_acquire)) return;
     const ULONGLONG now = GetTickCount64();
     ULONGLONG next = g_next_module_rescan_tick.load(std::memory_order_relaxed);
-    if (now < next || !g_next_module_rescan_tick.compare_exchange_strong(
-            next, now + 1000, std::memory_order_acq_rel,
-            std::memory_order_relaxed))
-        return;
+    if (!force) {
+        if (now < next || !g_next_module_rescan_tick.compare_exchange_strong(
+                next, now + 1000, std::memory_order_acq_rel,
+                std::memory_order_relaxed))
+            return;
+    } else {
+        g_next_module_rescan_tick.store(now + 1000,
+                                        std::memory_order_relaxed);
+    }
 
     AcquireSRWLockExclusive(&g_module_rescan_lock);
     const unsigned long long scan =
@@ -9649,7 +9877,8 @@ void PollNgxLifecycleModules() {
         if ((previous_epoch & 1u) != 0) {
             LatchUnknownFeatureHandle(
                 "lazy module rescan",
-                "the late lifecycle observer epoch was already active");
+                "the late lifecycle observer epoch was already active",
+                ModuleObserverFault::EpochCorrupt);
         }
     }
     const bool feature1_active_before =
@@ -9686,6 +9915,9 @@ void PollNgxLifecycleModules() {
     if (LateLifecycleDiscoveryRequiresIsolation(
             lifecycle_coverage_failed, introduced_distinct_lifecycle_entry,
             feature1_activity_observed)) {
+        RecordModuleObserverFault(lifecycle_coverage_failed
+            ? ModuleObserverFault::CoverageFailed
+            : ModuleObserverFault::LateDistinctAfterActivity);
         g_module_observer_gap_detected.store(true, std::memory_order_release);
         LatchRrOwnershipUncertain(
             "lazy module rescan",
@@ -9710,15 +9942,17 @@ void PollNgxLifecycleModules() {
         if ((previous_epoch & 1u) == 0) {
             LatchUnknownFeatureHandle(
                 "lazy module rescan",
-                "the late lifecycle observer epoch lost its active state");
+                "the late lifecycle observer epoch lost its active state",
+                ModuleObserverFault::EpochCorrupt);
         }
     }
     if (scan <= 3 || (scan % 60) == 0) {
-        Log("[module] lazy rescan #%llu core=%p coreLifecycle=%d "
+        Log("[module] %s rescan #%llu core=%p coreLifecycle=%d "
             "dlssd=%p dlssdLifecycle=%d observerGap=%d startupCovered=%d "
             "feature1CreateAttempts=%llu feature1CreateSuccess=%llu "
             "feature1CreateInFlight=%u observerEpoch=%llu "
-            "nullEvals=%llu carrierEvals=%llu.", scan,
+            "nullEvals=%llu carrierEvals=%llu observerFault=%s.",
+            force ? "Feature1-preflight" : "lazy", scan,
             static_cast<void *>(core),
             g_core_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
             static_cast<void *>(dlssd),
@@ -9729,7 +9963,9 @@ void PollNgxLifecycleModules() {
             feature1_create_entries, feature1_successful_creates,
             feature1_creates_in_progress, observer_epoch,
             g_null_feature_evaluations.load(std::memory_order_relaxed),
-            carrier_evaluations);
+            carrier_evaluations,
+            ModuleObserverFaultName(static_cast<ModuleObserverFault>(
+                g_module_observer_fault.load(std::memory_order_relaxed))));
     }
     g_module_rescan_in_progress.store(false, std::memory_order_release);
     ReleaseSRWLockExclusive(&g_module_rescan_lock);
@@ -10062,7 +10298,7 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     // A few engines load _nvngx.dll or nvngx_dlssd.dll only after the primary
     // SR wrapper. A one-second in-memory rescan records that transition and
     // installs any newly available lifecycle observers. It never scans disk.
-    PollNgxLifecycleModules();
+    PollNgxLifecycleModules(false);
     // No Feature 1 means there cannot be an NR context or fence to retire. Keep
     // early engine Presents away from lifecycle tables entirely.
     if (g_carrier_evaluations.load(std::memory_order_acquire) != 0) {
@@ -10108,7 +10344,17 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
         g_shortfuse_loaded.load(std::memory_order_relaxed);
     const bool shortfuse_nr_enabled =
         g_shortfuse_nr_enabled.load(std::memory_order_relaxed);
-    if (shortfuse_nr_enabled) {
+    const bool generic_renodx_conflict =
+        g_generic_renodx_conflict.load(std::memory_order_relaxed);
+    if (generic_renodx_conflict) {
+        ImGui::TextWrapped(
+            "%s", ui(
+                "renodx-dlss5.addon64 is also loaded. This add-on stays on "
+                "native SR to prevent two Feature 18 owners. Remove the "
+                "duplicate file and restart the game.",
+                "检测到 renodx-dlss5.addon64 也已加载。为防止两个插件同时"
+                "控制 Feature 18，本插件保持原生 SR。请删除该重复文件并重启游戏。"));
+    } else if (shortfuse_nr_enabled) {
         ImGui::TextWrapped(
             "%s", ui(
                 "ShortFuse NR is enabled. Double-pass protection is active, "
@@ -10304,6 +10550,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
         g_startup_deferred_module_coverage.load(std::memory_order_relaxed);
     const unsigned long long module_rescans =
         g_module_rescan_count.load(std::memory_order_relaxed);
+    const ModuleObserverFault observer_fault =
+        static_cast<ModuleObserverFault>(
+            g_module_observer_fault.load(std::memory_order_relaxed));
+    const unsigned long long preflight_attempts =
+        g_feature1_preflight_attempts.load(std::memory_order_relaxed);
+    const unsigned long long preflight_covered =
+        g_feature1_preflight_covered.load(std::memory_order_relaxed);
     const bool core_observer_ready =
         g_core_lifecycle_hooks_ready.load(std::memory_order_relaxed);
     const bool dlssd_observer_ready =
@@ -10317,7 +10570,12 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
     const char *brief_reason_zh = before_sr
         ? "渲染分辨率 NR 正在送入游戏原生 DLSS SR。"
         : "全分辨率 SR -> NR 高画质对比链路正在运行。";
-    if (shortfuse_nr_enabled) {
+    if (generic_renodx_conflict) {
+        brief_status_en = "Duplicate NR plugin";
+        brief_status_zh = "重复 NR 插件";
+        brief_reason_en = "Remove renodx-dlss5.addon64 and restart; this process remains on native SR.";
+        brief_reason_zh = "请删除 renodx-dlss5.addon64 并重启；本进程持续使用原生 SR。";
+    } else if (shortfuse_nr_enabled) {
         brief_status_en = "Safe bypass";
         brief_status_zh = "安全旁路";
         brief_reason_en = "ShortFuse currently owns NR; double processing is blocked.";
@@ -10386,6 +10644,17 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
         brief_status_zh = "安全预热中";
         brief_reason_en = "The command list has not yet proved stable graphics-queue affinity.";
         brief_reason_zh = "命令列表尚未证明稳定的图形队列归属。";
+    } else if (bypass_reason == BypassReason::CommandStateUnverified) {
+        brief_status_en = "Native frame";
+        brief_status_zh = "本帧原生旁路";
+        if (g_command_signature_start_deferred.load(std::memory_order_relaxed) &&
+            g_command_signature_unknown_uses.load(std::memory_order_relaxed) != 0) {
+            brief_reason_en = "NR started after the game created indirect commands. Restart with NR enabled so their state can be observed safely.";
+            brief_reason_zh = "游戏先创建了间接命令，之后才开启 NR。请保持 NR 开启并重启游戏，才能安全观察这些状态。";
+        } else {
+            brief_reason_en = "This command list cannot yet be restored safely; the current frame stays native.";
+            brief_reason_zh = "当前命令列表尚不能安全恢复；本帧保持原生。";
+        }
     } else if (bypass_reason == BypassReason::Feature1TransactionBusy) {
         brief_status_en = "Native frame";
         brief_status_zh = "本帧原生旁路";
@@ -10411,12 +10680,14 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
     ImGui::TextWrapped(ui("Reason: %s", "原因：%s"),
                        ui(brief_reason_en, brief_reason_zh));
     ImGui::TextDisabled(
-        ui("Module observer: rescans=%llu core=%s DLSSD=%s observer-gap=%s startup-covered=%s F1-create=%llu/%llu in-flight=%u null-evals=%llu",
-           "模块观察器：重扫=%llu core=%s DLSSD=%s 观察缺口=%s 启动补挂=%s F1创建=%llu/%llu 进行中=%u 空句柄调用=%llu"),
+        ui("Module observer: rescans=%llu core=%s DLSSD=%s observer-gap=%s fault=%s startup-covered=%s preflight=%llu/%llu F1-create=%llu/%llu in-flight=%u null-evals=%llu",
+           "模块观察器：重扫=%llu core=%s DLSSD=%s 观察缺口=%s 首因=%s 启动补挂=%s 预扫=%llu/%llu F1创建=%llu/%llu 进行中=%u 空句柄调用=%llu"),
         module_rescans, core_observer_ready ? "ready" : "waiting",
         dlssd_observer_ready ? "ready" : "waiting",
         module_observer_uncertain ? "yes" : "no",
+        ModuleObserverFaultName(observer_fault),
         startup_deferred_covered ? "yes" : "no",
+        preflight_covered, preflight_attempts,
         feature1_create_successes, feature1_create_attempts,
         feature1_creates_in_progress,
         null_feature_evaluations);
@@ -10460,7 +10731,14 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
                "存活 RR 句柄：%u 个；在游戏明确 Release 或重启前持续安全旁路。"),
             live_rr_handles);
     }
-    if (shortfuse_nr_enabled) {
+    if (generic_renodx_conflict) {
+        ImGui::TextWrapped("%s", ui(
+            "Status: duplicate NR owner renodx-dlss5.addon64 was detected. "
+            "All this add-on's NGX calls stay native for the process. Remove "
+            "that file and restart; disabling its checkbox is insufficient.",
+            "状态：检测到重复 NR 所有者 renodx-dlss5.addon64。本进程中本插件"
+            "所有 NGX 调用均保持原生透传。请删除该文件并重启；只关复选框不够。"));
+    } else if (shortfuse_nr_enabled) {
         ImGui::Text("%s", ui("Status: ShortFuse NR owns this frame",
                               "状态：本帧由 ShortFuse NR 接管"));
     } else if (!next.enabled) {
@@ -10809,14 +11087,14 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI渲染完美链路 beta0.4.1-r2 @野生的装机宅 Bilibili";
+    "DLSS 5 AI渲染完美链路 beta0.4.1-r3 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
     "主键盘 - 参数截图、独立 NR 工作分辨率、乘算强度与 HDR 匹配残差；检测到"
     "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.4.1-r2 @野生的装机宅 Bilibili";
+    "DLSS 5 AI Rendering Perfect Chain beta0.4.1-r3 @野生的装机宅 Bilibili";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Switches between output-resolution NR after Super Resolution and "
     "render-resolution NR before Super Resolution. Includes an F6 master "
@@ -10840,6 +11118,7 @@ extern "C" __declspec(dllexport) const char *AI_AGENT_NOTICE =
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(module);
+        g_addon_module.store(module, std::memory_order_release);
         InitializeCriticalSection(&g_chain_cs);
         SetSiblingPath(module, L"nr-before-sr.log", g_log_path);
         SetSiblingPath(module, L"nr_before_sr.ini", g_ini_path);

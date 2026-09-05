@@ -1,4 +1,4 @@
-# beta0.4.1-r2 离线崩溃反馈
+# beta0.4.1-r3 离线崩溃反馈
 
 普通 `Collect-Feedback.cmd` 保持原来的低敏感范围，不复制转储。发生闪退后需要定位异常码时，双击 `Collect-Crash-Feedback.cmd`。`collect-crash-feedback.ps1` 与原来的 `collect-feedback.ps1` 必须都在旁边。
 

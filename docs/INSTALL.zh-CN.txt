@@ -1,4 +1,4 @@
-DLSS 5 AI渲染超分版 beta0.4.1-r2 社区测试版
+DLSS 5 AI渲染超分版 beta0.4.1-r3 社区测试版
 作者：@野生的装机宅 Bilibili
 官方发布地址：https://space.bilibili.com/941799
 
@@ -21,7 +21,7 @@ Collect-Crash-Feedback.cmd
 collect-crash-feedback.ps1
 说明.txt
 
-这些文件要放在一起。移走旧版或另一语言版的本插件，不要同时开两个会处理 NR 的插件。启动游戏后，在 ReShade 插件面板确认版本为 beta0.4.1-r2。
+这些文件要放在一起。移走旧版、HD2 实验版或另一语言版的本插件。若看见 renodx-dlss5.addon64，也必须移到游戏目录外；它是另一套 NR 插件，不能和本插件共存。完全重启游戏后，在 ReShade 插件面板确认版本为 beta0.4.1-r3。
 
 已经装好且能正常运行的玩家，可以用小更新包，沿用原来的大 DLL、桥接 DLL 和配置。具体按小更新包里的说明操作；小更新包不能用于首次安装。
 

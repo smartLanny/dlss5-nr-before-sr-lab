@@ -32,8 +32,11 @@
 // Size of each memory block. (= page size of VirtualAlloc)
 #define MEMORY_BLOCK_SIZE 0x1000
 
-// Max range for seeking a memory block. (= 1024MB)
-#define MAX_MEMORY_RANGE 0x40000000
+// Keep the relay within a signed rel32 jump, while leaving one allocation
+// granularity of headroom for the relay slot and the five-byte branch. The
+// upstream 1 GiB search can return MH_ERROR_MEMORY_ALLOC for low-address DLLs
+// even when valid relay space exists between 1 and 2 GiB from the export.
+#define MAX_MEMORY_RANGE 0x7FFF0000
 
 // Memory protection flags to check the executable address.
 #define PAGE_EXECUTE_FLAGS \

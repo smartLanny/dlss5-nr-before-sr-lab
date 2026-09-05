@@ -13,11 +13,16 @@ Runtime hotkeys are `F6` for the master comparison switch, `F8` for a local
 feedback ZIP, and main keyboard `-` for a ReShade screenshot whose filename
 records the current build, chain and selected settings.
 
-The current **beta0.4.1-r2** community build uses a simpler front page, a visible
+The current **beta0.4.1-r3** community build uses a simpler front page, a visible
 final-effect strength from 0 to 8 (1.2 for new installations), and an independent
 NR quality setting. It fixes the confirmed Cyberpunk 2077 RGBA16 motion-vector
 bypass, restores the conservative null-PSO policy used to reduce the Forza
-Horizon regression surface, and corrects the model UI parameter type. F8 keeps
+Horizon regression surface, detects the exact competing
+`renodx-dlss5.addon64` module, extends MinHook relay allocation for low-address
+NGX modules, and records the first lifecycle-observer failure. When a process
+starts with NR disabled it also defers the command-signature hook; enabling NR
+later can require one restart so signatures created before observation are not
+guessed. F8 keeps
 the current settings by default and attempts one display screenshot, 16
 consecutive NR processing frames and one overview. See the
 [community release notes](docs/BETA_0_4_1_RELEASE_NOTES.zh-CN.md) and
@@ -96,7 +101,7 @@ implementations inside this project.
   diagnostic changes from the previous candidate.
 - `docs/BETA_0_3_3_RELEASE_NOTES.md`: create-time tuning reconstruction, live
   non-HDR R8 admission and Scene Paper-White diagnostics under current testing.
-- `docs/BETA_0_4_1_RELEASE_NOTES.zh-CN.md`: current beta0.4.1-r2 behaviour,
+- `docs/BETA_0_4_1_RELEASE_NOTES.zh-CN.md`: current beta0.4.1-r3 behaviour,
   compatibility fixes, image controls and evidence boundaries.
 - `docs/BETA_0_3_TEST_MATRIX.md`: release qualification checklist.
 - `docs/COMMUNITY_FEEDBACK_BETA03.md`: sanitized mapping from early reports to
@@ -140,7 +145,7 @@ archives without copying the large runtime DLLs, use:
 
 ```powershell
 ./scripts/package-beta03.ps1 `
-  -ReleaseRoot 'D:\releases\beta0.4.1-r2-update' `
+  -ReleaseRoot 'D:\releases\beta0.4.1-r3-update' `
   -UpdateOnly
 ```
 

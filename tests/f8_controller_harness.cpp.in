@@ -39,6 +39,7 @@ struct FeedbackSession {char report[32768]={};std::size_t used=0;};
 void FeedbackAppend(FeedbackSession &s,const char *format,...){va_list a;va_start(a,format);const int n=std::vsnprintf(s.report+s.used,sizeof(s.report)-s.used,format,a);va_end(a);if(n>0 && static_cast<size_t>(n)<sizeof(s.report)-s.used)s.used+=n;}
 void FeedbackAppendActivity(FeedbackSession &s,const char *p){FeedbackAppend(s,"%s.mockRuntime=1\n",p);}
 std::atomic<unsigned> g_config_generation{1};std::atomic<bool> g_shortfuse_nr_enabled{false};
+bool OtherNrOwnerActive(){return g_shortfuse_nr_enabled.load();}
 ChainConfig config={};unsigned config_calls=0,stage_status=0,dir_count=0;bool rr=false,pin_fail=false,queue_fail=false;
 ULONGLONG test_clock=100000;
 std::wstring output_root;wchar_t g_log_path[1024]={},g_ini_path[1024]={},g_reshade_ini_path[1024]={};

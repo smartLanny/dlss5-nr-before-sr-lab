@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Perfect Chain beta0.4.1-r2 Community Beta - Small Update
+DLSS 5 AI Rendering Perfect Chain beta0.4.1-r3 Community Beta - Small Update
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
@@ -8,9 +8,15 @@ Picture defaults
 
 New installations start with final effect strength 1.2. The slider is the actual request, from 0 to 8; there is no hidden multiplier or 1.2 shortcut. New colour follow is 0.75. Unknown HDR contracts remain luminance-only. Explicit existing settings, including zero, are preserved.
 
-The 0.4.1-r2 NR quality setting changes only Feature 18's working resolution, not the game's DLSS mode. High strength at a low NR working resolution can amplify grain. Raise NR quality before attributing that result to jitter.
+The 0.4.1-r3 NR quality setting changes only Feature 18's working resolution, not the game's DLSS mode. High strength at a low NR working resolution can amplify grain. Raise NR quality before attributing that result to jitter.
 
 Stability changes
+
+The RDR2 report confirms that this add-on and renodx-dlss5.addon64 were loaded together. r3 detects that exact competing module, keeps the native game result, and tells the player to remove it and fully restart. The two NR owners cannot coexist.
+
+The Black Myth log shows all three lifecycle hooks failing with MinHook status 9 when nvngx_dlssd.dll was loaded at a low address. r3 extends the safe relay search range, logs the readable status name, and preflights loaded NGX modules before the first SR Create. A native harness reproduces the old failure and passes with the fix; the game still needs retesting.
+
+The Forza package started with Enabled=0 and contained no Feature 1 or NR work. r3 defers the command-signature hook only when the process starts disabled. An enabled start still observes signatures early. If the panel asks for a restart after later enabling NR, leave NR enabled and restart. This narrows the disabled-start risk surface but is not a game crash-fix claim without a dump.
 
 A Cyberpunk 2077 run reproduced and fixed a default NR-quality path that submitted no NR work. The game supplied typed four-channel half-float motion vectors, while the older path accepted only two-channel formats and safely bypassed. This build admits only that explicit typed format and reads its XY motion components; other unknown formats still bypass. Automated GPU checks cover all three admitted formats, and a short local run reached 6,546 actual submissions with no queue-state mismatch. This validates the processing path, not picture quality.
 
@@ -20,7 +26,7 @@ Older builds wrote DLSSNR.UICorrection using the wrong parameter type. It now us
 
 Updating
 
-Exit the game completely, back up the old addon outside the game directory, then replace it. Keep both runtime DLLs and the existing configuration. In game, confirm beta0.4.1-r2 in the ReShade addon panel, compare with F6, and verify that the NR-success counter continues increasing.
+Exit the game completely, back up the old addon outside the game directory, then replace it. Keep both runtime DLLs and the existing configuration. In game, confirm beta0.4.1-r3 in the ReShade addon panel, compare with F6, and verify that the NR-success counter continues increasing.
 
 Reporting
 

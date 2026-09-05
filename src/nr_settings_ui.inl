@@ -98,6 +98,10 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     else if (reason == BypassReason::ShortFuseOwnsNr)
         ImGui::TextWrapped("%s", ui("Another NR plugin is active. Disable its NR effect before using this one.",
             "另一个 NR 插件正在运行。请先关闭它的 NR 效果，再使用本插件。"));
+    else if (reason == BypassReason::GenericRenoDxConflict)
+        ImGui::TextWrapped("%s", ui(
+            "Duplicate NR plugin detected: remove renodx-dlss5.addon64 and restart the game.",
+            "检测到重复 NR 插件：请删除 renodx-dlss5.addon64，然后重启游戏。"));
     else if (reason == BypassReason::WaitingForFeature1 || reason == BypassReason::ModuleObserverInstalling)
         ImGui::TextWrapped("%s", ui("Waiting for native DLSS SR. Enter gameplay and enable DLSS in the game settings.",
             "等待游戏原生 DLSS SR。请进入实际场景，并在游戏设置里开启 DLSS。"));
