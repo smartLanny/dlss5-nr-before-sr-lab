@@ -66,7 +66,9 @@ $first = @()
 foreach ($pass in 1,2) {
     if ((Get-FrozenCommit) -ne $commit) { throw 'Source changed during verified build.' }
     $log = Join-Path $EvidenceRoot "build-$pass.log"
-    & (Join-Path $ProjectRoot 'scripts\build.ps1') -ToolchainRoot $ToolchainRoot -ReShadeSourceRoot $ReShadeSourceRoot *> $log
+    # A prior version's differently named DLL can otherwise survive in build/
+    # and make a clean source build look like a mixed release payload.
+    & (Join-Path $ProjectRoot 'scripts\build.ps1') -Clean -ToolchainRoot $ToolchainRoot -ReShadeSourceRoot $ReShadeSourceRoot *> $log
     if ($LASTEXITCODE -ne 0) { throw "Build pass $pass failed. See $log" }
     if ((Get-FrozenCommit) -ne $commit) { throw 'Source changed during build; products are not releasable.' }
     $current = Get-ProductFiles
