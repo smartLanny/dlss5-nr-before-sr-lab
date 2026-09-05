@@ -45,11 +45,11 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           ./scripts/package-beta03.ps1 -ReleaseRoot "$pwd\ota-r2" -UpdateOnly
-          $zh = Get-ChildItem ota-r2 -File -Filter '*中文轻量更新包.zip' | Select-Object -Single
-          $en = Get-ChildItem ota-r2 -File -Filter '*English-Update.zip' | Select-Object -Single
-          if (-not $zh -or -not $en) { throw 'Expected OTA packages were not produced' }
-          Copy-Item -LiteralPath $zh.FullName -Destination 'DLSS5-beta0.4.3r2-Chinese-OTA.zip'
-          Copy-Item -LiteralPath $en.FullName -Destination 'DLSS5-beta0.4.3r2-English-OTA.zip'
+          $zh = @(Get-ChildItem ota-r2 -File -Filter '*中文轻量更新包.zip')
+          $en = @(Get-ChildItem ota-r2 -File -Filter '*English-Update.zip')
+          if ($zh.Count -ne 1 -or $en.Count -ne 1) { throw 'Expected exactly one Chinese and one English OTA package' }
+          Copy-Item -LiteralPath $zh[0].FullName -Destination 'DLSS5-beta0.4.3r2-Chinese-OTA.zip'
+          Copy-Item -LiteralPath $en[0].FullName -Destination 'DLSS5-beta0.4.3r2-English-OTA.zip'
           Get-FileHash -Algorithm SHA256 'DLSS5-beta0.4.3r2-Chinese-OTA.zip','DLSS5-beta0.4.3r2-English-OTA.zip' | Format-Table
 
       - name: Publish prerelease with OTA assets only
@@ -62,7 +62,7 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw 'beta0.4.3r2 release already exists; refusing to overwrite it' }
           $global:LASTEXITCODE = 0
           @'
-          beta0.4.3r2 是 beta0.4.3 的第二轮维护候选，合入 PR #61。
+          beta0.4.3r2 是 beta0.4.3 的第二轮维护更新，合入 PR #61。
 
           主要变化：后置 NR 先保留游戏原生 SR 输出再取私有快照；重置/曝光/guide 变化帧不再误合成；设置页拆分画质、反馈与诊断；F8 增加可复制的脱敏报告摘要和离线报告生成。
 
