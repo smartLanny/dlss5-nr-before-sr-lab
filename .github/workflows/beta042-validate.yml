@@ -37,18 +37,15 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $headers = @{ 'User-Agent' = 'beta042-validator' }
-          $release = Invoke-RestMethod -Headers $headers `
-            'https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest'
-          $asset = $release.assets | Where-Object {
-            $_.name -match '^llvm-mingw-.*-ucrt-x86_64\.zip$'
-          } | Select-Object -First 1
-          if (-not $asset) { throw 'No llvm-mingw UCRT x86_64 archive found.' }
-          Invoke-WebRequest $asset.browser_download_url -OutFile llvm-mingw.zip
+          $llvmUrl = 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip'
+          $reshadeCommit = '4a50d1eddace85734871d91792ff214f13f66c01'
+          Invoke-WebRequest $llvmUrl -OutFile llvm-mingw.zip
           Expand-Archive llvm-mingw.zip -DestinationPath toolchain
           $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
-          git clone --depth 1 --recurse-submodules --shallow-submodules `
-            https://github.com/crosire/reshade.git reshade-source
+          git clone --depth 1 --no-checkout https://github.com/crosire/reshade.git reshade-source
+          git -C reshade-source fetch --depth 1 origin $reshadeCommit
+          git -C reshade-source checkout --detach $reshadeCommit
+          git -C reshade-source submodule update --init --recursive --depth 1
           "TOOLCHAIN_ROOT=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Append
           "RESHADE_ROOT=$pwd\reshade-source" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: CPU temporal and diagnostic harnesses
