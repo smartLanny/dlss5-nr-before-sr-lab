@@ -1,0 +1,96 @@
+05:34:37.957  DLSS 5 AI Rendering Upscaling Edition beta0.3.7 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=DLSS5-AI渲染超分版-beta0.3.7-@野生的装机宅-Bilibili.addon64 | build_id=beta0.3.7 | sourceCommit=41288a8a30f812361b0af09d827249be70adc512 sourceDirty=0
+05:34:37.960  Shared strength migration: sourceMode=2 selected=1 strengthConfigVersion=1 persisted=1.
+05:34:37.962  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+05:34:37.963  Config: enabled=1 mode=2 identity=0 preTransfer=1.000 postTransfer=1.000 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=0 uiCorrection=0 r8OutputEncoding=0 perfEpoch=0 jitterMode=0 feature18Evals=0
+05:34:37.964  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+05:34:38.299  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+05:34:38.299  [module] pinned hook owner name=D3D12 command state address=00007FFDB97DC7E0 module=00007FFDB9710000 until process exit.
+05:34:39.732  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+05:34:40.017  [command-state] device meta-command contract: known=1 initDirty=0x0 executeDirty=0x0 supportedMask=0x1038.
+05:34:40.438  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+05:34:40.915  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+05:34:41.728  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+05:34:42.604  [command-state] observed CreateCommandSignature: call=1 signature=000000006A53C810 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[0] root=0000000000000000.
+05:34:42.604  [command-state] observed CreateCommandSignature: call=2 signature=000000006A53CFE0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=0000000000000000.
+05:34:42.604  [command-state] observed CreateCommandSignature: call=3 signature=000000006A53D7B0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+05:34:42.643  [perf] reset stage=C-NR-transfer epoch=0 transfer=1.000; warming 180 frames
+05:34:42.660  [artifact-identity] sourceCommit=41288a8a30f812361b0af09d827249be70adc512 sourceDirty=0 status=verified addonPath=K:\Games\Red Dead Redemption 2\DLSS5-AI渲染超分版-beta0.3.7-@野生的装机宅-Bilibili.addon64 addonSha256=050f2004bf63969f32f7ab543bc79386a47e5e5122499d415231b1498d77b68a measurement=loaded-path-file-once-worker.
+05:34:43.205  Found SR NGX module: K:\Games\Red Dead Redemption 2\nvngx_dlss.dll
+05:34:43.205  [module] pinned hook owner name=nvngx_dlss.dll address=00007FFD5D610000 module=00007FFD5D610000 until process exit.
+05:34:43.205  [module] pinned hook owner name=_nvngx.dll address=00007FFDD19C0000 module=00007FFDD19C0000 until process exit.
+05:34:43.205  [module] pinned hook owner name=D3D12_CreateFeature address=00007FFD5D63C8B0 module=00007FFD5D610000 until process exit.
+05:34:43.206  MH_CreateHook D3D12_CreateFeature                    target=00007FFD5D63C8B0 status=0
+05:34:43.206  [module] pinned hook owner name=D3D12_EvaluateFeature address=00007FFD5D63CA20 module=00007FFD5D610000 until process exit.
+05:34:43.206  MH_CreateHook D3D12_EvaluateFeature                  target=00007FFD5D63CA20 status=0
+05:34:43.207  [module] pinned hook owner name=D3D12_ReleaseFeature address=00007FFD5D63CD00 module=00007FFD5D610000 until process exit.
+05:34:43.207  MH_CreateHook D3D12_ReleaseFeature                   target=00007FFD5D63CD00 status=0
+05:34:43.208  [module] pinned hook owner name=core CreateFeature address=00007FFDD1A27FE0 module=00007FFDD19C0000 until process exit.
+05:34:43.208  MH_CreateHook core CreateFeature                     target=00007FFDD1A27FE0 status=0
+05:34:43.208  [module] pinned hook owner name=core EvaluateFeature address=00007FFDD1A281E0 module=00007FFDD19C0000 until process exit.
+05:34:43.208  MH_CreateHook core EvaluateFeature                   target=00007FFDD1A281E0 status=0
+05:34:43.209  [module] pinned hook owner name=core ReleaseFeature address=00007FFDD1A280E0 module=00007FFDD19C0000 until process exit.
+05:34:43.209  MH_CreateHook core ReleaseFeature                    target=00007FFDD1A280E0 status=0
+05:34:43.260  MH_EnableHook all status=0
+05:34:43.260  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+05:34:43.260  [module] initial scan complete: sr=00007FFD5D610000 core=00007FFDD19C0000 dlssd=0000000000000000.
+05:34:43.261  NGX observer/AI-upscaling hooks active.
+05:34:44.909  [module] lazy rescan #1 core=00007FFDD19C0000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+05:34:45.917  [module] lazy rescan #2 core=00007FFDD19C0000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+05:34:46.909  [module] lazy rescan #3 core=00007FFDD19C0000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+05:34:59.301  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=56.974 avgMs=17.5519 p95Ms=31.7381 p99Ms=33.0828 onePercentLowFPS=28.199
+05:35:09.574  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.494 avgMs=17.0958 p95Ms=18.8370 p99Ms=19.8495 onePercentLowFPS=43.583
+05:35:19.915  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.126 avgMs=17.2040 p95Ms=18.7685 p99Ms=27.2163 onePercentLowFPS=26.967
+05:35:30.103  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.997 avgMs=16.9500 p95Ms=18.3704 p99Ms=21.5700 onePercentLowFPS=39.101
+05:35:40.294  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.968 avgMs=16.9584 p95Ms=17.7141 p99Ms=18.8309 onePercentLowFPS=44.431
+05:35:44.175  [module] lazy rescan #60 core=00007FFDD19C0000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+05:35:50.485  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.971 avgMs=16.9575 p95Ms=17.8351 p99Ms=18.6595 onePercentLowFPS=45.204
+05:36:00.687  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.909 avgMs=16.9754 p95Ms=17.6543 p99Ms=18.9769 onePercentLowFPS=39.703
+05:36:10.876  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.990 avgMs=16.9519 p95Ms=17.8893 p99Ms=19.3454 onePercentLowFPS=50.033
+05:36:21.068  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.952 avgMs=16.9630 p95Ms=18.1122 p99Ms=19.2910 onePercentLowFPS=42.414
+05:36:31.263  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.954 avgMs=16.9623 p95Ms=17.7363 p99Ms=18.7853 onePercentLowFPS=44.195
+05:36:41.448  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=59.001 avgMs=16.9489 p95Ms=17.6905 p99Ms=19.2262 onePercentLowFPS=51.168
+05:36:44.178  [module] lazy rescan #120 core=00007FFDD19C0000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+05:36:51.651  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.907 avgMs=16.9759 p95Ms=17.8424 p99Ms=19.5025 onePercentLowFPS=37.964
+05:37:01.838  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.996 avgMs=16.9503 p95Ms=18.0908 p99Ms=19.6534 onePercentLowFPS=46.440
+05:37:12.024  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=59.003 avgMs=16.9484 p95Ms=18.2647 p99Ms=19.6373 onePercentLowFPS=49.029
+05:37:22.211  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.994 avgMs=16.9508 p95Ms=18.3452 p99Ms=20.0451 onePercentLowFPS=41.886
+05:37:32.398  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.999 avgMs=16.9496 p95Ms=18.4556 p99Ms=19.7436 onePercentLowFPS=48.327
+05:37:42.619  [perf] stage=C-NR-transfer epoch=0 transfer=1.000 samples=600 avgFPS=58.795 avgMs=17.0082 p95Ms=18.6267 p99Ms=20.0758 onePercentLowFPS=36.146
+05:37:43.213  _nvngx core CreateFeature entered: call=1 id=1 (SuperSampling)
+05:37:43.262  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=000000089C0A3110
+05:37:43.263      Width                                      = 1280
+05:37:43.263      Height                                     = 720
+05:37:43.263      OutWidth                                   = 3840
+05:37:43.263      OutHeight                                  = 2160
+05:37:43.263      PerfQualityValue                           = 3
+05:37:43.263      DLSS.Feature.Create.Flags                  = 43
+05:37:43.264      DLSS.Enable.Output.Subrects                = 0
+05:37:43.264      CreationNodeMask                           = 1
+05:37:43.264      VisibilityNodeMask                         = 1
+05:37:43.264  Feature 1 contract generation=1 handle=000000089C0A3110 create=1280x720 -> 3840x2160 flags=43 quality=3; all NR contracts will be rebuilt.
+05:37:43.281  _nvngx core EvaluateFeature reached: call=1 handle=000000089C0A3110
+05:37:43.281  --- SuperSampling Evaluate #1 handle=000000089C0A3110 generation=1 create=1280x720 -> 3840x2160 ---
+05:37:43.281      Color                                      = 00000000795FE140 physical=1280x720 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x5 sample=1
+05:37:43.281      MotionVectors                              = 0000001E53C941E0 physical=1280x720 format=34(R16G16_FLOAT) mips=1 flags=0x1 sample=1
+05:37:43.282      Depth                                      = 00000000795FEAD0 physical=1280x720 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+05:37:43.282      ExposureTexture                            = 000000089B530860 physical=1x1 format=41(R32_FLOAT) mips=1 flags=0x5 sample=1
+05:37:43.282      Output                                     = 0000001E53C9AB10 physical=3840x2160 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x5 sample=1
+05:37:43.282      DLSS.Input.Color.Subrect.Base.X            = 0
+05:37:43.283      DLSS.Input.Color.Subrect.Base.Y            = 0
+05:37:43.283      DLSS.Input.Depth.Subrect.Base.X            = 0
+05:37:43.283      DLSS.Input.Depth.Subrect.Base.Y            = 0
+05:37:43.283      DLSS.Input.MV.Subrect.Base.X               = 0
+05:37:43.284      DLSS.Input.MV.Subrect.Base.Y               = 0
+05:37:43.284      DLSS.Output.Subrect.Base.X                 = 0
+05:37:43.284      DLSS.Output.Subrect.Base.Y                 = 0
+05:37:43.284      DLSS.Render.Subrect.Dimensions.Width       = 1280
+05:37:43.284      DLSS.Render.Subrect.Dimensions.Height      = 720
+05:37:43.285      MV.Scale.X                                 = 1
+05:37:43.285      MV.Scale.Y                                 = 1
+05:37:43.285      Jitter.Offset.X                            = -0.375
+05:37:43.285      Jitter.Offset.Y                            = -0.055555522
+05:37:43.286      DLSS.Pre.Exposure                          = 1
+05:37:43.286      Reset                                      = 0
+05:37:43.286  Pipeline diagnostic scope reset: epoch=1 Feature1 generation=1 mode=2.
+05:37:43.286  [stats] current contract: generation=1 mode=2 carrier-requests=1 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+05:37:43.286  [module] pinned hook owner name=D3D12 command state address=00007FFDB994AF40 module=00007FFDB9710000 until process exit.
