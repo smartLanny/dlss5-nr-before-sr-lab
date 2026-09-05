@@ -20,6 +20,12 @@ class PrepareTests(unittest.TestCase):
         self.assertIn('interop/nr_native_bridge_consumer.inl', result)
         with self.assertRaises(ValueError): m.patch_core(result)
 
+    def test_converted_motion_is_not_overwritten(self):
+        source = "    else                       ctx->CopyResource(g_bridge.tex11[SLOT_MV], g[SLOT_MV]);"
+        self.assertEqual(m.patch_motion_copy(source),
+            "    if (!g_bridge.mv_converted) ctx->CopyResource(g_bridge.tex11[SLOT_MV], g[SLOT_MV]);")
+        with self.assertRaises(ValueError): m.patch_motion_copy(source + source)
+
     def test_identity(self):
         self.assertEqual(m.blob(b"test content\n"), "d670460b4b4aece5915caf5c68d12f560a9fe3e4")
 

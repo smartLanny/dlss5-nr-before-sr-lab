@@ -67,7 +67,16 @@ def patch_build(text: str) -> str:
     return text.replace("-beta0.4.2-", "-beta0.4.2-native-bridge-exp1-")
 
 
+def patch_motion_copy(text: str) -> str:
+    # The pinned upstream's else binds to the disabled guard, not the earlier
+    # conversion branch: it copies raw MV even after BridgeBlitMV converted it.
+    return replace_once(text,
+        "    else                       ctx->CopyResource(g_bridge.tex11[SLOT_MV], g[SLOT_MV]);",
+        "    if (!g_bridge.mv_converted) ctx->CopyResource(g_bridge.tex11[SLOT_MV], g[SLOT_MV]);")
+
+
 def patch_bridge(text: str) -> str:
+    text = patch_motion_copy(text)
     text = '#include "nr_native_bridge_client.h"\n' + text
     defaults = "static BridgeCfg g_cfg = { 2, -1, 1, 0, 0, 3, 1, 1, 1, 1, CFG_SRC_AUTO, 0, 1, 0, 0, 0, 2, 20, 0, 0, 0, 0, 0, 0 };"
     policy = """static void NrNativeBridgePolicy(BridgeCfg& c) {
