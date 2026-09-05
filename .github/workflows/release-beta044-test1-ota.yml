@@ -1,5 +1,5 @@
 name: Publish beta0.4.4-test1 branch OTA
-# Attempt 2: preserve historical evidence bytes; keep the clean-source gate.
+# Preserve historical evidence bytes; prove clean checkout on both platforms.
 on:
   push:
     branches: [fix/044-d3d12-compat-test1]
@@ -10,6 +10,19 @@ concurrency:
   group: release-beta044-test1
   cancel-in-progress: false
 jobs:
+  checkout-integrity:
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/fix/044-d3d12-compat-test1'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify archived bytes and genuine-edit rejection
+        run: python -m unittest discover -s tests -p test_evidence_checkout.py -v
   validate:
     if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/fix/044-d3d12-compat-test1'
     uses: ./.github/workflows/beta042-validate.yml
@@ -21,7 +34,7 @@ jobs:
     permissions:
       contents: read
   publish:
-    needs: [validate, feedback]
+    needs: [checkout-integrity, validate, feedback]
     if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/fix/044-d3d12-compat-test1'
     runs-on: ubuntu-latest
     permissions:
