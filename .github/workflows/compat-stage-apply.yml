@@ -1,0 +1,26 @@
+name: Apply compatibility source
+on:
+  push:
+    branches: [codex/compat-fg-ui-sweep]
+    paths: ['.github/workflows/compat-stage-apply.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/compat-fg-ui-sweep
+          fetch-depth: 0
+      - name: Apply baseline-checked ordinary source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/compat-stage-runtime.py
+          git diff --check
+          git add src/nr_before_sr.cpp src/nr_command_state.inl src/nr_settings_ui.inl src/nr_feedback_capture.inl src/nr_feedback_ticket.h
+          git config user.name smartLanny
+          git config user.email 51014844+smartLanny@users.noreply.github.com
+          git commit -m 'fix: admit freshly observed pristine null carriers and protect UI transactions'
+          git push origin HEAD:codex/compat-fg-ui-sweep
