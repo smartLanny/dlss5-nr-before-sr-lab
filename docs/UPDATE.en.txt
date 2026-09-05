@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Perfect Chain beta0.4.3r2 Community Beta - Small Update
+DLSS 5 AI Rendering Perfect Chain beta0.4.3r3 Community Beta - Small Update
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
@@ -6,7 +6,9 @@ Scope
 
 Use this package with an existing compatible beta0.4.x runtime installation. Exit the game completely, back up the old addon outside the game directory, replace only the addon, and keep both Collect-Feedback / Collect-Crash-Feedback CMD + PowerShell pairs beside it. Keep the existing nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Do not load old/new, Chinese/English, HD2 experimental, or renodx-dlss5.addon64 copies together.
 
-What changed in 0.4.3
+What changed in 0.4.3r3
+
+r3 continues the compatibility and feedback hardening from r2: null-PSO command lists are admitted only for the narrow fresh guarded pristine-null subset; late lists can recover owner mapping from a real ReShade submission callback but still require a later successful Reset; F8 now records structured command-state / hook / guard / baseline evidence; pending UI edits no longer overwrite newer F6, config-reload or capture-restored state; and CI now propagates structural-validator failures correctly. MFG / RTX 40 unlock compatibility is not claimed as fixed in this release.
 
 1. Integrates the 0.4.2 bug sweep: narrows lighting-protection black-edge/reversed-residual risk, fixes mask-related parameter handling and panel isolation, and adds a conservative retry path for native NGX hooks. Null-PSO and wider high-risk graphics-state paths still bypass by default.
 2. F8 is now an independent small core-feedback package. The core ZIP has a hard 8 MiB limit, collects only known logs/runtime state, performs no texture readback, never uploads automatically, and does not change picture settings for collection.
@@ -21,13 +23,13 @@ New installations use final-effect strength 1.2. The slider is the actual reques
 
 Compatibility and safety boundary
 
-This release remains the native D3D12 DLSS Feature 1 path. DX11 is not part of this beta0.4.3r2 release and remains on a separate research branch. If resource, format, subrect, command-state, RR ownership, or HDR contracts cannot be proven, the preferred behavior is to bypass and retain the game's native SR result.
+This release remains the native D3D12 DLSS Feature 1 path. DX11 is not part of this beta0.4.3r3 release and remains on a separate research branch. If resource, format, subrect, command-state, RR ownership, or HDR contracts cannot be proven, the preferred behavior is to bypass and retain the game's native SR result.
 
-Wuthering Waves, Where Winds Meet, Forza Horizon, Black Myth and other titles with prior intermittent or crash reports still need current beta0.4.3r2 in-game retesting. Automated regressions, D3D12 WARP, shader compilation and source builds passing do not equal NVIDIA-model or real-game runtime validation.
+Wuthering Waves, Where Winds Meet, Forza Horizon, Black Myth and other titles with prior intermittent or crash reports still need current beta0.4.3r3 in-game retesting. Automated regressions, D3D12 WARP, shader compilation and source builds passing do not equal NVIDIA-model or real-game runtime validation. The new null-PSO admission path does not mean every related title is already fixed.
 
 Updating
 
-Exit the game completely, back up the old addon outside the game directory, then replace it. Keep both runtime DLLs and the existing configuration. In game, confirm beta0.4.3r2 in the ReShade add-on panel, compare with F6, and verify that the NR-success counter continues increasing.
+Exit the game completely, back up the old addon outside the game directory, then replace it. Keep both runtime DLLs and the existing configuration. In game, confirm beta0.4.3r3 in the ReShade add-on panel, compare with F6, and verify that the NR-success counter continues increasing.
 
 Reporting
 
