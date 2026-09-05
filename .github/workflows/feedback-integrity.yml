@@ -1,0 +1,55 @@
+name: Feedback integrity
+on:
+  pull_request:
+    branches:
+      - main
+      - codex/beta0.4.2
+      - codex/beta0.4.2-bug-sweep
+      - codex/043-feedback-and-triage
+  push:
+    branches: [codex/043-feedback-integrity]
+permissions:
+  contents: read
+concurrency:
+  group: feedback-integrity-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  parser:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Historical production parser must fail the five exact defect tests
+        shell: python
+        run: |
+          import importlib.util, os, pathlib, subprocess, unittest
+          root = pathlib.Path.cwd()
+          previous = root / 'scripts' / 'historical_core_parser.py'
+          data = subprocess.run(['git', 'show', '4498e47edf51693d2721f8ec8563054a515c1643:scripts/parse-core-feedback.py'], check=True, capture_output=True).stdout
+          previous.write_bytes(data)
+          os.environ['NR_CORE_PARSER'] = str(previous)
+          spec = importlib.util.spec_from_file_location('negative_cases', root / 'tests/test_core_feedback.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          names = ['test_missing_required_log_declaration_rejected', 'test_non_boolean_completeness_rejected', 'test_cancelled_marked_complete_rejected', 'test_same_source_different_binary_rejected', 'test_missing_binary_identity_not_verified']
+          result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(module.CoreFeedbackTests(name) for name in names))
+          previous.unlink()
+          assert not result.errors and len(result.failures) == len(names), 'negative control must reproduce assertion failures, not import/runtime errors'
+          print('Five historical production defects reproduced; negative control passed.')
+      - name: Current production parser and image parser regressions
+        shell: bash
+        run: |
+          python -m unittest discover -s tests -p 'test_core_feedback.py' -v
+          python -m unittest discover -s tests -p 'test_f8_parser.py' -v
+          python -m py_compile scripts/parse-core-feedback.py scripts/parse-f8-bundle.py
+          git diff --check
