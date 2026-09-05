@@ -1,0 +1,30 @@
+name: R2 source audit
+on:
+  push:
+    branches: [codex/043r2-compat-feedback-ux]
+    paths: [.github/workflows/043r2-source-audit.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Print bounded source indexes and descriptor contracts
+        shell: python
+        run: |
+          from pathlib import Path
+          s=Path('src/nr_before_sr.cpp').read_text().splitlines()
+          keys=['ClassifyPostSrStorage','SupportsPostSrStorage','snapshots_native_output','snapshot_heap','FindOrCreateSlot(', 'PostSrStorageContract','suppress_transfer_this_frame','void DispatchCodec(', 'void CombineCS(', 'void FeedbackAppendActivity(']
+          for i,line in enumerate(s):
+              if any(k in line for k in keys): print(f'INDEX {i+1}: {line}')
+          for p in ['src/nr_codec_descriptors.inl','src/nr_settings_ui.inl']:
+              lines=Path(p).read_text().splitlines()
+              print('FILE',p,'LINES',len(lines))
+              if 'descriptors' in p:
+                  print('\n'.join(f'{i+1}: {v}' for i,v in enumerate(lines)))
+          for p in sorted(Path('scripts').iterdir()):
+              if any(x in p.name.lower() for x in ['post','feedback','package','build']): print('SCRIPT',p)
+          for p in sorted(Path('tests').iterdir()): print('TEST',p)
