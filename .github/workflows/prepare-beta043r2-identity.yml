@@ -1,0 +1,121 @@
+name: Prepare beta0.4.3r2 release identity
+
+on:
+  push:
+    branches: [codex/043r2-release-finalize]
+    paths: ['.github/workflows/prepare-beta043r2-identity.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/043r2-release-finalize
+          fetch-depth: 0
+      - name: Freeze r2 identity and harden publisher
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def edit(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8-sig')
+              actual = text.count(old)
+              assert actual == count, f'{path}: expected {count} occurrences, got {actual}: {old!r}'
+              p.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
+
+          edit('src/nr_before_sr.cpp', 'constexpr const char *kAddonVersion = "beta0.4.3";', 'constexpr const char *kAddonVersion = "beta0.4.3r2";')
+          edit('src/nr_before_sr.cpp', 'constexpr const char *kBuildIdentity = "beta0.4.3";', 'constexpr const char *kBuildIdentity = "beta0.4.3r2";')
+
+          rc = Path('src/nr_before_sr.rc')
+          text = rc.read_text(encoding='utf-8-sig')
+          assert text.count('beta0.4.3') == 4
+          text = text.replace('beta0.4.3', 'beta0.4.3r2')
+          text = text.replace('FILEVERSION 0,4,3,0', 'FILEVERSION 0,4,3,2')
+          text = text.replace('PRODUCTVERSION 0,4,3,0', 'PRODUCTVERSION 0,4,3,2')
+          text = text.replace('"0.4.3.0 beta\\0"', '"0.4.3r2 beta\\0"')
+          rc.write_text(text, encoding='utf-8', newline='\n')
+
+          build = Path('scripts/build.ps1')
+          text = build.read_text(encoding='utf-8-sig')
+          assert text.count('beta0.4.3-@野生的装机宅-Bilibili') == 2
+          build.write_text(text.replace('beta0.4.3-@野生的装机宅-Bilibili', 'beta0.4.3r2-@野生的装机宅-Bilibili'), encoding='utf-8', newline='\n')
+
+          package = Path('scripts/package-beta03.ps1')
+          text = package.read_text(encoding='utf-8-sig')
+          assert text.count("$Version = 'beta0.4.3'") == 1
+          assert text.count('beta0.4.3-@野生的装机宅-Bilibili') == 2
+          text = text.replace("$Version = 'beta0.4.3'", "$Version = 'beta0.4.3r2'")
+          text = text.replace('beta0.4.3-@野生的装机宅-Bilibili', 'beta0.4.3r2-@野生的装机宅-Bilibili')
+          package.write_text(text, encoding='utf-8', newline='\n')
+
+          config = Path('config/nr_before_sr.ini')
+          text = config.read_text(encoding='utf-8-sig')
+          assert 'beta0.4.3 community candidate' in text
+          config.write_text(text.replace('beta0.4.3 community candidate', 'beta0.4.3r2 community maintenance release'), encoding='utf-8', newline='\r\n')
+
+          for path in ['docs/UPDATE.zh-CN.txt', 'docs/UPDATE.en.txt']:
+              p = Path(path)
+              text = p.read_text(encoding='utf-8-sig')
+              assert 'beta0.4.3' in text
+              text = text.replace('beta0.4.3', 'beta0.4.3r2')
+              if path.endswith('zh-CN.txt'):
+                  marker = '0.4.3r2 主要变化\n\n'
+                  assert marker in text
+                  text = text.replace(marker, marker + 'r2 在原 0.4.3 基础上新增：后置 NR 先保留游戏原生 SR 输出再取私有快照；历史/guide/曝光重置帧保留原生输出；设置页拆分画质、反馈与诊断；F8 可复制同次采集的脱敏报告摘要。\n\n', 1)
+              else:
+                  marker = 'beta0.4.3r2'
+                  # Version replacement is sufficient for the English OTA instructions;
+                  # release notes carry the r2 delta in detail.
+              p.write_text(text, encoding='utf-8', newline='\n')
+
+          doc = Path('docs/043R2_COMPAT_FEEDBACK.md')
+          text = doc.read_text(encoding='utf-8-sig')
+          old = ('remains named `codex/beta0.4.2`. This is an r2 candidate, not a signed/released r2\n'
+                 'package or a merge into main. Match test binaries by source SHA, dirty status and\n'
+                 'actual addon SHA256; final r2 release identity is a separate freeze step.')
+          new = ('remains named `codex/beta0.4.2`. The release branch now freezes the visible/runtime\n'
+                 'identity as `beta0.4.3r2`; OTA publication is performed by the dedicated release\n'
+                 'workflow. Match binaries by source SHA, dirty status and actual addon SHA256.')
+          assert old in text
+          doc.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
+
+          workflow = Path('.github/workflows/release-beta043r2-ota.yml')
+          text = workflow.read_text(encoding='utf-8-sig')
+          old = "          Invoke-WebRequest $llvmUrl -OutFile llvm-mingw.zip\n          Expand-Archive llvm-mingw.zip -DestinationPath toolchain"
+          new = "          Invoke-WebRequest $llvmUrl -OutFile llvm-mingw.zip\n          $expectedLlvmSha256 = 'AE601F4E0F72BBDF441AD2DF8BB16F037E2E9251559EA6B37B4057AEF39C06C3'\n          $actualLlvmSha256 = (Get-FileHash -Algorithm SHA256 llvm-mingw.zip).Hash\n          if ($actualLlvmSha256 -ne $expectedLlvmSha256) { throw \"llvm-mingw SHA256 mismatch: $actualLlvmSha256\" }\n          Expand-Archive llvm-mingw.zip -DestinationPath toolchain"
+          assert old in text
+          text = text.replace(old, new)
+          old = "          ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT\n          if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }"
+          new = "          ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT\n          if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }\n          $zhAddon = Get-ChildItem build -File -Filter '*beta0.4.3r2*@野生的装机宅-Bilibili.addon64'\n          $enAddon = Get-ChildItem build -File -Filter '*beta0.4.3r2*@野生的装机宅-Bilibili.en.addon64'\n          if (@($zhAddon).Count -ne 1 -or @($enAddon).Count -ne 1) { throw 'r2 build identity filenames missing' }"
+          assert old in text
+          workflow.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
+
+          validate = Path('.github/workflows/beta042-validate.yml')
+          text = validate.read_text(encoding='utf-8-sig')
+          text = text.replace('name: Validate beta0.4.3', 'name: Validate beta0.4.3r2')
+          text = text.replace('group: beta043-${{ github.ref }}', 'group: beta043r2-${{ github.ref }}')
+          text = text.replace('"build=beta0.4.3"', '"build=beta0.4.3r2"')
+          text = text.replace('name: beta043-test-package', 'name: beta043r2-test-package')
+          validate.write_text(text, encoding='utf-8', newline='\n')
+
+          # Release invariants: no product/runtime identity is allowed to remain at plain beta0.4.3.
+          assert 'kAddonVersion = "beta0.4.3r2"' in Path('src/nr_before_sr.cpp').read_text(encoding='utf-8')
+          assert 'kBuildIdentity = "beta0.4.3r2"' in Path('src/nr_before_sr.cpp').read_text(encoding='utf-8')
+          assert 'FILEVERSION 0,4,3,2' in Path('src/nr_before_sr.rc').read_text(encoding='utf-8')
+          assert "\$Version = 'beta0.4.3'" not in Path('scripts/package-beta03.ps1').read_text(encoding='utf-8')
+      - name: Check and commit ordinary source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git status --short
+          git config user.name smartLanny
+          git config user.email 51014844+smartLanny@users.noreply.github.com
+          git add src/nr_before_sr.cpp src/nr_before_sr.rc scripts/build.ps1 scripts/package-beta03.ps1 config/nr_before_sr.ini docs/UPDATE.zh-CN.txt docs/UPDATE.en.txt docs/043R2_COMPAT_FEEDBACK.md .github/workflows/release-beta043r2-ota.yml .github/workflows/beta042-validate.yml
+          git commit -m 'release: freeze beta0.4.3r2 identity and pin toolchain digest'
+          git push origin HEAD:codex/043r2-release-finalize
