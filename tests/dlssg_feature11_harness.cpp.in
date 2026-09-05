@@ -32,6 +32,7 @@ unsigned int uncertain_calls = 0;
 unsigned int null_calls = 0;
 unsigned int downstream_core_calls = 0;
 bool downstream_saw_nested = false;
+unsigned int fingerprint_calls = 0;
 
 FeatureRecord FindFeature(const NgxHandle *handle) {
     return tracked.handle == handle ? tracked : FeatureRecord{};
@@ -86,6 +87,10 @@ void LatchUnknownFeatureHandle(const char *, const char *,
     ++uncertain_calls;
 }
 void ObserveNullEvaluateHandle(const char *) { ++null_calls; }
+void DumpUnknownEvaluateFingerprint(const char *, ID3D12GraphicsCommandList *,
+                                    const NgxHandle *, const NgxParams *) {
+    ++fingerprint_calls;
+}
 void FinishFeature1CreateObservation(bool creating_feature1, NgxResult,
                                      const NgxHandle *, unsigned long long,
                                      const char *) {
@@ -153,7 +158,7 @@ ReleaseFeatureFn g_original_dlssg_release = &NativeDlssgRelease;
 void Reset() {
     tracked = {};
     remember_calls = forget_calls = uncertain_calls = null_calls = 0;
-    downstream_core_calls = 0;
+    downstream_core_calls = fingerprint_calls = 0;
     downstream_saw_nested = false;
     native_create_success = true;
     g_dlssg_create_entries = g_dlssg_evaluate_calls = 0;
@@ -192,7 +197,8 @@ int main() {
     Reset();
     assert(HookDlssgEvaluate(&command_list, &feature11_handle, &params,
                              nullptr) == kNgxSuccess);
-    assert(uncertain_calls == 1 && remember_calls == 0);
+    assert(uncertain_calls == 1 && remember_calls == 0 &&
+           fingerprint_calls == 1);
     assert(downstream_saw_nested);
 
     Reset();

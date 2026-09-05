@@ -1,12 +1,12 @@
-# beta0.3.7-hd2-exp3 experimental feedback build quick install
+# beta0.3.8-hd2-exp1 experimental feedback build quick install
 
 Press **F8** or click Collect feedback ZIP in the addon panel. Keep the camera still and wait for completion. `feedback.zip` normally goes under Documents/DLSS5-Feedback. If that directory cannot be created, collection tries DLSS5-Feedback under the system temporary directory; copy the actual path from the panel. A partial bundle includes missing-item reasons and can still be submitted. If the game cannot start, double-click `Collect-Feedback.cmd` beside `collect-feedback.ps1`. This offline collector creates `feedback-offline.zip` under Documents and needs no administrator privileges.
 
-This is the separate HD2 Feature 11 lifecycle experiment and has not passed an HD2 compatibility test. The current full package contains **seven files**. Verify `beta0.3.7-hd2-exp3` in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
+This is the separate HD2 Feature 11 lifecycle experiment and has not passed an HD2 compatibility test. The core full-install payload contains **seven files**; an official signed archive also includes verification files listed in its manifest. Verify `beta0.3.8-hd2-exp1` in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
 
 This version retains the non-finite exposure fallback, descriptor, strength-migration and UI fixes, and adds duplicate-NR detection, a low-address NGX hook relay-allocation fix, and module preflight before the first SR Create. The Forza report has no crash dump, so only the reduced startup risk surface is established; each game still needs retesting.
 
-Add-on: **DLSS 5 AI Rendering Upscaling beta0.3.7-hd2-exp3 [Feature11 experiment; unverified]**
+Add-on: **DLSS 5 AI Rendering Upscaling beta0.3.8-hd2-exp1 [Feature11 experiment; unverified]**
 
 Author: **@野生的装机宅 Bilibili**
 
@@ -32,14 +32,14 @@ translation layer such as OptiScaler are outside this add-on's direct scope.
    If the exact file `renodx-dlss5.addon64` is present, move it outside the game
    directory too; it is another NR owner and cannot coexist with this add-on.
 4. Keep these files **together in that same directory**:
-   - `DLSS5-AI-Rendering-Upscaling-beta0.3.7-hd2-exp3-@野生的装机宅-Bilibili.en.addon64`
+   - `DLSS5-AI-Rendering-Upscaling-beta0.3.8-hd2-exp1-@野生的装机宅-Bilibili.en.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - `nvngx_dlssnr.dll` from the matching GPU package
    - `Collect-Feedback.cmd`
    - `collect-feedback.ps1`
 5. Start the game and verify that the ReShade Add-ons page shows
-   `beta0.3.7-hd2-exp3`, its experimental status, the author and official
+   `beta0.3.8-hd2-exp1`, its experimental status, the author and official
    release address at the top of this add-on's panel.
 
 The add-on loads its configuration, bridge and NR runtime from its own folder.
@@ -104,12 +104,13 @@ ShortFuse/RHI NR add-on at the same time.
 
 ## Package contents
 
-For simple copy-in installation, each current full package contains **seven files**:
+For simple copy-in installation, the core full-install payload contains **seven files**:
 the add-on, bridge DLL, configuration, matching NR runtime, this README, and the
 offline collector pair `Collect-Feedback.cmd` and `collect-feedback.ps1`.
-Separate signature files, verification scripts, and duplicate documents are no
-longer bundled. If the official release post publishes a ZIP SHA-256, that value
-can be used to check the downloaded archive.
+Official signed archives additionally carry one source record, manifest and
+signature, public key, offline verifier and verification notes so every payload
+file can be tied to the frozen commit. The manifest is the exact inventory; the
+release page also publishes the ZIP SHA-256.
 
 ## Parameters and stage diagnostics
 

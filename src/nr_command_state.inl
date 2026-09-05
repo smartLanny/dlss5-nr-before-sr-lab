@@ -856,14 +856,14 @@ void OnCommandStateInitDevice(reshade::api::device *device) {
         Log("[command-state] device meta-command contract: known=%d initDirty=0x%X executeDirty=0x%X supportedMask=0x%X.",
             meta.known ? 1 : 0, meta.initialization_dirty, meta.execution_dirty, kCommandStateCoveredDomains);
     }
-    // The shipped configuration starts enabled and therefore retains early
-    // command-signature coverage. A deliberately disabled installation keeps
-    // the narrower native startup surface requested by the master switch.
-    if (!g_enabled_fast.load(std::memory_order_acquire)) {
-        g_command_signature_start_deferred.store(true,
-                                                 std::memory_order_release);
-        return;
-    }
+    // Command signatures can be created early and reused much later by
+    // ExecuteIndirect on the SR carrier list. Observe their immutable
+    // descriptions at device creation regardless of the transient master
+    // switch snapshot. Delaying this hook produces permanently unknowable
+    // signatures and alternating native/NR frames when a game later uses
+    // those signatures for weather, map or UI work.
+    g_command_signature_start_deferred.store(false,
+                                             std::memory_order_release);
     CommandStateHookRequest request{&g_state_CreateCommandSignature,
         reinterpret_cast<void *>(native->lpVtbl->CreateCommandSignature), g_state_detours_CreateCommandSignature};
     if (PublishCommandStateHooks(&request, 1))
@@ -873,8 +873,9 @@ void OnCommandStateInitDevice(reshade::api::device *device) {
 bool EnsureCommandSignatureHook(reshade::api::device *device) {
     if (device == nullptr || device->get_api() != reshade::api::device_api::d3d12)
         return false;
-    // If the add-on started disabled, the first later NR request publishes the
-    // hook here. Signatures made in the disabled interval remain untrusted.
+    // Idempotently verify the early observer before publishing the wider
+    // command-list state hooks. This is a recovery path for devices that were
+    // registered after the normal init callback, not a delayed-start policy.
     OnCommandStateInitDevice(device);
     auto *native = reinterpret_cast<ID3D12Device *>(device->get_native());
     if (native == nullptr) return false;

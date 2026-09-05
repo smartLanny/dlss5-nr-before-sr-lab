@@ -42,13 +42,13 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.3.7-hd2-exp3";
+constexpr const char *kAddonVersion = "beta0.3.8-hd2-exp1";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.3.7-hd2-exp3";
+constexpr const char *kBuildIdentity = "beta0.3.8-hd2-exp1";
 constexpr const char *kEditionIdentity =
-    "HD2 Feature 11 observer experiment exp3; compatibility unverified";
+    "HD2 Feature 11 observer experiment exp1; compatibility unverified";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -58,7 +58,29 @@ constexpr const char *kEditionIdentity =
 constexpr const char *kSourceCommit = NR_SOURCE_COMMIT;
 constexpr bool kSourceDirty = NR_SOURCE_DIRTY != 0;
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
+constexpr const char *kAddonAuthorAscii = "@Bilibili UID 941799";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
+
+constexpr bool ShouldUseChineseUi(bool chinese_build, bool font_present,
+                                  bool has_zhong, bool has_wen,
+                                  bool has_lian, bool has_zai) noexcept {
+    return chinese_build && font_present && has_zhong && has_wen &&
+           has_lian && has_zai;
+}
+static_assert(!ShouldUseChineseUi(true, false, true, true, true, true));
+static_assert(!ShouldUseChineseUi(true, true, true, true, false, true));
+static_assert(ShouldUseChineseUi(true, true, true, true, true, true));
+
+bool UseChineseUi() noexcept {
+    if constexpr (!kChineseUi) return false;
+    ImFont *font = ImGui::GetFont();
+    return ShouldUseChineseUi(
+        kChineseUi, font != nullptr,
+        font != nullptr && font->IsGlyphInFont(static_cast<ImWchar>(0x4E2D)),
+        font != nullptr && font->IsGlyphInFont(static_cast<ImWchar>(0x6587)),
+        font != nullptr && font->IsGlyphInFont(static_cast<ImWchar>(0x94FE)),
+        font != nullptr && font->IsGlyphInFont(static_cast<ImWchar>(0x8F7D)));
+}
 
 struct NgxHandle {
     std::uint32_t id;
@@ -490,6 +512,11 @@ std::atomic<unsigned long long> g_feature_generation{1};
 // rather than risk submitting our Feature 18 beside an untracked RR feature.
 std::atomic<bool> g_feature_tracking_uncertain{false};
 std::atomic<unsigned long long> g_null_feature_evaluations{0};
+// HD2 can create an opaque NGX handle before a late module's lifecycle hooks
+// are published. Keep the guard fail-closed, but preserve enough bounded,
+// read-only evidence to distinguish SR, frame generation and other features in
+// the next feedback bundle.
+std::atomic<unsigned long long> g_unknown_evaluate_fingerprints{0};
 // Counts the first observable boundary of every outermost Feature 1 Create.
 // A distinct RR-capable module discovered before this counter changes is a
 // deferred startup dependency, not by itself evidence that a processed SR
@@ -822,6 +849,75 @@ void DumpEvaluate(const NgxParams *params, const FeatureRecord &feature,
     LogFloat(params, "DLSS.Pre.Exposure");
     LogFloat(params, "DLSS.Exposure.Scale");
     LogInt(params, "Reset");
+}
+
+void LogAddressOwner(const void *address, unsigned int frame) {
+    if (address == nullptr) return;
+    MEMORY_BASIC_INFORMATION memory{};
+    if (VirtualQuery(address, &memory, sizeof(memory)) == 0 ||
+        memory.AllocationBase == nullptr) {
+        Log("    caller[%u] address=%p module=<unresolved>", frame, address);
+        return;
+    }
+    wchar_t path[MAX_PATH] = {};
+    const DWORD length = GetModuleFileNameW(
+        static_cast<HMODULE>(memory.AllocationBase), path,
+        static_cast<DWORD>(std::size(path)));
+    const wchar_t *leaf = length != 0 ? wcsrchr(path, L'\\') : nullptr;
+    leaf = leaf != nullptr ? leaf + 1 : (length != 0 ? path : L"<unknown>");
+    char leaf_utf8[MAX_PATH * 4] = {};
+    WideToUtf8(leaf, leaf_utf8, sizeof(leaf_utf8));
+    const auto base = reinterpret_cast<std::uintptr_t>(memory.AllocationBase);
+    const auto current = reinterpret_cast<std::uintptr_t>(address);
+    Log("    caller[%u] module=%s rva=0x%llX", frame, leaf_utf8,
+        static_cast<unsigned long long>(current - base));
+}
+
+void DumpUnknownEvaluateFingerprint(const char *source,
+                                    ID3D12GraphicsCommandList *command_list,
+                                    const NgxHandle *handle,
+                                    const NgxParams *params) {
+    const unsigned long long fingerprint =
+        g_unknown_evaluate_fingerprints.fetch_add(
+            1, std::memory_order_relaxed) + 1;
+    if (fingerprint > 3) return;
+
+    Log("--- HD2 unknown Evaluate fingerprint #%llu source=%s handle=%p "
+        "commandList=%p params=%p; diagnostic only, handle remains native ---",
+        fingerprint, source != nullptr ? source : "unknown",
+        static_cast<const void *>(handle), static_cast<void *>(command_list),
+        static_cast<const void *>(params));
+    void *frames[8] = {};
+    const USHORT captured = CaptureStackBackTrace(
+        0, static_cast<DWORD>(std::size(frames)), frames, nullptr);
+    for (USHORT frame = 0; frame < captured; ++frame)
+        LogAddressOwner(frames[frame], frame);
+    if (params == nullptr) return;
+
+    // Standard DLSS SR inputs.
+    LogResource(params, "Color");
+    LogResource(params, "MotionVectors");
+    LogResource(params, "Depth");
+    LogResource(params, "ExposureTexture");
+    LogResource(params, "Output");
+    LogUInt(params, "DLSS.Render.Subrect.Dimensions.Width");
+    LogUInt(params, "DLSS.Render.Subrect.Dimensions.Height");
+    LogFloat(params, "MV.Scale.X");
+    LogFloat(params, "MV.Scale.Y");
+    LogFloat(params, "Jitter.Offset.X");
+    LogFloat(params, "Jitter.Offset.Y");
+    LogInt(params, "Reset");
+
+    // Frame-generation discriminators used by current NGX integrations.
+    LogInt(params, "DLSSG.MultiFrameCount");
+    LogFloat(params, "DLSSG.CameraNear");
+    LogFloat(params, "DLSSG.CameraFar");
+    LogResource(params, "DLSSG.Backbuffer");
+    LogResource(params, "DLSSG.HUDLess");
+    LogResource(params, "DLSSG.HUDLessColor");
+    LogResource(params, "DLSSG.MotionVectors");
+    LogResource(params, "DLSSG.Depth");
+    LogResource(params, "DLSSG.Output");
 }
 
 // -------------------------------------------------------------------------
@@ -1269,7 +1365,7 @@ void ReloadConfig(bool force = false) {
         static bool migration_logged = false;
         if (!migration_logged) {
             migration_logged = true;
-            Log("Migrated legacy beta0.2 configuration to beta0.3.7-hd2-exp3 in memory: "
+            Log("Migrated legacy beta0.2 configuration to beta0.3.8-hd2-exp1 in memory: "
                 "default mode is now render-resolution NR -> SR; persisted=%d.",
                 migration_persisted ? 1 : 0);
         }
@@ -8092,6 +8188,8 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
     if (handle != nullptr && !g_inside_ngx_evaluate &&
         g_core_unknown_handle_guard.load(std::memory_order_acquire) &&
         FindFeature(handle).handle == nullptr) {
+        DumpUnknownEvaluateFingerprint(
+            "direct late-core Feature Evaluate", command_list, handle, params);
         LatchUnknownFeatureHandle(
             "direct late-core Feature Evaluate",
             "a non-null handle created before the late _nvngx lifecycle "
@@ -8125,6 +8223,8 @@ NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
         ObserveNullEvaluateHandle("direct DLSSD Feature Evaluate");
     if (handle != nullptr && !g_inside_ngx_evaluate &&
         FindFeature(handle).handle == nullptr) {
+        DumpUnknownEvaluateFingerprint(
+            "direct DLSSD Feature Evaluate", command_list, handle, params);
         LatchUnknownFeatureHandle(
             "direct DLSSD Feature Evaluate",
             "a non-null handle unknown to the lifecycle observer reached "
@@ -8160,6 +8260,8 @@ NgxResult HookDlssgEvaluate(ID3D12GraphicsCommandList *command_list,
         FindFeature(handle).handle == nullptr) {
         // Do not infer Feature 11 from the module name or mutable Evaluate
         // parameters. Only an observed successful Create may classify it.
+        DumpUnknownEvaluateFingerprint(
+            "direct DLSSG Feature Evaluate", command_list, handle, params);
         LatchUnknownFeatureHandle(
             "direct DLSSG Feature Evaluate",
             "a non-null handle unknown to the lifecycle observer reached "
@@ -9355,6 +9457,89 @@ bool InstallHooks(HMODULE ngx) {
     return true;
 }
 
+constexpr bool StartupLifecycleWatchNeedsRescan(
+    bool core_loaded, bool core_covered,
+    bool dlssd_loaded, bool dlssd_covered,
+    bool dlssg_loaded, bool dlssg_covered) {
+    return (core_loaded && !core_covered) ||
+           (dlssd_loaded && !dlssd_covered) ||
+           (dlssg_loaded && !dlssg_covered);
+}
+
+static_assert(StartupLifecycleWatchNeedsRescan(
+    true, false, false, false, false, false));
+static_assert(!StartupLifecycleWatchNeedsRescan(
+    true, true, false, false, false, false));
+
+void WatchStartupLifecycleModules() {
+    // HD2 loads its private NGX layers and begins evaluating an already-created
+    // handle inside the ordinary one-second Present rescan interval. For the
+    // first 30 seconds after primary SR hook publication, a background watcher
+    // detects newly loaded lifecycle modules at a much finer cadence. The
+    // regular observer transaction still publishes every hook, and unknown
+    // handles remain fail-closed; this only narrows the load-to-observer gap.
+    constexpr unsigned int kFastAttempts = 5000;
+    constexpr unsigned int kTotalAttempts = 7000;
+    Log("[HD2-startup-watch] active for up to 30 seconds; fast interval=2ms "
+        "then 10ms; unknown handles remain fail-closed.");
+    unsigned int rescans = 0;
+    // One publication attempt per newly observed module image is enough.
+    // FinishLateNgxModule deliberately remembers a failed image so a bad
+    // export/protection contract cannot trigger thousands of MinHook retries.
+    // The fast loop is only for discovering the load transition quickly.
+    HMODULE attempted_core = nullptr;
+    HMODULE attempted_dlssd = nullptr;
+    HMODULE attempted_dlssg = nullptr;
+    for (unsigned int attempt = 0; attempt < kTotalAttempts; ++attempt) {
+        const HMODULE core = GetModuleHandleW(L"_nvngx.dll");
+        const HMODULE dlssd = GetModuleHandleW(L"nvngx_dlssd.dll");
+        const HMODULE dlssg = GetModuleHandleW(L"nvngx_dlssg.dll");
+        const bool core_loaded = core != nullptr;
+        const bool dlssd_loaded = dlssd != nullptr;
+        const bool dlssg_loaded = dlssg != nullptr;
+        const bool core_covered =
+            g_core_lifecycle_hooks_ready.load(std::memory_order_acquire);
+        const bool dlssd_covered =
+            g_dlssd_lifecycle_hooks_ready.load(std::memory_order_acquire);
+        const bool dlssg_covered =
+            g_dlssg_lifecycle_hooks_ready.load(std::memory_order_acquire);
+        const bool new_uncovered_image =
+            (core_loaded && !core_covered && core != attempted_core) ||
+            (dlssd_loaded && !dlssd_covered && dlssd != attempted_dlssd) ||
+            (dlssg_loaded && !dlssg_covered && dlssg != attempted_dlssg);
+        if (new_uncovered_image && StartupLifecycleWatchNeedsRescan(
+                core_loaded, core_covered, dlssd_loaded, dlssd_covered,
+                dlssg_loaded, dlssg_covered)) {
+            if (core_loaded && !core_covered) attempted_core = core;
+            if (dlssd_loaded && !dlssd_covered) attempted_dlssd = dlssd;
+            if (dlssg_loaded && !dlssg_covered) attempted_dlssg = dlssg;
+            ++rescans;
+            PollNgxLifecycleModules(true);
+        }
+        if (core_loaded && dlssd_loaded && dlssg_loaded &&
+            g_core_lifecycle_hooks_ready.load(std::memory_order_acquire) &&
+            g_dlssd_lifecycle_hooks_ready.load(std::memory_order_acquire) &&
+            g_dlssg_lifecycle_hooks_ready.load(std::memory_order_acquire)) {
+            Log("[HD2-startup-watch] all three optional NGX lifecycle modules "
+                "covered after attempt=%u rescans=%u.", attempt + 1, rescans);
+            return;
+        }
+        if (g_module_observer_gap_detected.load(std::memory_order_acquire)) {
+            Log("[HD2-startup-watch] stopped after observer fault; attempt=%u "
+                "rescans=%u fault=%s.", attempt + 1, rescans,
+                ModuleObserverFaultName(static_cast<ModuleObserverFault>(
+                    g_module_observer_fault.load(std::memory_order_relaxed))));
+            return;
+        }
+        Sleep(attempt < kFastAttempts ? 2 : 10);
+    }
+    Log("[HD2-startup-watch] completed bounded startup window; rescans=%u "
+        "coreCovered=%d dlssdCovered=%d dlssgCovered=%d.", rescans,
+        g_core_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
+        g_dlssd_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
+        g_dlssg_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0);
+}
+
 DWORD WINAPI HookWorker(void *) {
     HMODULE pinned = nullptr;
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
@@ -9370,6 +9555,7 @@ DWORD WINAPI HookWorker(void *) {
             Log("Found SR NGX module: %ls", path);
             if (InstallHooks(ngx)) {
                 Log("NGX observer/AI-upscaling hooks active.");
+                WatchStartupLifecycleModules();
             } else {
                 Log("Hook installation failed; observer is inactive.");
             }
@@ -9594,8 +9780,9 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
     const ChainConfig next = SnapshotConfig();
     const bool before_sr = next.mode == 2;
     const bool has_pending = false;
-    const auto ui = [](const char *english, const char *chinese) {
-        return kChineseUi ? chinese : english;
+    const bool use_chinese_ui = UseChineseUi();
+    const auto ui = [use_chinese_ui](const char *english, const char *chinese) {
+        return use_chinese_ui ? chinese : english;
     };
 
     const bool shortfuse_loaded =
@@ -10203,7 +10390,7 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
             "Original", "NR proxy", "NR output", "Composited"};
         static const char *const diagnostic_stage_names_zh[] = {
             "原图", "NR 代理", "NR 输出", "合成结果"};
-        const char *const *diagnostic_stage_names = kChineseUi
+        const char *const *diagnostic_stage_names = use_chinese_ui
             ? diagnostic_stage_names_zh : diagnostic_stage_names_en;
         ImGui::TextDisabled(
             ui("ColorDiag #%llu (bounded display-linear): %u samples, %u invalid",
@@ -10342,14 +10529,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI渲染超分版 beta0.3.7-hd2-exp3 [Feature11实验，兼容性待验证] @野生的装机宅 Bilibili";
+    "DLSS 5 NR HD2 Experiment beta0.3.8-hd2-exp1 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
-    "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
-    "主键盘 - 参数截图、三种风格和实时画质调节，输入分辨率严格跟随游戏 DLSS 挡位；检测到"
-    "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
+    "Experimental HD2 startup lifecycle observer; compatibility is unverified. "
+    "Chinese controls fall back to English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Upscaling beta0.3.7-hd2-exp3 [Feature11 experiment; unverified] @野生的装机宅 Bilibili";
+    "DLSS 5 AI Rendering Upscaling beta0.3.8-hd2-exp1 [Feature11 experiment; unverified] | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Switches between output-resolution NR after Super Resolution and "
     "render-resolution NR before Super Resolution. Includes an F6 master "
@@ -10358,7 +10544,7 @@ extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "is detected and passed through strictly unmodified to prevent double reconstruction.";
 #endif
 extern "C" __declspec(dllexport) const char *AUTHOR =
-    "@野生的装机宅 Bilibili";
+    "Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *WEBSITE =
     "https://space.bilibili.com/941799";
 extern "C" __declspec(dllexport) const char *PROVENANCE_NOTICE =

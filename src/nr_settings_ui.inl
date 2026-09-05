@@ -9,7 +9,8 @@ void SettingsTooltip(const char *text) {
 }
 
 void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
-    const auto ui = [](const char *en, const char *zh) { return kChineseUi ? zh : en; };
+    const bool use_chinese_ui = UseChineseUi();
+    const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
     NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();
     if (color_policy_snapshot.status != NrColorPolicyStatus::Bypassed &&
         (has_pending || changed || color_policy_snapshot.mode != next.mode))
@@ -46,7 +47,7 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
                      "当前 SDR 或有界值域输入允许颜色跟随。"));
     } else {
         ImGui::TextWrapped("%s", NrColorPolicyStatusText(
-            color_policy_snapshot.status, kChineseUi));
+            color_policy_snapshot.status, use_chinese_ui));
     }
 #if !NR_HAS_DETAIL_STABILITY
     ImGui::BeginDisabled(current_color_policy &&
@@ -72,7 +73,7 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
                 "SR -> NR 不采用光照匹配。请求值已保留，切回 NR -> SR 后可恢复。"));
     } else {
         ImGui::TextWrapped("%s", NrColorPolicyStatusText(
-            color_policy_snapshot.status, kChineseUi));
+            color_policy_snapshot.status, use_chinese_ui));
     }
 #endif
 }
@@ -80,14 +81,18 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
 // The two maintained editions share the same small home screen. Technical
 // readouts remain available without putting implementation knobs on the home.
 void DrawSettings(reshade::api::effect_runtime *runtime) {
-    const auto ui = [](const char *en, const char *zh) { return kChineseUi ? zh : en; };
+    const bool use_chinese_ui = UseChineseUi();
+    const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
     static ChainConfig pending = {};
     static bool has_pending = false;
     ChainConfig next = has_pending ? pending : SnapshotConfig();
     bool changed = false;
     ImGui::SeparatorText(ui("DLSS 5 AI Rendering", "DLSS 5 AI 渲染"));
-    ImGui::TextDisabled("%s | %s", kAddonVersion, kAddonAuthor);
+    ImGui::TextDisabled("%s | %s", kAddonVersion,
+                        use_chinese_ui ? kAddonAuthor : kAddonAuthorAscii);
     ImGui::TextDisabled("%s", kOfficialReleaseUrl);
+    if (kChineseUi && !use_chinese_ui)
+        ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
     const auto reason = static_cast<BypassReason>(g_last_bypass_reason.load());
     if (g_generic_renodx_conflict.load(std::memory_order_acquire))
         ImGui::TextWrapped("%s", ui(

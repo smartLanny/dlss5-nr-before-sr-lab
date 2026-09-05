@@ -2,9 +2,9 @@
 
 Status: bounded Feature 11 lifecycle experiment; **no successful Helldivers 2
 native-SR/NR integration or compatibility claim has been established**.
-This checkout's formal diagnostic identity is `beta0.3.7-hd2-exp3` with edition
-label **HD2 Feature 11 observer experiment exp3; compatibility unverified**. It is compiled and packaged
-separately from ordinary beta0.3.7 so logs cannot confuse the two editions.
+This checkout's formal diagnostic identity is `beta0.3.8-hd2-exp1` with edition
+label **HD2 Feature 11 observer experiment exp1; compatibility unverified**. It is compiled and packaged
+separately from ordinary beta0.3.8 so logs cannot confuse the two editions.
 Updated on 2026-09-05.
 
 ## Supplied artifact
@@ -56,7 +56,7 @@ hook-enabling failure. The logs alone also do not identify the exact failing
 target or the reason Windows rejected that protection change. Do not attribute
 it to a protection product or anti-cheat without evidence.
 
-The beta0.3.7 diagnostic addition records each registered candidate target's name,
+The earlier diagnostic addition records each registered candidate target's name,
 address and `VirtualQuery` memory information after initial enable failure.
 It also records operation, published/queued state, and tracked native
 Feature 1 Evaluate calls that reach feature lookup. Master-off, another NR
@@ -67,7 +67,7 @@ conditions cannot establish that native SR is absent. It explicitly calls enable
 target failed. This improves the next investigation; it is not a workaround,
 a successful hook installation, or a per-target proof.
 
-The exp3 source also carries the common r3 relay-allocation fix for MinHook
+The current source also carries the common relay-allocation fix for MinHook
 status 9 (`MH_ERROR_MEMORY_ALLOC`) when an NGX module is loaded at an unusually
 low address. The supplied HD2 logs instead fail later with status 10
 (`MH_ERROR_MEMORY_PROTECT`). Expanding the signed-rel32-safe relay search does
@@ -97,14 +97,30 @@ injection path, or use the supplied bridge's COM/vtable substitution. It can
 only address the specific case where a real Feature 11 wrapper-to-core sequence
 previously arrived as an unknown non-null handle.
 
-## beta0.3.7-hd2-exp3 confirmation procedure
+The latest HD2 feedback proves a narrower startup race: `_nvngx.dll` and
+`nvngx_dlssg.dll` appeared after the primary SR hooks, but their first unknown
+Evaluate arrived inside the normal one-second Present rescan interval. The new
+startup watcher checks only for those optional module arrivals every 2 ms for
+the first 10 seconds, then every 10 ms for another 20 seconds. Hook publication
+still uses the existing serialized transaction. This reduces the measured
+window but cannot mathematically eliminate a DLL-load-to-Create race, so the
+edition remains experimental.
 
-Use the `beta0.3.7-hd2-exp3` addon and its matching log on a clean Helldivers 2 launch,
+If an unknown non-null handle still arrives, the first three occurrences now
+record a bounded read-only fingerprint: standard SR resources and dimensions,
+DLSSG discriminators, and caller module names with RVAs. The handle is still
+passed to the native runtime unchanged and the add-on still fails closed. These
+records are evidence for the next decision; they do not classify the handle.
+
+## beta0.3.8-hd2-exp1 confirmation procedure
+
+Use the `beta0.3.8-hd2-exp1` addon and its matching log on a clean Helldivers 2 launch,
 with `zz-hd2-dlss5-typeless-bridge.addon64` absent. Preserve the supplied
 bridge only as an inspection reference; its confirmed SHA-256 is
 `6296E34825196AD5EBF4FAFD86F0089E06C09FF5C57BB2D9748728157C57E5E2`.
 
 Before judging image quality, the log must show `MH_EnableHook all status=0`,
+an `[HD2-startup-watch]` line,
 an initial or late `DLSSG Feature 11 lifecycle` coverage line, and a nonzero
 `F1-evaluate` count in the panel or `[module] lazy rescan` line with this addon
 enabled and early bypasses resolved. A loaded DLL, menu setting, Feature 11

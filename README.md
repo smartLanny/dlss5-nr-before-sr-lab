@@ -1,7 +1,7 @@
 # DLSS5 NR-Before-SR Lab
 
-New beta0.3.7-hd2-exp3 installations request final strength **1.2** and colour follow
-**0.5**. Existing values, including zero, migrate from the previously selected
+New beta0.3.8-hd2-exp1 installations request final strength **1.2** and colour follow
+**0.75**. Existing values, including zero, migrate from the previously selected
 mode. Unknown HDR inputs still have effective colour follow zero. Hover over
 controls for explanations; the 1.0 post-SR comparison preset is a comparison
 baseline, not the new installation default.
@@ -18,16 +18,19 @@ Runtime hotkeys are `F6` for the master comparison switch, `F8` for a local
 feedback ZIP, and main keyboard `-` for a ReShade screenshot whose filename
 records the current build, chain and selected settings.
 
-The beta0.3.7-hd2-exp3 update is a separately identified HD2 diagnostic
+The beta0.3.8-hd2-exp1 update is a separately identified HD2 diagnostic
 experiment. It retains the Feature 11 lifecycle observer and its independent
-publication boundary, and it does not copy the supplied typeless bridge's COM
-or vtable substitution. It has not passed an HD2 compatibility test.
+publication boundary, adds a bounded high-frequency startup watcher for late
+NGX modules, and records the first three unknown Evaluate parameter/caller
+fingerprints. Unknown handles remain native and fail closed. It does not copy
+the supplied typeless bridge's COM or vtable substitution and has not passed an
+HD2 compatibility test.
 
-This experiment also carries the ordinary r3 maintenance fixes: a compact
+This experiment also carries the beta0.3.8 maintenance fixes: a compact
 processing-mode UI, bounded final-strength controls, exact detection of a
 competing `renodx-dlss5.addon64`, safe low-address MinHook relay allocation with
 signed-rel32 validation, lifecycle preflight before the first SR Create, and a
-deferred command-signature hook only when the process starts with NR disabled.
+early command-signature observer even when configuration has not loaded yet.
 Mode 2 remains the default and unknown-HDR colour protection is unchanged. The collector
 cancels only unarmed session-owned requests on timeout and gives
 current bypass status priority over pending settings. It does not change image
@@ -41,14 +44,15 @@ trademarks of their respective owners.
 
 Project author: **@野生的装机宅 Bilibili**. The only official release location
 is https://space.bilibili.com/941799. The author and official address remain
-embedded in release binaries and the add-on UI. Each full distribution archive
+embedded in release binaries and the add-on UI. The core full-install payload
 contains seven files: the add-on, bridge DLL, configuration, matching NR runtime,
 plain-text instructions (`说明.txt` in Chinese or `Instructions.txt` in English),
 `Collect-Feedback.cmd`, and `collect-feedback.ps1`.
-Small update archives contain four files: the add-on, the plain-text instructions, and
+The core update payload contains four files: the add-on, the plain-text instructions, and
 the two offline collection scripts. Updates reuse an existing compatible full
 installation's runtime, bridge and configuration; they are not first-install
-packages. Optional ZIP hashes may be published with the official release post.
+packages. Official signed archives add verification files; their exact contents
+are listed by the signed manifest, and the release page publishes the ZIP hash.
 See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for the explicit prohibition on
 unauthorized automated builds, rebranding and modified redistribution.
 
@@ -114,8 +118,8 @@ implementations inside this project.
   documents remain source documentation and are not the packaged instructions.
 - `scripts/validate-codec-shader.ps1`: compiles all embedded HLSL entry points
   with the same Shader Model 5.0 compiler contract used at runtime.
-- `scripts/Verify-ReleaseManifest.ps1`: optional internal legacy verifier; it is
-  retained for reproducibility but is no longer bundled in simple release ZIPs.
+- `scripts/Verify-ReleaseManifest.ps1`: offline verifier bundled once with official
+  signed packages; lightweight development archives may omit it.
 
 ## Build prerequisites
 
