@@ -9,11 +9,14 @@ source = (root / "src" / "nr_before_sr.cpp").read_text(encoding="utf-8")
 guides = (root / "src" / "nr_guide_contract.h").read_text(encoding="utf-8")
 config = (root / "config" / "nr_before_sr.ini").read_text(encoding="utf-8")
 
+# The branch OTA uses its dedicated packager/instructions. The old stable
+# installer, update documents and default INI are intentionally not shipped.
 current_identity_files = {
     "source": source,
     "resource": (root / "src" / "nr_before_sr.rc").read_text(encoding="utf-8"),
     "build": (root / "scripts" / "build.ps1").read_text(encoding="utf-8-sig"),
-    "package": (root / "scripts" / "package-beta03.ps1").read_text(encoding="utf-8-sig"),
+    "package": (root / "scripts" / "package-044-test1.py").read_text(encoding="utf-8"),
+    "candidate notes": (root / "docs/releases/beta0.4.4-test1.md").read_text(encoding="utf-8"),
     "feedback collector": (root / "scripts" / "collect-feedback.ps1").read_text(encoding="utf-8-sig"),
     "crash collector": (root / "scripts" / "collect-crash-feedback.ps1").read_text(encoding="utf-8-sig"),
     "config": config,
@@ -31,23 +34,22 @@ identity_requirements = {
     "source": ['kAddonVersion = "beta0.4.4-test1"', 'kBuildIdentity = "beta0.4.4-test1"',
                "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI)",
                "DLSS 5 AI Rendering Perfect Chain beta0.4.4-test1"],
-    "resource": ["FILEVERSION 0,4,3,3", "PRODUCTVERSION 0,4,3,3",
-                 '"0.4.3r3 beta\\0"', "beta0.4.4-test1-@"],
+    "resource": ["FILEVERSION 0,4,4,1", "PRODUCTVERSION 0,4,4,1",
+                 '"0.4.4-test1 beta\\0"', "beta0.4.4-test1-@", "VS_FF_PRERELEASE"],
     "build": ["DLSS5-AI渲染超分版-beta0.4.4-test1-@",
               "DLSS5-AI-Rendering-Upscaling-beta0.4.4-test1-@"],
-    "package": ["$Version = 'beta0.4.4-test1'",
-                "DLSS5-AI渲染超分版-beta0.4.4-test1-@",
-                "DLSS5-AI-Rendering-Upscaling-beta0.4.4-test1-@"],
+    "package": ["VERSION='beta0.4.4-test1'", "nr-branch-ota-v1", "D3D12-x64", "sourceCommit", "sourceDirty"],
+    "candidate notes": ["beta0.4.4-test1", "D3D12", "不含 DX11"],
     "feedback collector": ["collector_version = 'beta0.4.3'"],
     "crash collector": ["beta0.4.3-crash-evidence-2"],
-    "config": ["beta0.4.4-test1 community maintenance release"],
+    "config": ["beta0.4.3r3 community maintenance release"],
     "README": ["beta0.4.3"],
     "Chinese install": ["beta0.4.3"],
     "English install": ["beta0.4.3"],
     "Chinese install markdown": ["beta0.4.3"],
     "English install markdown": ["beta0.4.3"],
-    "Chinese update": ["beta0.4.4-test1"],
-    "English update": ["beta0.4.4-test1"],
+    "Chinese update": ["beta0.4.3r3"],
+    "English update": ["beta0.4.3r3"],
     "release notes": ["beta0.4.3"],
 }
 for label, tokens in identity_requirements.items():
@@ -106,7 +108,6 @@ if "ConfigVersion=4" not in config:
 if "WorkMode=1" not in config or "ProxyCurve=1" not in config:
     raise SystemExit("recommended perfect-chain defaults are missing")
 
-# DRS active extents must reset mapping but not allocate a new temporal context.
 storage = re.search(r"SameNrGuideStorageContract[\s\S]*?\n}\n", guides)
 mapping = re.search(r"SameNrGuideMappingContract[\s\S]*?\n}\n", guides)
 if not storage or not mapping:
