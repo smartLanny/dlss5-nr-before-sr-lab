@@ -57,5 +57,20 @@ int main() {
             CHECK(d.action==Action::Apply && d.generated<=maximum && d.multiplier==d.generated+1);
         }
     }
+    c=Good(); c.backend=Backend::ExternalAda; s.controlOwned=true;
+    CHECK(Decide({Mode::Off,2,0},c,s).reason==Reason::ExternalUnverified);
+    CHECK(Decide({Mode::FollowGame,2,0},c,s).reason==Reason::ExternalUnverified);
+    s.transition=true; CHECK(Decide(r,c,s).reason==Reason::ExternalUnverified);
+    c.externalAbiVerified=true;
+    CHECK(Decide(r,c,s).action==Action::Suspend);
+    s.transition=false;
+    CHECK(Decide({Mode::Off,2,0},c,s).action==Action::Apply);
+    CHECK(Decide({Mode::FollowGame,2,0},c,s).action==Action::Release);
+    CHECK(Decide(r,c,s).reason==Reason::ExternalUnverified);
+    c=Good(); c.generation=0;
+    CHECK(Decide({Mode::FollowGame,2,0},c,s).reason==Reason::Unavailable);
+    c=Good(); c.backend=static_cast<Backend>(999);
+    CHECK(Decide(r,c,s).reason==Reason::Unavailable);
+    CHECK(Decide({Mode::FollowGame,2,0},c,s).reason==Reason::Unavailable);
     std::printf("framegen: %d checks passed\n",checks);
 }

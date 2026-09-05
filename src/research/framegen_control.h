@@ -32,9 +32,17 @@ struct Decision {
     Mode mode = Mode::FollowGame;
     std::uint32_t multiplier = 0, generated = 0, targetFps = 0;
 };
+inline bool KnownBackend(Backend b) {
+    return b == Backend::NativeDlssG || b == Backend::ExternalAda ||
+        b == Backend::Fsr || b == Backend::Xe;
+}
 inline Decision Release(const Caps& c, const Conditions& s, Reason why) {
     if (!s.controlOwned) return {Action::None, why};
     if (!c.ownerKnown) return {Action::Rejected, Reason::UnknownOwner};
+    if (!KnownBackend(c.backend) || !c.generation)
+        return {Action::Rejected, Reason::Unavailable};
+    if (c.backend == Backend::ExternalAda && !c.externalAbiVerified)
+        return {Action::Rejected, Reason::ExternalUnverified};
     if (!c.releaseSupported) return {Action::Rejected, Reason::ReleaseUnsupported};
     if (!s.atSafeBoundary) return {Action::Deferred, Reason::UnsafeBoundary};
     return {Action::Release, why};
@@ -45,8 +53,12 @@ inline Decision Decide(Request r, const Caps& c, const Conditions& s) {
     if (r.mode == Mode::FollowGame) return Release(c,s,Reason::FollowGame);
     if (!s.offlineAllowed || s.conflict) return Release(c,s,Reason::UnsafeSession);
     if (!c.ownerKnown) return {Action::Rejected,Reason::UnknownOwner};
-    if (!c.available || c.backend == Backend::Unknown || !c.generation)
+    if (!c.available || !KnownBackend(c.backend) || !c.generation)
         return Release(c,s,Reason::Unavailable);
+    // Even Off/Release/Suspend require a verified callable external ABI.
+    // Timing failure may still allow disabling, but not ABI/layout failure.
+    if (c.backend == Backend::ExternalAda && !c.externalAbiVerified)
+        return {Action::Rejected,Reason::ExternalUnverified};
     if (r.mode != Mode::Off && r.mode != Mode::Fixed && r.mode != Mode::Dynamic)
         return {Action::Rejected,Reason::RequestInvalid};
     // Safety suspension precedes F8/UI locks. This controls only an owned path.
