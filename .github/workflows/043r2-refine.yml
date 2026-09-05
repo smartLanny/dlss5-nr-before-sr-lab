@@ -1,0 +1,83 @@
+name: Finalize reviewed r2 source
+on:
+  push:
+    branches: [codex/043r2-compat-feedback-ux]
+    paths: [.github/workflows/043r2-refine.yml]
+permissions:
+  contents: write
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Integrate reviewed refinements, validate, publish blobs without moving refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import hashlib,json,os,subprocess,urllib.request
+          from pathlib import Path
+          assert os.environ['GITHUB_REPOSITORY']=='smartLanny/dlss5-nr-before-sr-lab'
+          assert os.environ['GITHUB_REF']=='refs/heads/codex/043r2-compat-feedback-ux'
+          lines=Path('.github/workflows/043r2-stage.yml').read_text().splitlines()
+          start=lines.index('        run: |')+1
+          script='\n'.join(line[10:] for line in lines[start:])
+          prefix=script[:script.index("subprocess.run(['git','diff','--check']")]
+          scope={};exec(compile(prefix,'reviewed-stage','exec'),scope)
+          texts,edit,blob=scope['texts'],scope['edit'],scope['blob']
+          seq='src/nr_f8_sequence.inl'
+          edit(seq,'''    const auto status=g_feedback_status.load();
+              if(status==0)return;
+              char path[4096]={},reason[160]={};
+              AcquireSRWLockShared(&g_feedback_lock);''',
+              '''    char path[4096]={},reason[160]={};
+              char submission[nr_feedback_ticket::kCapacity] = {};
+              AcquireSRWLockShared(&g_feedback_lock);
+              const auto status=g_feedback_status.load();''')
+          edit(seq,'''    nr_bundle::CopyText(reason,sizeof(reason),nr_core_feedback::g_reason);
+              ReleaseSRWLockShared(&g_feedback_lock);''',
+              '''    nr_bundle::CopyText(reason,sizeof(reason),nr_core_feedback::g_reason);
+              nr_bundle::CopyText(submission,sizeof(submission),nr_core_feedback::g_submission);
+              ReleaseSRWLockShared(&g_feedback_lock);
+              if(status==0)return;''')
+          edit(seq,'''        char submission[nr_feedback_ticket::kCapacity] = {};
+                  AcquireSRWLockShared(&g_feedback_lock);
+                  nr_bundle::CopyText(submission, sizeof(submission), nr_core_feedback::g_submission);
+                  ReleaseSRWLockShared(&g_feedback_lock);
+          ''','')
+          ui='src/nr_settings_ui.inl'
+          for en,zh,key in [('Picture','画质','picture'),('Feedback','反馈与报告','feedback'),('Diagnostics','诊断','diagnostics')]:
+              edit(ui,f'BeginTabItem(ui("{en}", "{zh}"))',f'BeginTabItem(ui("{en}###nr-{key}", "{zh}###nr-{key}"))')
+          t='scripts/validate-043r2.py';texts[t]=Path(t).read_text()
+          # Actual production ActiveTransferStrength is unified. The legacy
+          # post field is normalized to it; do not invent a separate v4 control.
+          edit(t,'check(ImGui::observed==0.35f && next.transfer_strength==1.2f,"post UI shows post strength without clobbering pre");',
+              'check(ImGui::observed==1.2f && next.post_transfer_strength==0.35f,"post UI uses actual unified strength and leaves dormant legacy field untouched until edit");')
+          edit(t,"    assert ui.count('BeginTabItem(')==3 and 'nr-main-tabs' in ui",'''    assert ui.count('BeginTabItem(')==3 and ui.count('EndTabItem(')==3 and 'nr-main-tabs' in ui
+              status_ui=definition(sequence,'void DrawCoreStatus(')
+              release=status_ui.index('ReleaseSRWLockShared(&g_feedback_lock)')
+              assert status_ui.index('nr_core_feedback::g_submission') < release
+              assert status_ui.index('const auto status=g_feedback_status.load()') < release
+              assert 'return config.transfer_strength;' in definition(source,'float ActiveTransferStrength(')
+          ''')
+          ci='.github/workflows/beta042-validate.yml'
+          anchor="          if ($LASTEXITCODE -ne 1 -or ($negative -join \"`n\") -notmatch 'native/snapshot FP16 bytes') { throw 'Post-SR negative control did not reject the exact wrong pixel' }"
+          edit(ci,anchor,anchor+"\n          $global:LASTEXITCODE = 0\n          Write-Host 'Expected wrong-byte control rejected'")
+          report='scripts/feedback-report.py';texts[report]=Path(report).read_text()
+          edit(report,"if 'device removed' in evidence or 'device hung' in evidence:",
+              "if any(value in evidence for value in ('device removed', 'device hung', 'device_removed', 'device_hung')):")
+          for p,text in texts.items():Path(p).write_text(text,encoding='utf-8',newline='\n')
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['python3','scripts/validate-043r2.py','--compiler','g++'],check=True)
+          subprocess.run(['python3','scripts/validate-bug-sweep.py','--compiler','g++'],check=True)
+          subprocess.run(['python3','-m','unittest','discover','-s','tests','-p','test*feedback*.py','-v'],check=True)
+          subprocess.run(['python3','tests/test_f8_parser.py'],check=True)
+          for p,text in texts.items():
+              request=urllib.request.Request('https://api.github.com/repos/smartLanny/dlss5-nr-before-sr-lab/git/blobs',
+                  data=json.dumps({'content':text,'encoding':'utf-8'}).encode(),
+                  headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'},method='POST')
+              with urllib.request.urlopen(request,timeout=30) as response:sha=json.load(response)['sha']
+              assert sha==blob(text.encode('utf-8'))
+              print('REVIEW_BLOB '+json.dumps({'path':p,'mode':'100644','type':'blob','sha':sha}),flush=True)
