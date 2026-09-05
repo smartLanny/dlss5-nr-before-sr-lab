@@ -12,19 +12,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Print bounded source indexes and descriptor contracts
+      - name: Inspect actual strength, reset completion and dispatch code
         shell: python
         run: |
           from pathlib import Path
-          s=Path('src/nr_before_sr.cpp').read_text().splitlines()
-          keys=['ClassifyPostSrStorage','SupportsPostSrStorage','snapshots_native_output','snapshot_heap','FindOrCreateSlot(', 'PostSrStorageContract','suppress_transfer_this_frame','void DispatchCodec(', 'void CombineCS(', 'void FeedbackAppendActivity(']
-          for i,line in enumerate(s):
-              if any(k in line for k in keys): print(f'INDEX {i+1}: {line}')
-          for p in ['src/nr_codec_descriptors.inl','src/nr_settings_ui.inl']:
-              lines=Path(p).read_text().splitlines()
-              print('FILE',p,'LINES',len(lines))
-              if 'descriptors' in p:
-                  print('\n'.join(f'{i+1}: {v}' for i,v in enumerate(lines)))
-          for p in sorted(Path('scripts').iterdir()):
-              if any(x in p.name.lower() for x in ['post','feedback','package','build']): print('SCRIPT',p)
-          for p in sorted(Path('tests').iterdir()): print('TEST',p)
+          s=Path('src/nr_before_sr.cpp').read_text()
+          for key in ['float ActiveTransferStrength(', 'void CompleteNrDiagnosticEvaluation(', 'void DispatchCodec(']:
+              p=s.index(key);b=s.index('{',p);depth=0
+              for e in range(b,len(s)):
+                  if s[e]=='{':depth+=1
+                  elif s[e]=='}':
+                      depth-=1
+                      if not depth:break
+              print('FUNCTION',key,'LINE',s[:p].count('\n')+1)
+              print(s[p:e+1])
+          for i,line in enumerate(s.splitlines()):
+              if 'post_transfer_strength' in line:print('FIELD',i+1,line)
