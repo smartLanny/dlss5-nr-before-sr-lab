@@ -1,0 +1,70 @@
+name: Native DX11 carrier / beta0.4.2 experiment
+on:
+  push:
+    branches: [codex/beta042-dx11-native-carrier]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-carrier-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source-and-windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: CPU staging and history tests
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests/native_bridge -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'Staging tests failed' }
+      - name: Fetch pinned carrier and core build inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git clone --no-checkout https://github.com/NIGos/dlss5-bridge.git external-carrier
+          git -C external-carrier checkout --detach 29baa4cc56e0aeb21219de16528e697b91522efc
+          if ($LASTEXITCODE -ne 0) { throw 'Carrier checkout failed' }
+          Invoke-WebRequest 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip' -OutFile llvm.zip
+          Expand-Archive llvm.zip -DestinationPath toolchain
+          $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
+          git clone --no-checkout https://github.com/crosire/reshade.git reshade-source
+          git -C reshade-source checkout --detach 4a50d1eddace85734871d91792ff214f13f66c01
+          git -C reshade-source submodule update --init --recursive --depth 1
+          if ($LASTEXITCODE -ne 0) { throw 'ReShade checkout failed' }
+          "TOOLCHAIN_ROOT=$toolchain" | Out-File $env:GITHUB_ENV -Append
+          "RESHADE_ROOT=$pwd\reshade-source" | Out-File $env:GITHUB_ENV -Append
+      - name: Stage exact source patches and compile core
+        shell: pwsh
+        run: |
+          python scripts/prepare-native-bridge.py --upstream external-carrier --output build/native-carrier
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned source staging failed' }
+          $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
+          $env:PATH = "$(Join-Path $env:TOOLCHAIN_ROOT 'bin');$env:PATH"
+          & $compiler '-std=c++17' '-static' '-Wall' '-Wextra' '-Werror' '-I.' tests/native_bridge/history.cpp '-o' history.exe
+          if ($LASTEXITCODE -ne 0) { throw 'History compile failed' }
+          ./history.exe
+          if ($LASTEXITCODE -ne 0) { throw "History tests failed: exit=$LASTEXITCODE" }
+          & $compiler '-std=c++17' '-static' '-Wall' '-Wextra' '-Werror' '-I.' tests/native_bridge/forward.cpp '-o' forward.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Forward routing compile failed' }
+          ./forward.exe
+          if ($LASTEXITCODE -ne 0) { throw "Forward routing tests failed: exit=$LASTEXITCODE" }
+          ./build/native-carrier/core/scripts/build.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
+      - name: Compile pinned external carrier with MSVC
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          cd build\native-carrier\carrier\src
+          rc /nologo version.rc
+          if errorlevel 1 exit /b 1
+          cl /nologo /W4 /O2 /MT /EHsc /std:c++17 /Ireshade /LD dlss5-bridge.cpp version.res /Fe:dlss5-native-carrier-exp1.addon64 /link /DLL user32.lib advapi32.lib bcrypt.lib
+          if errorlevel 1 exit /b 1
+      - name: Preserve source identity only (not a release binary)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-carrier-source-identity
+          path: build/native-carrier/source-manifest.json
+          if-no-files-found: ignore
