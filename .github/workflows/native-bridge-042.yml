@@ -94,7 +94,9 @@ jobs:
           $files = Get-ChildItem -LiteralPath $root -File | ForEach-Object {
             [ordered]@{ path = $_.Name; bytes = $_.Length; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash }
           }
-          [ordered]@{ schema='dlss5-native-bridge-experiment/v1'; build='beta0.4.2-native-bridge-exp1'; sourceCommit='15909ef10914fcdf151ee193460451667fbf31dc'; carrierCommit='29baa4cc56e0aeb21219de16528e697b91522efc'; signed=$false; files=$files } |
+          $sourceManifest = Get-Content -LiteralPath (Join-Path $root 'source-manifest.json') -Raw | ConvertFrom-Json
+          if ([string]$sourceManifest.source_commit -notmatch '^[0-9a-f]{40}$') { throw 'Source manifest does not contain the generated checkout identity.' }
+          [ordered]@{ schema='dlss5-native-bridge-experiment/v1'; build='beta0.4.2-native-bridge-exp1'; sourceCommit=[string]$sourceManifest.source_commit; releaseBase=[string]$sourceManifest.release_base; carrierCommit='29baa4cc56e0aeb21219de16528e697b91522efc'; signed=$false; files=$files } |
             ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $root 'PACKAGE_MANIFEST.json') -Encoding utf8NoBOM
           Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath $root -File | Select-Object -ExpandProperty FullName) -DestinationPath (Join-Path $pwd 'beta0.4.2-native-bridge-exp1-windows-x64.zip') -CompressionLevel Optimal
       - name: Preserve source identity and experimental package
