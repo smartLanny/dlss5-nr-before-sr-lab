@@ -1,4 +1,4 @@
-name: Validate beta0.4.3r2
+name: Validate beta0.4.3r3
 
 on:
   workflow_dispatch:
@@ -157,7 +157,7 @@ jobs:
             "branch=$env:GITHUB_REF_NAME"
             "commit=$env:GITHUB_SHA"
             "workflowRun=$env:GITHUB_RUN_ID"
-            "build=beta0.4.3r2"
+            "build=beta0.4.3r3"
             "channel=compatibility-candidate-not-release"
           ) | Set-Content -Encoding utf8NoBOM dist/BUILD-PROVENANCE.txt
           Get-ChildItem dist -File | Where-Object Name -ne 'SHA256SUMS.txt' |
@@ -178,6 +178,6 @@ jobs:
           Get-Content -Encoding utf8 dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: beta043r2-compatibility-candidate
+          name: beta043r3-compatibility-candidate
           path: dist/
           if-no-files-found: error

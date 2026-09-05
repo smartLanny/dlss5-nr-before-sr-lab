@@ -1,4 +1,4 @@
-DLSS 5 AI 渲染完美链路 beta0.4.3r2 社区测试版——轻量更新说明
+DLSS 5 AI 渲染完美链路 beta0.4.3r3 社区测试版——轻量更新说明
 作者：@野生的装机宅 Bilibili
 官方发布地址：https://space.bilibili.com/941799
 
@@ -6,7 +6,9 @@ DLSS 5 AI 渲染完美链路 beta0.4.3r2 社区测试版——轻量更新说明
 
 本包用于已经装好兼容运行库的 beta0.4.x 用户。完全退出游戏后，备份旧 addon 到游戏目录外，只替换 addon，并把 Collect-Feedback / Collect-Crash-Feedback 两组 CMD + PowerShell 工具放在 addon 旁边。保留现有 nrchain_nvngx.dll、nvngx_dlssnr.dll 和 nr_before_sr.ini。不要同时加载旧版、新版、中英文两个 addon、HD2 实验版或 renodx-dlss5.addon64。
 
-0.4.3r2 主要变化
+0.4.3r3 主要变化
+
+r3 在 r2 基础上继续收兼容性与反馈问题：只对 fresh guarded pristine-null 的空 PSO 命令列表开放窄范围安全准入；漏登记列表可从真实 ReShade 提交回调恢复 owner 映射，但仍要求后续成功 Reset；F8 增加 command-state / hook / guard / baseline 等结构化现场；修复设置拖动可能覆盖 F6、配置重载或采集恢复后的新状态；CI 现在会正确传播结构校验失败。MFG/40 系解锁兼容仍没有在本版本宣称修复。
 
 r2 在原 0.4.3 基础上新增：后置 NR 先保留游戏原生 SR 输出再取私有快照；历史/guide/曝光重置帧保留原生输出；设置页拆分画质、反馈与诊断；F8 可复制同次采集的脱敏报告摘要。
 
@@ -25,11 +27,11 @@ r2 在原 0.4.3 基础上新增：后置 NR 先保留游戏原生 SR 输出再�
 
 本版本仍是 D3D12 原生 DLSS Feature 1 路线。DX11 不在本次 0.4.3 beta 中，DX11 研究分支独立维护。遇到不确认的资源、格式、子区域、命令状态、RR 所有权或 HDR 合同时，优先旁路并保留游戏原生 SR 结果。
 
-鸣潮、燕云、地平线、黑神话及其他曾出现间歇失效或崩溃反馈的游戏仍需要当前 beta0.4.3r2 实机复测。自动回归、D3D12 WARP、Shader 编译和源码构建通过，不等于 NVIDIA 模型与真实游戏运行时已经验收。
+鸣潮、燕云、地平线、黑神话及其他曾出现间歇失效或崩溃反馈的游戏仍需要当前 beta0.4.3r3 实机复测。自动回归、D3D12 WARP、Shader 编译和源码构建通过，不等于 NVIDIA 模型与真实游戏运行时已经验收。空 PSO 新准入也不等于所有相关游戏已经修好。
 
 怎么更新
 
-完全退出游戏，备份旧 addon 到游戏目录外，再替换为本包 addon。保留原来的两个 DLL 和现有配置。进游戏后在 ReShade 插件页确认版本为 beta0.4.3r2，用 F6 做开关对比，并观察诊断中的 NR 成功提交计数是否持续增加。
+完全退出游戏，备份旧 addon 到游戏目录外，再替换为本包 addon。保留原来的两个 DLL 和现有配置。进游戏后在 ReShade 插件页确认版本为 beta0.4.3r3，用 F6 做开关对比，并观察诊断中的 NR 成功提交计数是否持续增加。
 
 怎么反馈
 

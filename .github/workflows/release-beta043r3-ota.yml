@@ -1,0 +1,97 @@
+name: Publish beta0.4.3r3 OTA only
+
+on:
+  push:
+    branches: [codex/beta0.4.2]
+    paths:
+      - '.github/workflows/release-beta043r3-ota.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Fetch verified public build inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $llvmUrl = 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip'
+          # Pinned to the digest published on mstorsjo/llvm-mingw release 20260826.
+          $expectedLlvmSha256 = 'AE601F4E0F72BBDF441AD2DF8BB16F037E2E9251559EA6B37B4057AEF39C06C3'
+          $reshadeCommit = '4a50d1eddace85734871d91792ff214f13f66c01'
+          Invoke-WebRequest $llvmUrl -OutFile llvm-mingw.zip
+          $actualLlvmSha256 = (Get-FileHash -Algorithm SHA256 llvm-mingw.zip).Hash
+          if ($actualLlvmSha256 -ne $expectedLlvmSha256) {
+            throw "llvm-mingw SHA256 mismatch: $actualLlvmSha256"
+          }
+          Expand-Archive llvm-mingw.zip -DestinationPath toolchain
+          $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
+          git clone --depth 1 --no-checkout https://github.com/crosire/reshade.git reshade-source
+          if ($LASTEXITCODE -ne 0) { throw 'ReShade clone failed' }
+          git -C reshade-source fetch --depth 1 origin $reshadeCommit
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned ReShade fetch failed' }
+          git -C reshade-source checkout --detach $reshadeCommit
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned ReShade checkout failed' }
+          git -C reshade-source submodule update --init --recursive --depth 1
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned ReShade submodule update failed' }
+          "TOOLCHAIN_ROOT=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "RESHADE_ROOT=$pwd\reshade-source" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build clean r3 release binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
+          if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
+          $zhAddon = @(Get-ChildItem build -File -Filter '*beta0.4.3r3*@野生的装机宅-Bilibili.addon64')
+          $enAddon = @(Get-ChildItem build -File -Filter '*beta0.4.3r3*@野生的装机宅-Bilibili.en.addon64')
+          if ($zhAddon.Count -ne 1 -or $enAddon.Count -ne 1) {
+            throw 'Expected exactly one Chinese and one English r3 addon build'
+          }
+
+      - name: Create OTA packages only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./scripts/package-beta03.ps1 -ReleaseRoot "$pwd\ota-r3" -UpdateOnly
+          $zh = @(Get-ChildItem ota-r3 -File -Filter '*中文轻量更新包.zip')
+          $en = @(Get-ChildItem ota-r3 -File -Filter '*English-Update.zip')
+          if ($zh.Count -ne 1 -or $en.Count -ne 1) { throw 'Expected exactly one Chinese and one English OTA package' }
+          Copy-Item -LiteralPath $zh[0].FullName -Destination 'DLSS5-beta0.4.3r3-Chinese-OTA.zip'
+          Copy-Item -LiteralPath $en[0].FullName -Destination 'DLSS5-beta0.4.3r3-English-OTA.zip'
+          Get-FileHash -Algorithm SHA256 'DLSS5-beta0.4.3r3-Chinese-OTA.zip','DLSS5-beta0.4.3r3-English-OTA.zip' | Format-Table
+
+      - name: Publish prerelease with OTA assets only
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release view beta0.4.3r3 --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { throw 'beta0.4.3r3 release already exists; refusing to overwrite it' }
+          $global:LASTEXITCODE = 0
+          @'
+          beta0.4.3r3 是 beta0.4.3 的第三轮维护更新，合入 PR #67。
+
+          主要变化：对 fresh guarded pristine-null 空 PSO 命令列表开放窄范围安全准入；漏登记列表可从真实 ReShade 提交回调恢复 owner 映射并等待后续成功 Reset；F8 增加 command-state / hook / guard / baseline 等结构化现场；修复设置拖动覆盖更新状态的问题，并修正 CI 结构校验失败传播。
+
+          本版本继续坚持 fail-safe：高风险或无法证明的命令状态仍旁路并保留游戏原生链路。MFG / RTX 40 解锁兼容 #63 没有在本版本宣称修复；#38/#50/#64 等相关游戏仍需要 r3 实机复测。
+
+          Release 仅提供 OTA 更新包，不包含完整安装包、裸 addon、运行库或额外校验附件。
+
+          验证：source-level / compile / CI / D3D12 WARP 已通过；尚未宣称真实 NVIDIA DLSSNR 游戏运行时、画质、DPI、FG/MFG 显示节奏与性能矩阵已完成。
+          '@ | Set-Content -Encoding utf8NoBOM release-notes.md
+          gh release create beta0.4.3r3 `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title 'DLSS5 NR beta0.4.3r3｜兼容性维护更新' `
+            --notes-file release-notes.md `
+            --prerelease `
+            'DLSS5-beta0.4.3r3-Chinese-OTA.zip#中文 OTA 更新包' `
+            'DLSS5-beta0.4.3r3-English-OTA.zip#English OTA update'
