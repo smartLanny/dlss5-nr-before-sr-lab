@@ -5,9 +5,9 @@
 Initial baseline was `0b5d04d` after #48/#56/#57. The development branch now also
 includes `e2a3fba` / #60's beta0.4.3 release identity, without reverting its runtime,
 build, packaging or feedback documentation updates. The target version branch
-remains named `codex/beta0.4.2`. This is an r2 candidate, not a signed/released r2
-package or a merge into main. Match test binaries by source SHA, dirty status and
-actual addon SHA256; final r2 release identity is a separate freeze step.
+remains named `codex/beta0.4.2`. The release branch now freezes the visible/runtime
+identity as `beta0.4.3r2`; OTA publication is performed by the dedicated release
+workflow. Match binaries by source SHA, dirty status and actual addon SHA256.
 
 ## 玩家操作
 
