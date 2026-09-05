@@ -29,6 +29,8 @@
 
 #include "MinHook.h"
 #include "nr_guide_contract.h"
+// Standard-library headers must be included outside the private runtime namespace.
+#include "nr_feedback_text.h"
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
