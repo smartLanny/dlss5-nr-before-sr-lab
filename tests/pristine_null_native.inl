@@ -20,14 +20,17 @@ int RunPristineNullGate(bool negative) {
     auto *snapshot=new NativeCommandState;
     Check(!CaptureNativeCommandState(list,*snapshot),"missed init is not inferred from native pointer");
     Check(std::strcmp(SnapshotCommandStateEvidence().reason,"unregistered-list")==0,"unregistered reason retained");
+    ID3D12CommandAllocator *other_allocator=nullptr;
+    Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,
+        IID_ID3D12CommandAllocator,reinterpret_cast<void **>(&other_allocator)),"unrelated allocator");
     ID3D12GraphicsCommandList *other=nullptr;
-    Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,nullptr,
+    Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,other_allocator,nullptr,
         IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&other)),"unrelated known list");
     reshade::api::command_list other_owner{&od,other}; OnCommandStateInitList(&other_owner);
     Check(!CaptureNativeCommandState(other,*snapshot),"unrelated known list still awaits its own baseline");
     Check(g_command_state_registration_repair_needed.load(),"known carrier does not cancel missing-list recovery");
     OnCommandStateObserveSubmission(&owner);
-    OnCommandStateDestroyList(&other_owner);Drop(other);
+    OnCommandStateDestroyList(&other_owner);Drop(other);Drop(other_allocator);
     const auto token=ReadCommandStateToken(list);
     auto *record=FindCommandStateTokenLocked(token);
     Check(record && token && !record->state,"real ReShade submission repairs mapping only");
@@ -132,7 +135,6 @@ int RunPristineNullGate(bool negative) {
         ID3D12GraphicsCommandList_ResourceBarrier(scope.command_list,1,&b);
         if (negative) scope.active=false;
     }
-    // The game does not rebind its root arguments: restoration is required.
     ID3D12GraphicsCommandList_SetPipelineState(list,pso);
     ID3D12GraphicsCommandList_Dispatch(list,1,1,1);
     D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;b.Transition.pResource=output;
