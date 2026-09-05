@@ -31,8 +31,9 @@ function Read-SourceSlice([string]$begin, [string]$end) {
     if ($finish -lt 0) { throw "Missing source marker: $end" }
     return $source.Substring($start, $finish - $start)
 }
+# Include the actual cold failure recorder, not a no-op testing replacement.
 $harness = $harness.Replace('// @PRODUCTION_CREATE_HOOK@',
-    (Read-SourceSlice 'bool CreateHook(' 'bool EnsureNativeQueueExecuteHook('))
+    (Read-SourceSlice '#define NR_HAS_NGX_HOOK_EVIDENCE 1' 'bool EnsureNativeQueueExecuteHook('))
 $harness = $harness.Replace('// @PRODUCTION_FINISH_OBSERVATION@',
     (Read-SourceSlice 'void FinishFeature1CreateObservation(' 'void ProcessSubmittedCommandLists('))
 $harness = $harness.Replace('// @PRODUCTION_MODULE_OBSERVER@',
@@ -42,7 +43,7 @@ New-Item -ItemType Directory -Path $build -Force | Out-Null
 $generated = Join-Path $build 'observer_validation.cpp'
 $binary = Join-Path $build 'observer_validation.exe'
 [IO.File]::WriteAllText($generated, $harness, [Text.UTF8Encoding]::new($false))
-& $compiler '-std=c++20' '-O0' '-static' '-Wall' '-Wextra' '-Werror' $generated '-o' $binary
+& $compiler '-std=c++20' '-O0' '-static' '-Wall' '-Wextra' '-Werror' "-I$(Join-Path $projectRoot 'src')" $generated '-o' $binary
 if ($LASTEXITCODE -ne 0) { throw 'Observer harness compilation failed.' }
 & $binary
 if ($LASTEXITCODE -ne 0) { throw 'Observer regression validation failed.' }

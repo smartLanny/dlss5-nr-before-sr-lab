@@ -37,7 +37,8 @@ SRWLOCK g_evaluate_hook_lock = SRWLOCK_INIT;
 std::atomic<bool> g_enabled_fast{false};
 // Keep the wider restoration path covered as an explicit experiment. The
 // production default is verified separately and remains fail-closed.
-bool AllowExperimentalNullPsoCarrier() { return true; }
+bool g_allow_experimental = true;
+bool AllowExperimentalNullPsoCarrier() { return g_allow_experimental; }
 // @PRODUCTION_COMMAND_STATE@
 
 bool PinHookAddress(const void *address, const char *, HMODULE expected_module) {
@@ -224,7 +225,10 @@ int RunDefaultEnabledStartupGate() {
     printf("command-state default-enabled startup gate: %d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }
+// @PRISTINE_NULL_TEST@
 int main(int argc, char **argv) {
+    if (argc>1 && std::strcmp(argv[1],"--pristine-null")==0) return RunPristineNullGate(false);
+    if (argc>1 && std::strcmp(argv[1],"--pristine-null-negative")==0) return RunPristineNullGate(true);
     if (argc > 1 && strcmp(argv[1], "--default-enabled") == 0)
         return RunDefaultEnabledStartupGate();
     IDXGIFactory4 *factory = nullptr; IDXGIAdapter *adapter = nullptr; ID3D12Device *device = nullptr;

@@ -80,7 +80,25 @@ ColorSnapshot SnapshotColorPolicy(){return {};}
 const char *NrColorPolicyStatusName(int){return "unavailable";}
 const char *NrColorReasonName(int){return "unknown";}
 APPEND
-void FeedbackAppendActivity(FeedbackSession &s,const char *prefix){FeedbackAppend(s,"%s.nrSuccess=0\n%s.transferSubmitted=0\n%s.bypass=null-pso-policy-disabled\n",prefix,prefix,prefix);}
+#define NR_HAS_COMMAND_STATE_EVIDENCE 1
+#define NR_HAS_NGX_HOOK_EVIDENCE 1
+COMMAND_EVIDENCE
+SRWLOCK g_command_state_lock=SRWLOCK_INIT;
+CommandStateEvidence g_command_state_evidence;
+COMMAND_SNAPSHOT
+HOOK_EVIDENCE
+SRWLOCK g_ngx_hook_failure_lock=SRWLOCK_INIT;
+NgxHookFailureEvidence g_ngx_hook_failure;
+HOOK_SNAPSHOT
+std::atomic<unsigned long long> g_nr_successful_evaluations{0},g_nr_transfer_submitted_frames{0},g_carrier_evaluations{0},g_rr_passthrough_evaluations{0},g_feature1_preflight_covered{0},g_feature1_preflight_attempts{0},g_command_signature_create_calls{0},g_command_signature_unknown_uses{0};
+std::atomic<unsigned> g_live_rr_handles{0},g_rr_create_in_progress{0};
+std::atomic<int> g_last_bypass_reason{0},g_last_carrier_feature{1},g_module_observer_fault{0};
+std::atomic<bool> g_generic_renodx_conflict{false},g_preflight_core_loaded{true},g_preflight_dlssd_loaded{false},g_command_signature_hook_published{true},g_command_signature_start_deferred{false};
+enum class BypassReason{Unknown};enum class ModuleObserverFault{None};
+const char *BypassReasonName(BypassReason){return "command-state-unverified";}
+const char *ModuleObserverFaultName(ModuleObserverFault){return "none";}
+bool OtherNrOwnerActive(){return false;}
+ACTIVITY
 RELEVANT
 STRENGTH
 void WideToUtf8(const wchar_t *w,char *p,std::size_t n){WideCharToMultiByte(CP_UTF8,0,w,-1,p,static_cast<int>(n),nullptr,nullptr);}
@@ -134,6 +152,20 @@ int main(int argc,char **argv) {
     for(unsigned i=0;i<20000;++i)content+="Feature 1 native frame; NR success=0\n";
     put(log,content);
     reshade::api::effect_runtime runtime;
+    g_command_state_evidence.available=true;g_command_state_evidence.sampled_at=GetTickCount64();
+    g_command_state_evidence.reason="null-guard-awaiting-reset";g_command_state_evidence.token=42;
+    g_command_state_evidence.sequence=3;g_command_state_evidence.guard_requested=true;
+    g_command_state_evidence.guard_covered=true;g_command_state_evidence.registered=true;
+    g_command_state_evidence.baseline="Reset";
+    g_ngx_hook_failure.available=true;g_ngx_hook_failure.sampled_at=GetTickCount64();
+    std::strcpy(g_ngx_hook_failure.operation,"core EvaluateFeature");
+    g_ngx_hook_failure.status=8;g_ngx_hook_failure.entry="existing-short-hotpatch";
+    AcquireSRWLockExclusive(&g_command_state_lock);
+    check(!SnapshotCommandStateEvidence().available,"command evidence contention is nonblocking");
+    ReleaseSRWLockExclusive(&g_command_state_lock);
+    AcquireSRWLockExclusive(&g_ngx_hook_failure_lock);
+    check(!SnapshotNgxHookFailure().available,"hook evidence contention is nonblocking");
+    ReleaseSRWLockExclusive(&g_ngx_hook_failure_lock);
     begin(runtime);check(nr_core_feedback::Busy(),"worker owned by current session");
     const auto first=nr_core_feedback::SnapshotPair();check(!nr_core_feedback::Request(),"no overlapping core jobs");
     drain(); // no second Present, no NR frame, no image or GPU stage functions even exist in this harness
@@ -142,6 +174,8 @@ int main(int argc,char **argv) {
     check(g_feedback_session==nullptr,"observer pointer retired before worker deletion");
     check(std::strstr(nr_core_feedback::g_submission,first.session)!=nullptr,"ticket bound to completed core session");
     check(std::strstr(nr_core_feedback::g_submission,"Private Tester")==nullptr,"ticket excludes local path");
+    check(std::strstr(nr_core_feedback::g_submission,"end.commandState.reason=null-guard-awaiting-reset"),"actual ticket includes command-state reason");
+    check(std::strstr(nr_core_feedback::g_submission,"end.ngxHookFailure.entry=existing-short-hotpatch"),"actual ticket includes historical hook shape");
     save("valid-core.zip");
     std::ifstream summary(std::filesystem::path(output_root)/"core-1/summary-0.txt",std::ios::binary);
     const std::string text((std::istreambuf_iterator<char>(summary)),{});
@@ -190,7 +224,13 @@ def main():
     args = p.parse_args()
     source = (ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
     legacy = (ROOT/'src/nr_feedback_capture.inl').read_text(encoding='utf-8-sig')
+    command = (ROOT/'src/nr_command_state.inl').read_text(encoding='utf-8-sig')
     values = {
+        'COMMAND_EVIDENCE': definition(command, 'struct CommandStateEvidence', True),
+        'COMMAND_SNAPSHOT': definition(command, 'CommandStateEvidence SnapshotCommandStateEvidence('),
+        'HOOK_EVIDENCE': definition(source, 'struct NgxHookFailureEvidence', True),
+        'HOOK_SNAPSHOT': definition(source, 'NgxHookFailureEvidence SnapshotNgxHookFailure('),
+        'ACTIVITY': definition(legacy, 'void FeedbackAppendActivity('),
         'CHAIN': definition(source, 'struct ChainConfig', True),
         'TUNING': definition(source, 'struct NrTuningSignature', True),
         'IDENTITY': definition(source, 'struct NrDiagnosticIdentity', True),
@@ -215,6 +255,14 @@ def main():
     for name in ('valid-core.zip','cancelled-core.zip','busy-core.zip'):
         result = module.inspect_core(out/'fixtures'/name)
         assert result['required_complete'] == (name == 'valid-core.zip'), result
+    import zipfile
+    with zipfile.ZipFile(out/'fixtures/valid-core.zip') as archive:
+        metadata = archive.read('capture-info.txt').decode('utf-8-sig')
+        for key in ('start.commandState.schema=1', 'end.commandState.token=42',
+                    'end.commandState.reason=null-guard-awaiting-reset',
+                    'end.commandState.guardCovered=1', 'end.commandState.freshReset=0',
+                    'end.ngxHookFailure.entry=existing-short-hotpatch'):
+            assert key in metadata, key
     print('Actual Windows core ZIPs independently verified (complete / cancelled / snapshot busy).')
 
 if __name__ == '__main__': main()
