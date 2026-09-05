@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Upscaling Edition beta0.3.7-r3
+DLSS 5 AI Rendering Upscaling Edition beta0.3.8
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
@@ -19,7 +19,7 @@ Collect-Feedback.cmd
 collect-feedback.ps1
 Instructions.txt
 
-Keep these files together. Remove old, HD2 experiment, or other-language copies of this addon. If renodx-dlss5.addon64 is present, move it outside the game directory too; it is another NR owner and cannot coexist with this addon. Fully restart the game and check for beta0.3.7-r3 in the ReShade addon panel.
+Keep these files together. Remove old, HD2 experiment, or other-language copies of this addon. If renodx-dlss5.addon64 is present, move it outside the game directory too; it is another NR owner and cannot coexist with this addon. Fully restart the game and check for beta0.3.8 in the ReShade addon panel.
 
 If you already have a working full installation, you can use the small update package and keep the existing large runtime DLL, bridge DLL and settings file. Follow the instructions in that update package. It cannot be used for a first installation.
 
@@ -47,7 +47,7 @@ Send the ZIP with the game name, GPU model, HDR or SDR setting, what went wrong 
 
 What changed in this version
 
-This revision detects a simultaneously loaded renodx-dlss5.addon64 and gives an exact removal/restart instruction. It also safely fixes the MinHook relay-allocation failure seen when nvngx_dlssd.dll loads at a low address, and preflights loaded NGX lifecycle modules before the first native SR Create. The Forza report has no crash dump, so the disabled-start hook change narrows risk and still needs a game retest.
+This revision detects a simultaneously loaded renodx-dlss5.addon64 and gives an exact removal/restart instruction. It also safely fixes the MinHook relay-allocation failure seen when nvngx_dlssd.dll loads at a low address, and preflights loaded NGX lifecycle modules before the first native SR Create. A narrow command-signature observer now starts at device creation regardless of the transient master-switch snapshot, so early signatures remain known when character, map, UI or rain work reuses them. Null-PSO admission and wider graphics-state hooks remain disabled by default. The Forza report has no crash dump and still needs a game retest.
 
 The stable build no longer forces NR insertion while the command list has a null PSO, reducing the regression surface behind the reported Forza Horizon crash. The submitted bundle had no crash dump, so game confirmation is still required. The model UI-correction parameter now uses the unsigned type actually read by the runtime. It can help text only when a game supplies a separate UI layer and cannot discover subtitles already baked into the picture.
 

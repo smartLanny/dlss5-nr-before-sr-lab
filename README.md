@@ -1,7 +1,7 @@
 # DLSS5 NR-Before-SR Lab
 
-New beta0.3.7-r3 installations request final strength **1.2** and colour follow
-**0.5**. Existing values, including zero, migrate from the previously selected
+New beta0.3.8 installations request final strength **1.2** and colour follow
+**0.75**. Existing values, including zero, migrate from the previously selected
 mode. Unknown HDR inputs still have effective colour follow zero. Hover over
 controls for explanations; the 1.0 post-SR comparison preset is a comparison
 baseline, not the new installation default.
@@ -18,13 +18,16 @@ Runtime hotkeys are `F6` for the master comparison switch, `F8` for a local
 feedback ZIP, and main keyboard `-` for a ReShade screenshot whose filename
 records the current build, chain and selected settings.
 
-The beta0.3.7-r3 update adds a compact processing-mode UI, bounded final-strength
+The beta0.3.8 update adds a compact processing-mode UI, bounded final-strength
 controls, and an opt-in developer jitter forwarding path. It keeps Mode 2 as the
 default and retains the existing unknown-HDR colour protection. It also detects
 the exact competing `renodx-dlss5.addon64` module, extends MinHook relay
 allocation for low-address NGX modules with signed-rel32 validation, preflights
-lifecycle observers before the first SR Create, and defers the command-signature
-hook only when the process starts with NR disabled. The collector
+lifecycle observers before the first SR Create, and observes immutable D3D12
+command-signature descriptions at device creation regardless of the transient
+master-switch snapshot.
+This fixes the r3 regression that could alternate processed and native frames
+when weather, map or UI work reused an early `ExecuteIndirect` signature. The collector
 cancels only unarmed session-owned requests on timeout and gives
 current bypass status priority over pending settings. It does not change image
 strength or HDR admission. See the [September 4 feedback review](docs/COMMUNITY_FEEDBACK_20260904.zh-CN.md)
@@ -37,14 +40,15 @@ trademarks of their respective owners.
 
 Project author: **@野生的装机宅 Bilibili**. The only official release location
 is https://space.bilibili.com/941799. The author and official address remain
-embedded in release binaries and the add-on UI. Each full distribution archive
+embedded in release binaries and the add-on UI. The core full-install payload
 contains seven files: the add-on, bridge DLL, configuration, matching NR runtime,
 plain-text instructions (`说明.txt` in Chinese or `Instructions.txt` in English),
 `Collect-Feedback.cmd`, and `collect-feedback.ps1`.
-Small update archives contain four files: the add-on, the plain-text instructions, and
+The core update payload contains four files: the add-on, the plain-text instructions, and
 the two offline collection scripts. Updates reuse an existing compatible full
 installation's runtime, bridge and configuration; they are not first-install
-packages. Optional ZIP hashes may be published with the official release post.
+packages. Official signed archives add verification files; their exact contents
+are listed by the signed manifest, and the release page publishes the ZIP hash.
 See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for the explicit prohibition on
 unauthorized automated builds, rebranding and modified redistribution.
 
@@ -110,8 +114,8 @@ implementations inside this project.
   documents remain source documentation and are not the packaged instructions.
 - `scripts/validate-codec-shader.ps1`: compiles all embedded HLSL entry points
   with the same Shader Model 5.0 compiler contract used at runtime.
-- `scripts/Verify-ReleaseManifest.ps1`: optional internal legacy verifier; it is
-  retained for reproducibility but is no longer bundled in simple release ZIPs.
+- `scripts/Verify-ReleaseManifest.ps1`: offline verifier bundled once with official
+  signed packages; lightweight development archives may omit it.
 
 ## Build prerequisites
 
@@ -144,7 +148,7 @@ archives without copying the large runtime DLLs, use:
 
 ```powershell
 ./scripts/package-beta03.ps1 `
-  -ReleaseRoot 'D:\releases\beta0.3.3.5-update' `
+  -ReleaseRoot 'D:\releases\beta0.3.8-update' `
   -UpdateOnly
 ```
 
@@ -168,8 +172,8 @@ the GPU; unsupported exposure contracts remain native-SR bypasses. Results are
 engine- and runtime-dependent. Important unresolved
 areas are documented in [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
-The 2026-09-04 tree is a **beta0.3.3 development candidate**, not a universal
-release. It compiles cleanly in the maintained local toolchain, all embedded
+The current tree is the **beta0.3.8 maintenance candidate**, not a universal
+compatibility claim. It compiles cleanly in the maintained local toolchain, all embedded
 shader entries compile, and both language builds pass focused LLVM analysis.
 The prior beta0.3.2 Chinese binary with SHA256 `4E483F...B1AF1` completed fresh Cyberpunk 2077
 RR-off and RR-on runs: the default `NR -> SR` path exceeded 1,800 carrier

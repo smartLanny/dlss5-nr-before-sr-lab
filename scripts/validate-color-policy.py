@@ -71,6 +71,7 @@ unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_con
     return codec_flags;
 }
 constexpr bool kChineseUi=false;
+bool UseChineseUi() { return false; }
 const char* ui(const char* en,const char*) { return en; }
 namespace ImGui {
     bool disabled=false, colour_disabled=false, lighting_disabled=false;

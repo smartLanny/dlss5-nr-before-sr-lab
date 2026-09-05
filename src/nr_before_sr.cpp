@@ -42,11 +42,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.3.7-r3";
+constexpr const char *kAddonVersion = "beta0.3.8";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.3.7-r3";
+constexpr const char *kBuildIdentity = "beta0.3.8";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -56,7 +56,32 @@ constexpr const char *kBuildIdentity = "beta0.3.7-r3";
 constexpr const char *kSourceCommit = NR_SOURCE_COMMIT;
 constexpr bool kSourceDirty = NR_SOURCE_DIRTY != 0;
 constexpr const char *kAddonAuthor = "@野生的装机宅 Bilibili";
+constexpr const char *kAddonAuthorAscii = "@Bilibili UID 941799";
 constexpr const char *kOfficialReleaseUrl = "https://space.bilibili.com/941799";
+
+constexpr bool ShouldUseChineseUi(bool chinese_build, bool font_present,
+                                  bool has_zhong, bool has_wen,
+                                  bool has_lian, bool has_zai) noexcept {
+    return chinese_build && font_present && has_zhong && has_wen &&
+           has_lian && has_zai;
+}
+static_assert(!ShouldUseChineseUi(true, false, true, true, true, true));
+static_assert(!ShouldUseChineseUi(true, true, true, true, false, true));
+static_assert(ShouldUseChineseUi(true, true, true, true, true, true));
+
+bool UseChineseUi() noexcept {
+    if constexpr (!kChineseUi) return false;
+    ImFont *font = ImGui::GetFont();
+    // Do not render tofu boxes when ReShade is configured with a Latin-only
+    // font. These common and Simplified-Chinese-specific glyphs give a cheap
+    // per-overlay check without mutating ReShade's shared font atlas.
+    return ShouldUseChineseUi(
+        kChineseUi, font != nullptr,
+        font != nullptr && font->IsGlyphInFont(static_cast<ImWchar>(0x4E2D)), // 中
+        font != nullptr && font->IsGlyphInFont(static_cast<ImWchar>(0x6587)), // 文
+        font != nullptr && font->IsGlyphInFont(static_cast<ImWchar>(0x94FE)), // 链
+        font != nullptr && font->IsGlyphInFont(static_cast<ImWchar>(0x8F7D))); // 载
+}
 
 struct NgxHandle {
     std::uint32_t id;
@@ -1263,7 +1288,7 @@ void ReloadConfig(bool force = false) {
         static bool migration_logged = false;
         if (!migration_logged) {
             migration_logged = true;
-            Log("Migrated legacy beta0.2 configuration to beta0.3.7-r3 in memory: "
+            Log("Migrated legacy beta0.2 configuration to beta0.3.8 in memory: "
                 "default mode is now render-resolution NR -> SR; persisted=%d.",
                 migration_persisted ? 1 : 0);
         }
@@ -9229,8 +9254,9 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
     const ChainConfig next = SnapshotConfig();
     const bool before_sr = next.mode == 2;
     const bool has_pending = false;
-    const auto ui = [](const char *english, const char *chinese) {
-        return kChineseUi ? chinese : english;
+    const bool use_chinese_ui = UseChineseUi();
+    const auto ui = [use_chinese_ui](const char *english, const char *chinese) {
+        return use_chinese_ui ? chinese : english;
     };
 
     const bool shortfuse_loaded =
@@ -9831,7 +9857,7 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
             "Original", "NR proxy", "NR output", "Composited"};
         static const char *const diagnostic_stage_names_zh[] = {
             "原图", "NR 代理", "NR 输出", "合成结果"};
-        const char *const *diagnostic_stage_names = kChineseUi
+        const char *const *diagnostic_stage_names = use_chinese_ui
             ? diagnostic_stage_names_zh : diagnostic_stage_names_en;
         ImGui::TextDisabled(
             ui("ColorDiag #%llu (bounded display-linear): %u samples, %u invalid",
@@ -9970,23 +9996,22 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI渲染超分版 beta0.3.7-r3 @野生的装机宅 Bilibili";
+    "DLSS 5 NR Before SR beta0.3.8 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
-    "可切换 SR -> 输出分辨率 NR 与渲染分辨率 NR -> SR；包含 F6 总开关、"
-    "主键盘 - 参数截图、三种风格和实时画质调节，输入分辨率严格跟随游戏 DLSS 挡位；检测到"
-    "DLSS 光线重构时会严格原样旁路，避免双重神经重建。";
+    "Defaults to NR before native SR. Chinese controls automatically fall "
+    "back to readable English when the current ReShade font lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Upscaling Edition beta0.3.7-r3 @野生的装机宅 Bilibili";
+    "DLSS 5 AI Rendering Upscaling Edition beta0.3.8 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
-    "Switches between output-resolution NR after Super Resolution and "
-    "render-resolution NR before Super Resolution. Includes an F6 master "
+    "Defaults to render-resolution NR before the game's native Super Resolution, "
+    "with output-resolution post-SR NR available for comparison. Includes an F6 master "
     "switch, '-' diagnostic screenshots, three styles and live image-tuning controls. Input resolution "
     "strictly follows the in-game DLSS quality mode. DLSS Ray Reconstruction "
     "is detected and passed through strictly unmodified to prevent double reconstruction.";
 #endif
 extern "C" __declspec(dllexport) const char *AUTHOR =
-    "@野生的装机宅 Bilibili";
+    "Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *WEBSITE =
     "https://space.bilibili.com/941799";
 extern "C" __declspec(dllexport) const char *PROVENANCE_NOTICE =

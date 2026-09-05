@@ -1,14 +1,14 @@
-DLSS 5 AI Rendering Upscaling beta0.3.7-r3 - Small Update
+DLSS 5 AI Rendering Upscaling beta0.3.8 - Small Update
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
 What this update is
 
-This update simplifies the controls and fixes a resource-binding problem when the post-SR mode copies the original picture. New installations request strength 1.2 and colour follow 0.75. Existing values, including zero, are preserved from the previously selected mode. The slider displays the actual request, from 0 to 2. Before-SR remains the default; effective colour follow stays zero for unknown HDR inputs.
+beta0.3.8 first fixes the r3 indirect-command observation regression while retaining the UI, descriptor, font, lifecycle and configuration-migration fixes. New installations request strength 1.2 and colour follow 0.75. Existing values, including zero, are preserved from the previously selected mode. The slider displays the actual request, from 0 to 2. Before-SR remains the default; effective colour follow stays zero for unknown HDR inputs.
 
 Use this package with an existing 0.3.5 maintenance installation. Its core update files are the addon, Instructions.txt, Collect-Feedback.cmd and collect-feedback.ps1, with additional verification and source manifests. Keep both existing DLLs and nr_before_sr.ini; there is no need to download the large runtime again.
 
-0.4 r4 belongs to a separate experimental line. Keep its installation and settings separate. Do not mix files and then treat the result as a comparison of the same version. To return from the experimental line, restore the maintenance installation and settings before applying this update. The 0.4 outdoor-image problem is still under investigation; this package does not establish a fix for it.
+beta0.4.2 belongs to a separate experimental line. Keep its installation and settings separate. Do not mix files and then treat the result as a comparison of the same version. To return from the experimental line, restore the maintenance installation and settings before applying this update.
 
 How to update
 
@@ -16,9 +16,17 @@ Exit the game completely. Back up the current addon outside the game directory, 
 
 Keep nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Place Collect-Feedback.cmd and collect-feedback.ps1 together beside the addon. Do not swap runtime DLLs between GPU packages.
 
-Start the game and check that the addon panel says beta0.3.7-r3. First-time installations or missing runtime files require the full package for your GPU.
+Start the game and check that the addon panel says beta0.3.8. First-time installations or missing runtime files require the full package for your GPU.
 
 What changed
+
+r3 delayed command-signature observation whenever its device-init snapshot of the in-memory switch appeared disabled. Exact r3 Wuthering Waves packages prove that the startup observer count stayed at zero even when the installed INI requested Enabled=1; the cause of that transient false snapshot is not established. Character, UI, map and rain work then reused permanently unknown ExecuteIndirect signatures. The last rain capture ran 1,507 native SR calls with zero new NR submissions. beta0.3.8 always installs only this narrow observer at device creation. Null-PSO admission and the wider graphics-state hooks remain disabled by default. The WARP regression proves that a signature observed before NR activation stays restorable regardless of switch state. Wuthering Waves, Where Winds Meet and the reported 0.3.7-r3 flicker still need player retesting with beta0.3.8.
+
+The default order has not changed: Mode 2 is before-SR NR followed by the game's native SR. Only an explicit Mode 1 selection, or an existing configuration already saved as Mode=1, uses post-SR NR. The 0.4.2 NR quality / WorkMode value changes Feature 18's working resolution; it does not change processing order.
+
+The new Crysis 3 Remastered package proves that its presenting API is D3D11, so there is no native D3D12 Feature 1 for this add-on to intercept. beta0.3.8 now says “D3D11 unsupported; D3D12 required” directly in the panel instead of leaving players to interpret a waiting-Feature-1 status as a strength or HDR problem. The check uses only the current presenting runtime and cannot be permanently tripped by an auxiliary D3D11 device in a D3D12 game.
+
+The Chinese build no longer forces Chinese text through a Latin-only ReShade font. Its exported add-on name remains ASCII-readable; when the active font lacks common Simplified Chinese glyphs, the panel falls back to English and explains how to select zh-CN/System Default or Microsoft YaHei under Overlay & Styling. Chinese returns after the font is changed and the game is restarted.
 
 For the new Forza Horizon crash report, the stable build once again refuses to insert NR while the command list has a null PSO. It also avoids publishing the wider graphics-state hooks used only by that high-risk restore path. The report contained no crash dump, so this is a conservative fix based on the exact version regression and still needs game testing. Keep ExperimentalNullPsoCarrier=0 unless you are running a controlled compatibility experiment; changing it requires a full game restart.
 
