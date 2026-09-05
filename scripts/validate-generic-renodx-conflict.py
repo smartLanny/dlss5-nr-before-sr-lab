@@ -69,7 +69,6 @@ def discover_toolchain(explicit: str | None) -> Path:
     candidates += [
         root.parent / "toolchain" / "llvm-mingw",
         root.parents[1] / "toolchains" / "llvm-mingw",
-        root.parents[3] / "toolchain" / "llvm-mingw",
         Path("C:/llvm-mingw"),
     ]
     candidates += sorted((root.parents[1] / "toolchains").glob("llvm-mingw-*"))
