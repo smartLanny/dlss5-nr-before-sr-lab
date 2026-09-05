@@ -57,18 +57,22 @@ public static class GameInspector
         try
         {
             exe = SafeFiles.CanonicalExistingPath(exe); g.Executable = exe; var imports = PeFacts.Imports(exe);
-            g.Api = imports.Contains("d3d12.dll") ? "D3D12" : imports.Contains("d3d11.dll") ? "D3D11" : "未知";
             g.ExecutableSha256 = PackageManifest.Hash(exe);
             var version = FileVersionInfo.GetVersionInfo(exe); var leaf = Path.GetFileName(exe);
             var cp = leaf.Equals("Cyberpunk2077.exe", StringComparison.OrdinalIgnoreCase) && version.ProductName == "Cyberpunk 2077" && (version.CompanyName?.Contains("CD PROJEKT", StringComparison.OrdinalIgnoreCase) ?? false);
             var w3 = leaf.Equals("witcher3.exe", StringComparison.OrdinalIgnoreCase) && version.ProductName == "The Witcher 3" && Path.GetFileName(g.Directory).Equals("x64_dx12", StringComparison.OrdinalIgnoreCase) && (version.CompanyName?.Contains("CD Projekt", StringComparison.OrdinalIgnoreCase) ?? false);
             if (cp && (appId is null or "1091500")) g.ProfileId = "cyberpunk2077-d3d12";
             if (w3 && (appId is null or "292030")) g.ProfileId = "witcher3-d3d12";
+            var directD3D12 = imports.Contains("d3d12.dll");
+            var profiledDxgi = g.ProfileId.Length != 0 && imports.Contains("dxgi.dll");
+            var streamlineD3D12 = g.ProfileId.Length != 0 &&
+                PeFacts.HasStreamlineD3D12Imports(exe, Path.Combine(g.Directory, "sl.interposer.dll"));
+            var hasD3D12 = directD3D12 || profiledDxgi || streamlineD3D12;
+            g.Api = hasD3D12 ? "D3D12" : imports.Contains("d3d11.dll") ? "D3D11" : "未知";
             var sr = Path.Combine(g.Directory, "nvngx_dlss.dll"); var exports = PeFacts.Exports(sr);
             var native = exports.Contains("NVSDK_NGX_D3D12_EvaluateFeature") && exports.Contains("NVSDK_NGX_D3D12_CreateFeature");
             g.NativeDlss = native ? "发现 x64 NGX D3D12 SR" : "未确认原生 D3D12 SR";
-            g.EvidenceConfirmed = PeFacts.IsX64(exe) && native && (g.Api == "D3D12" || (g.ProfileId.Length != 0 && imports.Contains("dxgi.dll")));
-            if (g.EvidenceConfirmed) g.Api = "D3D12";
+            g.EvidenceConfirmed = PeFacts.IsX64(exe) && native && hasD3D12;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or ArgumentException or System.ComponentModel.Win32Exception) { g.Status = "无法检查：" + ex.Message; return g; }
         g.Status = appId == "553850" ? "Helldivers 2：仅查看，不部署" : g.ProfileId.Length == 0 ? "仅查看：未验证的游戏" : g.EvidenceConfirmed ? "可检查安装计划" : "原生 D3D12 SR 尚未确认";
@@ -132,6 +136,46 @@ internal static class PeFacts
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or ArgumentException) { }
         return names;
+    }
+    internal static HashSet<string> ImportedSymbols(string path, string module)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            using var stream = File.OpenRead(path); using var pe = new PEReader(stream); if (pe.PEHeaders.CoffHeader.Machine != Machine.Amd64) return names;
+            var directory = pe.PEHeaders.PEHeader!.ImportTableDirectory; if (directory.RelativeVirtualAddress == 0) return names;
+            var reader = pe.GetSectionData(directory.RelativeVirtualAddress).GetReader();
+            for (var count = 0; count < 4096 && reader.RemainingBytes >= 20; count++)
+            {
+                var lookup = reader.ReadUInt32(); reader.ReadUInt32(); reader.ReadUInt32(); var name = reader.ReadInt32(); var addresses = reader.ReadUInt32();
+                if (lookup == 0 && name == 0 && addresses == 0) break;
+                if (name <= 0 || !CString(pe, name).Equals(module, StringComparison.OrdinalIgnoreCase)) continue;
+                var thunkRva = lookup != 0 ? lookup : addresses;
+                if (thunkRva == 0 || thunkRva > int.MaxValue) return names;
+                var thunks = pe.GetSectionData((int)thunkRva).GetReader();
+                for (var thunkCount = 0; thunkCount < 65536 && thunks.RemainingBytes >= 8; thunkCount++)
+                {
+                    var entry = thunks.ReadUInt64(); if (entry == 0) break;
+                    if ((entry & 0x8000000000000000UL) != 0) continue;
+                    if (entry > int.MaxValue - 2) return new HashSet<string>(StringComparer.Ordinal);
+                    var import = pe.GetSectionData((int)entry).GetReader();
+                    if (import.RemainingBytes < 3) return new HashSet<string>(StringComparer.Ordinal);
+                    import.ReadUInt16(); names.Add(CString(pe, (int)entry + 2));
+                }
+                return names;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or ArgumentException) { }
+        return names;
+    }
+    internal static bool HasStreamlineD3D12Imports(string executable, string interposer)
+    {
+        var imports = ImportedSymbols(executable, "sl.interposer.dll");
+        if (!imports.Contains("D3D12CreateDevice")) return false;
+        var factory = new[] { "CreateDXGIFactory", "CreateDXGIFactory1", "CreateDXGIFactory2" }.FirstOrDefault(imports.Contains);
+        if (factory == null || !IsX64(interposer)) return false;
+        var exports = Exports(interposer);
+        return exports.Contains("D3D12CreateDevice") && exports.Contains(factory);
     }
     static string CString(PEReader pe, int rva) { var r = pe.GetSectionData(rva).GetReader(); var bytes = new List<byte>(); while (r.RemainingBytes > 0 && bytes.Count < 512) { var b = r.ReadByte(); if (b == 0) return Encoding.ASCII.GetString(bytes.ToArray()); bytes.Add(b); } throw new BadImageFormatException("PE string is not terminated."); }
 }

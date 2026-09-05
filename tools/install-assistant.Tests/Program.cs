@@ -51,6 +51,17 @@ Test("signed traversal and ADS names rejected", f => { f.Manifest["files"]![0]![
 Test("HD2 experimental edition is never accepted for automatic install", f => { f.Manifest["edition"] = "experimental-diagnostics"; f.Sign(); Reject(() => f.Load(), "HD2 experimental package accepted"); });
 Test("unsupported signed profile remains inspection only", f => { f.Manifest["compatibleProfiles"]![0]!["id"] = "helldivers2"; f.Sign(); Reject(() => f.Load(), "HD2 profile accepted"); });
 Test("actual PE machine and NGX exports required", f => { var pe = File.ReadAllBytes(f.Game.Executable); pe[0x84] = 0x64; pe[0x85] = 0xaa; File.WriteAllBytes(f.Game.Executable, pe); Check(!GameInspector.Inspect(f.Game.Executable, null).EvidenceConfirmed, "ARM64 accepted"); });
+Test("Streamline D3D12 evidence requires matching named imports and exports", f =>
+{
+    var exe = Path.Combine(f.Root, "streamline-game.exe"); var interposer = Path.Combine(f.Root, "sl.interposer.dll");
+    File.WriteAllBytes(exe, Fixture.StreamlineExe(true, true)); File.WriteAllBytes(interposer, Fixture.StreamlineInterposer(true, true));
+    Check(PeFacts.ImportedSymbols(exe, "sl.interposer.dll").SetEquals(new[] { "D3D12CreateDevice", "CreateDXGIFactory2" }), "named imports not parsed");
+    Check(PeFacts.HasStreamlineD3D12Imports(exe, interposer), "real Streamline D3D12 contract rejected");
+    File.WriteAllBytes(exe, Fixture.StreamlineExe(false, true));
+    Check(!PeFacts.HasStreamlineD3D12Imports(exe, interposer), "module name without imported D3D12 entry accepted");
+    File.WriteAllBytes(exe, Fixture.StreamlineExe(true, true)); File.WriteAllBytes(interposer, Fixture.StreamlineInterposer(true, false));
+    Check(!PeFacts.HasStreamlineD3D12Imports(exe, interposer), "missing matching interposer export accepted");
+});
 Test("manifest unrelated Steam id cannot make arbitrary EXE a profile", f => { f.Manifest["compatibleProfiles"]![0]!["executableSha256"] = new JsonArray(); f.Sign(); Reject(() => Deployer.Plan(f.Game, f.Load(), host), "AppId alone accepted"); });
 Test("RTX50 package matches detected RTX50 adapter", f => { GpuCompatibility.TestAdapterNames = () => new[] { "Intel(R) UHD Graphics", "NVIDIA GeForce RTX 5090" }; Check(Deployer.Plan(f.Game, f.Package, host).Files.Count > 0, "matching package rejected"); });
 Test("RTX50 package is rejected on RTX30-40 before any write", f => { GpuCompatibility.TestAdapterNames = () => new[] { "NVIDIA GeForce RTX 4090" }; Reject(() => Deployer.Plan(f.Game, f.Package, host), "mismatched package accepted"); Check(!File.Exists(Path.Combine(f.Game.Directory, "dxgi.dll")), "GPU mismatch wrote game files"); });
@@ -192,6 +203,20 @@ sealed class Fixture : IDisposable
         Text(0x188, ".rdata"); U32(0x190, 0x1800); U32(0x194, 0x1000); U32(0x198, 0x1800); U32(0x19c, 0x200); U32(0x1ac, 0x40000040);
         U32(0x20c, 0x1080); Text(0x280, "d3d12.dll\0"); U32(0x300 + 24, 2); U32(0x300 + 32, 0x1140); U32(0x340, 0x1160); U32(0x344, 0x11a0);
         Text(0x360, "NVSDK_NGX_D3D12_CreateFeature\0"); Text(0x3a0, "NVSDK_NGX_D3D12_EvaluateFeature\0"); U32(7000, (uint)seed); return b;
+    }
+    public static byte[] StreamlineExe(bool d3d12, bool dxgi)
+    {
+        var b = Pe(101); void U32(int at, uint n) => BitConverter.GetBytes(n).CopyTo(b, at); void U64(int at, ulong n) => BitConverter.GetBytes(n).CopyTo(b, at); void Text(int at, string s) => Encoding.ASCII.GetBytes(s).CopyTo(b, at);
+        Array.Clear(b, 0x280, 96); Text(0x280, "sl.interposer.dll\0"); U32(0x200, 0x1200); U32(0x210, 0x1200);
+        var at = 0x400; if (d3d12) { U64(at, 0x1300); at += 8; b[0x500] = 0; b[0x501] = 0; Text(0x502, "D3D12CreateDevice\0"); }
+        if (dxgi) { U64(at, 0x1340); at += 8; b[0x540] = 0; b[0x541] = 0; Text(0x542, "CreateDXGIFactory2\0"); }
+        U64(at, 0); return b;
+    }
+    public static byte[] StreamlineInterposer(bool d3d12, bool dxgi)
+    {
+        var b = Pe(102); Array.Clear(b, 0x360, 64); Array.Clear(b, 0x3a0, 64);
+        Encoding.ASCII.GetBytes((d3d12 ? "D3D12CreateDevice" : "slInit") + "\0").CopyTo(b, 0x360);
+        Encoding.ASCII.GetBytes((dxgi ? "CreateDXGIFactory2" : "slShutdown") + "\0").CopyTo(b, 0x3a0); return b;
     }
     public void Dispose() { key.Dispose(); var full = Path.GetFullPath(Root); if (full.StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase) && Path.GetFileName(full).StartsWith("DLSS5-Installer-Test-")) { try { Directory.Delete(full, true); } catch { } } }
 }

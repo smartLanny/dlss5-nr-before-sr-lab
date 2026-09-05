@@ -20,6 +20,9 @@ foreach ($alias in $legacy.aliases) { if (-not $alias.path.EndsWith('.addon64', 
 $sourceCommit = (& git -C $root rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot identify installer source commit.' }
 if (@(& git -C $root status --porcelain).Count -ne 0) { throw 'Commit and freeze installer source before release packaging.' }
+$payloadCatalogHash = (Get-FileHash -LiteralPath $PayloadCatalogPath -Algorithm SHA256).Hash
+$legacyCatalogHash = (Get-FileHash -LiteralPath $LegacyCatalogPath -Algorithm SHA256).Hash
+$verifyScript = Join-Path $root 'scripts/Verify-ReleaseManifest.ps1'
 $output = [IO.Path]::GetFullPath($OutputRoot)
 if (Test-Path -LiteralPath $output) { throw "Output already exists: $output" }
 $variants = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -47,17 +50,22 @@ if ($LASTEXITCODE -ne 0) { throw 'Helper publish failed.' }
 Copy-Item -LiteralPath (Join-Path $helper 'DLSS5InstallAssistant.Helper.exe') -Destination $app
 Copy-Item -LiteralPath (Join-Path $root 'tools/install-assistant/README.zh-CN.md') -Destination (Join-Path $app '说明.txt')
 Copy-Item -LiteralPath (Join-Path $root 'signing/release-public-key.json') -Destination $app
+Copy-Item -LiteralPath $verifyScript -Destination $app
 function Sign-Directory([string]$Path,[string]$Version) {
     $arguments = @{ PackagePath=$Path; Version=$Version; Channel='installer' }
     if ($PrivateKeyPath) { $arguments.PrivateKeyPath=$PrivateKeyPath }
     if ($PublicKeyPath) { $arguments.PublicKeyPath=$PublicKeyPath }
     & (Join-Path $root 'scripts/New-SignedReleaseManifest.ps1') @arguments
 }
-$buildEvidence = [ordered]@{ schema='dlss5-installer-build-evidence/v1'; installerSourceCommit=$sourceCommit; payloadSourceCommit=$payload.payloadSourceCommit; payloadCatalogSha256=(Get-FileHash -LiteralPath $PayloadCatalogPath -Algorithm SHA256).Hash; legacyCatalogSha256=(Get-FileHash -LiteralPath $LegacyCatalogPath -Algorithm SHA256).Hash; builtUtc=[DateTime]::UtcNow.ToString('o'); artifacts=@() }
+$buildEvidence = [ordered]@{ schema='dlss5-installer-build-evidence/v1'; installerSourceCommit=$sourceCommit; payloadSourceCommit=$payload.payloadSourceCommit; payloadCatalogSha256=$payloadCatalogHash; legacyCatalogSha256=$legacyCatalogHash; builtUtc=[DateTime]::UtcNow.ToString('o'); artifacts=@() }
 foreach ($file in Get-ChildItem -LiteralPath $app -File) { $buildEvidence.artifacts += [ordered]@{ path=$file.Name; sha256=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash; bytes=$file.Length } }
 [IO.File]::WriteAllText((Join-Path $app 'BUILD_EVIDENCE.json'), ($buildEvidence | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($false))
 Sign-Directory $app ('installer-' + $sourceCommit.Substring(0,8))
-Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath $app -File | Select-Object -ExpandProperty FullName) -DestinationPath (Join-Path $output 'DLSS5InstallAssistant-win-x64.zip') -CompressionLevel Optimal
+& $verifyScript -PackagePath $app
+$deliveryArtifacts = @()
+$appZip = Join-Path $output 'DLSS5InstallAssistant-win-x64.zip'
+Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath $app -File | Select-Object -ExpandProperty FullName) -DestinationPath $appZip -CompressionLevel Optimal
+$deliveryArtifacts += [ordered]@{ path=[IO.Path]::GetFileName($appZip); kind='application'; build=('installer-' + $sourceCommit.Substring(0,8)); sha256=(Get-FileHash -LiteralPath $appZip -Algorithm SHA256).Hash; bytes=(Get-Item -LiteralPath $appZip).Length }
 foreach ($variant in $payload.variants) {
     $name = 'offline-package-' + $variant.gpuFamily + '-' + $variant.language
     $directory = Join-Path $output $name; New-Item -ItemType Directory -Path $directory | Out-Null
@@ -78,8 +86,26 @@ foreach ($variant in $payload.variants) {
     [IO.File]::WriteAllText((Join-Path $directory 'manifest.json'), ($manifest | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
     Copy-Item -LiteralPath (Join-Path $root 'tools/install-assistant/README.zh-CN.md') -Destination (Join-Path $directory '说明.txt')
     Copy-Item -LiteralPath (Join-Path $root 'signing/release-public-key.json') -Destination $directory
+    Copy-Item -LiteralPath $verifyScript -Destination $directory
     Sign-Directory $directory $payload.build
-    Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath $directory -File | Select-Object -ExpandProperty FullName) -DestinationPath (Join-Path $output ($name+'.zip')) -CompressionLevel Optimal
+    & $verifyScript -PackagePath $directory
+    $componentZip = Join-Path $output ($name+'.zip')
+    Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath $directory -File | Select-Object -ExpandProperty FullName) -DestinationPath $componentZip -CompressionLevel Optimal
+    $deliveryArtifacts += [ordered]@{ path=[IO.Path]::GetFileName($componentZip); kind='offline-component'; build=[string]$payload.build; gpuFamily=[string]$variant.gpuFamily; language=[string]$variant.language; sha256=(Get-FileHash -LiteralPath $componentZip -Algorithm SHA256).Hash; bytes=(Get-Item -LiteralPath $componentZip).Length }
 }
-[IO.File]::WriteAllText((Join-Path $output 'BUILD_EVIDENCE.json'), ($buildEvidence | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($false))
+$rootBuildEvidencePath = Join-Path $output 'BUILD_EVIDENCE.json'
+[IO.File]::WriteAllText($rootBuildEvidencePath, ($buildEvidence | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($false))
+$deliveryEvidence = [ordered]@{
+    schema='dlss5-installer-delivery-evidence/v1'
+    installerSourceCommit=$sourceCommit
+    payloadSourceCommit=[string]$payload.payloadSourceCommit
+    payloadBuild=[string]$payload.build
+    payloadEdition=[string]$payload.edition
+    payloadCatalogSha256=$payloadCatalogHash
+    legacyCatalogSha256=$legacyCatalogHash
+    buildEvidenceSha256=(Get-FileHash -LiteralPath $rootBuildEvidencePath -Algorithm SHA256).Hash
+    completedUtc=[DateTime]::UtcNow.ToString('o')
+    artifacts=$deliveryArtifacts
+}
+[IO.File]::WriteAllText((Join-Path $output 'DELIVERY_EVIDENCE.json'), ($deliveryEvidence | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($false))
 Write-Host "Created signed app and four explicit final payload packages: $output"

@@ -45,7 +45,7 @@ ReShade 只从固定官方地址下载，安装程序和实际宿主均验证固
 
 `scripts/build-install-assistant.ps1` 发布 WPF 与 helper 的 Windows x64 自包含程序。最终提权功能要求应用目录带有本项目固定公钥对应的签名清单。
 
-`scripts/package-install-assistant-release.ps1` 必须显式提供 `-PayloadCatalogPath`、`-LegacyCatalogPath`、`-OutputRoot`，源码提交后才可运行。它不会按旧版目录或 glob 猜载荷，逐文件核对输入 SHA256，并为应用目录、每个组件目录签名。
+`scripts/package-install-assistant-release.ps1` 必须显式提供 `-PayloadCatalogPath`、`-LegacyCatalogPath`、`-OutputRoot`，源码提交后才可运行。它不会按旧版目录或 glob 猜载荷，逐文件核对输入 SHA256，并在压缩前签名、复验应用目录与每个组件目录。每个 ZIP 都带固定公钥和 `Verify-ReleaseManifest.ps1` 手工验签脚本；输出根目录的 `DELIVERY_EVIDENCE.json` 记录实际生成的应用 ZIP 与四个组件 ZIP 的大小、SHA256、安装助手提交和插件载荷提交。
 
 载荷目录清单 schema：`dlss5-installer-payloads/v2`，包含 `build`、`edition`、`payloadSourceCommit` 和四个 `variants`。`edition` 只接受推荐的 `enhanced-recommended` 或兼容兜底的 `compatibility-fallback`；HD2 等实验包不能自动安装。每项 variant 声明 `gpuFamily`（RTX50/RTX30-40）、`language`（zh-CN/en）、`files`（每文件的绝对 `sourcePath`、`sha256`、`role` 与独立 `source` 来源）。复用旧包中的大运行库时会记录旧包来源和运行库哈希，不会冒充本轮新构建。必需角色为 addon/bridge/runtime/config；可选角色为 feedback-launcher/feedback-collector 和 crash-feedback-launcher/crash-feedback-collector。两个崩溃采集角色只接受固定文件名 `Collect-Crash-Feedback.cmd`、`collect-crash-feedback.ps1`。
 
