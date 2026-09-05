@@ -1,0 +1,22 @@
+name: Compatibility review workbench
+on:
+  push:
+    branches: [codex/compat-fg-ui-sweep]
+    paths: ['.github/workflows/compat-sweep-workbench.yml']
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dc876fc81ba831089f407f01a498e4b04d616122
+          persist-credentials: false
+      - name: Archive reviewed source only
+        run: git archive --format=zip --output=reviewed-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-r2-source
+          path: reviewed-source.zip
+          retention-days: 1
