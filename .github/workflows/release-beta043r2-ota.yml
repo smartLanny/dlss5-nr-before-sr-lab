@@ -17,13 +17,18 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Fetch public build inputs
+      - name: Fetch verified public build inputs
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $llvmUrl = 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip'
+          $expectedLlvmSha256 = 'AE601F4E0F72BBDF441AD2DF8BB16F037E2E9251559EA6B37B4057AEF39C06C3'
           $reshadeCommit = '4a50d1eddace85734871d91792ff214f13f66c01'
           Invoke-WebRequest $llvmUrl -OutFile llvm-mingw.zip
+          $actualLlvmSha256 = (Get-FileHash -Algorithm SHA256 llvm-mingw.zip).Hash
+          if ($actualLlvmSha256 -ne $expectedLlvmSha256) {
+            throw "llvm-mingw SHA256 mismatch: $actualLlvmSha256"
+          }
           Expand-Archive llvm-mingw.zip -DestinationPath toolchain
           $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
           git clone --depth 1 --no-checkout https://github.com/crosire/reshade.git reshade-source
@@ -33,12 +38,17 @@ jobs:
           "TOOLCHAIN_ROOT=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Append
           "RESHADE_ROOT=$pwd\reshade-source" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      - name: Build clean release binaries
+      - name: Build clean r2 release binaries
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
           if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
+          $zhAddon = @(Get-ChildItem build -File -Filter '*beta0.4.3r2*@野生的装机宅-Bilibili.addon64')
+          $enAddon = @(Get-ChildItem build -File -Filter '*beta0.4.3r2*@野生的装机宅-Bilibili.en.addon64')
+          if ($zhAddon.Count -ne 1 -or $enAddon.Count -ne 1) {
+            throw 'Expected exactly one Chinese and one English r2 addon build'
+          }
 
       - name: Create OTA packages only
         shell: pwsh
