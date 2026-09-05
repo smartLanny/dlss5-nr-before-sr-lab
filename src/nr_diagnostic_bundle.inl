@@ -68,6 +68,7 @@ struct Job {
     char manifest[384 * 1024] = {};
     std::size_t manifest_length = 0;
     HANDLE archive = INVALID_HANDLE_VALUE;
+    unsigned long long archive_limit = kArchiveLimit; // May lower, never raise, the global ceiling.
     unsigned long long archive_bytes = 0, read_bytes = 0, started = 0;
 };
 
@@ -292,8 +293,10 @@ std::uint32_t UpdateCrc(const Job &job, std::uint32_t crc,
     return crc;
 }
 
+unsigned long long ArchiveLimit(const Job &job) { return job.archive_limit < kArchiveLimit ? job.archive_limit : kArchiveLimit; }
+
 bool Write(Job &job, const void *data, DWORD size) {
-    if (job.archive_bytes + size > kArchiveLimit) { SetLastError(ERROR_FILE_TOO_LARGE); return false; }
+    if (job.archive_bytes > ArchiveLimit(job) || size > ArchiveLimit(job) - job.archive_bytes) { SetLastError(ERROR_FILE_TOO_LARGE); return false; }
     DWORD written=0;
     if (!WriteFile(job.archive,data,size,&written,nullptr)) return false;
     if (written!=size) { SetLastError(ERROR_WRITE_FAULT); return false; }
@@ -367,8 +370,8 @@ bool Collect(Job &job,Artifact &item) {
     item.truncated=item.source_offset!=0;
     if (bytes>kReadLimit-job.read_bytes) { Missing(item,"collection-byte-limit");CloseHandle(file);return true; }
     // Reserve central-directory and bounded manifest space before adding data.
-    if (item.kind!=FileKind::HashOnly && bytes+sizeof(job.manifest)+65536>
-        kArchiveLimit-job.archive_bytes) { Missing(item,"archive-size-limit");CloseHandle(file);return true; }
+    if (item.kind!=FileKind::HashOnly && (job.archive_bytes > ArchiveLimit(job) ||
+        bytes+sizeof(job.manifest)+65536 > ArchiveLimit(job)-job.archive_bytes)) { Missing(item,"archive-size-limit");CloseHandle(file);return true; }
     LARGE_INTEGER start{};start.QuadPart=static_cast<LONGLONG>(item.source_offset);
     if (!SetFilePointerEx(file,start,nullptr,FILE_BEGIN)) {
         Missing(item,"source-seek-failed",GetLastError());CloseHandle(file);return true;

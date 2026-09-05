@@ -29,6 +29,8 @@
 
 #include "MinHook.h"
 #include "nr_guide_contract.h"
+// Standard-library headers must be included outside the private runtime namespace.
+#include "nr_feedback_text.h"
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
@@ -10201,6 +10203,7 @@ DWORD WINAPI HookWorker(void *) {
 #include "nr_runtime_identity.inl"
 #include "nr_feedback_capture.inl"
 #include "nr_runtime_status.inl"
+#include "nr_feedback_core.inl"
 #include "nr_f8_sequence.inl"
 
 void ToggleMasterFromHotkey() {
@@ -10267,20 +10270,18 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     static bool feedback_key_was_down = false;
     static bool feedback_key_loaded=false;
     if(!feedback_key_loaded){unsigned key=GetPrivateProfileIntW(L"NRBeforeSR",L"FeedbackVirtualKey",VK_F8,g_ini_path);
-        nr_f8::g_hotkey.store(key>=VK_F1 && key<=VK_F12?key:VK_F8);feedback_key_loaded=true;}
+        nr_f8::g_hotkey.store(nr_feedback_text::CoreHotkey(key));feedback_key_loaded=true;}
     const SHORT f8_state = GetAsyncKeyState(static_cast<int>(nr_f8::g_hotkey.load()));
     const bool feedback_down = (f8_state & 0x8000) != 0;
     if ((f8_state & 0x0001) != 0 || (feedback_down && !feedback_key_was_down)) {
-        nr_f8::RequestWithOptions({nr_f8::Comparison::Current,false,0,0});
+        nr_f8::RequestCore();
         nr_f8::OpenWindow();
         runtime->open_overlay(true, reshade::api::input_source::keyboard);
     }
     feedback_key_was_down = feedback_down;
-    if(!nr_f8::IsActive())FeedbackPresent(runtime);
+    // Core feedback has no GPU-stage request and runs without eligible NR frames.
     QueueRuntimeStatus();
     EnterCriticalSection(&g_chain_cs);CollectF8GpuLocked();LeaveCriticalSection(&g_chain_cs);
-    nr_f8::Present(runtime);
-
     const SHORT f7_state = GetAsyncKeyState(VK_F7);
     const bool stage_key_is_down = (f7_state & 0x8000) != 0;
     // Like '-', keep the transition fallback for short taps between Presents.
@@ -10288,12 +10289,19 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
         (stage_key_is_down && !stage_key_was_down);
     if (stage_pressed && !nr_f8::IsActive() && now_ms - last_stage_request_ms >= 350) {
         last_stage_request_ms = now_ms;
-        const bool accepted = RequestStageCapture();
-        Log("[stage-capture] F7 request=%s; next eligible warmed-up NR "
-            "composition. '-' screenshots are separate, NOT same-frame evidence.",
-            accepted ? "accepted" : "already pending");
+        const bool accepted = nr_f8::RequestWithOptions({nr_f8::Comparison::Current,false,0,0});
+        if (accepted) {
+            nr_f8::OpenWindow();
+            runtime->open_overlay(true, reshade::api::input_source::keyboard);
+        }
+        Log("[feedback] F7 image supplement request=%s; a fresh paired core package precedes exact-fence images.",
+            accepted ? "accepted" : "busy");
     }
     stage_key_was_down = stage_key_is_down;
+    // Start after both shortcut handlers; even a single remaining Present can
+    // queue the bounded core worker. The image coordinator waits for its pair.
+    nr_core_feedback::Present(runtime);
+    nr_f8::Present(runtime);
 
     if (screenshot_pressed && now_ms - last_screenshot_ms >= 350) {
         last_screenshot_ms = now_ms;

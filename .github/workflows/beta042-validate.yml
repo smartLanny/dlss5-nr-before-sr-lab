@@ -5,6 +5,7 @@ on:
   pull_request:
     branches:
       - codex/beta0.4.2
+      - codex/beta0.4.2-bug-sweep
   push:
     branches:
       - codex/beta0.4.2
@@ -22,7 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Extracted production bug regressions
-        run: python3 scripts/validate-bug-sweep.py --compiler g++
+        run: |
+          python3 scripts/validate-bug-sweep.py --compiler g++
+          g++ -std=c++20 -Wall -Wextra -Werror -Isrc tests/feedback_text_test.cpp -o /tmp/feedback-text
+          /tmp/feedback-text
+          python3 -m unittest discover -s tests -p 'test_core_feedback.py'
+          python3 tests/test_f8_parser.py
 
   shader-structure-and-math:
     runs-on: windows-latest
@@ -64,6 +70,8 @@ jobs:
           $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
           python scripts/validate-bug-sweep.py --compiler $compiler
           if ($LASTEXITCODE -ne 0) { throw 'Bug sweep regression harness failed.' }
+          python scripts/validate-core-feedback.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw 'Core feedback production harness failed.' }
           $env:DLSS5_LLVM_MINGW_ROOT = $env:TOOLCHAIN_ROOT
           python scripts/validate-null-pso-policy.py
           if ($LASTEXITCODE -ne 0) { throw 'Null-PSO default policy harness failed.' }

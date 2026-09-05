@@ -205,6 +205,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             ImGui::TextDisabled("%s", ui("Enable Face mask to adjust skin detail; currently follows Local structure.", "开启人脸遮罩后可调整皮肤细节；当前跟随局部结构。"));
         }
         changed |= ImGui::Checkbox(ui("UI correction", "UI 校正"), &next.ui_correction);
+        ImGui::TextDisabled("%s", ui("New installations: UI protection on; your saved choice is retained.", "新装默认开启：优先保护 UI；保留你已保存的选择。"));
         SettingsTooltip(ui("Sends the unsigned UI-correction value expected by DLSSNR. It can help only when the game supplies a separate UI layer; it cannot isolate subtitles or HUD already baked into SceneColor. New installations enable it; existing explicit settings are kept.", "按 DLSSNR 实际读取的无符号类型发送界面修正值。只有游戏提供独立 UI 层时才可能生效；已经混入 SceneColor 的字幕或 HUD 无法被单独识别。新装默认开启，已有明确设置会保留。"));
 #if NR_HAS_DETAIL_STABILITY
         if (next.mode != 2) ImGui::BeginDisabled();
