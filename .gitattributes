@@ -9,3 +9,7 @@
 *.txt text eol=lf
 *.ini text eol=crlf
 *.ps1 text eol=crlf
+# These archived evidence blobs contain CRLF in Git. Preserve their exact bytes,
+# rather than rewriting evidence or allowing a dirty source-build checkout.
+bug-inbox/issue-35/logs/nr-before-sr.log.txt -text
+bug-inbox/issue-36/logs/nr-before-sr.log.txt -text
