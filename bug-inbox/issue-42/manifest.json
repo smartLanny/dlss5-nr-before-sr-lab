@@ -1,0 +1,16 @@
+{
+  "issue": 42,
+  "source": "tencent_docs_main_export_xlsx_attachments",
+  "files": [
+    {
+      "name": "logs/nr-before-sr.txt",
+      "bytes": 119584,
+      "sha256": "821979e7a7129b7ec1118b10c20649d8c86566b5b9e084f4f8b37f33ece874d5"
+    },
+    {
+      "name": "logs/ReShade.log.txt",
+      "bytes": 104094,
+      "sha256": "b5e51a79f62227b41325929a11be6e7fb88f8c74f6c0f27f853bd1b47e61bfbc"
+    }
+  ]
+}

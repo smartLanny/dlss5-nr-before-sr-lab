@@ -1,0 +1,69 @@
+02:59:32.493  DLSS 5 AI Rendering Upscaling Edition beta0.4.1 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=DLSS5-AI渲染超分版-beta0.4.1-@野生的装机宅-Bilibili.addon64 | build_id=beta0.4.1 | sourceCommit=e0b94ff1670de82ccd4264c19d4d459fc3c2a160 sourceDirty=0
+02:59:32.495  Shared strength migration: sourceMode=2 selected=1 strengthConfigVersion=1 persisted=1.
+02:59:32.496  Migrated legacy configuration to beta0.4.1 in memory: default mode is now render-resolution NR -> SR; persisted=1.
+02:59:32.498  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+02:59:32.498  Config: enabled=0 mode=2 identity=0 preTransfer=1.000 postTransfer=1.000 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=0 uiCorrection=0 r8OutputEncoding=0 perfEpoch=1 jitterMode=1 feature18Evals=0
+02:59:32.498  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+02:59:32.720  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+02:59:32.720  [module] pinned hook owner name=D3D12 command state address=00007FFACA805E00 module=00007FFACA620000 until process exit.
+02:59:32.896  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+02:59:33.097  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+02:59:34.038  Found SR NGX module: G:\Gal\2026 0729\666\dj\Forza Horizon 6\nvngx_dlss.dll
+02:59:34.038  [module] pinned hook owner name=nvngx_dlss.dll address=00007FFAC1A10000 module=00007FFAC1A10000 until process exit.
+02:59:34.039  [module] pinned hook owner name=_nvngx.dll address=00007FFACC490000 module=00007FFACC490000 until process exit.
+02:59:34.040  [module] pinned hook owner name=D3D12_CreateFeature address=00007FFAC1A3D960 module=00007FFAC1A10000 until process exit.
+02:59:34.040  MH_CreateHook D3D12_CreateFeature                    target=00007FFAC1A3D960 status=0
+02:59:34.040  [module] pinned hook owner name=D3D12_EvaluateFeature address=00007FFAC1A3DAD0 module=00007FFAC1A10000 until process exit.
+02:59:34.041  MH_CreateHook D3D12_EvaluateFeature                  target=00007FFAC1A3DAD0 status=0
+02:59:34.041  [module] pinned hook owner name=D3D12_ReleaseFeature address=00007FFAC1A3DDB0 module=00007FFAC1A10000 until process exit.
+02:59:34.041  MH_CreateHook D3D12_ReleaseFeature                   target=00007FFAC1A3DDB0 status=0
+02:59:34.041  [module] pinned hook owner name=core CreateFeature address=00007FFACC4F8540 module=00007FFACC490000 until process exit.
+02:59:34.042  MH_CreateHook core CreateFeature                     target=00007FFACC4F8540 status=0
+02:59:34.042  [module] pinned hook owner name=core EvaluateFeature address=00007FFACC4F8740 module=00007FFACC490000 until process exit.
+02:59:34.042  MH_CreateHook core EvaluateFeature                   target=00007FFACC4F8740 status=0
+02:59:34.042  [module] pinned hook owner name=core ReleaseFeature address=00007FFACC4F8640 module=00007FFACC490000 until process exit.
+02:59:34.043  MH_CreateHook core ReleaseFeature                    target=00007FFACC4F8640 status=0
+02:59:34.092  MH_EnableHook all status=0
+02:59:34.093  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+02:59:34.093  [module] initial scan complete: sr=00007FFAC1A10000 core=00007FFACC490000 dlssd=0000000000000000.
+02:59:34.093  NGX observer/AI-upscaling hooks active.
+02:59:38.183  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+02:59:38.380  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+02:59:38.670  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+02:59:39.301  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+02:59:41.213  [command-state] observed CreateCommandSignature: call=1 signature=0000000033590F50 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.368  [command-state] observed CreateCommandSignature: call=2 signature=0000000033591E70 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.368  [command-state] observed CreateCommandSignature: call=3 signature=0000000033590030 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.368  [command-state] observed CreateCommandSignature: call=4 signature=000000003358E980 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.370  [command-state] observed CreateCommandSignature: call=5 signature=00000000207D6FA0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.370  [command-state] observed CreateCommandSignature: call=6 signature=00000000611174E0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.493  [command-state] observed CreateCommandSignature: call=7 signature=0000000061118400 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.496  [command-state] observed CreateCommandSignature: call=8 signature=00000000611165C0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.499  [command-state] observed CreateCommandSignature: call=9 signature=0000000061117C70 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.542  [command-state] observed CreateCommandSignature: call=10 signature=0000000061114F10 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.542  [command-state] observed CreateCommandSignature: call=11 signature=00000000611156A0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[0] root=0000000000000000.
+02:59:41.557  [command-state] observed CreateCommandSignature: call=12 signature=0000000061115E30 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.982  [command-state] observed CreateCommandSignature: call=13 signature=0000000061116D50 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.986  [command-state] observed CreateCommandSignature: call=14 signature=00000000335907C0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.986  [command-state] observed CreateCommandSignature: call=15 signature=000000003358F8A0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:41.989  [command-state] observed CreateCommandSignature: call=16 signature=000000003358F110 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+02:59:42.205  [module] late module discovered name=nvngx_dlssd.dll handle=00007FFABFEB0000 path=G:\Gal\2026 0729\666\dj\Forza Horizon 6\nvngx_dlssd.dll
+02:59:42.206  [module] pinned hook owner name=nvngx_dlssd.dll address=00007FFABFEB0000 module=00007FFABFEB0000 until process exit.
+02:59:42.206  [module] pinned hook owner name=late DLSSD ReleaseFeature address=00007FFABFED3290 module=00007FFABFEB0000 until process exit.
+02:59:42.206  MH_CreateHook late DLSSD ReleaseFeature              target=00007FFABFED3290 status=0
+02:59:42.206  [module] MH_QueueEnableHook late DLSSD ReleaseFeature  target=00007FFABFED3290 status=0
+02:59:42.207  [module] pinned hook owner name=late DLSSD CreateFeature address=00007FFABFED2E40 module=00007FFABFEB0000 until process exit.
+02:59:42.207  MH_CreateHook late DLSSD CreateFeature               target=00007FFABFED2E40 status=0
+02:59:42.207  [module] MH_QueueEnableHook late DLSSD CreateFeature   target=00007FFABFED2E40 status=0
+02:59:42.207  [module] pinned hook owner name=late DLSSD EvaluateFeature address=00007FFABFED2FB0 module=00007FFABFEB0000 until process exit.
+02:59:42.208  MH_CreateHook late DLSSD EvaluateFeature             target=00007FFABFED2FB0 status=0
+02:59:42.208  [module] MH_QueueEnableHook late DLSSD EvaluateFeature target=00007FFABFED2FB0 status=0
+02:59:42.274  [module] MH_ApplyQueued late NGX lifecycle status=0
+02:59:42.274  [module] late DLSSD coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+02:59:42.274  [module] startup-deferred RR-capable module entry points were fully hooked before the first observed Feature 1 Create/Evaluate; startup continues without a permanent ownership bypass.
+02:59:42.275  [module] lazy rescan #1 core=00007FFACC490000 coreLifecycle=1 dlssd=00007FFABFEB0000 dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0.
+02:59:42.279  [perf] reset stage=A-SR-only epoch=1 transfer=1.000; warming 180 frames
+02:59:42.293  [artifact-identity] sourceCommit=e0b94ff1670de82ccd4264c19d4d459fc3c2a160 sourceDirty=0 status=verified addonPath=G:\Gal\2026 0729\666\dj\Forza Horizon 6\DLSS5-AI渲染超分版-beta0.4.1-@野生的装机宅-Bilibili.addon64 addonSha256=53f1e7e187bb2bfb3323971bbf3777153d18eea0fbd22741b6115da5024b70da measurement=loaded-path-file-once-worker.
+02:59:43.226  [module] lazy rescan #2 core=00007FFACC490000 coreLifecycle=1 dlssd=00007FFABFEB0000 dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0.
+02:59:44.216  [module] lazy rescan #3 core=00007FFACC490000 coreLifecycle=1 dlssd=00007FFABFEB0000 dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0.
+02:59:49.149  [perf] stage=A-SR-only epoch=1 transfer=1.000 samples=600 avgFPS=139.289 avgMs=7.1793 p95Ms=32.3343 p99Ms=33.6308 onePercentLowFPS=28.931

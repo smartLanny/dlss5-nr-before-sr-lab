@@ -1,0 +1,10 @@
+DLSS5 beta0.4.1 本地采集 / local capture
+完整采集=1；原设置恢复=1；不自动上传。
+默认仅采当前状态，不启用NR也不切换模式。只有用户选择对比时临时切换。
+
+Group 0: mode=2 enabled=0 requestedStrength=1 actualStrength=1 ROI=0/16 overview=0 screenshotPresent=1608 complete=1 reason=
+
+分块格式 F8CHK004：每块最多4帧，overview单独保存。原图/代理/NR/合成/保护五平面是同一次Combine dispatch的原像素ROI；曝光尾部写入每条JSON。代理/NR按合成时工作网格映射采样。索引0-15要求NR帧连续、instance/config/尺寸相同；16为独立概览。缺失帧保留元数据而不是拼接。
+截图是独立Present，不是同帧最终SR证据。原生最终SR纹理、MV/Depth像素未取得，不能验证时域重投影。
+保护数据RGBA=权重、原因位、原始log残差、空间保护后log残差；原因1低采样/2细碎不一致/4近黑/8极端比值/16关闭/32输入无效/64零强度/128历史抑制/256输入残差/512后置不可用。这是空间保护，不是人脸/HUD识别，也不证明运动保护。
+每帧JSON含完整请求/实际参数、codecFlags、曝光有效性、jitter、MV比例与实际模型tuning；请在相同颜色域分析，不独立归一化或用均值替代画质。部分包请检查manifest缺失原因。

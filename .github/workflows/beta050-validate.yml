@@ -3,9 +3,9 @@ name: Validate beta0.5-dev1
 on:
   workflow_dispatch:
   pull_request:
-    branches: [codex/beta0.5]
+    branches: [next/0.5, codex/beta0.5]
   push:
-    branches: [codex/beta0.5]
+    branches: [next/0.5]
 
 permissions:
   contents: read
@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Extracted production bug regressions
         run: |
           python3 scripts/validate-beta05-boost.py --compiler g++
@@ -35,6 +37,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Structural invariants
         run: |
           python scripts/validate-beta04-structure.py
@@ -52,6 +56,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Fetch public build inputs
         shell: pwsh
         run: |
@@ -143,6 +149,9 @@ jobs:
         run: ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
       - name: Assemble and verify clean test package
         shell: pwsh
+        env:
+          SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
+          SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path dist -Force | Out-Null
@@ -155,6 +164,8 @@ jobs:
           @(
             "branch=$env:GITHUB_REF_NAME"
             "commit=$env:GITHUB_SHA"
+            "sourceBranch=$env:SOURCE_BRANCH"
+            "sourceCommit=$env:SOURCE_COMMIT"
             "workflowRun=$env:GITHUB_RUN_ID"
             "build=beta0.5-dev1"
             "channel=experimental-not-release"

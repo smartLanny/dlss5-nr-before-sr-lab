@@ -1,0 +1,50 @@
+03:27:35.285  DLSS 5 AI Rendering Upscaling Edition beta0.4.1 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=DLSS5-AI渲染超分版-beta0.4.1-@野生的装机宅-Bilibili.addon64 | build_id=beta0.4.1 | sourceCommit=e0b94ff1670de82ccd4264c19d4d459fc3c2a160 sourceDirty=0
+03:27:35.288  Shared strength migration: sourceMode=2 selected=1 strengthConfigVersion=1 persisted=1.
+03:27:35.289  Migrated legacy configuration to beta0.4.1 in memory: default mode is now render-resolution NR -> SR; persisted=1.
+03:27:35.291  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+03:27:35.292  Config: enabled=1 mode=2 identity=0 preTransfer=1.000 postTransfer=1.000 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=0 uiCorrection=0 r8OutputEncoding=0 perfEpoch=34 jitterMode=1 feature18Evals=0
+03:27:35.293  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+03:27:35.906  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+03:27:35.907  [module] pinned hook owner name=D3D12 command state address=00007FFB42752500 module=00007FFB42670000 until process exit.
+03:27:36.208  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+03:27:36.250  [command-state] device meta-command contract: known=1 initDirty=0x0 executeDirty=0x0 supportedMask=0x1038.
+03:27:36.841  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+03:27:37.911  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+03:27:37.911  [command-state] observed CreateCommandSignature: call=1 signature=00000000698AEBE0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[9] root=0000000000000000.
+03:27:37.911  [command-state] observed CreateCommandSignature: call=2 signature=00000000698AF3B0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+03:27:37.911  [command-state] observed CreateCommandSignature: call=3 signature=00000000698813C0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+03:27:37.912  [command-state] observed CreateCommandSignature: call=4 signature=0000000069881B90 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[10] root=0000000000000000.
+03:27:37.912  [command-state] observed CreateCommandSignature: call=5 signature=0000000069882360 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[0] root=0000000000000000.
+03:27:37.912  [command-state] observed CreateCommandSignature: call=6 signature=0000000069882B30 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=0000000000000000.
+03:27:39.761  Found SR NGX module: G:\SteamLibrary\steamapps\common\BlackMythWukong\Engine\Plugins\Runtime\Nvidia\DLSS\Binaries\ThirdParty\Win64\nvngx_dlss.dll
+03:27:39.761  [module] pinned hook owner name=nvngx_dlss.dll address=00007FFAC1070000 module=00007FFAC1070000 until process exit.
+03:27:39.761  [module] pinned hook owner name=_nvngx.dll address=00007FFAC5EB0000 module=00007FFAC5EB0000 until process exit.
+03:27:39.767  [module] pinned hook owner name=D3D12_CreateFeature address=00007FFAC109D2E0 module=00007FFAC1070000 until process exit.
+03:27:39.768  MH_CreateHook D3D12_CreateFeature                    target=00007FFAC109D2E0 status=0
+03:27:39.768  [module] pinned hook owner name=D3D12_EvaluateFeature address=00007FFAC109D450 module=00007FFAC1070000 until process exit.
+03:27:39.769  MH_CreateHook D3D12_EvaluateFeature                  target=00007FFAC109D450 status=0
+03:27:39.769  [module] pinned hook owner name=D3D12_ReleaseFeature address=00007FFAC109D730 module=00007FFAC1070000 until process exit.
+03:27:39.769  MH_CreateHook D3D12_ReleaseFeature                   target=00007FFAC109D730 status=0
+03:27:39.769  [module] pinned hook owner name=core CreateFeature address=00007FFAC5F18540 module=00007FFAC5EB0000 until process exit.
+03:27:39.770  MH_CreateHook core CreateFeature                     target=00007FFAC5F18540 status=0
+03:27:39.770  [module] pinned hook owner name=core EvaluateFeature address=00007FFAC5F18740 module=00007FFAC5EB0000 until process exit.
+03:27:39.770  MH_CreateHook core EvaluateFeature                   target=00007FFAC5F18740 status=0
+03:27:39.770  [module] pinned hook owner name=core ReleaseFeature address=00007FFAC5F18640 module=00007FFAC5EB0000 until process exit.
+03:27:39.770  MH_CreateHook core ReleaseFeature                    target=00007FFAC5F18640 status=0
+03:27:39.817  MH_EnableHook all status=0
+03:27:39.817  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+03:27:39.817  [module] initial scan complete: sr=00007FFAC1070000 core=00007FFAC5EB0000 dlssd=0000000000000000.
+03:27:39.817  NGX observer/AI-upscaling hooks active.
+03:27:41.543  [module] late module discovered name=nvngx_dlssd.dll handle=00000001F1F40000 path=G:\SteamLibrary\steamapps\common\BlackMythWukong\Engine\Plugins\Runtime\Nvidia\DLSS\Binaries\ThirdParty\Win64\nvngx_dlssd.dll
+03:27:41.543  [module] pinned hook owner name=nvngx_dlssd.dll address=00000001F1F40000 module=00000001F1F40000 until process exit.
+03:27:41.544  [module] pinned hook owner name=late DLSSD ReleaseFeature address=00000001F1F64980 module=00000001F1F40000 until process exit.
+03:27:41.544  MH_CreateHook late DLSSD ReleaseFeature              target=00000001F1F64980 status=9
+03:27:41.545  [module] pinned hook owner name=late DLSSD CreateFeature address=00000001F1F64530 module=00000001F1F40000 until process exit.
+03:27:41.546  MH_CreateHook late DLSSD CreateFeature               target=00000001F1F64530 status=9
+03:27:41.546  [module] pinned hook owner name=late DLSSD EvaluateFeature address=00000001F1F646A0 module=00000001F1F40000 until process exit.
+03:27:41.546  MH_CreateHook late DLSSD EvaluateFeature             target=00000001F1F646A0 status=9
+03:27:41.546  [module] late DLSSD coverage: create=0 evaluate=0 release=0; RR-lifecycle=UNCERTAIN.
+03:27:41.546  RR ownership tracking became uncertain during lazy module rescan: a late RR-capable NGX module could not be fully covered. All future Feature 1 processing fails closed for this process.
+03:27:41.546  [module] lazy rescan #1 core=00007FFAC5EB0000 coreLifecycle=1 dlssd=00000001F1F40000 dlssdLifecycle=0 observerGap=1 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0.
+03:27:41.549  [perf] reset stage=C-NR-transfer epoch=34 transfer=1.000; warming 180 frames
+03:27:41.561  [artifact-identity] sourceCommit=e0b94ff1670de82ccd4264c19d4d459fc3c2a160 sourceDirty=0 status=verified addonPath=G:\SteamLibrary\steamapps\common\BlackMythWukong\b1\Binaries\Win64\DLSS5-AI渲染超分版-beta0.4.1-@野生的装机宅-Bilibili.addon64 addonSha256=53f1e7e187bb2bfb3323971bbf3777153d18eea0fbd22741b6115da5024b70da measurement=loaded-path-file-once-worker.

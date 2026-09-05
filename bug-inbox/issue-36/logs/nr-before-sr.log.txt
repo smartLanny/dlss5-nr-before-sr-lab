@@ -1,0 +1,55 @@
+10:24:04.632  DLSS 5 AI Rendering Upscaling Edition beta0.3.3-dev attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=dlss5-ai渲染超分版-beta0.3.3-dev-@野生的装机宅-bilibili.addon64 | build_id=beta0.3.3-dev-r2
+10:24:04.633  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+10:24:04.633  Config: enabled=0 mode=2 identity=0 preTransfer=1.000 postTransfer=1.000 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=0 uiCorrection=0 r8OutputEncoding=0 perfEpoch=8 feature18Evals=0
+10:24:04.637  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+10:24:05.161  Found SR NGX module: f:\steamlibrary\steamapps\common\resident evil requiem biohazard requiem\_storage_\nvngx_dlss.dll
+10:24:05.161  [module] pinned hook owner name=nvngx_dlss.dll handle=00007FFCBD680000 until process exit.
+10:24:05.172  [module] pinned hook owner name=_nvngx.dll handle=00007FFD4A320000 until process exit.
+10:24:05.172  MH_CreateHook D3D12_CreateFeature                    target=00007FFCBD6AC8B0 status=0
+10:24:05.172  MH_CreateHook D3D12_EvaluateFeature                  target=00007FFCBD6ACA20 status=0
+10:24:05.172  MH_CreateHook D3D12_ReleaseFeature                   target=00007FFCBD6ACD00 status=0
+10:24:05.172  MH_CreateHook core D3D12_EvaluateFeature             target=00007FFD4A388740 status=0
+10:24:05.173  MH_CreateHook core D3D12_CreateFeature               target=00007FFD4A388540 status=0
+10:24:05.173  MH_CreateHook core D3D12_ReleaseFeature              target=00007FFD4A388640 status=0
+10:24:05.218  MH_EnableHook all status=0
+10:24:05.218  [module] initial module name=_nvngx.dll handle=00007FFD4A320000 path=C:\WINDOWS\System32\DriverStore\FileRepository\nvmdi.inf_amd64_ba34f758deb2a7d2\_nvngx.dll
+10:24:05.219  [module] initial _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+10:24:05.219  [module] initial scan complete: sr=00007FFCBD680000 core=00007FFD4A320000 dlssd=0000000000000000.
+10:24:05.219  NGX observer/AI-upscaling hooks active.
+10:24:08.485  [module] lazy rescan #1 core=00007FFD4A320000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+10:24:08.487  [perf] reset stage=A-SR-only epoch=8 transfer=1.000; warming 180 frames
+10:24:11.144  [module] lazy rescan #2 core=00007FFD4A320000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+10:24:12.155  [module] lazy rescan #3 core=00007FFD4A320000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+10:24:12.879  _nvngx core CreateFeature entered: call=1 id=1 (SuperSampling)
+10:24:12.913  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=000000128B984070
+10:24:12.913      Width                                      = 960
+10:24:12.913      Height                                     = 540
+10:24:12.913      OutWidth                                   = 1920
+10:24:12.913      OutHeight                                  = 1080
+10:24:12.913      PerfQualityValue                           = 0
+10:24:12.914      DLSS.Feature.Create.Flags                  = 11
+10:24:12.914      CreationNodeMask                           = 1
+10:24:12.914      VisibilityNodeMask                         = 1
+10:24:12.914  Feature 1 contract generation=1 handle=000000128B984070 create=960x540 -> 1920x1080 flags=11 quality=0; all NR contracts will be rebuilt.
+10:24:13.091  _nvngx core CreateFeature entered: call=2 id=1 (SuperSampling)
+10:24:13.120  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=00000003E8E62630
+10:24:13.121      Width                                      = 1280
+10:24:13.121      Height                                     = 720
+10:24:13.121      OutWidth                                   = 2560
+10:24:13.121      OutHeight                                  = 1440
+10:24:13.121      PerfQualityValue                           = 0
+10:24:13.121      DLSS.Feature.Create.Flags                  = 11
+10:24:13.122      CreationNodeMask                           = 1
+10:24:13.122      VisibilityNodeMask                         = 1
+10:24:13.122  Feature 1 contract generation=2 handle=00000003E8E62630 create=1280x720 -> 2560x1440 flags=11 quality=0; all NR contracts will be rebuilt.
+10:24:13.187  core ReleaseFeature handle=000000128B984070 id=1 (SuperSampling)
+10:24:16.439  [perf] stage=A-SR-only epoch=8 transfer=1.000 samples=600 avgFPS=142.437 avgMs=7.0206 p95Ms=6.3662 p99Ms=27.2728 onePercentLowFPS=10.688
+10:24:23.760  [perf] stage=A-SR-only epoch=8 transfer=1.000 samples=600 avgFPS=164.740 avgMs=6.0702 p95Ms=6.2700 p99Ms=7.7107 onePercentLowFPS=110.195
+10:24:31.081  [perf] stage=A-SR-only epoch=8 transfer=1.000 samples=600 avgFPS=163.060 avgMs=6.1327 p95Ms=6.6818 p99Ms=8.1563 onePercentLowFPS=65.000
+10:24:38.360  [perf] stage=A-SR-only epoch=8 transfer=1.000 samples=600 avgFPS=165.012 avgMs=6.0602 p95Ms=6.4503 p99Ms=7.1494 onePercentLowFPS=129.624
+10:24:45.638  [perf] stage=A-SR-only epoch=8 transfer=1.000 samples=600 avgFPS=165.010 avgMs=6.0602 p95Ms=6.3752 p99Ms=7.1080 onePercentLowFPS=130.617
+10:24:52.916  [perf] stage=A-SR-only epoch=8 transfer=1.000 samples=600 avgFPS=165.009 avgMs=6.0603 p95Ms=6.3687 p99Ms=7.4795 onePercentLowFPS=130.715
+10:25:00.243  [perf] stage=A-SR-only epoch=8 transfer=1.000 samples=600 avgFPS=165.023 avgMs=6.0598 p95Ms=6.4761 p99Ms=7.5274 onePercentLowFPS=129.668
+10:25:01.732  Config updated from ReShade overlay committed edit: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=0.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=0 paperWhiteScale=1.000 epoch=9 feature18Evals=0
+10:25:01.738  _nvngx core EvaluateFeature reached: call=1 handle=00000003E8E62630
+10:25:01.738  -

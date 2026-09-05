@@ -1,0 +1,16 @@
+{
+  "ts": "2026-09-05T09:33:31+0000",
+  "user_id": "502780421",
+  "nickname": "Camellia926",
+  "version": "0.4.2",
+  "gpu": "RTX 3080 Ti",
+  "driver": "616.56",
+  "game": "荒野大镖客2",
+  "exe": "K:\\Games\\Red Dead Redemption 2\\RDR2.exe",
+  "symptom": "NR跳过与链路可用闪烁 / 画面显示原版",
+  "source": "qq-private",
+  "file_size": 57411072,
+  "related_issue_prior": 17,
+  "note": "Correct DM zip; earlier /home/box/feedback.zip was WRONG (异环 HTGame).",
+  "issue": 43
+}
