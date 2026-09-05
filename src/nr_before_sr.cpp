@@ -31,6 +31,7 @@
 #include "nr_guide_contract.h"
 // Standard-library headers must be included outside the private runtime namespace.
 #include "nr_feedback_text.h"
+#include "nr_feedback_ticket.h"
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
@@ -5275,8 +5276,8 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
         slot.result_format = external_desc.Format;
         slot.result_uav_format = PostSrUavFormat(external_desc.Format);
         slot.codec_color_mode = PostSrCodecColorMode(contract);
-        slot.snapshots_native_output =
-            contract != PostSrStorageContract::Fp16;
+        // Native SR keeps its own Output; FP16 uses an exact copy, packed formats use the codec.
+        slot.snapshots_native_output = true;
         ID3D12Resource_AddRef(external);
         slot.result = external;
         // This is the game's DLSS Output resource at the Evaluate boundary.
@@ -5418,7 +5419,8 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     ID3D12Device_CreateUnorderedAccessView(
         device, slot.delta_stats, nullptr, &stats_uav, stats_clear_cpu);
     BindStageCaptureDescriptor(slot, nullptr, 0);
-    if (slot.snapshots_native_output) {
+    if (slot.snapshots_native_output &&
+        slot.result_format != DXGI_FORMAT_R16G16B16A16_FLOAT) {
         D3D12_DESCRIPTOR_HEAP_DESC snapshot_desc = heap_desc;
         hr = ID3D12Device_CreateDescriptorHeap(
             device, &snapshot_desc, IID_ID3D12DescriptorHeap,
@@ -5434,6 +5436,8 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
             "controlled FP16 intermediate.",
             FormatName(slot.result_format), width, height);
     }
+    if (post_sr && slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT)
+        Log("Post-SR native FP16 Output retained: active=%ux%u copied byte-exactly to owned snapshot; no SR target redirection.", width, height);
     if (slot.converts_source_format) {
         Log("SceneColor format conversion enabled: %s -> "
             "R16G16B16A16_FLOAT (typed SRV + FP16 codec pass).",
@@ -5531,7 +5535,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
         const PostSrStorageContract contract =
             ClassifyPostSrStorage(external_desc.Format,
                                   feature_create_flags);
-        const bool snapshot = contract != PostSrStorageContract::Fp16;
+        const bool snapshot = true; // FP16 copy and packed shader snapshots both retain native Output.
         const CodecColorMode codec_color_mode = PostSrCodecColorMode(contract);
         if (!slot.owns_source || slot.owns_result ||
             !SupportsPostSrStorage(device, external_desc, contract) ||
@@ -7729,14 +7733,7 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     substitution.color_contract = color_contract;
     substitution.guides = guides;
     substitution.native_output_snapshot = slot->snapshots_native_output;
-    if (!slot->snapshots_native_output) {
-        Transition(command_list, slot->source, slot->source_state,
-                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        substitution.redirected_output = true;
-        SetResource(substitution.params, "Output", slot->source);
-        SetUInt(substitution.params, "DLSS.Output.Subrect.Base.X", 0);
-        SetUInt(substitution.params, "DLSS.Output.Subrect.Base.Y", 0);
-    }
+    // No Output/subrect mutation: native SR completes before the private snapshot.
     g_nr_transfer_attempted_frames.fetch_add(1,
                                              std::memory_order_relaxed);
     g_pipeline_transfer_attempted.fetch_add(1,
@@ -7767,6 +7764,8 @@ void DispatchPostSrCopy(ID3D12GraphicsCommandList *command_list,
     UavBarrier(command_list, slot.result);
 }
 
+#include "nr_post_sr_snapshot.inl"
+
 bool DispatchPostSrNativeSnapshot(
     ID3D12GraphicsCommandList *command_list,
     PostSrSubstitution &substitution) {
@@ -7774,7 +7773,7 @@ bool DispatchPostSrNativeSnapshot(
         !substitution.native_output_snapshot || substitution.width == 0 ||
         substitution.height == 0) return false;
     NrSlot &slot = *substitution.slot;
-    if (slot.snapshot_heap == nullptr || slot.source == nullptr ||
+    if (slot.source == nullptr ||
         slot.result == nullptr ||
         !TextureContainsRegion(slot.result, substitution.output_base_x,
                                substitution.output_base_y,
@@ -7782,6 +7781,12 @@ bool DispatchPostSrNativeSnapshot(
         !TextureContainsRegion(slot.source, 0, 0,
                                substitution.width, substitution.height))
         return false;
+
+    if (slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT)
+        return CopyPostSrFp16Snapshot(command_list, slot.result, slot.result_state,
+            slot.source, slot.source_state, substitution.output_base_x,
+            substitution.output_base_y, substitution.width, substitution.height);
+    if (slot.snapshot_heap == nullptr) return false;
 
     // The native SR result remains in the game's real R11/R8 Output. Copy only
     // its active rectangle into a controlled FP16 texture; outside pixels and
@@ -7949,8 +7954,9 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             static_cast<double>(g_config.post_transfer_strength));
     }
 
-    if (g_config.identity_use_original ||
-        context.successful_evaluations_since_reset <= g_config.warmup_after_create) {
+    if (KeepNativePostSrImage(g_config.identity_use_original,
+            slot.suppress_transfer_this_frame,
+            context.successful_evaluations_since_reset, g_config.warmup_after_create)) {
         g_nr_identity_or_warmup_frames.fetch_add(1,
                                                   std::memory_order_relaxed);
         PreservePostSrOnFailure(command_list, substitution);

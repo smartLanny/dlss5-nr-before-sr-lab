@@ -1,6 +1,7 @@
 // Included after nr_feedback_capture.inl. Reuses its bounded parameter observer,
 // not its legacy screenshot/stage worker. No runtime pointer leaves Present.
 #include "nr_feedback_text.h"
+#include "nr_feedback_ticket.h"
 namespace nr_core_feedback {
 struct PairSnapshot {
     char session[96] = {};
@@ -16,6 +17,7 @@ struct CoreSession {
 };
 PairSnapshot g_pair{}; // g_feedback_lock
 char g_reason[160] = {}; // g_feedback_lock
+char g_submission[nr_feedback_ticket::kCapacity] = {}; // same session, g_feedback_lock
 std::atomic<unsigned long long> g_serial{0};
 std::atomic<bool> g_cancel{false};
 nr_bundle::Job *g_job = nullptr; // cancellation pointer, g_feedback_lock
@@ -38,7 +40,7 @@ bool Request() {
     // No allocation or exception is possible while holding the publication lock.
     std::snprintf(g_pair.session, sizeof(g_pair.session), "DLSS5_CORE_%lu_%llu_%llu",
         GetCurrentProcessId(), GetTickCount64(), ++g_serial);
-    g_reason[0] = 0; g_feedback_last_zip[0] = 0;
+    g_reason[0] = 0; g_feedback_last_zip[0] = 0; g_submission[0] = 0;
     g_cancel.store(false);
     g_feedback_status.store(1, std::memory_order_release);
     g_feedback_requested.store(true, std::memory_order_release);
@@ -51,11 +53,18 @@ void Cancel() {
     if (g_job) nr_bundle::RequestCancel(*g_job);
     ReleaseSRWLockExclusive(&g_feedback_lock);
 }
-void Publish(const nr_bundle::Result &result, bool complete, const char *reason) {
+void Publish(const nr_bundle::Result &result, bool complete, const char *reason,
+             const char *report = nullptr) {
+    char submission[nr_feedback_ticket::kCapacity] = {};
+    if (result.zip_path[0])
+        nr_feedback_ticket::Build(submission, sizeof(submission), report,
+            complete && result.required_complete);
+
     AcquireSRWLockExclusive(&g_feedback_lock);
     g_job = nullptr;
     nr_bundle::CopyPath(g_feedback_last_zip, result.zip_path);
     nr_bundle::CopyText(g_reason, sizeof(g_reason), reason);
+    nr_bundle::CopyText(g_submission, sizeof(g_submission), submission);
     g_pair.ready = true;
     g_pair.complete = complete && result.required_complete && result.zip_path[0];
     const unsigned status = result.status == nr_bundle::Status::Failed ? 5 : g_pair.complete ? 3 : 4;
@@ -228,7 +237,7 @@ DWORD WINAPI Worker(void *opaque) {
         ReleaseSRWLockExclusive(&g_feedback_lock);
     }
     Publish(result, complete, g_cancel.load() ? "cancelled; inspect partial evidence" :
-        result.status == nr_bundle::Status::Failed ? "core package failed; no previous ZIP reused" : "core logs collected; no image readback requested");
+        result.status == nr_bundle::Status::Failed ? "core package failed; no previous ZIP reused" : "core logs collected; no image readback requested", s.report);
     nr_bundle::DestroyJob(job);
     delete session;
     return 0;

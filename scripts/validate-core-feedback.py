@@ -122,7 +122,7 @@ void check(bool ok,const char *message){++checks;if(!ok){std::fprintf(stderr,"FA
 void drain(){while(!work.empty()){const auto w=work.front();work.erase(work.begin());w.fn(w.arg);}}
 void put(const std::filesystem::path &path,const std::string &value){std::ofstream out(path,std::ios::binary);out<<value;check(out.good(),"write fixture");}
 void save(const char *name){check(g_feedback_last_zip[0]!=0,"current ZIP exists");std::filesystem::copy_file(g_feedback_last_zip,std::filesystem::path(output_root)/name);}
-void begin(reshade::api::effect_runtime &runtime){check(nr_core_feedback::Request(),"new core request");check(!g_feedback_last_zip[0],"new request clears old path");nr_core_feedback::Present(&runtime);}
+void begin(reshade::api::effect_runtime &runtime){check(nr_core_feedback::Request(),"new core request");check(!g_feedback_last_zip[0],"new request clears old path");check(!nr_core_feedback::g_submission[0],"new request clears old ticket");nr_core_feedback::Present(&runtime);}
 int main(int argc,char **argv) {
     check(argc==2,"output directory supplied");output_root=std::filesystem::absolute(argv[1]).wstring();
     std::filesystem::create_directories(output_root);InitializeCriticalSection(&g_chain_cs);
@@ -140,6 +140,8 @@ int main(int argc,char **argv) {
     check(g_feedback_status==3 && !nr_core_feedback::Busy(),"zero-NR core completes independently");
     check(nr_core_feedback::SnapshotPair().complete,"core completion recorded");
     check(g_feedback_session==nullptr,"observer pointer retired before worker deletion");
+    check(std::strstr(nr_core_feedback::g_submission,first.session)!=nullptr,"ticket bound to completed core session");
+    check(std::strstr(nr_core_feedback::g_submission,"Private Tester")==nullptr,"ticket excludes local path");
     save("valid-core.zip");
     std::ifstream summary(std::filesystem::path(output_root)/"core-1/summary-0.txt",std::ios::binary);
     const std::string text((std::istreambuf_iterator<char>(summary)),{});
@@ -151,6 +153,7 @@ int main(int argc,char **argv) {
     check(g_feedback_status==4,"unavailable config lock yields partial, not an invented snapshot");save("busy-core.zip");
     queue_fail=true;begin(runtime);queue_fail=false;
     check(g_feedback_status==5 && !g_feedback_last_zip[0] && !g_feedback_session,"queue failure releases publication with no stale ZIP");
+    check(!nr_core_feedback::g_submission[0],"failed queue exposes no previous ticket");
     pin_fail=true;begin(runtime);pin_fail=false;
     check(g_feedback_status==5 && !g_feedback_last_zip[0],"pin failure does not expose previous path");
     directory_fail=true;begin(runtime);drain();directory_fail=false;
