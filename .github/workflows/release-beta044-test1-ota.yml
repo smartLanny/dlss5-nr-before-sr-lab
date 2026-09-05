@@ -1,0 +1,43 @@
+name: Publish beta0.4.4-test1 branch OTA
+on:
+  push:
+    branches: [fix/044-d3d12-compat-test1]
+    paths: ['.github/workflows/release-beta044-test1-ota.yml']
+permissions:
+  contents: read
+concurrency:
+  group: release-beta044-test1
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/fix/044-d3d12-compat-test1'
+    uses: ./.github/workflows/beta042-validate.yml
+    permissions:
+      contents: read
+  feedback:
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/fix/044-d3d12-compat-test1'
+    uses: ./.github/workflows/feedback-integrity.yml
+    permissions:
+      contents: read
+  publish:
+    needs: [validate, feedback]
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/fix/044-d3d12-compat-test1'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: beta044-test1-ota
+          path: ota
+      - name: Test OTA rejection controls and verify exact payload
+        run: |
+          python3 -m unittest discover -s tests -p test_branch_ota.py -v
+          python3 scripts/package-044-test1.py --verify-dir ota
+      - name: Publish two OTA assets without replacing R3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish-044-test1.py
