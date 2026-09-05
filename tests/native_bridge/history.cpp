@@ -21,7 +21,7 @@ int main() {
     h.Mirrored(1); h.Created(1); CHECK(!h.NeedsReset(1));
     for (std::uintptr_t n=1; n<=16; ++n) { CHECK(h.Admit(n,true)); h.Mirrored(n); }
     CHECK(!h.Admit(17,true)); CHECK(h.NeedsReset(1));
-    h.Created(8); CHECK(h.Admit(17,true)); CHECK(h.NeedsReset(9));
+    h.Created(8); CHECK(h.Admit(17,true)); CHECK(!h.NeedsReset(17));
     // Different handles retain independent gaps; failed fallbacks cannot clear.
     for (std::uintptr_t n=1; n<=16; ++n) if (n!=8) {
         CHECK(h.NeedsReset(n)); h.NativeCompleted(n,true,true); CHECK(!h.NeedsReset(n));

@@ -1,7 +1,7 @@
 name: Native DX11 carrier / beta0.4.2 experiment
 on:
   push:
-    branches: [codex/beta042-dx11-native-carrier]
+    branches: [codex/beta0.4.2-native-bridge-exp1]
   workflow_dispatch:
 permissions:
   contents: read
@@ -61,10 +61,48 @@ jobs:
           if errorlevel 1 exit /b 1
           cl /nologo /W4 /O2 /MT /EHsc /std:c++17 /Ireshade /LD dlss5-bridge.cpp version.res /Fe:dlss5-native-carrier-exp1.addon64 /link /DLL user32.lib advapi32.lib bcrypt.lib
           if errorlevel 1 exit /b 1
-      - name: Preserve source identity only (not a release binary)
+      - name: Assemble unsigned experimental test package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $pwd 'beta0.4.2-native-bridge-exp1'
+          New-Item -ItemType Directory -Path $root | Out-Null
+          $core = Join-Path $pwd 'build/native-carrier/core/build'
+          $carrier = Join-Path $pwd 'build/native-carrier/carrier/src/dlss5-native-carrier-exp1.addon64'
+          foreach ($file in @(
+            (Join-Path $core 'DLSS5-AI渲染超分版-beta0.4.2-native-bridge-exp1-@野生的装机宅-Bilibili.addon64'),
+            (Join-Path $core 'DLSS5-AI-Rendering-Upscaling-beta0.4.2-native-bridge-exp1-@野生的装机宅-Bilibili.en.addon64'),
+            (Join-Path $core 'nrchain_nvngx.dll'),
+            (Join-Path $core 'nr_before_sr.ini'),
+            $carrier,
+            (Join-Path $pwd 'build/native-carrier/source-manifest.json')
+          )) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing package input: $file" }
+            Copy-Item -LiteralPath $file -Destination $root
+          }
+          @'
+          DLSS 5 beta0.4.2 原生 DX11 载体实验版
+
+          这是基于 beta0.4.2 和 PR #46 的实验包，只用于愿意提供日志的玩家。
+          它让部分 DX11 原生 DLSS 游戏尝试把真实的 DLSS 输入送到 0.4.2 NR->SR 链路。
+          目前没有通过真实游戏验收，也没有纳入一键安装助手。
+
+          安装：完全退出游戏和 ReShade，备份原文件，只在同一个 Add-on 目录放一份中文或英文 addon、nrchain_nvngx.dll、dlss5-native-carrier-exp1.addon64 和 nr_before_sr.ini。不要同时启用旧版桥或其他 NR 插件。
+          复测：先确认原生 DLSS 仍能工作，再看插件日志中的 Feature 18 成功次数和 transfer-submitted 是否持续增加。没有持续提交就说明桥接没有生效，应恢复原包并提交日志。
+          已知边界：只接受 DX11 原生/模组 DLSS；不支持纯 DX11 无 DLSS、DX12、Vulkan、合成输入或把该包当作正式 0.4.2 使用。载体文件未经签名，不能由一键安装助手自动部署。
+          '@ | Set-Content -LiteralPath (Join-Path $root '说明.txt') -Encoding utf8NoBOM
+          $files = Get-ChildItem -LiteralPath $root -File | ForEach-Object {
+            [ordered]@{ path = $_.Name; bytes = $_.Length; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash }
+          }
+          [ordered]@{ schema='dlss5-native-bridge-experiment/v1'; build='beta0.4.2-native-bridge-exp1'; sourceCommit='15909ef10914fcdf151ee193460451667fbf31dc'; carrierCommit='29baa4cc56e0aeb21219de16528e697b91522efc'; signed=$false; files=$files } |
+            ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $root 'PACKAGE_MANIFEST.json') -Encoding utf8NoBOM
+          Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath $root -File | Select-Object -ExpandProperty FullName) -DestinationPath (Join-Path $pwd 'beta0.4.2-native-bridge-exp1-windows-x64.zip') -CompressionLevel Optimal
+      - name: Preserve source identity and experimental package
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-carrier-source-identity
-          path: build/native-carrier/source-manifest.json
+          name: beta0.4.2-native-bridge-exp1-windows-x64
+          path: |
+            build/native-carrier/source-manifest.json
+            beta0.4.2-native-bridge-exp1-windows-x64.zip
           if-no-files-found: ignore
