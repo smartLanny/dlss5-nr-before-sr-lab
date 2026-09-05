@@ -1660,9 +1660,12 @@ OverlayApplyResult ApplyOverlayConfig(ChainConfig next, unsigned expected_genera
     if (g_config_generation.load(std::memory_order_relaxed) != expected_generation) {
         LeaveCriticalSection(&g_chain_cs); return OverlayApplyResult::Conflict;
     }
-    ApplyConfig(next, "ReShade simplified settings");
+    const bool changed = ApplyConfig(next, "ReShade simplified settings");
+    // Capture can acquire its atomic hold between our first check and ApplyConfig.
+    // A refused commit is still pending; a harmless no-op is complete.
+    const bool capture_blocked = !changed && nr_f8::g_config_hold.load(std::memory_order_acquire);
     LeaveCriticalSection(&g_chain_cs);
-    return OverlayApplyResult::Applied;
+    return capture_blocked ? OverlayApplyResult::Busy : OverlayApplyResult::Applied;
 }
 
 struct PerfSignature {

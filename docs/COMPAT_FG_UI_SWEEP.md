@@ -70,7 +70,7 @@ no private path, raw bytes or addresses appear in the ticket.
 - Pending edits carry the configuration generation they displayed. F6, reload
   or capture restoration can invalidate a stale edit; it cannot overwrite
   the newer configuration when dragging ends.
-- A busy capture preserves the pending edit for retry; conflicts discard it
+- A busy capture (including one starting inside ApplyConfig) preserves the pending edit for retry; conflicts discard it
   with a bilingual explanation. Snapshot, generation check and ApplyConfig
   use the existing chain lock and capture hold.
 - Observer/state failures explain why stronger NR settings cannot fix them.
@@ -110,7 +110,7 @@ https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12graphic
 ## Tests and CI
 
 Portable actual-code extraction: scripts/validate-compat-sweep.py exercises
-211 checks for pristine admission, every state-mask bit, stale UI transactions,
+217 checks for pristine admission, every state-mask bit, stale UI transactions,
 hook entry bounds/non-mutation and ticket privacy. Parameter iterations are
 not distinct games. Existing bug/043r2 math and feedback parsers remain active.
 The report suite has 15 tests, including redaction and historical-vs-current

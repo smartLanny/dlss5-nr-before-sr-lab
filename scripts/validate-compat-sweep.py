@@ -41,7 +41,8 @@ void check(bool ok,const char *label) {++checks;if(!ok){std::fprintf(stderr,"FAI
 void EnterCriticalSection(int *){++locks;}
 void LeaveCriticalSection(int *){--locks;}
 void ReloadConfig(){check(locks==1,"reload is under snapshot lock");++reloads;}
-void ApplyConfig(ChainConfig next,const char *){check(locks==1,"generation test and commit indivisible");g_config=next;++g_config_generation;++applied;}
+bool late_capture=false,noop_apply=false;
+bool ApplyConfig(ChainConfig next,const char *){check(locks==1,"generation test and commit indivisible");if(late_capture){late_capture=false;nr_f8::g_config_hold=true;return false;}if(noop_apply)return false;g_config=next;++g_config_generation;++applied;return true;}
 SNAP_STRUCT
 SNAPSHOT
 RESULT
@@ -81,9 +82,17 @@ int main() {
  check(ApplyOverlayConfig(pending,current.generation)==OverlayApplyResult::Busy,"capture lock defers pending edit");
  check(applied==0 && locks==0,"busy does not persist or leak lock");
  nr_f8::g_config_hold=false;
+ late_capture=true;
+ check(ApplyOverlayConfig(pending,current.generation)==OverlayApplyResult::Busy,"late capture start cannot falsely complete a refused edit");
+ check(applied==0 && locks==0,"late refusal preserves live values");
+ nr_f8::g_config_hold=false;
  check(ApplyOverlayConfig(pending,current.generation)==OverlayApplyResult::Applied,"pending edit can be retried after capture");
  check(applied==1 && !g_config.enabled && g_config.strength==3.f && locks==0,"retry preserves unrelated user change");
  check(ApplyOverlayConfig(pending,current.generation)==OverlayApplyResult::Conflict,"same stale generation cannot be applied twice");
+ noop_apply=true;
+ const auto before_noop=g_config_generation.load();
+ check(ApplyOverlayConfig(g_config,before_noop)==OverlayApplyResult::Applied,"no-op does not falsely remain busy");
+ check(g_config_generation==before_noop && applied==1 && locks==0,"no-op preserves state");
  using namespace nr_hook_entry;
  unsigned char entry[16]={0xEB,0xF9},prefix[5]={0xE9};
  const std::string before(reinterpret_cast<char *>(entry),sizeof(entry));
