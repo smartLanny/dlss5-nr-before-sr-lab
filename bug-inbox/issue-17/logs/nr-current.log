@@ -1,0 +1,51 @@
+05:43:21.720  DLSS 5 AI Rendering Upscaling Edition beta0.3.7 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=DLSS5-AI渲染超分版-beta0.3.7-@野生的装机宅-Bilibili.addon64 | build_id=beta0.3.7 | sourceCommit=41288a8a30f812361b0af09d827249be70adc512 sourceDirty=0
+05:43:21.722  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+05:43:21.722  Config: enabled=1 mode=2 identity=0 preTransfer=2.000 postTransfer=2.000 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=2.000 localTone=2.000 localStructure=2.000 skinStructure=-1.000 autoMask=1 style=1 uiCorrection=1 r8OutputEncoding=0 perfEpoch=29 jitterMode=1 feature18Evals=0
+05:43:21.723  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+05:43:22.008  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+05:43:22.008  [module] pinned hook owner name=D3D12 command state address=00007FFDB9ABC7E0 module=00007FFDB99F0000 until process exit.
+05:43:23.218  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+05:43:23.275  [command-state] device meta-command contract: known=1 initDirty=0x0 executeDirty=0x0 supportedMask=0x1038.
+05:43:23.486  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+05:43:23.739  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+05:43:24.333  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+05:43:24.954  [command-state] observed CreateCommandSignature: call=1 signature=0000000061E652D0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[0] root=0000000000000000.
+05:43:24.954  [command-state] observed CreateCommandSignature: call=2 signature=0000000061E65AA0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=0000000000000000.
+05:43:24.955  [command-state] observed CreateCommandSignature: call=3 signature=0000000061E66270 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+05:43:24.995  [perf] reset stage=C-NR-transfer epoch=29 transfer=2.000; warming 180 frames
+05:43:25.008  [artifact-identity] sourceCommit=41288a8a30f812361b0af09d827249be70adc512 sourceDirty=0 status=verified addonPath=K:\Games\Red Dead Redemption 2\DLSS5-AI渲染超分版-beta0.3.7-@野生的装机宅-Bilibili.addon64 addonSha256=050f2004bf63969f32f7ab543bc79386a47e5e5122499d415231b1498d77b68a measurement=loaded-path-file-once-worker.
+05:43:25.555  Found SR NGX module: K:\Games\Red Dead Redemption 2\nvngx_dlss.dll
+05:43:25.555  [module] pinned hook owner name=nvngx_dlss.dll address=00007FFD5D610000 module=00007FFD5D610000 until process exit.
+05:43:25.555  [module] pinned hook owner name=_nvngx.dll address=00007FFDDAC40000 module=00007FFDDAC40000 until process exit.
+05:43:25.555  [module] pinned hook owner name=D3D12_CreateFeature address=00007FFD5D63C8B0 module=00007FFD5D610000 until process exit.
+05:43:25.556  MH_CreateHook D3D12_CreateFeature                    target=00007FFD5D63C8B0 status=0
+05:43:25.556  [module] pinned hook owner name=D3D12_EvaluateFeature address=00007FFD5D63CA20 module=00007FFD5D610000 until process exit.
+05:43:25.556  MH_CreateHook D3D12_EvaluateFeature                  target=00007FFD5D63CA20 status=0
+05:43:25.556  [module] pinned hook owner name=D3D12_ReleaseFeature address=00007FFD5D63CD00 module=00007FFD5D610000 until process exit.
+05:43:25.556  MH_CreateHook D3D12_ReleaseFeature                   target=00007FFD5D63CD00 status=0
+05:43:25.557  [module] pinned hook owner name=core CreateFeature address=00007FFDDACA7FE0 module=00007FFDDAC40000 until process exit.
+05:43:25.557  MH_CreateHook core CreateFeature                     target=00007FFDDACA7FE0 status=0
+05:43:25.557  [module] pinned hook owner name=core EvaluateFeature address=00007FFDDACA81E0 module=00007FFDDAC40000 until process exit.
+05:43:25.557  MH_CreateHook core EvaluateFeature                   target=00007FFDDACA81E0 status=0
+05:43:25.558  [module] pinned hook owner name=core ReleaseFeature address=00007FFDDACA80E0 module=00007FFDDAC40000 until process exit.
+05:43:25.558  MH_CreateHook core ReleaseFeature                    target=00007FFDDACA80E0 status=0
+05:43:25.597  MH_EnableHook all status=0
+05:43:25.597  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+05:43:25.597  [module] initial scan complete: sr=00007FFD5D610000 core=00007FFDDAC40000 dlssd=0000000000000000.
+05:43:25.597  NGX observer/AI-upscaling hooks active.
+05:43:27.262  [module] lazy rescan #1 core=00007FFDDAC40000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+05:43:28.266  [module] lazy rescan #2 core=00007FFDDAC40000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+05:43:29.267  [module] lazy rescan #3 core=00007FFDDAC40000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+05:43:41.920  [perf] stage=C-NR-transfer epoch=29 transfer=2.000 samples=600 avgFPS=55.049 avgMs=18.1656 p95Ms=34.8449 p99Ms=37.7095 onePercentLowFPS=17.811
+05:43:53.170  [perf] stage=C-NR-transfer epoch=29 transfer=2.000 samples=600 avgFPS=53.339 avgMs=18.7480 p95Ms=34.7722 p99Ms=36.7574 onePercentLowFPS=13.274
+05:44:03.466  [perf] stage=C-NR-transfer epoch=29 transfer=2.000 samples=600 avgFPS=58.369 avgMs=17.1325 p95Ms=18.7415 p99Ms=22.6226 onePercentLowFPS=30.950
+05:44:13.653  [perf] stage=C-NR-transfer epoch=29 transfer=2.000 samples=600 avgFPS=59.000 avgMs=16.9493 p95Ms=17.3704 p99Ms=18.9287 onePercentLowFPS=50.496
+05:44:23.840  [perf] stage=C-NR-transfer epoch=29 transfer=2.000 samples=600 avgFPS=58.999 avgMs=16.9495 p95Ms=18.5458 p99Ms=20.0325 onePercentLowFPS=46.157
+05:44:26.738  [module] lazy rescan #60 core=00007FFDDAC40000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
+05:44:34.026  [perf] stage=C-NR-transfer epoch=29 transfer=2.000 samples=600 avgFPS=58.998 avgMs=16.9496 p95Ms=17.8974 p99Ms=18.9108 onePercentLowFPS=52.258
+05:44:44.217  [perf] stage=C-NR-transfer epoch=29 transfer=2.000 samples=600 avgFPS=58.984 avgMs=16.9538 p95Ms=17.6426 p99Ms=18.8280 onePercentLowFPS=45.237
+05:44:54.403  [perf] stage=C-NR-transfer epoch=29 transfer=2.000 samples=600 avgFPS=59.001 avgMs=16.9489 p95Ms=17.7060 p99Ms=19.1067 onePercentLowFPS=50.711
+05:45:04.662  [perf] stage=C-NR-transfer epoch=29 transfer=2.000 samples=600 avgFPS=58.579 avgMs=17.0708 p95Ms=18.6036 p99Ms=21.9899 onePercentLowFPS=26.924
+05:45:14.849  [perf] stage=C-NR-transfer epoch=29 transfer=2.000 samples=600 avgFPS=58.998 avgMs=16.9497 p95Ms=18.4159 p99Ms=19.7828 onePercentLowFPS=47.876
+05:45:25.039  [perf] stage=C-NR-transfer epoch=29 transfer=2.000 samples=600 avgFPS=58.979 avgMs=16.9552 p95Ms=18.3408 p99Ms=19.7769 onePercentLowFPS=42.828
+05:45:26.768  [module] lazy rescan #120 core=00007FFDDAC40000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0.
