@@ -57,6 +57,7 @@ public sealed class PackageManifest
     public string Schema { get; set; } = "";
     public string Id { get; set; } = "";
     public string Build { get; set; } = "";
+    public string Edition { get; set; } = "";
     public string PayloadSourceCommit { get; set; } = "";
     public string ArtifactId { get; set; } = "";
     public string GpuFamily { get; set; } = "";
@@ -78,7 +79,8 @@ public sealed class PackageManifest
         if (!signed.Contains("manifest.json")) throw new InvalidDataException("签名不包含安装清单。");
         var p = JsonSerializer.Deserialize<PackageManifest>(File.ReadAllText(path), JsonOptions()) ?? throw new InvalidDataException("安装清单无法读取。");
         p.Root = root; p.TrustKey = trustKey; p.ManifestSha256 = Hash(path);
-        if (p.Schema != "dlss5-install-manifest/v3" || p.Id != "nr-before-sr" || string.IsNullOrWhiteSpace(p.Build) ||
+        if (p.Schema != "dlss5-install-manifest/v4" || p.Id != "nr-before-sr" || string.IsNullOrWhiteSpace(p.Build) ||
+            p.Edition is not ("enhanced-recommended" or "compatibility-fallback") ||
             !IsHex(p.PayloadSourceCommit, 40) || !p.NativeD3D12 || p.OnlineAllowed || p.Files.Count < 4 || p.Files.Count > 8 ||
             p.CompatibleProfiles.Count == 0 || p.GpuFamily is not ("RTX50" or "RTX30-40") || p.Language is not ("zh-CN" or "en"))
             throw new InvalidDataException("安装清单身份、版本、显卡或兼容声明不完整。");
@@ -91,7 +93,8 @@ public sealed class PackageManifest
         {
             f.Path = NormalizeLeaf(f.Path); var q = SafePath(root, f.Path);
             if (!roles.Add(f.Role) || !names.Add(f.Path) || !signed.Contains(f.Path) || (f.Role is "addon" or "bridge" or "runtime" or "config" && !f.Required) || f.Target != "addon-directory" ||
-                !IsHex(f.Sha256, 64) || f.AllowedExistingSha256.Any(x => !IsHex(x, 64)) || f.Bytes <= 0 ||
+                !IsHex(f.Sha256, 64) || string.IsNullOrWhiteSpace(f.Source) || f.Source.Length > 256 ||
+                f.AllowedExistingSha256.Any(x => !IsHex(x, 64)) || f.Bytes <= 0 ||
                 new FileInfo(q).Length != f.Bytes || !Hash(q).Equals(f.Sha256, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("载荷校验失败：" + f.Path);
             var validName = f.Role switch { "addon" => f.Path.EndsWith(".addon64", StringComparison.OrdinalIgnoreCase),
@@ -109,7 +112,15 @@ public sealed class PackageManifest
         foreach (var old in p.LegacyFiles) { old.Path = NormalizeLeaf(old.Path); if (!old.Path.EndsWith(".addon64", StringComparison.OrdinalIgnoreCase) || !IsHex(old.Sha256, 64)) throw new InvalidDataException("旧插件身份非法。"); }
         return p;
     }
-    internal static HashSet<string> VerifyEnvelope(string root, string key)
+    internal sealed class VerifiedEnvelope
+    {
+        readonly Dictionary<string, string> hashes;
+        internal VerifiedEnvelope(Dictionary<string, string> value) => hashes = value;
+        internal bool Contains(string path) => hashes.ContainsKey(path);
+        internal string HashOf(string path) => hashes.TryGetValue(path, out var value) ? value :
+            throw new InvalidDataException("签名不包含文件：" + path);
+    }
+    internal static VerifiedEnvelope VerifyEnvelope(string root, string key)
     {
         var manifest = SafePath(root, "RELEASE_MANIFEST.json"); var signature = SafePath(root, "RELEASE_MANIFEST.sig");
         SafeFiles.RejectReparse(manifest); SafeFiles.RejectReparse(signature);
@@ -124,14 +135,15 @@ public sealed class PackageManifest
         using var ec = ECDsa.Create(); ec.ImportSubjectPublicKeyInfo(publicBytes, out var read);
         if (read != publicBytes.Length || !ec.VerifyData(bytes, Convert.FromBase64String(s.GetProperty("signatureBase64").GetString()!), HashAlgorithmName.SHA256))
             throw new InvalidDataException("安装包签名无效。");
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var f in d.GetProperty("files").EnumerateArray())
         {
             var name = NormalizeLeaf(f.GetProperty("path").GetString()!); var path = SafePath(root, name); SafeFiles.RejectReparse(path);
-            if (!names.Add(name) || !File.Exists(path) || new FileInfo(path).Length != f.GetProperty("bytes").GetInt64() ||
-                !Hash(path).Equals(f.GetProperty("sha256").GetString(), StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("签名文件校验失败：" + name);
+            var expected = f.GetProperty("sha256").GetString()!;
+            if (!names.TryAdd(name, expected) || !File.Exists(path) || new FileInfo(path).Length != f.GetProperty("bytes").GetInt64() ||
+                !Hash(path).Equals(expected, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("签名文件校验失败：" + name);
         }
-        return names;
+        return new VerifiedEnvelope(names);
     }
     internal static JsonSerializerOptions JsonOptions() => new() { PropertyNameCaseInsensitive = true, WriteIndented = true };
     internal static bool IsHex(string? s, int length) => s?.Length == length && s.All(Uri.IsHexDigit);

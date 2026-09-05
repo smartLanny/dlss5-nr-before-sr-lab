@@ -11,7 +11,7 @@ Set-StrictMode -Version Latest
 $root = Split-Path -Parent $PSScriptRoot
 $payload = Get-Content -LiteralPath $PayloadCatalogPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $legacy = Get-Content -LiteralPath $LegacyCatalogPath -Raw -Encoding UTF8 | ConvertFrom-Json
-if ($payload.schema -ne 'dlss5-installer-payloads/v1' -or $payload.payloadSourceCommit -notmatch '^[0-9a-fA-F]{40}$' -or [string]::IsNullOrWhiteSpace($payload.build) -or @($payload.variants).Count -ne 4) { throw 'Explicit final payload catalog is invalid.' }
+if ($payload.schema -ne 'dlss5-installer-payloads/v2' -or $payload.payloadSourceCommit -notmatch '^[0-9a-fA-F]{40}$' -or [string]::IsNullOrWhiteSpace($payload.build) -or $payload.edition -notin @('enhanced-recommended','compatibility-fallback') -or @($payload.variants).Count -ne 4) { throw 'Explicit final standard payload catalog is invalid; experimental packages are not auto-installable.' }
 if ($legacy.schema -ne 'dlss5-installer-legacy/v1') { throw 'Explicit known legacy catalog is required.' }
 foreach ($record in @($legacy.aliases) + @($legacy.knownFiles)) {
     if ($record.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or [IO.Path]::GetFileName($record.path) -cne $record.path -or $record.path.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) { throw 'Invalid known legacy identity.' }
@@ -28,7 +28,7 @@ foreach ($variant in $payload.variants) {
     if ($variant.gpuFamily -notin @('RTX50','RTX30-40') -or $variant.language -notin @('zh-CN','en') -or -not $variants.Add($variant.gpuFamily + '/' + $variant.language)) { throw 'Invalid or duplicate GPU/language variant.' }
     $roles = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($file in $variant.files) {
-        if ($file.role -notin @('addon','bridge','runtime','config','feedback-launcher','feedback-collector','crash-feedback-launcher','crash-feedback-collector') -or -not $roles.Add($file.role) -or -not [IO.Path]::IsPathFullyQualified($file.sourcePath) -or $file.sha256 -notmatch '^[0-9a-fA-F]{64}$') { throw 'Explicit source path/hash/role required.' }
+        if ($file.role -notin @('addon','bridge','runtime','config','feedback-launcher','feedback-collector','crash-feedback-launcher','crash-feedback-collector') -or -not $roles.Add($file.role) -or -not [IO.Path]::IsPathFullyQualified($file.sourcePath) -or $file.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or [string]::IsNullOrWhiteSpace([string]$file.source) -or ([string]$file.source).Length -gt 256) { throw 'Explicit source path/hash/role/source identity required.' }
         if ((Get-FileHash -LiteralPath $file.sourcePath -Algorithm SHA256).Hash -ne $file.sha256) { throw "Final payload hash mismatch: $($file.sourcePath)" }
         if ($file.role -eq 'addon') {
             $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($file.sourcePath))
@@ -69,9 +69,9 @@ foreach ($variant in $payload.variants) {
         if ($actual -ne $file.sha256) { throw 'Source changed during packaging.' }
         if ($file.role -eq 'addon') { $addonHash=$actual }
         $known = @(@($legacy.knownFiles) + @($legacy.aliases) | Where-Object { $_.path -ieq $leaf } | ForEach-Object { $_.sha256.ToUpperInvariant() } | Sort-Object -Unique)
-        $files += [ordered]@{ path=$leaf; sha256=$actual; bytes=(Get-Item -LiteralPath (Join-Path $directory $leaf)).Length; role=$file.role; source=$payload.payloadSourceCommit; target='addon-directory'; required=($file.role -in @('addon','bridge','runtime','config')); allowedExistingSha256=$known }
+        $files += [ordered]@{ path=$leaf; sha256=$actual; bytes=(Get-Item -LiteralPath (Join-Path $directory $leaf)).Length; role=$file.role; source=[string]$file.source; target='addon-directory'; required=($file.role -in @('addon','bridge','runtime','config')); allowedExistingSha256=$known }
     }
-    $manifest = [ordered]@{ schema='dlss5-install-manifest/v3'; id='nr-before-sr'; build=$payload.build; payloadSourceCommit=$payload.payloadSourceCommit; artifactId=('sha256:'+$addonHash); gpuFamily=$variant.gpuFamily; language=$variant.language; nativeD3D12=$true; onlineAllowed=$false; files=$files; legacyFiles=@($legacy.aliases); compatibleProfiles=@(
+    $manifest = [ordered]@{ schema='dlss5-install-manifest/v4'; id='nr-before-sr'; build=$payload.build; edition=$payload.edition; payloadSourceCommit=$payload.payloadSourceCommit; artifactId=('sha256:'+$addonHash); gpuFamily=$variant.gpuFamily; language=$variant.language; nativeD3D12=$true; onlineAllowed=$false; files=$files; legacyFiles=@($legacy.aliases); compatibleProfiles=@(
         [ordered]@{ id='cyberpunk2077-d3d12'; steamAppIds=@('1091500'); executableSha256=@(); verifiedNativeD3D12=$true; evidence='Native D3D12 profile; exact deployed artifact requires current-process runtime v2 verification.' },
         [ordered]@{ id='witcher3-d3d12'; steamAppIds=@('292030'); executableSha256=@(); verifiedNativeD3D12=$true; evidence='Native D3D12 executable profile; exact deployed artifact requires current-process runtime v2 verification.' }
     ) }

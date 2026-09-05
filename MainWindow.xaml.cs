@@ -45,7 +45,8 @@ public partial class MainWindow : Window
         package = null; PackageLabel.Text = "尚未导入安装包";
         await Run(async token => { var loaded = await Task.Run(() => PackageImport.LoadSelected(picker.FileName), token); package = loaded;
             var addon = loaded.Files.Single(x => x.Role == "addon");
-            PackageLabel.Text = $"{loaded.Build} · {loaded.GpuFamily} · {loaded.Language} · 源码 {loaded.PayloadSourceCommit[..8]} · 插件 {addon.Sha256[..12]} · 签名及文件校验通过";
+            var purpose = loaded.Edition == "enhanced-recommended" ? "增强主测 / 推荐" : "稳妥兼容 / 遇到问题再选";
+            PackageLabel.Text = $"{loaded.Build} · {purpose} · {loaded.GpuFamily} · {loaded.Language} · 源码 {loaded.PayloadSourceCommit[..8]} · 插件 {addon.Sha256[..12]} · 签名及文件校验通过";
             Note(PackageLabel.Text); });
     }
     async void ImportReShade(object sender, RoutedEventArgs e)
@@ -59,7 +60,8 @@ public partial class MainWindow : Window
         var host = await ReShadeHost.PrepareAsync(ElevationHelper.CacheRoot, token);
         var plan = await Task.Run(() => Deployer.Inspect(game, selectedPackage, host), token);
         var addon = selectedPackage.Files.Single(x => x.Role == "addon");
-        PlanBox.Text = $"版本：{selectedPackage.Build}{Environment.NewLine}源码提交：{selectedPackage.PayloadSourceCommit}{Environment.NewLine}插件 SHA256：{addon.Sha256}{Environment.NewLine}{Environment.NewLine}" +
+        var purpose = selectedPackage.Edition == "enhanced-recommended" ? "增强主测 / 推荐" : "稳妥兼容 / 遇到问题再选";
+        PlanBox.Text = $"版本：{selectedPackage.Build}（{purpose}）{Environment.NewLine}源码提交：{selectedPackage.PayloadSourceCommit}{Environment.NewLine}插件 SHA256：{addon.Sha256}{Environment.NewLine}{Environment.NewLine}" +
             string.Join(Environment.NewLine, plan.Files.Select(f => $"{f.Action switch { FileAction.Reuse => "保留 / 复用", FileAction.Remove => "备份后移除旧版", _ => "备份后写入" }}  {f.Destination}"));
         return plan;
     }
@@ -93,7 +95,7 @@ public partial class MainWindow : Window
     async void Restore(object sender, RoutedEventArgs e) => await Mutate("restore");
     async void Recover(object sender, RoutedEventArgs e) => await Mutate("recover");
     async void Launch(object sender, RoutedEventArgs e)
-    { if (Selected is not { } game) return; await Run(token => { Launcher.Start(game); Note("已请求启动游戏；稍后刷新可确认实际加载与 NR 提交。"); return Task.CompletedTask; }); }
+    { if (Selected is not { } game) return; await Run(async token => { Note("已请求启动，等待确认所选游戏进程；期间不会更改安装文件。"); await Launcher.StartAsync(game, token); Note("已确认游戏进程；稍后刷新可确认实际加载与 NR 提交。"); }); }
     async void RefreshStatus(object sender, RoutedEventArgs e) => await Run(async token =>
     { foreach (var game in games) { try { game.Status = await Task.Run(() => Launcher.Describe(game), token); } catch (Exception ex) { game.Status = "无法验证：" + ex.Message; } } Note("状态已刷新。只有实际加载路径、插件哈希和当前进程一致才匹配此次部署。"); });
 }

@@ -33,6 +33,21 @@ internal static class SafeFiles
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "GetFinalPathNameByHandleW")]
     static extern uint GetFinalPath(SafeFileHandle handle, StringBuilder path, uint length, uint flags);
     internal static string? ExistingHash(string path) { RejectReparse(path); if (Directory.Exists(path)) throw new IOException("目标是目录：" + path); return File.Exists(path) ? PackageManifest.Hash(path) : null; }
+    internal static FileStream OpenExpectedReadLease(string path, string expectedSha256)
+    {
+        RejectReparse(path);
+        if (!PackageManifest.IsHex(expectedSha256, 64)) throw new InvalidDataException("预期文件哈希非法。");
+        var lease = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        try
+        {
+            var actual = Convert.ToHexString(SHA256.HashData(lease));
+            if (!actual.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("文件在授权前发生变化：" + Path.GetFileName(path));
+            lease.Position = 0;
+            return lease;
+        }
+        catch { lease.Dispose(); throw; }
+    }
     internal static void AtomicText(string path, string text)
     {
         RejectReparse(path); Directory.CreateDirectory(Path.GetDirectoryName(path)!); var tmp = path + ".tmp-" + Guid.NewGuid().ToString("N");

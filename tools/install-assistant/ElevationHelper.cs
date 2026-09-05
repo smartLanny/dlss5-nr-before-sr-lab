@@ -27,14 +27,19 @@ public static class ElevationHelper
     {
         var trustedFiles = PackageManifest.VerifyEnvelope(AppContext.BaseDirectory, PackageManifest.ReleasePublicKey);
         if (!trustedFiles.Contains("DLSS5InstallAssistant.Helper.exe")) throw new InvalidDataException("helper 未包含在本安装器签名中，未请求提权。");
+        using var helperLease = SafeFiles.OpenExpectedReadLease(HelperPath, trustedFiles.HashOf("DLSS5InstallAssistant.Helper.exe"));
         SafeFiles.RejectReparse(OperationsRoot); Directory.CreateDirectory(OperationsRoot);
         var id = Guid.NewGuid().ToString("N"); var request = new HelperRequest { Id = id, Operation = operation, Executable = game.Executable, SteamAppId = game.SteamAppId, PackageRoot = packageRoot, CacheRoot = CacheRoot };
         var requestPath = Path.Combine(OperationsRoot, id + ".request.json"); var responsePath = Path.Combine(OperationsRoot, id + ".response.json"); var cancelPath = Path.Combine(OperationsRoot, id + ".cancel");
+        FileStream? requestLease = null;
         SafeFiles.AtomicText(requestPath, JsonSerializer.Serialize(request));
+        var requestHash = PackageManifest.Hash(requestPath);
+        requestLease = SafeFiles.OpenExpectedReadLease(requestPath, requestHash);
         try
         {
             var info = new ProcessStartInfo(HelperPath) { UseShellExecute = true, Verb = "runas", WorkingDirectory = AppContext.BaseDirectory, WindowStyle = ProcessWindowStyle.Hidden };
             info.ArgumentList.Add(requestPath);
+            info.ArgumentList.Add(requestHash);
             using var process = Process.Start(info) ?? throw new IOException("系统没有启动 helper。");
             using var registration = token.Register(() => { try { SafeFiles.AtomicText(cancelPath, "cancel"); } catch { } });
             await process.WaitForExitAsync();
@@ -44,16 +49,24 @@ public static class ElevationHelper
             return new(process.ExitCode == 0 && response.Ok, response.Message);
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223) { return new(false, "已取消管理员授权，没有启动提权安装。"); }
-        finally { foreach (var path in new[] { requestPath, responsePath, cancelPath }) { try { if (File.Exists(path)) File.Delete(path); } catch { } } }
+        finally { requestLease?.Dispose(); foreach (var path in new[] { requestPath, responsePath, cancelPath }) { try { if (File.Exists(path)) File.Delete(path); } catch { } } }
     }
-    public static async Task<int> RunRequestAsync(string requestPath)
+    internal static HelperRequest ReadBoundRequest(string requestPath, string expectedSha256)
+    {
+        requestPath = Path.GetFullPath(requestPath); SafeFiles.RejectReparse(requestPath);
+        if (!SafeFiles.PathEquals(Path.GetDirectoryName(requestPath), OperationsRoot)) throw new InvalidDataException("helper 请求目录无效。");
+        using var requestLease = SafeFiles.OpenExpectedReadLease(requestPath, expectedSha256);
+        if (requestLease.Length > 32768) throw new InvalidDataException("helper 请求过大。");
+        using var memory = new MemoryStream(); requestLease.CopyTo(memory);
+        return JsonSerializer.Deserialize<HelperRequest>(memory.ToArray()) ?? throw new InvalidDataException("helper 请求为空。");
+    }
+    public static async Task<int> RunRequestAsync(string requestPath, string expectedSha256)
     {
         string? responsePath = null; var id = "";
         try
         {
-            requestPath = Path.GetFullPath(requestPath); SafeFiles.RejectReparse(requestPath);
-            if (!SafeFiles.PathEquals(Path.GetDirectoryName(requestPath), OperationsRoot) || new FileInfo(requestPath).Length > 32768) return 2;
-            var request = JsonSerializer.Deserialize<HelperRequest>(File.ReadAllText(requestPath)) ?? throw new InvalidDataException("helper 请求为空。");
+            requestPath = Path.GetFullPath(requestPath);
+            var request = ReadBoundRequest(requestPath, expectedSha256);
             if (!Guid.TryParseExact(request.Id, "N", out _) || Path.GetFileName(requestPath) != request.Id + ".request.json") return 2;
             id = request.Id; responsePath = Path.Combine(OperationsRoot, id + ".response.json");
             var game = GameInspector.Inspect(request.Executable, request.SteamAppId); var cancel = Path.Combine(OperationsRoot, id + ".cancel");

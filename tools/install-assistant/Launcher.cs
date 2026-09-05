@@ -6,14 +6,29 @@ namespace Dlss5InstallAssistant;
 
 public static class Launcher
 {
-    public static void Start(GameCandidate game)
+    internal static Action<GameCandidate>? TestStartRequest { get; set; }
+    internal static Func<GameCandidate, bool>? TestExactProcessRunning { get; set; }
+    internal static TimeSpan TestLaunchTimeout { get; set; } = TimeSpan.Zero;
+    public static async Task StartAsync(GameCandidate game, CancellationToken token = default)
     {
         if (OperatingSystem.IsWindows() && new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
             throw new InvalidOperationException("请以普通权限打开助手再启动游戏；管理员权限仅用于安装 helper。");
         using var lease = Deployer.AcquireForLaunch(game);
-        if (!string.IsNullOrWhiteSpace(game.SteamAppId) && ulong.TryParse(game.SteamAppId, out _))
+        GameInspector.EnsureNotRunning(game);
+        if (TestStartRequest != null) TestStartRequest(game);
+        else if (!string.IsNullOrWhiteSpace(game.SteamAppId) && ulong.TryParse(game.SteamAppId, out _))
             Process.Start(new ProcessStartInfo("steam://rungameid/" + game.SteamAppId) { UseShellExecute = true });
         else Process.Start(new ProcessStartInfo(game.Executable) { WorkingDirectory = game.Directory, UseShellExecute = true });
+
+        var timeout = TestLaunchTimeout > TimeSpan.Zero ? TestLaunchTimeout : TimeSpan.FromSeconds(45);
+        var expires = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < expires)
+        {
+            token.ThrowIfCancellationRequested();
+            if ((TestExactProcessRunning ?? GameInspector.IsExactProcessRunning)(game)) return;
+            await Task.Delay(100, token).ConfigureAwait(false);
+        }
+        throw new TimeoutException("没有在 45 秒内确认所选游戏进程，启动保护已经结束。若游戏稍后才出现，请不要安装、恢复或卸载；先退出游戏，再重新操作。");
     }
     public static RuntimeStatus? ReadStatus(GameCandidate game)
     {
@@ -33,7 +48,12 @@ public static class Launcher
                 if (process.HasExited || !SafeFiles.PathEquals(process.MainModule?.FileName, game.Executable) || Math.Abs((new DateTimeOffset(process.StartTime.ToUniversalTime()) - s.ProcessStartedAt.Value).TotalSeconds) > 1) continue;
                 s.DeploymentMatches = installed != null && s.AddonIdentityStatus == "verified" && PackageManifest.IsHex(s.AddonSha256, 64) &&
                     SafeFiles.PathEquals(s.AddonPath, PackageManifest.SafePath(game.Directory, installed.AddonRelativePath)) &&
-                    s.AddonSha256.Equals(installed.AddonSha256, StringComparison.OrdinalIgnoreCase) && s.ArtifactId.Equals(installed.ArtifactId, StringComparison.OrdinalIgnoreCase);
+                    string.Equals(s.AddonSha256, installed.AddonSha256, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(s.ArtifactId, installed.ArtifactId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(s.BuildId, installed.Build, StringComparison.Ordinal) &&
+                    PackageManifest.IsHex(s.SourceCommit, 40) &&
+                    string.Equals(s.SourceCommit, installed.PayloadSourceCommit, StringComparison.OrdinalIgnoreCase) &&
+                    !s.SourceDirty;
                 s.Active = s.Active && s.State == "active" && s.NativeSrObserved && s.NrEvaluations > 0 && s.TransferSubmitted > 0 && s.ConfigGeneration > 0 && (string.IsNullOrEmpty(s.BypassReason) || s.BypassReason == "none");
                 return s;
             }

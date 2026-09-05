@@ -13,6 +13,8 @@
 5. 点击“安装 / 更新”。助手会准备固定版本的官方 ReShade 6.8 FullAddon，检查现有文件，再统一备份和部署。可先点“查看安装计划”查看逐项目标。
 6. 点击“启动游戏”，载入场景。用“刷新运行状态”检查实际加载路径、插件哈希与本次安装是否一致，以及是否有连续 NR 提交。
 
+通过 Steam 启动时，助手会在游戏进程真正出现前持续锁住安装目录，避免启动器延迟期间被另一实例更新。等待 45 秒仍未找到所选 EXE 时保护会结束；如果游戏随后才出现，请不要安装、恢复或卸载，先退出游戏再操作。
+
 ReShade 只从固定官方地址下载，安装程序和实际宿主均验证固定 SHA256。官方安装程序只在临时缓存沙盒内无界面运行；游戏目录由助手事务统一管理。网络不通时可在“高级选项”导入官方 `ReShade_Setup_6.8.0_Addon.exe`，同样必须通过固定哈希验证。
 
 已有相同官方宿主会复用。已有 ReShade.ini 且没有 `[ADDON] AddonPath` 时使用 ReShade 默认的 EXE 目录；首次干净安装使用游戏目录内的 `.dlss5-addons`。addon、bridge、NR 运行库、插件 INI 和包内离线反馈脚本放在同一个 addon 目录。首版拒绝游戏外共享 AddOnPath。
@@ -29,7 +31,7 @@ ReShade 只从固定官方地址下载，安装程序和实际宿主均验证固
 
 ## 如何确认生效
 
-“已部署”只表示安装文件成功。“已加载”还需要当前游戏进程发出 v2 状态，并且实际 addon 路径、SHA256 与安装记录一致。只有当前配置下的连续 NR 提交才显示“NR 正在提交”。相同版本号、旧进程、过期状态、旁路、仅有创建成功都不能代替这个结果。
+“已部署”只表示安装文件成功。“已加载”还需要当前游戏进程发出 v2 状态，并且实际 addon 路径、SHA256、构建名、源码提交与安装记录一致，源码必须是干净构建。只有当前配置下的连续 NR 提交才显示“NR 正在提交”。相同版本号、旧进程、过期状态、旁路、仅有创建成功都不能代替这个结果。
 
 本版本完成了自动事务、签名、路径、恢复与官方宿主缓存验证。真实游戏中的安装升级、视觉效果和兼容性仍需按当前候选实测；不据此声称所有游戏、HDR 或所有显卡验证通过。F8 可在游戏内采集反馈；无法进入游戏时，可使用 addon 同目录的 `Collect-Feedback.cmd`。
 
@@ -43,6 +45,6 @@ ReShade 只从固定官方地址下载，安装程序和实际宿主均验证固
 
 `scripts/package-install-assistant-release.ps1` 必须显式提供 `-PayloadCatalogPath`、`-LegacyCatalogPath`、`-OutputRoot`，源码提交后才可运行。它不会按旧版目录或 glob 猜载荷，逐文件核对输入 SHA256，并为应用目录、每个组件目录签名。
 
-载荷目录清单 schema：`dlss5-installer-payloads/v1`，包含 `build`、`payloadSourceCommit` 和四个 `variants`。每项 variant 声明 `gpuFamily`（RTX50/RTX30-40）、`language`（zh-CN/en）、`files`（每文件的绝对 `sourcePath`、`sha256`、`role`）。必需角色为 addon/bridge/runtime/config；可选角色为 feedback-launcher/feedback-collector 和 crash-feedback-launcher/crash-feedback-collector。两个崩溃采集角色只接受固定文件名 `Collect-Crash-Feedback.cmd`、`collect-crash-feedback.ps1`。
+载荷目录清单 schema：`dlss5-installer-payloads/v2`，包含 `build`、`edition`、`payloadSourceCommit` 和四个 `variants`。`edition` 只接受推荐的 `enhanced-recommended` 或兼容兜底的 `compatibility-fallback`；HD2 等实验包不能自动安装。每项 variant 声明 `gpuFamily`（RTX50/RTX30-40）、`language`（zh-CN/en）、`files`（每文件的绝对 `sourcePath`、`sha256`、`role` 与独立 `source` 来源）。复用旧包中的大运行库时会记录旧包来源和运行库哈希，不会冒充本轮新构建。必需角色为 addon/bridge/runtime/config；可选角色为 feedback-launcher/feedback-collector 和 crash-feedback-launcher/crash-feedback-collector。两个崩溃采集角色只接受固定文件名 `Collect-Crash-Feedback.cmd`、`collect-crash-feedback.ps1`。
 
-旧版清单 schema：`dlss5-installer-legacy/v1`。`aliases` 列出允许迁移的旧 addon 文件名及 SHA256；`knownFiles` 列出允许更新的固定文件名及 SHA256。未知文件不通过名字推断归属。产出的安装 manifest 使用 v3，并将插件 artifactId 绑定到实际 SHA256。
+旧版清单 schema：`dlss5-installer-legacy/v1`。`aliases` 列出允许迁移的旧 addon 文件名及 SHA256；`knownFiles` 列出允许更新的固定文件名及 SHA256。未知文件不通过名字推断归属。产出的安装 manifest 使用 v4，将用途、源码提交和插件 artifactId 绑定到实际 SHA256。

@@ -86,6 +86,20 @@ public static class GameInspector
             }
         }
     }
+    internal static bool IsExactProcessRunning(GameCandidate game)
+    {
+        var baseName = Path.GetFileNameWithoutExtension(game.Executable);
+        foreach (var p in Process.GetProcessesByName(baseName))
+        {
+            using (p)
+            {
+                try { if (!p.HasExited && SafeFiles.PathEquals(p.MainModule?.FileName, game.Executable)) return true; }
+                catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception) { throw new InvalidOperationException("同名游戏进程无法核实，启动保护尚不能安全移交。"); }
+            }
+        }
+        return false;
+    }
 }
 
 internal static class PeFacts
