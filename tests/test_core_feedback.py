@@ -1,15 +1,19 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('core_parser', ROOT / 'scripts/parse-core-feedback.py')
+# CI can run selected negative controls against the historical production parser.
+PARSER_PATH = Path(os.environ.get('NR_CORE_PARSER', ROOT / 'scripts/parse-core-feedback.py'))
+spec = importlib.util.spec_from_file_location('core_parser', PARSER_PATH)
 parser = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(parser)
+
 
 class CoreFeedbackTests(unittest.TestCase):
     def setUp(self):
@@ -22,10 +26,12 @@ class CoreFeedbackTests(unittest.TestCase):
         text = (f'format={"DLSS5-F8-v4" if image else "DLSS5-Core-v1"}\n'
                 f'capture.kind={kind or ("image-supplement" if image else "core")}\n'
                 f'session={"1" if image else session}\n'
-                'artifact.sourceCommit=fixture-sha\nsnapshot.valid=1\nconfig.writesToIni=0\n'
-                'images.requested=0\ngpu.readbackRequested=0\ncore.zipLimitBytes=8388608\n')
+                f'artifact.sourceCommit={"a" * 40}\nartifact.addonSha256={"b" * 64}\n'
+                'artifact.sourceDirty=0\nartifact.identityStatus=verified\n'
+                'snapshot.valid=1\nrequested.config=42\ncollection.cancelled=0\ncollection.metadataTruncated=0\n'
+                'config.writesToIni=0\nimages.requested=0\ngpu.readbackRequested=0\ncore.zipLimitBytes=8388608\n')
         if image:
-            text += f'core.session={session}\ncore.complete=1\n'
+            text += f'core.session={session}\ncore.config=42\ncore.complete=1\n'
         payloads = {} if image or missing else {'logs/nr-current-summary.txt': b'format=DLSS5-LogSummary-v1\nscan.complete=1\n[head]\nbuild=fixture\n'}
         if extra:
             payloads.update(extra)
@@ -35,13 +41,27 @@ class CoreFeedbackTests(unittest.TestCase):
             records += [{'name': 'logs/nr-current-summary.txt', 'status': 'missing', 'required': True, 'reason': 'test absence'}]
         manifest = {'format': 'DLSS5-DiagnosticBundle-v1', 'metadata_entry': 'capture-info.txt',
                     'metadata_text': text + ('extra=1\n' if bad_meta else ''), 'complete': not missing,
-                    'required_complete': not missing, 'entries': records}
+                    'required_complete': not missing, 'input_rejections': 0, 'entries': records}
         path = self.root / name
-        with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
-            for n, b in payloads.items():
-                z.writestr(n, b)
-            z.writestr('capture-info.txt', text)
-            z.writestr('manifest.json', json.dumps(manifest))
+        self.write(path, manifest, text, payloads)
+        return path
+
+    def write(self, path, manifest, text, payloads, compression=zipfile.ZIP_DEFLATED):
+        with zipfile.ZipFile(path, 'w', compression=compression) as archive:
+            for name, data in payloads.items():
+                archive.writestr(name, data)
+            archive.writestr('capture-info.txt', text)
+            archive.writestr('manifest.json', json.dumps(manifest))
+
+    def rewrite(self, path, change):
+        with zipfile.ZipFile(path) as archive:
+            manifest = json.loads(archive.read('manifest.json'))
+            info = parser.metadata(archive.read('capture-info.txt').decode())
+            payloads = {n: archive.read(n) for n in archive.namelist() if n not in ('manifest.json', 'capture-info.txt')}
+        change(manifest, info, payloads)
+        text = ''.join(f'{k}={v}\n' for k, v in info.items())
+        manifest['metadata_text'] = text
+        self.write(path, manifest, text, payloads)
         return path
 
     def test_core_without_nr_frames(self):
@@ -55,8 +75,7 @@ class CoreFeedbackTests(unittest.TestCase):
         self.assertEqual(value['missing'][0]['reason'], 'test absence')
 
     def test_image_pair(self):
-        result = parser.inspect_pair(self.bundle(), self.bundle('image.zip', image=True))
-        self.assertTrue(result['pair_verified'])
+        self.assertTrue(parser.inspect_pair(self.bundle(), self.bundle('image.zip', image=True))['pair_verified'])
 
     def test_wrong_session_rejected(self):
         with self.assertRaises(parser.FormatError):
@@ -91,21 +110,159 @@ class CoreFeedbackTests(unittest.TestCase):
 
     def test_physical_budget(self):
         path = self.bundle()
-        with path.open('ab') as f:
-            f.write(b'x' * parser.LIMIT)
+        with path.open('ab') as out:
+            out.write(b'x' * parser.LIMIT)
         with self.assertRaises(parser.FormatError):
             parser.inspect_core(path)
 
     def test_duplicate_names(self):
         path = self.bundle()
-        with zipfile.ZipFile(path, 'a') as z:
-            z.writestr('CAPTURE-INFO.TXT', b'duplicate case')
+        with zipfile.ZipFile(path, 'a') as archive:
+            archive.writestr('CAPTURE-INFO.TXT', b'duplicate case')
         with self.assertRaises(parser.FormatError):
             parser.inspect_core(path)
 
     def test_duplicate_json_keys(self):
         with self.assertRaises(parser.FormatError):
             parser.unique_json([('session', 1), ('session', 2)])
+
+    def test_missing_required_log_declaration_rejected(self):
+        def remove(manifest, info, payloads):
+            payloads.clear()
+            manifest['entries'] = []
+        path = self.rewrite(self.bundle(), remove)
+        with self.assertRaises(parser.FormatError):
+            parser.inspect_core(path)
+
+    def test_non_boolean_completeness_rejected(self):
+        path = self.rewrite(self.bundle(), lambda m, i, p: m.update(complete='true'))
+        with self.assertRaises(parser.FormatError):
+            parser.inspect_core(path)
+
+    def test_cancelled_marked_complete_rejected(self):
+        path = self.rewrite(self.bundle(), lambda m, i, p: i.update({'collection.cancelled': '1'}))
+        with self.assertRaises(parser.FormatError):
+            parser.inspect_core(path)
+
+    def test_same_source_different_binary_rejected(self):
+        image = self.rewrite(self.bundle('image.zip', image=True),
+                             lambda m, i, p: i.update({'artifact.addonSha256': 'c' * 64}))
+        with self.assertRaises(parser.FormatError):
+            parser.inspect_pair(self.bundle(), image)
+
+    def test_missing_binary_identity_not_verified(self):
+        image = self.rewrite(self.bundle('image.zip', image=True),
+                             lambda m, i, p: i.pop('artifact.addonSha256'))
+        core = self.rewrite(self.bundle(), lambda m, i, p: i.pop('artifact.addonSha256'))
+        self.assertTrue(parser.inspect_core(core)['manifest_verified'])  # Identity failure must not destroy diagnostic evidence.
+        with self.assertRaises(parser.FormatError):
+            parser.inspect_pair(core, image)
+
+    def test_invalid_manifest_boolean_fields(self):
+        for key in ('complete', 'required_complete'):
+            for value in (None, 'false', 0, 1):
+                with self.subTest(key=key, value=value):
+                    path = self.rewrite(self.bundle(), lambda m, i, p: m.update({key: value}))
+                    with self.assertRaises(parser.FormatError):
+                        parser.inspect_core(path)
+
+    def test_missing_required_flag_rejected(self):
+        for value in (None, False, 'true', 1):
+            with self.subTest(value=value):
+                path = self.rewrite(self.bundle(), lambda m, i, p: m['entries'][0].update(required=value))
+                with self.assertRaises(parser.FormatError):
+                    parser.inspect_core(path)
+
+    def test_optional_missing_remains_valid_partial(self):
+        def change(manifest, info, payloads):
+            manifest['entries'].append({'name': 'logs/nr-previous-summary.txt', 'status': 'missing',
+                                        'required': False, 'reason': 'no previous session'})
+            manifest['complete'] = False
+        value = parser.inspect_core(self.rewrite(self.bundle(), change))
+        self.assertTrue(value['required_complete'])
+        self.assertFalse(value['complete'])
+
+    def test_optional_missing_cannot_claim_complete(self):
+        def change(manifest, info, payloads):
+            manifest['entries'].append({'name': 'logs/nr-previous-summary.txt', 'status': 'missing',
+                                        'required': False, 'reason': 'no previous session'})
+        with self.assertRaises(parser.FormatError):
+            parser.inspect_core(self.rewrite(self.bundle(), change))
+
+    def test_snapshot_or_truncation_cannot_claim_required_complete(self):
+        for key, value in (('snapshot.valid', '0'), ('collection.metadataTruncated', '1')):
+            with self.subTest(key=key):
+                path = self.rewrite(self.bundle(), lambda m, i, p: i.update({key: value}))
+                with self.assertRaises(parser.FormatError):
+                    parser.inspect_core(path)
+
+    def test_cancelled_partial_stays_inspectable(self):
+        def change(manifest, info, payloads):
+            manifest.update(complete=False, required_complete=False)
+            info['collection.cancelled'] = '1'
+            manifest['entries'].append({'name': 'collection/cancelled', 'status': 'missing',
+                                        'required': True, 'reason': 'cancelled by user'})
+        value = parser.inspect_core(self.rewrite(self.bundle(), change))
+        self.assertFalse(value['required_complete'])
+        self.assertEqual(value['metadata']['collection.cancelled'], '1')
+
+    def test_invalid_missing_reason_rejected(self):
+        for reason in (True, {}, 42, '', ' '):
+            with self.subTest(reason=reason):
+                path = self.rewrite(self.bundle(missing=True), lambda m, i, p: m['entries'][0].update(reason=reason))
+                with self.assertRaises(parser.FormatError):
+                    parser.inspect_core(path)
+
+    def test_unknown_source_identity_stays_core_only(self):
+        for value in ('', 'unknown', 'fixture-not-a-commit'):
+            with self.subTest(value=value):
+                core = self.rewrite(self.bundle(), lambda m, i, p: i.update({'artifact.sourceCommit': value}))
+                image = self.rewrite(self.bundle('image.zip', image=True), lambda m, i, p: i.update({'artifact.sourceCommit': value}))
+                self.assertTrue(parser.inspect_core(core)['manifest_verified'])
+                with self.assertRaises(parser.FormatError):
+                    parser.inspect_pair(core, image)
+
+    def test_pair_config_and_dirty_state_must_match(self):
+        for key, value in (('core.config', '43'), ('artifact.sourceDirty', '1'), ('core.complete', '0')):
+            with self.subTest(key=key):
+                image = self.rewrite(self.bundle('image.zip', image=True), lambda m, i, p: i.update({key: value}))
+                with self.assertRaises(parser.FormatError):
+                    parser.inspect_pair(self.bundle(), image)
+
+    def test_matching_partial_core_can_pair(self):
+        core = self.bundle(missing=True)
+        image = self.rewrite(self.bundle('image.zip', image=True), lambda m, i, p: i.update({'core.complete': '0'}))
+        result = parser.inspect_pair(core, image)
+        self.assertTrue(result['pair_verified'])
+        self.assertFalse(result['core']['required_complete'])
+
+    def test_summary_incomplete_scan_cannot_claim_required_complete(self):
+        def change(manifest, info, payloads):
+            name = 'logs/nr-current-summary.txt'
+            data = payloads[name].replace(b'scan.complete=1', b'scan.complete=0')
+            payloads[name] = data
+            manifest['entries'][0].update(bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
+        with self.assertRaises(parser.FormatError):
+            parser.inspect_core(self.rewrite(self.bundle(), change))
+
+    def test_non_json_number_rejected(self):
+        path = self.rewrite(self.bundle(), lambda m, i, p: m.update(unrecognized=float('nan')))
+        with self.assertRaises(parser.FormatError):
+            parser.inspect_core(path)
+
+    def test_silently_normalized_member_rejected(self):
+        original = self.bundle()
+        with zipfile.ZipFile(original) as archive:
+            payloads = {n: archive.read(n) for n in archive.namelist()}
+        path = self.root / 'normalized.zip'
+        with zipfile.ZipFile(path, 'w') as archive:
+            for name, data in payloads.items():
+                archive.writestr(name + 'X' if name == 'capture-info.txt' else name, data)
+        wire = path.read_bytes()
+        self.assertEqual(wire.count(b'capture-info.txtX'), 2)
+        path.write_bytes(wire.replace(b'capture-info.txtX', b'capture-info.txt\0'))
+        with self.assertRaises(parser.FormatError):
+            parser.inspect_core(path)
 
     def test_hotkey_runtime_wiring(self):
         source = (ROOT / 'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
@@ -118,7 +275,8 @@ class CoreFeedbackTests(unittest.TestCase):
         self.assertNotIn('ApplyConfig(', core)
         self.assertNotIn('WritePrivateProfileStringW(', core)
         self.assertIn('job->archive_limit = nr_feedback_text::kCoreZipLimit', core)
-        self.assertNotIn('FeedbackAddModules(*job', core)  # Do not hash every installed runtime for F8.
+        self.assertNotIn('FeedbackAddModules(*job', core)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
