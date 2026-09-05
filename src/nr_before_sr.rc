@@ -19,9 +19,9 @@ FILEVERSION 0,4,4,1
 PRODUCTVERSION 0,4,4,1
 FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
 #ifdef _DEBUG
-FILEFLAGS VS_FF_DEBUG
+FILEFLAGS VS_FF_DEBUG | VS_FF_PRERELEASE
 #else
-FILEFLAGS 0x0L
+FILEFLAGS VS_FF_PRERELEASE
 #endif
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_DLL
@@ -33,11 +33,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "@野生的装机宅 Bilibili\0"
             VALUE "FileDescription", NR_FILE_DESCRIPTION "\0"
-            VALUE "FileVersion", "0.4.3r3 beta\0"
+            VALUE "FileVersion", "0.4.4-test1 beta\0"
             VALUE "InternalName", "DLSS5-NR-Before-SR\0"
             VALUE "OriginalFilename", NR_ORIGINAL_FILENAME "\0"
             VALUE "ProductName", NR_PRODUCT_NAME "\0"
-            VALUE "ProductVersion", "0.4.3r3 beta\0"
+            VALUE "ProductVersion", "0.4.4-test1 beta\0"
             VALUE "Comments", "Author: @野生的装机宅 Bilibili | Official releases: https://space.bilibili.com/941799 | No unauthorized rebranding or modified redistribution\0"
             VALUE "LegalCopyright", "Copyright (c) @野生的装机宅 Bilibili\0"
         END
