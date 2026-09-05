@@ -58,20 +58,17 @@ jobs:
           assert 'beta0.4.3 community candidate' in text
           config.write_text(text.replace('beta0.4.3 community candidate', 'beta0.4.3r2 community maintenance release'), encoding='utf-8', newline='\r\n')
 
-          for path in ['docs/UPDATE.zh-CN.txt', 'docs/UPDATE.en.txt']:
-              p = Path(path)
-              text = p.read_text(encoding='utf-8-sig')
-              assert 'beta0.4.3' in text
-              text = text.replace('beta0.4.3', 'beta0.4.3r2')
-              if path.endswith('zh-CN.txt'):
-                  marker = '0.4.3r2 主要变化\n\n'
-                  assert marker in text
-                  text = text.replace(marker, marker + 'r2 在原 0.4.3 基础上新增：后置 NR 先保留游戏原生 SR 输出再取私有快照；历史/guide/曝光重置帧保留原生输出；设置页拆分画质、反馈与诊断；F8 可复制同次采集的脱敏报告摘要。\n\n', 1)
-              else:
-                  marker = 'beta0.4.3r2'
-                  # Version replacement is sufficient for the English OTA instructions;
-                  # release notes carry the r2 delta in detail.
-              p.write_text(text, encoding='utf-8', newline='\n')
+          zh = Path('docs/UPDATE.zh-CN.txt')
+          text = zh.read_text(encoding='utf-8-sig')
+          assert 'beta0.4.3' in text and '0.4.3 主要变化\n\n' in text
+          text = text.replace('beta0.4.3', 'beta0.4.3r2')
+          text = text.replace('0.4.3 主要变化\n\n', '0.4.3r2 主要变化\n\nr2 在原 0.4.3 基础上新增：后置 NR 先保留游戏原生 SR 输出再取私有快照；历史/guide/曝光重置帧保留原生输出；设置页拆分画质、反馈与诊断；F8 可复制同次采集的脱敏报告摘要。\n\n', 1)
+          zh.write_text(text, encoding='utf-8', newline='\n')
+
+          en = Path('docs/UPDATE.en.txt')
+          text = en.read_text(encoding='utf-8-sig')
+          assert 'beta0.4.3' in text
+          en.write_text(text.replace('beta0.4.3', 'beta0.4.3r2'), encoding='utf-8', newline='\n')
 
           doc = Path('docs/043R2_COMPAT_FEEDBACK.md')
           text = doc.read_text(encoding='utf-8-sig')
@@ -91,23 +88,21 @@ jobs:
           assert old in text
           text = text.replace(old, new)
           old = "          ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT\n          if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }"
-          new = "          ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT\n          if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }\n          $zhAddon = Get-ChildItem build -File -Filter '*beta0.4.3r2*@野生的装机宅-Bilibili.addon64'\n          $enAddon = Get-ChildItem build -File -Filter '*beta0.4.3r2*@野生的装机宅-Bilibili.en.addon64'\n          if (@($zhAddon).Count -ne 1 -or @($enAddon).Count -ne 1) { throw 'r2 build identity filenames missing' }"
+          new = "          ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT\n          if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }\n          $zhAddon = @(Get-ChildItem build -File -Filter '*beta0.4.3r2*@野生的装机宅-Bilibili.addon64')\n          $enAddon = @(Get-ChildItem build -File -Filter '*beta0.4.3r2*@野生的装机宅-Bilibili.en.addon64')\n          if ($zhAddon.Count -ne 1 -or $enAddon.Count -ne 1) { throw 'r2 build identity filenames missing' }"
           assert old in text
           workflow.write_text(text.replace(old, new), encoding='utf-8', newline='\n')
 
           validate = Path('.github/workflows/beta042-validate.yml')
           text = validate.read_text(encoding='utf-8-sig')
           text = text.replace('name: Validate beta0.4.3', 'name: Validate beta0.4.3r2')
-          text = text.replace('group: beta043-${{ github.ref }}', 'group: beta043r2-${{ github.ref }}')
           text = text.replace('"build=beta0.4.3"', '"build=beta0.4.3r2"')
           text = text.replace('name: beta043-test-package', 'name: beta043r2-test-package')
           validate.write_text(text, encoding='utf-8', newline='\n')
 
-          # Release invariants: no product/runtime identity is allowed to remain at plain beta0.4.3.
           assert 'kAddonVersion = "beta0.4.3r2"' in Path('src/nr_before_sr.cpp').read_text(encoding='utf-8')
           assert 'kBuildIdentity = "beta0.4.3r2"' in Path('src/nr_before_sr.cpp').read_text(encoding='utf-8')
           assert 'FILEVERSION 0,4,3,2' in Path('src/nr_before_sr.rc').read_text(encoding='utf-8')
-          assert "\$Version = 'beta0.4.3'" not in Path('scripts/package-beta03.ps1').read_text(encoding='utf-8')
+          assert "$Version = 'beta0.4.3'" not in Path('scripts/package-beta03.ps1').read_text(encoding='utf-8')
       - name: Check and commit ordinary source changes
         shell: bash
         run: |
