@@ -132,6 +132,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImGui::TextWrapped("%s", ui("Settings cannot be saved. Check that the plugin folder is writable.",
             "设置无法保存，请检查插件目录是否可写。当前设置仍用于本次运行。"));
 
+    if (ImGui::BeginTabBar("nr-main-tabs")) {
+    if (ImGui::BeginTabItem(ui("Picture###nr-picture", "画质###nr-picture"))) {
 #if defined(NR_HAS_F8_SEQUENCE)
     const bool collecting = nr_f8::IsActive();
     if (collecting) ImGui::BeginDisabled();
@@ -150,9 +152,10 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
 #else
     constexpr float maximum_strength = 2.0f;
 #endif
+    float effect_strength = ActiveTransferStrength(next);
     if (ImGui::SliderFloat(ui("Final effect strength", "最终效果强度"),
-            &next.transfer_strength, 0.0f, maximum_strength, "%.2f")) {
-        next.post_transfer_strength = next.transfer_strength; changed = true;
+            &effect_strength, 0.0f, maximum_strength, "%.2f")) {
+        next.transfer_strength = next.post_transfer_strength = effect_strength; changed = true;
     }
     SettingsTooltip(ui("Final NR blend strength. 0 keeps native SR; 1.0 is the unscaled effect. New installations start at 1.2. Existing settings, including 0, are retained. Higher values can amplify low-resolution noise; this is not the model's internal strength.",
         "控制最终 NR 混合强度。0 保留原生 SR，1.0 是不额外放大的效果；新装默认 1.2。已有设置（包括 0）会保留。提高数值可能放大低分辨率噪点；这项不是模型内部强度。"));
@@ -267,7 +270,12 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
 #if defined(NR_HAS_F8_SEQUENCE)
     if (collecting) ImGui::EndDisabled();
-    nr_f8::DrawControls();
+#endif
+        ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem(ui("Feedback###nr-feedback", "反馈与报告###nr-feedback"))) {
+#if defined(NR_HAS_F8_SEQUENCE)
+        nr_f8::DrawControls();
 #else
     ImGui::Separator();
     if (ImGui::Button(ui("Collect current issue (F8)", "采集当前问题（F8）"))) RequestFeedbackBundle();
@@ -283,8 +291,13 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImGui::TextWrapped("%s", path);
     }
 #endif
-    if (ImGui::CollapsingHeader(ui("Diagnostics", "诊断"))) {
+        ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem(ui("Diagnostics###nr-diagnostics", "诊断###nr-diagnostics"))) {
         ImGui::PushID("technical"); DrawTechnicalDiagnostics(runtime); ImGui::PopID();
+        ImGui::EndTabItem();
+    }
+    ImGui::EndTabBar();
     }
     if (changed) { pending = next; has_pending = true; }
     if (has_pending && !ImGui::IsAnyItemActive()) {

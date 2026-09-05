@@ -47,7 +47,7 @@ UI_STRENGTH
 int main(){
     ChainConfig next;
     next.mode=1;check(!controls(next),"post UI read does not edit");
-    check(ImGui::observed==0.35f && next.transfer_strength==1.2f,"post UI shows post strength without clobbering pre");
+    check(ImGui::observed==1.2f && next.post_transfer_strength==0.35f,"post UI uses actual unified strength and leaves dormant legacy field untouched until edit");
     next.mode=2;check(!controls(next) && ImGui::observed==1.2f,"pre UI shows pre strength");
     next.mode=1;ImGui::edit=true;check(controls(next),"edit is propagated");
     check(next.transfer_strength==0.65f && next.post_transfer_strength==0.65f,"explicit shared-slider edit updates both modes");
@@ -102,7 +102,13 @@ def main():
     assert 's.report' in definition(core,'DWORD WINAPI Worker(')
     assert 'nr_feedback_ticket::Build' in definition(core,'void Publish(')
     assert 'Copy report summary' in sequence and 'nr_core_feedback::g_submission' in sequence
-    assert ui.count('BeginTabItem(')==3 and 'nr-main-tabs' in ui
+    assert ui.count('BeginTabItem(')==3 and ui.count('EndTabItem(')==3 and 'nr-main-tabs' in ui
+    status_ui=definition(sequence,'void DrawCoreStatus(')
+    release=status_ui.index('ReleaseSRWLockShared(&g_feedback_lock)')
+    assert status_ui.index('nr_core_feedback::g_submission') < release
+    assert status_ui.index('const auto status=g_feedback_status.load()') < release
+    assert 'return config.transfer_strength;' in definition(source,'float ActiveTransferStrength(')
+
     start=ui.index('    float effect_strength = ActiveTransferStrength(next);')
     stop=ui.index('    SettingsTooltip(ui("Final NR blend strength.', start)
     text=HARNESS.replace('ACTIVE_STRENGTH',definition(source,'float ActiveTransferStrength('))

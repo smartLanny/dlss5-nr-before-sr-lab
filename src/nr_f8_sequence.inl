@@ -411,13 +411,15 @@ void F8Tooltip(const char *text) {
 }
 void DrawCoreStatus() {
     const bool zh=UseChineseUi();
-    const auto status=g_feedback_status.load();
-    if(status==0)return;
     char path[4096]={},reason[160]={};
+    char submission[nr_feedback_ticket::kCapacity] = {};
     AcquireSRWLockShared(&g_feedback_lock);
+    const auto status=g_feedback_status.load();
     WideToUtf8(g_feedback_last_zip,path,sizeof(path));
     nr_bundle::CopyText(reason,sizeof(reason),nr_core_feedback::g_reason);
+    nr_bundle::CopyText(submission,sizeof(submission),nr_core_feedback::g_submission);
     ReleaseSRWLockShared(&g_feedback_lock);
+    if(status==0)return;
     if(status==1 || status==2) {
         ImGui::TextWrapped("%s",zh?"核心反馈：正在记录状态和生成日志小包，不等待 NR 图像。":"Core feedback: recording state and compact logs; no NR images required.");
         if(ImGui::Button(zh?"取消核心采集":"Cancel core capture"))nr_core_feedback::Cancel();
@@ -427,11 +429,17 @@ void DrawCoreStatus() {
             (zh?"核心反馈保存失败，没有复用旧包路径。":"Core feedback failed; no old package path reused."));
         if(reason[0])ImGui::TextWrapped("%s",reason);
         if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(zh?"复制核心包路径":"Copy core path"))ImGui::SetClipboardText(path);}
+        if (path[0] && submission[0] && ImGui::Button(zh?"复制报告摘要（粘贴后补充现象）":"Copy report summary"))
+            ImGui::SetClipboardText(submission);
+
     }
 }
 void DrawControls() {
     const auto state=g_status.load();
     const bool use_chinese_ui=UseChineseUi();
+    ImGui::TextWrapped("%s", use_chinese_ui
+        ? "不生效或旁路：先采 F8 核心小包。颜色、闪烁等画面异常：再用 F7，并提交新生成的一对包。"
+        : "Bypass or no effect: start with the small F8 core package. Visual issues: use F7 and submit its NEW core/image pair.");
     DrawCoreStatus();
     const bool busy=IsActive() || state==Status::Packaging || nr_core_feedback::Busy();
     ImGui::BeginDisabled(busy);

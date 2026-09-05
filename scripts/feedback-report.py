@@ -100,7 +100,7 @@ def prepare(core: Path, image: Path | None = None, symptom: str = 'compatibility
         rows.append('历史摘要出现 ReShade 重复实例并中止初始化。先备份并核对加载路径；不要只凭 d3d12.dll/dxgi.dll 文件名盲删，也不保证这是唯一故障。')
     if 'null-pso-policy-disabled' in evidence:
         rows.append('历史摘要出现空 PSO 安全旁路。这不是强度不足；保留安全保护，需进一步验证命令状态，不能直接宣称已修复。')
-    if 'device removed' in evidence or 'device hung' in evidence:
+    if any(value in evidence for value in ('device removed', 'device hung', 'device_removed', 'device_hung')):
         rows.append('历史摘要出现设备移除/挂起线索；需同一构建的离线崩溃证据，不能仅凭关键字归因于驱动。')
     if symptom == 'crash':
         rows.append('游戏已退出时使用离线崩溃收集器。F8 不是 dump/异常栈的替代品，不要公开上传未经检查的 dump。')

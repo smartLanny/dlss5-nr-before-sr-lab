@@ -90,7 +90,10 @@ struct Summary {
         const auto lower = Lower(line);
         const bool important = lower.find("bypass") != std::string::npos || lower.find("error") != std::string::npos ||
             lower.find("fail") != std::string::npos || lower.find("hook") != std::string::npos ||
-            lower.find("feature") != std::string::npos || lower.find("colordiag") != std::string::npos;
+            lower.find("feature") != std::string::npos || lower.find("colordiag") != std::string::npos ||
+            lower.find("another reshade instance") != std::string::npos ||
+            lower.find("device_removed") != std::string::npos || lower.find("device_hung") != std::string::npos ||
+            lower.find("device removed") != std::string::npos || lower.find("device hung") != std::string::npos;
         if (!important) return;
         recent.Push(line, 65536);
         // Retain the FIRST occurrence of each bypass reason even when the
@@ -101,6 +104,9 @@ struct Summary {
             const auto end = lower.find_first_of(" ,;\t", p + 7);
             key = lower.substr(p, end == std::string::npos ? end : end - p);
         } else if (lower.find("bypass transition") != std::string::npos) key = "first-bypass-transition";
+        else if (lower.find("another reshade instance") != std::string::npos) key = "first-duplicate-reshade";
+        else if (lower.find("device_removed") != std::string::npos || lower.find("device_hung") != std::string::npos ||
+                 lower.find("device removed") != std::string::npos || lower.find("device hung") != std::string::npos) key = "first-device-failure";
         else if (lower.find("fail") != std::string::npos || lower.find("error") != std::string::npos) key = "first-error";
         else if (lower.find("feature 18 create") != std::string::npos) key = "first-feature18-create";
         if (!key.empty() && first_keys.size() < 32 && first.size() + line.size() + 1 <= 65536 &&

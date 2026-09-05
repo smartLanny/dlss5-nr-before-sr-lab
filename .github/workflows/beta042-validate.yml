@@ -26,6 +26,8 @@ jobs:
       - name: Extracted production bug regressions
         run: |
           python3 scripts/validate-bug-sweep.py --compiler g++
+          python3 scripts/validate-043r2.py --compiler g++
+          python3 -m unittest discover -s tests -p test_feedback_report.py -v
           g++ -std=c++20 -Wall -Wextra -Werror -Isrc tests/feedback_text_test.cpp -o /tmp/feedback-text
           /tmp/feedback-text
           python3 -m unittest discover -s tests -p 'test_core_feedback.py'
@@ -110,6 +112,20 @@ jobs:
       - name: Execute the D3D12 codec harness
         shell: pwsh
         run: ./scripts/validate-codec-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+      - name: R2 native post-SR snapshot and integration regressions
+        shell: pwsh
+        run: |
+          $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin/x86_64-w64-mingw32-clang++.exe'
+          python scripts/validate-043r2.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw 'R2 integration regression failed' }
+          & $compiler -std=c++20 -O0 -Wall -Wextra -Werror -static -Isrc tests/post_sr_snapshot_gpu.cpp -o post-snapshot.exe -ld3d12 -ldxgi -ldxguid
+          if ($LASTEXITCODE -ne 0) { throw 'Post-SR WARP harness compilation failed' }
+          ./post-snapshot.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Post-SR WARP oracle failed' }
+          $negative = & ./post-snapshot.exe --negative-control 2>&1
+          if ($LASTEXITCODE -ne 1 -or ($negative -join "`n") -notmatch 'native/snapshot FP16 bytes') { throw 'Post-SR negative control did not reject the exact wrong pixel' }
+          $global:LASTEXITCODE = 0
+          Write-Host 'Expected wrong-byte control rejected'
       - name: LLVM static analysis
         shell: pwsh
         run: ./scripts/validate-static-analysis.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
