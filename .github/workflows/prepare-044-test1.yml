@@ -1,0 +1,39 @@
+name: Prepare isolated D3D12 test1 corrections
+on:
+  push:
+    branches: [fix/044-d3d12-compat-test1]
+    paths: ['.github/workflows/prepare-044-test1.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/fix/044-d3d12-compat-test1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/044-d3d12-compat-test1
+      - name: Reproduce exact old forwarding defect
+        shell: bash
+        run: |
+          set +e
+          python3 scripts/validate-044-compat.py --compiler g++ --forwarding-only > /tmp/red.txt 2>&1
+          rc=$?
+          set -e
+          cat /tmp/red.txt
+          test "$rc" -ne 0
+          grep -q 'FAIL nested internal handle must not permanently fault observer while disabled' /tmp/red.txt
+          ! grep -q 'error:' /tmp/red.txt
+      - name: Apply reviewed anchors and green controls
+        run: python3 scripts/preparation/apply-044-test1.py
+      - name: Commit source, remove one-shot staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm scripts/preparation/apply-044-test1.py .github/workflows/prepare-044-test1.yml
+          git add src/nr_before_sr.cpp src/nr_command_state.inl src/nr_settings_ui.inl src/nr_before_sr.rc scripts/build.ps1 scripts/validate-beta04-structure.py tests/pristine_null_native.inl .github/workflows/beta042-validate.yml
+          git diff --cached --check
+          git commit -m 'fix: preserve nested NGX forwarding and recover bounded D3D12 state'
+          git push origin HEAD:refs/heads/fix/044-d3d12-compat-test1
