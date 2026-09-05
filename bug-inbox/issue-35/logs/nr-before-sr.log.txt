@@ -1,1 +1,55 @@
-PLACEHOLDER_WILL_BE_REPLACED
+10:50:05.509  DLSS 5 AI Rendering Upscaling Edition beta0.4.1-r3 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=DLSS5-AI渲染超分版-beta0.4.1-r3-@野生的装机宅-Bilibili.addon64 | build_id=beta0.4.1-r3 | sourceCommit=acdda0febbbf1d90b45fc19e774f6c3378a3438b sourceDirty=0
+10:50:05.512  Shared strength migration: sourceMode=2 selected=1 strengthConfigVersion=1 persisted=1.
+10:50:05.514  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+10:50:05.515  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+10:50:05.515  Config: enabled=1 mode=2 identity=0 preTransfer=1.000 postTransfer=1.000 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=0 uiCorrection=0 r8OutputEncoding=0 perfEpoch=2 jitterMode=1 feature18Evals=0
+10:50:05.517  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+10:50:13.771  Found SR NGX module: D:\Program Files (x86)\Steam\steamapps\common\Crysis3Remastered\Bin64\nvngx_dlss.dll
+10:50:13.771  [module] pinned hook owner name=nvngx_dlss.dll address=00007FF8CE0E0000 module=00007FF8CE0E0000 until process exit.
+10:50:13.772  [module] pinned hook owner name=_nvngx.dll address=00007FF909F40000 module=00007FF909F40000 until process exit.
+10:50:13.781  [module] pinned hook owner name=D3D12_CreateFeature address=00007FF8CE0EE770 module=00007FF8CE0E0000 until process exit.
+10:50:13.781  MH_CreateHook D3D12_CreateFeature                    target=00007FF8CE0EE770 status=0 (MH_OK)
+10:50:13.782  [module] pinned hook owner name=D3D12_EvaluateFeature address=00007FF8CE0EE7A0 module=00007FF8CE0E0000 until process exit.
+10:50:13.782  MH_CreateHook D3D12_EvaluateFeature                  target=00007FF8CE0EE7A0 status=0 (MH_OK)
+10:50:13.782  [module] pinned hook owner name=D3D12_ReleaseFeature address=00007FF8CE0EE790 module=00007FF8CE0E0000 until process exit.
+10:50:13.782  MH_CreateHook D3D12_ReleaseFeature                   target=00007FF8CE0EE790 status=0 (MH_OK)
+10:50:13.783  [module] pinned hook owner name=core CreateFeature address=00007FF909FA7FE0 module=00007FF909F40000 until process exit.
+10:50:13.783  MH_CreateHook core CreateFeature                     target=00007FF909FA7FE0 status=0 (MH_OK)
+10:50:13.783  [module] pinned hook owner name=core EvaluateFeature address=00007FF909FA81E0 module=00007FF909F40000 until process exit.
+10:50:13.783  MH_CreateHook core EvaluateFeature                   target=00007FF909FA81E0 status=0 (MH_OK)
+10:50:13.784  [module] pinned hook owner name=core ReleaseFeature address=00007FF909FA80E0 module=00007FF909F40000 until process exit.
+10:50:13.784  MH_CreateHook core ReleaseFeature                    target=00007FF909FA80E0 status=0 (MH_OK)
+10:50:13.843  MH_EnableHook all status=0
+10:50:13.844  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+10:50:13.844  [module] initial scan complete: sr=00007FF8CE0E0000 core=00007FF909F40000 dlssd=0000000000000000.
+10:50:13.844  NGX observer/AI-upscaling hooks active.
+10:50:18.339  [module] lazy rescan #1 core=00007FF909F40000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+10:50:18.342  [perf] reset stage=C-NR-transfer epoch=2 transfer=1.000; warming 180 frames
+10:50:18.354  [artifact-identity] sourceCommit=acdda0febbbf1d90b45fc19e774f6c3378a3438b sourceDirty=0 status=verified addonPath=D:\Program Files (x86)\Steam\steamapps\common\Crysis3Remastered\Bin64\DLSS5-AI渲染超分版-beta0.4.1-r3-@野生的装机宅-Bilibili.addon64 addonSha256=1af67c6e678108e193daa020dd98dc69223cb8649917772f70e29efdd2c445f5 measurement=loaded-path-file-once-worker.
+10:50:19.339  [module] lazy rescan #2 core=00007FF909F40000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+10:50:20.553  [module] lazy rescan #3 core=00007FF909F40000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+10:50:31.017  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=62.494 avgMs=16.0015 p95Ms=16.9799 p99Ms=19.3239 onePercentLowFPS=44.169
+10:50:40.652  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=62.367 avgMs=16.0341 p95Ms=16.8613 p99Ms=19.2373 onePercentLowFPS=32.740
+10:50:50.269  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=62.499 avgMs=16.0003 p95Ms=16.5997 p99Ms=18.3478 onePercentLowFPS=53.771
+10:50:59.989  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=61.831 avgMs=16.1730 p95Ms=16.6060 p99Ms=18.4692 onePercentLowFPS=23.567
+10:51:12.009  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=49.981 avgMs=20.0077 p95Ms=21.6975 p99Ms=23.8613 onePercentLowFPS=36.995
+10:51:17.653  [module] lazy rescan #60 core=00007FF909F40000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+10:51:24.616  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=47.673 avgMs=20.9762 p95Ms=21.5874 p99Ms=23.4061 onePercentLowFPS=42.251
+10:51:35.755  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=53.968 avgMs=18.5296 p95Ms=21.3480 p99Ms=23.4256 onePercentLowFPS=34.826
+10:51:43.785  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=142.500 avgMs=7.0175 p95Ms=7.8022 p99Ms=9.4522 onePercentLowFPS=57.313
+10:51:52.748  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=134.941 avgMs=7.4107 p95Ms=7.7945 p99Ms=9.5372 onePercentLowFPS=95.179
+10:52:02.132  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=63.995 avgMs=15.6261 p95Ms=17.1062 p99Ms=18.3595 onePercentLowFPS=44.593
+10:52:10.094  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=75.442 avgMs=13.2553 p95Ms=16.6809 p99Ms=18.6052 onePercentLowFPS=43.010
+10:52:17.697  [module] lazy rescan #120 core=00007FF909F40000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+10:52:18.743  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=152.754 avgMs=6.5465 p95Ms=6.7522 p99Ms=8.5740 onePercentLowFPS=114.118
+10:52:26.615  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=152.573 avgMs=6.5542 p95Ms=6.7485 p99Ms=8.5993 onePercentLowFPS=113.318
+10:52:33.451  [feedback] one-click session requested; current settings retained, 3 display images, exact-fence stages, bounded 30-second wait.
+10:52:34.518  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=151.261 avgMs=6.6111 p95Ms=6.8306 p99Ms=8.7499 onePercentLowFPS=81.949
+10:52:39.107  [feedback] result=2 zip=C:\Users\l6531\Documents\DLSS5-Feedback\20260905-025238-18644-1473140\feedback.zip included=10 missing=3 requiredComplete=0 win32=0
+10:52:42.409  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=152.249 avgMs=6.5682 p95Ms=6.7884 p99Ms=8.6420 onePercentLowFPS=112.846
+10:53:03.920  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=34.153 avgMs=29.2802 p95Ms=31.4100 p99Ms=32.4392 onePercentLowFPS=30.373
+10:53:17.918  [module] lazy rescan #180 core=00007FF909F40000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+10:53:21.912  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=33.401 avgMs=29.9392 p95Ms=31.9831 p99Ms=33.2628 onePercentLowFPS=29.700
+10:53:39.912  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=33.386 avgMs=29.9530 p95Ms=32.0785 p99Ms=33.1400 onePercentLowFPS=29.693
+10:53:57.914  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=33.389 avgMs=29.9503 p95Ms=31.9767 p99Ms=33.1527 onePercentLowFPS=29.234
+10:54:10.242  [perf] stage=C-NR-transfer epoch=2 transfer=1.000 samples=600 avgFPS=48.795 avgMs=20.4941 p95Ms=31.2316 p99Ms=32.7730 onePercentLowFPS=11.555
