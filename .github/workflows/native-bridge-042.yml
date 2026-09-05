@@ -46,6 +46,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'History compile failed' }
           ./history.exe
           if ($LASTEXITCODE -ne 0) { throw 'History tests failed' }
+          & $compiler '-std=c++17' '-Wall' '-Wextra' '-Werror' '-I.' tests/native_bridge/forward.cpp '-o' forward.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Forward routing compile failed' }
+          ./forward.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Forward routing tests failed' }
           ./build/native-carrier/core/scripts/build.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
       - name: Compile pinned external carrier with MSVC
         shell: cmd

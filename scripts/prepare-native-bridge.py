@@ -85,6 +85,8 @@ static BridgeCfg g_cfg = [] {
     text = replace_once(text,
         "    if (g_bridge.disabled || !g_bridge.session_ready || gp == nullptr) return;",
         """    if (g_bridge.disabled || !g_bridge.session_ready || gp == nullptr) return;
+    // Read the live config even when source=off, so it can be turned on again.
+    CfgReload();
     if (g_cfg.source == CFG_SRC_OFF ||
         !nr_native_bridge_client::AllowsFrame(!g_bridge.frame_ready)) {
         g_bridge.need_reset = true;
@@ -96,18 +98,29 @@ static BridgeCfg g_cfg = [] {
         ok = false;
     }
     if (!ok) { BridgeReleaseTextures(); return false; }""")
-    # A missing native exposure must not silently become automatic/unit exposure.
-    text = replace_once(text,
-        "                if (BridgeEnsureExposure(dev11, gt))\n                    ctx->CopyResource(g_bridge.exp11, gt);\n                gt->Release();",
-        """                const bool exposure_ok = BridgeEnsureExposure(dev11, gt);
-                if (exposure_ok) ctx->CopyResource(g_bridge.exp11, gt);
+    # Refuse both conversion and interface failure; a stale exposure is not a
+    # substitute for an exposure resource the game actually supplied.
+    old_exposure = """            ID3D11Texture2D *gt = nullptr;
+            if (SUCCEEDED(ge->QueryInterface(__uuidof(ID3D11Texture2D),
+                                             reinterpret_cast<void **>(&gt))) && gt != nullptr)
+            {
+                if (BridgeEnsureExposure(dev11, gt))
+                    ctx->CopyResource(g_bridge.exp11, gt);
                 gt->Release();
-                if (!exposure_ok) {
-                    g_bridge.need_reset = true;
-                    for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
-                    dev11->Release();
-                    return;
-                }""")
+            }"""
+    new_exposure = """            ID3D11Texture2D *gt = nullptr;
+            const bool exposure_texture = SUCCEEDED(ge->QueryInterface(
+                __uuidof(ID3D11Texture2D), reinterpret_cast<void **>(&gt))) && gt != nullptr;
+            const bool exposure_ok = exposure_texture && BridgeEnsureExposure(dev11, gt);
+            if (exposure_ok) ctx->CopyResource(g_bridge.exp11, gt);
+            if (gt != nullptr) gt->Release();
+            if (!exposure_ok) {
+                g_bridge.need_reset = true;
+                for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+                dev11->Release();
+                return;
+            }"""
+    text = replace_once(text, old_exposure, new_exposure)
     text = replace_once(text, "        // mode 0 writes nothing back",
         "        // Set only after this call queued a real copy into the game output.\n"
         "        g_nr_native_delivery = mode == 2;\n        // mode 0 writes nothing back")

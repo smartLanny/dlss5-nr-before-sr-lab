@@ -42,8 +42,9 @@ inline void Discover(ULONGLONG now) {
         if (found) { duplicate = true; FreeLibrary(owner); break; }
         found = owner; candidate = fn;
     }
+    const bool scanComplete = !duplicate && GetLastError() == ERROR_NO_MORE_FILES;
     CloseHandle(snapshot);
-    if (duplicate || !found) { if (found) FreeLibrary(found); return; }
+    if (!scanComplete || !found) { if (found) FreeLibrary(found); return; }
     if (retained && retained != found) { FreeLibrary(found); return; }
     if (retained) FreeLibrary(found); else retained = found;
     query = candidate; unique = true;
