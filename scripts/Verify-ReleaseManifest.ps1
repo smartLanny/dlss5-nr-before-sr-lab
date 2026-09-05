@@ -7,6 +7,10 @@ Set-StrictMode -Version Latest
 
 $ExpectedOwner = '@野生的装机宅 Bilibili'
 $ExpectedOfficialReleaseUrl = 'https://space.bilibili.com/941799'
+$ExpectedAlgorithm = 'ECDSA-P256-SHA256'
+$ExpectedKeyId = '62A0F58B9E7F58BE'
+$ExpectedPublicKeySha256 = '62A0F58B9E7F58BE22EA962729DBA8D5F124E2263F1EC8FFFA82E20D48CB743E'
+$ExpectedPublicKeySpkiBase64 = 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE9kpPkc3saExOxRh60zW/jQ57Romdz10DNwpY7DqZC/e+Du3RRSopwYLo/RMhaFuD1rI6cZ5dUPcXWMmG4QLbXA=='
 $Root = (Resolve-Path -LiteralPath $PackagePath).Path
 $ManifestPath = Join-Path $Root 'RELEASE_MANIFEST.json'
 $SignaturePath = Join-Path $Root 'RELEASE_MANIFEST.sig'
@@ -31,15 +35,23 @@ if ($Manifest.schema -ne 'dlss5-release-manifest-v1' -or
     $PublicKey.schema -ne 'dlss5-release-public-key-v1') {
     throw 'Unsupported release signature schema.'
 }
+if ($Signature.algorithm -ne $ExpectedAlgorithm -or
+    $PublicKey.algorithm -ne $ExpectedAlgorithm -or
+    $Signature.manifest -ne 'RELEASE_MANIFEST.json') {
+    throw 'Release signature algorithm or target is not the official contract.'
+}
 if ($Manifest.author -ne $ExpectedOwner -or
     $PublicKey.owner -ne $ExpectedOwner -or
     $Manifest.officialReleaseUrl -ne $ExpectedOfficialReleaseUrl -or
     $PublicKey.officialReleaseUrl -ne $ExpectedOfficialReleaseUrl) {
     throw 'Manifest author or official release address does not match 野生的装机宅.'
 }
-if ($Manifest.keyId -ne $Signature.keyId -or
-    $Manifest.keyId -ne $PublicKey.keyId) {
-    throw 'Manifest, signature and public key use different identities.'
+if ($Manifest.keyId -ne $ExpectedKeyId -or
+    $Signature.keyId -ne $ExpectedKeyId -or
+    $PublicKey.keyId -ne $ExpectedKeyId -or
+    $PublicKey.publicKeySha256 -ne $ExpectedPublicKeySha256 -or
+    $PublicKey.publicKeySpkiBase64 -cne $ExpectedPublicKeySpkiBase64) {
+    throw 'Package does not use the fixed official DLSS5 release verification key.'
 }
 
 $ManifestHash = [Convert]::ToHexString(
@@ -48,11 +60,11 @@ if ($ManifestHash -ne $Signature.manifestSha256) {
     throw 'The release manifest was modified after it was signed.'
 }
 
-$PublicBytes = [Convert]::FromBase64String($PublicKey.publicKeySpkiBase64)
+$PublicBytes = [Convert]::FromBase64String($ExpectedPublicKeySpkiBase64)
 $PublicHash = [Convert]::ToHexString(
     [Security.Cryptography.SHA256]::HashData($PublicBytes))
-if ($PublicHash -ne $PublicKey.publicKeySha256) {
-    throw 'The bundled public key is corrupt.'
+if ($PublicHash -ne $ExpectedPublicKeySha256) {
+    throw 'The embedded official public key identity is corrupt.'
 }
 $Ecdsa = [Security.Cryptography.ECDsa]::Create()
 try {

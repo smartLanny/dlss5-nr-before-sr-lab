@@ -63,7 +63,7 @@ foreach ($file in Get-ChildItem -LiteralPath $app -File) { $buildEvidence.artifa
 Sign-Directory $app ('installer-' + $sourceCommit.Substring(0,8))
 & $verifyScript -PackagePath $app
 $deliveryArtifacts = @()
-$appZip = Join-Path $output 'DLSS5InstallAssistant-win-x64.zip'
+$appZip = Join-Path $output ('DLSS5InstallAssistant-for-' + [string]$payload.build + '-win-x64.zip')
 Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath $app -File | Select-Object -ExpandProperty FullName) -DestinationPath $appZip -CompressionLevel Optimal
 $deliveryArtifacts += [ordered]@{ path=[IO.Path]::GetFileName($appZip); kind='application'; build=('installer-' + $sourceCommit.Substring(0,8)); sha256=(Get-FileHash -LiteralPath $appZip -Algorithm SHA256).Hash; bytes=(Get-Item -LiteralPath $appZip).Length }
 foreach ($variant in $payload.variants) {

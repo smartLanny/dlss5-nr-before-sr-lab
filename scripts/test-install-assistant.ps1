@@ -10,6 +10,7 @@ if ((Get-FileHash -LiteralPath $VerifiedHostPath -Algorithm SHA256).Hash -ne '0C
 $output = Join-Path $root 'test-output/installer'
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 & (Join-Path $PSScriptRoot 'validate-install-assistant-release-labels.ps1')
+& (Join-Path $PSScriptRoot 'test-release-verifier.ps1')
 & $Dotnet run --project $project -- $VerifiedHostPath | Tee-Object -FilePath (Join-Path $output 'transaction-tests.txt')
 if ($LASTEXITCODE -ne 0) { throw 'Installer production-seam regressions failed.' }
 & $Dotnet build (Join-Path $root 'tools/install-assistant/Dlss5InstallAssistant.csproj') -c Release
