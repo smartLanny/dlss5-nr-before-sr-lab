@@ -74,12 +74,15 @@ public:
     bool is_nested() const { return false; }
     bool acquisition_failed() const { return false; }
 };
+enum class ModuleObserverFault { UnknownEvaluate, UnknownRelease };
+bool LatchGenericRenoDxConflictIfLoaded() { return false; }
 void LatchNestedRrOwnershipChange(const char *) { ++uncertain_calls; }
 void LatchConcurrentRrOwnershipChange(const char *) { ++uncertain_calls; }
 void LatchRrOwnershipUncertain(const char *, const char *) {
     ++uncertain_calls;
 }
-void LatchUnknownFeatureHandle(const char *, const char *) {
+void LatchUnknownFeatureHandle(const char *, const char *,
+                               ModuleObserverFault) {
     ++uncertain_calls;
 }
 void ObserveNullEvaluateHandle(const char *) { ++null_calls; }
@@ -112,6 +115,13 @@ NgxResult CallNativeEvaluatePassThrough(EvaluateFeatureFn original,
     g_inside_ngx_evaluate = previous;
     return result;
 }
+NgxResult CallNativeCreatePassThrough(CreateFeatureFn original,
+                                      ID3D12GraphicsCommandList *command_list,
+                                      int feature_id, NgxParams *params,
+                                      NgxHandle **out_handle) {
+    if (out_handle != nullptr) *out_handle = nullptr;
+    return original(command_list, feature_id, params, out_handle);
+}
 
 bool native_create_success = true;
 NgxResult NativeDlssgCreate(ID3D12GraphicsCommandList *, int,
@@ -126,7 +136,9 @@ NgxResult NativeDlssgEvaluate(ID3D12GraphicsCommandList *,
     ++downstream_core_calls;
     downstream_saw_nested = g_inside_ngx_evaluate;
     if (!g_inside_ngx_evaluate && FindFeature(handle).handle == nullptr)
-        LatchUnknownFeatureHandle("simulated core", "unknown outermost handle");
+        LatchUnknownFeatureHandle(
+            "simulated core", "unknown outermost handle",
+            ModuleObserverFault::UnknownEvaluate);
     return kNgxSuccess;
 }
 NgxResult NativeDlssgRelease(NgxHandle *) { return kNgxSuccess; }

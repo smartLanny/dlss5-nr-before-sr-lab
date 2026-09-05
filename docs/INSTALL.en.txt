@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Upscaling beta0.3.7-hd2-exp2 [HD2 Feature 11 experiment; compatibility unverified]
+DLSS 5 AI Rendering Upscaling beta0.3.7-hd2-exp3 [HD2 Feature 11 experiment; compatibility unverified]
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
@@ -19,7 +19,7 @@ Collect-Feedback.cmd
 collect-feedback.ps1
 Instructions.txt
 
-Keep these files together. Remove the old build or other language version of this addon, and do not run two addons that both process NR. Start the game and check for beta0.3.7-hd2-exp2 and its experimental status in the ReShade addon panel.
+Keep these files together. Remove the old build or other language version of this addon. If the exact file renodx-dlss5.addon64 is present, move it outside the game directory too; it is another NR owner and cannot coexist with this addon. Ordinary RenoDX HDR files are not affected by this exact-name rule. Fully restart the game and check for beta0.3.7-hd2-exp3 and its experimental status in the ReShade addon panel.
 
 If you already have a working full installation, you can use the small update package and keep the existing large runtime DLL, bridge DLL and settings file. Follow the instructions in that update package. It cannot be used for a first installation.
 
@@ -47,7 +47,9 @@ Send the ZIP with the game name, GPU model, HDR or SDR setting, what went wrong 
 
 What changed in this version
 
-This is a separate HD2 experiment with formal diagnostic identity beta0.3.7-hd2-exp2. It observes Feature 11 Create, Evaluate and Release through nvngx_dlssg.dll and accepts identity only from a successful Create returning a non-null handle. Feature 11 hooks use a separate publication step, so their failure cannot invalidate otherwise usable SR/RR lifecycle observers; unknown non-null handles still fail closed. It does not copy the external bridge's COM/vtable substitution and does not claim HD2 compatibility.
+This is a separate HD2 experiment with formal diagnostic identity beta0.3.7-hd2-exp3. It observes Feature 11 Create, Evaluate and Release through nvngx_dlssg.dll and accepts identity only from a successful Create returning a non-null handle. Feature 11 hooks use a separate publication step, so their failure cannot invalidate otherwise usable SR/RR lifecycle observers; unknown non-null handles still fail closed. It does not copy the external bridge's COM/vtable substitution and does not claim HD2 compatibility.
+
+It also includes the common r3 fixes. A simultaneously loaded renodx-dlss5.addon64 is detected before handle classification and the native picture is preserved with an exact cleanup instruction. Safe relay allocation is extended for low-address NGX modules, and loaded lifecycle modules are preflighted before the first SR Create. If the game starts with Enabled=0 and the panel later asks you to restart with NR enabled, follow that instruction so startup-created command signatures can be observed.
 
 The stable build no longer forces NR insertion while the command list has a null PSO, reducing the regression surface behind the reported Forza Horizon crash. The submitted bundle had no crash dump, so game confirmation is still required. The model UI-correction parameter now uses the unsigned type actually read by the runtime. It can help text only when a game supplies a separate UI layer and cannot discover subtitles already baked into the picture.
 

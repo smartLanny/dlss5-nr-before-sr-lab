@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Upscaling beta0.3.7-hd2-exp2 [HD2 Feature 11 experiment] - Small Update
+DLSS 5 AI Rendering Upscaling beta0.3.7-hd2-exp3 [HD2 Feature 11 experiment] - Small Update
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
@@ -16,11 +16,13 @@ Exit the game completely. Back up the current addon outside the game directory, 
 
 Keep nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Place Collect-Feedback.cmd and collect-feedback.ps1 together beside the addon. Do not swap runtime DLLs between GPU packages.
 
-Start the game and check that the addon panel says beta0.3.7-hd2-exp2 and identifies an experiment. First-time installations or missing runtime files require the full package for your GPU.
+Start the game and check that the addon panel says beta0.3.7-hd2-exp3 and identifies an experiment. First-time installations or missing runtime files require the full package for your GPU.
 
 What changed
 
-This is a separate HD2 experiment with formal diagnostic identity beta0.3.7-hd2-exp2. It observes Feature 11 Create, Evaluate and Release through nvngx_dlssg.dll and accepts identity only from a successful Create returning a non-null handle. Feature 11 hooks are published independently, so their failure cannot invalidate otherwise usable SR/RR observers; unknown non-null handles still fail closed. It does not copy the external bridge's COM/vtable substitution and does not claim HD2 compatibility.
+This is a separate HD2 experiment with formal diagnostic identity beta0.3.7-hd2-exp3. It observes Feature 11 Create, Evaluate and Release through nvngx_dlssg.dll and accepts identity only from a successful Create returning a non-null handle. Feature 11 hooks are published independently, so their failure cannot invalidate otherwise usable SR/RR observers; unknown non-null handles still fail closed. It does not copy the external bridge's COM/vtable substitution and does not claim HD2 compatibility.
+
+It also includes the common r3 fixes: exact detection of a simultaneously loaded renodx-dlss5.addon64 while preserving the native picture, safe relay allocation for low-address NGX modules, and lifecycle-module preflight before the first SR Create. If a game starts with Enabled=0 and the panel later requests a restart, keep NR enabled and fully restart so startup-created command signatures can be observed.
 
 For the new Forza Horizon crash report, the stable build once again refuses to insert NR while the command list has a null PSO. It also avoids publishing the wider graphics-state hooks used only by that high-risk restore path. The report contained no crash dump, so this is a conservative fix based on the exact version regression and still needs game testing. Keep ExperimentalNullPsoCarrier=0 unless you are running a controlled compatibility experiment; changing it requires a full game restart.
 

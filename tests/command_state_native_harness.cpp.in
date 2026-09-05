@@ -34,6 +34,7 @@ void Log(const char *format, ...) {
     va_list args; va_start(args, format); vprintf(format, args); puts(""); va_end(args);
 }
 SRWLOCK g_evaluate_hook_lock = SRWLOCK_INIT;
+std::atomic<bool> g_enabled_fast{false};
 // Keep the wider restoration path covered as an explicit experiment. The
 // production default is verified separately and remains fail-closed.
 bool AllowExperimentalNullPsoCarrier() { return true; }
@@ -135,13 +136,121 @@ void STDMETHODCALLTYPE ProbeBias(ID3D12GraphicsCommandList *list, FLOAT bias, FL
 void STDMETHODCALLTYPE ProbeCut(ID3D12GraphicsCommandList *list, D3D12_INDEX_BUFFER_STRIP_CUT_VALUE cut) {
     auto &p=*reinterpret_cast<RasterReplayProbe *>(list); Check(p.stage==1,"CL9 strip cut follows PSO restoration");p.cut=cut;
 }
-int main() {
+int RunDefaultEnabledStartupGate() {
+    g_enabled_fast.store(true, std::memory_order_release);
+    IDXGIFactory4 *factory = nullptr; IDXGIAdapter *adapter = nullptr; ID3D12Device *device = nullptr;
+    Hr(CreateDXGIFactory1(IID_IDXGIFactory4, reinterpret_cast<void **>(&factory)), "default-enabled factory");
+    Hr(IDXGIFactory4_EnumWarpAdapter(factory, IID_IDXGIAdapter, reinterpret_cast<void **>(&adapter)), "default-enabled WARP");
+    Hr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter), D3D_FEATURE_LEVEL_11_0,
+        IID_ID3D12Device, reinterpret_cast<void **>(&device)), "default-enabled device");
+    reshade::api::device owner_device{device};
+    OnCommandStateInitDevice(&owner_device);
+    Check(g_state_CreateCommandSignature.count == 1 && g_state_CreateCommandSignature.enabled[0],
+        "default-enabled device init immediately publishes the command-signature hook");
+
+    // This signature deliberately predates the first NR carrier. The shipped
+    // default must still attach enough metadata for a later ExecuteIndirect.
+    D3D12_INDIRECT_ARGUMENT_DESC indirect_arg{};
+    indirect_arg.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    D3D12_COMMAND_SIGNATURE_DESC indirect_desc{};
+    indirect_desc.ByteStride = 12;
+    indirect_desc.NumArgumentDescs = 1;
+    indirect_desc.pArgumentDescs = &indirect_arg;
+    ID3D12CommandSignature *signature = nullptr;
+    Hr(ID3D12Device_CreateCommandSignature(device, &indirect_desc, nullptr,
+        IID_ID3D12CommandSignature, reinterpret_cast<void **>(&signature)),
+        "default-enabled pre-carrier signature");
+    UINT metadata_bytes = sizeof(CommandSignatureState);
+    CommandSignatureState metadata{};
+    const HRESULT metadata_result = ID3D12CommandSignature_GetPrivateData(
+        signature, kCommandSignatureState, &metadata_bytes, &metadata);
+    Check(SUCCEEDED(metadata_result) && metadata_bytes == sizeof(metadata) &&
+        metadata.valid && metadata.count == 1 && metadata.stage == 0 &&
+        g_command_signature_create_calls.load(std::memory_order_relaxed) == 1 &&
+        g_command_signature_metadata_writes.load(std::memory_order_relaxed) == 1,
+        "default-enabled pre-carrier signature contains valid dispatch metadata");
+
+    auto *root = MakeRoot(device, 3);
+    auto *pipeline = MakePipeline(device, root);
+    ID3D12CommandAllocator *allocator = nullptr; ID3D12GraphicsCommandList *list = nullptr;
+    Hr(ID3D12Device_CreateCommandAllocator(device, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        IID_ID3D12CommandAllocator, reinterpret_cast<void **>(&allocator)),
+        "default-enabled allocator");
+    Hr(ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        allocator, pipeline, IID_ID3D12GraphicsCommandList, reinterpret_cast<void **>(&list)),
+        "default-enabled list");
+    reshade::api::command_list owner{&owner_device, list};
+    OnCommandStateInitList(&owner);
+    auto *snapshot = new NativeCommandState;
+    Check(!CaptureNativeCommandState(list, *snapshot),
+        "default-enabled first carrier stays native while list hooks publish");
+    auto *record = FindCommandStateTokenLocked(ReadCommandStateToken(list));
+    Check(record != nullptr && record->hooks_ready && g_state_ExecuteIndirect.count != 0,
+        "default-enabled first carrier publishes ExecuteIndirect tracking");
+    if (record == nullptr || !record->hooks_ready) return 3;
+    OnCommandStateBeforeReset(&owner);
+    Hr(ID3D12GraphicsCommandList_Close(list), "default-enabled close before reset");
+    Hr(ID3D12GraphicsCommandList_Reset(list, allocator, pipeline), "default-enabled reset");
+    Check(CaptureNativeCommandState(list, *snapshot),
+        "default-enabled reset establishes a capturable carrier");
+
+    D3D12_HEAP_PROPERTIES upload_heap{};
+    upload_heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+    D3D12_RESOURCE_DESC arguments_desc{};
+    arguments_desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    arguments_desc.Width = 12;
+    arguments_desc.Height = 1;
+    arguments_desc.DepthOrArraySize = 1;
+    arguments_desc.MipLevels = 1;
+    arguments_desc.SampleDesc.Count = 1;
+    arguments_desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    ID3D12Resource *arguments = nullptr;
+    Hr(ID3D12Device_CreateCommittedResource(device, &upload_heap, D3D12_HEAP_FLAG_NONE,
+        &arguments_desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_ID3D12Resource,
+        reinterpret_cast<void **>(&arguments)), "default-enabled indirect arguments");
+    void *mapped = nullptr;
+    Hr(ID3D12Resource_Map(arguments, 0, nullptr, &mapped), "default-enabled map indirect arguments");
+    const UINT dispatch[3]{1, 1, 1};
+    memcpy(mapped, dispatch, sizeof(dispatch));
+    ID3D12Resource_Unmap(arguments, 0, nullptr);
+    ID3D12GraphicsCommandList_ExecuteIndirect(list, signature, 1, arguments, 0, nullptr, 0);
+    Check(CaptureNativeCommandState(list, *snapshot),
+        "default-enabled pre-carrier signature remains capturable after ExecuteIndirect");
+
+    OnCommandStateDestroyList(&owner);
+    ReleaseNativeCommandState(*snapshot); delete snapshot;
+    Drop(arguments); Drop(list); Drop(allocator); Drop(pipeline); Drop(root);
+    Drop(signature); Drop(device); Drop(adapter); Drop(factory);
+    printf("command-state default-enabled startup gate: %d checks, %d failures\n", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
+int main(int argc, char **argv) {
+    if (argc > 1 && strcmp(argv[1], "--default-enabled") == 0)
+        return RunDefaultEnabledStartupGate();
     IDXGIFactory4 *factory = nullptr; IDXGIAdapter *adapter = nullptr; ID3D12Device *device = nullptr;
     Hr(CreateDXGIFactory1(IID_IDXGIFactory4, reinterpret_cast<void **>(&factory)), "factory");
     Hr(IDXGIFactory4_EnumWarpAdapter(factory, IID_IDXGIAdapter, reinterpret_cast<void **>(&adapter)), "WARP");
     Hr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter), D3D_FEATURE_LEVEL_11_0, IID_ID3D12Device, reinterpret_cast<void **>(&device)), "device");
     reshade::api::device owner_device{device}; OnCommandStateInitDevice(&owner_device);
+    Check(g_state_CreateCommandSignature.count == 0,
+        "device init caches metadata without publishing the command-signature hook");
     auto *root = MakeRoot(device, 3); auto *other_root = MakeRoot(device, 1);
+    D3D12_INDIRECT_ARGUMENT_DESC startup_indirect_arg{};
+    startup_indirect_arg.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+    D3D12_COMMAND_SIGNATURE_DESC startup_indirect_desc{};
+    startup_indirect_desc.ByteStride = 12;
+    startup_indirect_desc.NumArgumentDescs = 1;
+    startup_indirect_desc.pArgumentDescs = &startup_indirect_arg;
+    ID3D12CommandSignature *startup_signature = nullptr;
+    Hr(ID3D12Device_CreateCommandSignature(device, &startup_indirect_desc, nullptr,
+        IID_ID3D12CommandSignature, reinterpret_cast<void **>(&startup_signature)),
+        "pre-NR indirect signature");
+    UINT startup_metadata_bytes = sizeof(CommandSignatureState);
+    CommandSignatureState startup_metadata{};
+    Check(g_command_signature_create_calls.load(std::memory_order_relaxed) == 0 &&
+        FAILED(ID3D12CommandSignature_GetPrivateData(startup_signature,
+            kCommandSignatureState, &startup_metadata_bytes, &startup_metadata)),
+        "pre-NR signatures remain untouched while the startup hook is absent");
     auto *pipeline = MakePipeline(device, root); auto *other_pipeline = MakePipeline(device, other_root);
     ID3D12DescriptorHeap *heap = nullptr, *other_heap = nullptr, *sampler_heap = nullptr;
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc{}; heap_desc.NumDescriptors = 2; heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
@@ -154,9 +263,12 @@ int main() {
     Hr(ID3D12Device_CreateCommandList(device, 0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, pipeline, IID_ID3D12GraphicsCommandList, reinterpret_cast<void **>(&list)), "list");
     reshade::api::command_list owner{&owner_device, list}; OnCommandStateInitList(&owner);
     auto *snapshot = new NativeCommandState;
-    Check(!CaptureNativeCommandState(list, *snapshot), "late install refuses existing recording");
+    g_enabled_fast.store(true, std::memory_order_release);
+    Check(!CaptureNativeCommandState(list, *snapshot), "first NR carrier stays native while hooks install");
     auto *record = FindCommandStateTokenLocked(ReadCommandStateToken(list));
-    Check(record != nullptr && record->hooks_ready, "native setter transaction installed on WARP");
+    Check(record != nullptr && record->hooks_ready &&
+        g_state_CreateCommandSignature.count != 0,
+        "first NR carrier installs command-signature, setter and Reset hooks on demand");
     if (record == nullptr || !record->hooks_ready) return 3;
     OnCommandStateBeforeReset(&owner);
     Hr(ID3D12GraphicsCommandList_Close(list), "close");
@@ -209,6 +321,15 @@ int main() {
     Hr(ID3D12GraphicsCommandList_Close(list), "close null initial PSO recording");
     Hr(ID3D12GraphicsCommandList_Reset(list, allocator, pipeline), "reset");
     Check(CaptureNativeCommandState(list, *snapshot), "successful reset recovers late instrumentation");
+    ApplyIndirectCommandState(*record->state, startup_signature);
+    Check(!CaptureNativeCommandState(list, *snapshot),
+        "signature created before demand hook remains unknown and fails closed");
+    Hr(ID3D12GraphicsCommandList_Close(list), "close after pre-hook indirect");
+    OnCommandStateBeforeReset(&owner);
+    Hr(ID3D12GraphicsCommandList_Reset(list, allocator, pipeline),
+        "reset after pre-hook indirect");
+    Check(CaptureNativeCommandState(list, *snapshot),
+        "Reset recovers after unknown pre-hook indirect signature");
     ID3D12DescriptorHeap *heaps[]{heap, sampler_heap};
     ID3D12GraphicsCommandList_SetDescriptorHeaps(list, 2, heaps);
     ID3D12GraphicsCommandList_SetComputeRootSignature(list, root);
@@ -388,7 +509,7 @@ int main() {
     Check(ReadCommandStateToken(list) != old_token && !CaptureNativeCommandState(list, *snapshot), "destroy/reused native pointer cannot inherit old shadow");
     OnCommandStateDestroyList(&owner);
     ReleaseNativeCommandState(*snapshot); delete snapshot;
-    Drop(signature); Drop(list); Drop(allocator); Drop(pipeline); Drop(other_pipeline);
+    Drop(signature); Drop(startup_signature); Drop(list); Drop(allocator); Drop(pipeline); Drop(other_pipeline);
     Drop(root); Drop(other_root); Drop(heap); Drop(other_heap); Drop(sampler_heap);
     Drop(device); Drop(adapter); Drop(factory);
     printf("command-state native WARP: %d checks, %d failures, 64 KiB worker PASS\n", checks, failures);

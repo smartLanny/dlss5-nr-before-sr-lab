@@ -2,8 +2,8 @@
 
 Status: bounded Feature 11 lifecycle experiment; **no successful Helldivers 2
 native-SR/NR integration or compatibility claim has been established**.
-This checkout's formal diagnostic identity is `beta0.3.7-hd2-exp2` with edition
-label **HD2 Feature 11 observer experiment exp2; compatibility unverified**. It is compiled and packaged
+This checkout's formal diagnostic identity is `beta0.3.7-hd2-exp3` with edition
+label **HD2 Feature 11 observer experiment exp3; compatibility unverified**. It is compiled and packaged
 separately from ordinary beta0.3.7 so logs cannot confuse the two editions.
 Updated on 2026-09-05.
 
@@ -67,6 +67,13 @@ conditions cannot establish that native SR is absent. It explicitly calls enable
 target failed. This improves the next investigation; it is not a workaround,
 a successful hook installation, or a per-target proof.
 
+The exp3 source also carries the common r3 relay-allocation fix for MinHook
+status 9 (`MH_ERROR_MEMORY_ALLOC`) when an NGX module is loaded at an unusually
+low address. The supplied HD2 logs instead fail later with status 10
+(`MH_ERROR_MEMORY_PROTECT`). Expanding the signed-rel32-safe relay search does
+not bypass page protection and does not establish that the demonstrated HD2
+failure is fixed.
+
 ## Feature 11 observer experiment in this branch
 
 The current experimental edition also observes the D3D12 Create, Evaluate and
@@ -90,9 +97,9 @@ injection path, or use the supplied bridge's COM/vtable substitution. It can
 only address the specific case where a real Feature 11 wrapper-to-core sequence
 previously arrived as an unknown non-null handle.
 
-## beta0.3.7-hd2-exp2 confirmation procedure
+## beta0.3.7-hd2-exp3 confirmation procedure
 
-Use the `beta0.3.7-hd2-exp2` addon and its matching log on a clean Helldivers 2 launch,
+Use the `beta0.3.7-hd2-exp3` addon and its matching log on a clean Helldivers 2 launch,
 with `zz-hd2-dlss5-typeless-bridge.addon64` absent. Preserve the supplied
 bridge only as an inspection reference; its confirmed SHA-256 is
 `6296E34825196AD5EBF4FAFD86F0089E06C09FF5C57BB2D9748728157C57E5E2`.

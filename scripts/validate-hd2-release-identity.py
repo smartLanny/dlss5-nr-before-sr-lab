@@ -5,13 +5,13 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
-IDENTITY = "beta0.3.7-hd2-exp2"
+IDENTITY = "beta0.3.7-hd2-exp3"
 CHINESE_ADDON = (
-    "DLSS5-AI渲染超分版-beta0.3.7-hd2-exp2-"
+    "DLSS5-AI渲染超分版-beta0.3.7-hd2-exp3-"
     "@野生的装机宅-Bilibili.addon64"
 )
 ENGLISH_ADDON = (
-    "DLSS5-AI-Rendering-Upscaling-beta0.3.7-hd2-exp2-"
+    "DLSS5-AI-Rendering-Upscaling-beta0.3.7-hd2-exp3-"
     "@野生的装机宅-Bilibili.en.addon64"
 )
 
@@ -28,10 +28,10 @@ required = {
         "compatibility unverified",
     ],
     "src/nr_before_sr.rc": [
-        "FILEVERSION 0,3,7,2",
-        "PRODUCTVERSION 0,3,7,2",
-        f'VALUE "FileVersion", "{IDENTITY}\\0"',
-        f'VALUE "ProductVersion", "{IDENTITY}\\0"',
+        "FILEVERSION 0,3,7,3",
+        "PRODUCTVERSION 0,3,7,3",
+        'VALUE "FileVersion", "0.3.7.3 beta HD2 experiment\\0"',
+        'VALUE "ProductVersion", "0.3.7.3 beta HD2 experiment\\0"',
         CHINESE_ADDON,
         ENGLISH_ADDON,
         "compatibility unverified",
@@ -61,8 +61,13 @@ for relative, needles in required.items():
     for needle in needles:
         if needle not in text:
             failures.append(f"{relative}: missing {needle!r}")
-    if re.search(r"beta0\.3\.7-hd2-exp1|HD2-Feature11-exp1", text, re.I):
-        failures.append(f"{relative}: stale exp1 identity remains")
+    if re.search(
+        r"beta0\.3\.7-hd2-exp[12]|HD2-Feature11-exp[12]|"
+        r"Feature ?11 (?:observer )?experiment exp[12]",
+        text,
+        re.I,
+    ):
+        failures.append(f"{relative}: stale exp1/exp2 identity remains")
 
 if failures:
     for failure in failures:
@@ -71,5 +76,5 @@ if failures:
 
 print(
     "HD2 release identity PASS: addon/build/banner/resources/files/packages/"
-    "collector/current docs all identify beta0.3.7-hd2-exp2."
+    "collector/current docs all identify beta0.3.7-hd2-exp3."
 )
