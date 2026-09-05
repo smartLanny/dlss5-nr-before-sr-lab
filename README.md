@@ -3,13 +3,53 @@
 Experimental, source-only ReShade D3D12 add-on for studying two neural-rendering
 orders around a game's ordinary DLSS Super Resolution call:
 
-- Mode 1: game DLSS SR, then output-resolution neural rendering (`SR -> NR`).
-- Mode 2: render-resolution neural rendering at 1:1, then the game's original
-  DLSS SR (`NR -> SR`).
+- Mode 1: game DLSS SR, then full-output-resolution neural rendering (`SR -> NR`).
+- Mode 2: neural rendering on an independently selected working raster, then a
+  matched-residual composition into the game's render-resolution colour before
+  the original DLSS SR call (`NR -> SR`). Mode 2 is the default performance path;
+  Mode 1 remains the full-output-resolution quality/reference path.
+
+Runtime hotkeys are `F6` for the master comparison switch, `F8` for the small
+CPU-only core feedback ZIP, `F7` for the heavier paired image-feedback flow,
+and main keyboard `-` for a ReShade screenshot whose filename records the
+current build, chain and selected settings.
+
+The current **beta0.4.3** community build uses a simpler front page, a visible
+final-effect strength from 0 to 8 (1.2 for new installations), and an independent
+NR quality setting. It fixes the confirmed Cyberpunk 2077 RGBA16 motion-vector
+bypass, restores the conservative null-PSO policy used to reduce the Forza
+Horizon regression surface, detects the exact competing
+`renodx-dlss5.addon64` module, extends MinHook relay allocation for low-address
+NGX modules, and records the first lifecycle-observer failure. It observes
+immutable D3D12 command-signature descriptions at device creation regardless
+of the transient master-switch snapshot. This fixes the r3 regression that could alternate processed
+and native frames when weather, map or UI work reused an early
+`ExecuteIndirect` signature. F8 now keeps picture settings untouched and
+creates a bounded core diagnostics ZIP without texture readback; F7 first
+creates a session-associated core package and then runs the heavier image
+capture path. See the
+[community release notes](docs/BETA_0_4_3_RELEASE_NOTES.zh-CN.md) and
+[plain-text update instructions](docs/UPDATE.en.txt). Automated validation proves
+the stated code paths and package identity; picture quality still needs a fixed
+camera comparison in each game.
 
 This is a research project, not an NVIDIA product and not an official joint
 DLSS NR/SR implementation. NVIDIA, DLSS, GeForce, and related names are
 trademarks of their respective owners.
+
+Project author: **@野生的装机宅 Bilibili**. The only official release location
+is https://space.bilibili.com/941799. The author and official address remain
+embedded in release binaries and the add-on UI. The core full-install payload
+contains nine files: the add-on, bridge DLL, configuration, matching NR runtime,
+plain-text instructions (`说明.txt` in Chinese or `Instructions.txt` in English),
+and the ordinary and crash-feedback CMD/PowerShell pairs.
+The core update payload contains six files: the add-on, the plain-text instructions,
+and both feedback-tool pairs. Updates reuse an existing compatible full
+installation's runtime, bridge and configuration; they are not first-install
+packages. Official signed archives add verification files; their exact contents
+are listed by the signed manifest, and the release page publishes the ZIP hash.
+See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for the explicit prohibition on
+unauthorized automated builds, rebranding and modified redistribution.
 
 ## Repository boundary
 
@@ -31,8 +71,11 @@ components must come from lawful sources and remain outside this repository.
 
 The add-on deliberately limits itself to ordinary DLSS Super Resolution
 (NGX feature 1). Ray Reconstruction (feature 13) is passed through unmodified;
-while RR is active, companion feature-1 evaluations are also protected from a
-second NR pass. The process-lifetime detours remain installed, but the master-off
+while any feature-13 handle remains live, companion feature-1 evaluations are
+also protected from a second NR pass. A retained RR handle is never guessed
+dormant from timing or evaluation counts: the guard ends only on explicit
+Release, or on process restart. The process-lifetime detours remain installed,
+but the master-off
 path takes an atomic first-branch bypass before Feature 18, resource conversion,
 parameter substitution, or GPU work. If a resource, subrect, guide, format,
 create, or evaluate contract is not accepted, the intended behavior is to retain
@@ -42,6 +85,12 @@ This code injects into a game process and hooks graphics API entry points. Use i
 only in offline/single-player environments that allow ReShade add-ons. Do not use
 it with anti-cheat-protected or competitive multiplayer software.
 
+The scope is intentionally modular: this add-on concentrates on native D3D12
+DLSS Feature 1 games and the two `SR -> NR` / `NR -> native game SR` orders.
+DX11, Vulkan, games without native DLSS SR, and runtime portability for older
+GPUs remain separate Bridge/Feeder/ShortFuse concerns rather than duplicate
+implementations inside this project.
+
 ## Included source
 
 - `src/nr_before_sr.cpp`: ReShade add-on, NGX observation/substitution, HDR proxy
@@ -50,6 +99,26 @@ it with anti-cheat-protected or competitive multiplayer software.
 - `config/nr_before_sr.ini`: conservative default settings.
 - `third_party/minhook`: minimal x64 MinHook source subset required by the build.
 - `docs/TEST_EVIDENCE.md`: sanitized, non-authoritative runtime observations.
+- `docs/BETA_0_3_RELEASE_NOTES.md`: current behavior and safety changes.
+- `docs/BETA_0_3_1_RELEASE_NOTES.md`: startup-stability hotfix and release gate.
+- `docs/BETA_0_3_2_RELEASE_NOTES.md`: deferred-module compatibility and
+  diagnostic changes from the previous candidate.
+- `docs/BETA_0_3_3_RELEASE_NOTES.md`: create-time tuning reconstruction, live
+  non-HDR R8 admission and Scene Paper-White diagnostics under current testing.
+- `docs/BETA_0_4_3_RELEASE_NOTES.zh-CN.md`: current beta0.4.3 bug-sweep,
+  feedback-tooling changes, release identity and evidence boundaries.
+- `docs/BETA_0_4_2_RELEASE_NOTES.zh-CN.md`: archived beta0.4.2 behaviour,
+  compatibility fixes, image controls and evidence boundaries.
+- `docs/BETA_0_3_TEST_MATRIX.md`: release qualification checklist.
+- `docs/COMMUNITY_FEEDBACK_BETA03.md`: sanitized mapping from early reports to
+  current fixes, intentional bypasses, and remaining evidence gaps.
+- `docs/INSTALL.zh-CN.txt` / `docs/INSTALL.en.txt`: short player instructions,
+  packaged as `说明.txt` or `Instructions.txt` in full releases. Markdown installation
+  documents remain source documentation and are not the packaged instructions.
+- `scripts/validate-codec-shader.ps1`: compiles all embedded HLSL entry points
+  with the same Shader Model 5.0 compiler contract used at runtime.
+- `scripts/Verify-ReleaseManifest.ps1`: offline verifier bundled once with official
+  signed packages; lightweight development archives may omit it.
 
 ## Build prerequisites
 
@@ -72,28 +141,73 @@ From PowerShell:
 Alternatively set `DLSS5_LLVM_MINGW_ROOT` and `DLSS5_RESHADE_ROOT`. Build output
 is written only to `build/`, which is ignored by Git.
 
-No proprietary runtime is needed to compile the source. This repository does not
-provide runtime installation instructions or download links for vendor binaries.
+No proprietary runtime is needed to compile the source. Vendor binaries and
+their download links are not provided by this repository.
+
+## Local release packaging
+
+The packaging script uses existing local build output. To create small update
+archives without copying the large runtime DLLs, use:
+
+```powershell
+./scripts/package-beta03.ps1 `
+  -ReleaseRoot 'D:\releases\beta0.4.3-update' `
+  -UpdateOnly
+```
+
+For full packages, omit `-UpdateOnly` and provide `-Rtx50Runtime` and
+`-Rtx3040Runtime` with the matching local runtime paths. Choose a new destination
+for each run. Both package types include plain-text player instructions and the
+offline collector pair. Generated archives and binaries stay outside version
+control; the repository retains only their source, scripts and documentation.
 
 ## Current research status
 
 The two chains have executed successfully in several D3D12 titles, including
 contracts with FP16 SceneColor, UE-style `R11G11B10_FLOAT` SceneColor, padded
 active regions, low-resolution depth/motion guides, and high-resolution motion
-conversion. Results are engine- and runtime-dependent. Important unresolved
+conversion. It also has a contract-gated `R10G10B10A2_UNORM` HDR path that
+symmetrically decodes and re-encodes ST.2084 PQ through a controlled FP16
+intermediate; packed R10 without the HDR/unity-exposure contract remains a
+native-SR bypass. The current candidate also admits a shader-loadable 1x1
+exposure-scale texture by sampling its red channel symmetrically on
+the GPU; unsupported exposure contracts remain native-SR bypasses. Results are
+engine- and runtime-dependent. Important unresolved
 areas are documented in [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
-The 2026-09-02 tree is an **early bug-fix candidate**, not a universal release.
-It compiles cleanly in the maintained local toolchain and has received a focused
-P0/P1 source review. Its newest command-list lifetime, RR exclusion, and extent
-resolution changes still require fresh in-game stress testing before a public
-binary release.
+The current tree is the **beta0.4.3 enhanced-chain candidate**, not a universal
+compatibility claim. It compiles cleanly in the maintained local toolchain, all embedded
+shader entries compile, and both language builds pass focused LLVM analysis.
+The prior beta0.3.2 Chinese binary with SHA256 `4E483F...B1AF1` completed fresh Cyberpunk 2077
+RR-off and RR-on runs: the default `NR -> SR` path exceeded 1,800 carrier
+evaluations without a logged lifecycle/device failure, while the RR run exceeded
+1,800 Feature-13 evaluations with zero Feature 18 work. The gameplay-validated
+Chinese r2 binary (`1E717C...7F560`) separately completed an exact-hash Witcher
+gameplay run with native SR, both orders, and a Lighting Match ablation; every
+active interval exceeded 600 frames without a logged lifecycle/device failure.
+beta0.3.3 changes the Feature 18 lifetime when create-time tuning controls are
+committed, adds the packed R10 PQ path described above, and admits a live exact
+`R8G8B8A8_UNORM` render input when unity exposure plus the current Feature 1
+flag or matching current Output prove one bounded value domain. Revision r2
+also uses the broadly supported `cs_5_0` codec target, rebuilds a same-handle
+FP16/R8 contract, and prevents a failed HDR/DLSS Create with a null handle from
+permanently latching RR ownership uncertainty. Failed/null Create attempts no
+longer count as successful SR activity for late-module isolation; a genuinely
+unknown non-null pre-observer handle remains a conservative process-long bypass.
+Late lifecycle detours are published in one queued transaction. Those changes
+require fresh Red Desert, Yanyun, Horizon and
+Witcher-HDR community logs before they become compatibility claims.
+Hogwarts still requires a current-hash visual gate, and the remaining physical
+hotkey/order plus three-preset tests are open. The seven-title 600-frame/20-cycle
+matrix is reserved for RC.
 
 The project should not claim exact visual equivalence between Mode 1 and Mode 2:
 Mode 2 gives the neural model fewer source pixels and then asks the game's SR to
-reconstruct the result. Global lighting drift is considered a correctable color
-contract problem; some local face and texture differences are inherent to the
-different processing order.
+reconstruct the result. Some local face and texture differences are inherent to
+the different processing order. A global shift can come either from a broken
+color contract or from a broad luminance residual produced by the NR model
+itself; beta0.3.3 logs the proxy, neural and composited means separately so those
+causes are not conflated.
 
 ## Contributing and security
 

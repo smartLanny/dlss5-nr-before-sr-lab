@@ -1,0 +1,11 @@
+{
+  "source": "0.4.1地平线6 闪退反馈.zip",
+  "target_executable": "forzahorizon6.exe",
+  "original_missing": [
+    "Application Error event 1000",
+    "Windows Error Reporting event 1001",
+    "matching WER report",
+    "matching existing dump"
+  ],
+  "expected_collection_status": "no-matching-crash-evidence"
+}

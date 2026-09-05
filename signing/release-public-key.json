@@ -1,0 +1,9 @@
+{
+  "schema": "dlss5-release-public-key-v1",
+  "algorithm": "ECDSA-P256-SHA256",
+  "keyId": "62A0F58B9E7F58BE",
+  "owner": "@野生的装机宅 Bilibili",
+  "officialReleaseUrl": "https://space.bilibili.com/941799",
+  "publicKeySha256": "62A0F58B9E7F58BE22EA962729DBA8D5F124E2263F1EC8FFFA82E20D48CB743E",
+  "publicKeySpkiBase64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE9kpPkc3saExOxRh60zW/jQ57Romdz10DNwpY7DqZC/e+Du3RRSopwYLo/RMhaFuD1rI6cZ5dUPcXWMmG4QLbXA=="
+}

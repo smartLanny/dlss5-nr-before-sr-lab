@@ -25,6 +25,12 @@ repository owner privately before filing a public issue. Include only:
 Do not upload vendor DLLs, modified runtimes, game files, model payloads, raw
 process dumps, access tokens, or full unredacted logs.
 
+Official release archives are published only from the Bilibili profile at
+https://space.bilibili.com/941799 and contain an ECDSA-signed release manifest.
+Run the bundled `Verify-ReleaseManifest.ps1` after extraction. The project
+signature detects modified package contents but is not a commercial Windows
+Authenticode certificate and does not establish trust in a third-party runtime.
+
 ## Operational warning
 
 This project hooks graphics calls inside another process. Use it only with

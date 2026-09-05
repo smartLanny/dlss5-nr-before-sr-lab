@@ -1,0 +1,33 @@
+name: Audit beta0.4 r3 invalid model-sample fallback
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/beta0.4-perfect-chain
+      - name: Verify the applied fallback guard
+        run: |
+          python scripts/validate-beta04-structure.py
+          python scripts/test-beta04-math.py
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('src/nr_before_sr.cpp').read_text(encoding='utf-8')
+          required = (
+              'bool ModelNeighborhoodFiniteV2(float2 fullPixelCenter)',
+              'ModelNeighborhoodFiniteV2(center) &&',
+              'return (Passthrough & 1u) != 0u ? stored : SRGBToLinear(stored);',
+          )
+          missing = [marker for marker in required if marker not in text]
+          if missing:
+              raise SystemExit('missing invalid-sample fallback markers: ' + ', '.join(missing))
+          print('V2 raw finite-sample fallback guard is present')
+          PY
+          git diff --check

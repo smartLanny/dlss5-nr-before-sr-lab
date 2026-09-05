@@ -1,0 +1,58 @@
+DLSS 5 AI Rendering Perfect Chain beta0.4.3 Community Beta
+Author: @野生的装机宅 Bilibili
+Official releases: https://space.bilibili.com/941799
+
+First installation
+
+New installations start with final effect strength 1.2, colour follow 0.75, and the model HUD/text-protection parameter enabled. The slider is the actual request with no hidden multiplier. Explicit existing settings, including zero, are preserved; effective colour follow remains zero for unknown HDR inputs.
+
+Choose the full package for your GPU. The game needs D3D12, native DLSS Super Resolution, and ReShade / RHI with addon support. Use it only in offline environments that allow these addons and have no anti-cheat.
+
+Exit the game completely. Extract all nine files into the directory where ReShade loads addons. This is usually beside the game's actual 64-bit executable and the ReShade DLL. If you configured a custom addon directory, use that directory.
+
+The nine files are:
+One addon file ending in .addon64
+nrchain_nvngx.dll
+nvngx_dlssnr.dll
+nr_before_sr.ini
+Collect-Feedback.cmd
+collect-feedback.ps1
+Collect-Crash-Feedback.cmd
+collect-crash-feedback.ps1
+Instructions.txt
+
+Keep these files together. Remove old, HD2 experiment, or other-language copies of this addon. If `renodx-dlss5.addon64` is present, move it outside the game directory too; it is another NR owner and cannot coexist with this addon. Fully restart the game and check for beta0.4.3 in the ReShade addon panel.
+
+If you already have a working full installation, you can use the small update package and keep the existing large runtime DLL, bridge DLL and settings file. Follow the instructions in that update package. It cannot be used for a first installation.
+
+Using and comparing the effect
+
+Start with the defaults. F6 turns this addon on or off. With it off, you can compare against the game's original DLSS Super Resolution output.
+
+Keep the camera in the same position and change only one setting at a time. Use F8 first for ordinary runtime problems; use F7 only when image evidence is needed.
+
+Press F8 first when something looks wrong
+
+Press F8 or use the core-feedback control. F8 takes no screenshot, performs no texture readback, does not wait for a successful NR frame, and never changes picture settings for collection. The core ZIP has a hard 8 MiB limit and records known logs, build/configuration identity and runtime state. Missing or scan-limited inputs are reported explicitly as partial / missing reason.
+
+Use F7 when image evidence is required. F7 first creates a session-associated core package and then runs the heavier image/stage capture. The two packages can verify session, source commit and measured addon SHA256 identity, but a verified pair does not mean both captures came from the same frame.
+
+Feedback ZIPs normally appear in Documents/DLSS5-Feedback, in a separate folder for each capture. If that directory cannot be created, collection tries the system temporary directory. Use the actual path shown in the panel, or click its copy-path button.
+
+If the game will not start
+
+For a startup problem without a crash record, double-click Collect-Feedback.cmd. It collects logs, settings and version information without collecting dumps.
+
+For a crash report, double-click Collect-Crash-Feedback.cmd after the crash. Keep both collect-*.ps1 files beside it. It derives one unique absolute game EXE path from the newest ReShade.log, then collects only Windows event 1000/1001 summaries and existing WER reports or dumps from the last 72 hours that pass its identity rules. A record containing AppPath must match the current game path. Standalone CrashDumps do not contain their source path, so they can only be filtered by exact EXE basename and time; the package records this limitation. The tool does not enable dumps, modify the registry or upload. A dump can contain process memory and local paths, so decide whether to share it. Both tools need no administrator privileges and write under Documents/DLSS5-Feedback.
+
+Send the ZIP with the game name, GPU model, HDR or SDR setting, what went wrong and what you expected. Files stay on your computer until you share them. The collector does not upload automatically or switch image settings. Logs and screenshots may include installation paths and visible overlays.
+
+What changed in this version
+
+This build fixes a Cyberpunk 2077 case where typed four-channel half-float motion vectors made the default NR-quality path safely bypass and appear inactive. It reads only the XY motion components of this explicit format; unknown formats still bypass. A short local run confirmed continuous NR submission, which does not by itself validate picture quality.
+
+The stable build no longer forces NR insertion while the command list has a null PSO, reducing the regression surface behind the reported Forza Horizon crash. The submitted bundle had no crash dump, so game confirmation is still required. The model UI-correction parameter now uses the unsigned type actually read by the runtime. It can help text only when a game supplies a separate UI layer and cannot discover subtitles already baked into the picture.
+
+This version fixes a case where an unset game rendering state incorrectly prevented the addon from running. It also fixes invalid exposure-value handling and shows the currently effective value and restriction reason for options such as Colour Follow.
+
+These changes do not mean every game is fixed. Weak effects, Spider-Man faces and HDR, Wuthering Waves colour and exposure, and Dragon's Dogma 2 crashes still need reports from this version. If a slider seems ineffective, collect both settings from the same camera position. A setting marked as applied does not guarantee a large visible change.

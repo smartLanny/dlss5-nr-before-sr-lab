@@ -1,14 +1,15 @@
 # Source snapshot
 
 This staging tree was prepared from the locally reviewed source snapshot on
-2026-09-02. Hashes are SHA-256 and identify the files that should be compared
+2026-09-04. Hashes are SHA-256 and identify the files that should be compared
 before a private-repository push:
 
 | File | SHA-256 |
 | --- | --- |
-| `src/nr_before_sr.cpp` | `8B81DBBEE268AFB73201A8A602942A93A5E363CDDDD1883AA83D080F4F996F39` |
+| `src/nr_before_sr.cpp` | `106EAA45E66AB6D98ECE85A7C6443B7B7126B7B9ADED0307E150ACE1A63B54F6` |
 | `src/nrchain_nvngx.cpp` | `DD522FAAE5F24EE888792FA806BC438F1063F80F0A62EF54A0F50F40B3216049` |
-| `config/nr_before_sr.ini` | `3A37308FDAC26363947DF611C814538979494632335C7A7092D0FE67FD1D1910` |
+| `config/nr_before_sr.ini` | `39CB6D4CD0D91B640E17ADF4EAF6BC16C79B2F699E090F572AE804E2C80A7F59` |
+| `scripts/validate-codec-shader.ps1` | `4567508FBB9204CC7BE010D87910F1BD2679563AAE6193829F7E0D21748CBF76` |
 
 The repository intentionally omits compiled add-ons, runtime DLLs, vendor SDK
 files, model payloads, game files, screenshots, crash dumps, and raw logs. The

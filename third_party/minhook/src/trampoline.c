@@ -162,8 +162,21 @@ BOOL CreateTrampolineFunction(PTRAMPOLINE ct)
 
             // Relative address is stored at (instruction length - immediate value length - 4).
             pRelAddr = (PUINT32)(instBuf + hs.len - ((hs.flags & 0x3C) >> 2) - 4);
-            *pRelAddr
-                = (UINT32)((pOldInst + hs.len + (INT32)hs.disp.disp32) - (pNewInst + hs.len));
+            // A wider relay search can place the trampoline farther from a
+            // RIP-relative data target than signed rel32 can represent. Never
+            // truncate that displacement: reject this candidate/function so
+            // MH_CreateHook fails closed instead of producing a trampoline
+            // that reads or jumps to the wrong address.
+            {
+                const LONGLONG absoluteAddress = (LONGLONG)(
+                    pOldInst + hs.len + (INT32)hs.disp.disp32);
+                const LONGLONG relocatedRip = (LONGLONG)(pNewInst + hs.len);
+                const LONGLONG displacement = absoluteAddress - relocatedRip;
+                if (displacement < (-2147483647LL - 1) ||
+                    displacement > 2147483647LL)
+                    return FALSE;
+                *pRelAddr = (UINT32)(INT32)displacement;
+            }
 
             // Complete the function if JMP (FF /4).
             if (hs.opcode == 0xFF && hs.modrm_reg == 4)

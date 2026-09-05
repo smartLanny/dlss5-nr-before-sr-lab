@@ -1,0 +1,19 @@
+name: Audit beta0.4 DRS result-surface safety
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify DRS result-surface lifetime and rebind contract
+        run: |
+          python scripts/validate-beta04-structure.py
+          python scripts/validate-beta04-result-resize.py
+          python scripts/test-beta04-math.py
+          git diff --check

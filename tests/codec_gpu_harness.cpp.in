@@ -1,0 +1,709 @@
+// Real D3D12 execution of the source-extracted production HLSL. No model/runtime
+// binary is used. WARP is preferred; installed hardware is a fallback only.
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <d3d12.h>
+#include <d3d12sdklayers.h>
+#include <d3dcompiler.h>
+#include <d3d11shader.h>
+#include <dxgi1_4.h>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iterator>
+#include <limits>
+#include <stdexcept>
+#include <vector>
+
+// @PRODUCTION_DESCRIPTOR_CONSTANTS@
+// @PRODUCTION_SHADER@
+// @PRODUCTION_CONSTANTS@
+
+void Require(bool value, const char *message) {
+    if (!value) throw std::runtime_error(message);
+}
+void Check(HRESULT result, const char *message) {
+    if (FAILED(result)) {
+        std::fprintf(stderr, "%s: 0x%08lx\n", message,
+                     static_cast<unsigned long>(result));
+        throw std::runtime_error(message);
+    }
+}
+template<class T> struct Com {
+    T *p = nullptr;
+    Com() = default;
+    ~Com() { if (p != nullptr) p->Release(); }
+    Com(const Com &) = delete;
+    Com &operator=(const Com &) = delete;
+    Com(Com &&other) noexcept : p(other.p) { other.p = nullptr; }
+    Com &operator=(Com &&other) noexcept {
+        if (p != nullptr) p->Release();
+        p = other.p;
+        other.p = nullptr;
+        return *this;
+    }
+    T *operator->() const { return p; }
+    void **address() { return reinterpret_cast<void **>(&p); }
+};
+struct Float4 { float x, y, z, w; };
+static_assert(sizeof(Float4) == 16);
+static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * 4);
+static_assert(kCodecCaptureUavIndex == kCodecSrvCount + 4);
+static_assert(kCodecDescriptorCount == kCodecCaptureUavIndex + 1);
+
+struct Texture {
+    Com<ID3D12Resource> resource;
+    Com<ID3D12Resource> upload;
+    Com<ID3D12Resource> readback;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+    D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COPY_DEST;
+    unsigned int width = 0, height = 0;
+};
+
+struct Gpu {
+    Com<ID3D12Device> device;
+    Com<ID3D12InfoQueue> messages;
+    Com<ID3D12CommandQueue> queue;
+    Com<ID3D12CommandAllocator> allocator;
+    Com<ID3D12GraphicsCommandList> list;
+    Com<ID3D12Fence> fence;
+    Com<ID3D12RootSignature> root;
+    Com<ID3D12PipelineState> pipeline;
+    Com<ID3D12PipelineState> v2_pipeline;
+    Com<ID3D12DescriptorHeap> heap;
+    UINT increment = 0;
+    UINT64 submitted = 0;
+    HANDLE completion = nullptr;
+
+    Gpu() {
+        Com<ID3D12Debug> debug;
+        if (SUCCEEDED(D3D12GetDebugInterface(IID_ID3D12Debug, debug.address())))
+            debug->EnableDebugLayer();
+        Com<IDXGIFactory4> factory;
+        Check(CreateDXGIFactory1(IID_IDXGIFactory4, factory.address()), "DXGI factory");
+        Com<IDXGIAdapter1> warp;
+        HRESULT result = factory->EnumWarpAdapter(IID_IDXGIAdapter1, warp.address());
+        if (SUCCEEDED(result))
+            result = D3D12CreateDevice(warp.p, D3D_FEATURE_LEVEL_11_0,
+                                      IID_ID3D12Device, device.address());
+        if (SUCCEEDED(result)) {
+            std::puts("GPU codec validation adapter: D3D12 WARP");
+        } else {
+            for (UINT index = 0; device.p == nullptr; ++index) {
+                Com<IDXGIAdapter1> adapter;
+                if (factory->EnumAdapters1(index, &adapter.p) == DXGI_ERROR_NOT_FOUND)
+                    break;
+                DXGI_ADAPTER_DESC1 description{};
+                Check(adapter->GetDesc1(&description), "Adapter description");
+                if ((description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0) continue;
+                result = D3D12CreateDevice(adapter.p, D3D_FEATURE_LEVEL_11_0,
+                                          IID_ID3D12Device, device.address());
+                if (SUCCEEDED(result))
+                    std::printf("GPU codec validation adapter: installed hardware %ls\n",
+                                description.Description);
+            }
+            Require(device.p != nullptr, "No usable D3D12 WARP or installed adapter");
+        }
+        device->QueryInterface(IID_ID3D12InfoQueue, messages.address());
+        D3D12_COMMAND_QUEUE_DESC queue_desc{};
+        queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        Check(device->CreateCommandQueue(&queue_desc, IID_ID3D12CommandQueue,
+              queue.address()), "Create queue");
+        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+              IID_ID3D12CommandAllocator, allocator.address()), "Create allocator");
+        Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+              allocator.p, nullptr, IID_ID3D12GraphicsCommandList,
+              list.address()), "Create list");
+        Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_ID3D12Fence,
+              fence.address()), "Create fence");
+        completion = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        Require(completion != nullptr, "Fence event");
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
+        heap_desc.NumDescriptors = kCodecDescriptorCount;
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        Check(device->CreateDescriptorHeap(&heap_desc, IID_ID3D12DescriptorHeap,
+              heap.address()), "Create descriptor heap");
+        increment = device->GetDescriptorHandleIncrementSize(heap_desc.Type);
+
+        Com<ID3DBlob> shader, errors;
+        result = D3DCompile(kCodecShader, sizeof(kCodecShader) - 1,
+            "production-codec", nullptr, nullptr, "CombineCS", "cs_5_0",
+            D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &shader.p, &errors.p);
+        if (FAILED(result) && errors.p != nullptr)
+            std::fprintf(stderr, "%s\n", static_cast<const char *>(errors->GetBufferPointer()));
+        Check(result, "Compile production CombineCS");
+        Com<ID3D11ShaderReflection> reflection;
+        Check(D3DReflect(shader->GetBufferPointer(), shader->GetBufferSize(),
+              IID_ID3D11ShaderReflection, reflection.address()), "Reflect shader");
+        D3D11_SHADER_INPUT_BIND_DESC binding{};
+        Check(reflection->GetResourceBindingDescByName("StageCapture", &binding),
+              "Reflect StageCapture");
+        Require(binding.Type == D3D_SIT_UAV_RWBYTEADDRESS && binding.BindPoint == 4,
+                "Capture UAV register/type mismatch");
+        D3D11_SHADER_VARIABLE_DESC capture_field{};
+        Check(reflection->GetConstantBufferByName("Constants")
+              ->GetVariableByName("CaptureStride")->GetDesc(&capture_field),
+              "Reflect CaptureStride");
+        Require(capture_field.StartOffset == offsetof(CodecConstants, capture_stride),
+                "CPU/HLSL capture stride offset mismatch");
+
+        D3D12_DESCRIPTOR_RANGE ranges[2]{};
+        ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        ranges[0].NumDescriptors = kCodecSrvCount;
+        ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        ranges[1].NumDescriptors = kCodecUavCount;
+        ranges[1].OffsetInDescriptorsFromTableStart = kCodecSrvCount;
+        D3D12_ROOT_PARAMETER parameters[2]{};
+        parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameters[0].DescriptorTable = {2, ranges};
+        parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameters[1].Constants = {0, 0, kCodecRootConstantCount};
+        D3D12_ROOT_SIGNATURE_DESC root_desc{};
+        root_desc.NumParameters = 2;
+        root_desc.pParameters = parameters;
+        Com<ID3DBlob> serialized;
+        Check(D3D12SerializeRootSignature(&root_desc, D3D_ROOT_SIGNATURE_VERSION_1,
+              &serialized.p, nullptr), "Serialize root");
+        Check(device->CreateRootSignature(0, serialized->GetBufferPointer(),
+              serialized->GetBufferSize(), IID_ID3D12RootSignature, root.address()),
+              "Create root");
+        D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_desc{};
+        pipeline_desc.pRootSignature = root.p;
+        pipeline_desc.CS = {shader->GetBufferPointer(), shader->GetBufferSize()};
+        Check(device->CreateComputePipelineState(&pipeline_desc,
+              IID_ID3D12PipelineState, pipeline.address()), "Create compute pipeline");
+
+        Com<ID3DBlob> v2_shader, v2_errors;
+        result = D3DCompile(kCodecShader, sizeof(kCodecShader) - 1,
+            "production-codec-v2", nullptr, nullptr, "CombineV2CS", "cs_5_0",
+            D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &v2_shader.p, &v2_errors.p);
+        if (FAILED(result) && v2_errors.p != nullptr)
+            std::fprintf(stderr, "%s\n",
+                static_cast<const char *>(v2_errors->GetBufferPointer()));
+        Check(result, "Compile production CombineV2CS");
+        pipeline_desc.CS = {v2_shader->GetBufferPointer(),
+                            v2_shader->GetBufferSize()};
+        Check(device->CreateComputePipelineState(&pipeline_desc,
+              IID_ID3D12PipelineState, v2_pipeline.address()),
+              "Create V2 compute pipeline");
+    }
+    ~Gpu() { if (completion != nullptr) CloseHandle(completion); }
+    D3D12_CPU_DESCRIPTOR_HANDLE Cpu(UINT index) const {
+        auto handle = heap->GetCPUDescriptorHandleForHeapStart();
+        handle.ptr += static_cast<SIZE_T>(index) * increment;
+        return handle;
+    }
+    Com<ID3D12Resource> Buffer(UINT64 bytes, D3D12_HEAP_TYPE type,
+                               D3D12_RESOURCE_FLAGS flags,
+                               D3D12_RESOURCE_STATES state) {
+        D3D12_HEAP_PROPERTIES properties{};
+        properties.Type = type;
+        properties.CreationNodeMask = properties.VisibleNodeMask = 1;
+        D3D12_RESOURCE_DESC desc{};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        desc.Width = bytes;
+        desc.Height = desc.DepthOrArraySize = desc.MipLevels = 1;
+        desc.SampleDesc.Count = 1;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        desc.Flags = flags;
+        Com<ID3D12Resource> resource;
+        Check(device->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE,
+              &desc, state, nullptr, IID_ID3D12Resource, resource.address()),
+              "Create buffer");
+        return resource;
+    }
+    void Barrier(ID3D12Resource *resource, D3D12_RESOURCE_STATES before,
+                  D3D12_RESOURCE_STATES after) {
+        if (before == after) return;
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition = {resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                              before, after};
+        list->ResourceBarrier(1, &barrier);
+    }
+    Texture MakeTexture(UINT width, UINT height, const std::vector<Float4> &pixels) {
+        Texture texture;
+        texture.width = width; texture.height = height;
+        D3D12_HEAP_PROPERTIES properties{};
+        properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+        properties.CreationNodeMask = properties.VisibleNodeMask = 1;
+        D3D12_RESOURCE_DESC desc{};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width = width; desc.Height = height;
+        desc.DepthOrArraySize = desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        desc.SampleDesc.Count = 1;
+        desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        Check(device->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE,
+              &desc, texture.state, nullptr, IID_ID3D12Resource,
+              texture.resource.address()), "Create texture");
+        UINT64 bytes = 0;
+        device->GetCopyableFootprints(&desc, 0, 1, 0, &texture.footprint,
+                                      nullptr, nullptr, &bytes);
+        texture.upload = Buffer(bytes, D3D12_HEAP_TYPE_UPLOAD,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
+        texture.readback = Buffer(bytes, D3D12_HEAP_TYPE_READBACK,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+        void *mapped = nullptr;
+        D3D12_RANGE no_read{0, 0};
+        Check(texture.upload->Map(0, &no_read, &mapped), "Map texture upload");
+        for (UINT y = 0; y < height; ++y)
+            std::memcpy(static_cast<std::uint8_t *>(mapped) +
+                texture.footprint.Offset + y * texture.footprint.Footprint.RowPitch,
+                pixels.data() + y * width, width * sizeof(Float4));
+        texture.upload->Unmap(0, nullptr);
+        D3D12_TEXTURE_COPY_LOCATION destination{};
+        destination.pResource = texture.resource.p;
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_TEXTURE_COPY_LOCATION source{};
+        source.pResource = texture.upload.p;
+        source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        source.PlacedFootprint = texture.footprint;
+        list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+        return texture;
+    }
+    void TextureState(Texture &texture, D3D12_RESOURCE_STATES state) {
+        Barrier(texture.resource.p, texture.state, state);
+        texture.state = state;
+    }
+    void Srv(UINT index, ID3D12Resource *resource) {
+        D3D12_SHADER_RESOURCE_VIEW_DESC view{};
+        view.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+        view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        view.Texture2D.MipLevels = 1;
+        device->CreateShaderResourceView(resource, &view, Cpu(index));
+    }
+    void UavTexture(UINT index, ID3D12Resource *resource, DXGI_FORMAT format) {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC view{};
+        view.Format = format;
+        view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(resource, nullptr, &view, Cpu(index));
+    }
+    void UavBuffer(UINT index, ID3D12Resource *resource, UINT64 bytes) {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC view{};
+        view.Format = DXGI_FORMAT_R32_TYPELESS;
+        view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        view.Buffer.NumElements = resource != nullptr ? static_cast<UINT>(bytes / 4) : 4;
+        view.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+        device->CreateUnorderedAccessView(resource, nullptr, &view, Cpu(index));
+    }
+    void ReadTexture(Texture &texture) {
+        TextureState(texture, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_TEXTURE_COPY_LOCATION destination{};
+        destination.pResource = texture.readback.p;
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        destination.PlacedFootprint = texture.footprint;
+        D3D12_TEXTURE_COPY_LOCATION source{};
+        source.pResource = texture.resource.p;
+        source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+    }
+    std::vector<Float4> TexturePixels(Texture &texture) {
+        std::vector<Float4> pixels(texture.width * texture.height);
+        void *mapped = nullptr;
+        Check(texture.readback->Map(0, nullptr, &mapped), "Map result");
+        for (UINT y = 0; y < texture.height; ++y)
+            std::memcpy(pixels.data() + y * texture.width,
+                static_cast<std::uint8_t *>(mapped) + texture.footprint.Offset +
+                y * texture.footprint.Footprint.RowPitch, texture.width * sizeof(Float4));
+        const D3D12_RANGE no_write{0, 0};
+        texture.readback->Unmap(0, &no_write);
+        return pixels;
+    }
+    void Execute() {
+        Check(list->Close(), "Close command list");
+        ID3D12CommandList *lists[] = {list.p};
+        queue->ExecuteCommandLists(1, lists);
+        Check(queue->Signal(fence.p, ++submitted), "Signal queue");
+        Check(fence->SetEventOnCompletion(submitted, completion), "Fence wait event");
+        Require(WaitForSingleObject(completion, 30000) == WAIT_OBJECT_0,
+                "GPU completion timed out");
+        Check(device->GetDeviceRemovedReason(), "D3D12 device removed");
+        if (messages.p != nullptr) {
+            for (UINT64 i = 0; i < messages->GetNumStoredMessages(); ++i) {
+                SIZE_T bytes = 0;
+                messages->GetMessage(i, nullptr, &bytes);
+                std::vector<std::uint8_t> storage(bytes);
+                auto *message = reinterpret_cast<D3D12_MESSAGE *>(storage.data());
+                Check(messages->GetMessage(i, message, &bytes), "Debug message");
+                if (message->Severity <= D3D12_MESSAGE_SEVERITY_ERROR) {
+                    std::fprintf(stderr, "D3D12 validation: %s\n", message->pDescription);
+                    throw std::runtime_error("D3D12 debug layer error");
+                }
+            }
+            messages->ClearStoredMessages();
+        }
+        Check(allocator->Reset(), "Reset allocator");
+        Check(list->Reset(allocator.p, nullptr), "Reset list");
+    }
+};
+
+// @PRODUCTION_DESCRIPTOR_TESTS@
+
+struct RunResult {
+    std::vector<Float4> output;
+    std::vector<std::uint32_t> capture;
+};
+
+struct ExposureCase {
+    float texture = 1.0f;
+    float pre_exposure = 1.0f;
+    float source_to_canonical = 1.0f;
+    Float4 expected_trailer{1.0f, 1.0f, 1.0f, 1.0f};
+};
+
+struct CaptureRoi { UINT x=0, y=0, width=0, height=0; };
+
+RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
+              UINT requested_stride, UINT flags, int variant,
+              bool v2 = false, UINT requested_model_width = 0,
+              UINT requested_model_height = 0,
+              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f) {
+    constexpr UINT sx = 3, sy = 2, dx = 2, dy = 1;
+    const UINT model_width = requested_model_width != 0
+        ? requested_model_width : width;
+    const UINT model_height = requested_model_height != 0
+        ? requested_model_height : height;
+    const UINT source_width = width + sx + 2, source_height = height + sy + 2;
+    const UINT output_width = width + dx + 2, output_height = height + dy + 2;
+    const Float4 sentinel{-123.0f, -123.0f, -123.0f, -123.0f};
+    std::vector<Float4> original(source_width * source_height);
+    std::vector<Float4> proxy(model_width * model_height),
+                        neural(model_width * model_height);
+    std::vector<Float4> destination(output_width * output_height, sentinel);
+    for (UINT y = 0; y < source_height; ++y)
+        for (UINT x = 0; x < source_width; ++x)
+            original[y * source_width + x] = {0.25f + (x % 7) * 0.03125f,
+                0.375f + (y % 5) * 0.03125f, 0.5f, 0.625f};
+    for (UINT y = 0; y < model_height; ++y)
+        for (UINT x = 0; x < model_width; ++x) {
+            proxy[y * model_width + x] = {0.25f, 0.375f, 0.5f, 0.75f};
+            neural[y * model_width + x] = variant == 1
+                ? proxy[y * model_width + x]
+                : Float4{0.3f, 0.45f, 0.6f, 0.875f};
+        }
+    if (variant == 6 || variant == 7) {
+        for (UINT y = 0; y < model_height; ++y) for (UINT x = 0; x < model_width; ++x) {
+            const float gain = variant == 7 ? 1.15f : (((x+y)&1u) ? 1.5f : 0.65f);
+            const auto &p = proxy[y*model_width+x];
+            neural[y*model_width+x] = {p.x*gain,p.y*gain,p.z*gain,1.0f};
+        }
+    }
+    if (variant == 3) neural[0].x = std::numeric_limits<float>::quiet_NaN();
+    auto source_texture = gpu.MakeTexture(source_width, source_height, original);
+    auto proxy_texture = gpu.MakeTexture(model_width, model_height, proxy);
+    auto neural_texture = gpu.MakeTexture(model_width, model_height, neural);
+    auto output_texture = gpu.MakeTexture(output_width, output_height, destination);
+    auto exposure_texture = gpu.MakeTexture(1, 1,
+        {Float4{exposure_case.texture, -7.0f, 91.0f, 0.125f}});
+    gpu.TextureState(source_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    gpu.TextureState(proxy_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    gpu.TextureState(neural_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    gpu.TextureState(output_texture, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    gpu.TextureState(exposure_texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    const UINT capture_width = roi.width ? std::min(roi.width, width - roi.x) : (width + requested_stride - 1) / requested_stride;
+    const UINT capture_height = roi.height ? std::min(roi.height, height - roi.y) : (height + requested_stride - 1) / requested_stride;
+    const UINT plane_count=(flags & 512u)?5u:4u;
+    const UINT64 stage_bytes = static_cast<UINT64>(capture_width) * capture_height * plane_count * 16 + 16;
+    const UINT64 allocation_bytes = stage_bytes + 64; // Tail sentinel outside the UAV.
+    auto capture = gpu.Buffer(allocation_bytes, D3D12_HEAP_TYPE_DEFAULT,
+        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST);
+    auto capture_upload = gpu.Buffer(allocation_bytes, D3D12_HEAP_TYPE_UPLOAD,
+        D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
+    auto capture_readback = gpu.Buffer(allocation_bytes, D3D12_HEAP_TYPE_READBACK,
+        D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+    void *mapped = nullptr;
+    Check(capture_upload->Map(0, nullptr, &mapped), "Map capture initial values");
+    std::fill_n(static_cast<std::uint32_t *>(mapped), allocation_bytes / 4, 0xcdcdcdcdu);
+    capture_upload->Unmap(0, nullptr);
+    gpu.list->CopyBufferRegion(capture.p, 0, capture_upload.p, 0, allocation_bytes);
+    gpu.Barrier(capture.p, D3D12_RESOURCE_STATE_COPY_DEST,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    gpu.Srv(0, source_texture.resource.p);
+    gpu.Srv(1, proxy_texture.resource.p);
+    gpu.Srv(2, neural_texture.resource.p);
+    gpu.Srv(3, nullptr);
+    gpu.Srv(kCodecExposureSrvIndex, (flags & 64u) ? exposure_texture.resource.p : nullptr);
+    gpu.UavTexture(kCodecSrvCount, nullptr, DXGI_FORMAT_R32G32B32A32_FLOAT);
+    gpu.UavTexture(kCodecResultUavIndex, output_texture.resource.p,
+                   DXGI_FORMAT_R32G32B32A32_FLOAT);
+    gpu.UavTexture(kCodecMotionUavIndex, nullptr, DXGI_FORMAT_R32G32_FLOAT);
+    gpu.UavBuffer(kCodecStatsUavIndex, nullptr, 0);
+    gpu.UavBuffer(kCodecCaptureUavIndex, stride == 0 ? nullptr : capture.p, stage_bytes);
+    const float transfer_strength = requested_strength >= 0.f ? requested_strength : variant == 2 ? 0.0f
+        : (variant == 5 ? 8.0f : 0.8f);
+    const float color_strength = variant == 5 ? 2.0f : 0.25f;
+    const float max_luma_ratio = variant == 5 ? 16.0f : 2.0f;
+    const float frame_confidence = variant == 4 ? 0.0f : 1.0f;
+    const CodecConstants constants = {width, height, 1.0f,
+        transfer_strength, exposure_case.source_to_canonical, color_strength, max_luma_ratio, flags,
+        sx, sy, dx, dy, 0, 0, 0, 0, exposure_case.pre_exposure, stride,
+        width, height, model_width, model_height,
+        0.0f, 0.0f, 1u, frame_confidence, detail_stability, roi.x, roi.y, roi.width, roi.height};
+    ID3D12DescriptorHeap *heaps[] = {gpu.heap.p};
+    gpu.list->SetDescriptorHeaps(1, heaps);
+    gpu.list->SetComputeRootSignature(gpu.root.p);
+    gpu.list->SetComputeRootDescriptorTable(0, gpu.heap->GetGPUDescriptorHandleForHeapStart());
+    gpu.list->SetComputeRoot32BitConstants(1, kCodecRootConstantCount, &constants, 0);
+    gpu.list->SetPipelineState(v2 ? gpu.v2_pipeline.p : gpu.pipeline.p);
+    gpu.list->Dispatch((width + 7) / 8, (height + 7) / 8, 1);
+    gpu.Barrier(capture.p, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_COPY_SOURCE);
+    gpu.list->CopyBufferRegion(capture_readback.p, 0, capture.p, 0, allocation_bytes);
+    gpu.ReadTexture(output_texture);
+    gpu.Execute();
+    RunResult result;
+    result.output = gpu.TexturePixels(output_texture);
+    Check(capture_readback->Map(0, nullptr, &mapped), "Map capture values");
+    result.capture.resize(allocation_bytes / 4);
+    std::memcpy(result.capture.data(), mapped, allocation_bytes);
+    D3D12_RANGE no_write{0, 0};
+    capture_readback->Unmap(0, &no_write);
+    for (UINT y = 0; y < output_height; ++y)
+        for (UINT x = 0; x < output_width; ++x) {
+            const Float4 &actual = result.output[y * output_width + x];
+            const bool active = x >= dx && x < dx + width && y >= dy && y < dy + height;
+            if (!active) Require(std::memcmp(&actual, &sentinel, 16) == 0,
+                                  "Dispatch wrote outside destination subrect");
+            else {
+                const Float4 &expected = original[(y - dy + sy) * source_width + x - dx + sx];
+                Require(std::isfinite(actual.x) && std::isfinite(actual.y) &&
+                        std::isfinite(actual.z) && actual.w == expected.w,
+                        "Output is non-finite or alpha changed");
+                if (variant == 1 || variant == 2 || variant == 4 ||
+                    (variant == 3 && x == dx && y == dy)) {
+                    if (std::memcmp(&actual, &expected, 16) != 0) {
+                        std::fprintf(stderr,
+                            "fallback mismatch v2=%d variant=%d flags=%u frame=%ux%u model=%ux%u pixel=%u,%u actual=(%.9g,%.9g,%.9g,%.9g) expected=(%.9g,%.9g,%.9g,%.9g)\n",
+                            v2 ? 1 : 0, variant, flags, width, height,
+                            model_width, model_height, x - dx, y - dy,
+                            actual.x, actual.y, actual.z, actual.w,
+                            expected.x, expected.y, expected.z, expected.w);
+                        throw std::runtime_error(
+                            "Identity, zero-strength, reset suppression or invalid-neural fallback changed source");
+                    }
+                }
+                if (v2 && variant == 5)
+                    Require(actual.x >= 0.0f && actual.x <= 1.0f &&
+                            actual.y >= 0.0f && actual.y <= 1.0f &&
+                            actual.z >= 0.0f && actual.z <= 1.0f,
+                            "8x V2 colour escaped the bounded SDR cube");
+            }
+        }
+    const UINT64 plane_words = (stage_bytes - 16) / 4 / plane_count;
+    if (stride != 0) {
+        float gpu_exposure[4] = {};
+        std::memcpy(gpu_exposure, result.capture.data() + (stage_bytes - 16) / 4, 16);
+        const float expected_exposure[] = {
+            exposure_case.expected_trailer.x, exposure_case.expected_trailer.y,
+            exposure_case.expected_trailer.z, exposure_case.expected_trailer.w};
+        for (unsigned int i = 0; i < 4; ++i) {
+            const bool equal = std::isnan(expected_exposure[i]) ? std::isnan(gpu_exposure[i]) :
+                gpu_exposure[i] == expected_exposure[i];
+            if (!equal) std::fprintf(stderr,
+                "Exposure flags=%u variant=%d channel=%u texture=%.9g pre=%.9g scalar=%.9g actual=%.9g expected=%.9g\n",
+                flags, variant, i, exposure_case.texture, exposure_case.pre_exposure,
+                exposure_case.source_to_canonical, gpu_exposure[i], expected_exposure[i]);
+            Require(equal,
+                "Exposure trailer raw/resolved/canonical/pre fields differ from fixed metadata expectations");
+        }
+        for (UINT y = 0; y < capture_height; ++y)
+            for (UINT x = 0; x < capture_width; ++x) {
+                const UINT source_x = roi.width ? roi.x+x : x*stride;
+                const UINT source_y = roi.height ? roi.y+y : y*stride;
+                const UINT model_index =
+                    model_width == width && model_height == height
+                        ? source_y * model_width + source_x : 0;
+                Float4 expected_proxy = proxy[model_index];
+        Float4 expected_neural = neural[model_index];
+        // V2 model planes are deliberately opaque. Original and
+        // composited planes still preserve the game's alpha.
+        if (v2) {
+            expected_proxy.w = 1.0f;
+            expected_neural.w = 1.0f;
+        }
+                const Float4 *expected[] = {
+                    &original[(source_y + sy) * source_width + source_x + sx],
+                    &expected_proxy,
+                    &expected_neural,
+                    &result.output[(source_y + dy) * output_width + source_x + dx]};
+                for (UINT stage = 0; stage < 4; ++stage) {
+                    const auto *words = result.capture.data() + stage * plane_words + (y*capture_width+x)*4;
+                    if (v2 && (flags & 1u) == 0 && (stage == 1 || stage == 2)) {
+                        // V2 interpolates in linear space then encodes again; source/output remain exact.
+                        Float4 actual{}; std::memcpy(&actual, words, sizeof(actual));
+                        Require(std::abs(actual.x-expected[stage]->x)<0.000002f &&
+                                std::abs(actual.y-expected[stage]->y)<0.000002f &&
+                                std::abs(actual.z-expected[stage]->z)<0.000002f && actual.w==1.0f,
+                                "V2 encoded sample differs beyond shader sRGB round-trip precision");
+                    } else Require(std::memcmp(words, expected[stage], 16)==0,
+                        "Captured plane/grid/raw float4 differs from source or GPU output");
+                }
+            }
+    }
+    for (UINT64 i = stride == 0 ? 0 : stage_bytes / 4; i < allocation_bytes / 4; ++i)
+        Require(result.capture[i] == 0xcdcdcdcdu,
+                "Capture disabled buffer or tail sentinel was modified");
+    return result;
+}
+
+int main() {
+    try {
+        Gpu gpu;
+        ValidateProductionDescriptors(gpu);
+        ValidateMotionResampleFormats(gpu);
+        unsigned int scenarios = 0;
+        for (UINT flags : {0u, 1u, 16u, 32u, 128u, 256u, 384u}) {
+            for (int variant = 0; variant < 4; ++variant) {
+                const auto off = Run(gpu, 13, 9, 0, 2, flags, variant);
+                const auto on = Run(gpu, 13, 9, 2, 2, flags, variant);
+                Require(off.output.size() == on.output.size() &&
+                    std::memcmp(off.output.data(), on.output.data(),
+                        off.output.size() * sizeof(Float4)) == 0,
+                    "Enabling stage capture changes composited output");
+                ++scenarios;
+            }
+        }
+        for (int variant : {0, 1, 2, 4, 5}) {
+            const auto off = Run(gpu, 13, 9, 0, 2, 1, variant, true);
+            const auto on = Run(gpu, 13, 9, 2, 2, 1, variant, true);
+            Require(off.output.size() == on.output.size() &&
+                std::memcmp(off.output.data(), on.output.data(),
+                    off.output.size() * sizeof(Float4)) == 0,
+                "V2 stage capture changes composited output");
+            ++scenarios;
+        }
+        Run(gpu, 13, 9, 0, 2, 1, 3, true);
+        ++scenarios;
+        for (int variant : {0, 1, 2, 4, 5}) {
+            const auto off = Run(gpu, 35, 17, 0, 4, 1, variant,
+                                 true, 18, 9);
+            const auto on = Run(gpu, 35, 17, 4, 4, 1, variant,
+                                true, 18, 9);
+            Require(off.output.size() == on.output.size() &&
+                std::memcmp(off.output.data(), on.output.data(),
+                    off.output.size() * sizeof(Float4)) == 0,
+                "Scaled V2 stage capture changes composited output");
+            ++scenarios;
+        }
+        for (UINT stride : {1u, 4u, 8u}) {
+            const auto off = Run(gpu, 35, 17, 0, stride, 1, 0);
+            const auto on = Run(gpu, 35, 17, stride, stride, 1, 0);
+            Require(std::memcmp(off.output.data(), on.output.data(),
+                off.output.size() * sizeof(Float4)) == 0, "Stride changed output");
+            ++scenarios;
+        }
+        Run(gpu, 4097, 513, 8, 8, 1, 0);
+        ++scenarios;
+        // Fixed expected values, independent from the production resolver:
+        // RGBA channels other than exposure R are deliberately unrelated.
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const float inf = std::numeric_limits<float>::infinity();
+        const ExposureCase texture_cases[] = {
+            {0.5f, 2.0f, 0.375f, {0.5f, 0.5f, 0.25f, 2.0f}},
+            {2.0f, 0.5f, 0.375f, {2.0f, 2.0f, 4.0f, 0.5f}},
+            {nan, 0.25f, 0.375f, {nan, 1.0f, 4.0f, 0.25f}},
+            {0.0f, 0.5f, 0.375f, {0.0f, 1.0f, 2.0f, 0.5f}},
+            {inf, 2.0f, 0.375f, {inf, 1.0f, 0.5f, 2.0f}},
+            {0.00001f, 2.0f, 0.375f, {0.00001f, 0.0009765625f, 0.0009765625f, 2.0f}},
+            {2048.0f, 2.0f, 0.375f, {2048.0f, 1024.0f, 512.0f, 2.0f}},
+        };
+        for (UINT flags : {64u, 192u, 320u}) {
+            for (const auto &exposure : texture_cases) {
+                const auto off = Run(gpu, 13, 9, 0, 2, flags, 0, false, 0, 0, exposure);
+                const auto on = Run(gpu, 13, 9, 2, 2, flags, 0, false, 0, 0, exposure);
+                Require(std::memcmp(off.output.data(), on.output.data(),
+                    off.output.size() * sizeof(Float4)) == 0,
+                    "Exposure trailer capture changes composited output");
+                ++scenarios;
+            }
+        }
+        for (const auto &exposure : texture_cases) {
+            const auto off=Run(gpu,13,9,0,2,64u,0,true,7,5,exposure);
+            const auto on=Run(gpu,13,9,2,2,64u,0,true,7,5,exposure);
+            Require(std::memcmp(off.output.data(),on.output.data(),off.output.size()*sizeof(Float4))==0,
+                    "V2 exposure capture changed composition");
+            ++scenarios;
+        }
+        for (bool v2 : {false,true}) for (CaptureRoi roi : {CaptureRoi{3,2,5,4},CaptureRoi{10,6,99,99},CaptureRoi{0,0,1,1}}) {
+            const auto plain = Run(gpu,13,9,0,1,64u,0,v2,0,0,texture_cases[0]);
+            const auto captured = Run(gpu,13,9,1,1,64u,0,v2,0,0,texture_cases[0],0.f,roi);
+            Require(std::memcmp(plain.output.data(),captured.output.data(),plain.output.size()*sizeof(Float4))==0,
+                    "Native-pixel ROI capture changes the displayed composition");
+            ++scenarios;
+        }
+        for(bool v2:{false,true}) for(float protection:{0.f,1.f}) {
+            auto no=Run(gpu,32,32,0,1,1u,6,v2,0,0,{},protection);
+            auto yes=Run(gpu,32,32,1,1,513u,6,v2,0,0,{},protection,{4,5,16,16});
+            Require(std::memcmp(no.output.data(),yes.output.data(),no.output.size()*sizeof(Float4))==0,"F8 telemetry changes output");
+            const float *telemetry=reinterpret_cast<const float *>(yes.capture.data()+16*16*4*4);
+            bool reduced=false;
+            for(unsigned i=0;i<16*16;++i) {
+                Require(std::isfinite(telemetry[i*4]) && telemetry[i*4]>=0.f && telemetry[i*4]<=1.f,"invalid GPU detail weight");
+                if(telemetry[i*4]<.99f)reduced=true;
+                if(!v2)Require(telemetry[i*4+1]==512.f,"post-SR telemetry applicability");
+            }
+            if(v2 && protection>0.f)Require(reduced,"detail protection has no captured weights");
+            ++scenarios;
+        }
+        const ExposureCase scalar_case{nan, 2.0f, 0.375f, {0.75f, 0.75f, 0.375f, 2.0f}};
+        Run(gpu, 13, 9, 2, 2, 0, 0, false, 0, 0, scalar_case);
+        ++scenarios;
+        // Spatial protection must reduce alternating residuals, not erase uniform model edits.
+        const auto noise_off = Run(gpu, 32, 32, 0, 1, 1u, 6, true, 16, 16);
+        const auto noise_on = Run(gpu, 32, 32, 0, 1, 1u, 6, true, 16, 16, {}, 1.0f);
+        double residual_off = 0, residual_on = 0;
+        const UINT out_width = 32 + 2 + 2;
+        for (UINT y=2;y<30;++y) for(UINT x=2;x<30;++x) {
+            const auto i=(y+1)*out_width+x+2;
+            const auto j=(y+1)*out_width+x+3;
+            const float source_diff = (static_cast<int>((x+4)%7) - static_cast<int>((x+3)%7))*0.03125f;
+            residual_off += std::abs((noise_off.output[j].x-noise_off.output[i].x)-source_diff);
+            residual_on += std::abs((noise_on.output[j].x-noise_on.output[i].x)-source_diff);
+        }
+        Require(residual_on < residual_off*0.95, "Detail stability did not reduce alternating residual energy");
+        const auto uniform_off = Run(gpu, 16, 16, 0, 1, 1u, 7, true);
+        const auto uniform_on = Run(gpu, 16, 16, 0, 1, 1u, 7, true, 0, 0, {}, 1.0f);
+        for(std::size_t i=0;i<uniform_off.output.size();++i)
+            Require(std::abs(uniform_off.output[i].x-uniform_on.output[i].x)<0.00001f,
+                    "Detail stability changed a uniform model edit");
+        scenarios += 2;
+        // Exercise the production CombineCS path numerically. The neural
+        // fixture has a positive residual, so increasing the transfer scalar
+        // must increase the composed luminance; 1.2 must remain distinct from
+        // 1.0, and the 2.0 request is bounded by MaxLumaRatio=2.
+        const auto strength0 = Run(gpu, 13, 9, 0, 2, 0, 0, false, 0, 0, {}, 0.f, {}, 0.0f);
+        const auto strength1 = Run(gpu, 13, 9, 0, 2, 0, 0, false, 0, 0, {}, 0.f, {}, 1.0f);
+        const auto strength12 = Run(gpu, 13, 9, 0, 2, 0, 0, false, 0, 0, {}, 0.f, {}, 1.2f);
+        const auto strength2 = Run(gpu, 13, 9, 0, 2, 0, 0, false, 0, 0, {}, 0.f, {}, 2.0f);
+        const auto luminance = [](const RunResult &result) {
+            const Float4 &pixel = result.output[1 * (13 + 2 + 2) + 2];
+            return 0.2126f * pixel.x + 0.7152f * pixel.y + 0.0722f * pixel.z;
+        };
+        const float l0 = luminance(strength0), l1 = luminance(strength1);
+        const float l12 = luminance(strength12), l2 = luminance(strength2);
+        std::printf("GPU strength luminance: 0=%.8f 1=%.8f 1.2=%.8f 2=%.8f\n",
+                    l0, l1, l12, l2);
+        Require(std::isfinite(l0) && std::isfinite(l1) &&
+                std::isfinite(l12) && std::isfinite(l2),
+                "strength outputs are finite on GPU");
+        Require(l1 > l0 && l12 > l1 && l2 > l12,
+                "GPU CombineCS preserves 0 < 1 < 1.2 < 2 strength response");
+        ++scenarios;
+        std::printf("GPU codec validation passed: %u paired/grid scenarios; "
+            "capture on/off bit identity, raw four-plane values, alpha, "
+            "subrect bounds, invalid/zero/identity paths, descriptor and root layout; "
+            "fixed exposure trailer values (texture/scalar/invalid/clamps); "
+            "strength 0/1/1.2/2 numeric monotonicity.\n",
+            scenarios);
+        return 0;
+    } catch (const std::exception &error) {
+        std::fprintf(stderr, "GPU codec validation FAILED: %s\n", error.what());
+        return 1;
+    }
+}
