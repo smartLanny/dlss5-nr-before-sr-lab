@@ -75,6 +75,28 @@ class FeedbackReportTests(unittest.TestCase):
             b'format=DLSS5-LogSummary-v1\nscan.complete=1\n[head]\nreason=null-pso-policy-disabled\n'})
         self.assertIn('保留安全保护', report.prepare(path))
 
+    def test_hotpatch_evidence_is_not_an_unlock_recommendation(self):
+        path = self.f.bundle()
+        self.f.rewrite(path, lambda m,i,p: i.update({'end.ngxHookFailure.available':'1',
+            'end.ngxHookFailure.entry':'existing-short-hotpatch', 'end.ngxHookFailure.status':'8'}))
+        text = report.prepare(path)
+        self.assertIn('existing-short-hotpatch', text)
+        self.assertIn('不要覆盖', text)
+
+    def test_pristine_route_is_last_sample_not_universal_compatibility(self):
+        path = self.f.bundle()
+        self.f.rewrite(path, lambda m,i,p: i.update({'end.commandState.available':'1',
+            'end.commandState.route':'pristine-null', 'end.commandState.ageMs':'999'}))
+        text = report.prepare(path)
+        self.assertIn('pristine-null', text)
+        self.assertIn('最近一次', text)
+        self.assertIn('999', text)
+
+    def test_new_field_path_injection_stays_redacted(self):
+        path = self.f.bundle()
+        self.f.rewrite(path, lambda m,i,p: i.update({'end.ngxHookFailure.operation':r'C:\Users\SECRET\mod.dll'}))
+        self.assertNotIn('SECRET', report.prepare(path))
+
     def test_counter_reset_and_invalid_values(self):
         self.assertEqual(report.delta({'start.nrSuccess':'100','end.nrSuccess':'99'},'nrSuccess'), '计数重置，不能计算')
         self.assertEqual(report.delta({'start.nrSuccess':'0','end.nrSuccess':'0'},'nrSuccess'), '0')

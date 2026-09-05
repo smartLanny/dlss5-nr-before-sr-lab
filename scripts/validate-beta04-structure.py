@@ -28,26 +28,26 @@ current_identity_files = {
 }
 
 identity_requirements = {
-    "source": ['kAddonVersion = "beta0.4.3"', 'kBuildIdentity = "beta0.4.3"',
-               "DLSS 5 NR Perfect Chain beta0.4.3 (Chinese UI)",
-               "DLSS 5 AI Rendering Perfect Chain beta0.4.3"],
-    "resource": ["FILEVERSION 0,4,3,0", "PRODUCTVERSION 0,4,3,0",
-                 '"0.4.3.0 beta\\0"', "beta0.4.3-@"],
-    "build": ["DLSS5-AI渲染超分版-beta0.4.3-@",
-              "DLSS5-AI-Rendering-Upscaling-beta0.4.3-@"],
-    "package": ["$Version = 'beta0.4.3'",
-                "DLSS5-AI渲染超分版-beta0.4.3-@",
-                "DLSS5-AI-Rendering-Upscaling-beta0.4.3-@"],
+    "source": ['kAddonVersion = "beta0.4.3r2"', 'kBuildIdentity = "beta0.4.3r2"',
+               "DLSS 5 NR Perfect Chain beta0.4.3r2 (Chinese UI)",
+               "DLSS 5 AI Rendering Perfect Chain beta0.4.3r2"],
+    "resource": ["FILEVERSION 0,4,3,2", "PRODUCTVERSION 0,4,3,2",
+                 '"0.4.3r2 beta\\0"', "beta0.4.3r2-@"],
+    "build": ["DLSS5-AI渲染超分版-beta0.4.3r2-@",
+              "DLSS5-AI-Rendering-Upscaling-beta0.4.3r2-@"],
+    "package": ["$Version = 'beta0.4.3r2'",
+                "DLSS5-AI渲染超分版-beta0.4.3r2-@",
+                "DLSS5-AI-Rendering-Upscaling-beta0.4.3r2-@"],
     "feedback collector": ["collector_version = 'beta0.4.3'"],
     "crash collector": ["beta0.4.3-crash-evidence-2"],
-    "config": ["beta0.4.3 community candidate"],
+    "config": ["beta0.4.3r2 community maintenance release"],
     "README": ["beta0.4.3"],
     "Chinese install": ["beta0.4.3"],
     "English install": ["beta0.4.3"],
     "Chinese install markdown": ["beta0.4.3"],
     "English install markdown": ["beta0.4.3"],
-    "Chinese update": ["beta0.4.3"],
-    "English update": ["beta0.4.3"],
+    "Chinese update": ["beta0.4.3r2"],
+    "English update": ["beta0.4.3r2"],
     "release notes": ["beta0.4.3"],
 }
 for label, tokens in identity_requirements.items():
@@ -56,8 +56,8 @@ for label, tokens in identity_requirements.items():
         raise SystemExit(f"{label} has stale or incomplete release identity: {missing_identity}")
 
 required = [
-    'kAddonVersion = "beta0.4.3"',
-    'kBuildIdentity = "beta0.4.3"',
+    'kAddonVersion = "beta0.4.3r2"',
+    'kBuildIdentity = "beta0.4.3r2"',
     'ID3D12PipelineState *encode_v2',
     'ID3D12PipelineState *combine_v2',
     'void EncodeV2CS(',
@@ -144,4 +144,4 @@ if "source_to_work_x" not in source or "Jitter.Offset.X" not in source:
 if "FrameConfidence <= 0.000001" not in body:
     raise SystemExit("reset-frame confidence bypass missing")
 
-print("beta0.4.3 perfect-chain structural and release-identity validation passed")
+print("beta0.4.3r2 perfect-chain structural and release-identity validation passed")

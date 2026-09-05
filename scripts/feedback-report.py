@@ -28,6 +28,13 @@ FIELDS = (
     ('配置快照有效', 'snapshot.valid'), ('配置代数', 'requested.config'), ('请求模式（1后置/2前置）', 'requested.mode'),
     ('插件开关', 'requested.enabled'), ('请求效果强度', 'requested.blend'),
     ('开始旁路原因', 'start.bypass'), ('结束旁路原因', 'end.bypass'),
+    ('命令状态现场可用', 'end.commandState.available'),
+    ('最近载体判断距采集毫秒', 'end.commandState.ageMs'),
+    ('最近载体具体原因', 'end.commandState.reason'), ('最近准入路线', 'end.commandState.route'),
+    ('首次 Hook 失败可用（历史）', 'end.ngxHookFailure.available'),
+    ('首次 Hook 失败操作（历史）', 'end.ngxHookFailure.operation'),
+    ('首次 Hook 错误码（历史）', 'end.ngxHookFailure.status'),
+    ('首次 Hook 入口形态（历史）', 'end.ngxHookFailure.entry'),
 )
 
 
@@ -98,10 +105,14 @@ def prepare(core: Path, image: Path | None = None, symptom: str = 'compatibility
     # never override current counters/bypass solely on a keyword match.
     if 'another reshade instance' in evidence and 'aborting initialization' in evidence:
         rows.append('历史摘要出现 ReShade 重复实例并中止初始化。先备份并核对加载路径；不要只凭 d3d12.dll/dxgi.dll 文件名盲删，也不保证这是唯一故障。')
-    if 'null-pso-policy-disabled' in evidence:
+    if 'null-pso-policy-disabled' in evidence or 'null-guard-' in evidence:
         rows.append('历史摘要出现空 PSO 安全旁路。这不是强度不足；保留安全保护，需进一步验证命令状态，不能直接宣称已修复。')
     if any(value in evidence for value in ('device removed', 'device hung', 'device_removed', 'device_hung')):
         rows.append('历史摘要出现设备移除/挂起线索；需同一构建的离线崩溃证据，不能仅凭关键字归因于驱动。')
+    if info.get('end.ngxHookFailure.entry') == 'existing-short-hotpatch':
+        rows.append('首次 Hook 失败入口是已有短热补丁。不要覆盖第三方前缀或匿名转发器；需单独验证 FG/MFG 共存。该记录不能证明具体插件是唯一根因。')
+    if info.get('end.commandState.route') == 'pristine-null':
+        rows.append('最近一次载体通过了窄范围空基线准入；这不等于所有帧持续生效或游戏已验收。完整状态见 core 报告的 start/end.commandState 字段。')
     if symptom == 'crash':
         rows.append('游戏已退出时使用离线崩溃收集器。F8 不是 dump/异常栈的替代品，不要公开上传未经检查的 dump。')
     if symptom == 'visual':

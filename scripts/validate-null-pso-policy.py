@@ -1,4 +1,8 @@
-"""Verify that Reset(NULL) carriers are fail-closed unless explicitly enabled."""
+"""Verify the raw null predicate and full-dynamic replay remain default-off.
+
+The separately verified pristine subset is exercised by the native/GPU harness
+and validate-compat-sweep.py. This test does not claim all null carriers reject.
+"""
 
 from pathlib import Path
 import re
