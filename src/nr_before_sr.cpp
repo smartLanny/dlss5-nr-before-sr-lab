@@ -1247,8 +1247,14 @@ void NormalizeConfig(ChainConfig &config) {
         FiniteOr(config.local_tone, 1.0f), 0.0f, 2.0f);
     config.local_structure = std::clamp(
         FiniteOr(config.local_structure, 1.0f), 0.0f, 2.0f);
+    // Keep a nonnegative saved preference while the face mask is off. The
+    // create signature supplies -1 in that state; do not erase the user's
+    // preferred strength when toggling the mask. Legacy negative/invalid
+    // values start at zero when the mask is enabled.
+    const float minimum_skin_structure = config.auto_mask ? 0.0f : -1.0f;
     config.skin_structure = std::clamp(
-        FiniteOr(config.skin_structure, -1.0f), -1.0f, 2.0f);
+        FiniteOr(config.skin_structure, minimum_skin_structure),
+        minimum_skin_structure, 2.0f);
     config.style = std::min(config.style, 2u);
     config.r8_output_encoding = std::clamp(config.r8_output_encoding, 0, 2);
     const int jitter_mode = static_cast<int>(config.jitter_mode);
@@ -2831,8 +2837,13 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         localRatio += 0.15 * ModelLumaRatioV2(center - float2(0.0, radius));
         float localMean = clamp(log2(max(localRatio, 1.0 / 256.0)),
                                 -8.0, 8.0);
-        logRatio = lerp(logRatio, logRatio - localMean,
-                        saturate(LightingLock));
+        // Protection may only attenuate this pixel's existing edit. A sparse
+        // neighbour mean can exceed (or oppose) its residual at a face/geometry
+        // boundary. Unbounded subtraction then invents a dark/bright outline,
+        // including after detail stabilization reduced the residual to zero.
+        float protectedLog = clamp(logRatio - localMean,
+                                   min(logRatio, 0.0), max(logRatio, 0.0));
+        logRatio = lerp(logRatio, protectedLog, saturate(LightingLock));
     }
 
     float nearBlack = smoothstep(1.0 / 65536.0, 1.0 / 1024.0,
@@ -3288,7 +3299,9 @@ NrTuningSignature CurrentNrTuningSignature() {
     signature.intensity = g_config.intensity;
     signature.local_tone = g_config.local_tone;
     signature.local_structure = g_config.local_structure;
-    signature.skin_structure = g_config.skin_structure;
+    // Feature 18 must follow local structure without an automatic face mask.
+    // The independent INI preference remains available for the next enable.
+    signature.skin_structure = g_config.auto_mask ? g_config.skin_structure : -1.0f;
     signature.auto_mask = g_config.auto_mask;
     signature.style = g_config.style;
     signature.ui_correction = g_config.ui_correction;
@@ -8014,10 +8027,13 @@ std::atomic<bool> g_evaluate_hooks_enabled{false};
 std::atomic<bool> g_evaluate_target_overflow{false};
 ExecuteCommandListsFn g_original_queue_execute[4] = {};
 void *g_queue_execute_hook_targets[4] = {};
+bool g_queue_execute_hook_enabled[4] = {};
+// Counts owned trampolines, including created-but-not-yet-enabled slots.
 std::size_t g_queue_execute_hook_count = 0;
 SRWLOCK g_queue_execute_hook_lock = SRWLOCK_INIT;
 ResetCommandListFn g_original_command_list_reset[4] = {};
 void *g_command_list_reset_hook_targets[4] = {};
+bool g_command_list_reset_hook_enabled[4] = {};
 std::size_t g_command_list_reset_hook_count = 0;
 SRWLOCK g_command_list_reset_hook_lock = SRWLOCK_INIT;
 SRWLOCK g_module_rescan_lock = SRWLOCK_INIT;
@@ -9351,8 +9367,14 @@ bool EnsureNativeQueueExecuteHook(reshade::api::command_queue *queue) {
     AcquireSRWLockExclusive(&g_queue_execute_hook_lock);
     for (std::size_t i = 0; i < g_queue_execute_hook_count; ++i) {
         if (g_queue_execute_hook_targets[i] == target) {
+            if (!g_queue_execute_hook_enabled[i]) {
+                const MH_STATUS retried = MH_EnableHook(target);
+                g_queue_execute_hook_enabled[i] =
+                    retried == MH_OK || retried == MH_ERROR_ENABLED;
+            }
+            const bool ready = g_queue_execute_hook_enabled[i];
             ReleaseSRWLockExclusive(&g_queue_execute_hook_lock);
-            return true;
+            return ready;
         }
     }
     if (g_queue_execute_hook_count >= std::size(g_queue_execute_hook_targets)) {
@@ -9378,6 +9400,9 @@ bool EnsureNativeQueueExecuteHook(reshade::api::command_queue *queue) {
         return false;
     }
     g_queue_execute_hook_targets[index] = target;
+    // Retain ownership even if enabling fails. Creating this target again
+    // would return MH_ERROR_ALREADY_CREATED and permanently block retries.
+    ++g_queue_execute_hook_count;
     const MH_STATUS enabled = MH_EnableHook(target);
     if (enabled != MH_OK && enabled != MH_ERROR_ENABLED) {
         Log("MH_EnableHook D3D12 ExecuteCommandLists target=%p failed: status=%d",
@@ -9385,7 +9410,7 @@ bool EnsureNativeQueueExecuteHook(reshade::api::command_queue *queue) {
         ReleaseSRWLockExclusive(&g_queue_execute_hook_lock);
         return false;
     }
-    ++g_queue_execute_hook_count;
+    g_queue_execute_hook_enabled[index] = true;
     Log("D3D12 ExecuteCommandLists post-submit lifetime hook active: target=%p "
         "slot=%zu.", target, index);
     ReleaseSRWLockExclusive(&g_queue_execute_hook_lock);
@@ -9429,8 +9454,14 @@ bool EnsureNativeCommandListResetHook(
     AcquireSRWLockExclusive(&g_command_list_reset_hook_lock);
     for (std::size_t i = 0; i < g_command_list_reset_hook_count; ++i) {
         if (g_command_list_reset_hook_targets[i] == target) {
+            if (!g_command_list_reset_hook_enabled[i]) {
+                const MH_STATUS retried = MH_EnableHook(target);
+                g_command_list_reset_hook_enabled[i] =
+                    retried == MH_OK || retried == MH_ERROR_ENABLED;
+            }
+            const bool ready = g_command_list_reset_hook_enabled[i];
             ReleaseSRWLockExclusive(&g_command_list_reset_hook_lock);
-            return true;
+            return ready;
         }
     }
     if (g_command_list_reset_hook_count >=
@@ -9457,6 +9488,9 @@ bool EnsureNativeCommandListResetHook(
         return false;
     }
     g_command_list_reset_hook_targets[index] = target;
+    // A failed enable must not lose our valid original/trampoline. Only retry
+    // that owned target; never adopt somebody else's pre-existing hook.
+    ++g_command_list_reset_hook_count;
     const MH_STATUS enabled = MH_EnableHook(target);
     if (enabled != MH_OK && enabled != MH_ERROR_ENABLED) {
         Log("MH_EnableHook D3D12 command-list Reset target=%p failed: status=%d",
@@ -9464,7 +9498,7 @@ bool EnsureNativeCommandListResetHook(
         ReleaseSRWLockExclusive(&g_command_list_reset_hook_lock);
         return false;
     }
-    ++g_command_list_reset_hook_count;
+    g_command_list_reset_hook_enabled[index] = true;
     Log("D3D12 native Reset success-gate hook active: target=%p slot=%zu.",
         target, index);
     ReleaseSRWLockExclusive(&g_command_list_reset_hook_lock);
@@ -11195,7 +11229,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::register_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
         reshade::register_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
-        reshade::register_overlay(nullptr, DrawSettings);
+        reshade::register_overlay(kSettingsOverlayName, DrawSettings);
         reshade::register_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
         Log("Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot "
             "hotkey (API %u).",
@@ -11207,7 +11241,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
                 OnCommandStateInitList);
             reshade::unregister_event<reshade::addon_event::init_device>(
                 OnCommandStateInitDevice);
-            reshade::unregister_overlay(nullptr, DrawSettings);
+            reshade::unregister_overlay(kSettingsOverlayName, DrawSettings);
             reshade::unregister_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
@@ -11230,7 +11264,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnCommandStateInitList);
         reshade::unregister_event<reshade::addon_event::init_device>(
             OnCommandStateInitDevice);
-        reshade::unregister_overlay(nullptr, DrawSettings);
+        reshade::unregister_overlay(kSettingsOverlayName, DrawSettings);
         reshade::unregister_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
         reshade::unregister_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
