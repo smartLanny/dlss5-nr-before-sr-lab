@@ -1,12 +1,12 @@
-# beta0.4.2 feedback test build quick install
+# beta0.4.3 feedback test build quick install
 
-Press **F8** or click Collect feedback ZIP in the addon panel. Keep the camera still and wait for completion. `feedback.zip` normally goes under Documents/DLSS5-Feedback. If that directory cannot be created, collection tries DLSS5-Feedback under the system temporary directory; copy the actual path from the panel. A partial bundle includes missing-item reasons and can still be submitted. For an ordinary startup problem, use `Collect-Feedback.cmd`. After a crash, use `Collect-Crash-Feedback.cmd`; it derives one unique absolute game EXE path from the newest ReShade log and reads only existing Windows events, WER reports and dumps from the last 72 hours that pass its identity rules. It does not enable dumps, modify the registry or upload. Standalone CrashDumps do not contain their source path, so they can only be filtered by exact EXE basename and time; the package records this limitation.
+Press **F8** or use the core-feedback control to create a small CPU-only package with no screenshot or texture readback. Use **F7** only when paired image evidence is needed. Feedback ZIPs normally go under Documents/DLSS5-Feedback. If that directory cannot be created, collection tries DLSS5-Feedback under the system temporary directory; copy the actual path from the panel. Missing or limited inputs are reported explicitly as partial rather than being treated as complete. For an ordinary startup problem, use `Collect-Feedback.cmd`. After a crash, use `Collect-Crash-Feedback.cmd`; it derives one unique absolute game EXE path from the newest ReShade log and reads only existing Windows events, WER reports and dumps from the last 72 hours that pass its identity rules. It does not enable dumps, modify the registry or upload. Standalone CrashDumps do not contain their source path, so they can only be filtered by exact EXE basename and time; the package records this limitation.
 
-The core full-install payload contains **nine files**. An official signed archive also includes verification files listed in its manifest. Verify beta0.4.2 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
+The core full-install payload contains **nine files**. An official signed archive also includes verification files listed in its manifest. Verify beta0.4.3 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
 
 This version fixes the Cyberpunk 2077 four-channel half-float motion-vector bypass, detects the exact competing `renodx-dlss5.addon64` module, and fixes the low-address NGX relay-allocation failure shown in a new log. It installs the narrow command-signature observer at device creation to fix the r3 intermittent bypass regression, while null-PSO and wider graphics-state paths remain disabled by default. The Forza report has no crash dump and still needs a game retest. Automated GPU, resource, state and capture regressions do not establish real-game acceptance for every exposure, colour-follow, face-quality or crash report.
 
-Displayed add-on name: **DLSS 5 AI Rendering Perfect Chain beta0.4.2**.
+Displayed add-on name: **DLSS 5 AI Rendering Perfect Chain beta0.4.3**.
 
 The update filename keeps “AI-Rendering-Upscaling” for continuity with older packages.
 
@@ -34,7 +34,7 @@ translation layer such as OptiScaler are outside this add-on's direct scope. The
    If the exact file `renodx-dlss5.addon64` is present, move it outside the game
    directory too; it is another NR owner and cannot coexist with this add-on.
 4. Keep these files **together in that same directory**:
-   - `DLSS5-AI-Rendering-Upscaling-beta0.4.2-@野生的装机宅-Bilibili.en.addon64`
+   - `DLSS5-AI-Rendering-Upscaling-beta0.4.3-@野生的装机宅-Bilibili.en.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - `nvngx_dlssnr.dll` from the matching GPU package
@@ -42,7 +42,7 @@ translation layer such as OptiScaler are outside this add-on's direct scope. The
    - `collect-feedback.ps1`
    - `Collect-Crash-Feedback.cmd`
    - `collect-crash-feedback.ps1`
-5. Start the game and verify that the ReShade Add-ons page shows beta0.4.2, the
+5. Start the game and verify that the ReShade Add-ons page shows beta0.4.3, the
    author and official release address at the top of this add-on's panel.
 
 The add-on loads its configuration, bridge and NR runtime from its own folder.
@@ -52,11 +52,13 @@ the panel may open but every option will appear ineffective.
 ## Quick use
 
 - `F6`: master toggle. Off must be native game SR with zero Feature 18 calls.
-- `F8`: keep the current settings by default, collect one display screenshot,
-  and attempt to include 16 consecutive NR processing frames, one separate
-  overview, effective parameters and logs. Processing frames and the screenshot
-  are not guaranteed to share a frame. Only an explicit comparison selected in
-  the advanced feedback controls temporarily changes in-memory settings.
+- `F8`: create the small core-feedback ZIP. It keeps current picture settings,
+  does not wait for a successful NR frame, takes no screenshot, performs no
+  texture readback, and has a hard 8 MiB ZIP limit. Missing or rejected inputs
+  are recorded explicitly as partial / missing-reason evidence.
+- `F7`: run the image-feedback flow. It first creates a session-associated core
+  package and then performs the heavier image/stage capture. A verified package
+  pair proves identity consistency, not that both captures came from one frame.
 - Main keyboard `-` (numpad subtract also works): save a screenshot. Its short
   name records build, chain, active/bypass state, requested configuration and
   `I/S/B/C/HP` (NR intensity, style, blend, colour follow, peak-shoulder experiment).
@@ -86,11 +88,12 @@ the panel may open but every option will appear ineffective.
   controlled captures of admitted HDR input. It has not been shown to improve
   Spider-Man faces or NR-to-SR quality; leave it off for normal testing.
 
-For a report, submit the F8 ZIP and describe the game, trigger and expected
-result. Use the offline collector if the game cannot start; partial bundles
-with missing images or logs can still help. If packaging fails, include the
+For an ordinary report, submit the F8 core ZIP and describe the game, trigger
+and expected result; add an F7 image package only when visual evidence is needed.
+Use the offline collector if the game cannot start. Partial bundles can still
+help, but do not edit their manifest. If packaging fails, include the
 displayed version and bypass reason plus the smallest
-matching window from `nr-before-sr.log`. beta0.4.2 logs state-machine changes,
+matching window from `nr-before-sr.log`. beta0.4.3 logs state-machine changes,
 deferred-module coverage, colour-stage attribution, early diagnostics and sparse
 performance summaries rather than writing every frame.
 Remove user names, absolute paths, account data, process addresses and runtime
@@ -134,8 +137,8 @@ screenshot. Press `F7` to request the stages independently (one pending request
 at a time). The four stages share one composition frame, but do not share the
 display screenshot's frame. Stage capture recreates NR history, waits for 64
 successful evaluations, exports after the actual GPU fence and recreates history
-again. This waiting period is not proof of network convergence. F8 uses its own
-continuous small-region and overview format; the full F7 stage request remains
-separate and is never presented as the same frame as the display screenshot.
+again. This waiting period is not proof of network convergence. F8 is CPU-only
+core feedback and does not use the image-readback path; the full F7 stage request
+remains separate and is never presented as the same frame as the display screenshot.
 Keep the camera fixed, change one parameter at a time and use metadata to
 distinguish requested values, effective values and colour domains.

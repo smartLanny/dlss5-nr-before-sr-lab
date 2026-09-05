@@ -1,45 +1,38 @@
-DLSS 5 AI Rendering Perfect Chain beta0.4.2 Community Beta - Small Update
+DLSS 5 AI Rendering Perfect Chain beta0.4.3 Community Beta - Small Update
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
-Use this package with an installation that already has the runtime. Keep nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Replace only the addon and place both feedback-tool pairs beside it. Do not load old/new or Chinese/English addon copies together.
+Scope
+
+Use this package with an existing compatible beta0.4.x runtime installation. Exit the game completely, back up the old addon outside the game directory, replace only the addon, and keep both Collect-Feedback / Collect-Crash-Feedback CMD + PowerShell pairs beside it. Keep the existing nrchain_nvngx.dll, nvngx_dlssnr.dll and nr_before_sr.ini. Do not load old/new, Chinese/English, HD2 experimental, or renodx-dlss5.addon64 copies together.
+
+What changed in 0.4.3
+
+1. Integrates the 0.4.2 bug sweep: narrows lighting-protection black-edge/reversed-residual risk, fixes mask-related parameter handling and panel isolation, and adds a conservative retry path for native NGX hooks. Null-PSO and wider high-risk graphics-state paths still bypass by default.
+2. F8 is now an independent small core-feedback package. The core ZIP has a hard 8 MiB limit, collects only known logs/runtime state, performs no texture readback, never uploads automatically, and does not change picture settings for collection.
+3. F7 image feedback first creates a core package associated with the session, then uses the existing image capture path. Core/image packages can verify session, source commit and measured addon SHA256 identity; a verified pair still does not mean the screenshots and GPU stages are the same frame.
+4. Feedback parsing now strictly validates completeness. Required logs must be declared, cancelled/incomplete/missing-input packages cannot be reported as complete, and packages from different addon binaries cannot be paired merely because they share a source commit.
+5. Hotkey and result-state handling is stricter: custom F8 bindings cannot collide with F6/F7, new requests clear stale result paths, and busy collection rejects duplicate work without damaging the active capture.
+6. New installations still default to Mode 2: run NR on the selected lower working raster, compose the matched residual back into game render resolution, then call the game's native DLSS SR. NR quality changes only Feature 18 working resolution; it does not change the game's own DLSS mode.
 
 Picture defaults
 
-New installations start with final effect strength 1.2. The slider is the actual request, from 0 to 8; there is no hidden multiplier or 1.2 shortcut. New colour follow is 0.75. Unknown HDR contracts remain luminance-only. Explicit existing settings, including zero, are preserved.
+New installations use final-effect strength 1.2. The slider is the actual request from 0 to 8. New colour follow is 0.75; unknown HDR contracts remain luminance-only. Explicit existing configuration values are preserved. Very high strength at a low NR working resolution can amplify grain, so raise NR quality before blaming jitter.
 
-The 0.4.2 NR quality setting changes only Feature 18's working resolution, not the game's DLSS mode or the NR/SR order. High strength at a low NR working resolution can amplify grain. Raise NR quality before attributing that result to jitter.
+Compatibility and safety boundary
 
-Stability changes
+This release remains the native D3D12 DLSS Feature 1 path. DX11 is not part of this beta0.4.3 release and remains on a separate research branch. If resource, format, subrect, command-state, RR ownership, or HDR contracts cannot be proven, the preferred behavior is to bypass and retain the game's native SR result.
 
-r3 delayed command-signature observation whenever its device-init snapshot of the in-memory switch appeared disabled. Exact r3 Wuthering Waves packages prove that the startup observer count stayed at zero even when the installed INI requested Enabled=1; the cause of that transient false snapshot is not established. Character, UI, map and rain work then reused permanently unknown ExecuteIndirect signatures. The last rain capture ran 1,507 native SR calls with zero new NR submissions. beta0.4.2 always installs only this narrow observer at device creation. Null-PSO admission and the wider graphics-state hooks remain disabled by default. The WARP regression proves that a signature observed before NR activation stays restorable regardless of switch state. Wuthering Waves, Where Winds Meet and other games still need beta0.4.2 retesting.
-
-The default order has not changed: Mode 2 is before-SR NR followed by the game's native SR. Only an explicit Mode 1 selection, or an existing configuration already saved as Mode=1, uses post-SR NR. NR quality / WorkMode changes Feature 18's working resolution; it does not change processing order.
-
-The new Crysis 3 Remastered package proves that its presenting API is D3D11, so there is no native D3D12 Feature 1 for this add-on to intercept. beta0.4.2 now says “D3D11 unsupported; D3D12 required” directly in the panel instead of leaving players to interpret a waiting-Feature-1 status as a strength or HDR problem. The check uses only the current presenting runtime and cannot be permanently tripped by an auxiliary D3D11 device in a D3D12 game.
-
-The Chinese build no longer forces Chinese text through a Latin-only ReShade font. Its exported add-on name remains ASCII-readable; when the active font lacks common Simplified Chinese glyphs, the panel falls back to English and explains how to select zh-CN/System Default or Microsoft YaHei under Overlay & Styling. Chinese returns after the font is changed and the game is restarted.
-
-The RDR2 report confirms that this add-on and renodx-dlss5.addon64 were loaded together. r3 detects that exact competing module, keeps the native game result, and tells the player to remove it and fully restart. The two NR owners cannot coexist.
-
-The Black Myth log shows all three lifecycle hooks failing with MinHook status 9 when nvngx_dlssd.dll was loaded at a low address. r3 extends the safe relay search range, logs the readable status name, and preflights loaded NGX modules before the first SR Create. A native harness reproduces the old failure and passes with the fix; the game still needs retesting.
-
-The Forza package contained no crash dump. beta0.4.2 therefore keeps null-PSO admission and the wider graphics-state hooks disabled by default. That risk reduction and the command-signature correction both still need an in-game Forza retest.
-
-A Cyberpunk 2077 run reproduced and fixed a default NR-quality path that submitted no NR work. The game supplied typed four-channel half-float motion vectors, while the older path accepted only two-channel formats and safely bypassed. This build admits only that explicit typed format and reads its XY motion components; other unknown formats still bypass. Automated GPU checks cover all three admitted formats, and a short local run reached 6,546 actual submissions with no queue-state mismatch. This validates the processing path, not picture quality.
-
-For the Forza Horizon crash regression first reported after 0.3.3, the stable path once again bypasses a command list whose PSO is null. It also avoids publishing the wider graphics-state hooks used only by that high-risk restore path. The report contained no crash dump, so this is a conservative fix based on the exact version boundary and still needs game confirmation. Keep ExperimentalNullPsoCarrier=0 unless running a controlled one-variable experiment; changing it requires a full game restart.
-
-Older builds wrote DLSSNR.UICorrection using the wrong parameter type. It now uses the unsigned value read by the runtime. New installations enable “HUD / text protection (model)”; an existing explicit 0 or 1 is preserved. This can help only when a game supplies a separate UI layer and cannot discover subtitles or HUD already baked into SceneColor.
+Wuthering Waves, Where Winds Meet, Forza Horizon, Black Myth and other titles with prior intermittent or crash reports still need current beta0.4.3 in-game retesting. Automated regressions, D3D12 WARP, shader compilation and source builds passing do not equal NVIDIA-model or real-game runtime validation.
 
 Updating
 
-Exit the game completely, back up the old addon outside the game directory, then replace it. Keep both runtime DLLs and the existing configuration. In game, confirm beta0.4.2 in the ReShade addon panel, compare with F6, and verify that the NR-success counter continues increasing.
+Exit the game completely, back up the old addon outside the game directory, then replace it. Keep both runtime DLLs and the existing configuration. In game, confirm beta0.4.3 in the ReShade add-on panel, compare with F6, and verify that the NR-success counter continues increasing.
 
 Reporting
 
-For picture problems, keep a fixed camera and press F8 or click Collect feedback ZIP. Wait about 30 seconds for completion and collect one package per setting. The package identifies display screenshots and GPU stages separately; it does not claim they are the same final-SR frame.
+For ordinary problems, use F8 first to create the small core package. It does not wait for a successful NR frame and does not take screenshots. Use F7 only when image evidence is needed, keep a fixed camera and collect one setting per package. If parsing reports partial / unpaired, keep the original archive and do not edit its manifest.
 
-After a crash, run Collect-Crash-Feedback.cmd. It derives one unique absolute game EXE path from the newest ReShade.log and collects only existing Windows 1000/1001 summaries, WER reports and dumps from the last 72 hours that pass its identity rules. A record containing AppPath must match the current game path. Standalone CrashDumps do not contain their source path, so they can only be filtered by exact EXE basename and time; the package records this limitation. The tool does not enable dumps, modify the registry, launch the game or upload. A dump can contain process memory and local paths, so decide whether to share it.
+After a crash, run Collect-Crash-Feedback.cmd. It only gathers already-existing Windows event, WER and dump evidence; it does not enable dumps, modify the registry, launch the game, or upload. Dumps can contain process memory and local paths, so decide whether to share them.
 
 For a startup problem without crash evidence, run Collect-Feedback.cmd. Keep each CMD beside its matching PowerShell script.
