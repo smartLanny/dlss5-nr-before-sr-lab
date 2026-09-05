@@ -24,7 +24,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          persist-credentials: false
+      # A shallow/default-branch checkout after squash does not necessarily
+      # contain the old development commits. Fetch the immutable baseline
+      # explicitly; do not rely on a branch remaining open or undeleted.
+      - uses: actions/checkout@v4
+        with:
+          ref: 4498e47edf51693d2721f8ec8563054a515c1643
+          path: .feedback-integrity-baseline
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
@@ -32,10 +39,12 @@ jobs:
       - name: Historical production parser must fail the five exact defect tests
         shell: python
         run: |
-          import importlib.util, os, pathlib, subprocess, unittest
+          import hashlib, importlib.util, os, pathlib, unittest
           root = pathlib.Path.cwd()
           previous = root / 'scripts' / 'historical_core_parser.py'
-          data = subprocess.run(['git', 'show', '4498e47edf51693d2721f8ec8563054a515c1643:scripts/parse-core-feedback.py'], check=True, capture_output=True).stdout
+          data = (root / '.feedback-integrity-baseline/scripts/parse-core-feedback.py').read_bytes()
+          blob = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          assert blob == '2934c61e5c1417fe58b99b43701dc15121466363', 'historical source identity changed'
           previous.write_bytes(data)
           os.environ['NR_CORE_PARSER'] = str(previous)
           spec = importlib.util.spec_from_file_location('negative_cases', root / 'tests/test_core_feedback.py')
