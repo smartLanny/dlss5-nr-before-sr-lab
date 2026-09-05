@@ -18,9 +18,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Staging and production-source checks
         shell: pwsh
         run: |
+          Write-Output 'CORE STATUS BEFORE TESTS'
+          git status --porcelain --untracked-files=no
+          git diff --stat
           python -m unittest discover -s tests/native_bridge -p 'test_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'Source tests failed' }
       - name: Fetch pinned build inputs
@@ -42,6 +46,12 @@ jobs:
       - name: Stage exact r3 source, CPU regressions and bilingual core build
         shell: pwsh
         run: |
+          Write-Output 'CORE STATUS BEFORE STAGING'
+          git status --porcelain --untracked-files=no
+          git diff --stat
+          Write-Output 'UPSTREAM STATUS BEFORE STAGING'
+          git -C external-carrier status --porcelain --untracked-files=no
+          git -C external-carrier diff --stat
           python scripts/prepare-native-bridge-r3.py --upstream external-carrier --output build/native-r3
           if ($LASTEXITCODE -ne 0) { throw 'Pinned staging failed' }
           $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
@@ -69,14 +79,24 @@ jobs:
       - name: Package experimental test candidates, not a Release
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force build/candidate | Out-Null
-          Copy-Item build/native-r3/core/build/*.addon64 build/candidate/
-          Copy-Item build/native-r3/core/build/nrchain_nvngx.dll build/candidate/
-          Copy-Item build/native-r3/core/build/nr_before_sr.ini build/candidate/
-          Copy-Item build/native-r3/carrier/src/dlss5-native-carrier-r3-exp2.addon64 build/candidate/
-          Copy-Item build/native-r3/source-manifest.json build/candidate/
-          Copy-Item build/native-r3/carrier/LICENSE build/candidate/LICENSE-carrier.txt
-          Copy-Item docs/interop/DX11_R3_EXPERIMENT.md build/candidate/README.md
+          $addons = @(Get-ChildItem build/native-r3/core/build/*.addon64)
+          if ($addons.Count -ne 2) { throw 'Expected exactly two language builds' }
+          foreach ($addon in $addons) {
+            $package = Join-Path 'build/packages' $addon.BaseName
+            New-Item -ItemType Directory -Force $package | Out-Null
+            Copy-Item $addon.FullName $package/
+            Copy-Item build/native-r3/core/build/nrchain_nvngx.dll $package/
+            Copy-Item build/native-r3/core/build/nr_before_sr.ini $package/
+            Copy-Item build/native-r3/carrier/src/dlss5-native-carrier-r3-exp2.addon64 $package/
+            Copy-Item build/native-r3/source-manifest.json $package/
+            Copy-Item build/native-r3/carrier/LICENSE $package/LICENSE-carrier.txt
+            Copy-Item docs/interop/DX11_R3_EXPERIMENT.md $package/README.md
+            Get-ChildItem $package -File | Get-FileHash -Algorithm SHA256 | Select-Object @{Name='File';Expression={Split-Path $_.Path -Leaf}},Hash | ConvertTo-Json | Set-Content $package/SHA256.json
+            Compress-Archive -Path "$package/*" -DestinationPath "build/candidate/$($addon.BaseName).zip"
+          }
+          Copy-Item docs/interop/DX11_R3_EXPERIMENT.md build/candidate/README-choose-one-language.md
           Get-ChildItem build/candidate -File | Get-FileHash -Algorithm SHA256 | Select-Object @{Name='File';Expression={Split-Path $_.Path -Leaf}},Hash | ConvertTo-Json | Set-Content build/candidate/SHA256.json
       - uses: actions/upload-artifact@v4
         with:
