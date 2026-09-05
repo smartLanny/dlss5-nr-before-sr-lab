@@ -8028,12 +8028,14 @@ std::atomic<bool> g_evaluate_target_overflow{false};
 ExecuteCommandListsFn g_original_queue_execute[4] = {};
 void *g_queue_execute_hook_targets[4] = {};
 bool g_queue_execute_hook_enabled[4] = {};
+ULONGLONG g_queue_execute_hook_retry_after[4] = {};
 // Counts owned trampolines, including created-but-not-yet-enabled slots.
 std::size_t g_queue_execute_hook_count = 0;
 SRWLOCK g_queue_execute_hook_lock = SRWLOCK_INIT;
 ResetCommandListFn g_original_command_list_reset[4] = {};
 void *g_command_list_reset_hook_targets[4] = {};
 bool g_command_list_reset_hook_enabled[4] = {};
+ULONGLONG g_command_list_reset_hook_retry_after[4] = {};
 std::size_t g_command_list_reset_hook_count = 0;
 SRWLOCK g_command_list_reset_hook_lock = SRWLOCK_INIT;
 SRWLOCK g_module_rescan_lock = SRWLOCK_INIT;
@@ -9368,9 +9370,18 @@ bool EnsureNativeQueueExecuteHook(reshade::api::command_queue *queue) {
     for (std::size_t i = 0; i < g_queue_execute_hook_count; ++i) {
         if (g_queue_execute_hook_targets[i] == target) {
             if (!g_queue_execute_hook_enabled[i]) {
-                const MH_STATUS retried = MH_EnableHook(target);
-                g_queue_execute_hook_enabled[i] =
-                    retried == MH_OK || retried == MH_ERROR_ENABLED;
+                const ULONGLONG now = GetTickCount64();
+                // MH_EnableHook can suspend other threads. A persistent
+                // failure must not turn every submitted frame into a retry.
+                if (now >= g_queue_execute_hook_retry_after[i]) {
+                    const MH_STATUS retried = MH_EnableHook(target);
+                    g_queue_execute_hook_enabled[i] =
+                        retried == MH_OK || retried == MH_ERROR_ENABLED;
+                    g_queue_execute_hook_retry_after[i] =
+                        g_queue_execute_hook_enabled[i] ? 0 : now + 1000;
+                    if (g_queue_execute_hook_enabled[i])
+                        Log("D3D12 ExecuteCommandLists hook recovered after enable failure: slot=%zu.", i);
+                }
             }
             const bool ready = g_queue_execute_hook_enabled[i];
             ReleaseSRWLockExclusive(&g_queue_execute_hook_lock);
@@ -9405,6 +9416,7 @@ bool EnsureNativeQueueExecuteHook(reshade::api::command_queue *queue) {
     ++g_queue_execute_hook_count;
     const MH_STATUS enabled = MH_EnableHook(target);
     if (enabled != MH_OK && enabled != MH_ERROR_ENABLED) {
+        g_queue_execute_hook_retry_after[index] = GetTickCount64() + 1000;
         Log("MH_EnableHook D3D12 ExecuteCommandLists target=%p failed: status=%d",
             target, static_cast<int>(enabled));
         ReleaseSRWLockExclusive(&g_queue_execute_hook_lock);
@@ -9455,9 +9467,18 @@ bool EnsureNativeCommandListResetHook(
     for (std::size_t i = 0; i < g_command_list_reset_hook_count; ++i) {
         if (g_command_list_reset_hook_targets[i] == target) {
             if (!g_command_list_reset_hook_enabled[i]) {
-                const MH_STATUS retried = MH_EnableHook(target);
-                g_command_list_reset_hook_enabled[i] =
-                    retried == MH_OK || retried == MH_ERROR_ENABLED;
+                const ULONGLONG now = GetTickCount64();
+                // Keep the carrier native during a one-second retry backoff;
+                // do not repeatedly suspend game threads after enable failure.
+                if (now >= g_command_list_reset_hook_retry_after[i]) {
+                    const MH_STATUS retried = MH_EnableHook(target);
+                    g_command_list_reset_hook_enabled[i] =
+                        retried == MH_OK || retried == MH_ERROR_ENABLED;
+                    g_command_list_reset_hook_retry_after[i] =
+                        g_command_list_reset_hook_enabled[i] ? 0 : now + 1000;
+                    if (g_command_list_reset_hook_enabled[i])
+                        Log("D3D12 native Reset hook recovered after enable failure: slot=%zu.", i);
+                }
             }
             const bool ready = g_command_list_reset_hook_enabled[i];
             ReleaseSRWLockExclusive(&g_command_list_reset_hook_lock);
@@ -9493,6 +9514,7 @@ bool EnsureNativeCommandListResetHook(
     ++g_command_list_reset_hook_count;
     const MH_STATUS enabled = MH_EnableHook(target);
     if (enabled != MH_OK && enabled != MH_ERROR_ENABLED) {
+        g_command_list_reset_hook_retry_after[index] = GetTickCount64() + 1000;
         Log("MH_EnableHook D3D12 command-list Reset target=%p failed: status=%d",
             target, static_cast<int>(enabled));
         ReleaseSRWLockExclusive(&g_command_list_reset_hook_lock);

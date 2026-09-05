@@ -229,6 +229,9 @@ int main() {
 #include <cstdint>
 #include <vector>
 using SRWLOCK = int;
+using ULONGLONG = unsigned long long;
+ULONGLONG now_tick = 1000;
+ULONGLONG GetTickCount64() { return now_tick; }
 int lock_depth = 0;
 void AcquireSRWLockExclusive(SRWLOCK *) { ++lock_depth; }
 void ReleaseSRWLockExclusive(SRWLOCK *) { --lock_depth; }
@@ -269,6 +272,7 @@ MH_STATUS MH_EnableHook(void *target) {
 SRWLOCK g_queue_execute_hook_lock = 0, g_command_list_reset_hook_lock = 0;
 void *g_queue_execute_hook_targets[4] = {}, *g_command_list_reset_hook_targets[4] = {};
 bool g_queue_execute_hook_enabled[4] = {}, g_command_list_reset_hook_enabled[4] = {};
+ULONGLONG g_queue_execute_hook_retry_after[4] = {}, g_command_list_reset_hook_retry_after[4] = {};
 std::size_t g_queue_execute_hook_count = 0, g_command_list_reset_hook_count = 0;
 void *g_original_queue_execute[4] = {}, *g_original_command_list_reset[4] = {};
 void *g_queue_execute_detours[4] = {}, *g_command_list_reset_detours[4] = {};
@@ -278,6 +282,9 @@ void reset_fixture() {
     std::fill_n(g_command_list_reset_hook_targets, 4, nullptr);
     std::fill_n(g_queue_execute_hook_enabled, 4, false);
     std::fill_n(g_command_list_reset_hook_enabled, 4, false);
+    std::fill_n(g_queue_execute_hook_retry_after, 4, 0);
+    std::fill_n(g_command_list_reset_hook_retry_after, 4, 0);
+    now_tick = 1000;
     std::fill_n(g_original_queue_execute, 4, nullptr);
     std::fill_n(g_original_command_list_reset, 4, nullptr);
     g_queue_execute_hook_count = g_command_list_reset_hook_count = 0;
@@ -295,8 +302,14 @@ int main() {
         auto ensure = [&] { return queue ? EnsureNativeQueueExecuteHook(&owner) : EnsureNativeCommandListResetHook(&owner); };
         reset_fixture(); enable_failures = 2;
         check(!ensure(), "first enable failure stays unavailable");
+        check(!ensure() && enable_calls == 1, "no same-frame retry can freeze threads again");
+        now_tick += 999;
+        check(!ensure() && enable_calls == 1, "failed enable backs off for one second");
+        ++now_tick;
         check(!ensure(), "repeated enable failure is not falsely marked ready");
+        check(!ensure() && enable_calls == 2, "backoff renews after another failure");
         check(create_calls == 1, "retry reuses only its own created trampoline");
+        now_tick += 1000;
         check(ensure(), "successful later enable recovers");
         check(create_calls == 1 && enable_calls == 3, "recovery enables without duplicate creation");
         check(ensure() && enable_calls == 3, "ready hook has no per-call republishing");
