@@ -1642,6 +1642,29 @@ bool ApplyConfig(ChainConfig next, const char *source,
     return true;
 }
 
+// Pending UI edits are transactions against the generation they displayed.
+struct OverlayConfigSnapshot { ChainConfig config; unsigned generation; };
+OverlayConfigSnapshot SnapshotOverlayConfig() {
+    EnterCriticalSection(&g_chain_cs);
+    ReloadConfig();
+    OverlayConfigSnapshot snapshot{g_config, g_config_generation.load(std::memory_order_relaxed)};
+    LeaveCriticalSection(&g_chain_cs);
+    return snapshot;
+}
+enum class OverlayApplyResult { Applied, Busy, Conflict };
+OverlayApplyResult ApplyOverlayConfig(ChainConfig next, unsigned expected_generation) {
+    EnterCriticalSection(&g_chain_cs);
+    if (nr_f8::g_config_hold.load(std::memory_order_acquire)) {
+        LeaveCriticalSection(&g_chain_cs); return OverlayApplyResult::Busy;
+    }
+    if (g_config_generation.load(std::memory_order_relaxed) != expected_generation) {
+        LeaveCriticalSection(&g_chain_cs); return OverlayApplyResult::Conflict;
+    }
+    ApplyConfig(next, "ReShade simplified settings");
+    LeaveCriticalSection(&g_chain_cs);
+    return OverlayApplyResult::Applied;
+}
+
 struct PerfSignature {
     bool enabled = false;
     bool other_nr_owner = false;
@@ -9348,6 +9371,45 @@ NgxResult HookDlssdRelease(NgxHandle *handle) {
     return result;
 }
 
+#define NR_HAS_NGX_HOOK_EVIDENCE 1
+#include "nr_hook_entry.h"
+struct NgxHookFailureEvidence {
+    bool available = false;
+    int status = 0;
+    const char *entry = "not-sampled";
+    char operation[96] = {};
+    ULONGLONG sampled_at = 0;
+};
+SRWLOCK g_ngx_hook_failure_lock = SRWLOCK_INIT;
+NgxHookFailureEvidence g_ngx_hook_failure;
+NgxHookFailureEvidence SnapshotNgxHookFailure() {
+    NgxHookFailureEvidence copy;
+    if (!TryAcquireSRWLockShared(&g_ngx_hook_failure_lock)) return copy;
+    copy = g_ngx_hook_failure;
+    ReleaseSRWLockShared(&g_ngx_hook_failure_lock);
+    return copy;
+}
+void RecordNgxHookFailure(void *target, MH_STATUS status, const char *name) {
+    // Cold failure path only; no foreign pointer is followed or code modified.
+    unsigned char entry[16] = {}, prefix[5] = {};
+    SIZE_T entry_bytes = 0, prefix_bytes = 0;
+    (void)ReadProcessMemory(GetCurrentProcess(), target, entry, sizeof(entry), &entry_bytes);
+    const auto address = reinterpret_cast<std::uintptr_t>(target);
+    if (address >= sizeof(prefix))
+        (void)ReadProcessMemory(GetCurrentProcess(), reinterpret_cast<const void *>(address - sizeof(prefix)),
+            prefix, sizeof(prefix), &prefix_bytes);
+    NgxHookFailureEvidence failure;
+    failure.available = true; failure.status = static_cast<int>(status);
+    failure.entry = nr_hook_entry::Name(nr_hook_entry::Classify(entry, entry_bytes, prefix, prefix_bytes));
+    std::snprintf(failure.operation, sizeof(failure.operation), "%s", name ? name : "unknown");
+    failure.sampled_at = GetTickCount64();
+    AcquireSRWLockExclusive(&g_ngx_hook_failure_lock);
+    if (!g_ngx_hook_failure.available) g_ngx_hook_failure = failure;
+    ReleaseSRWLockExclusive(&g_ngx_hook_failure_lock);
+    Log("[ngx-hook-evidence] operation=%s status=%s entry=%s; no foreign prefix or relay modified; coexistence is not proven by module presence.",
+        failure.operation, MH_StatusToString(status), failure.entry);
+}
+
 bool CreateHook(void *target, void *detour, void **original, const char *name) {
     if (target == nullptr) {
         Log("Hook target absent: %s", name);
@@ -9356,6 +9418,7 @@ bool CreateHook(void *target, void *detour, void **original, const char *name) {
     const MH_STATUS status = MH_CreateHook(target, detour, original);
     Log("MH_CreateHook %-38s target=%p status=%d (%s)", name, target,
         static_cast<int>(status), MH_StatusToString(status));
+    if (status != MH_OK) RecordNgxHookFailure(target, status, name);
     return status == MH_OK;
 }
 
@@ -9564,6 +9627,7 @@ void OnExecuteCommandList(reshade::api::command_queue *queue,
     const bool observe_affinity = may_learn_affinity &&
         !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire);
     if (observe_affinity) {
+        OnCommandStateObserveSubmission(command_list);
         EnterCriticalSection(&g_chain_cs);
         GraphicsQueueRecord *tracked = TrackGraphicsQueueLocked(native_queue);
         if (tracked != nullptr)
@@ -11182,13 +11246,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.4.3 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.4.3r2 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.4.3 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.4.3r2 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

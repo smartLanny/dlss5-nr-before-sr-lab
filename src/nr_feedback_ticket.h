@@ -51,7 +51,10 @@ inline bool Build(char *out, std::size_t capacity, const char *report,
         "artifact.addonSha256", "artifact.identityStatus", "exe.leaf", "gpu", "driver.raw",
         "api", "display.extent", "snapshot.valid", "requested.config", "requested.mode",
         "requested.enabled", "requested.blend", "start.bypass", "end.bypass",
-        "start.nrSuccess", "end.nrSuccess", "start.transferSubmitted", "end.transferSubmitted"};
+        "start.nrSuccess", "end.nrSuccess", "start.transferSubmitted", "end.transferSubmitted",
+        "end.commandState.available", "end.commandState.ageMs", "end.commandState.reason",
+        "end.commandState.route", "end.ngxHookFailure.available", "end.ngxHookFailure.operation",
+        "end.ngxHookFailure.status", "end.ngxHookFailure.entry"};
     for (const char *key : keys) {
         char value[160]; Value(report, key, value);
         const int n = std::snprintf(out + used, capacity - used, "%s=%s\n", key, value);

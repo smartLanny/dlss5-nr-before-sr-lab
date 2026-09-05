@@ -63,6 +63,10 @@ struct NativeCommandState {
     ID3D12Resource *predicate = nullptr, *shading_image = nullptr;
     ID3D12DescriptorHeap *rtv_cache = nullptr, *dsv_cache = nullptr;
     bool null_pipeline_baseline = false;
+    // Coverage is not inferred from a null pointer or an unobserved zero mask.
+    bool null_guard_covered = false;
+    bool null_guard_reset_observed = false;
+    bool null_guard_tainted = false;
     const char *baseline_origin = "unobserved";
     UINT64 reset_serial = 0, pipeline_writes = 0;
     CommandDynamicState dynamic;
@@ -95,6 +99,9 @@ void ReleaseNativeCommandState(NativeCommandState &state) {
     state.meta_initialization_dirty = 0;
     state.meta_execution_dirty = 0;
     state.null_pipeline_baseline = false;
+    state.null_guard_covered = false;
+    state.null_guard_reset_observed = false;
+    state.null_guard_tainted = false;
     state.baseline_origin = "unobserved";
     state.reset_serial = state.pipeline_writes = 0;
     memset(&state.dynamic, 0, sizeof(state.dynamic));
@@ -104,7 +111,14 @@ void ResetNativeCommandState(NativeCommandState &state, ID3D12PipelineState *pip
     const UINT meta_initialization_dirty = state.meta_initialization_dirty;
     const UINT meta_execution_dirty = state.meta_execution_dirty;
     const UINT64 serial = state.reset_serial + 1;
+    const bool covered = state.null_guard_covered;
+    const bool fresh_reset = std::strcmp(origin, "Reset") == 0;
+    const bool reset_observed = fresh_reset ? covered : state.null_guard_reset_observed;
+    const bool tainted = !fresh_reset && state.null_guard_tainted;
     ReleaseNativeCommandState(state);
+    state.null_guard_covered = covered;
+    state.null_guard_reset_observed = reset_observed;
+    state.null_guard_tainted = tainted;
     state.meta_initialization_dirty = meta_initialization_dirty;
     state.meta_execution_dirty = meta_execution_dirty;
     CommandStateAssign(state.pipeline, pipeline);
@@ -159,6 +173,9 @@ bool CopyNativeCommandState(NativeCommandState &destination, const NativeCommand
     destination.meta_initialization_dirty = source.meta_initialization_dirty;
     destination.meta_execution_dirty = source.meta_execution_dirty;
     destination.null_pipeline_baseline = source.null_pipeline_baseline;
+    destination.null_guard_covered = source.null_guard_covered;
+    destination.null_guard_reset_observed = source.null_guard_reset_observed;
+    destination.null_guard_tainted = source.null_guard_tainted;
     destination.baseline_origin = source.baseline_origin;
     destination.reset_serial = source.reset_serial;
     destination.pipeline_writes = source.pipeline_writes;
@@ -271,6 +288,16 @@ void CommandStateSamples(NativeCommandState &state, UINT count, UINT pixels, D3D
     if (count > 16 || pixels > 4 || (count*pixels && !values)) { CommandStateInvalidDynamic(state); return; }
     auto &d=state.dynamic; d.recorded |= kDynamicSamples; d.sample_count=count; d.sample_pixels=pixels;
     if (count*pixels) memcpy(d.samples, values, count*pixels*sizeof(*values));
+}
+// Full dynamic graphics replay stays experimental. The automatic path requires
+// complete guard publication followed by a fresh successful native Reset.
+bool CanAutoRestorePristineNull(const NativeCommandState &state) {
+    return state.known && state.null_pipeline_baseline &&
+        state.pipeline == nullptr && state.raytracing_pipeline == nullptr &&
+        state.null_guard_covered && state.null_guard_reset_observed &&
+        !state.null_guard_tainted && state.unknown_domains == 0 &&
+        state.dynamic.recorded == 0 && state.dynamic.vertex_mask == 0 &&
+        state.dynamic.stream_mask == 0;
 }
 bool CanRestoreNativeCommandState(const NativeCommandState &state,
                                   bool allow_null_pso = false) {
@@ -401,6 +428,8 @@ struct CommandStateRecord {
     reshade::api::command_list *owner = nullptr;
     NativeCommandState *state = nullptr; // Only NR carrier lists allocate this.
     bool hooks_ready = false;
+    bool null_guard_requested = false;
+    ULONGLONG next_hook_attempt = 0;
     CommandStateMetaContract meta_contract;
 };
 CommandStateRecord g_command_states[2048] = {};
@@ -408,6 +437,32 @@ SRWLOCK g_command_state_lock = SRWLOCK_INIT;
 std::atomic<unsigned long long> g_command_state_epoch{1};
 unsigned long long g_next_command_state_token = 1;
 std::atomic<unsigned long long> g_command_state_bypasses{0};
+std::atomic<bool> g_command_state_registration_repair_needed{false};
+#define NR_HAS_COMMAND_STATE_EVIDENCE 1
+struct CommandStateEvidence {
+    bool available = false, captured = false, registered = false, hooks_ready = false;
+    bool guard_requested = false, guard_covered = false, fresh_reset = false, tainted = false;
+    bool meta_known = false, has_pipeline = false, has_ray_pipeline = false, null_baseline = false;
+    bool roots[2] = {}, heaps[2] = {};
+    const char *reason = "no-carrier-sample";
+    const char *baseline = "unobserved";
+    const char *route = "native-bypass";
+    UINT dirty = 0, meta_init = 0, meta_execute = 0, vertex_mask = 0, stream_mask = 0;
+    UINT arguments[2] = {};
+    UINT64 sequence = 0, token = 0, reset_serial = 0, pipeline_writes = 0, dynamic = 0;
+    ULONGLONG sampled_at = 0;
+};
+CommandStateEvidence g_command_state_evidence;
+CommandStateEvidence SnapshotCommandStateEvidence() {
+    CommandStateEvidence copy;
+    if (!TryAcquireSRWLockShared(&g_command_state_lock)) {
+        copy.reason = "snapshot-busy";
+        return copy;
+    }
+    copy = g_command_state_evidence;
+    ReleaseSRWLockShared(&g_command_state_lock);
+    return copy;
+}
 bool EnsureNativeCommandListResetHook(reshade::api::command_list *command_list);
 bool PinHookAddress(const void *address, const char *name, HMODULE expected_module);
 
@@ -486,7 +541,7 @@ NR_STATE_HOOK(Set##NAME##RootUnorderedAccessView, (ID3D12GraphicsCommandList *co
 NR_STATE_STAGE(Compute, 0)
 NR_STATE_STAGE(Graphics, 1)
 NR_STATE_HOOK(ExecuteBundle, (ID3D12GraphicsCommandList *command_list, ID3D12GraphicsCommandList *bundle),
-    (command_list, bundle), state.known = false; state.unknown_reason = "execute-bundle")
+    (command_list, bundle), state.known = false; state.unknown_reason = "execute-bundle"; state.null_guard_tainted=true)
 NR_STATE_HOOK(IASetPrimitiveTopology, (ID3D12GraphicsCommandList *command_list, D3D12_PRIMITIVE_TOPOLOGY topology),
     (command_list, topology), state.dynamic.topology=topology; state.dynamic.recorded |= kDynamicTopology)
 NR_STATE_HOOK(RSSetViewports, (ID3D12GraphicsCommandList *command_list, UINT count, const D3D12_VIEWPORT *values),
@@ -529,9 +584,9 @@ NR_EXTENDED_STATE_HOOK(SetSamplePositions, (ID3D12GraphicsCommandList *command_l
 NR_EXTENDED_STATE_HOOK(SetViewInstanceMask, (ID3D12GraphicsCommandList *command_list, UINT mask),
     (command_list, mask), state.dynamic.view_mask=mask; state.dynamic.recorded |= kDynamicViewMask)
 NR_EXTENDED_STATE_HOOK(SetProtectedResourceSession, (ID3D12GraphicsCommandList *command_list, ID3D12ProtectedResourceSession *session),
-    (command_list, session), state.known=false; state.unknown_reason="protected-resource-session")
+    (command_list, session), state.known=false; state.unknown_reason="protected-resource-session"; state.null_guard_tainted=true)
 NR_EXTENDED_STATE_HOOK(BeginRenderPass, (ID3D12GraphicsCommandList *command_list, UINT count, const D3D12_RENDER_PASS_RENDER_TARGET_DESC *targets, const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC *depth, D3D12_RENDER_PASS_FLAGS flags),
-    (command_list, count, targets, depth, flags), state.known=false; state.unknown_reason="render-pass")
+    (command_list, count, targets, depth, flags), state.known=false; state.unknown_reason="render-pass"; state.null_guard_tainted=true)
 NR_EXTENDED_STATE_HOOK(RSSetShadingRate, (ID3D12GraphicsCommandList *command_list, D3D12_SHADING_RATE rate, const D3D12_SHADING_RATE_COMBINER *combiners),
     (command_list, rate, combiners), state.dynamic.shading_rate=rate; state.dynamic.has_combiners=combiners!=nullptr; if (combiners) memcpy(state.dynamic.combiners, combiners, sizeof(state.dynamic.combiners)); state.dynamic.recorded |= kDynamicShadingRate)
 NR_EXTENDED_STATE_HOOK(RSSetShadingRateImage, (ID3D12GraphicsCommandList *command_list, ID3D12Resource *resource),
@@ -738,7 +793,7 @@ template <unsigned int I> void STDMETHODCALLTYPE StateHookSetProgram(ID3D12Graph
     using Fn = void (STDMETHODCALLTYPE *)(ID3D12GraphicsCommandList *, const void *);
     reinterpret_cast<Fn>(g_state_SetProgram.originals[I])(command_list, description);
     MutateNativeCommandState(command_list, [&](NativeCommandState &state) {
-        state.known = false; state.unknown_reason = "work-graph-SetProgram";
+        state.known = false; state.unknown_reason = "work-graph-SetProgram"; state.null_guard_tainted = true;
     });
 }
 void *const g_state_detours_SetProgram[4] = {
@@ -905,10 +960,10 @@ bool AppendCommandStateInterfaceHooks(ID3D12GraphicsCommandList *native, REFIID 
     IUnknown_Release(queried);
     return same;
 }
-bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native) {
+bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native, bool observe_pristine_null = false) {
     CommandStateHookRequest requests[48] = {};
     unsigned int count = 0;
-    const bool allow_null_pso = AllowExperimentalNullPsoCarrier();
+    const bool allow_null_pso = AllowExperimentalNullPsoCarrier() || observe_pristine_null;
 #define NR_ADD_STATE_HOOK(NAME) requests[count++] = { &g_state_##NAME, reinterpret_cast<void *>(native->lpVtbl->NAME), g_state_detours_##NAME }
     NR_ADD_STATE_HOOK(SetPipelineState); NR_ADD_STATE_HOOK(ClearState);
     NR_ADD_STATE_HOOK(SetDescriptorHeaps); NR_ADD_STATE_HOOK(ExecuteBundle); NR_ADD_STATE_HOOK(ExecuteIndirect);
@@ -992,15 +1047,62 @@ void OnCommandStateInitList(reshade::api::command_list *owner) {
     CommandStateMetaContract meta;
     UINT meta_bytes = sizeof(meta);
     if (FAILED(ID3D12Device_GetPrivateData(native_device, kCommandStateMetaContract, &meta_bytes, &meta)) || meta_bytes != sizeof(meta)) meta = {};
+    const char *registration_failure = nullptr;
     AcquireSRWLockExclusive(&g_command_state_lock);
     if (FindCommandStateTokenLocked(ReadCommandStateToken(native)) == nullptr) {
+        registration_failure = "registry-capacity";
         for (auto &record : g_command_states) if (record.token == 0) {
             const auto token = g_next_command_state_token++;
             if (SUCCEEDED(ID3D12GraphicsCommandList_SetPrivateData(native, kCommandStateIdentity, sizeof(token), &token))) {
                 record.token = token; record.native = native; record.owner = owner; record.meta_contract = meta;
                 g_command_state_epoch.fetch_add(1, std::memory_order_release);
-            }
+                registration_failure = nullptr;
+            } else registration_failure = "private-data-publication";
             break;
+        }
+    }
+    ReleaseSRWLockExclusive(&g_command_state_lock);
+    if (registration_failure) {
+        static std::atomic<unsigned int> failures{0};
+        if (failures.fetch_add(1, std::memory_order_relaxed) < 6)
+            Log("[command-state] list registration failed: reason=%s; no state is inferred.", registration_failure);
+    }
+}
+
+void OnCommandStateObserveSubmission(reshade::api::command_list *owner) {
+    if (!g_command_state_registration_repair_needed.load(std::memory_order_relaxed)) return;
+    if (!owner || !owner->get_device() ||
+        owner->get_device()->get_api() != reshade::api::device_api::d3d12) return;
+    auto *native = reinterpret_cast<ID3D12GraphicsCommandList *>(owner->get_native());
+    if (!native || ID3D12GraphicsCommandList_GetType(native) != D3D12_COMMAND_LIST_TYPE_DIRECT) return;
+    const auto token = ReadCommandStateToken(native);
+    AcquireSRWLockShared(&g_command_state_lock);
+    const bool registered = FindCommandStateTokenLocked(token) != nullptr;
+    ReleaseSRWLockShared(&g_command_state_lock);
+    if (registered) return;
+    // Real submission proves only the owner mapping, never the current bindings.
+    OnCommandStateInitList(owner);
+    const auto observed_token = ReadCommandStateToken(native);
+    AcquireSRWLockShared(&g_command_state_lock);
+    const bool recovered = FindCommandStateTokenLocked(observed_token) != nullptr;
+    ReleaseSRWLockShared(&g_command_state_lock);
+    static std::atomic<unsigned int> reports{0};
+    if (reports.fetch_add(1, std::memory_order_relaxed) < 3)
+        Log("[command-state] late ReShade list observation: registered=%d; baseline remains unknown until native Reset.",
+            recovered ? 1 : 0);
+}
+void CompleteCommandStateInstallation(unsigned long long token,
+        ID3D12GraphicsCommandList *native, bool ready, bool observed_null) {
+    AcquireSRWLockExclusive(&g_command_state_lock);
+    auto *record = FindCommandStateTokenLocked(token);
+    if (record && record->native == native && record->state) {
+        record->hooks_ready = ready;
+        record->next_hook_attempt = ready ? 0 : GetTickCount64() + 1000;
+        if (ready && observed_null && !record->state->null_guard_covered) {
+            record->state->null_guard_covered = true;
+            record->state->null_guard_reset_observed = false;
+            record->state->known = false;
+            record->state->unknown_reason = "null-guard-awaiting-reset";
         }
     }
     ReleaseSRWLockExclusive(&g_command_state_lock);
@@ -1010,24 +1112,35 @@ void OnCommandStateBeforeReset(reshade::api::command_list *owner) {
     auto *native = reinterpret_cast<ID3D12GraphicsCommandList *>(owner->get_native());
     if (ReadCommandStateToken(native) == 0) OnCommandStateInitList(owner);
     const auto token = ReadCommandStateToken(native);
+    bool install = false, observe_null = false;
     AcquireSRWLockExclusive(&g_command_state_lock);
     auto *record = FindCommandStateTokenLocked(token);
-    const bool active = record != nullptr && record->state != nullptr;
     if (record != nullptr && record->native != native) {
-        record->native = native; record->hooks_ready = false;
-        if (record->state != nullptr) record->state->known = false;
+        record->native = native; record->hooks_ready = false; record->next_hook_attempt = 0;
+        if (record->state != nullptr) {
+            record->state->known = false;
+            record->state->null_guard_covered = false;
+            record->state->null_guard_reset_observed = false;
+        }
         g_command_state_epoch.fetch_add(1, std::memory_order_release);
     }
-    const bool install = active && !record->hooks_ready;
+    if (record && record->state && !record->hooks_ready) {
+        const ULONGLONG now = GetTickCount64();
+        if (now >= record->next_hook_attempt) {
+            record->next_hook_attempt = now + 1000;
+            install = true;
+            observe_null = record->null_guard_requested;
+        }
+    }
     ReleaseSRWLockExclusive(&g_command_state_lock);
-    const bool ready = active &&
-        (!install || (EnsureCommandSignatureHook(owner->get_device()) &&
-                      InstallNativeCommandStateHooks(native))) &&
-        EnsureNativeCommandListResetHook(owner);
-    AcquireSRWLockExclusive(&g_command_state_lock);
-    if (record != nullptr && record->token == token) record->hooks_ready = ready;
-    ReleaseSRWLockExclusive(&g_command_state_lock);
+    if (install) {
+        const bool ready = EnsureCommandSignatureHook(owner->get_device()) &&
+            InstallNativeCommandStateHooks(native, observe_null) &&
+            EnsureNativeCommandListResetHook(owner);
+        CompleteCommandStateInstallation(token, native, ready, observe_null);
+    }
 }
+
 void OnCommandStateResetResult(ID3D12GraphicsCommandList *native, HRESULT result, ID3D12PipelineState *pipeline) {
     MutateNativeCommandState(native, [&](NativeCommandState &state) {
         if (SUCCEEDED(result)) ResetNativeCommandState(state, pipeline);
@@ -1050,25 +1163,25 @@ void OnCommandStateDestroyList(reshade::api::command_list *owner) {
 bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCommandState &snapshot,
                                ID3D12GraphicsCommandList **native_output = nullptr) {
     if (native_output != nullptr) *native_output = nullptr;
-    // Restoring graphics tables is only legal on DIRECT lists. Do not record
-    // even a null graphics-root setter onto a COMPUTE/COPY command list.
     if (command_list == nullptr || ID3D12GraphicsCommandList_GetType(command_list) != D3D12_COMMAND_LIST_TYPE_DIRECT) {
-        static std::atomic<unsigned int> rejected_type{0};
-        if (rejected_type.fetch_add(1, std::memory_order_relaxed) < 3)
-            Log("[command-state] NR bypass: DIRECT command list required; no plugin commands recorded.");
+        CommandStateEvidence rejected;
+        rejected.available = true; rejected.reason = "direct-list-required";
+        rejected.sampled_at = GetTickCount64();
+        AcquireSRWLockExclusive(&g_command_state_lock);
+        rejected.sequence = g_command_state_evidence.sequence + 1;
+        g_command_state_evidence = rejected;
+        ReleaseSRWLockExclusive(&g_command_state_lock);
         SetBypassReason(BypassReason::CommandStateUnverified);
         return false;
     }
     const auto token = ReadCommandStateToken(command_list);
     reshade::api::command_list *owner = nullptr;
     ID3D12GraphicsCommandList *native = nullptr;
-    bool needs_install = false;
-    bool captured = false;
+    bool needs_install = false, observe_null = false, captured = false;
+    const bool experimental = AllowExperimentalNullPsoCarrier();
     const char *unavailable_reason = "unregistered-list";
-    UINT unknown_domains = 0;
-    UINT64 reset_serial=0, pipeline_writes=0;
-    const char *baseline_origin="unobserved";
-    bool null_baseline=false;
+    CommandStateEvidence evidence;
+    evidence.available = true; evidence.token = token; evidence.sampled_at = GetTickCount64();
     AcquireSRWLockExclusive(&g_command_state_lock);
     auto *record = FindCommandStateTokenLocked(token);
     if (record != nullptr) {
@@ -1081,52 +1194,97 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
             g_command_state_epoch.fetch_add(1, std::memory_order_release);
         }
         owner = record->owner; native = record->native;
-        needs_install = record->state != nullptr && !record->hooks_ready;
         const bool meta_covered = record->meta_contract.known &&
             ((record->meta_contract.initialization_dirty | record->meta_contract.execution_dirty) & ~kCommandStateCoveredDomains) == 0;
+        // The recording predates guard publication: never treat its zero mask
+        // as proof of pristine graphics. A new successful Reset is mandatory.
+        if (!experimental && meta_covered && record->state && record->hooks_ready &&
+            record->state->known && record->state->null_pipeline_baseline &&
+            !record->null_guard_requested) {
+            record->null_guard_requested = true;
+            record->hooks_ready = false;
+            record->next_hook_attempt = 0;
+            record->state->known = false;
+            record->state->unknown_reason = "null-guard-awaiting-reset";
+        }
+        if (record->state && !record->hooks_ready && evidence.sampled_at >= record->next_hook_attempt) {
+            needs_install = true;
+            record->next_hook_attempt = evidence.sampled_at + 1000;
+        }
+        observe_null = record->null_guard_requested;
+        const bool pristine = record->state && CanAutoRestorePristineNull(*record->state);
         captured = meta_covered && record->state != nullptr && record->hooks_ready &&
             CanRestoreNativeCommandState(*record->state,
-                AllowExperimentalNullPsoCarrier());
+                experimental || pristine);
         unavailable_reason = !meta_covered ? "meta-command-coverage" : record->state == nullptr ? "snapshot-allocation" :
             !record->hooks_ready ? "native-hooks-unavailable" : !record->state->known ? record->state->unknown_reason :
             record->state->unknown_domains != 0 ? "meta-command-dirty-state" :
             (record->state->dynamic.recorded & (kDynamicDepthBias | kDynamicStripCut)) && !record->state->pipeline ? "dynamic-raster-without-PSO" :
-            record->state->null_pipeline_baseline && !AllowExperimentalNullPsoCarrier() ? "null-pso-policy-disabled" : "pipeline-unbound";
+            record->state->null_pipeline_baseline && !experimental && !pristine ?
+                (record->state->null_guard_tainted ? "null-guard-recording-tainted" :
+                 !record->state->null_guard_reset_observed ? "null-guard-awaiting-reset" : "null-guard-graphics-state-used") : "pipeline-unbound";
+        evidence.registered = true; evidence.hooks_ready = record->hooks_ready;
+        evidence.guard_requested = record->null_guard_requested;
+        evidence.meta_known = record->meta_contract.known;
+        evidence.meta_init = record->meta_contract.initialization_dirty;
+        evidence.meta_execute = record->meta_contract.execution_dirty;
         if (record->state != nullptr) {
-            unknown_domains = record->state->unknown_domains;
-            reset_serial=record->state->reset_serial; pipeline_writes=record->state->pipeline_writes;
-            baseline_origin=record->state->baseline_origin; null_baseline=record->state->null_pipeline_baseline;
+            const auto &state = *record->state;
+            evidence.dirty = state.unknown_domains;
+            evidence.reset_serial = state.reset_serial; evidence.pipeline_writes = state.pipeline_writes;
+            evidence.baseline = state.baseline_origin; evidence.null_baseline = state.null_pipeline_baseline;
+            evidence.guard_covered = state.null_guard_covered; evidence.fresh_reset = state.null_guard_reset_observed;
+            evidence.tainted = state.null_guard_tainted;
+            evidence.dynamic = state.dynamic.recorded;
+            evidence.vertex_mask = state.dynamic.vertex_mask; evidence.stream_mask = state.dynamic.stream_mask;
+            evidence.has_pipeline = state.pipeline != nullptr; evidence.has_ray_pipeline = state.raytracing_pipeline != nullptr;
+            for (unsigned stage = 0; stage < 2; ++stage) {
+                evidence.roots[stage] = state.roots[stage] != nullptr;
+                evidence.heaps[stage] = state.heaps[stage] != nullptr;
+                for (const auto &argument : state.arguments[stage])
+                    if (argument.kind != CommandRootKind::Empty) ++evidence.arguments[stage];
+            }
         }
         if (captured) {
-            captured=CopyNativeCommandState(snapshot, *record->state);
-            if (!captured) unavailable_reason="dynamic-descriptor-snapshot-allocation";
+            captured = CopyNativeCommandState(snapshot, *record->state);
+            if (!captured) unavailable_reason = "dynamic-descriptor-snapshot-allocation";
             if (captured && native_output != nullptr) *native_output = native;
         }
+        if (captured) evidence.route = pristine && !experimental ? "pristine-null" :
+            evidence.has_pipeline ? "typed-pso" : evidence.has_ray_pipeline ? "dxr-pso" : "experimental-null";
     }
+    g_command_state_registration_repair_needed.store(record == nullptr, std::memory_order_relaxed);
+    evidence.captured = captured;
+    evidence.reason = captured ? "none" : unavailable_reason;
+    evidence.sequence = g_command_state_evidence.sequence + 1;
+    const bool changed_reason = std::strcmp(evidence.reason, g_command_state_evidence.reason) != 0;
+    g_command_state_evidence = evidence;
     ReleaseSRWLockExclusive(&g_command_state_lock);
     if (needs_install) {
         const bool ready = owner != nullptr &&
             EnsureCommandSignatureHook(owner->get_device()) &&
-            InstallNativeCommandStateHooks(native) &&
+            InstallNativeCommandStateHooks(native, observe_null) &&
             EnsureNativeCommandListResetHook(owner);
-        AcquireSRWLockExclusive(&g_command_state_lock);
-        if (record->token == token) record->hooks_ready = ready;
-        ReleaseSRWLockExclusive(&g_command_state_lock);
+        CompleteCommandStateInstallation(token, native, ready, observe_null);
     }
     if (!captured) {
         const auto count = g_command_state_bypasses.fetch_add(1, std::memory_order_relaxed) + 1;
-        if (count <= 6 || (count % 600) == 0)
-            Log("[command-state] NR bypass: reason=%s token=%llu registered=%d installing=%d dirty=0x%X count=%llu baseline=%s resetSerial=%llu pipelineWrites=%llu nullBaseline=%d; successful native Reset and game bindings can recover.", unavailable_reason, token, record != nullptr ? 1 : 0, needs_install ? 1 : 0, unknown_domains, count, baseline_origin, reset_serial, pipeline_writes, null_baseline ? 1 : 0);
+        if (count <= 6 || (count % 600) == 0 || (changed_reason && count <= 60))
+            Log("[command-state] NR bypass: reason=%s token=%llu registered=%d installing=%d dirty=0x%X count=%llu baseline=%s resetSerial=%llu pipelineWrites=%llu nullBaseline=%d guard=%d/%d/%d tainted=%d dynamic=0x%llX vb=0x%X so=0x%X; unknown state remains native.",
+                unavailable_reason, token, evidence.registered ? 1 : 0, needs_install ? 1 : 0, evidence.dirty, count,
+                evidence.baseline, evidence.reset_serial, evidence.pipeline_writes, evidence.null_baseline ? 1 : 0,
+                evidence.guard_requested ? 1 : 0, evidence.guard_covered ? 1 : 0, evidence.fresh_reset ? 1 : 0,
+                evidence.tainted ? 1 : 0, evidence.dynamic, evidence.vertex_mask, evidence.stream_mask);
         SetBypassReason(BypassReason::CommandStateUnverified);
     } else if (snapshot.null_pipeline_baseline) {
         static std::atomic<unsigned int> null_snapshots{0};
         if (null_snapshots.fetch_add(1, std::memory_order_relaxed) < 6)
-            Log("[command-state] known-null snapshot: token=%llu baseline=%s resetSerial=%llu pipelineWrites=%llu dynamic=0x%llX computeRoot=%p graphicsRoot=%p; restore uses ClearState(NULL) plus recorded dynamic state.",
-                token, snapshot.baseline_origin, snapshot.reset_serial, snapshot.pipeline_writes, snapshot.dynamic.recorded,
-                static_cast<void *>(snapshot.roots[0]), static_cast<void *>(snapshot.roots[1]));
+            Log("[command-state] known-null snapshot: token=%llu baseline=%s resetSerial=%llu route=%s dynamic=0x%llX; native ClearState(NULL) restores the dummy PSO.",
+                token, snapshot.baseline_origin, snapshot.reset_serial, evidence.route, snapshot.dynamic.recorded);
     }
     return captured;
 }
+
 struct NativeCommandStateScope {
     ID3D12GraphicsCommandList *command_list;
     // Games may dispatch NGX on 64 KiB worker stacks. A state is ~36 KiB;

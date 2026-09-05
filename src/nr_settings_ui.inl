@@ -93,7 +93,13 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
     static ChainConfig pending = {};
     static bool has_pending = false;
-    ChainConfig next = has_pending ? pending : SnapshotConfig();
+    static unsigned pending_generation = 0;
+    static bool edit_conflict = false;
+    const auto current = SnapshotOverlayConfig();
+    if (has_pending && pending_generation != current.generation) {
+        has_pending = false; edit_conflict = true;
+    }
+    ChainConfig next = has_pending ? pending : current.config;
     bool changed = false;
     ImGui::SeparatorText(ui("DLSS 5 AI Rendering", "DLSS 5 AI 渲染"));
     ImGui::TextDisabled("%s | %s", kAddonVersion,
@@ -122,12 +128,38 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     else if (reason == BypassReason::WaitingForFeature1 || reason == BypassReason::ModuleObserverInstalling)
         ImGui::TextWrapped("%s", ui("Waiting for native DLSS SR. Enter gameplay and enable DLSS in the game settings.",
             "等待游戏原生 DLSS SR。请进入实际场景，并在游戏设置里开启 DLSS。"));
+    else if (reason == BypassReason::ModuleObserverUncertain) {
+        ImGui::TextWrapped("%s", ui(
+            "DLSS lifecycle observation is incomplete. NR stays off to protect SR/RR and any existing FG/MFG. F8 includes the first hook failure; changing NR strength cannot repair this.",
+            "DLSS 生命周期观察不完整，NR 已安全旁路以保护原生 SR/RR 和现有 FG/MFG。F8 会保留首次 Hook 失败；调高强度不能解决此问题。"));
+        const auto failure = SnapshotNgxHookFailure();
+        if (failure.available)
+            ImGui::TextWrapped(ui("First hook failure (historical): %s / %s", "首次 Hook 失败（历史记录）：%s / %s"),
+                failure.operation, failure.entry);
+    }
+    else if (reason == BypassReason::CommandStateUnverified) {
+        const auto evidence = SnapshotCommandStateEvidence();
+        ImGui::TextWrapped("%s", ui(
+            "The command list is not yet safe for NR insertion. Native SR is preserved. The last carrier decision below is an observation, not a compatibility guarantee.",
+            "当前命令列表尚未满足 NR 安全插入条件，已保留原生 SR。下方是最近一次载体判断，不代表已通过游戏兼容验证。"));
+        if (evidence.available)
+            ImGui::TextWrapped(ui("Last reason: %s | guard requested/covered/reset: %d/%d/%d | age: %llu ms",
+                "最近原因：%s | 观察请求/覆盖/新重置：%d/%d/%d | 距今：%llu 毫秒"),
+                evidence.reason, evidence.guard_requested ? 1 : 0, evidence.guard_covered ? 1 : 0,
+                evidence.fresh_reset ? 1 : 0, GetTickCount64() - evidence.sampled_at);
+        ImGui::TextWrapped("%s", ui("Use F8 for the structured state report; do not disable safety guards.",
+            "按 F8 获取结构化状态报告；请勿通过关闭安全保护强行启用。"));
+    }
     else if (reason != BypassReason::None)
         ImGui::TextWrapped(ui("NR is temporarily skipped (%s). Keep the scene and collect feedback with F8.",
             "NR 当前已跳过（%s）。请保留问题场景，按 F8 收集反馈。"), BypassReasonName(reason));
     else
         ImGui::TextWrapped("%s", ui("NR path available. Compare the picture with F6; submitted work is shown in diagnostics.",
             "NR 链路可用。按 F6 对比画面，实际提交状态可在诊断中查看。"));
+    if (next.identity_use_original)
+        ImGui::TextWrapped("%s", ui(
+            "Diagnostic identity mode is ON: NR may run, but its picture is deliberately discarded. Turn off 'Run NR but discard its picture' to compare the effect.",
+            "诊断原图模式已开启：NR 可以运行，但效果会被主动丢弃。请关闭兼容性选项中的“运行 NR 但丢弃其画面”再对比。"));
     if (g_config_persistence_failed.load())
         ImGui::TextWrapped("%s", ui("Settings cannot be saved. Check that the plugin folder is writable.",
             "设置无法保存，请检查插件目录是否可写。当前设置仍用于本次运行。"));
@@ -299,8 +331,17 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     ImGui::EndTabBar();
     }
-    if (changed) { pending = next; has_pending = true; }
-    if (has_pending && !ImGui::IsAnyItemActive()) {
-        ApplyConfig(pending, "ReShade simplified settings"); has_pending = false;
+    if (changed) {
+        pending = next; pending_generation = current.generation;
+        has_pending = true; edit_conflict = false;
     }
+    if (has_pending && !ImGui::IsAnyItemActive()) {
+        const auto result = ApplyOverlayConfig(pending, pending_generation);
+        if (result != OverlayApplyResult::Busy) has_pending = false;
+        if (result == OverlayApplyResult::Conflict) edit_conflict = true;
+    }
+    if (edit_conflict)
+        ImGui::TextWrapped("%s", ui(
+            "Settings changed elsewhere. The stale edit was discarded; adjust again using the current values.",
+            "设置已被快捷键、配置重载或采集恢复更新；旧编辑未覆盖新值，请在当前值上重新调整。"));
 }
