@@ -1,0 +1,40 @@
+name: Prepare beta0.5 source objects (isolated)
+on:
+  push:
+    branches: [codex/050-high-strength-preparation]
+    paths:
+      - .github/workflows/prepare-beta050-source.yml
+      - scripts/prepare-050-source.py
+      - scripts/prepare-050-identity.py
+      - scripts/validate-beta05-boost.py
+      - tests/high_strength_gpu.inl
+      - docs/BETA_0_5_DEVELOPMENT.md
+permissions:
+  contents: read
+concurrency:
+  group: prepare-beta050-source
+  cancel-in-progress: true
+jobs:
+  prepare:
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/codex/050-high-strength-preparation'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - name: Prepare, validate and upload only unreferenced Git objects
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('scripts/prepare-050-source.py').read_text(encoding='utf-8')
+          anchor = '# Verify before making even unreferenced Git objects.'
+          assert source.count(anchor) == 1
+          inject = "exec(compile(Path('scripts/prepare-050-identity.py').read_text(encoding='utf-8'), 'prepare-050-identity.py', 'exec'))\n"
+          source = source.replace(anchor, inject + anchor)
+          exec(compile(source, 'prepare-050-source.py', 'exec'))
+          PY
