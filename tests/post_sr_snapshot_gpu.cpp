@@ -42,17 +42,22 @@ static ID3D12Resource *Resource(D3D12_RESOURCE_DESC desc, D3D12_HEAP_TYPE type,
     D3D12_HEAP_PROPERTIES heap = {}; heap.Type = type;
     heap.CreationNodeMask = heap.VisibleNodeMask = 1;
     ID3D12Resource *r = nullptr;
-    HR(ID3D12Device_CreateCommittedResource(device,&heap,D3D12_HEAP_FLAG_NONE,&desc,state,
-        nullptr,IID_ID3D12Resource,reinterpret_cast<void **>(&r)),"create resource");
-    owned.push_back(r); return r;
+    const HRESULT result=ID3D12Device_CreateCommittedResource(device,&heap,D3D12_HEAP_FLAG_NONE,&desc,state,
+        nullptr,IID_ID3D12Resource,reinterpret_cast<void **>(&r));
+    if (FAILED(result)) std::fprintf(stderr,"resource: dimension=%u width=%llu height=%u format=%u flags=%u heap=%u state=%u\n",
+        static_cast<unsigned>(desc.Dimension),desc.Width,desc.Height,static_cast<unsigned>(desc.Format),
+        static_cast<unsigned>(desc.Flags),static_cast<unsigned>(type),static_cast<unsigned>(state));
+    HR(result,"create resource"); owned.push_back(r); return r;
 }
-static ID3D12Resource *Texture(unsigned w, unsigned h, bool deny,
-                               DXGI_FORMAT format = DXGI_FORMAT_R16G16B16A16_FLOAT) {
+static D3D12_RESOURCE_DESC ColourDesc(unsigned w,unsigned h,DXGI_FORMAT format) {
     D3D12_RESOURCE_DESC d = {}; d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     d.Width=w; d.Height=h; d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;
     d.Format=format; d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-    if (deny) d.Flags=static_cast<D3D12_RESOURCE_FLAGS>(d.Flags|D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
-    return Resource(d,D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_STATE_COPY_DEST);
+    return d;
+}
+static ID3D12Resource *Texture(unsigned w, unsigned h,
+                               DXGI_FORMAT format = DXGI_FORMAT_R16G16B16A16_FLOAT) {
+    return Resource(ColourDesc(w,h,format),D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_STATE_COPY_DEST);
 }
 static ID3D12Resource *Buffer(UINT64 bytes, D3D12_HEAP_TYPE type) {
     D3D12_RESOURCE_DESC d = {}; d.Dimension=D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -119,6 +124,18 @@ int main(int argc,char **argv) {
         IID_ID3D12Device,reinterpret_cast<void **>(&device)),"WARP device");
     ID3D12InfoQueue *info=nullptr;
     HR(ID3D12Device_QueryInterface(device,IID_ID3D12InfoQueue,reinterpret_cast<void **>(&info)),"debug info queue");
+    // Negative resource-creation fixture: DENY_SHADER_RESOURCE requires a
+    // depth-stencil format and cannot be a supported FP16 colour UAV case.
+    auto invalid=ColourDesc(8,6,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    invalid.Flags=static_cast<D3D12_RESOURCE_FLAGS>(invalid.Flags|D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
+    D3D12_HEAP_PROPERTIES invalid_heap={};invalid_heap.Type=D3D12_HEAP_TYPE_DEFAULT;
+    invalid_heap.CreationNodeMask=invalid_heap.VisibleNodeMask=1;
+    ID3D12Resource *rejected=nullptr;
+    const HRESULT invalid_result=ID3D12Device_CreateCommittedResource(device,&invalid_heap,D3D12_HEAP_FLAG_NONE,
+        &invalid,D3D12_RESOURCE_STATE_COPY_DEST,nullptr,IID_ID3D12Resource,reinterpret_cast<void **>(&rejected));
+    Check(invalid_result==E_INVALIDARG && rejected==nullptr,"illegal FP16 DENY_SHADER_RESOURCE fixture rejected");
+    Check(ID3D12InfoQueue_GetNumStoredMessages(info)>0,"invalid resource produces debug evidence");
+    ID3D12InfoQueue_ClearStoredMessages(info); // Only clear the expected negative fixture, before valid scenarios.
     ID3D12CommandQueue *queue=nullptr;D3D12_COMMAND_QUEUE_DESC q={};q.Type=D3D12_COMMAND_LIST_TYPE_DIRECT;
     HR(ID3D12Device_CreateCommandQueue(device,&q,IID_ID3D12CommandQueue,reinterpret_cast<void **>(&queue)),"queue");
     ID3D12CommandAllocator *allocator=nullptr;
@@ -127,9 +144,10 @@ int main(int argc,char **argv) {
     HR(ID3D12Device_CreateCommandList(device,0,q.Type,allocator,nullptr,IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&list)),"list");
     std::vector<Readback> reads;std::vector<std::vector<std::uint16_t>> expected;
     for(unsigned trial=0;trial<3;++trial) {
+        std::printf("FP16 native-output scenario %u\n",trial);
         const unsigned sw=trial==2?9:8,sh=6,dw=trial==2?9:5,dh=trial==2?6:4;
         const unsigned x=trial==2?0:2,y=trial==2?0:1,w=trial==2?9:3,h=trial==2?6:2;
-        auto *native=Texture(sw,sh,trial!=0),*snapshot=Texture(dw,dh,false);
+        auto *native=Texture(sw,sh),*snapshot=Texture(dw,dh);
         auto original=Pixels(sw,sh,trial),dest=Pixels(dw,dh,trial+3);
         Upload(list,native,original);Upload(list,snapshot,dest);
         D3D12_RESOURCE_STATES ns=D3D12_RESOURCE_STATE_COPY_DEST,ss=D3D12_RESOURCE_STATE_COPY_DEST;
@@ -144,12 +162,11 @@ int main(int argc,char **argv) {
         Check(transitions==before,"rejected snapshots record no barriers");
         Check(CopyPostSrFp16Snapshot(list,native,ns,snapshot,ss,x,y,w,h),"valid exact snapshot");
         Check(ns==D3D12_RESOURCE_STATE_UNORDERED_ACCESS && ss==D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,"states restored");
-        // Repeat on the same workset, including a second origin, without rewriting descriptors.
         const unsigned rx=trial==2?x:x+1;
         Check(CopyPostSrFp16Snapshot(list,native,ns,snapshot,ss,rx,y,w,h),"repeated workset snapshot");
         for(unsigned row=0;row<h;++row)for(unsigned col=0;col<w*4;++col)
             dest[row*dw*4+col]=original[(row+y)*sw*4+rx*4+col];
-        if(negative && trial==0)dest[0]^=1; // GPU oracle must reject an incorrect expected byte.
+        if(negative && trial==0)dest[0]^=1;
         reads.push_back(Read(list,native,ns));expected.push_back(original);
         reads.push_back(Read(list,snapshot,ss));expected.push_back(dest);
     }

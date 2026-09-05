@@ -20,10 +20,16 @@ bool CopyPostSrFp16Snapshot(ID3D12GraphicsCommandList *commands,
     const auto source = ID3D12Resource_GetDesc(native_output);
     const auto destination = ID3D12Resource_GetDesc(snapshot);
     const auto plain_fp16 = [](const D3D12_RESOURCE_DESC &d) {
+        // DENY_SHADER_RESOURCE requires a depth-stencil resource. It is not
+        // a supported flag combination for an FP16 colour UAV. Do not treat
+        // the lack of an SRV operation as permission to admit invalid flags.
         return d.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
             d.Format == DXGI_FORMAT_R16G16B16A16_FLOAT &&
             d.DepthOrArraySize == 1 && d.MipLevels == 1 &&
-            d.SampleDesc.Count == 1 && d.SampleDesc.Quality == 0;
+            d.SampleDesc.Count == 1 && d.SampleDesc.Quality == 0 &&
+            (d.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0 &&
+            (d.Flags & (D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL |
+                        D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE)) == 0;
     };
     // Subtract before comparing: malformed UINT inputs cannot wrap the box.
     if (!plain_fp16(source) || !plain_fp16(destination) ||

@@ -2,29 +2,29 @@
 
 ## Baseline and scope
 
-Based on the inspected version branch `codex/beta0.4.2`, commit
-`0b5d04dddee42751827d39195c5df3809567d7f8`, after #48, #56 and #57 were merged
-there. This is not a merge into `main` or a released/signed 0.4.3r2 package.
-Existing build strings are not release authorization; identify test binaries by
-source commit, dirty status and the measured addon SHA256.
+Initial baseline was `0b5d04d` after #48/#56/#57. The development branch now also
+includes `e2a3fba` / #60's beta0.4.3 release identity, without reverting its runtime,
+build, packaging or feedback documentation updates. The target version branch
+remains named `codex/beta0.4.2`. This is an r2 candidate, not a signed/released r2
+package or a merge into main. Match test binaries by source SHA, dirty status and
+actual addon SHA256; final r2 release identity is a separate freeze step.
 
 ## 玩家操作
 
-界面保留顶部运行状态，设置拆成「画质」「反馈与报告」「诊断」三个页签。
-日常只调画质；不生效或旁路先用 F8 核心小包。采集完成后可点击
-「复制报告摘要」，粘贴到已有反馈渠道，再补充问题现象和复现步骤，并附本次 ZIP。
+顶部保留实时运行状态，正文分成「画质」「反馈与报告」「诊断」三个页签。
+不生效或旁路先采 F8 核心小包，完成后点击「复制报告摘要」，粘贴后补充现象
+和复现步骤，并附同一次核心 ZIP。颜色、亮度、闪烁等画面异常才用 F7；
+F7 会生成新的一对核心/图像包，请附新的一对，不要混用旧 F8 核心包。
+部分完成的核心包仍有价值。游戏不能启动或已崩溃时继续使用离线收集器；
+F8 不是 dump/异常栈的替代品。
 
-画面异常才用 F7。F7 会生成新的一对核心包和图像包，请提交这两个新包，
-不要使用之前的 F8 核心包与新的图像包混配。部分完成的核心包仍然有价值。
-游戏已崩溃或不能进入场景时，继续使用离线崩溃收集器；F8 不是 dump/异常栈替代品。
-
-不自动上传，不打开账号登录，不扫描整个游戏目录，不删除或替换任何 DLL。
-摘要不含本机绝对路径；提交前仍需自行检查内容。
+不自动上传，不打开账号登录，不扫描整个游戏目录，也不删除/替换 DLL。
+摘要不含本机绝对路径；提交前仍应检查内容。
 
 ## Local report generator
 
-Requires Python 3.11+ and the adjacent production parsers. Analyze completed,
-immutable archives; do not replace or modify them during inspection.
+Requires Python 3.11+ and both adjacent production parsers. Use completed,
+immutable ZIPs; do not replace them during inspection.
 
 ```sh
 python scripts/feedback-report.py core.zip --output report.md
@@ -32,115 +32,105 @@ python scripts/feedback-report.py core.zip --image image.zip --symptom visual --
 python scripts/feedback-report.py core.zip --symptom crash
 ```
 
-The output file must not exist: existing files are never overwritten. The tool
-validates the core, and optional exact core/image pair, before producing Markdown.
-It includes archive SHA256, bounded whitelisted identity/settings fields and
-observed counter deltas. Counter resets are not reported as negative activity.
-No files are extracted or uploaded. CRC/SHA agreement is consistency, not trusted
-authorship, GPU completion or proof that NR is visibly working.
+The output path must not already exist. The tool validates core/optional exact
+binary pair before producing Markdown, including archive SHA256, whitelisted
+metadata and valid monotonic counter deltas. Counter resets remain unknown.
+No extraction/network/upload occurs. CRC/SHA consistency is not authorship,
+GPU completion or working-NR proof. Historical log clues are labelled historical;
+two DLL names alone are not evidence of an initialization abort. Inspect loaded
+paths and back up before troubleshooting; never blindly delete dxgi/d3d12 DLLs.
 
-Historical log clues are explicitly labelled historical. A duplicate-ReShade
-hint requires the reported initialization-abort wording, not just two DLL names.
-Verify actual loaded paths and back up before manual troubleshooting; do not
-blindly remove `dxgi.dll` or `d3d12.dll`. Null-PSO evidence does not authorize
-turning off safety guards. Device-removed text does not by itself identify a
-driver root cause.
+## Post-SR implementation
 
-## Post-SR design
+Native SR always keeps the game's original Output and subrect. After native SR
+succeeds, a CopyTextureRegion copies the active FP16 rectangle to the existing
+private intermediate; NR runs against that snapshot. Packed R11/R8/known PQ
+formats continue through their existing shader conversion and color contracts.
+No new unknown-format or HDR admission is added.
 
-Previously packed outputs used the original SR target, while FP16 outputs could
-be redirected to a private active-size intermediate before native SR. The new
-FP16 route also lets native SR write the game's original Output and original
-subrect. Only after successful native SR does it copy the active rectangle into
-the existing private FP16 intermediate and evaluate NR.
+The production helper `CopyPostSrFp16Snapshot` checks distinct resources, typed
+FP16 2D/color/UAV flags, single mip/array/sample, nonzero extents and overflow-safe
+bounds before recording commands. The original UAV becomes COPY_SOURCE then UAV;
+the private image becomes COPY_DEST then NON_PIXEL_SHADER_RESOURCE. RGBA bits,
+source subrect origin and untouched outside pixels are tested explicitly. No
+SRV is created from the native FP16 image, but that does NOT make invalid resource
+flags legal. DENY_SHADER_RESOURCE requires ALLOW_DEPTH_STENCIL and is not a valid
+flag combination for this FP16 color UAV path. The helper rejects such flags.
 
-`CopyPostSrFp16Snapshot` is the production copy routine. It checks non-null and
-distinct resources, typed FP16 single-plane/single-mip/single-array/sample-count-1
-textures, nonzero extents and overflow-safe source/destination bounds before
-recording commands. Original Output enters as UAV by the existing NGX boundary
-contract, transitions to COPY_SOURCE, then returns to UAV. The private destination
-transitions to COPY_DEST and then NON_PIXEL_SHADER_RESOURCE. The copy keeps RGBA
-bit patterns and uses the actual source base, writing at private origin zero.
+Microsoft reference:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_resource_flags
+https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12graphicscommandlist-copytextureregion
 
-No SRV of native FP16 is created, so native FP16 with DENY_SHADER_RESOURCE keeps
-its existing admission path. Packed R11, profiled R8 and admitted PQ R10 continue
-to use the existing typed-view/codec/exposure path; no format or HDR heuristic is
-added. All same-device, resource ownership, workset, queue, recorded-list and
-exact-fence admission remains the caller's existing responsibility.
+The first WARP attempt used an invalid DENY_SHADER_RESOURCE FP16 color fixture
+and was correctly rejected during resource creation. The final harness keeps it
+as an explicit negative resource-creation test, not an advertised supported case;
+all copy/pixel/bounds assertions remain. Valid cases use legal color textures.
 
-The post-SR finish path now also honors `suppress_transfer_this_frame`. This
-prevents a reset/guide/exposure discontinuity frame from being blended when
-Warm-up is set to zero. Identity, ordinary warm-up and unsuccessful NR retain
-the native SR picture. This is a confirmed source-level gap, not proof of a
-specific game's flicker root cause.
+`FinishAfterSr` now honors `suppress_transfer_this_frame`, so a reset/guide/exposure
+history discontinuity cannot blend NR just because Warm-up=0. Failed NR, identity,
+warm-up and reset-suppressed frames preserve native SR. This is a source-level
+gap fix, not proof of a particular reported game's root cause.
 
-This is full-size Mode 1, not low-resolution post-SR, synthetic guides, a new
-D3D11 provider, or a generic bypass for unknown command state. #12's broader
-low-resolution post-SR work is not completed here. RR/Feature13 and competing NR
-ownership guards remain unchanged.
+Same-device ownership, resource references, original command-state restoration,
+workset and exact submission fence remain the existing caller's responsibility.
+RR/Feature13, competing NR ownership and null-PSO safety guards are unchanged.
+There are no new shaders, resolution modes, jitter/guide remappings, DX11 bridge,
+FG/MFG hooks or synthetic-guide inputs in this PR. #12 low-resolution post-SR is
+not completed: this remains full-resolution Mode 1.
 
-### Cost and risks
+### Tradeoff
 
-FP16 adds an active-rectangle GPU copy versus redirecting native SR. It reuses
-the existing intermediate rather than adding another image, but memory bandwidth
-and real frame-time impact have not been measured. The change deliberately
-prioritizes preserving the original SR contract over claiming a speed gain.
-Resource lifetime still relies on the existing exact-list/fence workset tracker.
-WARP cannot verify vendor NGX internals, hardware/driver behavior or game inputs.
+FP16 adds one active-region GPU copy compared with redirecting native SR, reusing
+an existing image but consuming bandwidth. No measured performance claim is made.
+Preserving native output compatibility takes priority; real-game frame times and
+long-run queue/resource retirement still require verification.
 
-## UI and feedback consistency
+## UI and publication
 
-The three tabs use stable language-independent IDs and the existing independent
-overlay; they do not change another addon's layout, font atlas or focus.
-The final strength control uses the actual `ActiveTransferStrength` function.
-The production v4 implementation intentionally shares final strength across
-modes and normalizes the legacy post field; this PR does not reintroduce two
-independent strengths or claim that legacy-field mismatch was a live UI bug.
+Tabs use stable language-independent IDs under the existing independent overlay.
+No shared font atlas, other window position or focus is changed. The slider uses
+actual ActiveTransferStrength; v4 intentionally shares final strength across modes
+and normalizes the dormant legacy post field. An early test assumed separate
+strengths and was corrected after inspecting the real helper; this was not a live
+UI bug or an opportunity to silently introduce new parameter semantics.
 
-A report summary is built from the completed core session, not current live
-settings. A fresh request clears the old ticket. Failed captures never expose
-an old ticket. Status, ZIP path, reason and ticket are copied together under the
-same publication lock, then rendered/copied to the clipboard after unlocking.
-First duplicate-ReShade and device-failure clues now survive later log noise
-within the existing bounded summary budgets.
+The report ticket is generated from the completed core session, not live settings.
+New requests clear old tickets; failure never exposes a prior ticket. Status,
+path, reason and ticket are read under one publication lock, with drawing and
+clipboard work outside the lock. Duplicate-ReShade aborts and device-failure
+clues survive later noise within existing summary limits. When path redaction
+would remove the actual abort clause, only a fixed marker is preserved; removed
+path text is never reconstructed.
 
-## Verification
+## Verification and limits
 
-Host validation in preparation run 33971926007 passed 52 production UI/policy/
-ticket/summary checks, 12 report tests, 32 core parser tests, 18 image parser tests
-and the existing six bug-regression groups. These checks do not mean game runtime
-validation. The first draft test assumed separate mode strengths; inspecting the
-actual unified helper corrected that test assumption without changing semantics.
-
-The PR workflow also runs the actual Windows core coordinator/IO/ZIP tests,
-shader and existing resource/lifecycle/codec WARP checks, LLVM analysis, and
-English/Chinese addon builds. A new WARP-only test calls the production FP16 copy
-with padded/nonzero rectangles, repeated worksets, denied shader reads, RGBA bit
-patterns, bounds rejection and reset/warm-up policy. A wrong expected pixel must
-be rejected as a negative control. Refer to the exact final PR checks for their
-status, not this planned validation description.
-
-Run host checks:
+Host staging run 33971926007 passed 52 production UI/policy/ticket/summary checks,
+12 report tests, 32 core parser tests, 18 existing image parser tests and six
+existing bug-regression groups. Subsequent updates add privacy/abort checks.
+Full PR checks cover actual Windows core coordinator/file IO/ZIP generation,
+WARP copying and wrong-pixel negative control, existing codec/command-state WARP,
+shader compilation, LLVM analysis and English/Chinese builds. Read the exact final
+head's Checks for results; this document does not predeclare success.
 
 ```sh
 python scripts/validate-043r2.py --compiler g++
 python -m unittest discover -s tests -p test_feedback_report.py -v
 ```
 
-## Real-game acceptance still required
+WARP is a software adapter, not NVIDIA NGX/model or real-game verification.
 
-| Area | Required check |
+| Real-game acceptance | Required coverage |
 | --- | --- |
-| Native SR | Master off, NR creation/evaluation failure, identity mode, RR pass-through; original output and parameters preserved |
-| Post-SR | FP16 with and without shader-read access, nonzero subrect/padded storage, repeated frames and output rotation |
-| History | Alt-Tab, scene/load/DRS/HDR/exposure changes at Warm-up 0 and 3; no unsafe first-frame blend |
-| Packed formats | Existing R11, profiled R8 and known PQ path remain correct; unknown encoding remains bypassed |
-| Lifetime | Multiple queues/swapchains, sustained frames, bounded workset retirement, no fence/lifetime bypass |
-| UX | Chinese font fallback, EN/ZH, DPI, RenoDX coexistence, tabs during pending edits, F8/F7/cancel/partial results |
-| Reports | Exact binary/session, current-versus-historical clues, no stale report/path, manual upload only |
+| Safe fallback | Master off, NR create/evaluate failure, identity and RR pass-through |
+| Post-SR copy | Legal FP16, nonzero/padded output rectangles, repeated and rotating outputs |
+| History | Alt-Tab/load/DRS/HDR/exposure changes at Warm-up 0 and default |
+| Packed formats | Existing R11/profiled R8/known PQ behavior, unknown encoding still bypassed |
+| Lifetime | Multi-queue/swapchain, sustained workset retirement, exact fences |
+| UX | EN/ZH/font fallback/DPI, RenoDX coexistence, tabs and pending edits, F8/F7/cancel/partial |
+| Evidence | Exact session/binary, no stale paths/tickets, historical clues not called current root cause |
 
-#37 is a candidate regression target for post-reset behavior, not a confirmed
-fix for all underexposure/flicker. #39/#42 need their own visual A/B evidence.
-#49 crash and #38/#50/#53/#58 command-state gaps remain independent. #59's
-initialization conflict gets better evidence preservation, not automatic repair.
-Keep related issues open until their actual acceptance criteria are met.
+#37's reported flicker is PRE-SR; the new POST-SR guard cannot be called its
+confirmed fix. Its post-mode underexposure also requires separate A/B evidence.
+#39/#42 visual regressions, #49 crash and #38/#50/#53/#58 command-state gaps remain
+separate. #59 receives evidence preservation, not automatic installation repair.
+Keep game issues open until their real acceptance criteria are met.
