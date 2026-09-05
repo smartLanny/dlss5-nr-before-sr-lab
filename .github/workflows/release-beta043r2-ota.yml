@@ -22,6 +22,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $llvmUrl = 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip'
+          # Pinned to the digest published on mstorsjo/llvm-mingw release 20260826.
           $expectedLlvmSha256 = 'AE601F4E0F72BBDF441AD2DF8BB16F037E2E9251559EA6B37B4057AEF39C06C3'
           $reshadeCommit = '4a50d1eddace85734871d91792ff214f13f66c01'
           Invoke-WebRequest $llvmUrl -OutFile llvm-mingw.zip
