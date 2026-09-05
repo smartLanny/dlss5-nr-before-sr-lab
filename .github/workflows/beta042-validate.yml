@@ -2,6 +2,9 @@ name: Validate beta0.4.2
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - codex/beta0.4.2
   push:
     branches:
       - codex/beta0.4.2
@@ -14,6 +17,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  host-bug-regressions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extracted production bug regressions
+        run: python3 scripts/validate-bug-sweep.py --compiler g++
+
   shader-structure-and-math:
     runs-on: windows-latest
     steps:
@@ -29,7 +39,7 @@ jobs:
         run: ./scripts/validate-codec-shader.ps1
 
   full-contract-build-and-package:
-    needs: shader-structure-and-math
+    needs: [host-bug-regressions, shader-structure-and-math]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +62,11 @@ jobs:
         shell: pwsh
         run: |
           $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
+          python scripts/validate-bug-sweep.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw 'Bug sweep regression harness failed.' }
+          $env:DLSS5_LLVM_MINGW_ROOT = $env:TOOLCHAIN_ROOT
+          python scripts/validate-null-pso-policy.py
+          if ($LASTEXITCODE -ne 0) { throw 'Null-PSO default policy harness failed.' }
           python scripts/validate-diagnostic-identity.py --compiler $compiler
           if ($LASTEXITCODE -ne 0) { throw 'Diagnostic identity harness failed.' }
           python scripts/validate-guide-history.py --compiler $compiler
