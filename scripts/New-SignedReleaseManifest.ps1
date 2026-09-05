@@ -64,7 +64,7 @@ if ($FileRecords.Count -eq 0) {
 
 $Manifest = [ordered]@{
     schema = 'dlss5-release-manifest-v1'
-    product = 'DLSS 5 AI Rendering Upscaling Edition'
+    product = 'DLSS 5 AI Rendering Perfect Chain'
     version = $Version
     channel = $Channel
     author = $Owner

@@ -1,16 +1,16 @@
-name: Validate beta0.4.1-r3
+name: Validate beta0.4.2
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - codex/beta0.4.1
+      - codex/beta0.4.2
 
 permissions:
   contents: read
 
 concurrency:
-  group: beta041-r3-${{ github.ref }}
+  group: beta042-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $headers = @{ 'User-Agent' = 'beta04-r4-validator' }
+          $headers = @{ 'User-Agent' = 'beta042-validator' }
           $release = Invoke-RestMethod -Headers $headers `
             'https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest'
           $asset = $release.assets | Where-Object {
@@ -59,6 +59,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Diagnostic identity harness failed.' }
           python scripts/validate-guide-history.py --compiler $compiler
           if ($LASTEXITCODE -ne 0) { throw 'Guide/context history harness failed.' }
+          python scripts/validate-f8-controller.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw 'F8 controller harness failed.' }
       - name: Resource observer and capture contracts
         shell: pwsh
         run: |
@@ -73,7 +75,12 @@ jobs:
           ./scripts/validate-minhook-extended-relay.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
       - name: Native command-state CPU and stack envelope
         shell: pwsh
-        run: ./scripts/validate-command-state-native.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+        run: |
+          ./scripts/validate-command-state-native.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+          ./scripts/validate-present-api-status.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+          $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
+          python scripts/validate-ui-font-fallback.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw 'UI font fallback harness failed.' }
       - name: Native command-state D3D12 WARP oracle
         shell: pwsh
         run: |
@@ -103,7 +110,7 @@ jobs:
             "branch=$env:GITHUB_REF_NAME"
             "commit=$env:GITHUB_SHA"
             "workflowRun=$env:GITHUB_RUN_ID"
-            "build=beta0.4.1-r3"
+            "build=beta0.4.2"
           ) | Set-Content -Encoding utf8NoBOM dist/BUILD-PROVENANCE.txt
           Get-ChildItem dist -File | Where-Object Name -ne 'SHA256SUMS.txt' |
             Get-FileHash -Algorithm SHA256 | ForEach-Object {
@@ -130,6 +137,6 @@ jobs:
           Get-Content -Encoding utf8 dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: beta041-r3-test-package
+          name: beta042-test-package
           path: dist/
           if-no-files-found: error

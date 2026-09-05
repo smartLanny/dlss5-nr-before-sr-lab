@@ -43,7 +43,7 @@ bool OtherNrOwnerActive(){return g_shortfuse_nr_enabled.load();}
 ChainConfig config={};unsigned config_calls=0,stage_status=0,dir_count=0;bool rr=false,pin_fail=false,queue_fail=false;
 ULONGLONG test_clock=100000;
 std::wstring output_root;wchar_t g_log_path[1024]={},g_ini_path[1024]={},g_reshade_ini_path[1024]={};
-const char *kBuildIdentity="beta0.4.1-controller-fixture";
+const char *kBuildIdentity="beta0.4.2-controller-fixture";
 constexpr const char *kSourceCommit="fixture";constexpr bool kSourceDirty=true;
 struct ModuleIdentity { const char *sha256="fixture-unavailable", *status="fixture"; };
 const ModuleIdentity &EnsureRuntimeIdentityOnWorker(){static ModuleIdentity value;return value;}

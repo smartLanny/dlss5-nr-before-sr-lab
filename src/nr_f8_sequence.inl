@@ -389,40 +389,42 @@ void F8Tooltip(const char *text) {
 }
 void DrawControls() {
     const auto state=g_status.load();
+    const bool use_chinese_ui=UseChineseUi();
     if(!IsActive() && state!=Status::Packaging) {
         static int comparison=1,x=0,y=0,key=VK_F8;static bool custom=false;
-        if(ImGui::Button(kChineseUi?"采集当前问题（F8）":"Capture current issue (F8)"))RequestWithOptions({Comparison::Current,false,0,0});
-        F8Tooltip(kChineseUi?"只记录当前状态，不启用 NR、不切换模式、不修改设置。":"Records the current state without enabling NR, switching modes or changing settings.");
-        if(ImGui::TreeNode(kChineseUi?"对比采集与区域设置":"Comparison and region options")) {
-        ImGui::Combo(kChineseUi?"采集内容":"Comparison",&comparison,kChineseUi?"标准三组对比\0只采当前问题\0强度 1.0 / 1.2 / 1.5\0细节保护关闭 / 开启\0NR jitter 未传递 / 传递\0":"Standard three groups\0Current issue only\0Strength 1.0 / 1.2 / 1.5\0Detail protection off / on\0NR jitter off / on\0");
-        F8Tooltip(kChineseUi?"对比采集会临时切换所选参数；固定镜头，不改变游戏 DLSS/HDR。每组等待3秒与64次成功 NR，结束后恢复。":"Comparison capture temporarily changes the selected parameter. Keep the camera fixed; game DLSS/HDR stays unchanged. Waits 3 seconds and 64 successful NR evaluations, then restores settings.");
-        ImGui::Checkbox(kChineseUi?"指定问题位置（原图像素）":"Custom source-pixel region",&custom);
-        if(custom){ImGui::InputInt("X",&x);ImGui::InputInt("Y",&y);}else ImGui::TextDisabled("%s",kChineseUi?"默认中央 256×256 原像素区域":"Default: central 256 x 256 native pixels");
-        if(ImGui::Button(kChineseUi?"开始采集":"Start capture"))RequestWithOptions({static_cast<Comparison>(comparison),custom,static_cast<unsigned>(std::max(x,0)),static_cast<unsigned>(std::max(y,0))});
+        if(ImGui::Button(use_chinese_ui?"采集当前问题（F8）":"Capture current issue (F8)"))RequestWithOptions({Comparison::Current,false,0,0});
+        F8Tooltip(use_chinese_ui?"只记录当前状态，不启用 NR、不切换模式、不修改设置。":"Records the current state without enabling NR, switching modes or changing settings.");
+        if(ImGui::TreeNode(use_chinese_ui?"对比采集与区域设置":"Comparison and region options")) {
+        ImGui::Combo(use_chinese_ui?"采集内容":"Comparison",&comparison,use_chinese_ui?"标准三组对比\0只采当前问题\0强度 1.0 / 1.2 / 1.5\0细节保护关闭 / 开启\0NR jitter 未传递 / 传递\0":"Standard three groups\0Current issue only\0Strength 1.0 / 1.2 / 1.5\0Detail protection off / on\0NR jitter off / on\0");
+        F8Tooltip(use_chinese_ui?"对比采集会临时切换所选参数；固定镜头，不改变游戏 DLSS/HDR。每组等待3秒与64次成功 NR，结束后恢复。":"Comparison capture temporarily changes the selected parameter. Keep the camera fixed; game DLSS/HDR stays unchanged. Waits 3 seconds and 64 successful NR evaluations, then restores settings.");
+        ImGui::Checkbox(use_chinese_ui?"指定问题位置（原图像素）":"Custom source-pixel region",&custom);
+        if(custom){ImGui::InputInt("X",&x);ImGui::InputInt("Y",&y);}else ImGui::TextDisabled("%s",use_chinese_ui?"默认中央 256×256 原像素区域":"Default: central 256 x 256 native pixels");
+        if(ImGui::Button(use_chinese_ui?"开始采集":"Start capture"))RequestWithOptions({static_cast<Comparison>(comparison),custom,static_cast<unsigned>(std::max(x,0)),static_cast<unsigned>(std::max(y,0))});
         ImGui::TreePop();
         }
-        if(ImGui::TreeNode(kChineseUi?"快捷键设置":"Shortcut")) {
+        if(ImGui::TreeNode(use_chinese_ui?"快捷键设置":"Shortcut")) {
             key=static_cast<int>(g_hotkey.load());
-            if(ImGui::SliderInt(kChineseUi?"功能键":"Function key",&key,VK_F1,VK_F12,"%d"))g_hotkey.store(static_cast<unsigned>(key));
+            if(ImGui::SliderInt(use_chinese_ui?"功能键":"Function key",&key,VK_F1,VK_F12,"%d"))g_hotkey.store(static_cast<unsigned>(key));
             ImGui::Text("F%d",key-VK_F1+1);
-            if(ImGui::Button(kChineseUi?"保存快捷键":"Save shortcut")){wchar_t value[16]={};swprintf_s(value,L"%u",g_hotkey.load());WritePrivateProfileStringW(L"NRBeforeSR",L"FeedbackVirtualKey",value,g_ini_path);}
+            if(ImGui::Button(use_chinese_ui?"保存快捷键":"Save shortcut")){wchar_t value[16]={};swprintf_s(value,L"%u",g_hotkey.load());WritePrivateProfileStringW(L"NRBeforeSR",L"FeedbackVirtualKey",value,g_ini_path);}
             ImGui::TreePop();
         }
     } else {
         AcquireSRWLockShared(&g_lock);
-        if(g_session){const auto &s=*g_session;const auto &g=s.groups[s.group];ImGui::Text(kChineseUi?"第 %u/%u 组，已记录 %u/16 帧，后台取得 %u 帧":"Group %u/%u, recorded %u/16 frames, delivered %u",s.group+1,s.group_count,std::min(g.count,kFrames),g.delivered);}
+        if(g_session){const auto &s=*g_session;const auto &g=s.groups[s.group];ImGui::Text(use_chinese_ui?"第 %u/%u 组，已记录 %u/16 帧，后台取得 %u 帧":"Group %u/%u, recorded %u/16 frames, delivered %u",s.group+1,s.group_count,std::min(g.count,kFrames),g.delivered);}
         ReleaseSRWLockShared(&g_lock);
-        if(IsActive() && ImGui::Button(kChineseUi?"取消并恢复设置":"Cancel and restore"))Cancel();
+        if(IsActive() && ImGui::Button(use_chinese_ui?"取消并恢复设置":"Cancel and restore"))Cancel();
     }
     if(state==Status::Complete || state==Status::Partial || state==Status::Failed) {
-        ImGui::TextWrapped("%s",state==Status::Complete?(kChineseUi?"完整反馈包已生成。":"Complete package saved."):state==Status::Partial?(kChineseUi?"部分反馈包已生成，缺失原因已记录，仍可上传分析。":"Partial package saved with missing-data reasons."):(kChineseUi?"保存失败，请检查日志及磁盘空间。":"Package failed; check log and disk space."));
+        ImGui::TextWrapped("%s",state==Status::Complete?(use_chinese_ui?"完整反馈包已生成。":"Complete package saved."):state==Status::Partial?(use_chinese_ui?"部分反馈包已生成，缺失原因已记录，仍可上传分析。":"Partial package saved with missing-data reasons."):(use_chinese_ui?"保存失败，请检查日志及磁盘空间。":"Package failed; check log and disk space."));
         char path[4096]={};AcquireSRWLockShared(&g_lock);WideToUtf8(g_last_zip,path,sizeof(path));ReleaseSRWLockShared(&g_lock);
-        if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(kChineseUi?"复制路径":"Copy path"))ImGui::SetClipboardText(path);}
+        if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(use_chinese_ui?"复制路径":"Copy path"))ImGui::SetClipboardText(path);}
     }
 }
 void DrawOverlay(reshade::api::effect_runtime *) {
     if(!g_window_open.load() && !IsActive() && g_status.load()!=Status::Packaging)return;
-    bool open=true;if(ImGui::Begin(kChineseUi?"DLSS5 反馈采集":"DLSS5 feedback capture",&open,ImGuiWindowFlags_AlwaysAutoResize))DrawControls();ImGui::End();
+    const bool use_chinese_ui=UseChineseUi();
+    bool open=true;if(ImGui::Begin(use_chinese_ui?"DLSS5 反馈采集":"DLSS5 feedback capture",&open,ImGuiWindowFlags_AlwaysAutoResize))DrawControls();ImGui::End();
     if(!open){g_window_open.store(false);if(IsActive())Cancel();}
 }
 } // namespace nr_f8

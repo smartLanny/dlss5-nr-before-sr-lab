@@ -498,24 +498,25 @@ void FeedbackPresent(reshade::api::effect_runtime *runtime) {
 
 void DrawFeedbackControls() {
     const auto status = g_feedback_status.load(std::memory_order_acquire);
+    const bool use_chinese_ui = UseChineseUi();
     if (status != 1 && status != 2) {
-        if (ImGui::Button(kChineseUi ? "一键采集反馈包（F8）" : "Collect feedback ZIP (F8)"))
+        if (ImGui::Button(use_chinese_ui ? "一键采集反馈包（F8）" : "Collect feedback ZIP (F8)"))
             RequestFeedbackBundle();
-    } else ImGui::TextUnformatted(kChineseUi ? "正在采集反馈包，请保持机位，最多等待约 30 秒……" :
+    } else ImGui::TextUnformatted(use_chinese_ui ? "正在采集反馈包，请保持机位，最多等待约 30 秒……" :
         "Collecting feedback. Keep the camera still; allow about 30 seconds...");
-    ImGui::TextWrapped("%s", kChineseUi ?
+    ImGui::TextWrapped("%s", use_chinese_ui ?
         "采集当前画面、NR 各阶段、设置、版本和日志；不自动切换模式。只保存在本机，请将 ZIP 发给开发者。" :
         "Collects current images, NR stages, settings, versions and logs without switching modes. Saved locally; send the ZIP to the developer.");
     if (status >= 3) {
-        ImGui::TextWrapped("%s", status == 3 ? (kChineseUi ? "反馈包已生成。" : "Feedback ZIP saved.") :
-            status == 4 ? (kChineseUi ? "反馈包已生成；部分画面未采到，包内已记录原因，仍可提交。" :
+        ImGui::TextWrapped("%s", status == 3 ? (use_chinese_ui ? "反馈包已生成。" : "Feedback ZIP saved.") :
+            status == 4 ? (use_chinese_ui ? "反馈包已生成；部分画面未采到，包内已记录原因，仍可提交。" :
                 "Feedback ZIP saved with missing items explained. It can still be submitted.") :
-                (kChineseUi ? "反馈包保存失败，请检查日志和磁盘空间。" : "Could not save feedback. Check the log and disk space."));
+                (use_chinese_ui ? "反馈包保存失败，请检查日志和磁盘空间。" : "Could not save feedback. Check the log and disk space."));
         char path[4096] = {};
         AcquireSRWLockShared(&g_feedback_lock); WideToUtf8(g_feedback_last_zip, path, sizeof(path)); ReleaseSRWLockShared(&g_feedback_lock);
         if (path[0]) {
             ImGui::TextWrapped("%s", path);
-            if (ImGui::Button(kChineseUi ? "复制反馈包路径" : "Copy ZIP path")) ImGui::SetClipboardText(path);
+            if (ImGui::Button(use_chinese_ui ? "复制反馈包路径" : "Copy ZIP path")) ImGui::SetClipboardText(path);
         }
     }
 }

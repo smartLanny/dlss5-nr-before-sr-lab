@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$NoPause,
     [string]$SourceDirectory = $PSScriptRoot,
     [string]$OutputRoot = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'DLSS5-Feedback')
@@ -222,7 +222,7 @@ try {
     } catch { $system.gpu_error = $_.Exception.Message; $Partial = $true }
     Add-JsonEntry 'system.json' $system
     Add-JsonEntry 'binaries.json' @($Binaries.ToArray())
-    $manifest = [ordered]@{ schema = 1; collector_version = 'beta0.4.1-r3';
+    $manifest = [ordered]@{ schema = 1; collector_version = 'beta0.4.2';
         created_utc = [DateTime]::UtcNow.ToString('o'); source_directory = $source;
         status = $(if ($Partial) { 'partial' } else { 'complete-with-listed-missing-files' });
         upload_performed = $false; configuration_modified = $false; dumps_collected = $false;

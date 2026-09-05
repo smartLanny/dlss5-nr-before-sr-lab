@@ -1,12 +1,14 @@
-# beta0.4.1-r3 feedback test build quick install
+# beta0.4.2 feedback test build quick install
 
 Press **F8** or click Collect feedback ZIP in the addon panel. Keep the camera still and wait for completion. `feedback.zip` normally goes under Documents/DLSS5-Feedback. If that directory cannot be created, collection tries DLSS5-Feedback under the system temporary directory; copy the actual path from the panel. A partial bundle includes missing-item reasons and can still be submitted. For an ordinary startup problem, use `Collect-Feedback.cmd`. After a crash, use `Collect-Crash-Feedback.cmd`; it derives one unique absolute game EXE path from the newest ReShade log and reads only existing Windows events, WER reports and dumps from the last 72 hours that pass its identity rules. It does not enable dumps, modify the registry or upload. Standalone CrashDumps do not contain their source path, so they can only be filtered by exact EXE basename and time; the package records this limitation.
 
-The current full package contains **nine files**. Verify beta0.4.1-r3 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
+The core full-install payload contains **nine files**. An official signed archive also includes verification files listed in its manifest. Verify beta0.4.2 in the panel, log and file properties, plus SHA-256. Collection stays local and never uploads or changes settings automatically.
 
-This version fixes the Cyberpunk 2077 four-channel half-float motion-vector bypass, detects the exact competing `renodx-dlss5.addon64` module, and fixes the low-address NGX relay-allocation failure shown in a new log. The Forza report has no crash dump, so this build only narrows the startup hook surface when the add-on starts disabled and still needs a game retest. Automated GPU, resource, state and capture regressions do not establish real-game acceptance for every exposure, colour-follow, face-quality or crash report.
+This version fixes the Cyberpunk 2077 four-channel half-float motion-vector bypass, detects the exact competing `renodx-dlss5.addon64` module, and fixes the low-address NGX relay-allocation failure shown in a new log. It installs the narrow command-signature observer at device creation to fix the r3 intermittent bypass regression, while null-PSO and wider graphics-state paths remain disabled by default. The Forza report has no crash dump and still needs a game retest. Automated GPU, resource, state and capture regressions do not establish real-game acceptance for every exposure, colour-follow, face-quality or crash report.
 
-Add-on: **DLSS 5 AI Rendering Upscaling Edition beta0.4.1-r3**
+Displayed add-on name: **DLSS 5 AI Rendering Perfect Chain beta0.4.2**.
+
+The update filename keeps “AI-Rendering-Upscaling” for continuity with older packages.
 
 Author: **@野生的装机宅 Bilibili**
 
@@ -20,7 +22,7 @@ Only official release location: [野生的装机宅 on Bilibili](https://space.b
 - offline, non-anti-cheat use only.
 
 DX11, Vulkan, games without native DLSS SR, and paths fully replaced by a
-translation layer such as OptiScaler are outside this add-on's direct scope.
+translation layer such as OptiScaler are outside this add-on's direct scope. The panel now identifies a D3D11 presenting runtime directly; an auxiliary D3D11 device inside a D3D12 game does not latch that warning.
 
 ## Install
 
@@ -32,7 +34,7 @@ translation layer such as OptiScaler are outside this add-on's direct scope.
    If the exact file `renodx-dlss5.addon64` is present, move it outside the game
    directory too; it is another NR owner and cannot coexist with this add-on.
 4. Keep these files **together in that same directory**:
-   - `DLSS5-AI-Rendering-Upscaling-beta0.4.1-r3-@野生的装机宅-Bilibili.en.addon64`
+   - `DLSS5-AI-Rendering-Upscaling-beta0.4.2-@野生的装机宅-Bilibili.en.addon64`
    - `nrchain_nvngx.dll`
    - `nr_before_sr.ini`
    - `nvngx_dlssnr.dll` from the matching GPU package
@@ -40,7 +42,7 @@ translation layer such as OptiScaler are outside this add-on's direct scope.
    - `collect-feedback.ps1`
    - `Collect-Crash-Feedback.cmd`
    - `collect-crash-feedback.ps1`
-5. Start the game and verify that the ReShade Add-ons page shows beta0.4.1-r3, the
+5. Start the game and verify that the ReShade Add-ons page shows beta0.4.2, the
    author and official release address at the top of this add-on's panel.
 
 The add-on loads its configuration, bridge and NR runtime from its own folder.
@@ -88,7 +90,7 @@ For a report, submit the F8 ZIP and describe the game, trigger and expected
 result. Use the offline collector if the game cannot start; partial bundles
 with missing images or logs can still help. If packaging fails, include the
 displayed version and bypass reason plus the smallest
-matching window from `nr-before-sr.log`. beta0.4.1-r3 logs state-machine changes,
+matching window from `nr-before-sr.log`. beta0.4.2 logs state-machine changes,
 deferred-module coverage, colour-stage attribution, early diagnostics and sparse
 performance summaries rather than writing every frame.
 Remove user names, absolute paths, account data, process addresses and runtime
@@ -106,14 +108,15 @@ ShortFuse/RHI NR add-on at the same time.
 
 ## Package contents
 
-For simple copy-in installation, each current full package contains **nine files**:
+For simple copy-in installation, the core full-install payload contains **nine files**:
 the add-on, bridge DLL, configuration, matching NR runtime, this README, the
 ordinary offline collector pair `Collect-Feedback.cmd` / `collect-feedback.ps1`,
 and `Collect-Crash-Feedback.cmd` / `collect-crash-feedback.ps1` for reading only
 existing crash evidence.
-Separate signature files, verification scripts, and duplicate documents are no
-longer bundled. If the official release post publishes a ZIP SHA-256, that value
-can be used to check the downloaded archive.
+Official signed archives additionally carry one source record, manifest and
+signature, public key, offline verifier and verification notes so every payload
+file can be tied to the frozen commit. The manifest is the exact inventory; the
+release page also publishes the ZIP SHA-256.
 
 ## Parameters and stage diagnostics
 

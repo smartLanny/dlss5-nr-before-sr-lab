@@ -1,3 +1,5 @@
+#include "nr_present_api_status.h"
+
 void SettingsTooltip(const char *text) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         ImGui::BeginTooltip();
@@ -9,7 +11,8 @@ void SettingsTooltip(const char *text) {
 }
 
 void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
-    const auto ui = [](const char *en, const char *zh) { return kChineseUi ? zh : en; };
+    const bool use_chinese_ui = UseChineseUi();
+    const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
     NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();
     if (color_policy_snapshot.status != NrColorPolicyStatus::Bypassed &&
         (has_pending || changed || color_policy_snapshot.mode != next.mode))
@@ -21,8 +24,8 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
     const bool color_follow_changed = ImGui::SliderFloat(
         ui("NR Color Follow", "NR 颜色跟随强度"),
         &next.color_strength, 0.0f, 1.0f, "%.2f");
-    SettingsTooltip(ui("0 keeps the game's hue; 1 follows bounded NR chroma. New installations request 0.75. Unknown HDR stays luminance-only. Recorded values describe settings, not measured picture strength.",
-        "0 保留游戏色相；1 跟随有界 NR 色彩。新装默认请求 0.75；未知 HDR 仍只改明暗。记录值是参数设置，不代表测得的画面变化强度。"));
+    SettingsTooltip(ui("0 keeps the game's hue; 1 follows bounded NR chroma. New installations request 0.75. Unknown HDR pauses only colour transfer; luminance NR can remain active. Recorded values describe settings, not measured picture strength.",
+        "0 保留游戏色相；1 跟随有界 NR 色彩。新装默认请求 0.75。未知 HDR 只暂停颜色传递，明暗 NR 仍可继续运行；记录值是参数设置，不代表测得的画面变化强度。"));
     ImGui::EndDisabled();
     changed |= color_follow_changed;
     if (color_follow_changed &&
@@ -35,10 +38,11 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
             static_cast<double>(policy.requested_color_strength),
             static_cast<double>(policy.effective_color_strength));
         ImGui::TextWrapped("%s", !policy.color_allowed
-            ? ui("This HDR colour contract is unverified, so only luminance is transferred. "
+            ? ui("This HDR colour contract is unverified, so only colour follow is paused. "
+                 "Luminance NR can still be active; check the running status and submission counter. "
                  "The saved colour request can resume on a supported contract.",
-                 "当前 HDR 色彩合同未验证，仅传递明暗。颜色请求值已保留，"
-                 "切到受支持的合同后可恢复。")
+                 "当前 HDR 色彩合同未验证，只暂停颜色跟随；明暗 NR 仍可运行，请查看运行状态和提交计数。"
+                 "颜色请求值已保留，切到受支持的合同后可恢复。")
             : policy.color_reason == NrColorReason::PostSrFp16UnitExposure
                 ? ui("Colour follows the bounded FP16, unit-exposure SR -> NR contract.",
                      "当前为 FP16、单位曝光的 SR -> NR 合同，采用有界颜色跟随。")
@@ -46,7 +50,7 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
                      "当前 SDR 或有界值域输入允许颜色跟随。"));
     } else {
         ImGui::TextWrapped("%s", NrColorPolicyStatusText(
-            color_policy_snapshot.status, kChineseUi));
+            color_policy_snapshot.status, use_chinese_ui));
     }
 #if !NR_HAS_DETAIL_STABILITY
     ImGui::BeginDisabled(current_color_policy &&
@@ -72,7 +76,7 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
                 "SR -> NR 不采用光照匹配。请求值已保留，切回 NR -> SR 后可恢复。"));
     } else {
         ImGui::TextWrapped("%s", NrColorPolicyStatusText(
-            color_policy_snapshot.status, kChineseUi));
+            color_policy_snapshot.status, use_chinese_ui));
     }
 #endif
 }
@@ -80,16 +84,24 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
 // The two maintained editions share the same small home screen. Technical
 // readouts remain available without putting implementation knobs on the home.
 void DrawSettings(reshade::api::effect_runtime *runtime) {
-    const auto ui = [](const char *en, const char *zh) { return kChineseUi ? zh : en; };
+    const bool use_chinese_ui = UseChineseUi();
+    const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
     static ChainConfig pending = {};
     static bool has_pending = false;
     ChainConfig next = has_pending ? pending : SnapshotConfig();
     bool changed = false;
     ImGui::SeparatorText(ui("DLSS 5 AI Rendering", "DLSS 5 AI 渲染"));
-    ImGui::TextDisabled("%s | %s", kAddonVersion, kAddonAuthor);
+    ImGui::TextDisabled("%s | %s", kAddonVersion,
+                        use_chinese_ui ? kAddonAuthor : kAddonAuthorAscii);
     ImGui::TextDisabled("%s", kOfficialReleaseUrl);
+    if (kChineseUi && !use_chinese_ui)
+        ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
     const auto reason = static_cast<BypassReason>(g_last_bypass_reason.load());
-    if (!next.enabled || ActiveTransferStrength(next) <= 0.000001f)
+    if (nr_present_api_status::IsD3d11PresentRuntime(runtime))
+        ImGui::TextWrapped("%s", ui(
+            "This ReShade window is using Direct3D 11, so DLSS 5 NR cannot run. Switch the game to Direct3D 12, then install ReShade Full Add-on for Direct3D 12.",
+            "当前 ReShade 画面使用 Direct3D 11，本插件无法运行。请把游戏切换到 Direct3D 12，并为 D3D12 安装 ReShade Full Add-on。"));
+    else if (!next.enabled || ActiveTransferStrength(next) <= 0.000001f)
         ImGui::TextWrapped("%s", ui("Native game SR. Enable the plugin and raise effect strength to compare NR.",
             "当前为游戏原生 SR。启用插件并提高效果强度，即可对比 NR。"));
     else if (reason == BypassReason::RayReconstructionGuard)
@@ -149,6 +161,9 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     changed |= ImGui::Combo(ui("NR quality", "NR 画质档位"), &next.work_mode,
         ui("Reference 100%\0Quality\0Balanced\0Performance\0Ultra performance\0Custom\0",
            "参考 100%\0高画质\0平衡\0性能\0超级性能\0自定义\0"));
+    SettingsTooltip(ui(
+        "Available only for Before SR. This changes Feature 18's working resolution; it does not switch to post-processing and does not change the game's DLSS quality.",
+        "仅用于前置 NR → SR。这里只改变 Feature 18 的工作分辨率，不会切成后置处理，也不会改变游戏内 DLSS 档位。"));
     if (next.work_mode == 5)
         changed |= ImGui::SliderFloat(ui("NR size ratio", "NR 尺寸比例"), &next.custom_work_scale, .5f, 1.f, "%.2f");
     if (next.mode != 2) {

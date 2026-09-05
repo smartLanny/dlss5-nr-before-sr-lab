@@ -28,8 +28,8 @@ if "    nr_f8_gpu::ArmResult" in dispatch:
 else:
     dispatch = dispatch[:dispatch.index("    if (capture_stages) {")]
 ui_source = (root / "src/nr_settings_ui.inl").read_text(encoding="utf-8")
-ui_block = ui_source[ui_source.index("    NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();"):]
-ui_block = ui_block[:ui_block.index("\n}\n")]
+ui_function = definition(ui_source, "void DrawColorControls(")
+ui_block = ui_function[ui_function.index("{") + 1:ui_function.rindex("}")]
 
 harness = r'''
 #include <atomic>
@@ -80,6 +80,7 @@ unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_con
     return codec_flags;
 }
 constexpr bool kChineseUi=false;
+bool UseChineseUi() { return false; }
 const char* ui(const char* en,const char*) { return en; }
 namespace ImGui {
     bool disabled=false, colour_disabled=false, lighting_disabled=false;

@@ -13,19 +13,20 @@ Runtime hotkeys are `F6` for the master comparison switch, `F8` for a local
 feedback ZIP, and main keyboard `-` for a ReShade screenshot whose filename
 records the current build, chain and selected settings.
 
-The current **beta0.4.1-r3** community build uses a simpler front page, a visible
+The current **beta0.4.2** community build uses a simpler front page, a visible
 final-effect strength from 0 to 8 (1.2 for new installations), and an independent
 NR quality setting. It fixes the confirmed Cyberpunk 2077 RGBA16 motion-vector
 bypass, restores the conservative null-PSO policy used to reduce the Forza
 Horizon regression surface, detects the exact competing
 `renodx-dlss5.addon64` module, extends MinHook relay allocation for low-address
-NGX modules, and records the first lifecycle-observer failure. When a process
-starts with NR disabled it also defers the command-signature hook; enabling NR
-later can require one restart so signatures created before observation are not
-guessed. F8 keeps
+NGX modules, and records the first lifecycle-observer failure. It observes
+immutable D3D12 command-signature descriptions at device creation regardless
+of the transient master-switch snapshot. This fixes the r3 regression that could alternate processed
+and native frames when weather, map or UI work reused an early
+`ExecuteIndirect` signature. F8 keeps
 the current settings by default and attempts one display screenshot, 16
 consecutive NR processing frames and one overview. See the
-[community release notes](docs/BETA_0_4_1_RELEASE_NOTES.zh-CN.md) and
+[community release notes](docs/BETA_0_4_2_RELEASE_NOTES.zh-CN.md) and
 [plain-text update instructions](docs/UPDATE.en.txt). Automated validation proves
 the stated code paths and package identity; picture quality still needs a fixed
 camera comparison in each game.
@@ -36,14 +37,15 @@ trademarks of their respective owners.
 
 Project author: **@野生的装机宅 Bilibili**. The only official release location
 is https://space.bilibili.com/941799. The author and official address remain
-embedded in release binaries and the add-on UI. Each full distribution archive
+embedded in release binaries and the add-on UI. The core full-install payload
 contains nine files: the add-on, bridge DLL, configuration, matching NR runtime,
 plain-text instructions (`说明.txt` in Chinese or `Instructions.txt` in English),
 and the ordinary and crash-feedback CMD/PowerShell pairs.
-Small update archives contain six files: the add-on, the plain-text instructions,
+The core update payload contains six files: the add-on, the plain-text instructions,
 and both feedback-tool pairs. Updates reuse an existing compatible full
 installation's runtime, bridge and configuration; they are not first-install
-packages. Optional ZIP hashes may be published with the official release post.
+packages. Official signed archives add verification files; their exact contents
+are listed by the signed manifest, and the release page publishes the ZIP hash.
 See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for the explicit prohibition on
 unauthorized automated builds, rebranding and modified redistribution.
 
@@ -101,7 +103,7 @@ implementations inside this project.
   diagnostic changes from the previous candidate.
 - `docs/BETA_0_3_3_RELEASE_NOTES.md`: create-time tuning reconstruction, live
   non-HDR R8 admission and Scene Paper-White diagnostics under current testing.
-- `docs/BETA_0_4_1_RELEASE_NOTES.zh-CN.md`: current beta0.4.1-r3 behaviour,
+- `docs/BETA_0_4_2_RELEASE_NOTES.zh-CN.md`: current beta0.4.2 behaviour,
   compatibility fixes, image controls and evidence boundaries.
 - `docs/BETA_0_3_TEST_MATRIX.md`: release qualification checklist.
 - `docs/COMMUNITY_FEEDBACK_BETA03.md`: sanitized mapping from early reports to
@@ -111,8 +113,8 @@ implementations inside this project.
   documents remain source documentation and are not the packaged instructions.
 - `scripts/validate-codec-shader.ps1`: compiles all embedded HLSL entry points
   with the same Shader Model 5.0 compiler contract used at runtime.
-- `scripts/Verify-ReleaseManifest.ps1`: optional internal legacy verifier; it is
-  retained for reproducibility but is no longer bundled in simple release ZIPs.
+- `scripts/Verify-ReleaseManifest.ps1`: offline verifier bundled once with official
+  signed packages; lightweight development archives may omit it.
 
 ## Build prerequisites
 
@@ -145,7 +147,7 @@ archives without copying the large runtime DLLs, use:
 
 ```powershell
 ./scripts/package-beta03.ps1 `
-  -ReleaseRoot 'D:\releases\beta0.4.1-r3-update' `
+  -ReleaseRoot 'D:\releases\beta0.4.2-update' `
   -UpdateOnly
 ```
 
@@ -169,8 +171,8 @@ the GPU; unsupported exposure contracts remain native-SR bypasses. Results are
 engine- and runtime-dependent. Important unresolved
 areas are documented in [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
-The 2026-09-04 tree is a **beta0.3.3 development candidate**, not a universal
-release. It compiles cleanly in the maintained local toolchain, all embedded
+The current tree is the **beta0.4.2 enhanced-chain candidate**, not a universal
+compatibility claim. It compiles cleanly in the maintained local toolchain, all embedded
 shader entries compile, and both language builds pass focused LLVM analysis.
 The prior beta0.3.2 Chinese binary with SHA256 `4E483F...B1AF1` completed fresh Cyberpunk 2077
 RR-off and RR-on runs: the default `NR -> SR` path exceeded 1,800 carrier

@@ -232,8 +232,9 @@ int main(int argc, char **argv) {
     Hr(IDXGIFactory4_EnumWarpAdapter(factory, IID_IDXGIAdapter, reinterpret_cast<void **>(&adapter)), "WARP");
     Hr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter), D3D_FEATURE_LEVEL_11_0, IID_ID3D12Device, reinterpret_cast<void **>(&device)), "device");
     reshade::api::device owner_device{device}; OnCommandStateInitDevice(&owner_device);
-    Check(g_state_CreateCommandSignature.count == 0,
-        "device init caches metadata without publishing the command-signature hook");
+    Check(g_state_CreateCommandSignature.count == 1 &&
+        g_state_CreateCommandSignature.enabled[0],
+        "device init publishes the command-signature observer regardless of configuration state");
     auto *root = MakeRoot(device, 3); auto *other_root = MakeRoot(device, 1);
     D3D12_INDIRECT_ARGUMENT_DESC startup_indirect_arg{};
     startup_indirect_arg.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
@@ -247,10 +248,16 @@ int main(int argc, char **argv) {
         "pre-NR indirect signature");
     UINT startup_metadata_bytes = sizeof(CommandSignatureState);
     CommandSignatureState startup_metadata{};
-    Check(g_command_signature_create_calls.load(std::memory_order_relaxed) == 0 &&
-        FAILED(ID3D12CommandSignature_GetPrivateData(startup_signature,
-            kCommandSignatureState, &startup_metadata_bytes, &startup_metadata)),
-        "pre-NR signatures remain untouched while the startup hook is absent");
+    const HRESULT startup_metadata_result =
+        ID3D12CommandSignature_GetPrivateData(startup_signature,
+            kCommandSignatureState, &startup_metadata_bytes,
+            &startup_metadata);
+    Check(g_command_signature_create_calls.load(std::memory_order_relaxed) == 1 &&
+        SUCCEEDED(startup_metadata_result) &&
+        startup_metadata_bytes == sizeof(startup_metadata) &&
+        startup_metadata.valid && startup_metadata.count == 1 &&
+        startup_metadata.stage == 0,
+        "pre-NR signatures retain metadata regardless of transient switch state");
     auto *pipeline = MakePipeline(device, root); auto *other_pipeline = MakePipeline(device, other_root);
     ID3D12DescriptorHeap *heap = nullptr, *other_heap = nullptr, *sampler_heap = nullptr;
     D3D12_DESCRIPTOR_HEAP_DESC heap_desc{}; heap_desc.NumDescriptors = 2; heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
@@ -268,7 +275,7 @@ int main(int argc, char **argv) {
     auto *record = FindCommandStateTokenLocked(ReadCommandStateToken(list));
     Check(record != nullptr && record->hooks_ready &&
         g_state_CreateCommandSignature.count != 0,
-        "first NR carrier installs command-signature, setter and Reset hooks on demand");
+        "first NR carrier keeps the early signature observer and installs setter and Reset hooks");
     if (record == nullptr || !record->hooks_ready) return 3;
     OnCommandStateBeforeReset(&owner);
     Hr(ID3D12GraphicsCommandList_Close(list), "close");
@@ -322,14 +329,14 @@ int main(int argc, char **argv) {
     Hr(ID3D12GraphicsCommandList_Reset(list, allocator, pipeline), "reset");
     Check(CaptureNativeCommandState(list, *snapshot), "successful reset recovers late instrumentation");
     ApplyIndirectCommandState(*record->state, startup_signature);
-    Check(!CaptureNativeCommandState(list, *snapshot),
-        "signature created before demand hook remains unknown and fails closed");
+    Check(CaptureNativeCommandState(list, *snapshot),
+        "signature created before NR activation remains known and restorable");
     Hr(ID3D12GraphicsCommandList_Close(list), "close after pre-hook indirect");
     OnCommandStateBeforeReset(&owner);
     Hr(ID3D12GraphicsCommandList_Reset(list, allocator, pipeline),
-        "reset after pre-hook indirect");
+        "reset after pre-NR indirect");
     Check(CaptureNativeCommandState(list, *snapshot),
-        "Reset recovers after unknown pre-hook indirect signature");
+        "Reset preserves recovery after a known pre-NR indirect signature");
     ID3D12DescriptorHeap *heaps[]{heap, sampler_heap};
     ID3D12GraphicsCommandList_SetDescriptorHeaps(list, 2, heaps);
     ID3D12GraphicsCommandList_SetComputeRootSignature(list, root);
