@@ -6,6 +6,7 @@ on:
     branches:
       - codex/beta0.4.2
       - codex/beta0.4.2-bug-sweep
+      - codex/043-feedback-and-triage
   push:
     branches:
       - codex/beta0.4.2
