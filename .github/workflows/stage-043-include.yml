@@ -12,27 +12,66 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Prepare and publish one reviewed source blob, without changing refs
+      - name: Prepare reviewed source blobs, without changing refs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
-          import hashlib,json,os,urllib.request
+          import hashlib,json,os,urllib.request,subprocess
           from pathlib import Path
           assert os.environ['GITHUB_REPOSITORY']=='smartLanny/dlss5-nr-before-sr-lab'
           assert os.environ['GITHUB_REF']=='refs/heads/codex/043-feedback-and-triage'
-          path='src/nr_before_sr.cpp'
-          p=Path(path); data=p.read_bytes()
           def blob(b):return hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
-          assert blob(data)=='11dd6d0653a739e6b3aff48dd2d1605f2b629f0c'
-          text=data.decode('utf-8')
+          expected={'src/nr_before_sr.cpp':'11dd6d0653a739e6b3aff48dd2d1605f2b629f0c','src/nr_f8_sequence.inl':'eb2c311693384a3bc0a54ec58ff88432b725ced0','scripts/validate-core-feedback.py':'14e4b0ecd00ec18b8612bce244a8f19c6df09c9b'}
+          text={}
+          for path,sha in expected.items():
+              data=Path(path).read_bytes(); assert blob(data)==sha,path
+              text[path]=data.decode('utf-8')
+          def edit(path,old,new):
+              assert text[path].count(old)==1,(path,old)
+              text[path]=text[path].replace(old,new)
+          cpp='src/nr_before_sr.cpp'
           anchor='#include "nr_guide_contract.h"'
-          assert text.count(anchor)==1
-          text=text.replace(anchor,anchor+'\n// Standard-library headers must be included outside the private runtime namespace.\n#include "nr_feedback_text.h"')
-          assert text.index('#include "nr_feedback_text.h"') < text.index('namespace {')
-          data=text.encode('utf-8')
-          request=urllib.request.Request('https://api.github.com/repos/smartLanny/dlss5-nr-before-sr-lab/git/blobs',data=json.dumps({'content':text,'encoding':'utf-8'}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'},method='POST')
-          with urllib.request.urlopen(request,timeout=30) as response: sha=json.load(response)['sha']
-          assert sha==blob(data)
-          print('REVIEW_BLOB '+json.dumps({'path':path,'mode':'100644','type':'blob','sha':sha}),flush=True)
+          edit(cpp,anchor,anchor+'\n// Standard-library headers must be included outside the private runtime namespace.\n#include "nr_feedback_text.h"')
+          assert text[cpp].index('#include "nr_feedback_text.h"') < text[cpp].index('namespace {')
+          seq='src/nr_f8_sequence.inl'
+          edit(seq,'StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request();\n    ReleaseSRWLockExclusive(&g_control);', '''StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request();
+              if (accepted) {
+                  // A fresh core-only request must not display a previous image
+                  // result beside its new core path as though they were paired.
+                  AcquireSRWLockExclusive(&g_lock); g_last_zip[0]=0; ReleaseSRWLockExclusive(&g_lock);
+                  g_status.store(Status::Idle);
+              }
+              ReleaseSRWLockExclusive(&g_control);''')
+          test='scripts/validate-core-feedback.py'
+          edit(test,'unsigned checks=0;', '''namespace nr_f8 {
+          enum class Status {Idle,Requested,Running,Packaging,Done};
+          std::atomic<Status> g_status{Status::Done};
+          SRWLOCK g_control=SRWLOCK_INIT,g_lock=SRWLOCK_INIT;
+          wchar_t g_last_zip[1024]={};
+          bool IsActive(){return g_status==Status::Requested || g_status==Status::Running;}
+          unsigned StageCaptureStatus(){return 0;}
+          REQUEST_CORE
+          }
+          unsigned checks=0;''')
+          edit(test,'    // The generalized archive cap cannot be raised and handles underflow safely.', '''    nr_f8::g_status=nr_f8::Status::Running;
+              wcscpy_s(nr_f8::g_last_zip,L"previous-image.zip");
+              check(!nr_f8::RequestCore() && nr_f8::g_last_zip[0],"active image request is not cleared by rejected core request");
+              nr_f8::g_status=nr_f8::Status::Done;
+              check(nr_f8::RequestCore(),"core request accepted after completed images");
+              check(!nr_f8::g_last_zip[0] && nr_f8::g_status==nr_f8::Status::Idle,"new core clears old image path and completion status");
+              nr_core_feedback::Present(&runtime);drain();
+              check(g_feedback_status==3,"fresh core completes after image-result reset");
+              // The generalized archive cap cannot be raised and handles underflow safely.''')
+          edit(test,"        'STRENGTH': definition(source, 'float ActiveTransferStrength('),", "        'STRENGTH': definition(source, 'float ActiveTransferStrength('),\n        'REQUEST_CORE': definition((ROOT/'src/nr_f8_sequence.inl').read_text(encoding='utf-8-sig'), 'bool RequestCore('),")
+          for path,value in text.items():Path(path).write_text(value,encoding='utf-8',newline='\n')
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['python3','scripts/validate-bug-sweep.py','--compiler','g++'],check=True)
+          subprocess.run(['python3','-m','unittest','discover','-s','tests','-p','test_core_feedback.py'],check=True)
+          for path,value in text.items():
+              data=value.encode('utf-8')
+              request=urllib.request.Request('https://api.github.com/repos/smartLanny/dlss5-nr-before-sr-lab/git/blobs',data=json.dumps({'content':value,'encoding':'utf-8'}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'},method='POST')
+              with urllib.request.urlopen(request,timeout=30) as response: sha=json.load(response)['sha']
+              assert sha==blob(data)
+              print('REVIEW_BLOB '+json.dumps({'path':path,'mode':'100644','type':'blob','sha':sha}),flush=True)
           PY
