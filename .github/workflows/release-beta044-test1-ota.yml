@@ -1,4 +1,5 @@
 name: Publish beta0.4.4-test1 branch OTA
+# Attempt 2: preserve historical evidence bytes; keep the clean-source gate.
 on:
   push:
     branches: [fix/044-d3d12-compat-test1]
