@@ -75,22 +75,17 @@ jobs:
             (Join-Path $core 'nrchain_nvngx.dll'),
             (Join-Path $core 'nr_before_sr.ini'),
             $carrier,
-            (Join-Path $pwd 'build/native-carrier/source-manifest.json')
+            (Join-Path $pwd 'build/native-carrier/source-manifest.json'),
+            (Join-Path $pwd 'docs/interop/NATIVE_DX11_042_TEST_PACKAGE.zh-CN.txt'),
+            (Join-Path $pwd 'scripts/Collect-Feedback.cmd'),
+            (Join-Path $pwd 'scripts/collect-feedback.ps1'),
+            (Join-Path $pwd 'scripts/Collect-Crash-Feedback.cmd'),
+            (Join-Path $pwd 'scripts/collect-crash-feedback.ps1')
           )) {
             if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "Missing package input: $file" }
-            Copy-Item -LiteralPath $file -Destination $root
+            $destination = if ([IO.Path]::GetFileName($file) -eq 'NATIVE_DX11_042_TEST_PACKAGE.zh-CN.txt') { Join-Path $root '说明.txt' } else { $root }
+            Copy-Item -LiteralPath $file -Destination $destination
           }
-          @'
-          DLSS 5 beta0.4.2 原生 DX11 载体实验版
-
-          这是基于 beta0.4.2 和 PR #46 的实验包，只用于愿意提供日志的玩家。
-          它让部分 DX11 原生 DLSS 游戏尝试把真实的 DLSS 输入送到 0.4.2 NR->SR 链路。
-          目前没有通过真实游戏验收，也没有纳入一键安装助手。
-
-          安装：完全退出游戏和 ReShade，备份原文件，只在同一个 Add-on 目录放一份中文或英文 addon、nrchain_nvngx.dll、dlss5-native-carrier-exp1.addon64 和 nr_before_sr.ini。不要同时启用旧版桥或其他 NR 插件。
-          复测：先确认原生 DLSS 仍能工作，再看插件日志中的 Feature 18 成功次数和 transfer-submitted 是否持续增加。没有持续提交就说明桥接没有生效，应恢复原包并提交日志。
-          已知边界：只接受 DX11 原生/模组 DLSS；不支持纯 DX11 无 DLSS、DX12、Vulkan、合成输入或把该包当作正式 0.4.2 使用。载体文件未经签名，不能由一键安装助手自动部署。
-          '@ | Set-Content -LiteralPath (Join-Path $root '说明.txt') -Encoding utf8NoBOM
           $files = Get-ChildItem -LiteralPath $root -File | ForEach-Object {
             [ordered]@{ path = $_.Name; bytes = $_.Length; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash }
           }
