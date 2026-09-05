@@ -1,0 +1,108 @@
+03:28:10.979  DLSS 5 AI Rendering Upscaling Edition beta0.4.1 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=DLSS5-AI渲染超分版-beta0.4.1-@野生的装机宅-Bilibili.addon64 | build_id=beta0.4.1 | sourceCommit=e0b94ff1670de82ccd4264c19d4d459fc3c2a160 sourceDirty=0
+03:28:10.981  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+03:28:10.981  Config: enabled=1 mode=2 identity=0 preTransfer=1.000 postTransfer=1.000 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=0 uiCorrection=0 r8OutputEncoding=0 perfEpoch=34 jitterMode=1 feature18Evals=0
+03:28:10.983  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+03:28:11.630  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+03:28:11.631  [module] pinned hook owner name=D3D12 command state address=00007FFB42752500 module=00007FFB42670000 until process exit.
+03:28:11.920  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+03:28:11.955  [command-state] device meta-command contract: known=1 initDirty=0x0 executeDirty=0x0 supportedMask=0x1038.
+03:28:12.511  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+03:28:13.502  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+03:28:13.503  [command-state] observed CreateCommandSignature: call=1 signature=000000006972F630 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[9] root=0000000000000000.
+03:28:13.503  [command-state] observed CreateCommandSignature: call=2 signature=000000006973DB20 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+03:28:13.503  [command-state] observed CreateCommandSignature: call=3 signature=000000006973E2F0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+03:28:13.503  [command-state] observed CreateCommandSignature: call=4 signature=000000005B44CCF0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[10] root=0000000000000000.
+03:28:13.503  [command-state] observed CreateCommandSignature: call=5 signature=000000005B44D4C0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[0] root=0000000000000000.
+03:28:13.504  [command-state] observed CreateCommandSignature: call=6 signature=000000006972BD70 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=0000000000000000.
+03:28:15.281  Found SR NGX module: G:\SteamLibrary\steamapps\common\BlackMythWukong\Engine\Plugins\Runtime\Nvidia\DLSS\Binaries\ThirdParty\Win64\nvngx_dlss.dll
+03:28:15.281  [module] pinned hook owner name=nvngx_dlss.dll address=00007FFAC1140000 module=00007FFAC1140000 until process exit.
+03:28:15.281  [module] pinned hook owner name=_nvngx.dll address=00007FFAC5F80000 module=00007FFAC5F80000 until process exit.
+03:28:15.287  [module] pinned hook owner name=D3D12_CreateFeature address=00007FFAC116D2E0 module=00007FFAC1140000 until process exit.
+03:28:15.287  MH_CreateHook D3D12_CreateFeature                    target=00007FFAC116D2E0 status=0
+03:28:15.287  [module] pinned hook owner name=D3D12_EvaluateFeature address=00007FFAC116D450 module=00007FFAC1140000 until process exit.
+03:28:15.287  MH_CreateHook D3D12_EvaluateFeature                  target=00007FFAC116D450 status=0
+03:28:15.287  [module] pinned hook owner name=D3D12_ReleaseFeature address=00007FFAC116D730 module=00007FFAC1140000 until process exit.
+03:28:15.288  MH_CreateHook D3D12_ReleaseFeature                   target=00007FFAC116D730 status=0
+03:28:15.288  [module] pinned hook owner name=core CreateFeature address=00007FFAC5FE8540 module=00007FFAC5F80000 until process exit.
+03:28:15.288  MH_CreateHook core CreateFeature                     target=00007FFAC5FE8540 status=0
+03:28:15.288  [module] pinned hook owner name=core EvaluateFeature address=00007FFAC5FE8740 module=00007FFAC5F80000 until process exit.
+03:28:15.288  MH_CreateHook core EvaluateFeature                   target=00007FFAC5FE8740 status=0
+03:28:15.289  [module] pinned hook owner name=core ReleaseFeature address=00007FFAC5FE8640 module=00007FFAC5F80000 until process exit.
+03:28:15.289  MH_CreateHook core ReleaseFeature                    target=00007FFAC5FE8640 status=0
+03:28:15.342  MH_EnableHook all status=0
+03:28:15.342  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+03:28:15.342  [module] initial scan complete: sr=00007FFAC1140000 core=00007FFAC5F80000 dlssd=0000000000000000.
+03:28:15.342  NGX observer/AI-upscaling hooks active.
+03:28:17.042  [module] late module discovered name=nvngx_dlssd.dll handle=00000001F1D40000 path=G:\SteamLibrary\steamapps\common\BlackMythWukong\Engine\Plugins\Runtime\Nvidia\DLSS\Binaries\ThirdParty\Win64\nvngx_dlssd.dll
+03:28:17.042  [module] pinned hook owner name=nvngx_dlssd.dll address=00000001F1D40000 module=00000001F1D40000 until process exit.
+03:28:17.042  [module] pinned hook owner name=late DLSSD ReleaseFeature address=00000001F1D64980 module=00000001F1D40000 until process exit.
+03:28:17.043  MH_CreateHook late DLSSD ReleaseFeature              target=00000001F1D64980 status=9
+03:28:17.043  [module] pinned hook owner name=late DLSSD CreateFeature address=00000001F1D64530 module=00000001F1D40000 until process exit.
+03:28:17.043  MH_CreateHook late DLSSD CreateFeature               target=00000001F1D64530 status=9
+03:28:17.044  [module] pinned hook owner name=late DLSSD EvaluateFeature address=00000001F1D646A0 module=00000001F1D40000 until process exit.
+03:28:17.044  MH_CreateHook late DLSSD EvaluateFeature             target=00000001F1D646A0 status=9
+03:28:17.044  [module] late DLSSD coverage: create=0 evaluate=0 release=0; RR-lifecycle=UNCERTAIN.
+03:28:17.044  RR ownership tracking became uncertain during lazy module rescan: a late RR-capable NGX module could not be fully covered. All future Feature 1 processing fails closed for this process.
+03:28:17.045  [module] lazy rescan #1 core=00007FFAC5F80000 coreLifecycle=1 dlssd=00000001F1D40000 dlssdLifecycle=0 observerGap=1 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0.
+03:28:17.047  [perf] reset stage=C-NR-transfer epoch=34 transfer=1.000; warming 180 frames
+03:28:17.059  [artifact-identity] sourceCommit=e0b94ff1670de82ccd4264c19d4d459fc3c2a160 sourceDirty=0 status=verified addonPath=G:\SteamLibrary\steamapps\common\BlackMythWukong\b1\Binaries\Win64\DLSS5-AI渲染超分版-beta0.4.1-@野生的装机宅-Bilibili.addon64 addonSha256=53f1e7e187bb2bfb3323971bbf3777153d18eea0fbd22741b6115da5024b70da measurement=loaded-path-file-once-worker.
+03:28:21.029  [module] lazy rescan #2 core=00007FFAC5F80000 coreLifecycle=1 dlssd=00000001F1D40000 dlssdLifecycle=0 observerGap=1 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0.
+03:28:21.586  _nvngx core CreateFeature entered: call=1 id=1 (SuperSampling)
+03:28:21.586  nvngx_dlss CreateFeature entered: call=1 id=1 (SuperSampling)
+03:28:21.632  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=00000012ADAEE330
+03:28:21.633      Width                                      = 1280
+03:28:21.634      Height                                     = 720
+03:28:21.634      OutWidth                                   = 3840
+03:28:21.634      OutHeight                                  = 2160
+03:28:21.634      PerfQualityValue                           = 3
+03:28:21.635      DLSS.Feature.Create.Flags                  = 73
+03:28:21.635      DLSS.Enable.Output.Subrects                = 0
+03:28:21.635      CreationNodeMask                           = 1
+03:28:21.635      VisibilityNodeMask                         = 1
+03:28:21.636  Feature 1 contract generation=1 handle=00000012ADAEE330 create=1280x720 -> 3840x2160 flags=73 quality=3; all NR contracts will be rebuilt.
+03:28:21.636  _nvngx core EvaluateFeature reached: call=1 handle=00000012ADAEE330
+03:28:21.636  [state] bypass transition #1: waiting-feature1 -> module-observer-uncertain.
+03:28:21.637  nvngx_dlss EvaluateFeature reached: call=1 handle=00000012ADAEE330
+03:28:21.642  _nvngx core CreateFeature entered: call=2 id=11 (FrameGeneration)
+03:28:21.675  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=00000012A8FB6930
+03:28:21.687  _nvngx core EvaluateFeature reached: call=2 handle=00000012A8FB6930
+03:28:21.744  _nvngx core EvaluateFeature reached: call=3 handle=00000012A8FB6930
+03:28:22.076  nvngx_dlss EvaluateFeature reached: call=2 handle=00000012ADAEE330
+03:28:22.081  nvngx_dlss EvaluateFeature reached: call=3 handle=00000012ADAEE330
+03:28:22.083  [module] lazy rescan #3 core=00007FFAC5F80000 coreLifecycle=1 dlssd=00000001F1D40000 dlssdLifecycle=0 observerGap=1 startupCovered=0 feature1CreateAttempts=1 feature1CreateSuccess=1 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0.
+03:28:24.034  [perf] stage=C-NR-transfer epoch=34 transfer=1.000 samples=600 avgFPS=482.208 avgMs=2.0738 p95Ms=7.2710 p99Ms=9.3156 onePercentLowFPS=80.851
+03:28:30.573  [perf] stage=C-NR-transfer epoch=34 transfer=1.000 samples=600 avgFPS=357.119 avgMs=2.8002 p95Ms=8.0134 p99Ms=19.7551 onePercentLowFPS=12.744
+03:28:36.827  [perf] stage=C-NR-transfer epoch=34 transfer=1.000 samples=600 avgFPS=229.287 avgMs=4.3613 p95Ms=31.8012 p99Ms=46.9645 onePercentLowFPS=19.055
+03:28:43.126  [perf] stage=C-NR-transfer epoch=34 transfer=1.000 samples=600 avgFPS=180.345 avgMs=5.5449 p95Ms=41.3198 p99Ms=64.2740 onePercentLowFPS=13.813
+03:28:48.854  [perf] stage=C-NR-transfer epoch=34 transfer=1.000 samples=600 avgFPS=220.363 avgMs=4.5380 p95Ms=32.2403 p99Ms=48.8767 onePercentLowFPS=18.431
+03:29:01.948  [perf] stage=C-NR-transfer epoch=34 transfer=1.000 samples=600 avgFPS=418.107 avgMs=2.3917 p95Ms=7.6958 p99Ms=19.1365 onePercentLowFPS=25.736
+03:29:08.657  [perf] stage=C-NR-transfer epoch=34 transfer=1.000 samples=600 avgFPS=304.043 avgMs=3.2890 p95Ms=10.5052 p99Ms=28.3424 onePercentLowFPS=13.402
+03:29:14.816  [perf] stage=C-NR-transfer epoch=34 transfer=1.000 samples=600 avgFPS=463.277 avgMs=2.1585 p95Ms=7.6037 p99Ms=8.4823 onePercentLowFPS=45.429
+03:29:19.839  [perf] stage=C-NR-transfer epoch=34 transfer=1.000 samples=600 avgFPS=451.105 avgMs=2.2168 p95Ms=7.6055 p99Ms=8.5645 onePercentLowFPS=74.306
+03:29:22.875  [state] bypass transition #2: module-observer-uncertain -> master-disabled.
+03:29:22.889  Config updated from ReShade simplified settings: enabled=0 nrBeforeSr=1 transfer=1.000 colorFollowRequested=0.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=35 feature18Evals=0
+03:29:22.890  [perf] reset stage=A-SR-only epoch=35 transfer=1.000; warming 180 frames
+03:29:27.528  [module] lazy rescan #60 core=00007FFAC5F80000 coreLifecycle=1 dlssd=00000001F1D40000 dlssdLifecycle=0 observerGap=1 startupCovered=0 feature1CreateAttempts=1 feature1CreateSuccess=1 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0.
+03:29:28.327  [perf] stage=A-SR-only epoch=35 transfer=1.000 samples=600 avgFPS=482.086 avgMs=2.0743 p95Ms=7.6230 p99Ms=8.4421 onePercentLowFPS=95.121
+03:29:38.986  [perf] stage=A-SR-only epoch=35 transfer=1.000 samples=600 avgFPS=80.467 avgMs=12.4274 p95Ms=26.3917 p99Ms=93.0654 onePercentLowFPS=6.105
+03:29:44.526  [perf] stage=A-SR-only epoch=35 transfer=1.000 samples=600 avgFPS=218.106 avgMs=4.5849 p95Ms=18.6943 p99Ms=20.4549 onePercentLowFPS=45.338
+03:29:50.810  [perf] stage=A-SR-only epoch=35 transfer=1.000 samples=600 avgFPS=195.824 avgMs=5.1066 p95Ms=20.4325 p99Ms=22.5792 onePercentLowFPS=20.612
+03:29:53.064  [state] bypass transition #3: master-disabled -> waiting-feature1.
+03:29:53.073  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=0.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=36 feature18Evals=0
+03:29:53.073  [state] bypass transition #4: waiting-feature1 -> module-observer-uncertain.
+03:29:53.074  [perf] reset stage=C-NR-transfer epoch=36 transfer=1.000; warming 180 frames
+03:29:59.651  [perf] stage=C-NR-transfer epoch=36 transfer=1.000 samples=600 avgFPS=210.298 avgMs=4.7551 p95Ms=17.8248 p99Ms=19.1693 onePercentLowFPS=50.795
+03:30:00.642  [state] bypass transition #5: module-observer-uncertain -> waiting-feature1.
+03:30:00.651  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=0 transfer=1.000 colorFollowRequested=0.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=37 feature18Evals=0
+03:30:00.653  [state] bypass transition #6: waiting-feature1 -> module-observer-uncertain.
+03:30:00.653  [perf] reset stage=B-post-SR-NR epoch=37 transfer=1.000; warming 180 frames
+03:30:01.942  [state] bypass transition #7: module-observer-uncertain -> waiting-feature1.
+03:30:01.951  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.000 colorFollowRequested=0.000 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=38 feature18Evals=0
+03:30:01.951  [state] bypass transition #8: waiting-feature1 -> module-observer-uncertain.
+03:30:01.951  [perf] reset stage=C-NR-transfer epoch=38 transfer=1.000; warming 180 frames
+03:30:08.517  [perf] stage=C-NR-transfer epoch=38 transfer=1.000 samples=600 avgFPS=209.338 avgMs=4.7770 p95Ms=18.1198 p99Ms=19.7267 onePercentLowFPS=48.241
+03:30:14.265  [perf] stage=C-NR-transfer epoch=38 transfer=1.000 samples=600 avgFPS=209.480 avgMs=4.7737 p95Ms=18.0764 p99Ms=19.4647 onePercentLowFPS=50.177
+03:30:20.040  [perf] stage=C-NR-transfer epoch=38 transfer=1.000 samples=600 avgFPS=208.305 avgMs=4.8006 p95Ms=18.8705 p99Ms=20.1067 onePercentLowFPS=47.611
+03:30:25.845  [perf] stage=C-NR-transfer epoch=38 transfer=1.000 samples=600 avgFPS=208.260 avgMs=4.8017 p95Ms=18.4473 p99Ms=19.2445 onePercentLowFPS=49.402
+03:30:25.992  [feedback] one-click session requested; current settings retained, 3 display images, exact-fence stages, bounded 30-second wait.
+03:30:29.584  [module] lazy rescan #120 core=00007FFAC5F80000 coreLifecycle=1 dlssd=00000001F1D40000 dlssdLifecycle=0 observerGap=1 startupCovered=0 feature1CreateAttempts=1 feature1CreateSuccess=1 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0.
