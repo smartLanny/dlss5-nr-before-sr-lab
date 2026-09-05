@@ -30,12 +30,25 @@ int main() {
     check(Sanitize("Authorization: token example") == "[sensitive log line omitted]", "secret line excluded");
     check(Sanitize("x=one\xff\r\n") == "x=one?", "partial UTF8 and control bytes sanitized");
     check(Sanitize(std::string(kLineLimit * 2, 'x')).size() == kLineLimit, "oversized line bounded");
+    const char *abort_line = "WARN | Another ReShade instance was already loaded from 'C:\\Users\\PRIVATE\\Game\\dxgi.dll'! Aborting initialization ...";
+    const auto redacted_abort = Sanitize(abort_line);
+    check(redacted_abort.find("PRIVATE") == std::string::npos && redacted_abort.find("dxgi.dll") == std::string::npos,
+        "duplicate instance private path and suffix still redacted");
+    check(redacted_abort.find("Another ReShade instance") != std::string::npos &&
+        redacted_abort.find("Aborting initialization") != std::string::npos,
+        "fixed abort clue survives path-tail redaction");
+    check(redacted_abort.size() <= kLineLimit, "redacted abort remains line-bounded");
+    check(Sanitize("Another ReShade instance was loaded from C:\\PRIVATE\\x.dll").find("Aborting initialization") == std::string::npos,
+        "missing abort clause is not invented");
+    check(Sanitize(std::string(abort_line) + " password=private") == "[sensitive log line omitted]",
+        "secret-line omission takes priority over event retention");
     Summary s;
     s.Push("build=fixture sourceCommit=" + sha40);
     for (unsigned i = 0; i < 20000; ++i) s.Push("frame=warming no carrier yet");
     s.Push("[command-state] NR bypass: reason=null-pso-policy-disabled token=unknown");
     s.Push("[command-state] NR bypass: reason=native-hooks-unavailable");
     s.Push("error first driver code=0xc0000005");
+    s.Push(abort_line);
     for (unsigned i = 0; i < 30000; ++i) s.Push("Feature 18 evaluate success count=" + std::to_string(i));
     s.Push("last frame=50000");
     auto report = s.Text(4000000, 4000000, true);
@@ -43,6 +56,8 @@ int main() {
     check(report.find("reason=null-pso-policy-disabled") != std::string::npos, "first bypass survives tail storm");
     check(report.find("reason=native-hooks-unavailable") != std::string::npos, "distinct first reason retained");
     check(report.find("error first driver") != std::string::npos, "first error retained");
+    check(report.find("Aborting initialization") != std::string::npos && report.find("PRIVATE") == std::string::npos,
+        "sanitized initialization abort survives tail storm");
     check(report.find("last frame=50000") != std::string::npos, "recent tail retained");
     check(report.size() <= kSummaryLimit, "summary hard byte bound");
     for (unsigned i = 0; i < 200; ++i) s.Push("reason=unique-" + std::to_string(i) + std::string(4096, 'x'), true);

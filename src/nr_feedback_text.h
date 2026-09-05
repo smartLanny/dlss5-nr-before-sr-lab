@@ -39,6 +39,9 @@ inline std::string Sanitize(std::string_view input) {
     const auto lower = Lower(line);
     for (const char *secret : {"authorization:", "password=", "access_token=", "github_pat_", "ghp_", "private key"})
         if (lower.find(secret) != std::string::npos) return "[sensitive log line omitted]";
+    const bool duplicate_init_abort =
+        lower.find("another reshade instance") != std::string::npos &&
+        lower.find("aborting initialization") != std::string::npos;
     // Paths may contain spaces. Redact to the next explicit field separator,
     // not just the first space; otherwise usernames/game paths leak in tails.
     for (std::size_t i = 0; i < line.size();) {
@@ -62,6 +65,14 @@ inline std::string Sanitize(std::string_view input) {
         if (n >= 12 && n <= 16 && (end == line.size() || !Word(line[end]))) {
             line.replace(i, end - i, "[address]"); i += 9;
         } else ++i;
+    }
+    // ReShade places the abort text AFTER the loaded module's private path.
+    // Preserve only a fixed marker, never reconstruct any removed suffix.
+    // This remains a historical text clue, not a trusted/current state claim.
+    if (duplicate_init_abort && Lower(line).find("aborting initialization") == std::string::npos) {
+        constexpr std::string_view marker = " [Aborting initialization]";
+        if (line.size() > kLineLimit - marker.size()) line.resize(kLineLimit - marker.size());
+        line += marker;
     }
     return line;
 }
