@@ -1,4 +1,4 @@
-DLSS 5 AI Rendering Perfect Chain beta0.4.3 Community Beta - Small Update
+DLSS 5 AI Rendering Perfect Chain beta0.4.3r2 Community Beta - Small Update
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
@@ -21,13 +21,13 @@ New installations use final-effect strength 1.2. The slider is the actual reques
 
 Compatibility and safety boundary
 
-This release remains the native D3D12 DLSS Feature 1 path. DX11 is not part of this beta0.4.3 release and remains on a separate research branch. If resource, format, subrect, command-state, RR ownership, or HDR contracts cannot be proven, the preferred behavior is to bypass and retain the game's native SR result.
+This release remains the native D3D12 DLSS Feature 1 path. DX11 is not part of this beta0.4.3r2 release and remains on a separate research branch. If resource, format, subrect, command-state, RR ownership, or HDR contracts cannot be proven, the preferred behavior is to bypass and retain the game's native SR result.
 
-Wuthering Waves, Where Winds Meet, Forza Horizon, Black Myth and other titles with prior intermittent or crash reports still need current beta0.4.3 in-game retesting. Automated regressions, D3D12 WARP, shader compilation and source builds passing do not equal NVIDIA-model or real-game runtime validation.
+Wuthering Waves, Where Winds Meet, Forza Horizon, Black Myth and other titles with prior intermittent or crash reports still need current beta0.4.3r2 in-game retesting. Automated regressions, D3D12 WARP, shader compilation and source builds passing do not equal NVIDIA-model or real-game runtime validation.
 
 Updating
 
-Exit the game completely, back up the old addon outside the game directory, then replace it. Keep both runtime DLLs and the existing configuration. In game, confirm beta0.4.3 in the ReShade add-on panel, compare with F6, and verify that the NR-success counter continues increasing.
+Exit the game completely, back up the old addon outside the game directory, then replace it. Keep both runtime DLLs and the existing configuration. In game, confirm beta0.4.3r2 in the ReShade add-on panel, compare with F6, and verify that the NR-success counter continues increasing.
 
 Reporting
 
