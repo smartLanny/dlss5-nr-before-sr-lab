@@ -3,7 +3,7 @@ on:
   push:
     branches: [codex/dx11-r3-render-control]
   pull_request:
-    branches: [main, next/0.5]
+    branches: [release/0.4, main]
     paths: ['src/interop/**', 'scripts/prepare-native-bridge*', 'tests/native_bridge/**', '.github/workflows/native-bridge-r3.yml']
   workflow_dispatch:
 permissions:
