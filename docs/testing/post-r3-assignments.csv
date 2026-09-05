@@ -1,0 +1,36 @@
+task_id,priority,lane,game,preferred_gpu,protocols,readiness,owner,progress,result,focus,source
+T01,P0,S：R3,007 初露锋芒,RTX 5080（原样本）,P00/P01/P08,专人受控复现,,未分派,未测,先分析已有 dump；关闭/开启 NR 单次对照，出现崩溃即停。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/49
+T02,P0,S：R3,地平线（核对实际版本）,RTX 5070 Ti（原样本）,P00/P01/P08,专人受控复现,,未分派,未测,记录真实 EXE/游戏名；区分 NR 关闭也崩与启用后才崩。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/18
+T03,P1,S：R3,异环：前置/后置分流,RTX 5060 Ti（R3样本）,P00/P01/P02,现在可测基线,,未分派,未测,前置为已报告成功对照；后置 prepared>0、NR=0 必须单列。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/53
+T04,P1,S：R3,异环：原反馈复核,RTX 5070 Ti（原样本）,P00/P01/P02,现在可测基线,,未分派,未测,#52 已补包；旧0.4.2失败不能代替本机R3结果。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/52
+T05,P1,S：R3,街霸6：干净载体,RTX 5060 Ti（R3样本）,P00/P01/P03,现在可测基线,,未分派,未测,记录 F1 调用与 registered；不把无原生菜单说成无NGX。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/65
+T06,P1,S：R3,街霸6：RenoDX对照,RTX 5080（原PC-A）,P00/P01/P03,现在可测基线,,未分派,未测,RenoDX-SF6开/关；保留3839×2159有效区域，不强行取整。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/65
+T07,P1,S：R3,NBA 2K27：模块生命周期,RTX 5070（R3样本）,P00/P01/P04,现在可测基线,,未分派,未测,unknown-evaluate与native-hooks分列；曝光问题不替代首个阻断。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/68
+T08,P1,S：R3,沉没之城2,RTX 5080（原样本）,P00/P01/P03,现在可测基线,,未分派,未测,验证R3窄范围准入；未知状态仍旁路，不启用全局实验守卫。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/38
+T09,P1,S：R3,地铁离去增强版,RTX 5080（原样本）,P00/P01/P03,现在可测基线,,未分派,未测,3440×1440超宽屏；分模式、分scope记录提交。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/50
+T10,P1,S：R3,艾尔登法环＋ERSS,RTX 5080（原样本）,P00/P01/P06,合法离线且载体可用,,未分派,未测,NR/FG四组；移除ERSS可能同时移除SR载体，须记N/A。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/64
+T11,P1,S：R3,匹诺曹的谎言＋ERSS,同T10同卡同运行库,P00/P01/P06,合法离线且载体可用,,未分派,未测,传闻可用只作待验证正对照；固定同一ERSS版本。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/64
+T12,P1,S：R3,心灵杀手2＋RTX40MFG,RTX 4090（原样本）,P00/P01/P04/P06,专人外部组件对照,,未分派,未测,原生FG与外部解锁各自单测；绝不并装两套MFG解锁。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/63
+T13,P1,S：R3,荒野大镖客2,RTX 3080 Ti（原样本）,P00/P01/P02,现在可测基线,,未分派,未测,4K；区分状态栏闪烁、实际画面交替及真实提交中断。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/43
+T14,P1,S：R3,鸣潮＋RenoDX HDR,RTX 5090D（原样本）,P00/P01/P05,合法可测环境,,未分派,未测,SDR/HDR × LightingLock 0/0.2/1；灰滑条与黑轮廓分开。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/39
+T15,P1,S：R3,赛博朋克2077：50系基准,RTX 5080 或 5090,P00/P01/P02/P06,现在可测基线,,未分派,未测,固定存档；前后置、NR关闭、RR旁路、原生FG对照。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/7
+T16,P1,S：R3,赛博朋克2077：40系基准,RTX 4070 Super 或 4090,P00/P01/P02/P06,既有合法可用运行库,,未分派,未测,只比较原生FG；30/40系运行库版本记录，不混50系包。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/7
+T17,P1,S：R3,赛博朋克2077：30系基准,RTX 3080 Ti 或 3060 Ti,P00/P01/P02,既有合法可用运行库,,未分派,未测,首轮FG关闭；检查同版本能否持续提交与8GB显存压力。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/7
+T18,P1,S：R3,UI共存与配置竞争,复用T14/T15任一卡,P00/P07,现在可测基线,,未分派,未测,双语/DPI、滑条+F6、采集锁、身份提示、另一插件布局。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/45
+T19,P1,S：R3,F8/F7反馈验收,复用失败游戏＋T15,P00/P09,现在可测基线,,未分派,未测,无NR也可F8；连采/取消/重试，不串session与旧路径。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/47
+T20,P2,S：R3,生化危机9 安魂曲,RTX 5060 Ti 16GB,P00/P01/P03/P08,专人受控复现,,未分派,未测,1440p/FG关闭；与SF6对照但不预设同根因。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/36
+T21,P2,S：R3,燕云十六声,RTX 4060 8GB,P00/P01/P02/P05,合法可测环境,,未分派,未测,1080p；强度1/2、前后置；HUD闪烁与光照偏移分列。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/42
+T22,P2,S：R3,神秘海域4,RTX 3080 Ti,P00/P01/P02/P05,现在可测基线,,未分派,未测,固定真实R3身份，不沿用旧0.4-r4日志作新结论。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/51
+T23,P2,S：R3,黑神话：悟空,RTX 5070 Ti,P00/P01/P04,现在可测基线,,未分派,未测,4K；创建/观察器/提交计数与旧样本对照。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/19
+T24,P2,S：R3,逆战：未来,RTX 5060（原样本）,P00/P08,仅获准安全测试环境,,未分派,未测,先核对双ReShade安装；有保护阻断即N/A，不绕过反作弊。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/59
+T25,P1,D：DX11候选,博德之门3 DX11,RTX 5080优先；再4070S,P00/P10,#79整套候选冻结后,,未分派,未测,桥单独→NR关/开→共享fence/回退；普通R3 OTA不是桥包。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/58
+T26,P1,D：DX11候选,Prey＋Luma DLSS提供者,RTX 4070S 或 5080,P00/P10,#79及匹配提供者冻结后,,未分派,未测,先证实外部DLSS提供者独立可用；无提供者则N/A。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/80
+T27,P2,D：DX11候选,Skyrim SE＋一种DLSS模组,RTX 3080 Ti 或 4070S,P00/P10,#79及匹配模组冻结后,,未分派,未测,第二引擎补充；不混其他NR所有者和多个升频模组。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/80
+T28,P1,D：DX11候选,真实游戏R控制验收,复用T25已通过机器,P00/P11,#79基础桥验收通过后,,未分派,未测,RenderScale请求不等于R；游戏重建资源后再确认实际R/O。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/80
+T29,P2,Q：0.5候选,2077金属脸/强度归因,RTX 5090 Laptop优先,P00/P05/P12,#73精确候选冻结后,,未分派,未测,先回统一模型参数；旧dirty样本Intensity=2，不可只对齐Transfer。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/71
+T30,P2,Q：0.5候选,鸣潮高强度/HDR,RTX 5090D 或 5080,P00/P05/P12,#73精确候选冻结后,,未分派,未测,保护开/关同N；未知HDR颜色跟随仍应暂停，不算故障。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/71
+T31,P1,C：下一批候选,SF6/NBA/异环修复回归,分别复用T03/T05/T07,P00/P01/P02/P03/P04,新修复代码/CI/哈希齐备后,,未分派,未测,本轮未生成新运行时修复包；三个原因独立A/B、分别记录。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/81
+T32,P2,C：下一批候选,NR比例滑条迁移,已通过基准的50系＋40系,P00/P07/P13,#82 UI实现并验证后,,未分派,未测,0%=关闭、最小合法尺寸和实际比例均须明确；原配置保留。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/82
+T33,P2,C：下一批候选,后置低分NR,2077先5080；再异环5060Ti,P00/P02/P05/P13,#82固定比例/identity通过后,,未分派,未测,100/75/50或合法档；只回填修改，禁低分整图覆盖。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/82
+T34,P2,C：下一批候选,阶段GPU计时,复用T15/T16/T17,P00/P14,#9计时实现并验证后,,未分派,未测,采集开销与基准分开；不拿插帧后FPS当NR GPU毫秒。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/9
+T35,P2,C：下一批候选,typeless资源/视图,开发者WARP；再合法游戏,P00/P15,#2实现及负例通过后,,未分派,未测,FP16 SceneColor与R32曝光是两条合同，不能一并强转。,https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/2
