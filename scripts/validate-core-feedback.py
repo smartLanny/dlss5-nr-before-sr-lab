@@ -108,6 +108,15 @@ void TestSleep(DWORD ms){test_clock+=ms;}
 #undef GetTickCount64
 #undef TryEnterCriticalSection
 #undef Sleep
+namespace nr_f8 {
+enum class Status {Idle,Requested,Running,Packaging,Done};
+std::atomic<Status> g_status{Status::Done};
+SRWLOCK g_control=SRWLOCK_INIT,g_lock=SRWLOCK_INIT;
+wchar_t g_last_zip[1024]={};
+bool IsActive(){return g_status==Status::Requested || g_status==Status::Running;}
+unsigned StageCaptureStatus(){return 0;}
+REQUEST_CORE
+}
 unsigned checks=0;
 void check(bool ok,const char *message){++checks;if(!ok){std::fprintf(stderr,"FAIL: %s Win32=%lu\n",message,GetLastError());std::exit(1);}}
 void drain(){while(!work.empty()){const auto w=work.front();work.erase(work.begin());w.fn(w.arg);}}
@@ -146,6 +155,14 @@ int main(int argc,char **argv) {
     check(g_feedback_status==5 && !g_feedback_last_zip[0],"pin failure does not expose previous path");
     directory_fail=true;begin(runtime);drain();directory_fail=false;
     check(g_feedback_status==5 && !g_feedback_last_zip[0],"directory failure has no previous artifact");
+    nr_f8::g_status=nr_f8::Status::Running;
+    wcscpy_s(nr_f8::g_last_zip,L"previous-image.zip");
+    check(!nr_f8::RequestCore() && nr_f8::g_last_zip[0],"active image request is not cleared by rejected core request");
+    nr_f8::g_status=nr_f8::Status::Done;
+    check(nr_f8::RequestCore(),"core request accepted after completed images");
+    check(!nr_f8::g_last_zip[0] && nr_f8::g_status==nr_f8::Status::Idle,"new core clears old image path and completion status");
+    nr_core_feedback::Present(&runtime);drain();
+    check(g_feedback_status==3,"fresh core completes after image-result reset");
     // The generalized archive cap cannot be raised and handles underflow safely.
     auto *job=new nr_bundle::Job{};job->archive_limit=UINT64_MAX;
     check(nr_bundle::ArchiveLimit(*job)==nr_bundle::kArchiveLimit,"caller cannot raise global ZIP limit");
@@ -178,6 +195,7 @@ def main():
         'APPEND': definition(legacy, 'void FeedbackAppend('),
         'RELEVANT': definition(legacy, 'bool FeedbackModuleRelevant('),
         'STRENGTH': definition(source, 'float ActiveTransferStrength('),
+        'REQUEST_CORE': definition((ROOT/'src/nr_f8_sequence.inl').read_text(encoding='utf-8-sig'), 'bool RequestCore('),
     }
     text = HARNESS
     for key, value in values.items():

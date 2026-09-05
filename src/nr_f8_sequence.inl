@@ -57,6 +57,12 @@ bool RequestCore() {
     AcquireSRWLockExclusive(&g_control);
     const bool accepted = !IsActive() && g_status.load()!=Status::Packaging &&
         StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request();
+    if (accepted) {
+        // A fresh core-only request must not display a previous image
+        // result beside its new core path as though they were paired.
+        AcquireSRWLockExclusive(&g_lock); g_last_zip[0]=0; ReleaseSRWLockExclusive(&g_lock);
+        g_status.store(Status::Idle);
+    }
     ReleaseSRWLockExclusive(&g_control);
     return accepted;
 }
