@@ -1,0 +1,38 @@
+name: Stage 043 include fix
+on:
+  push:
+    branches: [codex/043-feedback-and-triage]
+    paths: [.github/workflows/stage-043-include.yml]
+permissions:
+  contents: write
+jobs:
+  source-blob:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare and publish one reviewed source blob, without changing refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,urllib.request
+          from pathlib import Path
+          assert os.environ['GITHUB_REPOSITORY']=='smartLanny/dlss5-nr-before-sr-lab'
+          assert os.environ['GITHUB_REF']=='refs/heads/codex/043-feedback-and-triage'
+          path='src/nr_before_sr.cpp'
+          p=Path(path); data=p.read_bytes()
+          def blob(b):return hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
+          assert blob(data)=='11dd6d0653a739e6b3aff48dd2d1605f2b629f0c'
+          text=data.decode('utf-8')
+          anchor='#include "nr_guide_contract.h"'
+          assert text.count(anchor)==1
+          text=text.replace(anchor,anchor+'\n// Standard-library headers must be included outside the private runtime namespace.\n#include "nr_feedback_text.h"')
+          assert text.index('#include "nr_feedback_text.h"') < text.index('namespace {')
+          data=text.encode('utf-8')
+          request=urllib.request.Request('https://api.github.com/repos/smartLanny/dlss5-nr-before-sr-lab/git/blobs',data=json.dumps({'content':text,'encoding':'utf-8'}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'},method='POST')
+          with urllib.request.urlopen(request,timeout=30) as response: sha=json.load(response)['sha']
+          assert sha==blob(data)
+          print('REVIEW_BLOB '+json.dumps({'path':path,'mode':'100644','type':'blob','sha':sha}),flush=True)
+          PY
