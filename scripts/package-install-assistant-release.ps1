@@ -89,7 +89,7 @@ foreach ($variant in $payload.variants) {
     Copy-Item -LiteralPath $verifyScript -Destination $directory
     Sign-Directory $directory $payload.build
     & $verifyScript -PackagePath $directory
-    $componentZip = Join-Path $output ($name+'.zip')
+    $componentZip = Join-Path $output ('offline-package-' + [string]$payload.build + '-' + [string]$variant.gpuFamily + '-' + [string]$variant.language + '.zip')
     Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath $directory -File | Select-Object -ExpandProperty FullName) -DestinationPath $componentZip -CompressionLevel Optimal
     $deliveryArtifacts += [ordered]@{ path=[IO.Path]::GetFileName($componentZip); kind='offline-component'; build=[string]$payload.build; gpuFamily=[string]$variant.gpuFamily; language=[string]$variant.language; sha256=(Get-FileHash -LiteralPath $componentZip -Algorithm SHA256).Hash; bytes=(Get-Item -LiteralPath $componentZip).Length }
 }
@@ -107,5 +107,6 @@ $deliveryEvidence = [ordered]@{
     completedUtc=[DateTime]::UtcNow.ToString('o')
     artifacts=$deliveryArtifacts
 }
-[IO.File]::WriteAllText((Join-Path $output 'DELIVERY_EVIDENCE.json'), ($deliveryEvidence | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($false))
+$deliveryEvidenceName = 'DELIVERY_EVIDENCE-' + [string]$payload.build + '.json'
+[IO.File]::WriteAllText((Join-Path $output $deliveryEvidenceName), ($deliveryEvidence | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($false))
 Write-Host "Created signed app and four explicit final payload packages: $output"
