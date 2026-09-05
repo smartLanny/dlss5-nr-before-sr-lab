@@ -35,8 +35,9 @@ bool Request() {
     AcquireSRWLockExclusive(&g_feedback_lock);
     if (Busy()) { ReleaseSRWLockExclusive(&g_feedback_lock); return false; }
     g_pair = {};
-    const auto id = nr_feedback_text::SessionId(GetCurrentProcessId(), GetTickCount64(), ++g_serial);
-    nr_bundle::CopyText(g_pair.session, sizeof(g_pair.session), id.c_str());
+    // No allocation or exception is possible while holding the publication lock.
+    std::snprintf(g_pair.session, sizeof(g_pair.session), "DLSS5_CORE_%lu_%llu_%llu",
+        GetCurrentProcessId(), GetTickCount64(), ++g_serial);
     g_reason[0] = 0; g_feedback_last_zip[0] = 0;
     g_cancel.store(false);
     g_feedback_status.store(1, std::memory_order_release);
@@ -240,6 +241,7 @@ void Present(reshade::api::effect_runtime *runtime) {
             reinterpret_cast<LPCWSTR>(&Worker), &pinned)) {
         delete session; Publish({}, false, "core worker allocation or module pin failed"); return;
     }
+    try {
     auto &s = session->activity;
     s.started = GetTickCount64();
     const auto pair = SnapshotPair();
@@ -250,7 +252,7 @@ void Present(reshade::api::effect_runtime *runtime) {
         session->snapshot_ok = true; LeaveCriticalSection(&g_chain_cs);
     }
     char gpu[256] = {}; std::uint32_t driver = 0, vendor = 0, width = 0, height = 0;
-    const auto *device = runtime->get_device();
+    auto *device = runtime->get_device();
     const bool gpu_known = device && device->get_property(reshade::api::device_properties::description, gpu);
     const bool driver_known = device && device->get_property(reshade::api::device_properties::driver_version, &driver);
     if (device) device->get_property(reshade::api::device_properties::vendor_id, &vendor);
@@ -290,6 +292,12 @@ void Present(reshade::api::effect_runtime *runtime) {
     if (!QueueUserWorkItem(Worker, session, WT_EXECUTEDEFAULT)) {
         AcquireSRWLockExclusive(&g_feedback_lock); g_feedback_session = nullptr; ReleaseSRWLockExclusive(&g_feedback_lock);
         delete session; Publish({}, false, "core worker queue failed; no previous ZIP reused");
+    }
+    } catch (...) {
+        AcquireSRWLockExclusive(&g_feedback_lock);
+        if (g_feedback_session == &session->activity) g_feedback_session = nullptr;
+        ReleaseSRWLockExclusive(&g_feedback_lock);
+        delete session; Publish({}, false, "core snapshot allocation failed; no game state changed");
     }
 }
 } // namespace nr_core_feedback

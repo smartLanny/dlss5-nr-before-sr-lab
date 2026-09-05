@@ -61,6 +61,14 @@ BOOL TestPin(DWORD,LPCWSTR,HMODULE *p){*p=GetModuleHandleW(nullptr);return !pin_
 #define GetTickCount64() test_clock
 #define QueueUserWorkItem TestQueue
 #define GetModuleHandleExW TestPin
+#include "nr_feedback_text.h"
+namespace nr_core_feedback {
+struct PairSnapshot { char session[96]="DLSS5_CORE_fixture"; unsigned config=1; bool ready=true,complete=true; };
+bool Busy(){return false;}
+bool Request(){return true;}
+void Cancel(){}
+PairSnapshot SnapshotPair(){return {};}
+}
 PRODUCTION_SEQUENCE
 #undef GetTickCount64
 #undef QueueUserWorkItem

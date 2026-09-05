@@ -33,6 +33,7 @@ struct Session {
     UINT64 payload_bytes = 0;
     wchar_t directory[1024] = {};
     FeedbackSession activity = {};
+    nr_core_feedback::PairSnapshot core_pair = {};
     reshade::api::effect_runtime *runtime = nullptr;
 };
 #include "nr_f8_stream.inl"
@@ -48,10 +49,20 @@ wchar_t g_last_zip[1024] = {};
 
 bool IsActive() { const auto s=g_status.load(); return s==Status::Requested || s==Status::Running; }
 void OpenWindow() { g_window_open.store(true); }
-void Cancel() { g_cancel.store(true); }
+void Cancel() {
+    g_cancel.store(true);
+    if (g_status.load()==Status::Requested) nr_core_feedback::Cancel();
+}
+bool RequestCore() {
+    AcquireSRWLockExclusive(&g_control);
+    const bool accepted = !IsActive() && g_status.load()!=Status::Packaging &&
+        StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request();
+    ReleaseSRWLockExclusive(&g_control);
+    return accepted;
+}
 bool RequestWithOptions(const Options &options) {
     AcquireSRWLockExclusive(&g_control);
-    bool accepted = !IsActive() && g_status.load()!=Status::Packaging && StageCaptureStatus()!=1 && StageCaptureStatus()!=2;
+    bool accepted = !IsActive() && g_status.load()!=Status::Packaging && StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request();
     if (accepted) {
         g_options=options; g_cancel.store(false);
         AcquireSRWLockExclusive(&g_lock); g_last_zip[0]=0; ReleaseSRWLockExclusive(&g_lock);
@@ -237,6 +248,8 @@ void WriteTimeline(FILE *out,const Session &s) {
 DWORD WINAPI PackageWorker(void *opaque) {
     const auto &module_identity = EnsureRuntimeIdentityOnWorker();
     auto *s=static_cast<Session *>(opaque);
+    FeedbackAppend(s->activity, "capture.kind=image-supplement\ncore.session=%s\ncore.config=%u\ncore.complete=%d\n",
+        s->core_pair.session, s->core_pair.config, s->core_pair.complete ? 1 : 0);
     FeedbackAppend(s->activity, "artifact.sourceCommit=%s\nartifact.sourceDirty=%d\n"
         "artifact.addonSha256=%s\nartifact.identityStatus=%s\n"
         "artifact.hashMeasurement=loaded-path-file-once-worker\n",
@@ -364,7 +377,8 @@ void Present(reshade::api::effect_runtime *runtime) {
     ++g_present;
     if(!TryAcquireSRWLockExclusive(&g_control))return;
     if(g_status.load()==Status::Requested) {
-        if(g_cancel.load()){g_status.store(Status::Idle);ReleaseSRWLockExclusive(&g_control);return;}
+        if(g_cancel.load()){nr_core_feedback::Cancel();g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;}
+        if(nr_core_feedback::Busy()){ReleaseSRWLockExclusive(&g_control);return;}
         HMODULE pinned=nullptr;
         auto *s=new(std::nothrow) Session{};
         if(!s || !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,reinterpret_cast<LPCWSTR>(&Watchdog),&pinned)){
@@ -372,6 +386,8 @@ void Present(reshade::api::effect_runtime *runtime) {
         }
         if(!FeedbackCreateDirectory(s->directory)){delete s;g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;}
         s->id=++g_next_session;s->options=g_options;s->runtime=runtime;s->started=GetTickCount64();
+        s->core_pair=nr_core_feedback::SnapshotPair();
+        s->partial=!s->core_pair.ready || !s->core_pair.complete;
         s->group_count=s->options.comparison==Comparison::Current?1:(s->options.comparison==Comparison::Protection || s->options.comparison==Comparison::Jitter)?2:3;
         g_config_hold.store(true);s->original=SnapshotConfig();
         FeedbackAppend(s->activity,"build=%s\n",kBuildIdentity);FeedbackAppendActivity(s->activity,"start");
@@ -387,13 +403,39 @@ void F8Tooltip(const char *text) {
         ImGui::TextUnformatted(text);ImGui::PopTextWrapPos();ImGui::EndTooltip();
     }
 }
+void DrawCoreStatus() {
+    const bool zh=UseChineseUi();
+    const auto status=g_feedback_status.load();
+    if(status==0)return;
+    char path[4096]={},reason[160]={};
+    AcquireSRWLockShared(&g_feedback_lock);
+    WideToUtf8(g_feedback_last_zip,path,sizeof(path));
+    nr_bundle::CopyText(reason,sizeof(reason),nr_core_feedback::g_reason);
+    ReleaseSRWLockShared(&g_feedback_lock);
+    if(status==1 || status==2) {
+        ImGui::TextWrapped("%s",zh?"核心反馈：正在记录状态和生成日志小包，不等待 NR 图像。":"Core feedback: recording state and compact logs; no NR images required.");
+        if(ImGui::Button(zh?"取消核心采集":"Cancel core capture"))nr_core_feedback::Cancel();
+    } else {
+        ImGui::TextWrapped("%s",status==3?(zh?"核心反馈包已生成。":"Core feedback package saved."):
+            status==4?(zh?"核心反馈包部分完成，请保留其中的缺失原因。":"Core feedback partially complete; missing reasons are included."):
+            (zh?"核心反馈保存失败，没有复用旧包路径。":"Core feedback failed; no old package path reused."));
+        if(reason[0])ImGui::TextWrapped("%s",reason);
+        if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(zh?"复制核心包路径":"Copy core path"))ImGui::SetClipboardText(path);}
+    }
+}
 void DrawControls() {
     const auto state=g_status.load();
     const bool use_chinese_ui=UseChineseUi();
-    if(!IsActive() && state!=Status::Packaging) {
+    DrawCoreStatus();
+    const bool busy=IsActive() || state==Status::Packaging || nr_core_feedback::Busy();
+    ImGui::BeginDisabled(busy);
+    if(ImGui::Button(use_chinese_ui?"采集核心反馈包（F8，推荐）":"Collect core feedback (F8, recommended)"))RequestCore();
+    F8Tooltip(use_chinese_ui?"用于不生效、旁路和兼容性。只保存有界日志与状态，不采图片、不改设置，ZIP 上限 8 MiB。":"For bypass and compatibility issues. Bounded logs and state only; no images or setting changes. ZIP ceiling: 8 MiB.");
+    ImGui::EndDisabled();
+    if(!busy) {
         static int comparison=1,x=0,y=0,key=VK_F8;static bool custom=false;
-        if(ImGui::Button(use_chinese_ui?"采集当前问题（F8）":"Capture current issue (F8)"))RequestWithOptions({Comparison::Current,false,0,0});
-        F8Tooltip(use_chinese_ui?"只记录当前状态，不启用 NR、不切换模式、不修改设置。":"Records the current state without enabling NR, switching modes or changing settings.");
+        if(ImGui::Button(use_chinese_ui?"采集图像补充包（F7，仅画面异常）":"Capture image supplement (F7, visual issues only)"))RequestWithOptions({Comparison::Current,false,0,0});
+        F8Tooltip(use_chinese_ui?"先生成新的配对核心包，再采当前图像；用于颜色、亮度、闪烁和细节问题。请一起提交界面显示的新核心包。默认不改设置，图像部分可能等待 GPU 或标记缺失。":"Creates a fresh paired core package before images. Use for color, lighting, flicker and detail issues; submit the new core path too. Default capture changes no settings; missing GPU images are explicit.");
         if(ImGui::TreeNode(use_chinese_ui?"对比采集与区域设置":"Comparison and region options")) {
         ImGui::Combo(use_chinese_ui?"采集内容":"Comparison",&comparison,use_chinese_ui?"标准三组对比\0只采当前问题\0强度 1.0 / 1.2 / 1.5\0细节保护关闭 / 开启\0NR jitter 未传递 / 传递\0":"Standard three groups\0Current issue only\0Strength 1.0 / 1.2 / 1.5\0Detail protection off / on\0NR jitter off / on\0");
         F8Tooltip(use_chinese_ui?"对比采集会临时切换所选参数；固定镜头，不改变游戏 DLSS/HDR。每组等待3秒与64次成功 NR，结束后恢复。":"Comparison capture temporarily changes the selected parameter. Keep the camera fixed; game DLSS/HDR stays unchanged. Waits 3 seconds and 64 successful NR evaluations, then restores settings.");
@@ -404,8 +446,10 @@ void DrawControls() {
         }
         if(ImGui::TreeNode(use_chinese_ui?"快捷键设置":"Shortcut")) {
             key=static_cast<int>(g_hotkey.load());
-            if(ImGui::SliderInt(use_chinese_ui?"功能键":"Function key",&key,VK_F1,VK_F12,"%d"))g_hotkey.store(static_cast<unsigned>(key));
+            if(ImGui::SliderInt(use_chinese_ui?"功能键":"Function key",&key,VK_F1,VK_F12,"%d"))g_hotkey.store(nr_feedback_text::CoreHotkey(static_cast<unsigned>(key)));
+            key=static_cast<int>(g_hotkey.load());
             ImGui::Text("F%d",key-VK_F1+1);
+            ImGui::TextDisabled("%s",use_chinese_ui?"F6 总开关、F7 图像采集已保留；冲突设置回到 F8。":"F6 master and F7 images are reserved; conflicting settings fall back to F8.");
             if(ImGui::Button(use_chinese_ui?"保存快捷键":"Save shortcut")){wchar_t value[16]={};swprintf_s(value,L"%u",g_hotkey.load());WritePrivateProfileStringW(L"NRBeforeSR",L"FeedbackVirtualKey",value,g_ini_path);}
             ImGui::TreePop();
         }
@@ -416,15 +460,15 @@ void DrawControls() {
         if(IsActive() && ImGui::Button(use_chinese_ui?"取消并恢复设置":"Cancel and restore"))Cancel();
     }
     if(state==Status::Complete || state==Status::Partial || state==Status::Failed) {
-        ImGui::TextWrapped("%s",state==Status::Complete?(use_chinese_ui?"完整反馈包已生成。":"Complete package saved."):state==Status::Partial?(use_chinese_ui?"部分反馈包已生成，缺失原因已记录，仍可上传分析。":"Partial package saved with missing-data reasons."):(use_chinese_ui?"保存失败，请检查日志及磁盘空间。":"Package failed; check log and disk space."));
+        ImGui::TextWrapped("%s",state==Status::Complete?(use_chinese_ui?"图像补充包已生成，请与新核心包一起提交。":"Image supplement saved; submit its paired core package too."):state==Status::Partial?(use_chinese_ui?"图像补充包部分完成，缺失原因已记录。":"Image supplement partially complete; missing-data reasons included."):(use_chinese_ui?"图像采集失败或已取消，请检查核心包及磁盘空间。":"Image capture failed or was cancelled; inspect the core package and disk space."));
         char path[4096]={};AcquireSRWLockShared(&g_lock);WideToUtf8(g_last_zip,path,sizeof(path));ReleaseSRWLockShared(&g_lock);
-        if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(use_chinese_ui?"复制路径":"Copy path"))ImGui::SetClipboardText(path);}
+        if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(use_chinese_ui?"复制图像包路径":"Copy image path"))ImGui::SetClipboardText(path);}
     }
 }
 void DrawOverlay(reshade::api::effect_runtime *) {
-    if(!g_window_open.load() && !IsActive() && g_status.load()!=Status::Packaging)return;
+    if(!g_window_open.load() && !IsActive() && g_status.load()!=Status::Packaging && !nr_core_feedback::Busy())return;
     const bool use_chinese_ui=UseChineseUi();
-    bool open=true;if(ImGui::Begin(use_chinese_ui?"DLSS5 反馈采集":"DLSS5 feedback capture",&open,ImGuiWindowFlags_AlwaysAutoResize))DrawControls();ImGui::End();
+    bool open=true;if(ImGui::Begin(use_chinese_ui?"DLSS5 反馈采集###dlss5-feedback-window":"DLSS5 feedback capture###dlss5-feedback-window",&open,ImGuiWindowFlags_AlwaysAutoResize))DrawControls();ImGui::End();
     if(!open){g_window_open.store(false);if(IsActive())Cancel();}
 }
 } // namespace nr_f8
