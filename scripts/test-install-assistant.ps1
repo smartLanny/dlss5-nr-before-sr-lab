@@ -9,6 +9,7 @@ $project = Join-Path $root 'tools/install-assistant.Tests/InstallAssistant.Tests
 if ((Get-FileHash -LiteralPath $VerifiedHostPath -Algorithm SHA256).Hash -ne '0CEE63F9C9F13F3AC909C5B4903F4DBB4B719A7AB3B4F13B0DEAF83C814B94F7') { throw 'Tests require the pinned official FullAddon host; arbitrary mocks are not accepted.' }
 $output = Join-Path $root 'test-output/installer'
 New-Item -ItemType Directory -Path $output -Force | Out-Null
+& (Join-Path $PSScriptRoot 'validate-install-assistant-release-labels.ps1')
 & $Dotnet run --project $project -- $VerifiedHostPath | Tee-Object -FilePath (Join-Path $output 'transaction-tests.txt')
 if ($LASTEXITCODE -ne 0) { throw 'Installer production-seam regressions failed.' }
 & $Dotnet build (Join-Path $root 'tools/install-assistant/Dlss5InstallAssistant.csproj') -c Release

@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace Dlss5InstallAssistant;
 
 public enum FileAction { Write, Reuse, Remove }
-public sealed record PlannedFile(string Destination, string? SourcePath, string? BeforeSha256, string? AfterSha256, FileAction Action, string Role, byte[]? Content = null);
+public sealed record PlannedFile(string Destination, string? SourcePath, string? BeforeSha256, string? AfterSha256, FileAction Action, string Role, byte[]? Content = null, string Detail = "");
 public sealed record DeploymentPlan(GameCandidate Game, PackageManifest Package, VerifiedReShadeHost Host, string AddonDirectory,
     IReadOnlyList<PlannedFile> Files, string? InstalledStateSha256, string? ReShadeIniSha256);
 public sealed record OperationResult(bool Ok, string Message);
@@ -59,6 +59,7 @@ public static class Deployer
         game = GameInspector.Inspect(game.Executable, game.SteamAppId, game.Name);
         if (game.SteamAppId == "553850" || !game.EvidenceConfirmed || !package.CompatibleProfiles.Any(x => x.Matches(game)))
             throw new InvalidDataException("此游戏尚未通过首版原生 D3D12 配置，只能查看。");
+        GpuCompatibility.EnsurePackageMatches(package.GpuFamily);
         GameInspector.EnsureNotRunning(game); SafeFiles.RejectReparse(StateDirectory(game));
         if (File.Exists(ActivePath(game))) throw new InvalidOperationException("存在未结束事务，请先恢复中断事务。");
         VerifyHost(host); var files = new List<PlannedFile>();
@@ -102,11 +103,17 @@ public static class Deployer
             var destination = PackageManifest.SafePath(addonRoot, f.Path); var before = SafeFiles.ExistingHash(destination);
             if (destination.Length >= 260) throw new InvalidDataException("插件路径超过当前插件支持的长度，请将游戏放在更短的本地路径后重试。");
             var owned = prior?.Files.FirstOrDefault(x => SafeFiles.PathEquals(ResolveOwned(game, x), destination));
-            var same = Equal(before, f.Sha256); var preserve = f.Role == "config" && before != null;
+            var same = Equal(before, f.Sha256);
+            var managedDefault = f.Role == "config" && before != null &&
+                (Equal(owned?.After, before) || f.AllowedExistingSha256.Contains(before, StringComparer.OrdinalIgnoreCase));
+            var preserve = f.Role == "config" && before != null && !same && !managedDefault;
             if (before != null && !same && !preserve && !f.AllowedExistingSha256.Contains(before, StringComparer.OrdinalIgnoreCase) && !Equal(owned?.After, before))
                 throw new InvalidDataException("目标已有未知同名文件，保留并停止：" + destination);
+            var detail = f.Role != "config" ? "" : same ? "配置已经是所选版本，直接复用。" :
+                managedDefault ? "现有配置是已知未修改的默认值，将随版本切换到新默认。" :
+                preserve ? "检测到用户改过配置，保留强度、颜色跟随等设置。" : "首次安装所选版本的默认配置。";
             files.Add(new(destination, Path.Combine(package.Root, f.Path), before, preserve ? before : f.Sha256,
-                same || preserve ? FileAction.Reuse : FileAction.Write, f.Role));
+                same || preserve ? FileAction.Reuse : FileAction.Write, f.Role, Detail: detail));
         }
         var addon = package.Files.Single(x => x.Role == "addon"); var currentAddon = Path.Combine(addonRoot, addon.Path);
         var roots = new[] { addonRoot, game.Directory }.Distinct(StringComparer.OrdinalIgnoreCase);

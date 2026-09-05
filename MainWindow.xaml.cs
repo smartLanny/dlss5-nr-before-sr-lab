@@ -62,7 +62,7 @@ public partial class MainWindow : Window
         var addon = selectedPackage.Files.Single(x => x.Role == "addon");
         var purpose = selectedPackage.Edition == "enhanced-recommended" ? "增强主测 / 推荐" : "稳妥兼容 / 遇到问题再选";
         PlanBox.Text = $"版本：{selectedPackage.Build}（{purpose}）{Environment.NewLine}源码提交：{selectedPackage.PayloadSourceCommit}{Environment.NewLine}插件 SHA256：{addon.Sha256}{Environment.NewLine}{Environment.NewLine}" +
-            string.Join(Environment.NewLine, plan.Files.Select(f => $"{f.Action switch { FileAction.Reuse => "保留 / 复用", FileAction.Remove => "备份后移除旧版", _ => "备份后写入" }}  {f.Destination}"));
+            string.Join(Environment.NewLine, plan.Files.Select(f => $"{f.Action switch { FileAction.Reuse => "保留 / 复用", FileAction.Remove => "备份后移除旧版", _ => "备份后写入" }}  {f.Destination}{(string.IsNullOrWhiteSpace(f.Detail) ? "" : Environment.NewLine + "    " + f.Detail)}"));
         return plan;
     }
     async void Inspect(object sender, RoutedEventArgs e)
