@@ -1,0 +1,51 @@
+name: Apply compatibility review corrections
+on:
+  push:
+    branches: [codex/compat-fg-ui-sweep]
+    paths: ['.github/workflows/compat-review-corrections.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/compat-fg-ui-sweep
+          fetch-depth: 0
+      - name: Apply bounded UI race fix and its regression
+        shell: python
+        run: |
+          from pathlib import Path
+          def change(path,old,new):
+              p=Path(path);s=p.read_text(encoding='utf-8-sig')
+              assert s.count(old)==1,(path,old[:70],s.count(old))
+              p.write_text(s.replace(old,new),encoding='utf-8',newline='\n')
+          change('src/nr_before_sr.cpp',
+              '    ApplyConfig(next, "ReShade simplified settings");\n    LeaveCriticalSection(&g_chain_cs);\n    return OverlayApplyResult::Applied;',
+              '    const bool changed = ApplyConfig(next, "ReShade simplified settings");\n    // Capture can acquire its atomic hold between our first check and ApplyConfig.\n    // A refused commit is still pending; a harmless no-op is complete.\n    const bool capture_blocked = !changed && nr_f8::g_config_hold.load(std::memory_order_acquire);\n    LeaveCriticalSection(&g_chain_cs);\n    return capture_blocked ? OverlayApplyResult::Busy : OverlayApplyResult::Applied;')
+          change('scripts/validate-compat-sweep.py',
+              'void ApplyConfig(ChainConfig next,const char *){check(locks==1,"generation test and commit indivisible");g_config=next;++g_config_generation;++applied;}',
+              'bool late_capture=false,noop_apply=false;\nbool ApplyConfig(ChainConfig next,const char *){check(locks==1,"generation test and commit indivisible");if(late_capture){late_capture=false;nr_f8::g_config_hold=true;return false;}if(noop_apply)return false;g_config=next;++g_config_generation;++applied;return true;}')
+          change('scripts/validate-compat-sweep.py',
+              ' check(ApplyOverlayConfig(pending,current.generation)==OverlayApplyResult::Applied,"pending edit can be retried after capture");',
+              ' late_capture=true;\n check(ApplyOverlayConfig(pending,current.generation)==OverlayApplyResult::Busy,"late capture start cannot falsely complete a refused edit");\n check(applied==0 && locks==0,"late refusal preserves live values");\n nr_f8::g_config_hold=false;\n check(ApplyOverlayConfig(pending,current.generation)==OverlayApplyResult::Applied,"pending edit can be retried after capture");')
+          change('scripts/validate-compat-sweep.py',
+              ' using namespace nr_hook_entry;',
+              ' noop_apply=true;\n const auto before_noop=g_config_generation.load();\n check(ApplyOverlayConfig(g_config,before_noop)==OverlayApplyResult::Applied,"no-op does not falsely remain busy");\n check(g_config_generation==before_noop && applied==1 && locks==0,"no-op preserves state");\n using namespace nr_hook_entry;')
+          p=Path('docs/COMPAT_FG_UI_SWEEP.md');s=p.read_text(encoding='utf-8')
+          s=s.replace('211 checks','217 checks')
+          s=s.replace('- A busy capture preserves the pending edit for retry;', '- A busy capture (including one starting inside ApplyConfig) preserves the pending edit for retry;')
+          p.write_text(s,encoding='utf-8',newline='\n')
+      - name: Validate and commit ordinary files only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/validate-compat-sweep.py --compiler g++
+          python3 scripts/validate-043r2.py --compiler g++
+          git diff --check
+          git add src/nr_before_sr.cpp scripts/validate-compat-sweep.py docs/COMPAT_FG_UI_SWEEP.md
+          git config user.name smartLanny
+          git config user.email 51014844+smartLanny@users.noreply.github.com
+          git commit -m 'fix: retain pending UI edit when capture begins during ApplyConfig'
+          git push origin HEAD:codex/compat-fg-ui-sweep
