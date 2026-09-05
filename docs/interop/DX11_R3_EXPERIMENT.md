@@ -2,7 +2,7 @@
 
 ## 基线与用途
 
-源分支：`codex/dx11-r3-render-control`，从 canonical `main@49dd9d4a619a6e73a89ad9d37e3a92a031c57d8d` 开始。其运行时代码与 Release `beta0.4.3r3@d42a8eb23778bc602d0d638193872d41216c2203` 一致；不包含 0.5 高强度算法，也不整树合并旧分支。面向 `next/0.5` 的独立 Draft，**不自动合入 main/release/0.4，不创建 Release/OTA**。
+源分支：`codex/dx11-r3-render-control`，从完成 0.4 主线归一化时的 canonical `main@49dd9d4a619a6e73a89ad9d37e3a92a031c57d8d` 开始。其运行时代码与 Release `beta0.4.3r3@d42a8eb23778bc602d0d638193872d41216c2203` 一致；不包含 0.5 高强度算法，也不整树合并旧分支。**当前直接集成目标改为 `release/0.4`**：先作为 0.4 DX11 独立 Draft 完成游戏/NVIDIA runtime 验收，满足门禁后再合入 0.4 维护线；后续修复按 `release/0.4 -> main -> next/0.5` 普通 PR 前向同步。不得直接把本实验当作已验证稳定功能，也不创建 Release/OTA。
 
 这是 #46 的 r3 后继试验。#46 的 Windows 编译成功不等于游戏成功；#58 的 BG3 DX11 报告明确为旧 exp1，SR Create 成功而 Feature18-success=0，命令状态原因 `null-pso-policy-disabled`。普通 D3D12 r3 的 #67 未直接修复那份旧桥二进制。
 
@@ -64,7 +64,7 @@ python scripts/prepare-native-bridge-r3.py --upstream <pinned-carrier-checkout> 
 
 ## 验证等级
 
-源码审查/CPU 策略测试/真实生成源编译与 WARP private-baseline smoke 由 CI 提供。WARP smoke 只创建/绑定/重置实际 helper，不执行 NGX，不证明 ReShade hook 状态恢复或游戏视觉效果。最终 CI 状态以关联 PR 为准；**此文档不宣称已经 compile/CI/runtime verified**。游戏与 NVIDIA Feature18 运行时验收必须另附记录。
+源码审查/CPU 策略测试/真实生成源编译与 WARP private-baseline smoke 由 CI 提供。WARP smoke 只创建/绑定/重置实际 helper，不执行 NGX，不证明 ReShade hook 状态恢复或游戏视觉效果。最终 CI 状态以关联 PR 为准；**此文档不宣称已经 runtime verified**。游戏与 NVIDIA Feature18 运行时验收必须另附记录。
 
 ## Issues 状态调整原则
 
