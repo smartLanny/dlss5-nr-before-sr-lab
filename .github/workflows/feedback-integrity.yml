@@ -1,5 +1,6 @@
 name: Feedback integrity
 on:
+  workflow_call:
   pull_request:
     branches:
       - main
@@ -27,9 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      # A shallow/default-branch checkout after squash does not necessarily
-      # contain the old development commits. Fetch the immutable baseline
-      # explicitly; do not rely on a branch remaining open or undeleted.
+      # Fetch the immutable historical baseline rather than a disposable branch.
       - uses: actions/checkout@v4
         with:
           ref: 4498e47edf51693d2721f8ec8563054a515c1643
