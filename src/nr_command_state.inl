@@ -584,8 +584,16 @@ NR_STATE_HOOK(RSSetViewports, (ID3D12GraphicsCommandList *command_list, UINT cou
     (command_list, count, values), CommandStateViewports(state, count, values))
 NR_STATE_HOOK(RSSetScissorRects, (ID3D12GraphicsCommandList *command_list, UINT count, const D3D12_RECT *values),
     (command_list, count, values), CommandStateScissors(state, count, values))
+// D3D12 defines NULL blend factors as {1,1,1,1}. Expand that optional
+// pointer before the trampoline as well as in our shadow: the native WARP
+// regression reached an access violation when NULL was forwarded unchanged.
+// Non-NULL data is neither clamped nor copied here; driver semantics stay intact.
+const FLOAT *CanonicalBlendFactor(const FLOAT values[4]) {
+    static constexpr FLOAT kUnityBlend[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    return values != nullptr ? values : kUnityBlend;
+}
 NR_STATE_HOOK(OMSetBlendFactor, (ID3D12GraphicsCommandList *command_list, const FLOAT values[4]),
-    (command_list, values), if (values) memcpy(state.dynamic.blend, values, sizeof(state.dynamic.blend)); else for (float &value : state.dynamic.blend) value=1.0f; state.dynamic.recorded |= kDynamicBlend;)
+    (command_list, CanonicalBlendFactor(values)), memcpy(state.dynamic.blend, CanonicalBlendFactor(values), sizeof(state.dynamic.blend)); state.dynamic.recorded |= kDynamicBlend;)
 NR_STATE_HOOK(OMSetStencilRef, (ID3D12GraphicsCommandList *command_list, UINT value),
     (command_list, value), state.dynamic.stencil_front=state.dynamic.stencil_back=value; state.dynamic.separate_stencil=false; state.dynamic.recorded |= kDynamicStencil)
 NR_STATE_HOOK(IASetIndexBuffer, (ID3D12GraphicsCommandList *command_list, const D3D12_INDEX_BUFFER_VIEW *value),

@@ -21,7 +21,7 @@ def definition(text: str, marker: str) -> str:
     return text[start:end]
 
 
-def run(compiler: str, name: str, code: str) -> None:
+def run(compiler: str, name: str, code: str, expected_failure: str | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix='nr044-') as td:
         src = Path(td) / (name + '.cpp')
         exe = Path(td) / (name + ('.exe' if os.name == 'nt' else ''))
@@ -29,7 +29,13 @@ def run(compiler: str, name: str, code: str) -> None:
         flags = ['-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror']
         if os.name == 'nt': flags.append('-static')
         subprocess.run([compiler, *flags, str(src), '-o', str(exe)], check=True)
-        subprocess.run([str(exe)], check=True)
+        if expected_failure is None:
+            subprocess.run([str(exe)], check=True)
+        else:
+            result = subprocess.run([str(exe)], capture_output=True, text=True)
+            if result.returncode != 1 or result.stderr.strip() != expected_failure:
+                raise RuntimeError('Negative control did not reject the exact forwarding defect: ' + result.stderr)
+            print('PASS old NULL-forward negative control rejected by ' + expected_failure)
 
 COMMON = r'''
 #include <atomic>
@@ -103,6 +109,61 @@ int main() {
 '''.replace('ACTUAL', actual)
 
 
+def blend_pointer(source: str, negative: bool = False) -> str:
+    # Compile the exact production macro, helper and OMSetBlendFactor invocation.
+    family = definition(source, 'struct CommandStateHookFamily {') + ';'
+    macro = source[source.index('#define NR_STATE_HOOK('):source.index('NR_STATE_HOOK(SetPipelineState,')]
+    helper = definition(source, 'const FLOAT *CanonicalBlendFactor(')
+    begin = source.index('NR_STATE_HOOK(OMSetBlendFactor,')
+    invoke = source[begin:source.index('NR_STATE_HOOK(OMSetStencilRef,', begin)]
+    if negative:
+        old = '(command_list, CanonicalBlendFactor(values))'
+        assert invoke.count(old) == 1
+        invoke = invoke.replace(old, '(command_list, values)')
+    return COMMON + r'''
+#define STDMETHODCALLTYPE
+using FLOAT=float;
+struct ID3D12GraphicsCommandList {};
+struct ID3D12GraphicsCommandListVtbl {
+    void (*OMSetBlendFactor)(ID3D12GraphicsCommandList *,const FLOAT *);
+};
+constexpr unsigned kDynamicBlend=8;
+struct NativeCommandState {struct {FLOAT blend[4]={};unsigned recorded=0;}dynamic;};
+NativeCommandState observed;
+const FLOAT *forwarded=nullptr;
+unsigned native_calls=0, mutations=0;
+void Original(ID3D12GraphicsCommandList *,const FLOAT *v) {forwarded=v;++native_calls;}
+template<class F> void MutateNativeCommandState(ID3D12GraphicsCommandList *,F mutation) {
+    check(native_calls==mutations+1,"original runs once before shadow update");
+    mutation(observed);++mutations;
+}
+''' + family + '\n' + macro + '\n' + helper + '\n' + invoke + r'''
+int main() {
+    ID3D12GraphicsCommandList list;
+    const FLOAT unity[4]={1,1,1,1};
+    const FLOAT explicit_values[4]={.25f,.5f,.75f,1.f};
+    const FLOAT unusual[4]={-1.f,2.f,std::numeric_limits<float>::infinity(),std::numeric_limits<float>::quiet_NaN()};
+    for(unsigned i=0;i<4;++i) {
+        g_state_OMSetBlendFactor.originals[i]=reinterpret_cast<void*>(&Original);
+        auto call=reinterpret_cast<decltype(ID3D12GraphicsCommandListVtbl::OMSetBlendFactor)>(g_state_detours_OMSetBlendFactor[i]);
+        for(const FLOAT *input:{explicit_values,unusual,static_cast<const FLOAT*>(nullptr)}) {
+            observed={};native_calls=mutations=0;forwarded=nullptr;
+            call(&list,input);
+            if (!forwarded) {std::fputs("BLEND_NULL_FORWARD_ORACLE\n",stderr);return 1;}
+            const FLOAT *expected=input?input:unity;
+            check(native_calls==1 && mutations==1,"exactly one forward and mutation");
+            check(input ? forwarded==input : std::memcmp(forwarded,unity,sizeof(unity))==0,
+                  "explicit pointer retained; NULL expands to D3D12 unity before trampoline");
+            check(std::memcmp(observed.dynamic.blend,expected,sizeof(unity))==0,
+                  "shadow has bit-identical values, including non-finite input");
+            check(observed.dynamic.recorded==kDynamicBlend,"only blend domain recorded");
+        }
+    }
+    return finish("production blend detours and NULL canonicalization");
+}
+'''
+
+
 def raster(source: str) -> str:
     actual = definition(source, 'bool CanAutoRestoreRasterNull(')
     return COMMON + r'''
@@ -157,6 +218,8 @@ if __name__=='__main__':
     if not a.forwarding_only:
         cs=(ROOT/'src/nr_command_state.inl').read_text(encoding='utf-8-sig')
         run(compiler,'null-raster',raster(cs))
+        run(compiler,'blend-pointer',blend_pointer(cs))
+        run(compiler,'blend-pointer-negative',blend_pointer(cs, True), 'BLEND_NULL_FORWARD_ORACLE')
         assert 'if (record == nullptr)\n        g_command_state_registration_repair_needed.store(true' in cs
         assert 'g_command_state_registration_repair_needed.store(record == nullptr' not in cs
         ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
