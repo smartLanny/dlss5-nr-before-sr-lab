@@ -1,0 +1,45 @@
+name: Prepare NULL blend forwarding objects
+on:
+  push:
+    branches: [codex/050-stability-preparation]
+    paths: [.github/workflows/prepare-blend-null.yml, scripts/blend-forward.patch]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: preparation
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ee88d9e934b09b695dfd5ccceef1eeb78faa8d15
+          path: product
+          persist-credentials: false
+      - name: Apply exact patch and execute production detours
+        working-directory: product
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git apply --check ../preparation/scripts/blend-forward.patch
+          git apply ../preparation/scripts/blend-forward.patch
+          git diff --check
+          python3 scripts/validate-044-compat.py --compiler g++
+          python3 scripts/validate-044-compat.py --compiler clang++
+          python3 - <<'PY'
+          import subprocess,json,base64,os
+          from pathlib import Path
+          expected={'src/nr_command_state.inl':'2af3a1dded2ec529467e3d5f589800e02984b808','scripts/validate-044-compat.py':'fe61fcd4445ead6380193a87c82c23583f769793'}
+          changed=subprocess.check_output(['git','diff','--name-only'],text=True).splitlines()
+          assert set(changed)==set(expected)
+          for p,sha in expected.items():
+              assert subprocess.check_output(['git','hash-object',p],text=True).strip()==sha
+              data=json.dumps({'encoding':'base64','content':base64.b64encode(Path(p).read_bytes()).decode()}).encode()
+              out=json.loads(subprocess.check_output(['gh','api','--method','POST','repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs','--input','-'],input=data))
+              assert out['sha']==sha
+              print('VERIFIED_BLOB',p,sha,flush=True)
+          print('PREPARATION_COMPLETE')
+          PY
