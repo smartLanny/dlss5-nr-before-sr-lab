@@ -41,7 +41,7 @@ class PictureIntegration(unittest.TestCase):
         self.assertEqual(result.legacy.patch_core('core'), 'format:bridge:core')
         self.assertEqual(result.legacy.UPSTREAM, m.UPSTREAM)
 
-    def test_each_changed_picture_dependency_requires_review(self):
+    def test_each_changed_dependency_requires_review(self):
         for changed in m.INTEGRATION_CORE_PINS:
             def read(root, *args):
                 path = args[1].removeprefix('HEAD:')
@@ -51,10 +51,11 @@ class PictureIntegration(unittest.TestCase):
                     m.configure(ROOT)
                 load.assert_not_called()
 
-    def test_pins_cover_actual_ui_and_composition_dependencies(self):
+    def test_pins_cover_actual_ui_composition_and_build_dependencies(self):
         self.assertEqual(set(m.INTEGRATION_CORE_PINS), {'src/nr_command_state.inl', 'src/nr_settings_ui.inl',
-            'src/nr_color_policy.inl', 'src/nr_color_amplification.h', 'src/nr_precision_ui.h'})
+            'src/nr_color_policy.inl', 'src/nr_color_amplification.h', 'src/nr_precision_ui.h', 'scripts/build.ps1'})
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '085742e4e02bd434bb491ce23a9a1df3f370b2ec')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_132)
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'd5426edca3eefd52e88786bb7892284e2bf5f2d5')
 
 if __name__ == '__main__': unittest.main()
