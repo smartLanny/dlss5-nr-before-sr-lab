@@ -1,0 +1,14 @@
+# nr-current-summary part 03 of 03 (TAIL) — Feature18-success=0 transfer-submitted=0
+# Full parts listed in *.PARTS.txt; concatenate for complete log.
+
+10:17:09.513  [stats] current contract: generation=2 mode=2 carrier-requests=600 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+10:17:11.135  [stats] session totals: Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+10:17:22.118  [stats] current contract: generation=2 mode=2 carrier-requests=1200 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+10:17:26.073  [stats] session totals: Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+10:17:36.273  [stats] current contract: generation=2 mode=2 carrier-requests=1800 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+10:17:37.901  [stats] session totals: Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+10:17:48.525  [stats] current contract: generation=2 mode=2 carrier-requests=2400 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+10:17:50.166  [stats] session totals: Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0 lifecycle-bypass=0; void-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+10:18:00.864  [stats] current contract: generation=2 mode=2 carrier-requests=3000 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+10:18:02.534  [stats] session totals: Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0 lifecycle-bypass=0; void-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+10:18:12.457  [perf] stage=C-NR-transfer epoch=20 transfer=1.200 samples=600 avgFPS=94.693 avgMs=10.5605 p95Ms=23.2245 p99Ms=25.1706 onePercentLowFPS=38.343
