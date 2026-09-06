@@ -61,22 +61,43 @@ function createNvapiDrs(options = {}) {
     return { ok: false, code: 'NVAPI_BAD_RESPONSE', error: detail };
   }
 
+  function validateExe(exePath) {
+    return typeof exePath === 'string' && exePath.length > 0;
+  }
+
   return {
+    async readSrState({ exePath }) {
+      if (!validateExe(exePath)) return { ok: false, code: 'NVAPI_BAD_EXE', error: '游戏 EXE 路径无效。' };
+      return invoke(['-Action', 'read', '-ExePath', exePath]);
+    },
     async applySrPreset({ exePath, preset, friendlyName = '' }) {
       const normalized = String(preset || '').toLowerCase();
-      if (!['default', 'k', 'l', 'm'].includes(normalized)) {
+      if (!['k', 'l', 'm'].includes(normalized)) {
         return { ok: false, code: 'NVAPI_BAD_PRESET', error: `不支持的 DLSS SR 模型：${preset}` };
       }
-      if (typeof exePath !== 'string' || !exePath) {
-        return { ok: false, code: 'NVAPI_BAD_EXE', error: '游戏 EXE 路径无效。' };
-      }
+      if (!validateExe(exePath)) return { ok: false, code: 'NVAPI_BAD_EXE', error: '游戏 EXE 路径无效。' };
       const result = await invoke([
         '-Action', 'apply',
         '-ExePath', exePath,
-        '-Preset', normalized === 'default' ? 'default' : normalized.toUpperCase(),
+        '-Preset', normalized.toUpperCase(),
         '-FriendlyName', String(friendlyName || '').slice(0, 160)
       ]);
       return { preset: normalized, ...result };
+    },
+    async restoreSrState({ exePath, baseline }) {
+      if (!validateExe(exePath)) return { ok: false, code: 'NVAPI_BAD_EXE', error: '游戏 EXE 路径无效。' };
+      if (!baseline || typeof baseline !== 'object') {
+        return { ok: false, code: 'NVAPI_BAD_BASELINE', error: '缺少可恢复的 NVIDIA SR 配置快照。' };
+      }
+      const enable = baseline.enable && baseline.enable.explicit === true;
+      const preset = baseline.preset && baseline.preset.explicit === true;
+      return invoke([
+        '-Action', 'restore', '-ExePath', exePath,
+        '-EnableExplicit', enable ? '1' : '0',
+        '-EnableValue', String(enable ? Number(baseline.enable.value) >>> 0 : 0),
+        '-PresetExplicit', preset ? '1' : '0',
+        '-PresetValue', String(preset ? Number(baseline.preset.value) >>> 0 : 0)
+      ]);
     },
     selfTest() {
       return invoke(['-Action', 'selftest']);
