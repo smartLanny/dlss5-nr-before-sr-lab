@@ -128,10 +128,10 @@ if ("float3 storedProxy = modelValueDomain" not in body or
     raise SystemExit("bounded R8 value-domain preservation missing")
 if not re.search(
     r"config\.transfer_strength\s*=\s*std::clamp\(\s*"
-    r"FiniteOr\(config\.transfer_strength,\s*0\.0f\),\s*0\.0f,\s*8\.0f\s*\)",
+    r"FiniteOr\(config\.transfer_strength,\s*0\.0f\),\s*0\.0f,\s*4\.0f\s*\)",
     source,
 ):
-    raise SystemExit("8x strength ceiling missing")
+    raise SystemExit("4x public strength ceiling missing")
 if "using the full render raster" not in source:
     raise SystemExit("unresolved output extent must fall back to reference")
 if "capture_model_width" not in source:
