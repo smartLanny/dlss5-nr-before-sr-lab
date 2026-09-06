@@ -1,0 +1,13 @@
+name: Validate 0.4.5 fix1 candidate
+on:
+  pull_request:
+    branches: [release/0.4.5-test]
+  push:
+    branches: [fix/045-flicker-input-targets]
+permissions:
+  contents: read
+jobs:
+  validate:
+    uses: ./.github/workflows/beta042-validate.yml
+  feedback:
+    uses: ./.github/workflows/feedback-integrity.yml

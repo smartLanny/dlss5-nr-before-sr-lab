@@ -108,20 +108,20 @@ def raster(source: str) -> str:
     return COMMON + r'''
 using UINT=unsigned;using UINT64=unsigned long long;
 constexpr float D3D12_VIEWPORT_BOUNDS_MIN=-32768.f,D3D12_VIEWPORT_BOUNDS_MAX=32767.f;
-constexpr UINT64 kDynamicViewport=2,kDynamicScissor=4,kDynamicBlend=8;
+constexpr UINT64 kDynamicViewport=2,kDynamicScissor=4,kDynamicBlend=8,kDynamicTargets=64;
 struct Viewport {float TopLeftX=0,TopLeftY=0,Width=0,Height=0,MinDepth=0,MaxDepth=1;};
 struct Rect {long left=0,top=0,right=0,bottom=0;};
 struct NativeCommandState {
  bool known=true,null_pipeline_baseline=true,null_guard_covered=true,null_guard_reset_observed=true,null_guard_tainted=false;
- void *pipeline=nullptr,*raytracing_pipeline=nullptr;UINT unknown_domains=0;
- struct {UINT64 recorded=kDynamicViewport|kDynamicScissor;UINT vertex_mask=0,stream_mask=0,viewport_count=1,scissor_count=1;Viewport viewports[16];Rect scissors[16];float blend[4]={1,1,1,1};} dynamic;
+ void *pipeline=nullptr,*raytracing_pipeline=nullptr,*rtv_cache=nullptr,*dsv_cache=nullptr;UINT unknown_domains=0;
+ struct {UINT target_count=0;bool contiguous_targets=false,has_depth_target=false;struct Handle{unsigned long long ptr=0;}targets[8],depth_target;UINT64 recorded=kDynamicViewport|kDynamicScissor;UINT vertex_mask=0,stream_mask=0,viewport_count=1,scissor_count=1;Viewport viewports[16];Rect scissors[16];float blend[4]={1,1,1,1};} dynamic;
 };
 ACTUAL
 int main() {
  NativeCommandState s;s.dynamic.viewports[0]={0,0,1920,1080,0,1};s.dynamic.scissors[0]={1,2,1919,1079};
  check(CanAutoRestoreRasterNull(s),"observed viewport/scissor subset admitted");
  for(unsigned bit=0;bit<20;++bit) {auto t=s;t.dynamic.recorded|=UINT64{1}<<bit;
-   check(CanAutoRestoreRasterNull(t)==(bit==1||bit==2||bit==3),"all other dynamic domains rejected");}
+   check(CanAutoRestoreRasterNull(t)==(bit==1||bit==2||bit==3||bit==6),"all other dynamic domains rejected");}
  for(auto member:{&NativeCommandState::known,&NativeCommandState::null_pipeline_baseline,&NativeCommandState::null_guard_covered,&NativeCommandState::null_guard_reset_observed}) {
    auto t=s;t.*member=false;check(!CanAutoRestoreRasterNull(t),"no missing coverage or baseline admitted");}
  {auto t=s;t.null_guard_tainted=true;check(!CanAutoRestoreRasterNull(t),"taint remains sticky");}
@@ -142,6 +142,14 @@ int main() {
  for(float bad:{-1.f,1.01f,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}) {
    auto t=s;t.dynamic.recorded=kDynamicBlend;t.dynamic.blend[2]=bad;check(!CanAutoRestoreRasterNull(t),"unbounded or nonfinite blend rejected");
  }
+ {auto t=s;t.dynamic.recorded=0x46;check(CanAutoRestoreRasterNull(t),"empty target set restores");
+  t.dynamic.target_count=1;check(!CanAutoRestoreRasterNull(t),"raw RTV rejected");
+  t.rtv_cache=&s;t.dynamic.contiguous_targets=true;t.dynamic.targets[0].ptr=1;
+  check(CanAutoRestoreRasterNull(t),"owned RTV accepted");
+  t.dynamic.has_depth_target=true;check(!CanAutoRestoreRasterNull(t),"missing DSV cache rejected");
+  t.dsv_cache=&s;t.dynamic.depth_target.ptr=2;check(CanAutoRestoreRasterNull(t),"owned DSV accepted");
+  t.dynamic.target_count=9;check(!CanAutoRestoreRasterNull(t),"RTV count bounded");
+  t.dynamic.target_count=8;t.dynamic.contiguous_targets=false;check(!CanAutoRestoreRasterNull(t),"cache contiguous"); }
  return finish("actual bounded null-raster policy");
 }
 '''.replace('ACTUAL',actual)

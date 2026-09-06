@@ -30,6 +30,10 @@ jobs:
         run: |
           python3 scripts/validate-bug-sweep.py --compiler g++
           python3 scripts/validate-043r2.py --compiler g++
+          g++ -std=c++20 -Wall -Wextra -Werror -Isrc tests/shortcut_edge_test.cpp -o /tmp/shortcut-edge
+          /tmp/shortcut-edge
+          g++ -std=c++20 -Wall -Wextra -Werror -Isrc tests/ui_activity_test.cpp -o /tmp/ui-activity
+          /tmp/ui-activity
           python3 scripts/validate-compat-sweep.py --compiler g++
           python3 scripts/validate-044-compat.py --compiler g++
           python3 scripts/validate-retirement-return.py
@@ -122,6 +126,7 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/validate-command-state-native.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+          ./scripts/validate-command-state-native.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -PoolNegativeControl
           ./scripts/validate-present-api-status.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
           $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
           python scripts/validate-ui-font-fallback.py --compiler $compiler
@@ -133,6 +138,7 @@ jobs:
           ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -NegativeControl
           ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -DynamicStateNegativeControl
           ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -BlendStateNegativeControl
+          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -TargetsNegativeControl
       - name: Execute the D3D12 codec harness
         shell: pwsh
         run: ./scripts/validate-codec-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
@@ -160,18 +166,18 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $addons = @(Get-ChildItem build -Filter '*beta0.4.5*.addon64')
+          $addons = @(Get-ChildItem build -Filter '*beta0.4.5-fix1*.addon64')
           if ($addons.Count -ne 2) { throw 'Expected two 0.4.5 language addons' }
           foreach ($addon in $addons) {
             $v = $addon.VersionInfo
-            if ($v.FileMajorPart -ne 0 -or $v.FileMinorPart -ne 4 -or $v.FileBuildPart -ne 5 -or $v.FilePrivatePart -ne 0) { throw 'Wrong numeric PE version' }
-            if ($v.FileVersion -ne '0.4.5 beta' -or $v.ProductVersion -ne '0.4.5 beta') { throw 'Wrong textual PE version' }
+            if ($v.FileMajorPart -ne 0 -or $v.FileMinorPart -ne 4 -or $v.FileBuildPart -ne 5 -or $v.FilePrivatePart -ne 1) { throw 'Wrong numeric PE version' }
+            if ($v.FileVersion -ne '0.4.5-fix1 beta' -or $v.ProductVersion -ne '0.4.5-fix1 beta') { throw 'Wrong textual PE version' }
           }
           python scripts/package-045.py
           if ($LASTEXITCODE -ne 0) { throw 'OTA verification failed' }
       - uses: actions/upload-artifact@v4
         with:
-          name: beta045-ota
+          name: beta045-fix1-ota
           path: ota/*.zip
           if-no-files-found: error
       - name: Assemble and verify clean test package
@@ -182,14 +188,14 @@ jobs:
           Copy-Item build/*.addon64 dist/
           Copy-Item build/nrchain_nvngx.dll dist/
           Copy-Item build/nr_before_sr.ini dist/
-          Copy-Item docs/releases/beta0.4.5.md dist/README-TESTING.md
+          Copy-Item docs/fixes/BETA045_FOLLOWUP.md dist/README-TESTING.md
           Copy-Item docs/BETA_0_4_PERFECT_CHAIN.md dist/TECHNICAL-NOTES.md
           Copy-Item docs/COMMAND_STATE_CONTRACT.md dist/COMMAND-STATE-NOTES.md
           @(
             "branch=$env:GITHUB_REF_NAME"
             "commit=$env:GITHUB_SHA"
             "workflowRun=$env:GITHUB_RUN_ID"
-            "build=beta0.4.5"
+            "build=beta0.4.5-fix1"
             "channel=d3d12-branch-test-only"
           ) | Set-Content -Encoding utf8NoBOM dist/BUILD-PROVENANCE.txt
           Get-ChildItem dist -File | Where-Object Name -ne 'SHA256SUMS.txt' |
@@ -210,6 +216,6 @@ jobs:
           Get-Content -Encoding utf8 dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: beta045-d3d12-candidate
+          name: beta045-fix1-candidate
           path: dist/
           if-no-files-found: error

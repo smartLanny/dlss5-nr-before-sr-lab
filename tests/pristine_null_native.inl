@@ -172,6 +172,7 @@ int RunPristineNullGate(bool negative) {
     void *data=nullptr;D3D12_RANGE range{0,4};Hr(ID3D12Resource_Map(readback,0,&range,&data),"probe map");
     const UINT actual=*static_cast<const UINT *>(data);range={0,0};ID3D12Resource_Unmap(readback,0,&range);
     Check(actual==73,"GPU result must equal game constant 73, not plugin constant 999");
+    if (!negative) CheckCommandPoolPriming(device,od);
     const auto old_token=ReadCommandStateToken(list);
     OnCommandStateDestroyList(&owner);OnCommandStateInitList(&owner);
     Check(ReadCommandStateToken(list)!=old_token && !CaptureNativeCommandState(list,*snapshot),"reused list never inherits pristine certification");

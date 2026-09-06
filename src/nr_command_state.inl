@@ -315,8 +315,14 @@ bool CanAutoRestoreRasterNull(const NativeCommandState &state) {
         state.raytracing_pipeline || !state.null_guard_covered ||
         !state.null_guard_reset_observed || state.null_guard_tainted ||
         state.unknown_domains != 0 || d.vertex_mask != 0 || d.stream_mask != 0 ||
-        d.recorded == 0 || (d.recorded & ~(kDynamicViewport | kDynamicScissor | kDynamicBlend)) != 0 ||
+        d.recorded == 0 || (d.recorded & ~(kDynamicViewport | kDynamicScissor | kDynamicBlend | kDynamicTargets)) != 0 ||
         d.viewport_count > 16 || d.scissor_count > 16) return false;
+    // Raw application CPU handles may be recycled; only privately copied
+    // contiguous RTV and independently owned DSV descriptors may be restored.
+    if ((d.recorded & kDynamicTargets) &&
+        (d.target_count > 8 ||
+         (d.target_count && (!state.rtv_cache || !d.contiguous_targets || !d.targets[0].ptr)) ||
+         (d.has_depth_target && (!state.dsv_cache || !d.depth_target.ptr)))) return false;
     for (UINT i = 0; i < d.viewport_count; ++i) {
         const auto &v = d.viewports[i];
         // Ordered bounded comparisons also reject NaN and infinities.
@@ -462,12 +468,15 @@ struct CommandStateMetaContract {
     bool known = false;
     UINT initialization_dirty = 0;
     UINT execution_dirty = 0;
+    UINT64 device_identity = 0; // private lifetime identity, not a device address
 };
+std::atomic<UINT64> g_next_command_device_identity{1};
 struct CommandStateRecord {
     unsigned long long token = 0;
     ID3D12GraphicsCommandList *native = nullptr;
     reshade::api::command_list *owner = nullptr;
-    NativeCommandState *state = nullptr; // Only NR carrier lists allocate this.
+    NativeCommandState *state = nullptr; // Carriers and bounded prospective observation.
+    UINT64 prime_serial = 0; // Cleared before first actual carrier capture.
     bool hooks_ready = false;
     bool null_guard_requested = false;
     ULONGLONG next_hook_attempt = 0;
@@ -965,6 +974,7 @@ void OnCommandStateInitDevice(reshade::api::device *device) {
             }
             ID3D12Device5_Release(extended);
         }
+        meta.device_identity = g_next_command_device_identity.fetch_add(1, std::memory_order_relaxed);
         ID3D12Device_SetPrivateData(native, kCommandStateMetaContract, sizeof(meta), &meta);
         Log("[command-state] device meta-command contract: known=%d initDirty=0x%X executeDirty=0x%X supportedMask=0x%X.",
             meta.known ? 1 : 0, meta.initialization_dirty, meta.execution_dirty, kCommandStateCoveredDomains);
@@ -1149,12 +1159,15 @@ void OnCommandStateObserveSubmission(reshade::api::command_list *owner) {
         Log("[command-state] late ReShade list observation: registered=%d; baseline remains unknown until native Reset.",
             recovered ? 1 : 0);
 }
+#include "nr_command_pool_observation.inl"
+
 void CompleteCommandStateInstallation(unsigned long long token,
         ID3D12GraphicsCommandList *native, bool ready, bool observed_null) {
     AcquireSRWLockExclusive(&g_command_state_lock);
     auto *record = FindCommandStateTokenLocked(token);
     if (record && record->native == native && record->state) {
         record->hooks_ready = ready;
+        if (ready) RememberObservedCommandFamilyLocked(*record, native, observed_null);
         record->next_hook_attempt = ready ? 0 : GetTickCount64() + 1000;
         if (ready && observed_null && !record->state->null_guard_covered) {
             record->state->null_guard_covered = true;
@@ -1182,6 +1195,9 @@ void OnCommandStateBeforeReset(reshade::api::command_list *owner) {
         }
         g_command_state_epoch.fetch_add(1, std::memory_order_release);
     }
+    // Prospective only: actual successful Reset remains mandatory.
+    if (record && g_enabled_fast.load(std::memory_order_acquire))
+        PrimeCommandListBeforeResetLocked(*record, native);
     if (record && record->state && !record->hooks_ready) {
         const ULONGLONG now = GetTickCount64();
         if (now >= record->next_hook_attempt) {
@@ -1212,6 +1228,7 @@ void OnCommandStateDestroyList(reshade::api::command_list *owner) {
     AcquireSRWLockExclusive(&g_command_state_lock);
     auto *record = FindCommandStateTokenLocked(token);
     if (record != nullptr) {
+        if (record->prime_serial != 0) --g_primed_command_state_count;
         if (record->state != nullptr) { ReleaseNativeCommandState(*record->state); delete record->state; }
         *record = {};
         g_command_state_epoch.fetch_add(1, std::memory_order_release);
@@ -1243,6 +1260,11 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
     AcquireSRWLockExclusive(&g_command_state_lock);
     auto *record = FindCommandStateTokenLocked(token);
     if (record != nullptr) {
+        // A real carrier is permanently outside the speculative eviction pool.
+        if (record->prime_serial != 0) {
+            record->prime_serial = 0;
+            --g_primed_command_state_count;
+        }
         if (record->state == nullptr) {
             record->state = new (std::nothrow) NativeCommandState;
             if (record->state != nullptr) {
