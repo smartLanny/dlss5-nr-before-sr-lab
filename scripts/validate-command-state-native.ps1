@@ -18,6 +18,11 @@ $harness = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\command_state
 $harness = $harness.Replace('// @PRODUCTION_COMMAND_STATE@', $production)
 $pristine = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\pristine_null_native.inl') -Raw
 $harness = $harness.Replace('// @PRISTINE_NULL_TEST@', $pristine)
+# Preserve existing checkpoints if a native test process terminates before flushing.
+# This affects the test executable only, never the extracted production source.
+$entry = 'int main(int argc, char **argv) {'
+if ([regex]::Matches($harness, [regex]::Escape($entry)).Count -ne 1) { throw 'Test entry anchor missing.' }
+$harness = $harness.Replace($entry, $entry + "`n    std::setvbuf(stdout, nullptr, _IONBF, 0);`n    std::setvbuf(stderr, nullptr, _IONBF, 0);`n    std::puts(\"Native command-state test started\");")
 $build = Join-Path $projectRoot 'build\command-state-native-validation'
 New-Item -ItemType Directory -Path $build -Force | Out-Null
 $generated = Join-Path $build 'command_state_native.cpp'
@@ -36,13 +41,13 @@ foreach ($source in @('buffer', 'hook', 'trampoline', 'hde\hde64')) {
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' '-fstack-usage' "-I$(Join-Path $minHook 'include')" $generated @objects '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'Native command-state harness compilation failed.' }
 & $binary '--pristine-null'
-if ($LASTEXITCODE -ne 0) { throw 'Default pristine-null native/GPU validation failed.' }
+if ($LASTEXITCODE -ne 0) { throw "Default pristine-null native/GPU validation failed (exit=$LASTEXITCODE)." }
 & $binary '--pristine-null-negative'
-if ($LASTEXITCODE -ne 42) { throw 'Pristine-null negative control did not detect the deliberately omitted restore.' }
+if ($LASTEXITCODE -ne 42) { throw "Pristine-null negative control did not detect the deliberately omitted restore (exit=$LASTEXITCODE)." }
 & $binary '--default-enabled'
-if ($LASTEXITCODE -ne 0) { throw 'Default-enabled command-state startup validation failed.' }
+if ($LASTEXITCODE -ne 0) { throw "Default-enabled command-state startup validation failed (exit=$LASTEXITCODE)." }
 & $binary
-if ($LASTEXITCODE -ne 0) { throw 'Native command-state validation failed.' }
+if ($LASTEXITCODE -ne 0) { throw "Native command-state validation failed (exit=$LASTEXITCODE)." }
 $stackFiles = Get-ChildItem -LiteralPath $build -Filter '*.su'
 $critical = @()
 foreach ($stackFile in $stackFiles) {
