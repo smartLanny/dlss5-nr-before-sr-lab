@@ -1,4 +1,5 @@
 #include "nr_present_api_status.h"
+#include "nr_recommended_picture.inl"
 
 // A named overlay is an independent ReShade-owned window. nullptr registers
 // inside the add-on settings area, where long panels can displace other add-ons.
@@ -171,6 +172,13 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (collecting) ImGui::BeginDisabled();
 #endif
     changed |= ImGui::Checkbox(ui("Enable (F6)", "启用（F6）"), &next.enabled);
+    if (ImGui::Button(ui("Restore recommended picture settings", "一键恢复推荐画质"))) {
+        RestoreRecommendedPictureSettings(next);
+        changed = true;
+    }
+    SettingsTooltip(ui(
+        "Restores Before SR, strength 1.2, colour request 0.75 and the shipped picture defaults. Exits diagnostic identity and disables unverified HDR colour/peak experiments. Keeps Enable (F6), depth/jitter/R8 game contracts and feedback preferences. Uses the normal save/history rules; runtime safety faults are not cleared.",
+        "恢复前置 NR、强度 1.2、颜色请求 0.75 等随包推荐画质；退出诊断原图，关闭未验证 HDR 调色与高光实验。保留 F6 总开关、深度/Jitter/R8 游戏兼容设置和反馈偏好；按正常规则保存及更新历史，不清除运行时安全故障。"));
     int mode = next.mode == 2 ? 0 : 1;
     if (ImGui::Combo(ui("Processing mode", "处理模式"), &mode,
             ui("Before SR: NR -> SR\0After SR: SR -> NR\0",
