@@ -32,6 +32,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
   // Keep internal IDs stable while presenting public 0.4 releases as Beta0.4.
   const displayVersionLabel = value => typeof value === 'string'
     ? value.replace(/\bbeta(?=0\.4(?:\.|\D|$))/ig, 'Beta')
+      .replace(/Beta0\.4\.5(?:[- ]?fix2|\.2)?/ig, 'Beta0.4.5.2')
     : value;
 
   const pathKey = value => path.resolve(value).toLowerCase();
