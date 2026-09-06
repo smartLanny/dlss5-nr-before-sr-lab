@@ -131,7 +131,11 @@ foreach ($AddonBuild in $AddonBuilds) {
         $AddonObject, $ResourceObject, '-o', $Output, '-lkernel32', '-luser32', '-ld3d12',
         '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'
     )
-    & $CppCompiler @LinkArgs
+    # lld on Windows PowerShell 5 (CP936) mangles Chinese output names in argv;
+    # a UTF-8 response file keeps the public addon filename intact.
+    $LinkRsp = Join-Path $Objects ($AddonBuild.Object + '.link.rsp')
+    [IO.File]::WriteAllLines($LinkRsp, $LinkArgs, [Text.UTF8Encoding]::new($false))
+    & $CppCompiler ('@' + $LinkRsp)
     if ($LASTEXITCODE -ne 0) { throw "Link failed ($($AddonBuild.Language))." }
     $AddonOutputs += $Output
 }
