@@ -4,9 +4,11 @@ const fs = require('fs');
 const path = require('path');
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 const { createAppService } = require('./src/product/app-service');
+const { createSrModelService } = require('./src/product/sr-model-service');
 
 let win = null;
 let service = null;
+let srModel = null;
 
 function addonArgs(argv) {
   return (argv || []).filter(file => typeof file === 'string' && /(?:\.addon64|\.zip)$/i.test(file));
@@ -56,7 +58,7 @@ function registerIpc() {
     'game-install', 'game-repair', 'game-upgrade-addon', 'game-uninstall',
     'game-toggle-d3d12', 'game-launch', 'game-diagnose', 'game-hotkeys-read',
     'game-hotkey-write', 'nr-read', 'nr-write', 'nr-default', 'nr-recommended',
-    'feedback-export'
+    'sr-model-read', 'sr-model-write', 'feedback-export'
   ]);
   const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => service.withError(
     () => fn(...args),
@@ -70,10 +72,17 @@ function registerIpc() {
   call('game-dismiss', id => service.dismissGame(id));
   call('game-toggle-d3d12', (id, enabled, options) => service.toggleD3D12(id, enabled === true, options));
   call('game-uninstall', (id, removeSettings) => service.uninstall(id, removeSettings === true));
-  call('game-launch', id => service.launch(id));
+  call('game-launch', async id => {
+    const model = await srModel.applyBeforeLaunch(id);
+    const launched = await service.launch(id);
+    if (win && !win.isDestroyed()) win.webContents.send('sr-model-applied', { id, ...model });
+    return { launched, srModel: model };
+  });
   call('game-diagnose', id => service.diagnose(id));
   call('nr-read', id => service.readNrSettings(id));
   call('nr-write', (id, patch) => service.writeNrSettings(id, patch));
+  call('sr-model-read', id => srModel.read(id));
+  call('sr-model-write', (id, selection) => srModel.write(id, selection));
   call('game-hotkeys-read', id => service.readGameHotkeys(id));
   call('game-hotkey-write', (id, target, binding) => service.writeGameHotkey(id, target, binding));
   call('nr-default', id => service.applyDefault(id));
@@ -169,11 +178,19 @@ if (!hasSingleInstance) {
 
   app.setAppUserModelId('com.xiaofeng.dlss5.manager');
   app.whenReady().then(async () => {
+    const userData = app.getPath('userData');
     service = createAppService({
-      userData: app.getPath('userData'),
+      userData,
       resourcesPath: process.resourcesPath,
       appDir: __dirname,
       version: app.getVersion()
+    });
+    srModel = createSrModelService({
+      userData,
+      resourcesPath: process.resourcesPath,
+      appDir: __dirname,
+      gameDirectory: id => service.gameDirectory(id),
+      gameExecutable: id => service.gameExecutable(id)
     });
     for (const file of addonArgs(process.argv)) {
       try { await service.importAddonFile(file); } catch {}

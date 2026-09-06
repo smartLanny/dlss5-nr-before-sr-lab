@@ -6,6 +6,10 @@ const os = require('os');
 const path = require('path');
 const { createLibraryService, steamArtworkFor, normalizeUnityDynamicApi } = require('../src/product/library-service');
 
+function absRoot(...parts) {
+  return path.resolve(path.sep, 'abs-games', ...parts);
+}
+
 function scanFixture(root, preferred, hasDlss = true) {
   const game = {
     path: path.join(root, 'Binaries', 'Win64', 'Game.exe'),
@@ -31,7 +35,7 @@ function scanFixture(root, preferred, hasDlss = true) {
 }
 
 test('manual executable selection keeps the chosen deep game exe and metadata', async () => {
-  const root = path.join('C:', 'Games', 'Example');
+  const root = absRoot('Example');
   const executable = path.join(root, 'Binaries', 'Win64', 'Game.exe');
   const scan = {
     async scanGame(dir) { return scanFixture(dir, true, dir === root); },
@@ -60,7 +64,7 @@ test('manual executable selection keeps the chosen deep game exe and metadata', 
 });
 
 test('does not treat the manager NR runtime as the game native DLSS root', async () => {
-  const root = path.join('C:', 'Games', 'Neverness');
+  const root = absRoot('Neverness');
   const executable = path.join(root, 'Client', 'WindowsNoEditor', 'HT', 'Binaries', 'Win64', 'HTGame.exe');
   const native = path.join(root, 'Client', 'WindowsNoEditor', 'Engine', 'Plugins', 'Runtime', 'Nvidia', 'DLSS', 'Binaries', 'ThirdParty', 'Win64', 'nvngx_dlss.dll');
   const scan = {
@@ -116,7 +120,7 @@ test('keeps an explicitly selected executable even when heuristics omit it', asy
 });
 
 test('DX11 games stay installable when a remembered DX12 test version is selected', async () => {
-  const root = path.join('C:', 'Games', 'Dx11Example');
+  const root = absRoot('Dx11Example');
   const executable = path.join(root, 'Binaries', 'Win64', 'Dx11Example.exe');
   const scan = {
     async scanGame(dir) {
@@ -145,7 +149,7 @@ test('DX11 games stay installable when a remembered DX12 test version is selecte
 });
 
 test('a small real game executable is still recommended when the folder and name are strong signals', async () => {
-  const root = path.join('C:', 'Games', 'Arknights Endfield');
+  const root = absRoot('Arknights Endfield');
   const executable = path.join(root, 'Endfield.exe');
   const launcher = path.join(root, 'CefView', 'CefViewWing.exe');
   const scan = {
@@ -193,7 +197,7 @@ test('Steam artwork prefers the local high-resolution poster before header or la
 });
 
 test('dismissed games stay hidden when a launcher rediscovers the same app', async () => {
-  const root = path.join('C:', 'Games', '3DMark');
+  const root = absRoot('3DMark');
   const scan = {
     async scanGame(dir) { return scanFixture(dir, true, true); },
     selectPrimaryDlss(files) { return files[0]; }

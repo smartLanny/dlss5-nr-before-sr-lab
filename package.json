@@ -1,6 +1,6 @@
 {
   "name": "xiaofeng-dlss5-manager",
-  "version": "0.2.0-beta.2",
+  "version": "0.4.5",
   "private": true,
   "description": "A beginner-friendly desktop manager for the DLSS 5 NR-before-SR add-on.",
   "main": "main.js",
@@ -57,6 +57,10 @@
           "nr-before-sr/versions/*/*",
           "nr-before-sr/README.md"
         ]
+      },
+      {
+        "from": "src/product/nvapi-drs.ps1",
+        "to": "nvapi-drs.ps1"
       }
     ],
     "win": { "target": ["nsis", "portable"], "icon": "build/icon.ico" },

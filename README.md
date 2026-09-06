@@ -35,10 +35,10 @@ npm start
 管理器可以在没有 payload 时启动、扫描游戏和查看兼容性；安装操作会被
 安全阻止。准备发布组件的方法见：
 
-装机宅版 Beta 也支持把 RTX 20/30/40 与 RTX 50 两套固定运行组件放进同一个发行包，启动时自动识别
+装机宅版 0.4.5 也支持把 RTX 20/30/40 与 RTX 50 两套固定运行组件放进同一个发行包，启动时自动识别
 显卡并选择对应组件；游戏页支持选择游戏目录或直接选择实际运行 EXE，替换已有文件时
 会保留同目录 `.bak` 回滚副本。未知图形代理和反作弊文件不会被自动删除。
-详细使用方式见 [`docs/INSTALL-GUIDE-0.2.0-BETA.md`](docs/INSTALL-GUIDE-0.2.0-BETA.md)。
+当前安装器版本是 `0.4.5`（`DLSS5-Manager-Setup-0.4.5.exe` / `DLSS5-Manager-0.4.5-portable.exe`）。详细使用方式见 [`docs/INSTALL-GUIDE-0.2.0-BETA.md`](docs/INSTALL-GUIDE-0.2.0-BETA.md)。
 
 ```powershell
 ./scripts/prepare-payload.ps1 `
