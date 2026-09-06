@@ -48,7 +48,7 @@ try {
     $Checks.Add('native_bridge Python exact-source transformations')
     $TestBuild = Join-Path $Output 'tests'
     New-Item -ItemType Directory -Path $TestBuild | Out-Null
-    $Include = @("-I$(Join-Path $Stage 'core')", "-I$Root", "-I$(Join-Path $Math 'Inc')")
+    $Include = @('-DNR_TEST_MULTIAPI=1', "-I$(Join-Path $Stage 'core')", "-I$Root", "-I$(Join-Path $Math 'Inc')")
     foreach ($Test in @('multi_api/format_access', 'multi_api/format_adapter', 'native_bridge/history', 'native_bridge/forward', 'native_bridge/render_scale', 'native_bridge/mirror_rect')) {
         $Exe = Join-Path $TestBuild ((Split-Path -Leaf $Test) + '.exe')
         & $Cxx '-std=c++17' '-Wall' '-Wextra' '-Werror' '-static' @Include (Join-Path $Root "tests/$Test.cpp") '-o' $Exe
