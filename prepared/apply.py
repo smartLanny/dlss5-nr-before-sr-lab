@@ -17,7 +17,15 @@ new='''    if (record.state == nullptr ||
     }
     if (record.state == nullptr) {
 '''
-assert s.count(old)==1;p.write_text(s.replace(old,new),encoding='utf-8',newline='\n')
+assert s.count(old)==1;s=s.replace(old,new)
+old='    static const GUID *const ids[] ='
+new='''    // Identical public IIDs to InstallNativeCommandStateHooks; older SDKs
+    // lack the named constants even when the runtime implements these APIs.
+    static constexpr GUID list8={0xee936ef9,0x599d,0x4d28,{0x93,0x8e,0x23,0xc4,0xad,0x05,0xce,0x51}};
+    static constexpr GUID list9={0x34ed2808,0xffe6,0x4c2b,{0xb1,0x1a,0xca,0xbd,0x2b,0x0c,0x59,0xe1}};
+    static const GUID *const ids[] ='''
+assert s.count(old)==1;s=s.replace(old,new).replace('&IID_ID3D12GraphicsCommandList8','&list8').replace('&IID_ID3D12GraphicsCommandList9','&list9')
+p.write_text(s,encoding='utf-8',newline='\n')
 p=r/'tests/command_pool_native.inl';s=p.read_text(encoding='utf-8')
 old='            record->meta_contract.device_identity=identity;'
 new=old+'''
