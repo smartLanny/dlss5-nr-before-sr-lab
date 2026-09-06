@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$Clean,
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,
     [string]$ReShadeSourceRoot = $env:DLSS5_RESHADE_ROOT
@@ -63,7 +63,9 @@ $Common = @(
     "-I$(Join-Path $ReShade 'include')",
     "-I$(Join-Path $ReShade 'deps\imgui')"
 )
-$SourceDefines = @(('-DNR_SOURCE_COMMIT="' + $SourceCommit + '"'), ('-DNR_SOURCE_DIRTY=' + $SourceDirty))
+# Windows PowerShell 5 strips unescaped quotes from native argv, which turns a
+# SHA such as 891ba89... into a decimal token and fails on the following hex digit.
+$SourceDefines = @(('-DNR_SOURCE_COMMIT=\"' + $SourceCommit + '\"'), ('-DNR_SOURCE_DIRTY=' + $SourceDirty))
 
 $CFiles = @(
     'src\buffer.c',
@@ -96,7 +98,7 @@ $AddonBuilds = @(
         ResourceDefine = '-DNR_UI_CHINESE=0'
         Object = 'nr_before_sr.en.o'
         ResourceObject = 'nr_before_sr.en.resource.o'
-        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.4.5-fix1-@野生的装机宅-Bilibili.en.addon64'
+        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.4.5-fix2-@野生的装机宅-Bilibili.en.addon64'
     },
     @{
         Language = 'Simplified Chinese'
@@ -104,7 +106,7 @@ $AddonBuilds = @(
         ResourceDefine = '-DNR_UI_CHINESE=1'
         Object = 'nr_before_sr.zh-CN.o'
         ResourceObject = 'nr_before_sr.zh-CN.resource.o'
-        Output = 'DLSS5-AI渲染超分版-beta0.4.5-fix1-@野生的装机宅-Bilibili.addon64'
+        Output = 'DLSS5-AI渲染超分版-beta0.4.5-fix2-@野生的装机宅-Bilibili.addon64'
     }
 )
 $AddonOutputs = @()
@@ -122,15 +124,20 @@ foreach ($AddonBuild in $AddonBuilds) {
     }
 
     $Output = Join-Path $Build $AddonBuild.Output
+    # Link through an ASCII leaf so Windows PowerShell 5 / lld cannot mangle the
+    # public Chinese filename; rename with the Unicode .NET APIs afterwards.
+    $AsciiOutput = Join-Path $Build $AddonBuild.Object.Replace('.o', '.addon64')
     $LinkArgs = @(
         '-shared', '-static', '-flto', '-Wl,--gc-sections',
         '-Wl,--strip-all', '-Wl,--no-insert-timestamp'
     ) + $ObjectFiles + @(
-        $AddonObject, $ResourceObject, '-o', $Output, '-lkernel32', '-luser32', '-ld3d12',
+        $AddonObject, $ResourceObject, '-o', $AsciiOutput, '-lkernel32', '-luser32', '-ld3d12',
         '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'
     )
     & $CppCompiler @LinkArgs
     if ($LASTEXITCODE -ne 0) { throw "Link failed ($($AddonBuild.Language))." }
+    if (Test-Path -LiteralPath $Output) { Remove-Item -LiteralPath $Output -Force }
+    [IO.File]::Move($AsciiOutput, $Output)
     $AddonOutputs += $Output
 }
 

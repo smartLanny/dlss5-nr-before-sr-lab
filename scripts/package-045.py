@@ -13,14 +13,14 @@ import zipfile
 from nr_ota_pe import companion_check
 
 ROOT=Path(__file__).resolve().parents[1]
-VERSION='beta0.4.5-fix1'
+VERSION='beta0.4.5-fix2'
 FEEDBACK=['collect-feedback.ps1','Collect-Feedback.cmd','collect-crash-feedback.ps1','Collect-Crash-Feedback.cmd']
 ADDONS={
  'Chinese':f'DLSS5-AI渲染超分版-{VERSION}-@野生的装机宅-Bilibili.addon64',
  'English':f'DLSS5-AI-Rendering-Upscaling-{VERSION}-@野生的装机宅-Bilibili.en.addon64',
 }
-README_ZH='beta0.4.5-fix1 — 0.4 集中修复测试版（无 DX11）\n退出游戏，备份旧同类 addon 和 nrchain_nvngx.dll，再放入本包一个语言 addon 与配套 nrchain_nvngx.dll。\n保留原 INI、ReShade 和显卡对应 NVIDIA 运行库；不改驱动。自有配套 DLL 不是 NVIDIA DLL 或 DX11 桥。\n进原问题场景，F6 看效果；后置问题切到后置测试。画质页可一键恢复推荐，恢复不会强开 NR。\nF8 同时保存核心 ZIP 与独立 feedback-report.txt；用“复制完整报告（群文档）”粘贴，ZIP 留存。F7 仅供画面异常补充。\n回复有效/无效、是否闪烁/崩溃。异常就停止并还原备份，不必反复试崩。\n这是未完成游戏实测的候选，不是通用 MFG 解锁或首次安装包。\n'
-README_EN='beta0.4.5-fix1 — integrated 0.4 D3D12 test, NO DX11\nExit the game; back up the previous addon AND nrchain_nvngx.dll. Install ONE language addon and the companion DLL from this OTA. Preserve INI, ReShade and GPU-specific NVIDIA runtimes.\nUse F6 in the problem scene; test post mode for post-mode bugs. Restore recommended picture settings does not enable NR.\nF8 saves both core ZIP and standalone feedback-report.txt. Copy full TXT into your feedback document; retain ZIP. F7 is optional for image problems.\nStop and roll back on persistent faults. This candidate has not passed target-game validation; no MFG unlock or proprietary runtime included.\n'
+README_ZH='beta0.4.5-fix2 — 0.4 集中修复测试版（无 DX11）\n退出游戏，备份旧同类 addon 和 nrchain_nvngx.dll，再放入本包一个语言 addon 与配套 nrchain_nvngx.dll。\n保留原 INI、ReShade 和显卡对应 NVIDIA 运行库；不改驱动。自有配套 DLL 不是 NVIDIA DLL 或 DX11 桥。\n进原问题场景，F6 看效果；后置问题切到后置测试。画质页可一键恢复推荐，恢复不会强开 NR。\nF8 只写一个命名 TXT，不再默认生成 ZIP。把该 TXT 粘贴到原 Issue／群文档。F7 仅供画面异常补充。\n回复有效/无效、是否闪烁/崩溃。异常就停止并还原到 beta0.4.5 或 beta0.4.5-fix1，不必反复试崩。\n这是未完成游戏实测的候选，不是通用 MFG 解锁或首次安装包。\n'
+README_EN='beta0.4.5-fix2 — integrated 0.4 D3D12 test, NO DX11\nExit the game; back up the previous addon AND nrchain_nvngx.dll. Install ONE language addon and the companion DLL from this OTA. Preserve INI, ReShade and GPU-specific NVIDIA runtimes.\nUse F6 in the problem scene; test post mode for post-mode bugs. Restore recommended picture settings does not enable NR.\nF8 writes one named TXT only (no default ZIP). Paste that TXT into the original issue or group document. F7 is optional for image problems.\nStop and roll back to beta0.4.5 or beta0.4.5-fix1 on persistent faults. This candidate has not passed target-game validation; no MFG unlock or proprietary runtime included.\n'
 
 def digest(data:bytes)->str:return hashlib.sha256(data).hexdigest()
 def source_sha()->str:
@@ -36,7 +36,7 @@ def pe_check(data:bytes,sha:str)->None:
         raise ValueError('Expected x64 PE32+ addon')
     if VERSION.encode() not in data or sha.encode() not in data:
         raise ValueError('Compiled version/source identity not embedded')
-    if '0.4.5-fix1 beta'.encode('utf-16le') not in data:
+    if '0.4.5-fix2 beta'.encode('utf-16le') not in data:
         raise ValueError('PE version text not frozen')
 
 def verify(path:Path,sha:str,language:str)->dict:
