@@ -124,19 +124,20 @@ foreach ($AddonBuild in $AddonBuilds) {
     }
 
     $Output = Join-Path $Build $AddonBuild.Output
+    # Link through an ASCII leaf so Windows PowerShell 5 / lld cannot mangle the
+    # public Chinese filename; rename with the Unicode .NET APIs afterwards.
+    $AsciiOutput = Join-Path $Build $AddonBuild.Object.Replace('.o', '.addon64')
     $LinkArgs = @(
         '-shared', '-static', '-flto', '-Wl,--gc-sections',
         '-Wl,--strip-all', '-Wl,--no-insert-timestamp'
     ) + $ObjectFiles + @(
-        $AddonObject, $ResourceObject, '-o', $Output, '-lkernel32', '-luser32', '-ld3d12',
+        $AddonObject, $ResourceObject, '-o', $AsciiOutput, '-lkernel32', '-luser32', '-ld3d12',
         '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'
     )
-    # lld on Windows PowerShell 5 (CP936) mangles Chinese output names in argv;
-    # a UTF-8 response file keeps the public addon filename intact.
-    $LinkRsp = Join-Path $Objects ($AddonBuild.Object + '.link.rsp')
-    [IO.File]::WriteAllLines($LinkRsp, $LinkArgs, [Text.UTF8Encoding]::new($false))
-    & $CppCompiler ('@' + $LinkRsp)
+    & $CppCompiler @LinkArgs
     if ($LASTEXITCODE -ne 0) { throw "Link failed ($($AddonBuild.Language))." }
+    if (Test-Path -LiteralPath $Output) { Remove-Item -LiteralPath $Output -Force }
+    [IO.File]::Move($AsciiOutput, $Output)
     $AddonOutputs += $Output
 }
 
