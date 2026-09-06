@@ -86,6 +86,7 @@ bool WriteAtomic(const wchar_t *directory, const std::string &text, Output &outp
 }
 Output Build(const nr_bundle::Job &job, const nr_bundle::Result &zip, bool capture_complete) {
     Output output;
+    output.complete = capture_complete && zip.required_complete && zip.status != nr_bundle::Status::Failed;
     std::string text = "DLSS5 核心反馈全文 / Core feedback text\n"
         "可复制全文到反馈文档。保留对应 ZIP；图像异常另附 F7。\n"
         "This text contains the complete bounded core metadata and included sanitized log summaries, not unlimited raw logs.\n"
@@ -117,7 +118,7 @@ Output Build(const nr_bundle::Job &job, const nr_bundle::Result &zip, bool captu
         }
         if (!Append(text, summary)) { output.complete = false; break; }
     }
-    text += output.complete ? "\ntext.complete=1\n" : "\ntext.complete=0\ntext.reason=summary unavailable, changed, or bounded text budget reached\n";
+    text += output.complete ? "\ntext.complete=1\n" : "\ntext.complete=0\ntext.reason=capture partial, summary unavailable/changed, or bounded text budget reached\n";
     text += "END DLSS5 FEEDBACK TEXT\n";
     auto cached = std::make_shared<const std::string>(std::move(text));
     if (WriteAtomic(job.directory, *cached, output)) output.text = std::move(cached);

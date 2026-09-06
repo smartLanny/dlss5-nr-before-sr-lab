@@ -35,6 +35,8 @@ jobs:
           python3 scripts/validate-retirement-return.py
           python3 scripts/validate-strength-cap.py
           python3 scripts/validate-recommended-picture.py
+          python3 scripts/validate-045-color.py
+          python3 scripts/validate-045-color.py --negative-control
           python3 -m unittest discover -s tests -p test_feedback_report.py -v
           g++ -std=c++20 -Wall -Wextra -Werror -Isrc tests/feedback_text_test.cpp -o /tmp/feedback-text
           /tmp/feedback-text
@@ -129,6 +131,7 @@ jobs:
           ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
           ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -NegativeControl
           ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -DynamicStateNegativeControl
+          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -BlendStateNegativeControl
       - name: Execute the D3D12 codec harness
         shell: pwsh
         run: ./scripts/validate-codec-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
@@ -157,7 +160,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $addons = @(Get-ChildItem build -Filter '*beta0.4.5*.addon64')
-          if ($addons.Count -ne 2) { throw 'Expected two test1 language addons' }
+          if ($addons.Count -ne 2) { throw 'Expected two 0.4.5 language addons' }
           foreach ($addon in $addons) {
             $v = $addon.VersionInfo
             if ($v.FileMajorPart -ne 0 -or $v.FileMinorPart -ne 4 -or $v.FileBuildPart -ne 5 -or $v.FilePrivatePart -ne 0) { throw 'Wrong numeric PE version' }

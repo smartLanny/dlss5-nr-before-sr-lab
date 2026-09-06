@@ -15,7 +15,7 @@ current_identity_files = {
     "source": source,
     "resource": (root / "src" / "nr_before_sr.rc").read_text(encoding="utf-8"),
     "build": (root / "scripts" / "build.ps1").read_text(encoding="utf-8-sig"),
-    "package": (root / "scripts" / "package-044-test1.py").read_text(encoding="utf-8"),
+    "package": (root / "scripts" / "package-045.py").read_text(encoding="utf-8"),
     "candidate notes": (root / "docs/releases/beta0.4.5.md").read_text(encoding="utf-8"),
     "feedback collector": (root / "scripts" / "collect-feedback.ps1").read_text(encoding="utf-8-sig"),
     "crash collector": (root / "scripts" / "collect-crash-feedback.ps1").read_text(encoding="utf-8-sig"),

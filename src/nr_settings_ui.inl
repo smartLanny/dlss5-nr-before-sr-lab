@@ -94,6 +94,14 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
 void DrawSettings(reshade::api::effect_runtime *runtime) {
     const bool use_chinese_ui = UseChineseUi();
     const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
+    const auto live_reason = static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_acquire));
+    if (live_reason == BypassReason::RuntimeUnavailable) {
+        ImGui::TextWrapped("%s", ui("NR runtime could not load or initialize. Keep your NVIDIA DLLs; install the matching nrchain_nvngx.dll from this OTA, then restart. F8 TXT identifies the failed component and error.",
+            "NR 运行库加载或初始化失败。保留显卡对应 NVIDIA DLL，使用本 OTA 配套 nrchain_nvngx.dll 后重启游戏；F8 TXT 会列出失败组件及错误。"));
+    } else if (live_reason == BypassReason::CodecUnavailable) {
+        ImGui::TextWrapped("%s", ui("The NR conversion/composition pipeline could not initialize. Native output is preserved; use F8 for the actual failure record.",
+            "NR 转换/合成管线初始化失败，保留原生输出；请用 F8 记录具体失败。"));
+    }
     static ChainConfig pending = {};
     static bool has_pending = false;
     static unsigned pending_generation = 0;

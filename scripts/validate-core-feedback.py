@@ -184,11 +184,19 @@ int main(int argc,char **argv) {
     check(report.find(first.session)!=std::string::npos && report.find("null-pso-policy-disabled")!=std::string::npos,"TXT carries this session and first-error log");
     check(report.find("Private Tester")==std::string::npos && report.find("ABCDEF00")==std::string::npos,"TXT privacy matches sanitized ZIP");
     check(report.find("text.complete=1")!=std::string::npos,"all included core summaries present in TXT");
-    std::ifstream txt(nr_core_feedback::g_report_path,std::ios::binary);
+    std::ifstream txt(std::filesystem::path(nr_core_feedback::g_report_path),std::ios::binary);
     check(std::string((std::istreambuf_iterator<char>(txt)),{})==report,"disk TXT equals clipboard cache");
     txt.close();
     std::filesystem::copy_file(nr_core_feedback::g_report_path,std::filesystem::path(output_root)/"valid-core.txt");
 
+    {
+        nr_core_feedback::nr_feedback_report::Output blocked;
+        const auto dir=std::filesystem::path(output_root)/"core-1";
+        check(!nr_core_feedback::nr_feedback_report::WriteAtomic(dir.c_str(),"replacement",blocked),"TXT cannot overwrite this session's published report");
+        check(blocked.error!=0 && blocked.path.empty(),"TXT error is explicit and has no false published path");
+        check(g_feedback_last_zip[0] && g_feedback_status==3,"independent TXT failure preserves valid ZIP");
+        check(!std::filesystem::exists(dir/"feedback-report.txt.tmp"),"failed TXT publication removes only owned temporary file");
+    }
     std::ifstream summary(std::filesystem::path(output_root)/"core-1/summary-0.txt",std::ios::binary);
     const std::string text((std::istreambuf_iterator<char>(summary)),{});
     check(text.find("null-pso-policy-disabled")!=std::string::npos,"first bypass survives long later success tail");

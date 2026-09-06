@@ -61,6 +61,14 @@ NrColorPolicy ResolveNrColorPolicy(int mode, bool hdr_input,
     return result;
 }
 
+void ApplyRequestedUnverifiedHdrColor(NrColorPolicy &policy, bool allow, float strength) {
+    if (allow && policy.color_reason == NrColorReason::UnverifiedHdr) {
+        policy.color_allowed = true;
+        policy.effective_color_strength = std::isfinite(strength) ? std::clamp(strength, 0.0f, 2.0f) : 0.0f;
+        policy.color_reason = NrColorReason::ExperimentalUnverifiedHdr;
+    }
+}
+
 const char *NrColorReasonName(NrColorReason reason) {
     switch (reason) {
     case NrColorReason::NonHdr: return "non-hdr-input";

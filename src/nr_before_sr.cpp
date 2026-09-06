@@ -5950,11 +5950,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         color_policy.requested_preserve_lighting = g_config.lighting_lock > 0.000001f;
         color_policy.effective_preserve_lighting = color_policy.requested_preserve_lighting;
     }
-    if (g_config.allow_unverified_hdr_color && color_policy.color_reason == NrColorReason::UnverifiedHdr) {
-        color_policy.color_allowed = true;
-        color_policy.effective_color_strength = g_config.color_strength;
-        color_policy.color_reason = NrColorReason::ExperimentalUnverifiedHdr;
-    }
+    ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,
+        g_config.color_strength);
     const unsigned int base_codec_flags = source_flags |
         (color_policy.effective_preserve_lighting ? 2u : 0u) |
         (capture_delta ? 8u : 0u) |
