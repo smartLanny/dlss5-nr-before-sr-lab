@@ -1,0 +1,52 @@
+name: Audit 045 integration
+on:
+  push:
+    branches: [prep/045-integration]
+    paths: [.github/workflows/audit-045.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Inspect immutable source and evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Integration audit'
+          git config user.email 'audit@localhost'
+          git checkout --detach 381223472e941d85cb08faa493d469661f0782b7
+          git merge --no-edit 1a8490a2c76d93b0c5e4cc50b8d4f178df55eb83
+          git merge --no-edit 453aa5fae3ecacc9f48c74020392d049a3aa16e5
+          git merge --no-edit 2f070400b19595774bf3fa6b4d46ea2e6c64adf3
+          git merge --no-edit 7cf62b5c3b9c8ab15b37820641933cb304402bd9
+          git diff --stat 381223472e941d85cb08faa493d469661f0782b7
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for n in [97,98,99,100,101,38,39,64]:
+              root=Path(f'bug-inbox/issue-{n}')
+              print('\nEVIDENCE',n)
+              for p in root.rglob('*'):
+                  if p.is_file() and p.suffix.lower() in ('.txt','.md'):
+                      text=p.read_text(encoding='utf-8-sig',errors='replace')
+                      if 'capture-info' in p.name or 'CLOUD-AGENT-README' in p.name:
+                          print('FILE',p)
+                          print('\n'.join(x for x in text.splitlines() if re.search(r'build=|requested.mode=|commandState.(reason|dynamic)|start.nrSuccess=|end.nrSuccess=|transferSubmitted=|session=',x)))
+                      lines=[x for x in text.splitlines() if re.search(r'NR runtime load failed|exports incomplete|Init_Ext failed|\[post-sr\]|dynamic=0x8\b|ERROR_',x)]
+                      if lines: print('MATCH',p, '\n'+'\n'.join(dict.fromkeys(lines))[-6000:])
+          for p,words in [('src/nr_before_sr.cpp',['RequestFeedbackBundle(', 'FeedbackObserveEvaluate(', 'EnsureNrApi(', '#include "nr_feedback']),('src/nr_f8_sequence.inl',['RequestCore','nr_core_feedback','RequestFeedbackBundle']),('src/nr_f8_ui.inl',['g_submission','last_zip','RequestCore'])]:
+              f=Path(p)
+              if not f.exists(): continue
+              lines=f.read_text().splitlines(); print('\nCALLS',p)
+              for i,line in enumerate(lines):
+                  if any(w in line for w in words): print('\n'.join(f'{j+1}: {lines[j]}' for j in range(max(0,i-3),min(len(lines),i+5))))
+          print('\nFILES')
+          print('\n'.join(str(p) for p in Path('tests').rglob('*') if 'core' in p.name or 'command_state' in p.name))
+          print('\n'.join(str(p) for p in Path('src').glob('*f8*')))
+          print(Path('.github/workflows/release-beta044-test1.yml').read_text() if Path('.github/workflows/release-beta044-test1.yml').exists() else '\n'.join(str(p) for p in Path('.github/workflows').glob('*')))
+          PY
