@@ -18,7 +18,7 @@ SHA='0123456789abcdef0123456789abcdef01234567'
 def addon():
  b=bytearray(1024);b[:2]=b'MZ';struct.pack_into('<I',b,0x3c,128);b[128:132]=b'PE\0\0'
  struct.pack_into('<H',b,132,0x8664);struct.pack_into('<H',b,152,0x20b)
- text=ota.VERSION.encode()+b'\0'+SHA.encode()+b'\0'+'0.4.5-fix1 beta'.encode('utf-16le')
+ text=ota.VERSION.encode()+b'\0'+SHA.encode()+b'\0'+'0.4.5-fix2 beta'.encode('utf-16le')
  b[256:256+len(text)]=text
  return bytes(b)
 
