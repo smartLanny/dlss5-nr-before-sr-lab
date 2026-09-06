@@ -28,6 +28,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
     'scripts/build.ps1': 'd5426edca3eefd52e88786bb7892284e2bf5f2d5',
+    'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
@@ -71,6 +72,12 @@ def configure(core: Path):
     def patch_core(text: str) -> str:
         return fmt.patch_core(prior_patch(text))
     m.legacy.patch_core = patch_core
+    previous_prepare = m.prepare
+    def prepare_with_native_abi(core_root: Path, upstream: Path, stage: Path) -> None:
+        previous_prepare(core_root, upstream, stage)
+        abi = load('native_parameter_abi', core_root / 'scripts/patch-ngx-parameter-abi.py')
+        abi.apply(stage)
+    m.prepare = prepare_with_native_abi
     return m
 
 def file_hashes(root: Path) -> dict[str, str]:
@@ -110,6 +117,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'picture_pr134_ancestor': PR134,
         'picture_source_pins': INTEGRATION_CORE_PINS,
         'bridge_release': 'v1.4.12', 'bridge_commit': UPSTREAM,
+        'ngx_parameter_abi': 'Microsoft x64 native 17-slot layout; MSVC and Windows-GNU declarations',
         'reset_source_blob': STATE_132, 'feedback': 'F8 single TXT; F7 optional paired archive',
         'format_path': 'typed FP16/FP32 SceneColor read -> existing FP16 codec',
         'optional_inventory_blocks_on_failure': False,

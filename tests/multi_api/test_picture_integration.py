@@ -15,6 +15,7 @@ spec.loader.exec_module(m)
 class PictureIntegration(unittest.TestCase):
     def library(self):
         return SimpleNamespace(patch_core=lambda text: 'bridge:' + text,
+            prepare=lambda core, upstream, stage: None,
             legacy=SimpleNamespace(CORE_BLOBS={'unrelated': 'preserved'}))
 
     def fake_git(self, root, *args):
@@ -53,7 +54,8 @@ class PictureIntegration(unittest.TestCase):
 
     def test_pins_cover_actual_ui_composition_and_build_dependencies(self):
         self.assertEqual(set(m.INTEGRATION_CORE_PINS), {'src/nr_command_state.inl', 'src/nr_settings_ui.inl',
-            'src/nr_color_policy.inl', 'src/nr_color_amplification.h', 'src/nr_precision_ui.h', 'scripts/build.ps1'})
+            'src/nr_color_policy.inl', 'src/nr_color_amplification.h', 'src/nr_precision_ui.h', 'scripts/build.ps1',
+            'src/interop/nr_ngx_parameter_abi.h'})
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '085742e4e02bd434bb491ce23a9a1df3f370b2ec')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_132)
         self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'd5426edca3eefd52e88786bb7892284e2bf5f2d5')
