@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawn, execFileSync } = require('child_process');
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 const { createAppService } = require('./src/product/app-service');
 const { createSrModelService } = require('./src/product/sr-model-service');
@@ -9,6 +10,47 @@ const { createSrModelService } = require('./src/product/sr-model-service');
 let win = null;
 let service = null;
 let srModel = null;
+
+function isWindowsAdministrator() {
+  if (process.platform !== 'win32') return true;
+  try {
+    const result = execFileSync('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      '$id=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=New-Object Security.Principal.WindowsPrincipal($id); $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)'
+    ], { encoding: 'utf8', windowsHide: true });
+    return /^true$/i.test(String(result).trim());
+  } catch {
+    return false;
+  }
+}
+
+function quotePowerShell(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function relaunchAsAdministrator() {
+  if (isWindowsAdministrator()) return true;
+  const args = process.argv.slice(1).filter(value => typeof value === 'string');
+  const argumentList = args.length
+    ? ` -ArgumentList @(${args.map(quotePowerShell).join(', ')})`
+    : '';
+  const command = `Start-Process -FilePath ${quotePowerShell(process.execPath)}${argumentList} -Verb RunAs`;
+  try {
+    const child = spawn('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-WindowStyle',
+      'Hidden',
+      '-Command',
+      command
+    ], { detached: true, stdio: 'ignore', windowsHide: true });
+    child.unref();
+  } catch {}
+  app.quit();
+  return false;
+}
 
 function addonArgs(argv) {
   return (argv || []).filter(file => typeof file === 'string' && /(?:\.addon64|\.zip)$/i.test(file));
@@ -28,7 +70,8 @@ async function iconDataFor(file) {
   return null;
 }
 
-const hasSingleInstance = app.requestSingleInstanceLock();
+const shouldContinue = relaunchAsAdministrator();
+const hasSingleInstance = shouldContinue && app.requestSingleInstanceLock();
 
 function createWindow() {
   win = new BrowserWindow({
@@ -164,7 +207,9 @@ function registerIpc() {
   ipcMain.on('window-close', () => win && win.close());
 }
 
-if (!hasSingleInstance) {
+if (!shouldContinue) {
+  // The non-elevated process has handed off to a UAC-elevated child.
+} else if (!hasSingleInstance) {
   app.quit();
 } else {
   app.on('second-instance', async (_event, argv) => {

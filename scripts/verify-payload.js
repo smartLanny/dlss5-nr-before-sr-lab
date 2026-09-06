@@ -9,7 +9,7 @@ const write = process.argv.includes('--write');
 
 try {
   if (write) {
-    const versionIds = ['0.2.0-beta.2', '0.3.3.5', '0.4.1-r2', '0.4.4test', '0.4.5-ota', '0.4.2-dx11-native-bridge-exp1-r1'];
+    const versionIds = ['0.2.0-beta.2', '0.3.3.5', '0.3.8', '0.4.1-r2', '0.4.4test', '0.4.5-ota', '0.4.2-dx11-native-bridge-exp1-r1'];
     const hasCompactVersions = versionIds.every(id => fs.existsSync(path.join(dir, 'versions', id, 'nr-before-sr.zh-CN.addon64')) && fs.existsSync(path.join(dir, 'versions', id, 'nr_before_sr.ini')))
       && FAMILIES.every(family => ['ReShade64.dll', 'nrchain_nvngx.dll', 'nvngx_dlssnr.dll'].every(name => fs.existsSync(path.join(dir, 'fixed', family, name))));
     const hasVersions = versionIds.every(id => FAMILIES.every(family => fs.existsSync(path.join(dir, 'versions', id, family))));
@@ -17,6 +17,7 @@ try {
       ? createCompactBundle(dir, [
           { id: '0.2.0-beta.2', label: '0.2.0-beta.2（2K27 兼容候选）', notes: '历史 beta0.2 addon；针对 2K27 等反馈优先用于兼容性对比。当前固定运行组件仍按显卡族共用。', source: 'local historical tag v0.2.0-beta.2' },
           { id: '0.3.3.5', label: '0.3.3.5（默认稳定版）', notes: '默认稳定槽；本地现有 beta0.3.3.5 addon，用于日常安装和兼容性基线。', source: 'beta0.3.3.5-080d' },
+          { id: '0.3.8', label: 'Beta0.3.8（维护线测试版）', notes: '0.3.8 维护线 addon；可用于与 0.3.3.5 做 A/B 对比。', source: 'DLSS5-beta0.3.8-Chinese-Update.zip' },
           { id: '0.4.1-r2', label: 'Beta0.4.1-r2（测试版）', notes: 'Beta0.4 测试链路；适合手动切换做兼容性和效果对比。', source: '20260905-GitHub-Release-R2' },
           { id: '0.4.4test', label: 'Beta0.4.4test（测试版）', notes: 'Beta0.4.4 test1 OTA addon；沿用 Beta0.4.x 运行库和配置。', source: 'DLSS5-beta0.4.4-test1-Chinese-OTA.zip' },
           { id: '0.4.5-ota', label: 'Beta0.4.5（标准 OTA 更新包）', notes: '标准 nr-branch-ota-v1 更新包；从已有 Beta0.4 安装升级时只替换 Addon，保留 INI、ReShade、Bridge、Runtime 和游戏自带 DLSS。仅支持 D3D12-x64，不含 DX11。', source: 'DLSS5-beta0.4.5-Chinese-OTA.zip', compatibility: 'dx12', ota: true },
@@ -26,6 +27,7 @@ try {
       ? createVersionedBundle(dir, [
           { id: '0.2.0-beta.2', label: '0.2.0-beta.2（2K27 兼容候选）', notes: '历史 beta0.2 addon；针对 2K27 等反馈优先用于兼容性对比。当前固定运行组件仍按显卡族共用。', source: 'local historical tag v0.2.0-beta.2' },
           { id: '0.3.3.5', label: '0.3.3.5（默认稳定版）', notes: '默认稳定槽；本地现有 beta0.3.3.5 addon，用于日常安装和兼容性基线。', source: 'beta0.3.3.5-080d' },
+          { id: '0.3.8', label: 'Beta0.3.8（维护线测试版）', notes: '0.3.8 维护线 addon；可用于与 0.3.3.5 做 A/B 对比。', source: 'DLSS5-beta0.3.8-Chinese-Update.zip' },
           { id: '0.4.1-r2', label: 'Beta0.4.1-r2（测试版）', notes: 'Beta0.4 链路；NR 工作分辨率通过 WorkMode 调整。', source: '20260905-GitHub-Release-R2' },
           { id: '0.4.4test', label: 'Beta0.4.4test（测试版）', notes: 'Beta0.4.4 test1 OTA addon；沿用 Beta0.4.x 运行库和配置。', source: 'DLSS5-beta0.4.4-test1-Chinese-OTA.zip' },
           { id: '0.4.5-ota', label: 'Beta0.4.5（标准 OTA 更新包）', notes: '标准 nr-branch-ota-v1 更新包；从已有 Beta0.4 安装升级时只替换 Addon，保留 INI、ReShade、Bridge、Runtime 和游戏自带 DLSS。仅支持 D3D12-x64，不含 DX11。', source: 'DLSS5-beta0.4.5-Chinese-OTA.zip', compatibility: 'dx12', ota: true },

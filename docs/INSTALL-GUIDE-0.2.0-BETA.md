@@ -36,9 +36,11 @@ Steam 游戏的图片会自动按以下顺序处理：本机 Steam `library_600x
 
 安装器会一起管理 ReShade Add-on 运行环境、NR addon、NR bridge、NR runtime 和 `nr_before_sr.ini`。ReShade Overlay 继续作为游戏内设置界面。
 
-设置页内置五个可切换版本槽（发行包默认使用 0.3.3.5 稳定版；DX11 游戏在未手动指定版本时自动使用前置的兼容测试槽；切换时主要替换 addon，运行库按显卡族固定一份）：
+设置页内置七个可切换版本槽（发行包默认使用 0.3.3.5 稳定版；DX11 游戏在未手动指定版本时自动使用前置的兼容测试槽；切换时主要替换 addon，运行库按显卡族固定一份）：
 
 - `0.2.0-beta.2`：从历史 `v0.2.0-beta.2` 源码隔离构建的 legacy addon，作为《NBA 2K27》等反馈中“0.2 可用、0.3 不兼容”的首选兼容性候选；
+
+- `Beta0.3.8`（内部 ID `0.3.8`）：0.3.8 维护线测试 addon，已内置到管理器，可与默认 0.3.3.5 快速 A/B 对比；
 
 - `Beta0.4.5`（内部 ID `0.4.5-ota`）：推荐的 Beta0.4 系列标准 OTA 更新槽。它会验证 `ota-manifest.json`、每个文件大小和 SHA-256；如果 OTA 包含配套 `nrchain_nvngx.dll`，应用时会和 Addon 一起替换，保留当前 INI、ReShade、Runtime 和游戏自带 DLSS；仅支持 D3D12，不含 DX11；
 - `Beta0.4.4test`（内部 ID `0.4.4test`）：旧的 Beta0.4.4 test1 OTA addon，保留用于 A/B 对比；
