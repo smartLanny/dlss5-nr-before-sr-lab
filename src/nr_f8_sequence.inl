@@ -68,7 +68,7 @@ bool RequestCore() {
 }
 bool RequestWithOptions(const Options &options) {
     AcquireSRWLockExclusive(&g_control);
-    bool accepted = !IsActive() && g_status.load()!=Status::Packaging && StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request();
+    bool accepted = !IsActive() && g_status.load()!=Status::Packaging && StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request(true);
     if (accepted) {
         g_options=options; g_cancel.store(false);
         AcquireSRWLockExclusive(&g_lock); g_last_zip[0]=0; ReleaseSRWLockExclusive(&g_lock);
@@ -421,14 +421,14 @@ void DrawCoreTextStatus(bool chinese) {
     nr_bundle::CopyPath(view->path,nr_core_feedback::g_report_path);
     ReleaseSRWLockShared(&g_feedback_lock);
     if (view->text) {
-        ImGui::TextWrapped("%s", chinese ? "独立 TXT 已保存，可复制全文粘贴到群反馈文档；ZIP 请保留。" : "Standalone TXT saved. Copy its full text into your feedback document; retain the ZIP.");
-        if (!view->complete) ImGui::TextWrapped("%s", chinese ? "TXT 部分内容不可用，文内已注明；与 ZIP 状态分别判断。" : "TXT is partial; missing sections are explicit and independent of ZIP status.");
+        ImGui::TextWrapped("%s", chinese ? "TXT 已保存，直接发送这个文件或复制全文到群文档即可。" : "TXT saved. Send this file or copy its full text into your feedback document.");
+        if (!view->complete) ImGui::TextWrapped("%s", chinese ? "TXT 部分证据不可用，缺失原因已写入文件；不代表游戏正常。" : "TXT is partial; missing evidence is explicit, not proof of game health.");
         if (ImGui::Button(chinese ? "复制完整报告（群文档）" : "Copy full TXT report")) ImGui::SetClipboardText(view->text->c_str());
         WideToUtf8(view->path,view->utf8,sizeof(view->utf8));
         ImGui::TextWrapped("%s",view->utf8);
         if (ImGui::Button(chinese ? "复制 TXT 路径" : "Copy TXT path")) ImGui::SetClipboardText(view->utf8);
     } else if (view->error) {
-        ImGui::TextWrapped(chinese ? "TXT 保存失败（Win32 %lu）；ZIP 是否成功请看上方。" : "TXT failed (Win32 %lu); ZIP status is shown separately above.",view->error);
+        ImGui::TextWrapped(chinese ? "TXT 保存失败（Win32 %lu）；没有复用上一次的报告。" : "TXT failed (Win32 %lu); no previous report was reused.",view->error);
     }
 }
 
@@ -444,15 +444,15 @@ void DrawCoreStatus() {
     ReleaseSRWLockShared(&g_feedback_lock);
     if(status==0)return;
     if(status==1 || status==2) {
-        ImGui::TextWrapped("%s",zh?"核心反馈：正在记录状态和生成日志小包，不等待 NR 图像。":"Core feedback: recording state and compact logs; no NR images required.");
+        ImGui::TextWrapped("%s",zh?"核心反馈：正在记录状态和日志，不等待 NR 图像。":"Core feedback: recording state and compact logs; no NR images required。");
         if(ImGui::Button(zh?"取消核心采集":"Cancel core capture"))nr_core_feedback::Cancel();
     } else {
-        ImGui::TextWrapped("%s",status==3?(zh?"核心反馈包已生成。":"Core feedback package saved."):
-            status==4?(zh?"核心反馈包部分完成，请保留其中的缺失原因。":"Core feedback partially complete; missing reasons are included."):
+        ImGui::TextWrapped("%s",status==3?(zh?"核心反馈已生成。":"Core feedback saved."):
+            status==4?(zh?"核心反馈部分完成，缺失原因已记录。":"Core feedback partially complete; missing reasons are included."):
             (zh?"核心反馈保存失败，没有复用旧包路径。":"Core feedback failed; no old package path reused."));
         if(reason[0])ImGui::TextWrapped("%s",reason);
         if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(zh?"复制核心包路径":"Copy core path"))ImGui::SetClipboardText(path);}
-        if (path[0] && submission[0] && ImGui::Button(zh?"复制报告摘要（粘贴后补充现象）":"Copy report summary"))
+        if (submission[0] && ImGui::Button(zh?"复制报告摘要（粘贴后补充现象）":"Copy report summary"))
             ImGui::SetClipboardText(submission);
 
     }
@@ -462,13 +462,13 @@ void DrawControls() {
     const auto state=g_status.load();
     const bool use_chinese_ui=UseChineseUi();
     ImGui::TextWrapped("%s", use_chinese_ui
-        ? "不生效或旁路：先采 F8 核心小包。颜色、闪烁等画面异常：再用 F7，并提交新生成的一对包。"
-        : "Bypass or no effect: start with the small F8 core package. Visual issues: use F7 and submit its NEW core/image pair.");
+        ? "不生效或旁路：按 F8，发送一个完整 TXT 即可。颜色、闪烁等画面异常：可另用 F7 图像补充。"
+        : "Bypass or no effect: press F8 and send its single TXT. For visual issues, optionally add an F7 image supplement.");
     DrawCoreStatus();
     const bool busy=IsActive() || state==Status::Packaging || nr_core_feedback::Busy();
     ImGui::BeginDisabled(busy);
-    if(ImGui::Button(use_chinese_ui?"采集核心反馈包（F8，推荐）":"Collect core feedback (F8, recommended)"))RequestCore();
-    F8Tooltip(use_chinese_ui?"用于不生效、旁路和兼容性。同时保存 ZIP 和独立 TXT，可复制全文填表；只收有界日志与状态，不采图片、不改设置。ZIP 上限 8 MiB，TXT 上限 2 MiB。":"For bypass and compatibility issues. Saves ZIP plus standalone TXT with a copy-full-text button. Bounded logs/state only; no images or setting changes. ZIP ceiling: 8 MiB; TXT: 2 MiB.");
+    if(ImGui::Button(use_chinese_ui?"生成反馈 TXT（F8，推荐）":"Save feedback TXT (F8, recommended)"))RequestCore();
+    F8Tooltip(use_chinese_ui?"用于不生效、旁路和兼容性。保存一个带时间、游戏、版本名的 TXT，直接复制全文填表；不生成 ZIP，不采图片、不改设置。TXT 上限 2 MiB。":"For bypass and compatibility issues. Saves one TXT named by time, game and actual build. No ZIP, images or setting changes. Bounded report ceiling: 2 MiB.");
     ImGui::EndDisabled();
     if(!busy) {
         static int comparison=1,x=0,y=0,key=VK_F8;static bool custom=false;

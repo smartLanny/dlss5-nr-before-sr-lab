@@ -58,11 +58,24 @@ bool ReadVerifiedSummary(const nr_bundle::Artifact &item, std::string &text) {
     char hash[65]{}; digest.Finish(hash);
     return std::strcmp(hash, item.sha256) == 0 && text.find('\0') == std::string::npos && nr_bundle::ValidUtf8(text.c_str());
 }
-bool WriteAtomic(const wchar_t *directory, const std::string &text, Output &output) {
-    if (!nr_bundle::LocalAbsolutePath(directory) || text.size() > kLimit || !nr_bundle::ValidUtf8(text.c_str())) {
+bool WriteAtomic(const wchar_t *directory, const std::string &text, Output &output,
+                 const wchar_t *leaf = L"feedback-report.txt") {
+    if (!nr_bundle::LocalAbsolutePath(directory) || text.size() > kLimit || !nr_bundle::ValidUtf8(text.c_str()) ||
+        !leaf || !*leaf) {
         output.error = ERROR_INVALID_DATA; return false;
     }
-    const std::wstring final = std::wstring(directory) + L"\\feedback-report.txt";
+    std::size_t leaf_size = 0;
+    for (; leaf[leaf_size]; ++leaf_size) {
+        const wchar_t c = leaf[leaf_size];
+        if (leaf_size >= 220 || !((c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') ||
+            (c >= L'0' && c <= L'9') || c == L'.' || c == L'-')) {
+            output.error = ERROR_INVALID_NAME; return false;
+        }
+    }
+    if (leaf[0] == L'.' || leaf_size <= 4 || wcscmp(leaf + leaf_size - 4, L".txt") != 0) {
+        output.error = ERROR_INVALID_NAME; return false;
+    }
+    const std::wstring final = std::wstring(directory) + L"\\" + leaf;
     const std::wstring temporary = final + L".tmp";
     if (temporary.size() >= nr_bundle::kMaxPath) { output.error = ERROR_FILENAME_EXCED_RANGE; return false; }
     auto native = [](const std::wstring &p) { return p.compare(0, 4, L"\\\\?\\") == 0 ? p : L"\\\\?\\" + p; };

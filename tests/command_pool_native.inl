@@ -1,4 +1,5 @@
 // Native WARP regression; each list must acquire its own successful baseline.
+void CheckResetNotificationGap(ID3D12Device *, reshade::api::device &);
 void CheckCommandPoolPriming(ID3D12Device *device, reshade::api::device &od) {
     const unsigned before=g_primed_command_state_count;
     auto *lists=new ID3D12GraphicsCommandList *[kMaxPrimedCommandStates+3]{};
@@ -62,4 +63,37 @@ void CheckCommandPoolPriming(ID3D12Device *device, reshade::api::device &od) {
     for(unsigned i=0;i<kMaxPrimedCommandStates+3;++i) {OnCommandStateDestroyList(&owners[i]);Drop(lists[i]);}
     Check(g_primed_command_state_count==before,"destroy returns budget");
     ReleaseNativeCommandState(*snapshot);delete snapshot;delete[] owners;delete[] lists;Drop(allocator);
+    CheckResetNotificationGap(device, od);
+}
+
+// Real native hook: no ReShade pre-reset callback. A creation receipt alone is
+// never admission, and the later successful Reset must not be silently lost.
+void CheckResetNotificationGap(ID3D12Device *device, reshade::api::device &od) {
+    ID3D12CommandAllocator *allocator=nullptr; ID3D12GraphicsCommandList *list=nullptr;
+    Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,
+        IID_ID3D12CommandAllocator,reinterpret_cast<void **>(&allocator)),"gap allocator");
+    Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,nullptr,
+        IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&list)),"gap initial list");
+    reshade::api::command_list owner{&od,list}; OnCommandStateInitList(&owner);
+    auto *record=FindCommandStateTokenLocked(ReadCommandStateToken(list));
+    Check(record && !record->state,"native creation receipt alone never invents state");
+    if (!record) ExitProcess(3);
+    Check(record->creation.method==1 && record->creation.serial && record->genuine_init_event,
+        "real CreateCommandList receipt joins the actual init event");
+    const auto reset_count=g_command_native_reset_events.load();
+    Hr(ID3D12GraphicsCommandList_Close(list),"gap initial close");
+    // Deliberately omit OnCommandStateBeforeReset. Hooks for this family have
+    // already been published by the preceding real carrier tests.
+    Hr(ID3D12GraphicsCommandList_Reset(list,allocator,nullptr),"gap real Reset");
+    auto *snapshot=new NativeCommandState;
+    Check(CaptureNativeCommandState(list,*snapshot),"RESET_NOTIFICATION_GAP_ORACLE: actual Reset restores cold observation");
+    Check(record->native_resets==1 && record->reset_notifications==0 && record->reset_successes==1,
+        "native and ReShade reset observations are distinct");
+    Check(g_command_native_reset_events.load()==reset_count+1,"native result counted exactly once");
+    Check(snapshot->known && snapshot->null_guard_reset_observed && snapshot->reset_serial==1,
+        "successful native Reset, not creation, proves baseline");
+    OnCommandStateResetResult(list,E_FAIL,nullptr);
+    Check(!CaptureNativeCommandState(list,*snapshot),"later failed Reset still invalidates baseline");
+    OnCommandStateDestroyList(&owner);ReleaseNativeCommandState(*snapshot);delete snapshot;
+    Drop(list);Drop(allocator);
 }

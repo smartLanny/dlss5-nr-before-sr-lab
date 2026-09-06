@@ -49,6 +49,11 @@ parts = {
     "PRODUCTION_SEQUENCE": sequence[:sequence.index("void F8Tooltip(")] + "\n} // namespace nr_f8\n",
 }
 harness = (root / "tests/f8_controller_harness.cpp.in").read_text(encoding="utf-8")
+# The legacy template models the archive service only. F7 must explicitly ask
+# for that archive; F8's real single-TXT path is exercised by validate-core-feedback.
+legacy_request = "bool Request(){return true;}"
+assert harness.count(legacy_request) == 1
+harness = harness.replace(legacy_request, "bool Request(bool archive = false){return archive;}")
 for marker, value in parts.items():
     harness = harness.replace(marker, value)
 if args.gpu:

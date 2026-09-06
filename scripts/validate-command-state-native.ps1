@@ -5,8 +5,9 @@ if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) { throw 'Provide -ToolchainRoo
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $production = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_state.inl') -Raw
 $production = $production.Replace('#include "nr_command_pool_observation.inl"', (Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_pool_observation.inl') -Raw))
+$production = $production.Replace('#include "nr_command_creation_observer.inl"', (Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_creation_observer.inl') -Raw))
 if ($PoolNegativeControl) {
-    $needle='PrimeCommandListBeforeResetLocked(*record, native);'
+    $needle='PrimeCommandListBeforeResetLocked(*record, native);' # Removes both pre-notification and native-result recovery to reproduce old lazy-only policy
     if (!$production.Contains($needle)) { throw 'Pool negative anchor missing' }
     $production=$production.Replace($needle,'(void)0; // exact old lazy-only defect')
 }
