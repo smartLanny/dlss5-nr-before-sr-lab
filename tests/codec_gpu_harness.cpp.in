@@ -539,6 +539,29 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                         ? source_y * model_width + source_x : 0;
                 Float4 expected_proxy = proxy[model_index];
         Float4 expected_neural = neural[model_index];
+        const bool patterned_scaled = v2 && variant == 6 &&
+            (model_width != width || model_height != height);
+        if (patterned_scaled) {
+            Require((flags & 1u) != 0u,
+                "Patterned capture oracle currently requires the explicit model-value domain");
+            const double mx = (static_cast<double>(source_x)+0.5)*model_width/width-0.5;
+            const double my = (static_cast<double>(source_y)+0.5)*model_height/height-0.5;
+            const int ix = static_cast<int>(std::floor(mx));
+            const int iy = static_cast<int>(std::floor(my));
+            const double fx = mx-ix, fy = my-iy;
+            const auto sample = [&](const std::vector<Float4> &pixels) {
+                double r=0.0,g=0.0,b=0.0;
+                for (int oy=0;oy<2;++oy) for (int ox=0;ox<2;++ox) {
+                    const int x0=std::clamp(ix+ox,0,static_cast<int>(model_width)-1);
+                    const int y0=std::clamp(iy+oy,0,static_cast<int>(model_height)-1);
+                    const double weight=(ox?fx:1.0-fx)*(oy?fy:1.0-fy);
+                    const auto &p=pixels[static_cast<UINT>(y0)*model_width+static_cast<UINT>(x0)];
+                    r+=weight*p.x;g+=weight*p.y;b+=weight*p.z;
+                }
+                return Float4{static_cast<float>(r),static_cast<float>(g),static_cast<float>(b),1.0f};
+            };
+            expected_proxy=sample(proxy);expected_neural=sample(neural);
+        }
         // V2 model planes are deliberately opaque. Original and
         // composited planes still preserve the game's alpha.
         if (v2) {
@@ -552,7 +575,15 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                     &result.output[(source_y + dy) * output_width + source_x + dx]};
                 for (UINT stage = 0; stage < 4; ++stage) {
                     const auto *words = result.capture.data() + stage * plane_words + (y*capture_width+x)*4;
-                    if (v2 && (flags & 1u) == 0 && (stage == 1 || stage == 2)) {
+                    if (patterned_scaled && (stage == 1 || stage == 2)) {
+                        Float4 actual{}; std::memcpy(&actual, words, sizeof(actual));
+                        // Double analytic interpolation versus SM5 float coordinates/FMA.
+                        // Only these two reconstructed model planes need this tolerance.
+                        Require(std::abs(actual.x-expected[stage]->x)<0.000002f &&
+                                std::abs(actual.y-expected[stage]->y)<0.000002f &&
+                                std::abs(actual.z-expected[stage]->z)<0.000002f && actual.w==1.0f,
+                                "Patterned scaled model capture differs from independent bilinear oracle");
+                    } else if (v2 && (flags & 1u) == 0 && (stage == 1 || stage == 2)) {
                         // V2 interpolates in linear space then encodes again; source/output remain exact.
                         Float4 actual{}; std::memcpy(&actual, words, sizeof(actual));
                         Require(std::abs(actual.x-expected[stage]->x)<0.000002f &&

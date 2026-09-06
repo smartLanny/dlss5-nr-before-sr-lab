@@ -194,8 +194,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     ImGui::BeginDisabled(next.mode != 2);
     changed |= ImGui::Checkbox(ui("High-strength protection (experimental)",
         "高强度保护（实验）"), &next.high_strength_protection);
-    SettingsTooltip(ui("Before-SR only, above 1x effective strength (including enabled layers). Soft-limits the extra brightness/chroma edit; SDR brightening uses remaining source headroom. 0-1x and the full-resolution after-SR reference are unchanged. Off restores the old amplification for A/B. This does not fix an already clipped 1x model result or guarantee stable pictures at the 4x public maximum.",
-        "仅前置、有效强度高于 1 时生效（含分层增益）。对额外明暗/颜色增强做软限制，SDR 提亮参考原图剩余空间；0-1 倍和完整后置参考不变。关闭可对比旧算法。不能修复 1 倍已经剪裁的模型结果，也不保证上限 4 倍画面稳定。"));
+    SettingsTooltip(ui("Before-SR only, above 1x effective strength (including enabled layers). Soft-limits the extra brightness/chroma edit; SDR brightening uses remaining source headroom. With layers off or neutral, 0-1x is unchanged; the full-resolution after-SR reference is always unchanged. Off restores the old amplification for A/B. This does not fix an already clipped 1x model result or guarantee stable pictures at the 4x public maximum.",
+        "仅前置、有效强度高于 1 时生效（含分层增益）。对额外明暗/颜色增强做软限制，SDR 提亮参考原图剩余空间；分层关闭或为中性时，0-1 倍不变；完整后置参考始终不变。关闭可对比旧算法。不能修复 1 倍已经剪裁的模型结果，也不保证上限 4 倍画面稳定。"));
     ImGui::EndDisabled();
     if (ImGui::CollapsingHeader(ui("Layered composition (one NR)", "分层强化（单次 NR）"))) {
         ImGui::BeginDisabled(next.mode != 2);
