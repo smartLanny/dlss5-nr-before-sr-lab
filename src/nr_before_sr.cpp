@@ -3593,26 +3593,51 @@ void DestroySlot(NrSlot &slot) {
 void DestroyContext(NrContext &context) {
     if (context.create_dependencies_quarantined ||
         context.lifecycle_dependencies_quarantined) {
-        // A failed Create returned a non-null handle after recording unknown
-        // initialization work. Its complete dependency closure intentionally
-        // survives to process exit; releasing only part of it is not safe.
+        // Keep the complete unproven dependency closure until process exit.
         return;
     }
     {
-        // NGX explicitly does not provide general method-level thread safety.
-        // Pending destruction runs outside g_chain_cs, so serialize it with
-        // init/allocate/create/evaluate without reintroducing release-under-lock.
+        // Serialize returned-error handling with every other NR API call.
+        // This is not an exception/AV recovery boundary: no opaque fault is caught.
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
-        if (context.nr_handle != nullptr && g_nr_api.initialized &&
-            g_nr_api.bridge_release != nullptr) {
+        if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+            context.lifecycle_dependencies_quarantined = true;
+            return;
+        }
+        if (context.nr_handle != nullptr) {
+            if (!g_nr_api.initialized || g_nr_api.bridge_release == nullptr ||
+                g_nr_api.signed_release == nullptr) {
+                context.lifecycle_dependencies_quarantined = true;
+                MarkLifecycleUncertain("NR retirement Release entry unavailable");
+                return;
+            }
             const NgxResult result = g_nr_api.bridge_release(
                 g_nr_api.signed_release, context.nr_handle);
             Log("NR ReleaseFeature handle=%p result=0x%08X",
                 context.nr_handle, result);
+            if (result != kNgxSuccess) {
+                // A returned error does not transfer ownership back to us.
+                // In particular, do not destroy parameters/textures or retry Release.
+                context.lifecycle_dependencies_quarantined = true;
+                MarkLifecycleUncertain("NR retirement Release returned an error");
+                return;
+            }
+            context.nr_handle = nullptr;
         }
-        context.nr_handle = nullptr;
-        if (context.params != nullptr && g_nr_api.destroy != nullptr) {
-            g_nr_api.destroy(context.params);
+        if (context.params != nullptr) {
+            if (g_nr_api.destroy == nullptr) {
+                context.lifecycle_dependencies_quarantined = true;
+                MarkLifecycleUncertain("NR retirement DestroyParameters entry unavailable");
+                return;
+            }
+            const NgxResult result = g_nr_api.destroy(context.params);
+            if (result != kNgxSuccess) {
+                Log("NR retirement DestroyParameters returned result=0x%08X; "
+                    "remaining dependencies quarantined, no automatic retry.", result);
+                context.lifecycle_dependencies_quarantined = true;
+                MarkLifecycleUncertain("NR retirement DestroyParameters returned an error");
+                return;
+            }
             context.params = nullptr;
         }
     }
