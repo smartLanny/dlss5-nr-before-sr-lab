@@ -27,6 +27,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_color_policy.inl': 'e52bbc78b15647e8947de88afdbccf6ac7591361',
     'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
+    'scripts/build.ps1': 'd5426edca3eefd52e88786bb7892284e2bf5f2d5',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',

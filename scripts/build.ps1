@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$Clean,
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,
     [string]$ReShadeSourceRoot = $env:DLSS5_RESHADE_ROOT
@@ -63,7 +63,22 @@ $Common = @(
     "-I$(Join-Path $ReShade 'include')",
     "-I$(Join-Path $ReShade 'deps\imgui')"
 )
-$SourceDefines = @(('-DNR_SOURCE_COMMIT="' + $SourceCommit + '"'), ('-DNR_SOURCE_DIRTY=' + $SourceDirty))
+
+function New-NrSourceDefinesResponse {
+    param([string]$Path, [string]$Commit, [string]$Dirty)
+    if ($Commit -notmatch '^[0-9a-f]{40}$' -or $Dirty -notmatch '^[01]$') {
+        throw 'Invalid source identity for compiler response file.'
+    }
+    # Clang parses these escapes once. Do not send embedded C string quotes
+    # through PowerShell 5 native-argument marshalling, which removes them.
+    $Lines = @(
+        ('-DNR_SOURCE_COMMIT=\"' + $Commit + '\"'),
+        ('-DNR_SOURCE_DIRTY=' + $Dirty)
+    )
+    [IO.File]::WriteAllLines($Path, $Lines, (New-Object Text.UTF8Encoding($false)))
+    return ('@' + $Path)
+}
+$SourceDefines = New-NrSourceDefinesResponse -Path (Join-Path $Objects 'source-defines.rsp') -Commit $SourceCommit -Dirty $SourceDirty
 
 $CFiles = @(
     'src\buffer.c',
@@ -96,6 +111,7 @@ $AddonBuilds = @(
         ResourceDefine = '-DNR_UI_CHINESE=0'
         Object = 'nr_before_sr.en.o'
         ResourceObject = 'nr_before_sr.en.resource.o'
+        LinkLeaf = 'nr_before_sr.en.link.addon64'
         Output = 'DLSS5-AI-Rendering-Upscaling-beta0.4.5-fix1-@野生的装机宅-Bilibili.en.addon64'
     },
     @{
@@ -104,6 +120,7 @@ $AddonBuilds = @(
         ResourceDefine = '-DNR_UI_CHINESE=1'
         Object = 'nr_before_sr.zh-CN.o'
         ResourceObject = 'nr_before_sr.zh-CN.resource.o'
+        LinkLeaf = 'nr_before_sr.zh-CN.link.addon64'
         Output = 'DLSS5-AI渲染超分版-beta0.4.5-fix1-@野生的装机宅-Bilibili.addon64'
     }
 )
@@ -116,21 +133,25 @@ foreach ($AddonBuild in $AddonBuilds) {
         throw "Resource compilation failed ($($AddonBuild.Language)): $ResourceSource"
     }
     $AddonObject = Join-Path $Objects $AddonBuild.Object
-    & $CppCompiler @Common @SourceDefines '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' $AddonBuild.Define '-c' $AddonSource '-o' $AddonObject
+    & $CppCompiler @Common $SourceDefines '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' $AddonBuild.Define '-c' $AddonSource '-o' $AddonObject
     if ($LASTEXITCODE -ne 0) {
         throw "C++ compilation failed ($($AddonBuild.Language)): $AddonSource"
     }
 
     $Output = Join-Path $Build $AddonBuild.Output
+    # Keep the native tool's output leaf ASCII; PowerShell performs the final
+    # Unicode rename. The UTF-8 BOM on this script is required by Windows PS5.
+    $LinkOutput = Join-Path $Build $AddonBuild.LinkLeaf
     $LinkArgs = @(
         '-shared', '-static', '-flto', '-Wl,--gc-sections',
         '-Wl,--strip-all', '-Wl,--no-insert-timestamp'
     ) + $ObjectFiles + @(
-        $AddonObject, $ResourceObject, '-o', $Output, '-lkernel32', '-luser32', '-ld3d12',
+        $AddonObject, $ResourceObject, '-o', $LinkOutput, '-lkernel32', '-luser32', '-ld3d12',
         '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'
     )
     & $CppCompiler @LinkArgs
     if ($LASTEXITCODE -ne 0) { throw "Link failed ($($AddonBuild.Language))." }
+    Move-Item -LiteralPath $LinkOutput -Destination $Output -Force
     $AddonOutputs += $Output
 }
 
