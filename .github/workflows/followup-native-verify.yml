@@ -1,0 +1,93 @@
+name: Verify followup native and UI source
+on:
+  push:
+    branches: [prep/045-followup-sweep]
+    paths: ['prepared/**', '.github/workflows/followup-native-verify.yml']
+permissions:
+  contents: write
+jobs:
+  native:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: d403388158b189103f76bb0a6a3d1a404782e02b
+          path: product
+          persist-credentials: false
+      - name: Apply exact reviewed changes
+        shell: pwsh
+        run: |
+          python prepared/apply.py product
+          if ($LASTEXITCODE -ne 0) { throw 'Patch anchors or base differ' }
+      - name: Fixed compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Invoke-WebRequest 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip' -OutFile llvm.zip
+          if ((Get-FileHash llvm.zip -Algorithm SHA256).Hash -ne 'AE601F4E0F72BBDF441AD2DF8BB16F037E2E9251559EA6B37B4057AEF39C06C3') { throw 'Compiler digest mismatch' }
+          Expand-Archive llvm.zip toolchain
+          "TOOLCHAIN_ROOT=$((Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName)" | Out-File $env:GITHUB_ENV -Append
+      - name: Native pool positive and exact historical negative
+        shell: pwsh
+        working-directory: product
+        run: |
+          ./scripts/validate-command-state-native.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+          ./scripts/validate-command-state-native.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -PoolNegativeControl
+      - name: Owned targets WARP positive and exact negative
+        shell: pwsh
+        working-directory: product
+        run: |
+          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
+          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -TargetsNegativeControl
+      - name: Production policies and input edges
+        shell: pwsh
+        working-directory: product
+        run: |
+          $c=Join-Path $env:TOOLCHAIN_ROOT 'bin/x86_64-w64-mingw32-clang++.exe'
+          python scripts/validate-044-compat.py --compiler $c
+          if ($LASTEXITCODE -ne 0) { throw 'Policy failed' }
+          python scripts/validate-compat-sweep.py --compiler $c
+          if ($LASTEXITCODE -ne 0) { throw 'UI policy failed' }
+          & $c -std=c++20 -Wall -Wextra -Werror -static -Isrc tests/shortcut_edge_test.cpp -o shortcuts.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Input compilation failed' }
+          ./shortcuts.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Input oracle failed' }
+      - name: Export immutable blobs only, never move a product branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          @'
+          import subprocess,json,base64,pathlib
+          r=pathlib.Path('product')
+          paths=subprocess.check_output(['git','diff','--name-only'],cwd=r,text=True).splitlines()
+          paths+=subprocess.check_output(['git','ls-files','--others','--exclude-standard'],cwd=r,text=True).splitlines()
+          paths=[p for p in paths if p.startswith(('src/','tests/','scripts/'))]
+          entries=[]
+          for p in sorted(set(paths)):
+              data=(r/p).read_text(encoding='utf-8-sig').encode('utf-8')
+              body=json.dumps({'content':base64.b64encode(data).decode(),'encoding':'base64'})
+              blob=json.loads(subprocess.check_output(['gh','api','repos/smartLanny/dlss5-nr-before-sr-lab/git/blobs','--input','-'],input=body,text=True))
+              entries.append({'path':p,'mode':'100644','type':'blob','sha':blob['sha']})
+          print('REVIEWED_TREE_ENTRIES '+json.dumps(entries))
+          pathlib.Path('reviewed-tree.json').write_text(json.dumps(entries),encoding='utf-8')
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw 'Blob export failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: followup-native-review
+          path: |
+            product/src/nr_command_state.inl
+            product/src/nr_command_pool_observation.inl
+            product/src/nr_settings_ui.inl
+            product/tests/command_pool_native.inl
+            product/tests/targets_only_gpu.inl
+            product/build/command-state-*/critical-stack-usage.txt
+            reviewed-tree.json
+          retention-days: 3
