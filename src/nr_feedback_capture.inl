@@ -57,6 +57,25 @@ const char *FeedbackStageBlockReason(const ChainConfig &config) {
 }
 
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+#if defined(NR_HAS_RUNTIME_LOAD_EVIDENCE)
+    const auto load = SnapshotRuntimeLoadEvidence();
+    FeedbackAppend(s, "%s.runtime.available=%d\n%s.runtime.stage=%s\n%s.runtime.ageMs=%llu\n"
+        "%s.runtime.bridgeLoaded=%d\n%s.runtime.bridgeWin32=%lu\n%s.runtime.signedLoaded=%d\n%s.runtime.signedWin32=%lu\n"
+        "%s.runtime.coreLoaded=%d\n%s.runtime.coreWin32=%lu\n%s.runtime.missingExportMask=0x%X\n%s.runtime.initResult=0x%X\n",
+        prefix, load.available ? 1 : 0, prefix, load.stage,
+        prefix, load.available ? GetTickCount64() - load.sampled_at : 0,
+        prefix, load.loaded[0] ? 1 : 0, prefix, load.errors[0], prefix, load.loaded[1] ? 1 : 0, prefix, load.errors[1],
+        prefix, load.loaded[2] ? 1 : 0, prefix, load.errors[2], prefix, load.missing_exports, prefix, load.init_result);
+    FeedbackAppend(s, "%s.scope.config=%u\n%s.scope.epoch=%llu\n%s.scope.featureGeneration=%llu\n%s.scope.mode=%d\n"
+        "%s.scope.nrSuccess=%llu\n%s.scope.transferSubmitted=%llu\n%s.queue.admitted=%llu\n%s.queue.unknownBypasses=%llu\n"
+        "%s.queue.predictionBypasses=%llu\n%s.queue.actualMismatches=%llu\n%s.queue.markerFailures=%llu\n"
+        "%s.scope.note=individual atomic observations; only compare matching config/epoch, never infer FPS\n",
+        prefix, g_config_generation.load(), prefix, g_pipeline_stats_epoch.load(), prefix, g_pipeline_stats_generation.load(),
+        prefix, g_pipeline_stats_mode.load(), prefix, g_pipeline_feature18_success.load(), prefix, g_pipeline_transfer_submitted.load(),
+        prefix, g_queue_affinity_admitted_frames.load(), prefix, g_queue_affinity_unknown_bypass_frames.load(),
+        prefix, g_queue_affinity_prediction_bypass_frames.load(), prefix, g_queue_affinity_actual_mismatches.load(),
+        prefix, g_queue_affinity_marker_failures.load(), prefix);
+#endif
 #if defined(NR_HAS_COMMAND_STATE_EVIDENCE)
     const auto evidence = SnapshotCommandStateEvidence();
     FeedbackAppend(s, "%s.commandState.available=%d\n", prefix, evidence.available ? 1 : 0);
@@ -125,10 +144,11 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix, g_command_signature_unknown_uses.load());
 }
 
+namespace nr_f8 { bool RequestCore(); void DrawControls(); }
+
 bool RequestFeedbackBundle() {
-    unsigned int status = g_feedback_status.load(std::memory_order_acquire);
-    if (status == 1 || status == 2) return false;
-    return !g_feedback_requested.exchange(true, std::memory_order_acq_rel);
+    // Technical/legacy button and keyboard F8 share the same session initializer.
+    return nr_f8::RequestCore();
 }
 
 void FeedbackStageExported(unsigned long long request, const wchar_t *directory, bool ok) {
@@ -213,6 +233,16 @@ void FeedbackObserveEvaluate(const NgxParams *params, const FeatureRecord &featu
             jitter_x, jitter_y, mv_x, mv_y, pre, exposure,
             BypassReasonName(static_cast<BypassReason>(g_last_bypass_reason.load())));
         if (s->observations == 1 || s->observations == 60) {
+            FeedbackAppend(*s, "ngx.contract.sample=%u featureId=%d generation=%llu\n", s->observations, feature.feature_id, feature.generation);
+            for (const char *key : {"DLSS.Render.Subrect.Dimensions.Width", "DLSS.Render.Subrect.Dimensions.Height",
+                    "DLSS.Input.Color.Subrect.Base.X", "DLSS.Input.Color.Subrect.Base.Y",
+                    "DLSS.Input.Depth.Subrect.Base.X", "DLSS.Input.Depth.Subrect.Base.Y",
+                    "DLSS.Input.MV.Subrect.Base.X", "DLSS.Input.MV.Subrect.Base.Y",
+                    "DLSS.Output.Subrect.Base.X", "DLSS.Output.Subrect.Base.Y"}) {
+                unsigned value = 0;
+                if (GetUInt(params, key, &value)) FeedbackAppend(*s, "ngx.%s=%u\n", key, value);
+                else FeedbackAppend(*s, "ngx.%s=not-supplied\n", key);
+            }
             FeedbackAppend(*s, "feature.flags=%d feature.create=%ux%u->%ux%u\n",
                 feature.create_flags, feature.width, feature.height, feature.out_width, feature.out_height);
             for (const char *key : {"Color", "Output", "Depth", "MotionVectors", "ExposureTexture"}) {
@@ -537,27 +567,4 @@ void FeedbackPresent(reshade::api::effect_runtime *runtime) {
     if (tag[0]) runtime->save_screenshot(tag);
 }
 
-void DrawFeedbackControls() {
-    const auto status = g_feedback_status.load(std::memory_order_acquire);
-    const bool use_chinese_ui = UseChineseUi();
-    if (status != 1 && status != 2) {
-        if (ImGui::Button(use_chinese_ui ? "一键采集反馈包（F8）" : "Collect feedback ZIP (F8)"))
-            RequestFeedbackBundle();
-    } else ImGui::TextUnformatted(use_chinese_ui ? "正在采集反馈包，请保持机位，最多等待约 30 秒……" :
-        "Collecting feedback. Keep the camera still; allow about 30 seconds...");
-    ImGui::TextWrapped("%s", use_chinese_ui ?
-        "采集当前画面、NR 各阶段、设置、版本和日志；不自动切换模式。只保存在本机，请将 ZIP 发给开发者。" :
-        "Collects current images, NR stages, settings, versions and logs without switching modes. Saved locally; send the ZIP to the developer.");
-    if (status >= 3) {
-        ImGui::TextWrapped("%s", status == 3 ? (use_chinese_ui ? "反馈包已生成。" : "Feedback ZIP saved.") :
-            status == 4 ? (use_chinese_ui ? "反馈包已生成；部分画面未采到，包内已记录原因，仍可提交。" :
-                "Feedback ZIP saved with missing items explained. It can still be submitted.") :
-                (use_chinese_ui ? "反馈包保存失败，请检查日志和磁盘空间。" : "Could not save feedback. Check the log and disk space."));
-        char path[4096] = {};
-        AcquireSRWLockShared(&g_feedback_lock); WideToUtf8(g_feedback_last_zip, path, sizeof(path)); ReleaseSRWLockShared(&g_feedback_lock);
-        if (path[0]) {
-            ImGui::TextWrapped("%s", path);
-            if (ImGui::Button(use_chinese_ui ? "复制反馈包路径" : "Copy ZIP path")) ImGui::SetClipboardText(path);
-        }
-    }
-}
+void DrawFeedbackControls() { nr_f8::DrawControls(); }

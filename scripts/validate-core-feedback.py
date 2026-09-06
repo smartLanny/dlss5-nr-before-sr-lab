@@ -39,6 +39,7 @@ HARNESS = r'''
 #include <string>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include "nr_diagnostic_bundle.inl"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id };
@@ -135,12 +136,13 @@ bool IsActive(){return g_status==Status::Requested || g_status==Status::Running;
 unsigned StageCaptureStatus(){return 0;}
 REQUEST_CORE
 }
+LEGACY_REQUEST
 unsigned checks=0;
 void check(bool ok,const char *message){++checks;if(!ok){std::fprintf(stderr,"FAIL: %s Win32=%lu\n",message,GetLastError());std::exit(1);}}
 void drain(){while(!work.empty()){const auto w=work.front();work.erase(work.begin());w.fn(w.arg);}}
 void put(const std::filesystem::path &path,const std::string &value){std::ofstream out(path,std::ios::binary);out<<value;check(out.good(),"write fixture");}
 void save(const char *name){check(g_feedback_last_zip[0]!=0,"current ZIP exists");std::filesystem::copy_file(g_feedback_last_zip,std::filesystem::path(output_root)/name);}
-void begin(reshade::api::effect_runtime &runtime){check(nr_core_feedback::Request(),"new core request");check(!g_feedback_last_zip[0],"new request clears old path");check(!nr_core_feedback::g_submission[0],"new request clears old ticket");nr_core_feedback::Present(&runtime);}
+void begin(reshade::api::effect_runtime &runtime){check(RequestFeedbackBundle(),"new core request through legacy UI");check(!g_feedback_last_zip[0],"new request clears old path");check(!nr_core_feedback::g_submission[0],"new request clears old ticket");check(!nr_core_feedback::g_full_report && !nr_core_feedback::g_report_path[0],"new request clears old TXT");check(nr_core_feedback::SnapshotPair().session[0] && g_feedback_status==1,"legacy request initializes session and parameter observer");nr_core_feedback::Present(&runtime);}
 int main(int argc,char **argv) {
     check(argc==2,"output directory supplied");output_root=std::filesystem::absolute(argv[1]).wstring();
     std::filesystem::create_directories(output_root);InitializeCriticalSection(&g_chain_cs);
@@ -177,6 +179,16 @@ int main(int argc,char **argv) {
     check(std::strstr(nr_core_feedback::g_submission,"end.commandState.reason=null-guard-awaiting-reset"),"actual ticket includes command-state reason");
     check(std::strstr(nr_core_feedback::g_submission,"end.ngxHookFailure.entry=existing-short-hotpatch"),"actual ticket includes historical hook shape");
     save("valid-core.zip");
+    check(nr_core_feedback::g_full_report && nr_core_feedback::g_report_path[0],"standalone TXT and cached content published");
+    const auto &report=*nr_core_feedback::g_full_report;
+    check(report.find(first.session)!=std::string::npos && report.find("null-pso-policy-disabled")!=std::string::npos,"TXT carries this session and first-error log");
+    check(report.find("Private Tester")==std::string::npos && report.find("ABCDEF00")==std::string::npos,"TXT privacy matches sanitized ZIP");
+    check(report.find("text.complete=1")!=std::string::npos,"all included core summaries present in TXT");
+    std::ifstream txt(nr_core_feedback::g_report_path,std::ios::binary);
+    check(std::string((std::istreambuf_iterator<char>(txt)),{})==report,"disk TXT equals clipboard cache");
+    txt.close();
+    std::filesystem::copy_file(nr_core_feedback::g_report_path,std::filesystem::path(output_root)/"valid-core.txt");
+
     std::ifstream summary(std::filesystem::path(output_root)/"core-1/summary-0.txt",std::ios::binary);
     const std::string text((std::istreambuf_iterator<char>(summary)),{});
     check(text.find("null-pso-policy-disabled")!=std::string::npos,"first bypass survives long later success tail");
@@ -226,6 +238,7 @@ def main():
     legacy = (ROOT/'src/nr_feedback_capture.inl').read_text(encoding='utf-8-sig')
     command = (ROOT/'src/nr_command_state.inl').read_text(encoding='utf-8-sig')
     values = {
+        'LEGACY_REQUEST': definition(legacy, 'bool RequestFeedbackBundle('),
         'COMMAND_EVIDENCE': definition(command, 'struct CommandStateEvidence', True),
         'COMMAND_SNAPSHOT': definition(command, 'CommandStateEvidence SnapshotCommandStateEvidence('),
         'HOOK_EVIDENCE': definition(source, 'struct NgxHookFailureEvidence', True),

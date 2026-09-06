@@ -9,11 +9,14 @@ source = (root / "src" / "nr_before_sr.cpp").read_text(encoding="utf-8")
 guides = (root / "src" / "nr_guide_contract.h").read_text(encoding="utf-8")
 config = (root / "config" / "nr_before_sr.ini").read_text(encoding="utf-8")
 
+# The branch OTA uses its dedicated packager/instructions. The old stable
+# installer, update documents and default INI are intentionally not shipped.
 current_identity_files = {
     "source": source,
     "resource": (root / "src" / "nr_before_sr.rc").read_text(encoding="utf-8"),
     "build": (root / "scripts" / "build.ps1").read_text(encoding="utf-8-sig"),
-    "package": (root / "scripts" / "package-beta03.ps1").read_text(encoding="utf-8-sig"),
+    "package": (root / "scripts" / "package-044-test1.py").read_text(encoding="utf-8"),
+    "candidate notes": (root / "docs/releases/beta0.4.5.md").read_text(encoding="utf-8"),
     "feedback collector": (root / "scripts" / "collect-feedback.ps1").read_text(encoding="utf-8-sig"),
     "crash collector": (root / "scripts" / "collect-crash-feedback.ps1").read_text(encoding="utf-8-sig"),
     "config": config,
@@ -28,16 +31,15 @@ current_identity_files = {
 }
 
 identity_requirements = {
-    "source": ['kAddonVersion = "beta0.4.3r3"', 'kBuildIdentity = "beta0.4.3r3"',
-               "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI)",
-               "DLSS 5 AI Rendering Perfect Chain beta0.4.3r3"],
-    "resource": ["FILEVERSION 0,4,3,3", "PRODUCTVERSION 0,4,3,3",
-                 '"0.4.3r3 beta\\0"', "beta0.4.3r3-@"],
-    "build": ["DLSS5-AI渲染超分版-beta0.4.3r3-@",
-              "DLSS5-AI-Rendering-Upscaling-beta0.4.3r3-@"],
-    "package": ["$Version = 'beta0.4.3r3'",
-                "DLSS5-AI渲染超分版-beta0.4.3r3-@",
-                "DLSS5-AI-Rendering-Upscaling-beta0.4.3r3-@"],
+    "source": ['kAddonVersion = "beta0.4.5"', 'kBuildIdentity = "beta0.4.5"',
+               "DLSS 5 NR Perfect Chain beta0.4.5 (Chinese UI)",
+               "DLSS 5 AI Rendering Perfect Chain beta0.4.5"],
+    "resource": ["FILEVERSION 0,4,5,0", "PRODUCTVERSION 0,4,5,0",
+                 '"0.4.5 beta\\0"', "beta0.4.5-@", "VS_FF_PRERELEASE"],
+    "build": ["DLSS5-AI渲染超分版-beta0.4.5-@",
+              "DLSS5-AI-Rendering-Upscaling-beta0.4.5-@"],
+    "package": ["VERSION='beta0.4.5'", "nr-branch-ota-v1", "D3D12-x64", "sourceCommit", "sourceDirty"],
+    "candidate notes": ["beta0.4.5", "D3D12", "不含 DX11"],
     "feedback collector": ["collector_version = 'beta0.4.3'"],
     "crash collector": ["beta0.4.3-crash-evidence-2"],
     "config": ["beta0.4.3r3 community maintenance release"],
@@ -56,8 +58,8 @@ for label, tokens in identity_requirements.items():
         raise SystemExit(f"{label} has stale or incomplete release identity: {missing_identity}")
 
 required = [
-    'kAddonVersion = "beta0.4.3r3"',
-    'kBuildIdentity = "beta0.4.3r3"',
+    'kAddonVersion = "beta0.4.5"',
+    'kBuildIdentity = "beta0.4.5"',
     'ID3D12PipelineState *encode_v2',
     'ID3D12PipelineState *combine_v2',
     'void EncodeV2CS(',
@@ -106,7 +108,6 @@ if "ConfigVersion=4" not in config:
 if "WorkMode=1" not in config or "ProxyCurve=1" not in config:
     raise SystemExit("recommended perfect-chain defaults are missing")
 
-# DRS active extents must reset mapping but not allocate a new temporal context.
 storage = re.search(r"SameNrGuideStorageContract[\s\S]*?\n}\n", guides)
 mapping = re.search(r"SameNrGuideMappingContract[\s\S]*?\n}\n", guides)
 if not storage or not mapping:
@@ -128,10 +129,10 @@ if ("float3 storedProxy = modelValueDomain" not in body or
     raise SystemExit("bounded R8 value-domain preservation missing")
 if not re.search(
     r"config\.transfer_strength\s*=\s*std::clamp\(\s*"
-    r"FiniteOr\(config\.transfer_strength,\s*0\.0f\),\s*0\.0f,\s*8\.0f\s*\)",
+    r"FiniteOr\(config\.transfer_strength,\s*0\.0f\),\s*0\.0f,\s*4\.0f\s*\)",
     source,
 ):
-    raise SystemExit("8x strength ceiling missing")
+    raise SystemExit("4x public strength ceiling missing")
 if "using the full render raster" not in source:
     raise SystemExit("unresolved output extent must fall back to reference")
 if "capture_model_width" not in source:
@@ -144,4 +145,4 @@ if "source_to_work_x" not in source or "Jitter.Offset.X" not in source:
 if "FrameConfidence <= 0.000001" not in body:
     raise SystemExit("reset-frame confidence bypass missing")
 
-print("beta0.4.3r3 perfect-chain structural and release-identity validation passed")
+print("beta0.4.5 perfect-chain structural and release-identity validation passed")

@@ -1,4 +1,5 @@
 #include "nr_present_api_status.h"
+#include "nr_recommended_picture.inl"
 
 // A named overlay is an independent ReShade-owned window. nullptr registers
 // inside the add-on settings area, where long panels can displace other add-ons.
@@ -24,18 +25,18 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
         color_policy_snapshot.status = NrColorPolicyStatus::Pending;
     const bool current_color_policy =
         color_policy_snapshot.status == NrColorPolicyStatus::Current;
-    ImGui::BeginDisabled(current_color_policy &&
-                         !color_policy_snapshot.policy.color_allowed);
     const bool color_follow_changed = ImGui::SliderFloat(
         ui("NR Color Follow", "NR 颜色跟随强度"),
         &next.color_strength, 0.0f, 1.0f, "%.2f");
-    SettingsTooltip(ui("0 keeps the game's hue; 1 follows bounded NR chroma. New installations request 0.75. Unknown HDR pauses only colour transfer; luminance NR can remain active. Recorded values describe settings, not measured picture strength.",
-        "0 保留游戏色相；1 跟随有界 NR 色彩。新装默认请求 0.75。未知 HDR 只暂停颜色传递，明暗 NR 仍可继续运行；记录值是参数设置，不代表测得的画面变化强度。"));
-    ImGui::EndDisabled();
+    SettingsTooltip(ui("0 keeps the game's hue; 1 follows bounded NR chroma. New installations request 0.75. Editing a nonzero value explicitly permits unverified HDR colour with a warning; zero restores luminance only. This does not override resource or exposure safety. Recorded values describe settings, not measured picture strength.",
+        "0 保留游戏色相；1 跟随有界 NR 色彩。新装默认请求 0.75。手动调到非零即允许尝试未验证 HDR 色彩，可能偏色；拉回 0 恢复仅明暗，不绕过资源或曝光安全检查。记录值是参数设置，不代表测得的画面变化强度。"));
+    if (color_follow_changed) next.allow_unverified_hdr_color = next.color_strength > 0.0f;
     changed |= color_follow_changed;
     if (color_follow_changed &&
         color_policy_snapshot.status != NrColorPolicyStatus::Bypassed)
         color_policy_snapshot.status = NrColorPolicyStatus::Pending;
+    if (next.allow_unverified_hdr_color || (current_color_policy && !color_policy_snapshot.policy.color_allowed))
+        ImGui::TextWrapped("%s", ui("WARNING: unverified HDR colour may shift hue or flicker. Set colour to 0 or restore recommended settings to undo.", "警告：未验证 HDR 色彩可能偏色或闪烁；可拉回 0 或一键恢复推荐画质。"));
     if (color_policy_snapshot.status == NrColorPolicyStatus::Current) {
         const NrColorPolicy &policy = color_policy_snapshot.policy;
         ImGui::TextDisabled(ui("Last recorded blend: requested %.2f / effective %.2f",
@@ -48,6 +49,8 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
                  "The saved colour request can resume on a supported contract.",
                  "当前 HDR 色彩合同未验证，只暂停颜色跟随；明暗 NR 仍可运行，请查看运行状态和提交计数。"
                  "颜色请求值已保留，切到受支持的合同后可恢复。")
+            : policy.color_reason == NrColorReason::ExperimentalUnverifiedHdr
+                ? ui("User-requested colour on an unverified HDR contract; not a verified colour profile.", "用户已选择尝试未验证 HDR 颜色；这不代表色彩合同已验证。")
             : policy.color_reason == NrColorReason::PostSrFp16UnitExposure
                 ? ui("Colour follows the bounded FP16, unit-exposure SR -> NR contract.",
                      "当前为 FP16、单位曝光的 SR -> NR 合同，采用有界颜色跟随。")
@@ -171,6 +174,13 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (collecting) ImGui::BeginDisabled();
 #endif
     changed |= ImGui::Checkbox(ui("Enable (F6)", "启用（F6）"), &next.enabled);
+    if (ImGui::Button(ui("Restore recommended picture settings", "一键恢复推荐画质"))) {
+        RestoreRecommendedPictureSettings(next);
+        changed = true;
+    }
+    SettingsTooltip(ui(
+        "Restores Before SR, strength 1.2, colour request 0.75 and the shipped picture defaults. Exits diagnostic identity and disables unverified HDR colour/peak experiments. Keeps Enable (F6), depth/jitter/R8 game contracts and feedback preferences. Uses the normal save/history rules; runtime safety faults are not cleared.",
+        "恢复前置 NR、强度 1.2、颜色请求 0.75 等随包推荐画质；退出诊断原图，关闭未验证 HDR 调色与高光实验。保留 F6 总开关、深度/Jitter/R8 游戏兼容设置和反馈偏好；按正常规则保存及更新历史，不清除运行时安全故障。"));
     int mode = next.mode == 2 ? 0 : 1;
     if (ImGui::Combo(ui("Processing mode", "处理模式"), &mode,
             ui("Before SR: NR -> SR\0After SR: SR -> NR\0",
@@ -180,7 +190,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsTooltip(ui("Before SR usually costs less; after SR processes the complete SR output for comparison. Game DLSS quality stays unchanged. Disabling restores native SR; DLAA is never forced.",
         "前置通常较省性能；后置处理完整 SR 输出，适合对照。游戏内 DLSS 档位不变，关闭插件就是原生 SR，不会强制开启 DLAA。"));
 #if NR_HAS_DETAIL_STABILITY
-    constexpr float maximum_strength = 8.0f;
+    constexpr float maximum_strength = 4.0f;
 #else
     constexpr float maximum_strength = 2.0f;
 #endif
@@ -189,8 +199,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             &effect_strength, 0.0f, maximum_strength, "%.2f")) {
         next.transfer_strength = next.post_transfer_strength = effect_strength; changed = true;
     }
-    SettingsTooltip(ui("Final NR blend strength. 0 keeps native SR; 1.0 is the unscaled effect. New installations start at 1.2. Existing settings, including 0, are retained. Higher values can amplify low-resolution noise; this is not the model's internal strength.",
-        "控制最终 NR 混合强度。0 保留原生 SR，1.0 是不额外放大的效果；新装默认 1.2。已有设置（包括 0）会保留。提高数值可能放大低分辨率噪点；这项不是模型内部强度。"));
+    SettingsTooltip(ui("Final NR blend strength. 0 keeps native SR; 1.0 is the unscaled effect. New installations start at 1.2. Existing settings, including 0, are retained. The public range is 0-4; older requests above 4 are clamped. Higher values can amplify low-resolution noise and colour distortion; this is not the model's internal strength.",
+        "控制最终 NR 混合强度。0 保留原生 SR，1.0 是不额外放大的效果；新装默认 1.2。已有设置（包括 0）会保留。范围为 0–4，旧配置超过 4 会限制到 4。较高数值可能放大低分辨率噪点和颜色失真；这项不是模型内部强度。"));
     int style = static_cast<int>(next.style);
     if (ImGui::Combo(ui("Style", "风格"), &style,
             ui("Default\0Natural\0Cinematic\0", "默认\0自然\0电影\0"))) {
@@ -204,17 +214,26 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsTooltip(ui(
         "Available only for Before SR. This changes Feature 18's working resolution; it does not switch to post-processing and does not change the game's DLSS quality.",
         "仅用于前置 NR → SR。这里只改变 Feature 18 的工作分辨率，不会切成后置处理，也不会改变游戏内 DLSS 档位。"));
-    if (next.work_mode == 5)
-        changed |= ImGui::SliderFloat(ui("NR size ratio", "NR 尺寸比例"), &next.custom_work_scale, .5f, 1.f, "%.2f");
+    if (next.work_mode == 5) {
+        float percent = next.custom_work_scale * 100.0f;
+        if (ImGui::SliderFloat(ui("NR work resolution (%)", "NR 工作分辨率（%）"), &percent, 50.0f, 100.0f, "%.0f%%")) {
+            next.custom_work_scale = percent * 0.01f; changed = true;
+        }
+        SettingsTooltip(ui("Linear NR size relative to game render input, not output or pixel count. 50% uses about 25% of the input pixels. The current safe range is 50-100%; use Enable/F6 to turn NR off. Native game rendering is unchanged.",
+            "NR 宽高相对游戏渲染输入的比例，不是相对显示分辨率，也不是像素百分比。50% 约为 25% 的输入像素；当前安全范围为 50–100%，关闭请用启用/F6。不会降低游戏原始渲染分辨率。"));
+    }
     if (next.mode != 2) {
         ImGui::EndDisabled();
         ImGui::TextDisabled("%s", ui("Post-processing mode uses the full SR output size.", "后置模式使用完整 SR 输出分辨率。"));
     }
 #endif
 
+    if (next.identity_use_original && ImGui::Button(ui("Show NR picture (leave diagnostic identity)", "显示 NR 效果（退出诊断原图）"))) {
+        next.identity_use_original = false; changed = true;
+    }
     if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {
         if (ImGui::Button(ui("Post-SR comparison", "后置对照设置"))) {
-            next.mode = 1; next.enabled = true;
+            next.mode = 1; next.enabled = true; next.identity_use_original = false;
             next.transfer_strength = next.post_transfer_strength = 1.0f;
             next.color_strength = 1.0f; changed = true;
         }

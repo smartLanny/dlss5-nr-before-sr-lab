@@ -299,6 +299,42 @@ bool CanAutoRestorePristineNull(const NativeCommandState &state) {
         state.dynamic.recorded == 0 && state.dynamic.vertex_mask == 0 &&
         state.dynamic.stream_mask == 0;
 }
+
+// A separate, bounded subset: only viewport/scissor arrays changed after a
+// fully observed successful Reset. No handles, descriptors, predication,
+// vertex/stream-output buffers, queries, opaque commands or unknown domains
+// are admitted by this path. Full dynamic replay is still experimental.
+bool CanAutoRestoreRasterNull(const NativeCommandState &state) {
+    const auto &d = state.dynamic;
+    if (!state.known || !state.null_pipeline_baseline || state.pipeline ||
+        state.raytracing_pipeline || !state.null_guard_covered ||
+        !state.null_guard_reset_observed || state.null_guard_tainted ||
+        state.unknown_domains != 0 || d.vertex_mask != 0 || d.stream_mask != 0 ||
+        d.recorded == 0 || (d.recorded & ~(kDynamicViewport | kDynamicScissor | kDynamicBlend)) != 0 ||
+        d.viewport_count > 16 || d.scissor_count > 16) return false;
+    for (UINT i = 0; i < d.viewport_count; ++i) {
+        const auto &v = d.viewports[i];
+        // Ordered bounded comparisons also reject NaN and infinities.
+        if (!(v.TopLeftX >= D3D12_VIEWPORT_BOUNDS_MIN &&
+              v.TopLeftX <= D3D12_VIEWPORT_BOUNDS_MAX &&
+              v.TopLeftY >= D3D12_VIEWPORT_BOUNDS_MIN &&
+              v.TopLeftY <= D3D12_VIEWPORT_BOUNDS_MAX &&
+              v.Width >= 0 && v.Height >= 0 &&
+              v.Width <= D3D12_VIEWPORT_BOUNDS_MAX - v.TopLeftX &&
+              v.Height <= D3D12_VIEWPORT_BOUNDS_MAX - v.TopLeftY &&
+              v.MinDepth >= 0 && v.MaxDepth <= 1 && v.MinDepth <= v.MaxDepth))
+            return false;
+    }
+    for (UINT i = 0; i < d.scissor_count; ++i) {
+        const auto &r = d.scissors[i];
+        if (r.left > r.right || r.top > r.bottom) return false;
+    }
+    if ((state.dynamic.recorded & kDynamicBlend) != 0)
+        for (float value : state.dynamic.blend)
+            if (!(value >= 0.0f && value <= 1.0f)) return false;
+    return true;
+}
+
 bool CanRestoreNativeCommandState(const NativeCommandState &state,
                                   bool allow_null_pso = false) {
     // A null pointer alone proves nothing. Only an observed successful native
@@ -549,7 +585,7 @@ NR_STATE_HOOK(RSSetViewports, (ID3D12GraphicsCommandList *command_list, UINT cou
 NR_STATE_HOOK(RSSetScissorRects, (ID3D12GraphicsCommandList *command_list, UINT count, const D3D12_RECT *values),
     (command_list, count, values), CommandStateScissors(state, count, values))
 NR_STATE_HOOK(OMSetBlendFactor, (ID3D12GraphicsCommandList *command_list, const FLOAT values[4]),
-    (command_list, values), if (!values) CommandStateInvalidDynamic(state); else {memcpy(state.dynamic.blend, values, sizeof(state.dynamic.blend)); state.dynamic.recorded |= kDynamicBlend;})
+    (command_list, values), if (values) memcpy(state.dynamic.blend, values, sizeof(state.dynamic.blend)); else for (float &value : state.dynamic.blend) value=1.0f; state.dynamic.recorded |= kDynamicBlend;)
 NR_STATE_HOOK(OMSetStencilRef, (ID3D12GraphicsCommandList *command_list, UINT value),
     (command_list, value), state.dynamic.stencil_front=state.dynamic.stencil_back=value; state.dynamic.separate_stencil=false; state.dynamic.recorded |= kDynamicStencil)
 NR_STATE_HOOK(IASetIndexBuffer, (ID3D12GraphicsCommandList *command_list, const D3D12_INDEX_BUFFER_VIEW *value),
@@ -1213,14 +1249,15 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
         }
         observe_null = record->null_guard_requested;
         const bool pristine = record->state && CanAutoRestorePristineNull(*record->state);
+        const bool raster = record->state && CanAutoRestoreRasterNull(*record->state);
         captured = meta_covered && record->state != nullptr && record->hooks_ready &&
             CanRestoreNativeCommandState(*record->state,
-                experimental || pristine);
+                experimental || pristine || raster);
         unavailable_reason = !meta_covered ? "meta-command-coverage" : record->state == nullptr ? "snapshot-allocation" :
             !record->hooks_ready ? "native-hooks-unavailable" : !record->state->known ? record->state->unknown_reason :
             record->state->unknown_domains != 0 ? "meta-command-dirty-state" :
             (record->state->dynamic.recorded & (kDynamicDepthBias | kDynamicStripCut)) && !record->state->pipeline ? "dynamic-raster-without-PSO" :
-            record->state->null_pipeline_baseline && !experimental && !pristine ?
+            record->state->null_pipeline_baseline && !experimental && !pristine && !raster ?
                 (record->state->null_guard_tainted ? "null-guard-recording-tainted" :
                  !record->state->null_guard_reset_observed ? "null-guard-awaiting-reset" : "null-guard-graphics-state-used") : "pipeline-unbound";
         evidence.registered = true; evidence.hooks_ready = record->hooks_ready;
@@ -1251,9 +1288,14 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
             if (captured && native_output != nullptr) *native_output = native;
         }
         if (captured) evidence.route = pristine && !experimental ? "pristine-null" :
+            raster && !experimental ? "guarded-null-raster" :
             evidence.has_pipeline ? "typed-pso" : evidence.has_ray_pipeline ? "dxr-pso" : "experimental-null";
     }
-    g_command_state_registration_repair_needed.store(record == nullptr, std::memory_order_relaxed);
+    // A different, registered view can evaluate before this missing list is
+    // submitted. It must not erase the pending recovery request (SF6/multi-view).
+    // Keep it sticky; the submission caller already gates work on master/traffic.
+    if (record == nullptr)
+        g_command_state_registration_repair_needed.store(true, std::memory_order_relaxed);
     evidence.captured = captured;
     evidence.reason = captured ? "none" : unavailable_reason;
     evidence.sequence = g_command_state_evidence.sequence + 1;

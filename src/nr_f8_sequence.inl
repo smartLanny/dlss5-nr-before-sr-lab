@@ -409,6 +409,28 @@ void F8Tooltip(const char *text) {
         ImGui::TextUnformatted(text);ImGui::PopTextWrapPos();ImGui::EndTooltip();
     }
 }
+
+void DrawCoreTextStatus(bool chinese) {
+    struct View { wchar_t path[1024]{}; char utf8[4096]{}; std::shared_ptr<const std::string> text; DWORD error=0; bool complete=false; };
+    auto view = std::unique_ptr<View>(new (std::nothrow) View);
+    if (!view) return;
+    AcquireSRWLockShared(&g_feedback_lock);
+    view->text=nr_core_feedback::g_full_report; view->error=nr_core_feedback::g_report_error;
+    view->complete=nr_core_feedback::g_report_complete;
+    nr_bundle::CopyPath(view->path,nr_core_feedback::g_report_path);
+    ReleaseSRWLockShared(&g_feedback_lock);
+    if (view->text) {
+        ImGui::TextWrapped("%s", chinese ? "独立 TXT 已保存，可复制全文粘贴到群反馈文档；ZIP 请保留。" : "Standalone TXT saved. Copy its full text into your feedback document; retain the ZIP.");
+        if (!view->complete) ImGui::TextWrapped("%s", chinese ? "TXT 部分内容不可用，文内已注明；与 ZIP 状态分别判断。" : "TXT is partial; missing sections are explicit and independent of ZIP status.");
+        if (ImGui::Button(chinese ? "复制完整报告（群文档）" : "Copy full TXT report")) ImGui::SetClipboardText(view->text->c_str());
+        WideToUtf8(view->path,view->utf8,sizeof(view->utf8));
+        ImGui::TextWrapped("%s",view->utf8);
+        if (ImGui::Button(chinese ? "复制 TXT 路径" : "Copy TXT path")) ImGui::SetClipboardText(view->utf8);
+    } else if (view->error) {
+        ImGui::TextWrapped(chinese ? "TXT 保存失败（Win32 %lu）；ZIP 是否成功请看上方。" : "TXT failed (Win32 %lu); ZIP status is shown separately above.",view->error);
+    }
+}
+
 void DrawCoreStatus() {
     const bool zh=UseChineseUi();
     char path[4096]={},reason[160]={};
@@ -433,6 +455,7 @@ void DrawCoreStatus() {
             ImGui::SetClipboardText(submission);
 
     }
+    DrawCoreTextStatus(UseChineseUi());
 }
 void DrawControls() {
     const auto state=g_status.load();
