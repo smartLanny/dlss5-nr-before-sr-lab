@@ -2,7 +2,7 @@ name: Prepare audited 0.4.5 source
 on:
   push:
     branches: [prep/045-integration]
-    paths: ['scripts/prepare-045.py', 'src/nr_feedback_report.inl', 'src/nr_feedback_modules.inl', 'src/nr_runtime_load_evidence.inl', '.github/workflows/prepare-045.yml']
+    paths: ['scripts/prepare-045.py', 'scripts/prepare-045-run.py', 'src/nr_feedback_report.inl', 'src/nr_feedback_modules.inl', 'src/nr_runtime_load_evidence.inl', '.github/workflows/prepare-045.yml']
 permissions:
   contents: write
 concurrency:
@@ -19,4 +19,4 @@ jobs:
       - name: Verify fixed refs, production regressions and immutable blobs
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/prepare-045.py
+        run: python3 scripts/prepare-045-run.py
