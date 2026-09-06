@@ -91,9 +91,12 @@ SRWLOCK g_ngx_hook_failure_lock=SRWLOCK_INIT;
 NgxHookFailureEvidence g_ngx_hook_failure;
 HOOK_SNAPSHOT
 std::atomic<unsigned long long> g_nr_successful_evaluations{0},g_nr_transfer_submitted_frames{0},g_carrier_evaluations{0},g_rr_passthrough_evaluations{0},g_feature1_preflight_covered{0},g_feature1_preflight_attempts{0},g_command_signature_create_calls{0},g_command_signature_unknown_uses{0};
+std::atomic<unsigned long long> g_d3d11_feature1_create_attempts{0},g_d3d11_feature1_create_success{0},g_d3d11_feature1_evals{0};
 std::atomic<unsigned> g_live_rr_handles{0},g_rr_create_in_progress{0};
-std::atomic<int> g_last_bypass_reason{0},g_last_carrier_feature{1},g_module_observer_fault{0};
-std::atomic<bool> g_generic_renodx_conflict{false},g_preflight_core_loaded{true},g_preflight_dlssd_loaded{false},g_command_signature_hook_published{true},g_command_signature_start_deferred{false};
+std::atomic<int> g_last_bypass_reason{0},g_last_carrier_feature{1},g_module_observer_fault{0},g_presenting_device_api{2};
+std::atomic<bool> g_generic_renodx_conflict{false},g_preflight_core_loaded{true},g_preflight_dlssd_loaded{false},g_command_signature_hook_published{true},g_command_signature_start_deferred{false},g_d3d11_ngx_hooks_ready{false};
+void CopyObservedCompetingAddon(char *out,std::size_t n){if(out&&n)std::snprintf(out,n,"none");}
+const char *PresentingDeviceApiName(){return "d3d12";}
 enum class BypassReason{Unknown};enum class ModuleObserverFault{None};
 const char *BypassReasonName(BypassReason){return "command-state-unverified";}
 const char *ModuleObserverFaultName(ModuleObserverFault){return "none";}

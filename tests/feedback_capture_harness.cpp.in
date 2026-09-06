@@ -166,6 +166,15 @@ static std::atomic<bool> g_command_signature_hook_published{false};
 static std::atomic<bool> g_command_signature_start_deferred{false};
 static std::atomic<unsigned long long> g_command_signature_create_calls{0};
 static std::atomic<unsigned long long> g_command_signature_unknown_uses{0};
+static std::atomic<int> g_presenting_device_api{2};
+static std::atomic<unsigned long long> g_d3d11_feature1_create_attempts{0};
+static std::atomic<unsigned long long> g_d3d11_feature1_create_success{0};
+static std::atomic<unsigned long long> g_d3d11_feature1_evals{0};
+static std::atomic<bool> g_d3d11_ngx_hooks_ready{false};
+static const char *PresentingDeviceApiName() { return "d3d12"; }
+static void CopyObservedCompetingAddon(char *out, std::size_t n) {
+    if (out && n) std::snprintf(out, n, "none");
+}
 // @production_rr_guard
 static std::atomic<unsigned long long> g_stage_capture_request_id{0};
 static unsigned stage_status=0,cancel_calls=0,cancelled_requests=0;

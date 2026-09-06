@@ -105,7 +105,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         "%s.feature1Preflight=%llu/%llu\n%s.preflightCoreLoaded=%d\n"
         "%s.preflightDlssdLoaded=%d\n%s.commandSignatureHook=%d\n"
         "%s.commandSignatureDeferredStart=%d\n%s.commandSignatureObserved=%llu\n"
-        "%s.commandSignatureUnknownUses=%llu\n",
+        "%s.commandSignatureUnknownUses=%llu\n"
+        "%s.presentApi=%s\n%s.d3d11NgxHooks=%d\n"
+        "%s.d3d11Feature1Create=%llu/%llu\n%s.d3d11Feature1Evals=%llu\n",
         prefix, g_nr_successful_evaluations.load(), prefix, g_nr_transfer_submitted_frames.load(),
         prefix, BypassReasonName(static_cast<BypassReason>(g_last_bypass_reason.load())),
         prefix, g_carrier_evaluations.load(), prefix, g_last_carrier_feature.load(),
@@ -122,7 +124,12 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix, g_command_signature_hook_published.load() ? 1 : 0,
         prefix, g_command_signature_start_deferred.load() ? 1 : 0,
         prefix, g_command_signature_create_calls.load(),
-        prefix, g_command_signature_unknown_uses.load());
+        prefix, g_command_signature_unknown_uses.load(),
+        prefix, PresentingDeviceApiName(),
+        prefix, g_d3d11_ngx_hooks_ready.load() ? 1 : 0,
+        prefix, g_d3d11_feature1_create_success.load(),
+        g_d3d11_feature1_create_attempts.load(),
+        prefix, g_d3d11_feature1_evals.load());
 }
 
 bool RequestFeedbackBundle() {
@@ -365,10 +372,13 @@ DWORD WINAPI FeedbackWorker(void *parameter) {
         "artifact.hashMeasurement=loaded-path-file-once-worker\n",
         kSourceCommit, kSourceDirty ? 1 : 0,
         module_identity.sha256, module_identity.status);
-    FeedbackAppend(*s, "competingAddon.module=%s\ncompetingAddon.latched=%d\n"
-        "competingAddon.action=%s\n",
+    char competing_observed[80] = "none";
+    CopyObservedCompetingAddon(competing_observed, sizeof(competing_observed));
+    FeedbackAppend(*s, "competingAddon.module=%s\ncompetingAddon.observed=%s\n"
+        "competingAddon.latched=%d\ncompetingAddon.action=%s\n",
         g_generic_renodx_conflict.load(std::memory_order_acquire)
-            ? "renodx-dlss5.addon64" : "none",
+            ? "renodx-dlss5.addon64" : competing_observed,
+        competing_observed,
         g_generic_renodx_conflict.load(std::memory_order_relaxed) ? 1 : 0,
         g_generic_renodx_conflict.load(std::memory_order_relaxed)
             ? "remove it and restart" : "none");

@@ -29,6 +29,8 @@
 
 #include "MinHook.h"
 #include "nr_guide_contract.h"
+#include "nr_compat_modules.h"
+#include "nr_dx11_observer_status.h"
 // Standard-library headers must be included outside the private runtime namespace.
 #include "nr_feedback_text.h"
 #include "nr_feedback_ticket.h"
@@ -358,12 +360,24 @@ enum class BypassReason : int {
     ModuleObserverInstalling,
     ModuleObserverUncertain,
     CommandStateUnverified,
+    D3d11PresentNoCarrier,
+    D3d11Feature1Unbridged,
 };
 
 std::atomic<int> g_last_bypass_reason{
     static_cast<int>(BypassReason::WaitingForFeature1)};
 std::atomic<bool> g_generic_renodx_conflict{false};
 std::atomic<HMODULE> g_addon_module{nullptr};
+std::atomic<int> g_presenting_device_api{
+    static_cast<int>(nr_dx11_observer_status::PresentingApi::Unknown)};
+std::atomic<unsigned long long> g_d3d11_feature1_create_attempts{0};
+std::atomic<unsigned long long> g_d3d11_feature1_create_success{0};
+std::atomic<unsigned long long> g_d3d11_feature1_evals{0};
+std::atomic<bool> g_d3d11_ngx_hooks_ready{false};
+std::atomic<int> g_observed_competing_kind{
+    static_cast<int>(nr_compat_modules::Kind::None)};
+SRWLOCK g_compat_module_lock = SRWLOCK_INIT;
+char g_observed_competing_addon[80] = "none";
 std::atomic<unsigned long long> g_bypass_reason_transitions{0};
 std::atomic<unsigned int> g_last_output_format{DXGI_FORMAT_UNKNOWN};
 // "Recorded" means the final visible transfer commands were appended to a
@@ -456,9 +470,17 @@ const char *BypassReasonName(BypassReason reason) {
         return "module-observer-uncertain";
     case BypassReason::CommandStateUnverified:
         return "command-state-unverified";
+    case BypassReason::D3d11PresentNoCarrier:
+        return "d3d11-present-no-carrier";
+    case BypassReason::D3d11Feature1Unbridged:
+        return "d3d11-feature1-unbridged";
     default: return "unknown";
     }
 }
+
+void RefineDx11WaitingBypass();
+void NotePresentingDeviceApi(reshade::api::device_api api);
+const char *PresentingDeviceApiName();
 
 void SetBypassReason(BypassReason reason) {
     if (g_generic_renodx_conflict.load(std::memory_order_acquire))
@@ -933,20 +955,102 @@ std::atomic<bool> g_shortfuse_loaded{false};
 std::atomic<bool> g_shortfuse_nr_enabled{false};
 constexpr wchar_t kGenericRenoDxModuleName[] = L"renodx-dlss5.addon64";
 
+void RememberObservedCompetingAddon(nr_compat_modules::Kind kind,
+                                    const wchar_t *leaf) {
+    char utf8[80] = "none";
+    if (kind != nr_compat_modules::Kind::None && leaf != nullptr &&
+        leaf[0] != L'\0') {
+        const int written = WideCharToMultiByte(
+            CP_UTF8, 0, leaf, -1, utf8, static_cast<int>(sizeof(utf8)),
+            nullptr, nullptr);
+        if (written <= 1) {
+            const char *fallback = nr_compat_modules::KindName(kind);
+            std::snprintf(utf8, sizeof(utf8), "%s", fallback);
+        }
+    }
+    AcquireSRWLockExclusive(&g_compat_module_lock);
+    g_observed_competing_kind.store(static_cast<int>(kind),
+                                    std::memory_order_relaxed);
+    std::snprintf(g_observed_competing_addon, sizeof(g_observed_competing_addon),
+                  "%s", utf8);
+    ReleaseSRWLockExclusive(&g_compat_module_lock);
+}
+
+void CopyObservedCompetingAddon(char *out, std::size_t capacity) {
+    if (out == nullptr || capacity == 0) return;
+    AcquireSRWLockShared(&g_compat_module_lock);
+    std::snprintf(out, capacity, "%s", g_observed_competing_addon);
+    ReleaseSRWLockShared(&g_compat_module_lock);
+}
+
+bool ScanCompetingNrModules(bool *shortfuse_loaded) {
+    bool found_generic = false;
+    bool found_shortfuse = false;
+    const HMODULE self = g_addon_module.load(std::memory_order_acquire);
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE,
+                                               GetCurrentProcessId());
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        if (shortfuse_loaded != nullptr) *shortfuse_loaded = false;
+        return false;
+    }
+    MODULEENTRY32W entry{};
+    entry.dwSize = sizeof(entry);
+    nr_compat_modules::Kind remembered = nr_compat_modules::Kind::None;
+    const wchar_t *remembered_leaf = L"";
+    wchar_t generic_leaf[MAX_PATH] = {};
+    wchar_t shortfuse_leaf[MAX_PATH] = {};
+    for (BOOL ok = Module32FirstW(snapshot, &entry); ok;
+         ok = Module32NextW(snapshot, &entry)) {
+        if (entry.hModule == self) continue;
+        const nr_compat_modules::Kind kind =
+            nr_compat_modules::ClassifyAddonFileName(entry.szModule);
+        if (kind == nr_compat_modules::Kind::GenericDlss5) {
+            found_generic = true;
+            wcsncpy(generic_leaf, entry.szModule, MAX_PATH - 1);
+            generic_leaf[MAX_PATH - 1] = L'\0';
+        } else if (kind == nr_compat_modules::Kind::ShortFuse) {
+            found_shortfuse = true;
+            wcsncpy(shortfuse_leaf, entry.szModule, MAX_PATH - 1);
+            shortfuse_leaf[MAX_PATH - 1] = L'\0';
+        }
+    }
+    CloseHandle(snapshot);
+    if (found_generic) {
+        remembered = nr_compat_modules::Kind::GenericDlss5;
+        remembered_leaf = generic_leaf;
+    } else if (found_shortfuse) {
+        remembered = nr_compat_modules::Kind::ShortFuse;
+        remembered_leaf = shortfuse_leaf;
+    }
+    RememberObservedCompetingAddon(remembered, remembered_leaf);
+    if (shortfuse_loaded != nullptr) *shortfuse_loaded = found_shortfuse;
+    return found_generic;
+}
+
 bool LatchGenericRenoDxConflictIfLoaded() {
     if (!g_generic_renodx_conflict.load(std::memory_order_acquire)) {
         const HMODULE candidate = GetModuleHandleW(kGenericRenoDxModuleName);
+        const bool scanned_hit =
+            g_observed_competing_kind.load(std::memory_order_acquire) ==
+            static_cast<int>(nr_compat_modules::Kind::GenericDlss5);
         if (candidate == nullptr ||
-            candidate == g_addon_module.load(std::memory_order_acquire))
-            return false;
+            candidate == g_addon_module.load(std::memory_order_acquire)) {
+            if (!scanned_hit) return false;
+        } else {
+            RememberObservedCompetingAddon(
+                nr_compat_modules::Kind::GenericDlss5, kGenericRenoDxModuleName);
+        }
         bool expected = false;
         if (g_generic_renodx_conflict.compare_exchange_strong(
                 expected, true, std::memory_order_acq_rel,
                 std::memory_order_acquire)) {
-            Log("[compat] renodx-dlss5.addon64 is loaded and also owns the "
-                "NGX NR lifecycle. This process is permanently using native "
-                "pass-through; hooks remain installed. Remove that file so "
-                "only one NR add-on remains, then restart the game.");
+            char observed[80] = {};
+            CopyObservedCompetingAddon(observed, sizeof(observed));
+            Log("[compat] competing RenoDX DLSS5 module %s is loaded and also "
+                "owns the NGX NR lifecycle. This process is permanently using "
+                "native pass-through; hooks remain installed. Remove that file "
+                "so only one NR add-on remains, then restart the game.",
+                observed[0] != 0 ? observed : "renodx-dlss5.addon64");
         }
     }
     SetBypassReason(BypassReason::GenericRenoDxConflict);
@@ -1397,8 +1501,18 @@ void ReloadConfig(bool force = false) {
         L"NRBeforeSR", L"JitterMode", 1, g_ini_path));
     NormalizeConfig(next);
 
+    static bool scanned_shortfuse = false;
+    static bool scanned_generic = false;
+    static ULONGLONG next_compat_scan = 0;
+    const ULONGLONG compat_now = GetTickCount64();
+    if (force || compat_now >= next_compat_scan) {
+        next_compat_scan = compat_now + 1000;
+        scanned_generic = ScanCompetingNrModules(&scanned_shortfuse);
+    }
     const bool shortfuse_loaded =
-        GetModuleHandleW(L"renodx-dlss.addon64") != nullptr;
+        GetModuleHandleW(L"renodx-dlss.addon64") != nullptr ||
+        scanned_shortfuse;
+    if (scanned_generic) LatchGenericRenoDxConflictIfLoaded();
     const bool shortfuse_enabled_setting =
         GetPrivateProfileIntW(L"RENODX-DLSS",
                               L"DirectNeuralRenderingEnabled", 0,
@@ -1613,6 +1727,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
     SetBypassReason(g_config.enabled
         ? BypassReason::WaitingForFeature1
         : BypassReason::MasterDisabled);
+    if (g_config.enabled) RefineDx11WaitingBypass();
     const bool persisted = persist_to_ini ? SaveConfig(g_config) : true;
     const ChainConfig applied = g_config;
     LeaveCriticalSection(&g_chain_cs);
@@ -8020,6 +8135,15 @@ EvaluateFeatureFn g_original_dlssd_evaluate = nullptr;
 ReleaseFeatureFn g_original_release = nullptr;
 ReleaseFeatureFn g_original_core_release = nullptr;
 ReleaseFeatureFn g_original_dlssd_release = nullptr;
+using D3d11CreateFeatureFn = NgxResult (*)(void *, int, NgxParams *, NgxHandle **);
+using D3d11EvaluateFeatureFn = NgxResult (*)(void *, const NgxHandle *,
+                                             const NgxParams *, void *);
+D3d11CreateFeatureFn g_original_d3d11_create = nullptr;
+D3d11CreateFeatureFn g_original_d3d11_core_create = nullptr;
+D3d11EvaluateFeatureFn g_original_d3d11_evaluate = nullptr;
+D3d11EvaluateFeatureFn g_original_d3d11_core_evaluate = nullptr;
+ReleaseFeatureFn g_original_d3d11_release = nullptr;
+ReleaseFeatureFn g_original_d3d11_core_release = nullptr;
 
 NgxResult CallNativeCreatePassThrough(CreateFeatureFn original,
                                       ID3D12GraphicsCommandList *command_list,
@@ -8045,7 +8169,7 @@ thread_local bool g_inside_ngx_evaluate = false;
 // ownership must be recorded exactly once for a nested wrapper -> core call.
 thread_local unsigned int g_create_hook_depth = 0;
 thread_local unsigned int g_release_hook_depth = 0;
-void *g_evaluate_hook_targets[4] = {};
+void *g_evaluate_hook_targets[8] = {};
 std::size_t g_evaluate_hook_target_count = 0;
 SRWLOCK g_evaluate_hook_lock = SRWLOCK_INIT;
 bool AllowExperimentalNullPsoCarrier() {
@@ -8058,6 +8182,59 @@ bool AllowExperimentalNullPsoCarrier() {
 #include "nr_command_state.inl"
 std::atomic<bool> g_evaluate_hooks_ready{false};
 std::atomic<bool> g_evaluate_hooks_enabled{false};
+
+const char *PresentingDeviceApiName() {
+    return nr_dx11_observer_status::PresentingApiName(
+        static_cast<nr_dx11_observer_status::PresentingApi>(
+            g_presenting_device_api.load(std::memory_order_acquire)));
+}
+
+void NotePresentingDeviceApi(reshade::api::device_api api) {
+    nr_dx11_observer_status::PresentingApi mapped =
+        nr_dx11_observer_status::PresentingApi::Other;
+    if (api == reshade::api::device_api::d3d11)
+        mapped = nr_dx11_observer_status::PresentingApi::D3d11;
+    else if (api == reshade::api::device_api::d3d12)
+        mapped = nr_dx11_observer_status::PresentingApi::D3d12;
+    const int previous = g_presenting_device_api.exchange(
+        static_cast<int>(mapped), std::memory_order_relaxed);
+    if (previous != static_cast<int>(mapped)) {
+        Log("[present] presenting device API %s -> %s.",
+            nr_dx11_observer_status::PresentingApiName(
+                static_cast<nr_dx11_observer_status::PresentingApi>(previous)),
+            nr_dx11_observer_status::PresentingApiName(mapped));
+    }
+}
+
+void RefineDx11WaitingBypass() {
+    if (!g_enabled_fast.load(std::memory_order_acquire)) return;
+    if (OtherNrOwnerActive()) return;
+    const int current = g_last_bypass_reason.load(std::memory_order_acquire);
+    if (current != static_cast<int>(BypassReason::WaitingForFeature1) &&
+        current != static_cast<int>(BypassReason::D3d11PresentNoCarrier) &&
+        current != static_cast<int>(BypassReason::D3d11Feature1Unbridged)) {
+        return;
+    }
+    nr_dx11_observer_status::Sample sample{};
+    sample.presenting = static_cast<nr_dx11_observer_status::PresentingApi>(
+        g_presenting_device_api.load(std::memory_order_acquire));
+    sample.d3d12_hooks_ready =
+        g_evaluate_hooks_ready.load(std::memory_order_acquire);
+    sample.d3d12_feature1_success =
+        g_feature1_successful_creates.load(std::memory_order_relaxed);
+    sample.d3d12_carrier_evals =
+        g_carrier_evaluations.load(std::memory_order_relaxed);
+    sample.d3d11_feature1_success =
+        g_d3d11_feature1_create_success.load(std::memory_order_relaxed);
+    sample.d3d11_feature1_evals =
+        g_d3d11_feature1_evals.load(std::memory_order_relaxed);
+    const auto classified = nr_dx11_observer_status::Classify(sample);
+    if (classified == nr_dx11_observer_status::Class::Dx11Feature1Unbridged)
+        SetBypassReason(BypassReason::D3d11Feature1Unbridged);
+    else if (classified ==
+             nr_dx11_observer_status::Class::Dx11PresentNoD3d12Carrier)
+        SetBypassReason(BypassReason::D3d11PresentNoCarrier);
+}
 std::atomic<bool> g_evaluate_target_overflow{false};
 ExecuteCommandListsFn g_original_queue_execute[4] = {};
 void *g_queue_execute_hook_targets[4] = {};
@@ -9701,7 +9878,7 @@ void RememberEvaluateHookTarget(void *target) {
     for (std::size_t i = 0; i < g_evaluate_hook_target_count; ++i) {
         if (g_evaluate_hook_targets[i] == target) return;
     }
-    if (g_evaluate_hook_target_count < 4) {
+    if (g_evaluate_hook_target_count < std::size(g_evaluate_hook_targets)) {
         g_evaluate_hook_targets[g_evaluate_hook_target_count++] = target;
     } else if (!g_evaluate_target_overflow.exchange(
                    true, std::memory_order_release)) {
@@ -9818,7 +9995,7 @@ struct NgxHookTarget {
     bool published = false;
     bool queued = false;
 };
-NgxHookTarget g_ngx_hook_targets[10] = {};
+NgxHookTarget g_ngx_hook_targets[20] = {};
 std::size_t g_ngx_hook_target_count = 0;
 
 NgxHookTarget *FindNgxHookTarget(NgxHookOperation operation, void *target) {
@@ -10106,7 +10283,8 @@ void PollNgxLifecycleModules(bool force) {
             "dlssd=%p dlssdLifecycle=%d observerGap=%d startupCovered=%d "
             "feature1CreateAttempts=%llu feature1CreateSuccess=%llu "
             "feature1CreateInFlight=%u observerEpoch=%llu "
-            "nullEvals=%llu carrierEvals=%llu observerFault=%s.",
+            "nullEvals=%llu carrierEvals=%llu observerFault=%s "
+            "presentApi=%s d3d11F1=%llu/%llu d3d11Evals=%llu.",
             force ? "Feature1-preflight" : "lazy", scan,
             static_cast<void *>(core),
             g_core_lifecycle_hooks_ready.load(std::memory_order_relaxed) ? 1 : 0,
@@ -10120,10 +10298,209 @@ void PollNgxLifecycleModules(bool force) {
             g_null_feature_evaluations.load(std::memory_order_relaxed),
             carrier_evaluations,
             ModuleObserverFaultName(static_cast<ModuleObserverFault>(
-                g_module_observer_fault.load(std::memory_order_relaxed))));
+                g_module_observer_fault.load(std::memory_order_relaxed))),
+            nr_dx11_observer_status::PresentingApiName(
+                static_cast<nr_dx11_observer_status::PresentingApi>(
+                    g_presenting_device_api.load(std::memory_order_relaxed))),
+            g_d3d11_feature1_create_success.load(std::memory_order_relaxed),
+            g_d3d11_feature1_create_attempts.load(std::memory_order_relaxed),
+            g_d3d11_feature1_evals.load(std::memory_order_relaxed));
     }
     g_module_rescan_in_progress.store(false, std::memory_order_release);
     ReleaseSRWLockExclusive(&g_module_rescan_lock);
+}
+
+constexpr unsigned kD3d11Feature1HandleCap = 8;
+std::atomic<const NgxHandle *> g_d3d11_feature1_handles[kD3d11Feature1HandleCap]{};
+std::atomic<unsigned> g_d3d11_feature1_handle_count{0};
+
+void RememberD3d11Feature1Handle(const NgxHandle *handle) {
+    if (handle == nullptr) return;
+    const unsigned slot =
+        g_d3d11_feature1_handle_count.fetch_add(1, std::memory_order_relaxed);
+    if (slot < kD3d11Feature1HandleCap)
+        g_d3d11_feature1_handles[slot].store(handle, std::memory_order_release);
+}
+
+bool IsRememberedD3d11Feature1(const NgxHandle *handle) {
+    if (handle == nullptr) return false;
+    const unsigned count = std::min(
+        g_d3d11_feature1_handle_count.load(std::memory_order_acquire),
+        kD3d11Feature1HandleCap);
+    for (unsigned i = 0; i < count; ++i) {
+        if (g_d3d11_feature1_handles[i].load(std::memory_order_acquire) == handle)
+            return true;
+    }
+    return false;
+}
+
+thread_local unsigned int g_d3d11_create_depth = 0;
+thread_local unsigned int g_d3d11_evaluate_depth = 0;
+
+void ObserveD3d11Create(int feature_id, NgxResult result, NgxHandle *handle,
+                        const char *origin) {
+    if (g_d3d11_create_depth != 1) return;
+    if (feature_id == 1)
+        g_d3d11_feature1_create_attempts.fetch_add(1, std::memory_order_relaxed);
+    if (feature_id == 1 && result == kNgxSuccess && handle != nullptr) {
+        g_d3d11_feature1_create_success.fetch_add(1, std::memory_order_relaxed);
+        RememberD3d11Feature1Handle(handle);
+    }
+    if (feature_id == 1 &&
+        g_d3d11_feature1_create_attempts.load(std::memory_order_relaxed) <= 3) {
+        Log("[d3d11] %s CreateFeature id=1 result=0x%08X handle=%p",
+            origin, result, static_cast<void *>(handle));
+    }
+}
+
+NgxResult HookD3d11Create(void *context, int feature_id, NgxParams *params,
+                          NgxHandle **out_handle) {
+    ++g_d3d11_create_depth;
+    const NgxResult result =
+        g_original_d3d11_create(context, feature_id, params, out_handle);
+    ObserveD3d11Create(feature_id, result,
+                       out_handle != nullptr ? *out_handle : nullptr, "wrapper");
+    --g_d3d11_create_depth;
+    return result;
+}
+
+NgxResult HookD3d11CoreCreate(void *context, int feature_id, NgxParams *params,
+                              NgxHandle **out_handle) {
+    ++g_d3d11_create_depth;
+    const NgxResult result =
+        g_original_d3d11_core_create(context, feature_id, params, out_handle);
+    ObserveD3d11Create(feature_id, result,
+                       out_handle != nullptr ? *out_handle : nullptr, "core");
+    --g_d3d11_create_depth;
+    return result;
+}
+
+NgxResult HookD3d11Evaluate(void *context, const NgxHandle *handle,
+                            const NgxParams *params, void *unknown) {
+    const bool outermost = g_d3d11_evaluate_depth++ == 0;
+    if (outermost && IsRememberedD3d11Feature1(handle))
+        g_d3d11_feature1_evals.fetch_add(1, std::memory_order_relaxed);
+    const NgxResult result =
+        g_original_d3d11_evaluate(context, handle, params, unknown);
+    --g_d3d11_evaluate_depth;
+    return result;
+}
+
+NgxResult HookD3d11CoreEvaluate(void *context, const NgxHandle *handle,
+                                const NgxParams *params, void *unknown) {
+    const bool outermost = g_d3d11_evaluate_depth++ == 0;
+    if (outermost && IsRememberedD3d11Feature1(handle))
+        g_d3d11_feature1_evals.fetch_add(1, std::memory_order_relaxed);
+    const NgxResult result =
+        g_original_d3d11_core_evaluate(context, handle, params, unknown);
+    --g_d3d11_evaluate_depth;
+    return result;
+}
+
+NgxResult HookD3d11Release(NgxHandle *handle) {
+    return g_original_d3d11_release(handle);
+}
+
+NgxResult HookD3d11CoreRelease(NgxHandle *handle) {
+    return g_original_d3d11_core_release(handle);
+}
+
+bool PrepareDistinctD3d11Hook(NgxHookOperation operation, void *d3d11,
+                              void *d3d12, void *detour, void **original,
+                              const char *name) {
+    if (d3d11 == nullptr) return true;
+    if (d3d11 == d3d12) {
+        Log("[d3d11] %s aliases the D3D12 export; a second detour is not "
+            "installed. D3D11 Feature 1 cannot be counted separately.",
+            name);
+        return true;
+    }
+    return PrepareNgxHook(operation, d3d11, detour, original, name);
+}
+
+bool InstallD3d11ObserverHooks(HMODULE ngx, HMODULE core) {
+    void *d3d12_create = ngx != nullptr
+        ? reinterpret_cast<void *>(
+              GetProcAddress(ngx, "NVSDK_NGX_D3D12_CreateFeature"))
+        : nullptr;
+    void *d3d12_evaluate = ngx != nullptr
+        ? reinterpret_cast<void *>(
+              GetProcAddress(ngx, "NVSDK_NGX_D3D12_EvaluateFeature"))
+        : nullptr;
+    void *d3d12_release = ngx != nullptr
+        ? reinterpret_cast<void *>(
+              GetProcAddress(ngx, "NVSDK_NGX_D3D12_ReleaseFeature"))
+        : nullptr;
+    void *d3d11_create = ngx != nullptr
+        ? reinterpret_cast<void *>(
+              GetProcAddress(ngx, "NVSDK_NGX_D3D11_CreateFeature"))
+        : nullptr;
+    void *d3d11_evaluate = ngx != nullptr
+        ? reinterpret_cast<void *>(
+              GetProcAddress(ngx, "NVSDK_NGX_D3D11_EvaluateFeature"))
+        : nullptr;
+    void *d3d11_release = ngx != nullptr
+        ? reinterpret_cast<void *>(
+              GetProcAddress(ngx, "NVSDK_NGX_D3D11_ReleaseFeature"))
+        : nullptr;
+    bool okay = PrepareDistinctD3d11Hook(
+        NgxHookOperation::Create, d3d11_create, d3d12_create,
+        reinterpret_cast<void *>(&HookD3d11Create),
+        reinterpret_cast<void **>(&g_original_d3d11_create),
+        "D3D11_CreateFeature");
+    okay &= PrepareDistinctD3d11Hook(
+        NgxHookOperation::Evaluate, d3d11_evaluate, d3d12_evaluate,
+        reinterpret_cast<void *>(&HookD3d11Evaluate),
+        reinterpret_cast<void **>(&g_original_d3d11_evaluate),
+        "D3D11_EvaluateFeature");
+    okay &= PrepareDistinctD3d11Hook(
+        NgxHookOperation::Release, d3d11_release, d3d12_release,
+        reinterpret_cast<void *>(&HookD3d11Release),
+        reinterpret_cast<void **>(&g_original_d3d11_release),
+        "D3D11_ReleaseFeature");
+
+    if (core != nullptr) {
+        void *core12_create = reinterpret_cast<void *>(
+            GetProcAddress(core, "NVSDK_NGX_D3D12_CreateFeature"));
+        void *core12_evaluate = reinterpret_cast<void *>(
+            GetProcAddress(core, "NVSDK_NGX_D3D12_EvaluateFeature"));
+        void *core12_release = reinterpret_cast<void *>(
+            GetProcAddress(core, "NVSDK_NGX_D3D12_ReleaseFeature"));
+        void *core11_create = reinterpret_cast<void *>(
+            GetProcAddress(core, "NVSDK_NGX_D3D11_CreateFeature"));
+        void *core11_evaluate = reinterpret_cast<void *>(
+            GetProcAddress(core, "NVSDK_NGX_D3D11_EvaluateFeature"));
+        void *core11_release = reinterpret_cast<void *>(
+            GetProcAddress(core, "NVSDK_NGX_D3D11_ReleaseFeature"));
+        okay &= PrepareDistinctD3d11Hook(
+            NgxHookOperation::Create, core11_create, core12_create,
+            reinterpret_cast<void *>(&HookD3d11CoreCreate),
+            reinterpret_cast<void **>(&g_original_d3d11_core_create),
+            "D3D11 core CreateFeature");
+        okay &= PrepareDistinctD3d11Hook(
+            NgxHookOperation::Evaluate, core11_evaluate, core12_evaluate,
+            reinterpret_cast<void *>(&HookD3d11CoreEvaluate),
+            reinterpret_cast<void **>(&g_original_d3d11_core_evaluate),
+            "D3D11 core EvaluateFeature");
+        okay &= PrepareDistinctD3d11Hook(
+            NgxHookOperation::Release, core11_release, core12_release,
+            reinterpret_cast<void *>(&HookD3d11CoreRelease),
+            reinterpret_cast<void **>(&g_original_d3d11_core_release),
+            "D3D11 core ReleaseFeature");
+    }
+    g_d3d11_ngx_hooks_ready.store(okay, std::memory_order_release);
+    Log("[d3d11] observer hooks ready=%d create=%p/%p evaluate=%p/%p.",
+        okay ? 1 : 0, d3d11_create,
+        core != nullptr
+            ? reinterpret_cast<void *>(
+                  GetProcAddress(core, "NVSDK_NGX_D3D11_CreateFeature"))
+            : nullptr,
+        d3d11_evaluate,
+        core != nullptr
+            ? reinterpret_cast<void *>(
+                  GetProcAddress(core, "NVSDK_NGX_D3D11_EvaluateFeature"))
+            : nullptr);
+    return okay;
 }
 
 bool InstallHooks(HMODULE ngx) {
@@ -10175,6 +10552,9 @@ bool InstallHooks(HMODULE ngx) {
     okay &= PrepareNgxHook(
         NgxHookOperation::Release, release, reinterpret_cast<void *>(&HookRelease),
         reinterpret_cast<void **>(&g_original_release), "D3D12_ReleaseFeature");
+    // D3D11 exports are observation-only. A missing or aliased D3D11 surface
+    // must not fail the D3D12 Feature 1 observer.
+    (void)InstallD3d11ObserverHooks(ngx, core);
 
     // Initial modules share the same operation registry as later modules. A
     // failed optional target must not make a forwarding alias appear covered.
@@ -10323,6 +10703,9 @@ bool FormatScreenshotPostfix(char *postfix, std::size_t capacity,
 // neither hotkey enters a Feature 18 command-list/lifetime transaction.
 void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     if (runtime == nullptr) return;
+    if (runtime->get_device() != nullptr)
+        NotePresentingDeviceApi(runtime->get_device()->get_api());
+    RefineDx11WaitingBypass();
 
     static SRWLOCK screenshot_hotkey_lock = SRWLOCK_INIT;
     static bool screenshot_key_was_down = false;
@@ -10449,6 +10832,8 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     if (!TryAcquireSRWLockExclusive(&g_present_observer_lock)) return;
     if (swapchain != nullptr) {
         g_feedback_swap_color_space.store(static_cast<unsigned int>(swapchain->get_color_space()), std::memory_order_relaxed);
+        if (swapchain->get_device() != nullptr)
+            NotePresentingDeviceApi(swapchain->get_device()->get_api());
         if (swapchain->get_device()->get_api() == reshade::api::device_api::d3d12) {
             auto *native_swapchain = reinterpret_cast<IDXGISwapChain *>(swapchain->get_native());
             DXGI_SWAP_CHAIN_DESC desc = {};
@@ -10828,6 +11213,16 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
         brief_status_zh = "安全旁路";
         brief_reason_en = "GPU lifecycle or hook ownership is uncertain; native SR is preserved.";
         brief_reason_zh = "GPU 生命周期或 Hook 所有权不确定；已保留原生 SR。";
+    }     else if (bypass_reason == BypassReason::D3d11Feature1Unbridged) {
+        brief_status_en = "DX11 Feature 1 unbridged";
+        brief_status_zh = "DX11 Feature 1 未桥接";
+        brief_reason_en = "D3D11 NGX Feature 1 was observed, but this core cannot run NR on D3D11 resources. Switch to D3D12 or load the native-bridge companion carrier.";
+        brief_reason_zh = "已观察到 D3D11 NGX Feature 1，但本核心不能在 D3D11 资源上运行 NR。请切换到 D3D12，或加载 native-bridge 配套 carrier。";
+    } else if (bypass_reason == BypassReason::D3d11PresentNoCarrier) {
+        brief_status_en = "DX11 present, no D3D12 carrier";
+        brief_status_zh = "DX11 呈现，无 D3D12 载体";
+        brief_reason_en = "D3D12 NGX hooks are healthy, but the presenting API is D3D11 and no D3D12 Feature 1 create/eval was seen. This is not waiting-feature1.";
+        brief_reason_zh = "D3D12 NGX hook 已健康，但呈现 API 是 D3D11，且从未出现 D3D12 Feature 1 创建/评估。这不是 waiting-feature1。";
     } else if (bypass_reason == BypassReason::WaitingForFeature1 ||
                evaluations == 0) {
         brief_status_en = "Waiting";
@@ -10841,7 +11236,7 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
                 ui(brief_status_en, brief_status_zh));
     ImGui::TextWrapped(ui("Reason: %s", "原因：%s"),
                        ui(brief_reason_en, brief_reason_zh));
-    ImGui::TextDisabled(
+        ImGui::TextDisabled(
         ui("Module observer: rescans=%llu core=%s DLSSD=%s observer-gap=%s fault=%s startup-covered=%s preflight=%llu/%llu F1-create=%llu/%llu in-flight=%u null-evals=%llu",
            "模块观察器：重扫=%llu core=%s DLSSD=%s 观察缺口=%s 首因=%s 启动补挂=%s 预扫=%llu/%llu F1创建=%llu/%llu 进行中=%u 空句柄调用=%llu"),
         module_rescans, core_observer_ready ? "ready" : "waiting",
@@ -10853,6 +11248,18 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
         feature1_create_successes, feature1_create_attempts,
         feature1_creates_in_progress,
         null_feature_evaluations);
+    ImGui::TextDisabled(
+        ui("Present API: %s | D3D11 NGX observer=%s F1-create=%llu/%llu evals=%llu competing=%s",
+           "呈现 API：%s | D3D11 NGX 观察器=%s F1创建=%llu/%llu 评估=%llu 竞争插件=%s"),
+        nr_dx11_observer_status::PresentingApiName(
+            static_cast<nr_dx11_observer_status::PresentingApi>(
+                g_presenting_device_api.load(std::memory_order_relaxed))),
+        g_d3d11_ngx_hooks_ready.load(std::memory_order_relaxed) ? "ready" : "off",
+        g_d3d11_feature1_create_success.load(std::memory_order_relaxed),
+        g_d3d11_feature1_create_attempts.load(std::memory_order_relaxed),
+        g_d3d11_feature1_evals.load(std::memory_order_relaxed),
+        nr_compat_modules::KindName(static_cast<nr_compat_modules::Kind>(
+            g_observed_competing_kind.load(std::memory_order_relaxed))));
     if (input_width != 0 && input_height != 0 &&
         output_width != 0 && output_height != 0) {
         ImGui::Text(ui("Game DLSS: %ux%u -> %ux%u",

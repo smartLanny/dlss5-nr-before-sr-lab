@@ -108,10 +108,12 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (kChineseUi && !use_chinese_ui)
         ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
     const auto reason = static_cast<BypassReason>(g_last_bypass_reason.load());
-    if (nr_present_api_status::IsD3d11PresentRuntime(runtime))
+    if (nr_present_api_status::IsD3d11PresentRuntime(runtime) ||
+        reason == BypassReason::D3d11PresentNoCarrier ||
+        reason == BypassReason::D3d11Feature1Unbridged)
         ImGui::TextWrapped("%s", ui(
-            "This ReShade window is using Direct3D 11, so DLSS 5 NR cannot run. Switch the game to Direct3D 12, then install ReShade Full Add-on for Direct3D 12.",
-            "当前 ReShade 画面使用 Direct3D 11，本插件无法运行。请把游戏切换到 Direct3D 12，并为 D3D12 安装 ReShade Full Add-on。"));
+            "This ReShade window is presenting Direct3D 11. This core only observes D3D12 NGX Feature 1, so it stays off native SR instead of waiting forever. Switch the game to Direct3D 12, or on a native-bridge-exp1 build also load the companion DX11 carrier add-on. A late healthy DLSSD hook is not a Feature 1 carrier.",
+            "当前 ReShade 画面正在以 Direct3D 11 呈现。本核心只观察 D3D12 NGX Feature 1，因此会保持原生 SR，而不会永远停在等待 Feature 1。请把游戏切换到 Direct3D 12；若使用 native-bridge-exp1，还需要同时加载配套的 DX11 carrier。晚到且健康的 DLSSD hook 不能当作 Feature 1 载体。"));
     else if (!next.enabled || ActiveTransferStrength(next) <= 0.000001f)
         ImGui::TextWrapped("%s", ui("Native game SR. Enable the plugin and raise effect strength to compare NR.",
             "当前为游戏原生 SR。启用插件并提高效果强度，即可对比 NR。"));

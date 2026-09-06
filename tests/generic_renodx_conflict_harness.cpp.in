@@ -19,6 +19,14 @@ static std::atomic<int> g_last_bypass_reason{static_cast<int>(BypassReason::None
 static std::atomic<unsigned long long> g_bypass_reason_transitions{0};
 static constexpr wchar_t kGenericRenoDxModuleName[] = L"renodx-dlss5.addon64";
 static unsigned log_calls = 0;
+namespace nr_compat_modules {
+enum class Kind { None, ShortFuse, GenericDlss5 };
+}
+static std::atomic<int> g_observed_competing_kind{0};
+static void RememberObservedCompetingAddon(nr_compat_modules::Kind, const wchar_t *) {}
+static void CopyObservedCompetingAddon(char *out, std::size_t n) {
+    if (out != nullptr && n != 0) std::snprintf(out, n, "renodx-dlss5.addon64");
+}
 
 static void Log(const char *, ...) { ++log_calls; }
 static const char *BypassReasonName(BypassReason) { return "fixture"; }
