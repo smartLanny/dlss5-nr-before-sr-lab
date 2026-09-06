@@ -1,3 +1,13 @@
+# beta0.5-dev2 experimental layered composition
+
+单次 NR 分层强化与最终强度 0–4；并非 PR26 的多次模型推理。默认分层关闭，游戏与性能仍待验证。
+
+开发、回退、真实范围：[BETA_0_5_LAYERS.md](docs/BETA_0_5_LAYERS.md)。
+
+---
+
+以下是历史 dev1 / 0.4 基线说明，不代表当前候选的新功能：
+
 # beta0.5-dev1 experimental development branch
 
 当前分支是基于完整 **beta0.4.3r3** 的 **0.5 开发候选**，不是新的正式 Release。

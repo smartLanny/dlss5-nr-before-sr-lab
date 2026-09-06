@@ -32,12 +32,12 @@ def main() -> None:
         'L"NRBeforeSR", L"HighStrengthProtection", 1, g_ini_path',
         'WriteIniInt(L"HighStrengthProtection", config.high_strength_protection ? 1 : 0)',
         '((v2_combine && g_config.high_strength_protection) ? 1024u : 0u)',
-        'const bool protectBoost = (Passthrough & 1024u) != 0u &&\n        TransferStrength > 1.0;',
+        'const bool protectBoost = boostProtectionEnabled &&\n        TransferStrength > 1.0;',
         'budget = max(baseLog, min(logLimit, sdrHeadroom));',
         'poweredChromaLog = baseChroma * scale;',
         'sourceLuma > fullProxyLuma',
         'FrameConfidence <= 0.000001',
-        'kCodecRootConstantCount = 31;',
+        'kCodecRootConstantCount = 35;',
     ]:
         require(token in source, 'Missing production integration: ' + token)
     history = re.search(r'bool SameHistoryConfig\([^;]*?\)\s*\{(.*?)\n\}', source, re.S)

@@ -5,6 +5,7 @@ on:
       - main
       - release/0.4
       - next/0.5
+      - codex/050-high-strength-guard
   push:
     branches:
       - main

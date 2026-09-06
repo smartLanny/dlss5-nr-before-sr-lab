@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -17,6 +17,8 @@ if (!$shader.Success -or !$constants.Success -or !$descriptors.Success) {
 $harness = $harness.Replace('// @PRODUCTION_SHADER@', $shader.Value)
 $boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_strength_gpu.inl') -Raw
 $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
+$layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw
+$harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
 $harness = $harness.Replace('// @PRODUCTION_CONSTANTS@', $constants.Value)
 $harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_CONSTANTS@', $descriptors.Value)
 $writer = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_codec_descriptors.inl') -Raw
@@ -36,7 +38,14 @@ $compiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang++.exe'
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' $generated `
     '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'GPU codec harness compilation failed.' }
-if ($NegativeControl) {
+if ($LayerNegativeControl) {
+    $negative = & $binary --layer-negative-control 2>&1
+    if ($LASTEXITCODE -ne 1 -or ($negative -join "`n") -notmatch 'LAYER_DIRECTION_ORACLE') {
+        throw 'Layer negative control must reject the precise unattenuated bright edit.'
+    }
+    $global:LASTEXITCODE = 0
+    Write-Host 'Layer negative control rejected the expected unchanged bright edit.'
+} elseif ($NegativeControl) {
     $negative = & $binary --negative-control 2>&1
     if ($LASTEXITCODE -ne 1 -or ($negative -join "`n") -notmatch 'V3_SDR_EXTRA_BOOST_COLOUR') {
         throw 'Negative control must reject the exact unprotected SDR colour result, not a crash.'

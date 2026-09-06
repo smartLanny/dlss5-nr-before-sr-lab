@@ -47,11 +47,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dev1";
+constexpr const char *kAddonVersion = "beta0.5-dev2";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dev1";
+constexpr const char *kBuildIdentity = "beta0.5-dev2";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -852,7 +852,7 @@ struct ChainConfig {
     bool identity_use_original = false;
     // V2 composition treats this as a multiplicative log-ratio exponent.
     // 1.0 follows the model, 2.0 compounds the model ratio twice, 4.0 is
-    // deliberately strong, and 8.0 is an extreme diagnostic ceiling. HDR,
+    // the public maximum (not a recommendation). HDR,
     // finite-value and user-selected maximum-ratio guards remain authoritative.
     float transfer_strength = 1.2f;
     float post_transfer_strength = 1.2f;
@@ -864,6 +864,11 @@ struct ChainConfig {
     float edge_guard = 0.25f;
     float detail_stability = 0.0f; // Experimental spatial residual protection; 0 preserves old output.
     bool high_strength_protection = true; // Mode 2 composition only; does not reset NR history.
+    bool layered_enhancement = false; // One NR inference; independent composite contributions.
+    float layer_tone = 1.0f;
+    float layer_structure = 1.0f;
+    float layer_bright = 1.0f;
+    float layer_shadow = 1.0f;
     bool motion_stability = false; // Requested only; requires a proven depth/history contract.
     unsigned int proxy_curve = 1; // 0 legacy, 1 hybrid, 2 reversible
     bool allow_unverified_hdr_color = false;
@@ -1228,6 +1233,10 @@ float ReadConfiguredTransferStrength(int configured_mode) {
 
 void NormalizeConfig(ChainConfig &config) {
     config.mode = config.mode == 2 ? 2 : 1;
+    config.layer_tone = std::clamp(FiniteOr(config.layer_tone, 1.0f), 0.0f, 2.0f);
+    config.layer_structure = std::clamp(FiniteOr(config.layer_structure, 1.0f), 0.0f, 2.0f);
+    config.layer_bright = std::clamp(FiniteOr(config.layer_bright, 1.0f), 0.0f, 2.0f);
+    config.layer_shadow = std::clamp(FiniteOr(config.layer_shadow, 1.0f), 0.0f, 2.0f);
     config.transfer_strength = std::clamp(FiniteOr(config.transfer_strength, 0.0f), 0.0f, 4.0f);
     // One visible blend control owns both chains. Keeping the legacy field in
     // sync preserves compatibility with existing INI files without allowing a
@@ -1278,6 +1287,9 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.edge_guard == b.edge_guard &&
            a.detail_stability == b.detail_stability &&
            a.high_strength_protection == b.high_strength_protection &&
+           a.layered_enhancement == b.layered_enhancement &&
+           a.layer_tone == b.layer_tone && a.layer_structure == b.layer_structure &&
+           a.layer_bright == b.layer_bright && a.layer_shadow == b.layer_shadow &&
            a.motion_stability == b.motion_stability &&
            a.proxy_curve == b.proxy_curve &&
            a.allow_unverified_hdr_color == b.allow_unverified_hdr_color &&
@@ -1361,6 +1373,11 @@ void ReloadConfig(bool force = false) {
     next.lighting_lock = ReadIniFloat(L"LightingLock", 0.20f);
     next.edge_guard = ReadIniFloat(L"EdgeGuard", 0.25f);
     next.detail_stability = ReadIniFloat(L"DetailStability", 0.0f);
+    next.layered_enhancement = GetPrivateProfileIntW(L"NRBeforeSR", L"LayeredEnhancement", 0, g_ini_path) != 0;
+    next.layer_tone = ReadIniFloat(L"LayerTone", 1.0f);
+    next.layer_structure = ReadIniFloat(L"LayerStructure", 1.0f);
+    next.layer_bright = ReadIniFloat(L"LayerBright", 1.0f);
+    next.layer_shadow = ReadIniFloat(L"LayerShadow", 1.0f);
     next.high_strength_protection = GetPrivateProfileIntW(
         L"NRBeforeSR", L"HighStrengthProtection", 1, g_ini_path) != 0;
     next.motion_stability = GetPrivateProfileIntW(L"NRBeforeSR", L"MotionStability", 0, g_ini_path) != 0;
@@ -1454,6 +1471,8 @@ void ReloadConfig(bool force = false) {
         g_history_generation.fetch_add(1, std::memory_order_relaxed);
     }
     if (changed || force) {
+        Log("LayeredEnhancement requested=%d mode=%d tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
+            g_config.layered_enhancement, g_config.mode, g_config.layer_tone, g_config.layer_structure, g_config.layer_bright, g_config.layer_shadow);
         Log("HighStrengthProtection requested=%d; effective only in Mode 2 above 1x; codec flag=1024.",
             g_config.high_strength_protection ? 1 : 0);
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
@@ -1525,6 +1544,11 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniFloat(L"LightingLock", config.lighting_lock));
     record_write(WriteIniFloat(L"EdgeGuard", config.edge_guard));
     record_write(WriteIniFloat(L"DetailStability", config.detail_stability));
+    record_write(WriteIniInt(L"LayeredEnhancement", config.layered_enhancement ? 1 : 0));
+    record_write(WriteIniFloat(L"LayerTone", config.layer_tone));
+    record_write(WriteIniFloat(L"LayerStructure", config.layer_structure));
+    record_write(WriteIniFloat(L"LayerBright", config.layer_bright));
+    record_write(WriteIniFloat(L"LayerShadow", config.layer_shadow));
     record_write(WriteIniInt(L"HighStrengthProtection", config.high_strength_protection ? 1 : 0));
     record_write(WriteIniInt(L"MotionStability", config.motion_stability ? 1 : 0));
     record_write(WriteIniInt(L"ProxyCurve", static_cast<int>(config.proxy_curve)));
@@ -1623,6 +1647,8 @@ bool ApplyConfig(ChainConfig next, const char *source,
     const bool persisted = persist_to_ini ? SaveConfig(g_config) : true;
     const ChainConfig applied = g_config;
     LeaveCriticalSection(&g_chain_cs);
+    Log("LayeredEnhancement requested=%d mode=%d tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
+        applied.layered_enhancement, applied.mode, applied.layer_tone, applied.layer_structure, applied.layer_bright, applied.layer_shadow);
     Log("HighStrengthProtection requested=%d; effective only in Mode 2 above 1x; codec flag=1024.",
         applied.high_strength_protection ? 1 : 0);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
@@ -1958,7 +1984,7 @@ constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
 constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
 constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
 constexpr UINT kCodecCaptureUavIndex = kCodecSrvCount + 4;
-constexpr UINT kCodecRootConstantCount = 31;
+constexpr UINT kCodecRootConstantCount = 35;
 
 const char kCodecShader[] = R"HLSL(
 // The HDR proxy keeps a linear mid-range and applies a luminance-preserving
@@ -2010,6 +2036,10 @@ cbuffer Constants : register(b0) {
     uint CaptureRoiY;
     uint CaptureRoiWidth;
     uint CaptureRoiHeight;
+    float LayerTone;
+    float LayerStructure;
+    float LayerBright;
+    float LayerShadow;
 };
 
 static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
@@ -2832,6 +2862,25 @@ float SoftExtraMagnitudeV3(float base, float extraStrength, float limit) {
 }
 // V3_BOOST_SCALAR_END
 
+// LAYERED_SCALAR_BEGIN
+// The broad/fine split is a bounded heuristic, not a semantic material mask.
+// Same-sign partitioning avoids invented opposite-sign halos. Gains weight
+// two parts of ONE edit; they do not add repeated NR passes or evade the cap.
+float LayeredLumaStrengthV3(float edit, float mean, float master,
+                          float tone, float structure, float bright, float shadow) {
+    master = clamp(master, 0.0, 4.0);
+    if (master <= 0.0) return 0.0;
+    if (tone == 1.0 && structure == 1.0 && bright == 1.0 && shadow == 1.0)
+        return master;
+    float magnitude = abs(edit);
+    float broad = clamp(mean, min(edit, 0.0), max(edit, 0.0));
+    float fraction = magnitude > 0.0 ? saturate(abs(broad) / magnitude) : 0.0;
+    float gain = tone == structure ? tone : tone * fraction + structure * (1.0 - fraction);
+    float directional = edit > 0.0 ? bright : (edit < 0.0 ? shadow : 1.0);
+    return clamp(master * gain * directional, 0.0, 4.0);
+}
+// LAYERED_SCALAR_END
+
 [numthreads(8, 8, 1)]
 void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height ||
@@ -2870,11 +2919,13 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float fullProxyLuma = max(dot(fullProxy, kLuma), 1.0 / 4096.0);
     float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
     logRatio = StabilizeDetailLogV2(center, logRatio, proxyLuma);
+    const bool layeredActive = (Passthrough & 2048u) != 0u;
+    float layerMean = 0.0;
 
     // Remove only the low-frequency component of model luminance drift. The
     // centre plus four cross taps avoids the old 3x3 edge-heavy correction and
     // keeps this branch completely free when LightingLock is zero.
-    if (LightingLock > 0.000001) {
+    if (LightingLock > 0.000001 || (layeredActive && LayerTone != LayerStructure)) {
         const float radius = 8.0;
         // The centre ratio is already available. Average four sparse
         // neighbours in linear-ratio space, then take one logarithm. This
@@ -2887,6 +2938,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         localRatio += 0.15 * ModelLumaRatioV2(center - float2(0.0, radius));
         float localMean = clamp(log2(max(localRatio, 1.0 / 256.0)),
                                 -8.0, 8.0);
+        layerMean = localMean;
         // Protection may only attenuate this pixel's existing edit. A sparse
         // neighbour mean can exceed (or oppose) its residual at a face/geometry
         // boundary. Unbounded subtraction then invents a dark/bright outline,
@@ -2913,15 +2965,22 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         edgeConfidence = lerp(1.0, 1.0 - edge, saturate(EdgeGuard));
     }
     float confidence = saturate(FrameConfidence) * nearBlack * edgeConfidence;
+    float lumaStrength = TransferStrength;
+    if (layeredActive)
+        lumaStrength = LayeredLumaStrengthV3(logRatio, layerMean, TransferStrength,
+            LayerTone, LayerStructure, LayerBright, LayerShadow);
     float maxRatio = max(MaxLumaRatio, 1.0);
     float logLimit = log2(maxRatio);
     float poweredLog = clamp(logRatio * TransferStrength * confidence,
                              -logLimit, logLimit);
-    // beta0.5: the legacy path is retained exactly for <=1x and A/B off.
+    if (layeredActive)
+        poweredLog = clamp(logRatio * lumaStrength * confidence, -logLimit, logLimit);
+    // With layers off/neutral, preserve dev1 arithmetic inside the public 0..4 range.
     // This is a spatial composite guard, not a model/history or exposure fix.
-    const bool protectBoost = (Passthrough & 1024u) != 0u &&
+    const bool boostProtectionEnabled = (Passthrough & 1024u) != 0u;
+    const bool protectBoost = boostProtectionEnabled &&
         TransferStrength > 1.0;
-    if (protectBoost) {
+    if (boostProtectionEnabled && lumaStrength > 1.0) {
         float baseLog = clamp(logRatio * confidence, -logLimit, logLimit);
         float budget = logLimit;
         if (baseLog > 0.0 && (Passthrough & (1u | 16u | 32u)) != 0u) {
@@ -2932,7 +2991,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
             budget = max(baseLog, min(logLimit, sdrHeadroom));
         }
         poweredLog = sign(baseLog) * SoftExtraMagnitudeV3(
-            abs(baseLog), TransferStrength - 1.0, budget);
+            abs(baseLog), lumaStrength - 1.0, budget);
     }
     float modelProxyTargetLuma = fullProxyLuma * exp2(poweredLog);
 
@@ -3284,6 +3343,10 @@ struct NrStageCaptureInfo {
     unsigned int proxy_curve = 0;
     float frame_confidence = 1.0f;
     float detail_stability = 0.0f;
+    float layer_tone = 1.0f;
+    float layer_structure = 1.0f;
+    float layer_bright = 1.0f;
+    float layer_shadow = 1.0f;
     bool motion_requested = false;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;
@@ -5899,6 +5962,10 @@ struct CodecConstants {
     unsigned int capture_roi_y;
     unsigned int capture_roi_width;
     unsigned int capture_roi_height;
+    float layer_tone = 1.0f;
+    float layer_structure = 1.0f;
+    float layer_bright = 1.0f;
+    float layer_shadow = 1.0f;
 };
 static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * sizeof(UINT));
 
@@ -5946,6 +6013,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     }
     const unsigned int base_codec_flags = source_flags |
         ((v2_combine && g_config.high_strength_protection) ? 1024u : 0u) |
+        ((v2_combine && g_config.layered_enhancement) ? 2048u : 0u) |
         (color_policy.effective_preserve_lighting ? 2u : 0u) |
         (capture_delta ? 8u : 0u) |
         ((hdr_input && color_contract.exposure_texture != nullptr) ? 64u : 0u) |
@@ -5972,6 +6040,10 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         f8_info.work_linear_scale=static_cast<float>(f8_info.model_width)/std::max(width,1u);
         f8_info.lighting_lock=v2_combine?g_config.lighting_lock:(g_config.preserve_lighting?1.f:0.f);
         f8_info.detail_stability=v2_combine?g_config.detail_stability:0.f;f8_info.motion_requested=g_config.motion_stability;
+        f8_info.layer_tone=v2_combine?g_config.layer_tone:1.f;
+        f8_info.layer_structure=v2_combine?g_config.layer_structure:1.f;
+        f8_info.layer_bright=v2_combine?g_config.layer_bright:1.f;
+        f8_info.layer_shadow=v2_combine?g_config.layer_shadow:1.f;
         f8_info.edge_guard=v2_combine?g_config.edge_guard:0.f;f8_info.proxy_curve=g_config.proxy_curve;
         f8_info.frame_confidence=std::clamp(frame_confidence,0.f,1.f);
         nr_f8::FrameTicket ticket={};
@@ -6066,6 +6138,10 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.lighting_lock = v2_combine ? g_config.lighting_lock :
             (g_config.preserve_lighting ? 1.0f : 0.0f);
         info.edge_guard = v2_combine ? g_config.edge_guard : 0.0f;
+        info.layer_tone = v2_combine ? g_config.layer_tone : 1.0f;
+        info.layer_structure = v2_combine ? g_config.layer_structure : 1.0f;
+        info.layer_bright = v2_combine ? g_config.layer_bright : 1.0f;
+        info.layer_shadow = v2_combine ? g_config.layer_shadow : 1.0f;
         info.proxy_curve = g_config.proxy_curve;
         info.frame_confidence = std::clamp(frame_confidence, 0.0f, 1.0f);
         info.pre_exposure = color_contract.pre_exposure;
@@ -6096,7 +6172,11 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         g_config.proxy_curve, std::clamp(frame_confidence, 0.0f, 1.0f),
         v2_combine ? g_config.detail_stability : 0.0f,
         f8_armed?f8_info.region_x:0u,f8_armed?f8_info.region_y:0u,
-        f8_armed?f8_info.region_width:0u,f8_armed?f8_info.region_height:0u};
+        f8_armed?f8_info.region_width:0u,f8_armed?f8_info.region_height:0u,
+        v2_combine ? g_config.layer_tone : 1.0f,
+        v2_combine ? g_config.layer_structure : 1.0f,
+        v2_combine ? g_config.layer_bright : 1.0f,
+        v2_combine ? g_config.layer_shadow : 1.0f};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
@@ -11300,13 +11380,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dev1 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dev2 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev1 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev2 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

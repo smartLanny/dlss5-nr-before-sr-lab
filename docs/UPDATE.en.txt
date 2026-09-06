@@ -1,4 +1,4 @@
-DLSS 5 NR Before SR beta0.5-dev1 experimental candidate
+DLSS 5 NR Before SR beta0.5-dev2 experimental candidate
 
 Not a Release or OTA. Based on the complete beta0.4.3r3 maintenance head.
 Mode2 adds opt-out HighStrengthProtection for extra amplification above 1x.

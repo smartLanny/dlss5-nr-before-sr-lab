@@ -363,7 +363,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
               UINT requested_stride, UINT flags, int variant,
               bool v2 = false, UINT requested_model_width = 0,
               UINT requested_model_height = 0,
-              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f) {
+              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f, Float4 layers = {1.f,1.f,1.f,1.f}) {
     constexpr UINT sx = 3, sy = 2, dx = 2, dy = 1;
     const UINT model_width = requested_model_width != 0
         ? requested_model_width : width;
@@ -404,6 +404,11 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     if (variant == 10) {
         std::fill(original.begin(), original.end(), Float4{0.22f, 0.32f, 0.14f, 0.625f});
         std::fill(neural.begin(), neural.end(), Float4{0.45f, 0.40f, 0.25f, 0.875f});
+    }
+    if (variant == 11) {
+        std::fill(original.begin(), original.end(), Float4{.60f,.55f,.50f,.625f});
+        std::fill(proxy.begin(), proxy.end(), Float4{.60f,.55f,.50f,.75f});
+        std::fill(neural.begin(), neural.end(), Float4{.42f,.385f,.35f,.875f});
     }
     if (variant == 3) neural[0].x = std::numeric_limits<float>::quiet_NaN();
     auto source_texture = gpu.MakeTexture(source_width, source_height, original);
@@ -451,11 +456,13 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     const float color_strength = variant == 5 ? 2.0f : 0.25f;
     const float max_luma_ratio = variant == 5 ? 16.0f : 2.0f;
     const float frame_confidence = variant == 4 ? 0.0f : 1.0f;
-    const CodecConstants constants = {width, height, 1.0f,
+    CodecConstants constants = {width, height, 1.0f,
         transfer_strength, exposure_case.source_to_canonical, color_strength, max_luma_ratio, flags,
         sx, sy, dx, dy, 0, 0, 0, 0, exposure_case.pre_exposure, stride,
         width, height, model_width, model_height,
         0.0f, 0.0f, 1u, frame_confidence, detail_stability, roi.x, roi.y, roi.width, roi.height};
+    constants.layer_tone = layers.x; constants.layer_structure = layers.y;
+    constants.layer_bright = layers.z; constants.layer_shadow = layers.w;
     ID3D12DescriptorHeap *heaps[] = {gpu.heap.p};
     gpu.list->SetDescriptorHeaps(1, heaps);
     gpu.list->SetComputeRootSignature(gpu.root.p);
@@ -564,15 +571,18 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
 }
 
 // @V3_BOOST_TESTS@
+// @LAYER_TESTS@
 
 int main(int argc, char **argv) {
     try {
         Gpu gpu;
         const bool negative_control = argc == 2 && std::strcmp(argv[1], "--negative-control") == 0;
-        Require(argc == 1 || negative_control, "Unknown codec harness argument");
+        const bool layer_negative = argc == 2 && std::strcmp(argv[1], "--layer-negative-control") == 0;
+        Require(argc == 1 || negative_control || layer_negative, "Unknown codec harness argument");
         ValidateProductionDescriptors(gpu);
         ValidateMotionResampleFormats(gpu);
         unsigned int scenarios = ValidateHighStrengthV3(gpu, negative_control);
+        scenarios += ValidateLayeredComposition(gpu, layer_negative);
         for (UINT flags : {0u, 1u, 16u, 32u, 128u, 256u, 384u}) {
             for (int variant = 0; variant < 4; ++variant) {
                 const auto off = Run(gpu, 13, 9, 0, 2, flags, variant);

@@ -28,26 +28,26 @@ current_identity_files = {
 }
 
 identity_requirements = {
-    "source": ['kAddonVersion = "beta0.5-dev1"', 'kBuildIdentity = "beta0.5-dev1"',
-               "DLSS 5 NR Perfect Chain beta0.5-dev1 (Chinese UI)",
-               "DLSS 5 AI Rendering Perfect Chain beta0.5-dev1"],
-    "resource": ["FILEVERSION 0,5,0,1", "PRODUCTVERSION 0,5,0,1",
-                 '"0.5.0 dev1 beta\\0"', "beta0.5-dev1-@"],
-    "build": ["DLSS5-AI渲染超分版-beta0.5-dev1-@",
-              "DLSS5-AI-Rendering-Upscaling-beta0.5-dev1-@"],
-    "package": ["$Version = 'beta0.5-dev1'",
-                "DLSS5-AI渲染超分版-beta0.5-dev1-@",
-                "DLSS5-AI-Rendering-Upscaling-beta0.5-dev1-@"],
+    "source": ['kAddonVersion = "beta0.5-dev2"', 'kBuildIdentity = "beta0.5-dev2"',
+               "DLSS 5 NR Perfect Chain beta0.5-dev2 (Chinese UI)",
+               "DLSS 5 AI Rendering Perfect Chain beta0.5-dev2"],
+    "resource": ["FILEVERSION 0,5,0,2", "PRODUCTVERSION 0,5,0,2",
+                 '"0.5.0 dev2 beta\\0"', "beta0.5-dev2-@"],
+    "build": ["DLSS5-AI渲染超分版-beta0.5-dev2-@",
+              "DLSS5-AI-Rendering-Upscaling-beta0.5-dev2-@"],
+    "package": ["$Version = 'beta0.5-dev2'",
+                "DLSS5-AI渲染超分版-beta0.5-dev2-@",
+                "DLSS5-AI-Rendering-Upscaling-beta0.5-dev2-@"],
     "feedback collector": ["collector_version = 'beta0.4.3'"],
     "crash collector": ["beta0.4.3-crash-evidence-2"],
-    "config": ["beta0.5-dev1 experimental candidate, not an OTA release"],
+    "config": ["beta0.5-dev2 experimental candidate, not an OTA release"],
     "README": ["beta0.4.3"],
-    "Chinese install": ["beta0.5-dev1"],
-    "English install": ["beta0.5-dev1"],
-    "Chinese install markdown": ["beta0.5-dev1"],
-    "English install markdown": ["beta0.5-dev1"],
-    "Chinese update": ["beta0.5-dev1"],
-    "English update": ["beta0.5-dev1"],
+    "Chinese install": ["beta0.5-dev2"],
+    "English install": ["beta0.5-dev2"],
+    "Chinese install markdown": ["beta0.5-dev2"],
+    "English install markdown": ["beta0.5-dev2"],
+    "Chinese update": ["beta0.5-dev2"],
+    "English update": ["beta0.5-dev2"],
     "release notes": ["beta0.4.3"],
 }
 for label, tokens in identity_requirements.items():
@@ -56,8 +56,8 @@ for label, tokens in identity_requirements.items():
         raise SystemExit(f"{label} has stale or incomplete release identity: {missing_identity}")
 
 required = [
-    'kAddonVersion = "beta0.5-dev1"',
-    'kBuildIdentity = "beta0.5-dev1"',
+    'kAddonVersion = "beta0.5-dev2"',
+    'kBuildIdentity = "beta0.5-dev2"',
     'ID3D12PipelineState *encode_v2',
     'ID3D12PipelineState *combine_v2',
     'void EncodeV2CS(',
@@ -79,8 +79,8 @@ if missing:
     raise SystemExit("missing beta0.4 markers: " + ", ".join(missing))
 
 match = re.search(r"constexpr UINT kCodecRootConstantCount = (\d+);", source)
-if not match or int(match.group(1)) != 31:
-    raise SystemExit("kCodecRootConstantCount must be 31")
+if not match or int(match.group(1)) != 35:
+    raise SystemExit("kCodecRootConstantCount must be 35")
 
 hlsl = re.search(
     r'const char kCodecShader\[\] = R"HLSL\((?P<body>[\s\S]*?)\)HLSL";',
@@ -94,8 +94,8 @@ cpp = re.search(r"struct CodecConstants \{(?P<body>[\s\S]*?)\};", source)
 if not cbuffer or not cpp:
     raise SystemExit("constant layouts not found")
 hlsl_fields = re.findall(r"^\s*(?:uint|float)\s+([A-Za-z0-9_]+)\s*;", cbuffer.group("body"), re.M)
-cpp_fields = re.findall(r"^\s*(?:unsigned int|float)\s+([A-Za-z0-9_]+)\s*;", cpp.group("body"), re.M)
-if len(hlsl_fields) != 31 or len(cpp_fields) != 31:
+cpp_fields = re.findall(r"^\s*(?:unsigned int|float)\s+([A-Za-z0-9_]+)(?:\s*=\s*[^;]+)?\s*;", cpp.group("body"), re.M)
+if len(hlsl_fields) != 35 or len(cpp_fields) != 35:
     raise SystemExit(f"constant layout count mismatch: HLSL={len(hlsl_fields)} C++={len(cpp_fields)}")
 normalize = lambda value: re.sub(r"[^a-z0-9]", "", value.lower())
 if [normalize(x) for x in hlsl_fields] != [normalize(x) for x in cpp_fields]:
@@ -144,4 +144,4 @@ if "source_to_work_x" not in source or "Jitter.Offset.X" not in source:
 if "FrameConfidence <= 0.000001" not in body:
     raise SystemExit("reset-frame confidence bypass missing")
 
-print("beta0.5-dev1 perfect-chain structural and release-identity validation passed")
+print("beta0.5-dev2 perfect-chain structural and release-identity validation passed")

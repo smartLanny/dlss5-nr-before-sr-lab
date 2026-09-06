@@ -1,7 +1,7 @@
 name: Public final-strength cap
 on:
   pull_request:
-    branches: [main, release/0.4]
+    branches: [main, release/0.4, next/0.5, codex/050-high-strength-guard]
 permissions:
   contents: read
 jobs:

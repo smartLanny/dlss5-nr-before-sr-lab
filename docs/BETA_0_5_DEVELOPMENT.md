@@ -1,3 +1,5 @@
+> Historical dev1 design below. Current dev2 adds opt-in single-inference layers and a hard public strength cap of 4; see [BETA_0_5_LAYERS.md](BETA_0_5_LAYERS.md). Historical 8x fixture discussion is not a supported user setting.
+
 # beta0.5-dev1：高强度保护与低成本编辑场开发线
 
 **这是实验候选，不是正式 Release，也不是已经完成的全部 0.5 重大更新。**
