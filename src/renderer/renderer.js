@@ -437,7 +437,7 @@ async function refreshGames() {
 async function runConfirmedAction(work, success, refresh = true, gameId = null) {
   return runAction(async () => {
     try {
-      return unwrap(await work(false));
+      return await window.resolveUiEnvelope(() => work(false), unwrap);
     } catch (error) {
       if (error.code !== 'ERR_ANTI_CHEAT_CONFIRM') throw error;
       setBusy(false);
@@ -448,7 +448,7 @@ async function runConfirmedAction(work, success, refresh = true, gameId = null) 
         throw cancelled;
       }
       setBusy(true);
-      return unwrap(await work(true));
+      return await window.resolveUiEnvelope(() => work(true), unwrap);
     }
   }, success, refresh, gameId);
 }

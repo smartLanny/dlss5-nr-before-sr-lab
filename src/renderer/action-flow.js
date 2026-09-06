@@ -21,5 +21,17 @@ async function executeUiAction(work, refresh = null) {
   return { completed: true, value, refreshError };
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { executeUiAction };
-else window.executeUiAction = executeUiAction;
+// Confirmed actions need to inspect a failed IPC envelope so that the
+// anti-cheat confirmation can be shown, but must keep a successful envelope
+// intact for runAction(), which performs the single final unwrap.
+async function resolveUiEnvelope(work, unwrap) {
+  const result = await work();
+  if (result && result.ok === true) return result;
+  return unwrap(result);
+}
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { executeUiAction, resolveUiEnvelope };
+else {
+  window.executeUiAction = executeUiAction;
+  window.resolveUiEnvelope = resolveUiEnvelope;
+}
