@@ -1,0 +1,162 @@
+format=DLSS5-LogSummary-v1
+source.bytes=259718
+scan.bytes=259718
+scan.complete=1
+lines.scanned=1395
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+07:40:22:256 [ 6996] | INFO  | Initializing crosire's ReShade version '6.7.3.2148' (64-bit) loaded from '[local-path]
+07:40:22:256 [ 6996] | INFO  | Registering hooks for 'user32.dll' ...
+07:40:22:256 [ 6996] | INFO  | > Libraries loaded.
+07:40:22:257 [ 6996] | INFO  | > Found 21 match(es). Installing ...
+07:40:22:284 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:284 [ 6996] | INFO  | > Delayed.
+07:40:22:285 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:285 [ 6996] | INFO  | > Delayed.
+07:40:22:285 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:285 [ 6996] | INFO  | > Delayed.
+07:40:22:286 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:286 [ 6996] | INFO  | > Libraries loaded.
+07:40:22:286 [ 6996] | INFO  | > Found 11 match(es). Installing ...
+07:40:22:312 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:313 [ 6996] | INFO  | > Delayed.
+07:40:22:313 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:313 [ 6996] | INFO  | > Delayed.
+07:40:22:314 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:314 [ 6996] | INFO  | > Libraries loaded.
+07:40:22:314 [ 6996] | INFO  | > Found 3 match(es). Installing ...
+07:40:22:340 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:340 [ 6996] | INFO  | > Delayed until first call to an exported function.
+07:40:22:340 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:341 [ 6996] | INFO  | > Libraries loaded.
+07:40:22:341 [ 6996] | INFO  | > Found 5 match(es). Installing ...
+07:40:22:366 [ 6996] | INFO  | Registering hooks for 'openvr_api.dll' ...
+07:40:22:366 [ 6996] | INFO  | > Delayed.
+07:40:22:366 [ 6996] | INFO  | Initialized.
+07:40:22:366 [ 6996] | INFO  | Installing export hooks for '[local-path]
+07:40:22:367 [ 6996] | INFO  | > Found 8 match(es). Installing ...
+07:40:22:367 [ 6996] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+=== FILTERED MIDDLE ===
+07:40:22:367 [ 6996] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+07:40:22:367 [ 6996] | INFO  | Loading add-on from '[local-path]
+07:40:22:400 [ 6996] | INFO  | Loading add-on from '[local-path]
+07:40:23:341 [ 6996] | INFO  | Registered add-on "RenoDX" v0.2026.828.1306 using ReShade API version 18.
+07:40:23:341 [ 6996] | INFO  | [RenoDX] utils::random attached...
+07:40:23:341 [ 6996] | INFO  | [RenoDX] PipelineLayoutUtil attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] utils::shader attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] DescriptorTableUtil attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] mods::shader attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] mods::shader(Attached Custom Shaders: 53 from 16239360 to [address])
+07:40:23:342 [ 6996] | INFO  | [RenoDX] mods::shader(Attached Injections: 35 at [address])
+07:40:23:342 [ 6996] | INFO  | [RenoDX] ResourceUtil attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] utils::swapchain attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] Resource upgrade attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] mods::swapchain attached.
+07:40:23:343 [ 6996] | INFO  | Loading add-on from '[local-path]
+07:40:23:765 [ 6996] | WARN  | [DLSS Fix] _renodx-dlssfix.addon64 is not listed in ADDON.LoadFromDllMain. Early DLSS hooks are not guaranteed for this session.
+07:40:23:765 [ 6996] | INFO  | [DLSS Fix] Pinned addon module to avoid unload.
+07:40:23:853 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D11_Init_with_ProjectID)
+07:40:23:853 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D12_Init_with_ProjectID)
+07:40:23:853 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D11_EvaluateFeature_C)
+07:40:23:854 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D12_EvaluateFeature_C)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: 1714968200, api: d3d12)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2a860b0f)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe684565e)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xba55d64d)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xed7679ca)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x152f9c49)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4ef0a3bb)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x6691f295)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xc998f274)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd18d8a41)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdcde30de)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x78e96492)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x972473d4)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3300ea97)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x9d8f9163)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x43483fd7)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x9b7c5123)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3514c8e5)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3ee7fe93)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x69f7cb0d)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7efbf817)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xabec133c)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf87dc33d)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x71c6ee59)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3338fa89)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x48ae954b)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xcb3efd82)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xde5ad011)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe97d41c7)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x92a0a9ac)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x91ed54e1)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x798ace19)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2c3e9989)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf8b26ae0)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8dac982a)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xa8277d9c)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8fcfef14)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdbec487c)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7c4a124d)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x600c14aa)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x436ce001)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4eb6e00e)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x51e854cf)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf31e31f7)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd2e356a6)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x1e413351)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x10a5fbba)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7591fd94)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x581ecaa5)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xab68a073)
+07:40:25:792 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x825afcc9)
+07:40:25:792 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x26ebfeec)
+07:40:25:792 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdfc0f998)
+07:40:25:792 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x17f3919b)
+07:40:25:792 [ 6996] | INFO  | [RenoDX] mods::shader::OnInitDevice(1714968200)
+07:40:25:792 [ 6996] | DEBUG | [RenoDX] utils::resource::upgrade::OnInitDevice(1714968200, api: d3d12)
+07:40:25:792 [ 6996] | INFO  | [RenoDX] mods::swapchain::OnInitDevice([address], native: [address])
+07:40:25:792 [ 6996] | INFO  | [RenoDX] utils::shader::OnDestroyDevice(1714968200)
+=== TAIL ===
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xcb3efd82)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xde5ad011)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe97d41c7)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x92a0a9ac)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x91ed54e1)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x798ace19)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2c3e9989)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf8b26ae0)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8dac982a)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xa8277d9c)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8fcfef14)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdbec487c)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7c4a124d)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x600c14aa)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x436ce001)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4eb6e00e)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x51e854cf)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf31e31f7)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd2e356a6)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x1e413351)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x10a5fbba)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7591fd94)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x581ecaa5)
+07:44:21:078 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xab68a073)
+07:44:21:078 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x825afcc9)
+07:44:21:078 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x26ebfeec)
+07:44:21:078 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdfc0f998)
+07:44:21:078 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x17f3919b)
+07:44:21:078 [ 6908] | INFO  | [RenoDX] mods::shader::OnInitDevice([address])
+07:44:21:078 [ 6908] | DEBUG | [RenoDX] utils::resource::upgrade::OnInitDevice([address], api: d3d11)
+07:44:21:078 [ 6908] | INFO  | [RenoDX] mods::swapchain::OnInitDevice([address], native: [address])
+07:44:21:078 [ 6908] | WARN  | [RenoDX] mods::shader::OnInitPipelineLayout(Forcing cbuffer index [address]: 13 )
+07:44:21:078 [ 6908] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout(Creating D3D11 Layout [address]: 1 )
+07:44:21:078 [ 6908] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 0, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:44:21:191 [ 6908] | INFO  | [RenoDX] utils::shader::OnDestroyDevice([address])
+07:44:21:191 [ 6908] | INFO  | [RenoDX] mods::shader::OnDestroyDevice([address])
+07:44:21:191 [ 6908] | INFO  | [RenoDX] utils::resource::upgrade::OnDestroyDevice([address])
+07:44:21:191 [ 6908] | INFO  | [RenoDX] mods::swapchain::OnDestroyDevice([address])
+07:44:21:191 [ 6908] | WARN  | Reference count for ID3D11Device0 object [address] ([address]) is inconsistent (6).
+07:44:21:191 [ 6908] | WARN  | Reference count for IDXGIAdapter0 object [address] ([address]) is inconsistent (3).

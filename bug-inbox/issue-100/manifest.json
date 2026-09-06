@@ -1,0 +1,55 @@
+{
+  "format": "DLSS5-DiagnosticBundle-v1",
+  "complete": true,
+  "required_complete": true,
+  "input_rejections": 0,
+  "metadata_entry": "capture-info.txt",
+  "metadata_text": "format=DLSS5-Core-v1\ncapture.kind=core\nsession=DLSS5_CORE_13636_4492906_4\nbuild=beta0.4.3r3\nlanguage=zh-CN\nexe.leaf=HTGame.exe\ngpu=NVIDIA GeForce RTX 5060 Ti\ndriver.raw=61664\ndriver.known=1\nvendor=4318\napi=49152\ndisplay.extent=1920x1080\ndisplay.storageFormat=24\ndisplay.colorSpace=1\nsnapshot.valid=1\nrequested.config=42\nrequested.enabled=1\nrequested.mode=2\nrequested.blend=1.02999997\nrequested.color=0.75\nrequested.workMode=1\nrequested.workScale=0.75\nrequested.lightingLock=0.400000006\nrequested.detailStability=0.689999998\nrequested.edgeGuard=0.379999995\nrequested.intensity=2\nrequested.localTone=2\nrequested.localStructure=2\nrequested.skin=0\nrequested.faceMask=1\nrequested.uiCorrection=1\nrequested.jitterMode=1\nrequested.style=2\napplied.instance=17\napplied.frame=11407\napplied.config=42\napplied.intensity=2\napplied.skin=0\ncapture.automaticSettingChanges=none\nconfig.writesToIni=0\nimages.requested=0\ngpu.readbackRequested=0\nfg.status=unavailable; this collector does not intercept FG\napplied.contract=historical successful NR; compare config generation and start/end counters\ncore.zipLimitBytes=8388608\ntimeline.columns=tag,elapsedMs,SRcarrier,featureGeneration,reset,jitterX,jitterY,mvScaleX,mvScaleY,preExposure,exposureScale,previousBypass\nstart.commandState.available=1\nstart.commandState.schema=1\nstart.commandState.ageMs=0\nstart.commandState.sequence=13850\nstart.commandState.token=102\nstart.commandState.reason=none\nstart.commandState.route=pristine-null\nstart.commandState.registered=1\nstart.commandState.hooksReady=1\nstart.commandState.guardRequested=1\nstart.commandState.guardCovered=1\nstart.commandState.freshReset=1\nstart.commandState.tainted=0\nstart.commandState.baseline=Reset\nstart.commandState.resetSerial=17142\nstart.commandState.pipelineWrites=0\nstart.commandState.nullBaseline=1\nstart.commandState.hasPso=0\nstart.commandState.hasDxrPso=0\nstart.commandState.dirty=0x0\nstart.commandState.dynamic=0x0\nstart.commandState.vertexMask=0x0\nstart.commandState.streamMask=0x0\nstart.commandState.metaKnown=1\nstart.commandState.metaInit=0x1020\nstart.commandState.metaExecute=0x1020\nstart.commandState.rootHeapPresence=0,0,1,1\nstart.commandState.rootArgumentCounts=0,0\nstart.ngxHookFailure.available=0\nstart.nrSuccess=11407\nstart.transferSubmitted=11077\nstart.bypass=none/active\nstart.srCarrierEvaluations=12779\nstart.lastCarrierFeature=1\nstart.rrLiveHandles=0\nstart.rrCreatesInProgress=0\nstart.rrEvaluations=0\nstart.otherNrOwner=0\nstart.genericRenoDxConflict=0\nstart.moduleObserverFault=none\nstart.feature1Preflight=0/0\nstart.preflightCoreLoaded=0\nstart.preflightDlssdLoaded=0\nstart.commandSignatureHook=1\nstart.commandSignatureDeferredStart=0\nstart.commandSignatureObserved=6\nstart.commandSignatureUnknownUses=0\nframe,15,12780,1,0,0.25,-0.388888896,1,1,1.68278551,1,none/active\nfeature.flags=75 feature.create=1920x1080->1920x1080\nresource.Color=dim:3 size:1920x1080 array:1 mip:1 format:26 samples:1 flags:1\nresource.Output=dim:3 size:1920x1080 array:1 mip:1 format:10 samples:1 flags:5\nresource.Depth=dim:3 size:1920x1080 array:1 mip:1 format:19 samples:1 flags:2\nresource.MotionVectors=dim:3 size:1920x1080 array:1 mip:1 format:34 samples:1 flags:4\nresource.ExposureTexture=absent\nframe,125,12786,1,0,0,-0.166666657,1,1,1.68271267,1,none/active\nframe,234,12793,1,0,-0.4375,0.388888955,1,1,1.68227661,1,none/active\nframe,344,12799,1,0,-0.125,-0.277777761,1,1,1.68173862,1,none/active\nframe,453,12806,1,0,0.125,0.277777791,1,1,1.68146253,1,none/active\nframe,562,12812,1,0,0.25,-0.388888896,1,1,1.68164074,1,none/active\nframe,672,12819,1,0,-0.25,0.166666687,1,1,1.68200278,1,none/active\nend.commandState.available=1\nend.commandState.schema=1\nend.commandState.ageMs=15\nend.commandState.sequence=13895\nend.commandState.token=77\nend.commandState.reason=none\nend.commandState.route=pristine-null\nend.commandState.registered=1\nend.commandState.hooksReady=1\nend.commandState.guardRequested=1\nend.commandState.guardCovered=1\nend.commandState.freshReset=1\nend.commandState.tainted=0\nend.commandState.baseline=Reset\nend.commandState.resetSerial=16521\nend.commandState.pipelineWrites=0\nend.commandState.nullBaseline=1\nend.commandState.hasPso=0\nend.commandState.hasDxrPso=0\nend.commandState.dirty=0x0\nend.commandState.dynamic=0x0\nend.commandState.vertexMask=0x0\nend.commandState.streamMask=0x0\nend.commandState.metaKnown=1\nend.commandState.metaInit=0x1020\nend.commandState.metaExecute=0x1020\nend.commandState.rootHeapPresence=0,0,1,1\nend.commandState.rootArgumentCounts=0,0\nend.ngxHookFailure.available=0\nend.nrSuccess=11452\nend.transferSubmitted=11122\nend.bypass=none/active\nend.srCarrierEvaluations=12824\nend.lastCarrierFeature=1\nend.rrLiveHandles=0\nend.rrCreatesInProgress=0\nend.rrEvaluations=0\nend.otherNrOwner=0\nend.genericRenoDxConflict=0\nend.moduleObserverFault=none\nend.feature1Preflight=0/0\nend.preflightCoreLoaded=0\nend.preflightDlssdLoaded=0\nend.commandSignatureHook=1\nend.commandSignatureDeferredStart=0\nend.commandSignatureObserved=6\nend.commandSignatureUnknownUses=0\ncollection.elapsedMs=765\ncollection.parameterSamples=7\ncollection.cancelled=0\nartifact.sourceCommit=d42a8eb23778bc602d0d638193872d41216c2203\nartifact.sourceDirty=0\nartifact.addonSha256=66025ed43aeb26e0417ca79485d52aad0fa2d66d67d5b96518c3f325690fd541\nartifact.identityStatus=verified\nmodule.0=dxgi.dll\nmodule.1=d3d12.dll\nmodule.2=d3d12.dll\nmodule.3=DLSS5-AI???????????????-beta0.4.3r3-@??????????????????-Bilibili.addon64\nmodule.4=D3DCOMPILER_47.dll\nmodule.5=nvwgf2umx.dll\nmodule.6=sl.dlss_g.dll\nmodule.7=_nvngx.dll\nmodule.8=nvngx_dlssg.dll\nmodule.9=nvngx_deepdvc.dll\nmodule.10=nvngx_dlss.dll\nmodule.11=nvngx_dlssd.dll\nmodule.12=nrchain_nvngx.dll\nmodule.13=nvngx_dlssnr.dll\nmodules.contract=names only; no module bytes or process addresses collected\ncolor.status=recent-recorded-combine\ncolor.requested=0.75\ncolor.effective=0\ncolor.reason=unverified-hdr-luminance-only\ncolor.contract=last recorded blend; not a measured picture strength\ncollection.metadataTruncated=0\n",
+  "collection": "explicit allowlist only; no directory recursion, uploads or process dumps",
+  "live_log_contract": "initial-length bounded byte snapshot; concurrent writes may be non-atomic; SHA256 covers copied bytes only",
+  "module_hash_contract": "hash of opened loaded-module path file; not a memory-image hash; DLL bytes are not included",
+  "entries": [
+    {
+      "name": "logs/nr-current-summary.txt",
+      "kind": "copy",
+      "status": "included",
+      "required": true,
+      "reason": "",
+      "win32_error": 0,
+      "source_size": 164839,
+      "source_offset": 0,
+      "bytes": 164839,
+      "source_changed_during_read": false,
+      "sha256": "760abc4c4ccb98cff2929780a2910cb6c0448642371c6bac4e58174d1b2d8c1b",
+      "crc32": 853706434
+    },
+    {
+      "name": "logs/nr-previous-summary.txt",
+      "kind": "copy",
+      "status": "included",
+      "required": false,
+      "reason": "",
+      "win32_error": 0,
+      "source_size": 117726,
+      "source_offset": 0,
+      "bytes": 117726,
+      "source_changed_during_read": false,
+      "sha256": "6a83a61a5ec083f969b6098546608accaaf4b4e6b96cef737c39d841a217fc5c",
+      "crc32": 573756552
+    },
+    {
+      "name": "logs/reshade-addon-summary.txt",
+      "kind": "copy",
+      "status": "included",
+      "required": false,
+      "reason": "",
+      "win32_error": 0,
+      "source_size": 41524,
+      "source_offset": 0,
+      "bytes": 41524,
+      "source_changed_during_read": false,
+      "sha256": "ac1ed711a60aa20cebcaea928120798a061e8b8011400c918b3e257fe27fabb8",
+      "crc32": 3666350399
+    }
+  ]
+}

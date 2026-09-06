@@ -1,0 +1,55 @@
+{
+  "format": "DLSS5-DiagnosticBundle-v1",
+  "complete": true,
+  "required_complete": true,
+  "input_rejections": 0,
+  "metadata_entry": "capture-info.txt",
+  "metadata_text": "format=DLSS5-Core-v1\ncapture.kind=core\nsession=\nbuild=beta0.4.4-test1\nlanguage=zh-CN\nexe.leaf=HTGame.exe\ngpu=NVIDIA GeForce RTX 5080\ndriver.raw=61664\ndriver.known=1\nvendor=4318\napi=49152\ndisplay.extent=3440x1440\ndisplay.storageFormat=24\ndisplay.colorSpace=1\nsnapshot.valid=1\nrequested.config=16\nrequested.enabled=1\nrequested.mode=1\nrequested.blend=2\nrequested.color=1\nrequested.workMode=0\nrequested.workScale=0.75\nrequested.lightingLock=0\nrequested.detailStability=0\nrequested.edgeGuard=0\nrequested.intensity=1.5\nrequested.localTone=1.60000002\nrequested.localStructure=2\nrequested.skin=0\nrequested.faceMask=1\nrequested.uiCorrection=0\nrequested.jitterMode=1\nrequested.style=2\napplied.instance=4\napplied.frame=5600\napplied.config=15\napplied.intensity=1.5\napplied.skin=0\ncapture.automaticSettingChanges=none\nconfig.writesToIni=0\nimages.requested=0\ngpu.readbackRequested=0\nfg.status=unavailable; this collector does not intercept FG\napplied.contract=historical successful NR; compare config generation and start/end counters\ncore.zipLimitBytes=8388608\ntimeline.columns=tag,elapsedMs,SRcarrier,featureGeneration,reset,jitterX,jitterY,mvScaleX,mvScaleY,preExposure,exposureScale,previousBypass\nstart.commandState.available=1\nstart.commandState.schema=1\nstart.commandState.ageMs=0\nstart.commandState.sequence=7630\nstart.commandState.token=80\nstart.commandState.reason=null-guard-graphics-state-used\nstart.commandState.route=native-bypass\nstart.commandState.registered=1\nstart.commandState.hooksReady=1\nstart.commandState.guardRequested=1\nstart.commandState.guardCovered=1\nstart.commandState.freshReset=1\nstart.commandState.tainted=0\nstart.commandState.baseline=Reset\nstart.commandState.resetSerial=8424\nstart.commandState.pipelineWrites=0\nstart.commandState.nullBaseline=1\nstart.commandState.hasPso=0\nstart.commandState.hasDxrPso=0\nstart.commandState.dirty=0x0\nstart.commandState.dynamic=0x8\nstart.commandState.vertexMask=0x0\nstart.commandState.streamMask=0x0\nstart.commandState.metaKnown=1\nstart.commandState.metaInit=0x1020\nstart.commandState.metaExecute=0x1020\nstart.commandState.rootHeapPresence=0,0,1,1\nstart.commandState.rootArgumentCounts=0,0\nstart.ngxHookFailure.available=0\nstart.nrSuccess=5600\nstart.transferSubmitted=5580\nstart.bypass=command-state-unverified\nstart.srCarrierEvaluations=6842\nstart.lastCarrierFeature=1\nstart.rrLiveHandles=0\nstart.rrCreatesInProgress=0\nstart.rrEvaluations=0\nstart.otherNrOwner=0\nstart.genericRenoDxConflict=0\nstart.moduleObserverFault=none\nstart.feature1Preflight=0/0\nstart.preflightCoreLoaded=0\nstart.preflightDlssdLoaded=0\nstart.commandSignatureHook=1\nstart.commandSignatureDeferredStart=0\nstart.commandSignatureObserved=6\nstart.commandSignatureUnknownUses=0\nend.commandState.available=1\nend.commandState.schema=1\nend.commandState.ageMs=16\nend.commandState.sequence=7690\nend.commandState.token=177\nend.commandState.reason=null-guard-graphics-state-used\nend.commandState.route=native-bypass\nend.commandState.registered=1\nend.commandState.hooksReady=1\nend.commandState.guardRequested=1\nend.commandState.guardCovered=1\nend.commandState.freshReset=1\nend.commandState.tainted=0\nend.commandState.baseline=Reset\nend.commandState.resetSerial=5403\nend.commandState.pipelineWrites=0\nend.commandState.nullBaseline=1\nend.commandState.hasPso=0\nend.commandState.hasDxrPso=0\nend.commandState.dirty=0x0\nend.commandState.dynamic=0x8\nend.commandState.vertexMask=0x0\nend.commandState.streamMask=0x0\nend.commandState.metaKnown=1\nend.commandState.metaInit=0x1020\nend.commandState.metaExecute=0x1020\nend.commandState.rootHeapPresence=0,0,1,1\nend.commandState.rootArgumentCounts=0,0\nend.ngxHookFailure.available=0\nend.nrSuccess=5600\nend.transferSubmitted=5580\nend.bypass=command-state-unverified\nend.srCarrierEvaluations=6872\nend.lastCarrierFeature=1\nend.rrLiveHandles=0\nend.rrCreatesInProgress=0\nend.rrEvaluations=0\nend.otherNrOwner=0\nend.genericRenoDxConflict=0\nend.moduleObserverFault=none\nend.feature1Preflight=0/0\nend.preflightCoreLoaded=0\nend.preflightDlssdLoaded=0\nend.commandSignatureHook=1\nend.commandSignatureDeferredStart=0\nend.commandSignatureObserved=6\nend.commandSignatureUnknownUses=0\ncollection.elapsedMs=750\ncollection.parameterSamples=0\ncollection.cancelled=0\nartifact.sourceCommit=1a8490a2c76d93b0c5e4cc50b8d4f178df55eb83\nartifact.sourceDirty=0\nartifact.addonSha256=38386426f02f879b9f50219b1af9b868f97efd810bd93acb6fb69f75fb64c600\nartifact.identityStatus=verified\nmodule.0=dxgi.dll\nmodule.1=d3d12.dll\nmodule.2=d3d12.dll\nmodule.3=DLSS5-AI???????????????-beta0.4.4-test1-@??????????????????-Bilibili.addon64\nmodule.4=D3DCOMPILER_47.dll\nmodule.5=nvwgf2umx.dll\nmodule.6=_nvngx.dll\nmodule.7=nvngx_deepdvc.dll\nmodule.8=nvngx_dlss.dll\nmodule.9=nrchain_nvngx.dll\nmodule.10=nvngx_dlssnr.dll\nmodules.contract=names only; no module bytes or process addresses collected\ncolor.status=bypassed\ncolor.requested=1\ncolor.effective=0\ncolor.reason=unverified-hdr-luminance-only\ncolor.contract=last recorded blend; not a measured picture strength\ncollection.metadataTruncated=0\n",
+  "collection": "explicit allowlist only; no directory recursion, uploads or process dumps",
+  "live_log_contract": "initial-length bounded byte snapshot; concurrent writes may be non-atomic; SHA256 covers copied bytes only",
+  "module_hash_contract": "hash of opened loaded-module path file; not a memory-image hash; DLL bytes are not included",
+  "entries": [
+    {
+      "name": "logs/nr-current-summary.txt",
+      "kind": "copy",
+      "status": "included",
+      "required": true,
+      "reason": "",
+      "win32_error": 0,
+      "source_size": 148869,
+      "source_offset": 0,
+      "bytes": 148869,
+      "source_changed_during_read": false,
+      "sha256": "f5b5adf0526b1f1e949b4ac362116e6e0aa629bbf018093d6b657379ec78f7a2",
+      "crc32": 4136143586
+    },
+    {
+      "name": "logs/nr-previous-summary.txt",
+      "kind": "copy",
+      "status": "included",
+      "required": false,
+      "reason": "",
+      "win32_error": 0,
+      "source_size": 128943,
+      "source_offset": 0,
+      "bytes": 128943,
+      "source_changed_during_read": false,
+      "sha256": "37462f5e80b4ad51f2eb910e4c3564add28c869a726fccd40957070e3e375574",
+      "crc32": 2621273169
+    },
+    {
+      "name": "logs/reshade-addon-summary.txt",
+      "kind": "copy",
+      "status": "included",
+      "required": false,
+      "reason": "",
+      "win32_error": 0,
+      "source_size": 46103,
+      "source_offset": 0,
+      "bytes": 46103,
+      "source_changed_during_read": false,
+      "sha256": "7f50fe7ad59af76fe49ac63a00d408758103d2fd5ab21202951dca48b186cc07",
+      "crc32": 738208027
+    }
+  ]
+}

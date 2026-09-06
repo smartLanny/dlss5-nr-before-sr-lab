@@ -1,0 +1,162 @@
+format=DLSS5-LogSummary-v1
+source.bytes=59939
+scan.bytes=59939
+scan.complete=1
+lines.scanned=388
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+07:32:09:471 [27232] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from '[local-path]
+07:32:09:503 [27232] | INFO  | Registering hooks for 'user32.dll' ...
+07:32:09:503 [27232] | INFO  | > Libraries loaded.
+07:32:09:504 [27232] | INFO  | > Found 21 match(es). Installing ...
+07:32:09:533 [27232] | INFO  | Registering hooks for '[local-path]
+07:32:09:533 [27232] | INFO  | > Delayed.
+07:32:09:533 [27232] | INFO  | Registering hooks for '[local-path]
+07:32:09:533 [27232] | INFO  | > Libraries loaded.
+07:32:09:535 [27232] | INFO  | > Found 2 match(es). Installing ...
+07:32:09:563 [27232] | INFO  | Registering hooks for '[local-path]
+07:32:09:563 [27232] | INFO  | > Delayed.
+07:32:09:563 [27232] | INFO  | Registering hooks for '[local-path]
+07:32:09:563 [27232] | INFO  | > Delayed.
+07:32:09:565 [27232] | INFO  | Registering hooks for '[local-path]
+07:32:09:565 [27232] | INFO  | > Delayed.
+07:32:09:565 [27232] | INFO  | Registering hooks for '[local-path]
+07:32:09:565 [27232] | INFO  | > Delayed.
+07:32:09:565 [27232] | INFO  | Registering hooks for '[local-path]
+07:32:09:566 [27232] | INFO  | > Delayed.
+07:32:09:566 [27232] | INFO  | Registering hooks for '[local-path]
+07:32:09:566 [27232] | INFO  | > Delayed.
+07:32:09:566 [27232] | INFO  | Registering hooks for '[local-path]
+07:32:09:566 [27232] | INFO  | > Delayed until first call to an exported function.
+07:32:09:566 [27232] | INFO  | Registering hooks for 'openvr_api.dll' ...
+07:32:09:566 [27232] | INFO  | > Delayed.
+07:32:09:566 [27232] | INFO  | Initialized.
+07:32:09:602 [10252] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:32:09:602 [28620] | WARN  | Ignoring LoadLibrary('ext-ms-win-mininput-inputhost-l1-1-1.dll') call to avoid possible deadlock.
+07:32:11:178 [23624] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:32:11:179 [23624] | WARN  | Ignoring LoadLibrary('api-ms-win-security-systemfunctions-l1-1-0') call to avoid possible deadlock.
+07:32:11:180 [18924] | INFO  | Installing delayed hooks for '[local-path]
+=== FILTERED MIDDLE ===
+07:33:31:340 [22140] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:31:419 [17200] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:31:422 [12768] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:32:967 [11676] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+07:33:32:967 [11676] | INFO  | Loading add-on from '[local-path]
+07:33:32:978 [11676] | INFO  | Loading add-on from '[local-path]
+07:33:32:999 [11676] | INFO  | Registered add-on "ERSSReShadeStub" v1.1.0.0 using ReShade API version 17.
+07:33:33:007 [11676] | INFO  | Registered add-on "ERSS-FG Early Access" v4.16.1.1 using ReShade API version 17.
+07:33:33:221 [11676] | WARN  | Ignoring LoadLibrary('msasn1.dll') call to avoid possible deadlock.
+07:33:33:269 [24756] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:33:273 [28480] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:33:973 [11676] | WARN  | Ignoring LoadLibrary('cryptnet.dll') call to avoid possible deadlock.
+07:33:34:175 [27744] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:34:178 [11676] | WARN  | Ignoring LoadLibrary('cryptnet.dll') call to avoid possible deadlock.
+07:33:34:180 [28576] | WARN  | Ignoring LoadLibrary('msasn1.dll') call to avoid possible deadlock.
+07:33:34:182 [11676] | WARN  | Ignoring LoadLibrary('wldp.dll') call to avoid possible deadlock.
+07:33:34:185 [28576] | WARN  | Ignoring LoadLibrary('cryptbase.dll') call to avoid possible deadlock.
+07:33:34:187 [11676] | WARN  | Ignoring LoadLibrary('devobj.dll') call to avoid possible deadlock.
+07:33:34:189 [28576] | WARN  | Ignoring LoadLibrary('drvstore.dll') call to avoid possible deadlock.
+07:33:34:192 [11676] | WARN  | Ignoring LoadLibrary('gdi32.dll') call to avoid possible deadlock.
+07:33:34:194 [28576] | WARN  | Ignoring LoadLibrary('crypt32.dll') call to avoid possible deadlock.
+07:33:34:202 [27640] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:34:213 [11676] | WARN  | Ignoring LoadLibrary('api-ms-win-core-synch-l1-2-0') call to avoid possible deadlock.
+07:33:46:195 [26680] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:46:198 [21544] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:46:229 [ 8176] | WARN  | Ignoring LoadLibrary('[local-path]
+07:33:46:232 [26680] | WARN  | Ignoring LoadLibrary('[local-path]
+07:33:46:236 [17216] | WARN  | Ignoring LoadLibrary('[local-path]
+07:33:49:597 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:49:652 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:50:425 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:50:479 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:50:554 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:49:597 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:49:597 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:49:652 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:50:425 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:50:479 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:50:554 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:50:609 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:50:674 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:50:723 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:50:787 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:33:50:837 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+07:32:09:471 [27232] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from '[local-path]
+07:32:09:503 [27232] | INFO  | > Libraries loaded.
+07:32:09:533 [27232] | INFO  | > Libraries loaded.
+07:32:09:602 [10252] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:32:09:602 [28620] | WARN  | Ignoring LoadLibrary('ext-ms-win-mininput-inputhost-l1-1-1.dll') call to avoid possible deadlock.
+07:32:11:178 [23624] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:32:11:179 [23624] | WARN  | Ignoring LoadLibrary('api-ms-win-security-systemfunctions-l1-1-0') call to avoid possible deadlock.
+07:33:31:340 [22140] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:31:419 [17200] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:31:422 [12768] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:32:967 [11676] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+07:33:32:967 [11676] | INFO  | Loading add-on from '[local-path]
+07:33:32:978 [11676] | INFO  | Loading add-on from '[local-path]
+07:33:32:999 [11676] | INFO  | Registered add-on "ERSSReShadeStub" v1.1.0.0 using ReShade API version 17.
+07:33:33:007 [11676] | INFO  | Registered add-on "ERSS-FG Early Access" v4.16.1.1 using ReShade API version 17.
+07:33:33:221 [11676] | WARN  | Ignoring LoadLibrary('msasn1.dll') call to avoid possible deadlock.
+07:33:33:269 [24756] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:33:273 [28480] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:33:973 [11676] | WARN  | Ignoring LoadLibrary('cryptnet.dll') call to avoid possible deadlock.
+07:33:34:175 [27744] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:34:178 [11676] | WARN  | Ignoring LoadLibrary('cryptnet.dll') call to avoid possible deadlock.
+07:33:34:180 [28576] | WARN  | Ignoring LoadLibrary('msasn1.dll') call to avoid possible deadlock.
+07:33:34:182 [11676] | WARN  | Ignoring LoadLibrary('wldp.dll') call to avoid possible deadlock.
+07:33:34:185 [28576] | WARN  | Ignoring LoadLibrary('cryptbase.dll') call to avoid possible deadlock.
+07:33:34:187 [11676] | WARN  | Ignoring LoadLibrary('devobj.dll') call to avoid possible deadlock.
+07:33:34:189 [28576] | WARN  | Ignoring LoadLibrary('drvstore.dll') call to avoid possible deadlock.
+07:33:34:192 [11676] | WARN  | Ignoring LoadLibrary('gdi32.dll') call to avoid possible deadlock.
+07:33:34:194 [28576] | WARN  | Ignoring LoadLibrary('crypt32.dll') call to avoid possible deadlock.
+07:33:34:202 [27640] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:34:213 [11676] | WARN  | Ignoring LoadLibrary('api-ms-win-core-synch-l1-2-0') call to avoid possible deadlock.
+07:33:46:195 [26680] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:46:198 [21544] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+07:33:46:229 [ 8176] | WARN  | Ignoring LoadLibrary('[local-path]
+07:33:46:232 [26680] | WARN  | Ignoring LoadLibrary('[local-path]
+07:33:46:236 [17216] | WARN  | Ignoring LoadLibrary('[local-path]
+07:33:49:597 [11676] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+=== TAIL ===
+07:34:01:906 [11676] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+07:34:01:956 [11676] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:34:02:019 [11676] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+07:34:02:019 [11676] | INFO  | > Dumping command queue description:
+07:34:02:019 [11676] | INFO  |   +-----------------------------------------+-----------------------------------------+
+07:34:02:019 [11676] | INFO  |   | Parameter                               | Value                                   |
+07:34:02:019 [11676] | INFO  |   +-----------------------------------------+-----------------------------------------+
+07:34:02:019 [11676] | INFO  |   | Type                                    | 0                                       |
+07:34:02:019 [11676] | INFO  |   | Priority                                | 0                                       |
+07:34:02:019 [11676] | INFO  |   | Flags                                   | 0                                       |
+07:34:02:019 [11676] | INFO  |   | NodeMask                                | 0                                       |
+07:34:02:019 [11676] | INFO  |   +-----------------------------------------+-----------------------------------------+
+07:34:03:662 [17444] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+07:34:10:926 [17444] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+07:34:23:981 [25884] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:35:10:638 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:11:537 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:12:542 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:13:553 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:14:559 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:15:561 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:16:566 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:17:582 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:18:696 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:19:594 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:20:604 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:21:616 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:22:616 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:23:620 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:24:621 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:25:638 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:26:631 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:27:639 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:28:768 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:30:092 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:31:003 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:32:131 [11676] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+07:35:34:392 [25884] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:35:34:399 [25884] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:35:34:408 [25884] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...

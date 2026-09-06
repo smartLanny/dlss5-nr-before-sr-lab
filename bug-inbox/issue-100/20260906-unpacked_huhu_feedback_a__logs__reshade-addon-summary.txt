@@ -1,0 +1,469 @@
+format=DLSS5-LogSummary-v1
+source.bytes=30134
+scan.bytes=30134
+scan.complete=1
+lines.scanned=219
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+00:22:31:021 [31092] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from '[local-path]
+00:22:31:050 [31092] | INFO  | Registering hooks for 'user32.dll' ...
+00:22:31:050 [31092] | INFO  | > Libraries loaded.
+00:22:31:051 [31092] | INFO  | > Found 21 match(es). Installing ...
+00:22:31:082 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:083 [31092] | INFO  | > Delayed.
+00:22:31:083 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:083 [31092] | INFO  | > Delayed.
+00:22:31:083 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:083 [31092] | INFO  | > Delayed.
+00:22:31:083 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:085 [31092] | INFO  | > Delayed.
+00:22:31:085 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:085 [31092] | INFO  | > Delayed.
+00:22:31:085 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:085 [31092] | INFO  | > Delayed.
+00:22:31:085 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:085 [31092] | INFO  | > Libraries loaded.
+00:22:31:085 [31092] | INFO  | > Found 3 match(es). Installing ...
+00:22:31:114 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:114 [31092] | INFO  | > Delayed.
+00:22:31:114 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:114 [31092] | INFO  | > Delayed until first call to an exported function.
+00:22:31:114 [31092] | INFO  | Registering hooks for 'openvr_api.dll' ...
+00:22:31:114 [31092] | INFO  | > Delayed.
+00:22:31:114 [31092] | INFO  | Initialized.
+00:22:31:188 [36988] | INFO  | Installing delayed hooks for '[local-path]
+00:22:31:188 [36988] | INFO  | > Found 2 match(es). Installing ...
+00:22:31:410 [31092] | INFO  | Redirecting RegisterClassExW(lpWndClassEx = [address] { "SteamWinsockInitFakeClass_1", style = 0 }) ...
+00:22:32:548 [31092] | INFO  | Redirecting RegisterClassExW(lpWndClassEx = [address] { "via", style = 0xb }) ...
+00:22:32:548 [31092] | INFO  | > Adding 'CS_OWNDC' window class style flag to "via".
+00:22:33:076 [31092] | INFO  | Installing delayed hooks for '[local-path]
+00:22:33:076 [31092] | INFO  | > Found 8 match(es). Installing ...
+00:22:33:553 [31092] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:33:553 [31092] | INFO  | Installing export hooks for '[local-path]
+00:22:33:555 [31092] | INFO  | > Found 5 match(es). Installing ...
+00:22:33:566 [31092] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c100, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+00:22:33:568 [31092] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:33:747 [31092] | WARN  | Ignoring LoadLibrary('msasn1.dll') call to avoid possible deadlock.
+00:22:33:764 [30496] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:33:765 [26288] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:33:769 [31092] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c100, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+00:22:33:769 [31092] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+00:22:33:769 [31092] | INFO  | Loading add-on from '[local-path]
+00:22:33:775 [31092] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.3 (Chinese UI) | Bilibili UID 941799" v0.4.3.0 using ReShade API version 18.
+00:22:33:777 [31092] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:33:954 [37776] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:34:312 [31092] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+00:22:34:601 [31092] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+00:22:34:601 [31092] | INFO  | > Dumping command queue description:
+00:22:34:601 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:601 [31092] | INFO  |   | Parameter                               | Value                                   |
+00:22:34:601 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:601 [31092] | INFO  |   | Type                                    | 0                                       |
+00:22:34:601 [31092] | INFO  |   | Priority                                | 0                                       |
+00:22:34:601 [31092] | INFO  |   | Flags                                   | 0                                       |
+00:22:34:601 [31092] | INFO  |   | NodeMask                                | 1                                       |
+00:22:34:601 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:637 [31092] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+00:22:34:638 [31092] | INFO  | > Dumping command queue description:
+00:22:34:638 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:638 [31092] | INFO  |   | Parameter                               | Value                                   |
+00:22:34:638 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:638 [31092] | INFO  |   | Type                                    | 2                                       |
+00:22:34:638 [31092] | INFO  |   | Priority                                | 100                                     |
+00:22:34:638 [31092] | INFO  |   | Flags                                   | 0                                       |
+00:22:34:638 [31092] | INFO  |   | NodeMask                                | 1                                       |
+00:22:34:638 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:654 [31092] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+00:22:34:654 [31092] | INFO  | > Dumping command queue description:
+00:22:34:654 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:654 [31092] | INFO  |   | Parameter                               | Value                                   |
+00:22:34:654 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:655 [31092] | INFO  |   | Type                                    | 2                                       |
+00:22:34:655 [31092] | INFO  |   | Priority                                | 0                                       |
+00:22:34:655 [31092] | INFO  |   | Flags                                   | 0                                       |
+00:22:34:655 [31092] | INFO  |   | NodeMask                                | 1                                       |
+00:22:34:655 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:671 [31092] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+00:22:34:671 [31092] | INFO  | > Dumping command queue description:
+00:22:34:671 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:671 [31092] | INFO  |   | Parameter                               | Value                                   |
+00:22:34:671 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:671 [31092] | INFO  |   | Type                                    | 3                                       |
+00:22:34:671 [31092] | INFO  |   | Priority                                | 0                                       |
+00:22:34:671 [31092] | INFO  |   | Flags                                   | 0                                       |
+00:22:34:672 [31092] | INFO  |   | NodeMask                                | 0                                       |
+00:22:34:672 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:693 [31092] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+00:22:34:825 [31092] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+00:22:34:918 [31092] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798031-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+00:22:35:243 [23216] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForHwnd(this = [address], pDevice = [address], hWnd = [address], pDesc = [address], pFullscreenDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+00:22:35:244 [23216] | INFO  | > Dumping swap chain description:
+00:22:35:244 [23216] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:35:244 [23216] | INFO  |   | Parameter                               | Value                                   |
+00:22:35:244 [23216] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:35:244 [23216] | INFO  |   | Width                                   | 1920                                    |
+00:22:35:244 [23216] | INFO  |   | Height                                  | 1080                                    |
+00:22:35:244 [23216] | INFO  |   | RefreshRate                             | 0                   0                   |
+00:22:35:244 [23216] | INFO  |   | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |
+00:22:35:244 [23216] | INFO  |   | Stereo                                  | FALSE                                   |
+00:22:35:245 [23216] | INFO  |   | ScanlineOrdering                        | 0                                       |
+00:22:35:245 [23216] | INFO  |   | Scaling                                 | 0                                       |
+00:22:35:245 [23216] | INFO  |   | SampleCount                             | 1                                       |
+00:22:35:245 [23216] | INFO  |   | SampleQuality                           | 0                                       |
+00:22:35:245 [23216] | INFO  |   | BufferUsage                             | 0x20                                    |
+00:22:35:245 [23216] | INFO  |   | BufferCount                             | 3                                       |
+00:22:35:245 [23216] | INFO  |   | Windowed                                | TRUE                                    |
+00:22:35:245 [23216] | INFO  |   | SwapEffect                              | 4                                       |
+00:22:35:245 [23216] | INFO  |   | AlphaMode                               | 0                                       |
+00:22:35:245 [23216] | INFO  |   | Flags                                   | 0x842                                   |
+00:22:35:245 [23216] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:35:255 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:35:258 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:35:261 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:35:263 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:35:266 [23216] | INFO  | Running on NVIDIA GeForce RTX 5060 Ti Driver 616.64.
+00:22:36:164 [23216] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+00:22:36:202 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:202 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:209 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B80-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:209 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B81-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:209 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:210 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:215 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B82-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:216 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B83-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:216 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B15FC9D0-761D-11F1-8001-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:218 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B166F5C0-761D-11F1-8005-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:219 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B16288F0-761D-11F1-8002-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:222 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B164ABD0-761D-11F1-8003-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:224 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B166F5C0-761D-11F1-8006-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:227 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B166F5C0-761D-11F1-8004-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:240 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {749A20E0-76CC-11F1-8001-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:241 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B1676AF0-761D-11F1-8007-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:339 [36988] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:36:342 [19492] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:36:344 [32436] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:36:345 [20712] | INFO  | Successfully compiled '[local-path]
+00:22:36:346 [26996] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:36:348 [34156] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:36:348 [37100] | INFO  | Successfully compiled '[local-path]
+00:22:36:351 [36988] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:36:355 [34972] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+00:22:36:368 [28844] | INFO  | Successfully compiled '[local-path]
+00:22:36:368 [29300] | INFO  | Successfully compiled '[local-path]
+00:22:36:369 [26840] | INFO  | Successfully compiled '[local-path]
+00:22:36:370 [32404] | INFO  | Successfully compiled '[local-path]
+00:22:36:371 [19492] | INFO  | Successfully compiled '[local-path]
+00:22:36:373 [36324] | INFO  | Successfully compiled '[local-path]
+00:22:36:373 [27636] | INFO  | Successfully compiled '[local-path]
+00:22:36:375 [32308] | INFO  | Successfully compiled '[local-path]
+00:22:36:375 [32436] | INFO  | Successfully compiled '[local-path]
+00:22:36:376 [34736] | INFO  | Successfully compiled '[local-path]
+00:22:36:377 [34156] | INFO  | Successfully compiled '[local-path]
+00:22:36:391 [  304] | WARN  | Ignoring LoadLibrary('winmm.dll') call to avoid possible deadlock.
+00:22:36:399 [  304] | INFO  | Redirecting IDXGISwapChain::SetFullscreenState(this = [address], Fullscreen = FALSE, pTarget = [address]) ...
+00:22:36:401 [36988] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForComposition(this = [address], pDevice = [address], pDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+00:22:36:402 [36988] | INFO  | > Dumping swap chain description:
+00:22:36:402 [36988] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:36:402 [36988] | INFO  |   | Parameter                               | Value                                   |
+00:22:36:402 [36988] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:36:402 [36988] | INFO  |   | Width                                   | 1                                       |
+00:22:36:402 [36988] | INFO  |   | Height                                  | 1                                       |
+00:22:36:402 [36988] | INFO  |   | Format                                  | DXGI_FORMAT_B8G8R8A8_UNORM              |
+00:22:36:402 [36988] | INFO  |   | Stereo                                  | FALSE                                   |
+00:22:36:402 [36988] | INFO  |   | SampleCount                             | 1                                       |
+00:22:36:402 [36988] | INFO  |   | SampleQuality                           | 0                                       |
+00:22:36:403 [36988] | INFO  |   | BufferUsage                             | 0x20                                    |
+00:22:36:403 [36988] | INFO  |   | BufferCount                             | 2                                       |
+00:22:36:403 [36988] | INFO  |   | SwapEffect                              | 3                                       |
+00:22:36:403 [36988] | INFO  |   | AlphaMode                               | 1                                       |
+00:22:36:403 [36988] | INFO  |   | Flags                                   | 0                                       |
+00:22:36:403 [36988] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:36:419 [26996] | INFO  | Successfully compiled '[local-path]
+00:22:36:429 [36988] | WARN  | Skipping swap chain because it was created without a proxy Direct3D device.
+00:22:37:610 [  304] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798031-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+00:22:37:610 [  304] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:40:538 [31696] | WARN  | Ignoring LoadLibrary('[local-path]
+00:22:40:704 [21252] | WARN  | Ignoring LoadLibrary('[local-path]
+00:22:40:708 [21252] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:40:714 [26908] | WARN  | Ignoring LoadLibrary('[local-path]
+00:22:40:719 [26908] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:40:907 [  304] | WARN  | Ignoring LoadLibrary('cryptnet.dll') call to avoid possible deadlock.
+00:22:40:908 [  304] | WARN  | Ignoring LoadLibrary('cryptbase.dll') call to avoid possible deadlock.
+00:22:40:909 [  304] | WARN  | Ignoring LoadLibrary('wldp.dll') call to avoid possible deadlock.
+00:22:40:910 [31696] | WARN  | Ignoring LoadLibrary('drvstore.dll') call to avoid possible deadlock.
+00:22:40:911 [  304] | WARN  | Ignoring LoadLibrary('Advapi32.dll') call to avoid possible deadlock.
+00:22:40:912 [  304] | WARN  | Ignoring LoadLibrary('nvapi64.dll') call to avoid possible deadlock.
+00:23:18:475 [  304] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:18:477 [  304] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:18:480 [  304] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:32:156 [  304] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:32:160 [  304] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:32:163 [  304] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:24:16:521 [  304] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 2, Width = 1920, Height = 1080, NewFormat = 28, SwapChainFlags = 0x842) ...
+00:24:16:526 [  304] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+00:24:16:816 [  304] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+00:24:16:832 [ 3652] | INFO  | Successfully compiled '[local-path]
+00:24:16:833 [33140] | INFO  | Successfully compiled '[local-path]
+00:24:16:852 [27004] | INFO  | Successfully compiled '[local-path]
+00:24:16:854 [21888] | INFO  | Successfully compiled '[local-path]
+00:24:16:860 [33592] | INFO  | Successfully compiled '[local-path]
+00:24:16:866 [25284] | INFO  | Successfully compiled '[local-path]
+00:24:16:869 [32320] | INFO  | Successfully compiled '[local-path]
+00:24:16:870 [35832] | INFO  | Successfully compiled '[local-path]
+00:24:16:878 [24228] | INFO  | Successfully compiled '[local-path]
+00:24:16:881 [35456] | INFO  | Successfully compiled '[local-path]
+00:24:16:885 [36700] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+00:24:16:887 [34172] | INFO  | Successfully compiled '[local-path]
+00:24:16:888 [37140] | INFO  | Successfully compiled '[local-path]
+00:24:16:895 [27956] | INFO  | Successfully compiled '[local-path]
+00:24:16:915 [35084] | INFO  | Successfully compiled '[local-path]
+00:25:23:530 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:25:23:533 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:25:23:535 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+
+[first events]
+
+[recent important]
+00:22:31:050 [31092] | INFO  | Registering hooks for 'user32.dll' ...
+00:22:31:082 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:083 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:083 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:083 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:085 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:085 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:085 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:114 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:114 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:114 [31092] | INFO  | Registering hooks for 'openvr_api.dll' ...
+00:22:31:188 [36988] | INFO  | Installing delayed hooks for '[local-path]
+00:22:33:076 [31092] | INFO  | Installing delayed hooks for '[local-path]
+00:22:33:553 [31092] | INFO  | Installing export hooks for '[local-path]
+00:22:33:566 [31092] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c100, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+00:22:33:769 [31092] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c100, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+
+[tail]
+00:22:31:021 [31092] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from '[local-path]
+00:22:31:050 [31092] | INFO  | Registering hooks for 'user32.dll' ...
+00:22:31:050 [31092] | INFO  | > Libraries loaded.
+00:22:31:051 [31092] | INFO  | > Found 21 match(es). Installing ...
+00:22:31:082 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:083 [31092] | INFO  | > Delayed.
+00:22:31:083 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:083 [31092] | INFO  | > Delayed.
+00:22:31:083 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:083 [31092] | INFO  | > Delayed.
+00:22:31:083 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:085 [31092] | INFO  | > Delayed.
+00:22:31:085 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:085 [31092] | INFO  | > Delayed.
+00:22:31:085 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:085 [31092] | INFO  | > Delayed.
+00:22:31:085 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:085 [31092] | INFO  | > Libraries loaded.
+00:22:31:085 [31092] | INFO  | > Found 3 match(es). Installing ...
+00:22:31:114 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:114 [31092] | INFO  | > Delayed.
+00:22:31:114 [31092] | INFO  | Registering hooks for '[local-path]
+00:22:31:114 [31092] | INFO  | > Delayed until first call to an exported function.
+00:22:31:114 [31092] | INFO  | Registering hooks for 'openvr_api.dll' ...
+00:22:31:114 [31092] | INFO  | > Delayed.
+00:22:31:114 [31092] | INFO  | Initialized.
+00:22:31:188 [36988] | INFO  | Installing delayed hooks for '[local-path]
+00:22:31:188 [36988] | INFO  | > Found 2 match(es). Installing ...
+00:22:31:410 [31092] | INFO  | Redirecting RegisterClassExW(lpWndClassEx = [address] { "SteamWinsockInitFakeClass_1", style = 0 }) ...
+00:22:32:548 [31092] | INFO  | Redirecting RegisterClassExW(lpWndClassEx = [address] { "via", style = 0xb }) ...
+00:22:32:548 [31092] | INFO  | > Adding 'CS_OWNDC' window class style flag to "via".
+00:22:33:076 [31092] | INFO  | Installing delayed hooks for '[local-path]
+00:22:33:076 [31092] | INFO  | > Found 8 match(es). Installing ...
+00:22:33:553 [31092] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:33:553 [31092] | INFO  | Installing export hooks for '[local-path]
+00:22:33:555 [31092] | INFO  | > Found 5 match(es). Installing ...
+00:22:33:566 [31092] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c100, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+00:22:33:568 [31092] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:33:747 [31092] | WARN  | Ignoring LoadLibrary('msasn1.dll') call to avoid possible deadlock.
+00:22:33:764 [30496] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:33:765 [26288] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:33:769 [31092] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c100, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+00:22:33:769 [31092] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+00:22:33:769 [31092] | INFO  | Loading add-on from '[local-path]
+00:22:33:775 [31092] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.3 (Chinese UI) | Bilibili UID 941799" v0.4.3.0 using ReShade API version 18.
+00:22:33:777 [31092] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:33:954 [37776] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:34:312 [31092] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+00:22:34:601 [31092] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+00:22:34:601 [31092] | INFO  | > Dumping command queue description:
+00:22:34:601 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:601 [31092] | INFO  |   | Parameter                               | Value                                   |
+00:22:34:601 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:601 [31092] | INFO  |   | Type                                    | 0                                       |
+00:22:34:601 [31092] | INFO  |   | Priority                                | 0                                       |
+00:22:34:601 [31092] | INFO  |   | Flags                                   | 0                                       |
+00:22:34:601 [31092] | INFO  |   | NodeMask                                | 1                                       |
+00:22:34:601 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:637 [31092] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+00:22:34:638 [31092] | INFO  | > Dumping command queue description:
+00:22:34:638 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:638 [31092] | INFO  |   | Parameter                               | Value                                   |
+00:22:34:638 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:638 [31092] | INFO  |   | Type                                    | 2                                       |
+00:22:34:638 [31092] | INFO  |   | Priority                                | 100                                     |
+00:22:34:638 [31092] | INFO  |   | Flags                                   | 0                                       |
+00:22:34:638 [31092] | INFO  |   | NodeMask                                | 1                                       |
+00:22:34:638 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:654 [31092] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+00:22:34:654 [31092] | INFO  | > Dumping command queue description:
+00:22:34:654 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:654 [31092] | INFO  |   | Parameter                               | Value                                   |
+00:22:34:654 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:655 [31092] | INFO  |   | Type                                    | 2                                       |
+00:22:34:655 [31092] | INFO  |   | Priority                                | 0                                       |
+00:22:34:655 [31092] | INFO  |   | Flags                                   | 0                                       |
+00:22:34:655 [31092] | INFO  |   | NodeMask                                | 1                                       |
+00:22:34:655 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:671 [31092] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+00:22:34:671 [31092] | INFO  | > Dumping command queue description:
+00:22:34:671 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:671 [31092] | INFO  |   | Parameter                               | Value                                   |
+00:22:34:671 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:671 [31092] | INFO  |   | Type                                    | 3                                       |
+00:22:34:671 [31092] | INFO  |   | Priority                                | 0                                       |
+00:22:34:671 [31092] | INFO  |   | Flags                                   | 0                                       |
+00:22:34:672 [31092] | INFO  |   | NodeMask                                | 0                                       |
+00:22:34:672 [31092] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:34:693 [31092] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+00:22:34:825 [31092] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+00:22:34:918 [31092] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798031-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+00:22:35:243 [23216] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForHwnd(this = [address], pDevice = [address], hWnd = [address], pDesc = [address], pFullscreenDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+00:22:35:244 [23216] | INFO  | > Dumping swap chain description:
+00:22:35:244 [23216] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:35:244 [23216] | INFO  |   | Parameter                               | Value                                   |
+00:22:35:244 [23216] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:35:244 [23216] | INFO  |   | Width                                   | 1920                                    |
+00:22:35:244 [23216] | INFO  |   | Height                                  | 1080                                    |
+00:22:35:244 [23216] | INFO  |   | RefreshRate                             | 0                   0                   |
+00:22:35:244 [23216] | INFO  |   | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |
+00:22:35:244 [23216] | INFO  |   | Stereo                                  | FALSE                                   |
+00:22:35:245 [23216] | INFO  |   | ScanlineOrdering                        | 0                                       |
+00:22:35:245 [23216] | INFO  |   | Scaling                                 | 0                                       |
+00:22:35:245 [23216] | INFO  |   | SampleCount                             | 1                                       |
+00:22:35:245 [23216] | INFO  |   | SampleQuality                           | 0                                       |
+00:22:35:245 [23216] | INFO  |   | BufferUsage                             | 0x20                                    |
+00:22:35:245 [23216] | INFO  |   | BufferCount                             | 3                                       |
+00:22:35:245 [23216] | INFO  |   | Windowed                                | TRUE                                    |
+00:22:35:245 [23216] | INFO  |   | SwapEffect                              | 4                                       |
+00:22:35:245 [23216] | INFO  |   | AlphaMode                               | 0                                       |
+00:22:35:245 [23216] | INFO  |   | Flags                                   | 0x842                                   |
+00:22:35:245 [23216] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:35:255 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:35:258 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:35:261 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:35:263 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:35:266 [23216] | INFO  | Running on NVIDIA GeForce RTX 5060 Ti Driver 616.64.
+00:22:36:164 [23216] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+00:22:36:202 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:202 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:209 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B80-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:209 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B81-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:209 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:210 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:215 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B82-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:216 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B83-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:216 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B15FC9D0-761D-11F1-8001-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:218 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B166F5C0-761D-11F1-8005-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:219 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B16288F0-761D-11F1-8002-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:222 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B164ABD0-761D-11F1-8003-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:224 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B166F5C0-761D-11F1-8006-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:227 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B166F5C0-761D-11F1-8004-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:240 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {749A20E0-76CC-11F1-8001-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:241 [23216] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {B1676AF0-761D-11F1-8007-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:36:339 [36988] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:36:342 [19492] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:36:344 [32436] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:36:345 [20712] | INFO  | Successfully compiled '[local-path]
+00:22:36:346 [26996] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:36:348 [34156] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:36:348 [37100] | INFO  | Successfully compiled '[local-path]
+00:22:36:351 [36988] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:36:355 [34972] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+00:22:36:368 [28844] | INFO  | Successfully compiled '[local-path]
+00:22:36:368 [29300] | INFO  | Successfully compiled '[local-path]
+00:22:36:369 [26840] | INFO  | Successfully compiled '[local-path]
+00:22:36:370 [32404] | INFO  | Successfully compiled '[local-path]
+00:22:36:371 [19492] | INFO  | Successfully compiled '[local-path]
+00:22:36:373 [36324] | INFO  | Successfully compiled '[local-path]
+00:22:36:373 [27636] | INFO  | Successfully compiled '[local-path]
+00:22:36:375 [32308] | INFO  | Successfully compiled '[local-path]
+00:22:36:375 [32436] | INFO  | Successfully compiled '[local-path]
+00:22:36:376 [34736] | INFO  | Successfully compiled '[local-path]
+00:22:36:377 [34156] | INFO  | Successfully compiled '[local-path]
+00:22:36:391 [  304] | WARN  | Ignoring LoadLibrary('winmm.dll') call to avoid possible deadlock.
+00:22:36:399 [  304] | INFO  | Redirecting IDXGISwapChain::SetFullscreenState(this = [address], Fullscreen = FALSE, pTarget = [address]) ...
+00:22:36:401 [36988] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForComposition(this = [address], pDevice = [address], pDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+00:22:36:402 [36988] | INFO  | > Dumping swap chain description:
+00:22:36:402 [36988] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:36:402 [36988] | INFO  |   | Parameter                               | Value                                   |
+00:22:36:402 [36988] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:36:402 [36988] | INFO  |   | Width                                   | 1                                       |
+00:22:36:402 [36988] | INFO  |   | Height                                  | 1                                       |
+00:22:36:402 [36988] | INFO  |   | Format                                  | DXGI_FORMAT_B8G8R8A8_UNORM              |
+00:22:36:402 [36988] | INFO  |   | Stereo                                  | FALSE                                   |
+00:22:36:402 [36988] | INFO  |   | SampleCount                             | 1                                       |
+00:22:36:402 [36988] | INFO  |   | SampleQuality                           | 0                                       |
+00:22:36:403 [36988] | INFO  |   | BufferUsage                             | 0x20                                    |
+00:22:36:403 [36988] | INFO  |   | BufferCount                             | 2                                       |
+00:22:36:403 [36988] | INFO  |   | SwapEffect                              | 3                                       |
+00:22:36:403 [36988] | INFO  |   | AlphaMode                               | 1                                       |
+00:22:36:403 [36988] | INFO  |   | Flags                                   | 0                                       |
+00:22:36:403 [36988] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:22:36:419 [26996] | INFO  | Successfully compiled '[local-path]
+00:22:36:429 [36988] | WARN  | Skipping swap chain because it was created without a proxy Direct3D device.
+00:22:37:610 [  304] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798031-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+00:22:37:610 [  304] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:22:40:538 [31696] | WARN  | Ignoring LoadLibrary('[local-path]
+00:22:40:704 [21252] | WARN  | Ignoring LoadLibrary('[local-path]
+00:22:40:708 [21252] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:40:714 [26908] | WARN  | Ignoring LoadLibrary('[local-path]
+00:22:40:719 [26908] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:22:40:907 [  304] | WARN  | Ignoring LoadLibrary('cryptnet.dll') call to avoid possible deadlock.
+00:22:40:908 [  304] | WARN  | Ignoring LoadLibrary('cryptbase.dll') call to avoid possible deadlock.
+00:22:40:909 [  304] | WARN  | Ignoring LoadLibrary('wldp.dll') call to avoid possible deadlock.
+00:22:40:910 [31696] | WARN  | Ignoring LoadLibrary('drvstore.dll') call to avoid possible deadlock.
+00:22:40:911 [  304] | WARN  | Ignoring LoadLibrary('Advapi32.dll') call to avoid possible deadlock.
+00:22:40:912 [  304] | WARN  | Ignoring LoadLibrary('nvapi64.dll') call to avoid possible deadlock.
+00:23:18:475 [  304] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:18:477 [  304] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:18:480 [  304] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:32:156 [  304] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:32:160 [  304] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:32:163 [  304] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:24:16:521 [  304] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 2, Width = 1920, Height = 1080, NewFormat = 28, SwapChainFlags = 0x842) ...
+00:24:16:526 [  304] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+00:24:16:816 [  304] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+00:24:16:832 [ 3652] | INFO  | Successfully compiled '[local-path]
+00:24:16:833 [33140] | INFO  | Successfully compiled '[local-path]
+00:24:16:852 [27004] | INFO  | Successfully compiled '[local-path]
+00:24:16:854 [21888] | INFO  | Successfully compiled '[local-path]
+00:24:16:860 [33592] | INFO  | Successfully compiled '[local-path]
+00:24:16:866 [25284] | INFO  | Successfully compiled '[local-path]
+00:24:16:869 [32320] | INFO  | Successfully compiled '[local-path]
+00:24:16:870 [35832] | INFO  | Successfully compiled '[local-path]
+00:24:16:878 [24228] | INFO  | Successfully compiled '[local-path]
+00:24:16:881 [35456] | INFO  | Successfully compiled '[local-path]
+00:24:16:885 [36700] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+00:24:16:887 [34172] | INFO  | Successfully compiled '[local-path]
+00:24:16:888 [37140] | INFO  | Successfully compiled '[local-path]
+00:24:16:895 [27956] | INFO  | Successfully compiled '[local-path]
+00:24:16:915 [35084] | INFO  | Successfully compiled '[local-path]
+00:25:23:530 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:25:23:533 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:25:23:535 [23216] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...

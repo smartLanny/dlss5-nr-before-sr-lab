@@ -1,0 +1,756 @@
+format=DLSS5-LogSummary-v1
+source.bytes=259718
+scan.bytes=259718
+scan.complete=1
+lines.scanned=1395
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+07:40:22:256 [ 6996] | INFO  | Initializing crosire's ReShade version '6.7.3.2148' (64-bit) loaded from '[local-path]
+07:40:22:256 [ 6996] | INFO  | Registering hooks for 'user32.dll' ...
+07:40:22:256 [ 6996] | INFO  | > Libraries loaded.
+07:40:22:257 [ 6996] | INFO  | > Found 21 match(es). Installing ...
+07:40:22:284 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:284 [ 6996] | INFO  | > Delayed.
+07:40:22:285 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:285 [ 6996] | INFO  | > Delayed.
+07:40:22:285 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:285 [ 6996] | INFO  | > Delayed.
+07:40:22:286 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:286 [ 6996] | INFO  | > Libraries loaded.
+07:40:22:286 [ 6996] | INFO  | > Found 11 match(es). Installing ...
+07:40:22:312 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:313 [ 6996] | INFO  | > Delayed.
+07:40:22:313 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:313 [ 6996] | INFO  | > Delayed.
+07:40:22:314 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:314 [ 6996] | INFO  | > Libraries loaded.
+07:40:22:314 [ 6996] | INFO  | > Found 3 match(es). Installing ...
+07:40:22:340 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:340 [ 6996] | INFO  | > Delayed until first call to an exported function.
+07:40:22:340 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:341 [ 6996] | INFO  | > Libraries loaded.
+07:40:22:341 [ 6996] | INFO  | > Found 5 match(es). Installing ...
+07:40:22:366 [ 6996] | INFO  | Registering hooks for 'openvr_api.dll' ...
+07:40:22:366 [ 6996] | INFO  | > Delayed.
+07:40:22:366 [ 6996] | INFO  | Initialized.
+07:40:22:366 [ 6996] | INFO  | Installing export hooks for '[local-path]
+07:40:22:367 [ 6996] | INFO  | > Found 8 match(es). Installing ...
+07:40:22:367 [ 6996] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+07:40:22:367 [ 6996] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+07:40:22:367 [ 6996] | INFO  | Loading add-on from '[local-path]
+07:40:22:400 [ 6996] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799" v0.4.4.1 using ReShade API version 18.
+07:40:22:400 [ 6996] | INFO  | Loading add-on from '[local-path]
+07:40:23:341 [ 6996] | INFO  | Registered add-on "RenoDX" v0.2026.828.1306 using ReShade API version 18.
+07:40:23:341 [ 6996] | INFO  | [RenoDX] utils::random attached...
+07:40:23:341 [ 6996] | INFO  | [RenoDX] PipelineLayoutUtil attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] utils::shader attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] DescriptorTableUtil attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] mods::shader attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] mods::shader(Attached Custom Shaders: 53 from 16239360 to [address])
+07:40:23:342 [ 6996] | INFO  | [RenoDX] mods::shader(Attached Injections: 35 at [address])
+07:40:23:342 [ 6996] | INFO  | [RenoDX] ResourceUtil attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] utils::swapchain attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] Resource upgrade attached.
+07:40:23:342 [ 6996] | INFO  | [RenoDX] mods::swapchain attached.
+07:40:23:343 [ 6996] | INFO  | Loading add-on from '[local-path]
+07:40:23:765 [ 6996] | INFO  | Registered add-on "DLSS Fix" v0.2026.828.1306 using ReShade API version 18.
+07:40:23:765 [ 6996] | WARN  | [DLSS Fix] _renodx-dlssfix.addon64 is not listed in ADDON.LoadFromDllMain. Early DLSS hooks are not guaranteed for this session.
+07:40:23:765 [ 6996] | INFO  | [DLSS Fix] Pinned addon module to avoid unload.
+07:40:23:766 [ 6996] | INFO  | [DLSS Fix] utils::dlss_hook attached.
+07:40:23:785 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slInithooked with [address] => [address] ([address] ) ([address]))
+07:40:23:785 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slSetTaghooked with [address] => [address] ([address] ) ([address]))
+07:40:23:785 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slSetD3DDevicehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:785 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slSetTagForFramehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:785 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slUpgradeInterfacehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:785 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slEvaluateFeaturehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slGetFeatureFunctionhooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slGetNativeInterfacehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(CreateDXGIFactoryhooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(CreateDXGIFactory1hooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(CreateDXGIFactory2hooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(D3D12CreateDevicehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(D3D12GetInterfacehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:852 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D11_Inithooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D12_Inithooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D11_Init_with_ProjectID)
+07:40:23:853 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D12_Init_with_ProjectID)
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D11_Shutdown1hooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D12_Shutdown1hooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D11_CreateFeaturehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D12_CreateFeaturehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D11_EvaluateFeaturehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D12_EvaluateFeaturehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D11_EvaluateFeature_C)
+07:40:23:854 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D12_EvaluateFeature_C)
+07:40:23:854 [ 6996] | INFO  | [DLSS Fix] ResourceUtil attached.
+07:40:23:874 [ 6996] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: 1714968200, api: d3d12)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2a860b0f)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe684565e)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xba55d64d)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xed7679ca)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x152f9c49)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4ef0a3bb)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x6691f295)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xc998f274)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd18d8a41)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdcde30de)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x78e96492)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x972473d4)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3300ea97)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x9d8f9163)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x43483fd7)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x9b7c5123)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3514c8e5)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3ee7fe93)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x69f7cb0d)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7efbf817)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xabec133c)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf87dc33d)
+07:40:25:789 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x71c6ee59)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3338fa89)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x48ae954b)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xcb3efd82)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xde5ad011)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe97d41c7)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x92a0a9ac)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x91ed54e1)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x798ace19)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2c3e9989)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf8b26ae0)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8dac982a)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xa8277d9c)
+07:40:25:790 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8fcfef14)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdbec487c)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7c4a124d)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x600c14aa)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x436ce001)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4eb6e00e)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x51e854cf)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf31e31f7)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd2e356a6)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x1e413351)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x10a5fbba)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7591fd94)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x581ecaa5)
+07:40:25:791 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xab68a073)
+07:40:25:792 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x825afcc9)
+07:40:25:792 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x26ebfeec)
+07:40:25:792 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdfc0f998)
+07:40:25:792 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x17f3919b)
+07:40:25:792 [ 6996] | INFO  | [RenoDX] mods::shader::OnInitDevice(1714968200)
+07:40:25:792 [ 6996] | DEBUG | [RenoDX] utils::resource::upgrade::OnInitDevice(1714968200, api: d3d12)
+07:40:25:792 [ 6996] | INFO  | [RenoDX] mods::swapchain::OnInitDevice([address], native: [address])
+07:40:25:792 [ 6996] | INFO  | [RenoDX] utils::shader::OnDestroyDevice(1714968200)
+07:40:25:792 [ 6996] | INFO  | [RenoDX] mods::shader::OnDestroyDevice(1714968200)
+07:40:25:792 [ 6996] | INFO  | [RenoDX] utils::resource::upgrade::OnDestroyDevice(1714968200)
+07:40:25:792 [ 6996] | INFO  | [RenoDX] mods::swapchain::OnDestroyDevice(1714968200)
+07:40:25:792 [ 6996] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799" ...
+07:40:25:793 [ 6996] | WARN  | Add-on "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799" was not unregistered!
+07:40:25:793 [ 6996] | INFO  | Unloading add-on "RenoDX" ...
+07:40:25:793 [ 6996] | INFO  | Unregistered add-on "RenoDX".
+07:40:25:793 [ 6996] | INFO  | ResourceUtil detached.
+07:40:25:793 [ 6996] | INFO  | Unloading add-on "DLSS Fix" ...
+07:40:25:793 [ 6996] | WARN  | Add-on "DLSS Fix" was not unregistered!
+07:40:25:991 [ 6996] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+07:40:25:992 [ 6996] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799" ...
+07:40:25:992 [ 6996] | INFO  | Loading externally registered add-on "DLSS Fix" ...
+07:40:25:992 [ 6996] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+07:40:25:992 [ 6996] | INFO  | Loading add-on from '[local-path]
+07:40:25:993 [ 6996] | INFO  | Registered add-on "RenoDX" v0.2026.828.1306 using ReShade API version 18.
+07:40:25:993 [ 6996] | INFO  | [RenoDX] utils::random attached...
+07:40:25:993 [ 6996] | INFO  | [RenoDX] PipelineLayoutUtil attached.
+07:40:25:993 [ 6996] | INFO  | [RenoDX] utils::shader attached.
+07:40:25:993 [ 6996] | INFO  | [RenoDX] DescriptorTableUtil attached.
+07:40:25:994 [ 6996] | INFO  | [RenoDX] mods::shader attached.
+07:40:25:994 [ 6996] | INFO  | [RenoDX] mods::shader(Attached Custom Shaders: 53 from 16239360 to [address])
+07:40:25:994 [ 6996] | INFO  | [RenoDX] mods::shader(Attached Injections: 35 at [address])
+07:40:25:994 [ 6996] | INFO  | [RenoDX] ResourceUtil attached.
+07:40:25:994 [ 6996] | INFO  | [RenoDX] utils::swapchain attached.
+07:40:25:994 [ 6996] | INFO  | [RenoDX] Resource upgrade attached.
+07:40:25:994 [ 6996] | INFO  | [RenoDX] mods::swapchain attached.
+07:40:25:995 [ 6996] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:40:26:046 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: 181076456, api: d3d12)
+07:40:26:046 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2a860b0f)
+07:40:26:046 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe684565e)
+07:40:26:046 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xba55d64d)
+07:40:26:046 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xed7679ca)
+07:40:26:046 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x152f9c49)
+07:40:26:046 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4ef0a3bb)
+07:40:26:046 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x6691f295)
+07:40:26:046 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xc998f274)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd18d8a41)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdcde30de)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x78e96492)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x972473d4)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3300ea97)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x9d8f9163)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x43483fd7)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x9b7c5123)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3514c8e5)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3ee7fe93)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x69f7cb0d)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7efbf817)
+07:40:26:047 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xabec133c)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf87dc33d)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x71c6ee59)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3338fa89)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x48ae954b)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xcb3efd82)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xde5ad011)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe97d41c7)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x92a0a9ac)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x91ed54e1)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x798ace19)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2c3e9989)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf8b26ae0)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8dac982a)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xa8277d9c)
+07:40:26:048 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8fcfef14)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdbec487c)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7c4a124d)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x600c14aa)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x436ce001)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4eb6e00e)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x51e854cf)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf31e31f7)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd2e356a6)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x1e413351)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x10a5fbba)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7591fd94)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x581ecaa5)
+07:40:26:049 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xab68a073)
+07:40:26:050 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x825afcc9)
+07:40:26:050 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x26ebfeec)
+07:40:26:050 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdfc0f998)
+07:40:26:050 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x17f3919b)
+07:40:26:050 [ 6996] | INFO  | [RenoDX] mods::shader::OnInitDevice(181076456)
+07:40:26:050 [ 6996] | DEBUG | [RenoDX] utils::resource::upgrade::OnInitDevice(181076456, api: d3d12)
+07:40:26:050 [ 6996] | INFO  | [RenoDX] mods::swapchain::OnInitDevice([address], native: [address])
+07:40:26:050 [ 6996] | INFO  | [RenoDX] utils::shader::OnDestroyDevice(181076456)
+07:40:26:050 [ 6996] | INFO  | [RenoDX] mods::shader::OnDestroyDevice(181076456)
+07:40:26:050 [ 6996] | INFO  | [RenoDX] utils::resource::upgrade::OnDestroyDevice(181076456)
+07:40:26:050 [ 6996] | INFO  | [RenoDX] mods::swapchain::OnDestroyDevice(181076456)
+07:40:26:050 [ 6996] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799" ...
+07:40:26:051 [ 6996] | INFO  | Unloading add-on "DLSS Fix" ...
+07:40:26:051 [ 6996] | INFO  | Unloading add-on "RenoDX" ...
+07:40:26:051 [ 6996] | INFO  | Unregistered add-on "RenoDX".
+07:40:26:051 [ 6996] | INFO  | ResourceUtil detached.
+07:40:26:064 [ 6996] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+07:40:26:064 [ 6996] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799" ...
+07:40:26:064 [ 6996] | INFO  | Loading externally registered add-on "DLSS Fix" ...
+07:40:26:064 [ 6996] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+07:40:26:064 [ 6996] | INFO  | Loading add-on from '[local-path]
+07:40:26:064 [ 6996] | INFO  | Registered add-on "RenoDX" v0.2026.828.1306 using ReShade API version 18.
+07:40:26:064 [ 6996] | INFO  | [RenoDX] utils::random attached...
+07:40:26:065 [ 6996] | INFO  | [RenoDX] PipelineLayoutUtil attached.
+07:40:26:065 [ 6996] | INFO  | [RenoDX] utils::shader attached.
+07:40:26:065 [ 6996] | INFO  | [RenoDX] DescriptorTableUtil attached.
+07:40:26:065 [ 6996] | INFO  | [RenoDX] mods::shader attached.
+07:40:26:065 [ 6996] | INFO  | [RenoDX] mods::shader(Attached Custom Shaders: 53 from 16239360 to [address])
+07:40:26:065 [ 6996] | INFO  | [RenoDX] mods::shader(Attached Injections: 35 at [address])
+07:40:26:066 [ 6996] | INFO  | [RenoDX] ResourceUtil attached.
+07:40:26:066 [ 6996] | INFO  | [RenoDX] utils::swapchain attached.
+07:40:26:066 [ 6996] | INFO  | [RenoDX] Resource upgrade attached.
+07:40:26:066 [ 6996] | INFO  | [RenoDX] mods::swapchain attached.
+07:40:26:066 [ 6996] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:40:26:073 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: 181074760, api: d3d12)
+07:40:26:073 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2a860b0f)
+07:40:26:073 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe684565e)
+07:40:26:073 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xba55d64d)
+07:40:26:073 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xed7679ca)
+07:40:26:073 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x152f9c49)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4ef0a3bb)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x6691f295)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xc998f274)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd18d8a41)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdcde30de)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x78e96492)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x972473d4)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3300ea97)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x9d8f9163)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x43483fd7)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x9b7c5123)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3514c8e5)
+07:40:26:074 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3ee7fe93)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x69f7cb0d)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7efbf817)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xabec133c)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf87dc33d)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x71c6ee59)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3338fa89)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x48ae954b)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xcb3efd82)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xde5ad011)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe97d41c7)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x92a0a9ac)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x91ed54e1)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x798ace19)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2c3e9989)
+07:40:26:075 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf8b26ae0)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8dac982a)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xa8277d9c)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8fcfef14)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdbec487c)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7c4a124d)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x600c14aa)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x436ce001)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4eb6e00e)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x51e854cf)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf31e31f7)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd2e356a6)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x1e413351)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x10a5fbba)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7591fd94)
+07:40:26:076 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x581ecaa5)
+07:40:26:077 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xab68a073)
+07:40:26:077 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x825afcc9)
+07:40:26:077 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x26ebfeec)
+07:40:26:077 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdfc0f998)
+07:40:26:077 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x17f3919b)
+07:40:26:077 [ 6996] | INFO  | [RenoDX] mods::shader::OnInitDevice(181074760)
+07:40:26:077 [ 6996] | DEBUG | [RenoDX] utils::resource::upgrade::OnInitDevice(181074760, api: d3d12)
+07:40:26:077 [ 6996] | INFO  | [RenoDX] mods::swapchain::OnInitDevice([address], native: [address])
+07:40:26:077 [ 6996] | INFO  | [RenoDX] utils::shader::OnDestroyDevice(181074760)
+07:40:26:077 [ 6996] | INFO  | [RenoDX] mods::shader::OnDestroyDevice(181074760)
+07:40:26:077 [ 6996] | INFO  | [RenoDX] utils::resource::upgrade::OnDestroyDevice(181074760)
+07:40:26:077 [ 6996] | INFO  | [RenoDX] mods::swapchain::OnDestroyDevice(181074760)
+07:40:26:078 [ 6996] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799" ...
+07:40:26:078 [ 6996] | INFO  | Unloading add-on "DLSS Fix" ...
+07:40:26:078 [ 6996] | INFO  | Unloading add-on "RenoDX" ...
+07:40:26:078 [ 6996] | INFO  | Unregistered add-on "RenoDX".
+07:40:26:078 [ 6996] | INFO  | ResourceUtil detached.
+07:40:26:082 [ 6996] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+07:40:26:082 [ 6996] | INFO  | Redirecting IDXGIFactory::EnumAdapters(this = [address], Adapter = 0, ppAdapter = [address]) ...
+07:40:26:094 [ 6996] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c200, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+07:40:26:094 [ 6996] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799" ...
+07:40:26:095 [ 6996] | INFO  | Loading externally registered add-on "DLSS Fix" ...
+07:40:26:095 [ 6996] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+07:40:26:095 [ 6996] | INFO  | Loading add-on from '[local-path]
+07:40:26:096 [ 6996] | INFO  | [RenoDX] utils::random attached...
+
+[first events]
+07:40:23:853 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D11_Init_with_ProjectID)
+
+[recent important]
+07:40:22:256 [ 6996] | INFO  | Registering hooks for 'user32.dll' ...
+07:40:22:284 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:285 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:285 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:286 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:312 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:313 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:314 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:340 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:340 [ 6996] | INFO  | Registering hooks for '[local-path]
+07:40:22:366 [ 6996] | INFO  | Registering hooks for 'openvr_api.dll' ...
+07:40:22:366 [ 6996] | INFO  | Installing export hooks for '[local-path]
+07:40:22:367 [ 6996] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+07:40:23:765 [ 6996] | WARN  | [DLSS Fix] _renodx-dlssfix.addon64 is not listed in ADDON.LoadFromDllMain. Early DLSS hooks are not guaranteed for this session.
+07:40:23:766 [ 6996] | INFO  | [DLSS Fix] utils::dlss_hook attached.
+07:40:23:785 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slInithooked with [address] => [address] ([address] ) ([address]))
+07:40:23:785 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slSetTaghooked with [address] => [address] ([address] ) ([address]))
+07:40:23:785 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slSetD3DDevicehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:785 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slSetTagForFramehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:785 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slUpgradeInterfacehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:785 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slEvaluateFeaturehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slGetFeatureFunctionhooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(slGetNativeInterfacehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(CreateDXGIFactoryhooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(CreateDXGIFactory1hooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(CreateDXGIFactory2hooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(D3D12CreateDevicehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:786 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(D3D12GetInterfacehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:852 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D11_Inithooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D12_Inithooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D11_Init_with_ProjectID)
+07:40:23:853 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D12_Init_with_ProjectID)
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D11_Shutdown1hooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D12_Shutdown1hooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D11_CreateFeaturehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D12_CreateFeaturehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D11_EvaluateFeaturehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | DEBUG | [DLSS Fix] vtable::Hook(NVSDK_NGX_D3D12_EvaluateFeaturehooked with [address] => [address] ([address] ) ([address]))
+07:40:23:853 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D11_EvaluateFeature_C)
+07:40:23:854 [ 6996] | ERROR | [DLSS Fix] vtable::Hook(Failed to find NVSDK_NGX_D3D12_EvaluateFeature_C)
+07:40:25:788 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: 1714968200, api: d3d12)
+07:40:25:991 [ 6996] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+07:40:26:046 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: 181076456, api: d3d12)
+07:40:26:064 [ 6996] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+07:40:26:073 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: 181074760, api: d3d12)
+07:40:26:094 [ 6996] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c200, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+07:40:26:748 [ 6996] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: 1255062984, api: d3d12)
+07:40:28:453 [ 6996] | ERROR | [DLSS Fix] utils::streamline_v2::TryUpgradeTrackedStreamlineCommandQueue() - Failed to upgrade native command queue 0x6886a660, result: 30
+07:40:28:453 [ 6996] | ERROR | [DLSS Fix] utils::streamline_v2::TryUpgradeTrackedStreamlineCommandQueue() - Failed to upgrade native command queue 0x4856eb0, result: 30
+07:40:28:453 [ 6996] | ERROR | [DLSS Fix] utils::streamline_v2::TryUpgradeTrackedStreamlineCommandQueue() - Failed to upgrade native command queue 0x6886b9e0, result: 30
+07:42:42:815 [ 6908] | INFO  | Redirecting D3D11CreateDevice(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 0, SDKVersion = 7, ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+07:42:42:815 [ 6908] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 0, SDKVersion = 7, pSwapChainDesc = [address], ppSwapChain = [address], ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+07:42:42:839 [ 6908] | INFO  | Using feature level b000.
+07:42:42:839 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: [address], api: d3d11)
+07:44:21:039 [ 6908] | INFO  | Redirecting D3D11CreateDevice(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 0, SDKVersion = 7, ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+07:44:21:048 [ 6908] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 0, SDKVersion = 7, pSwapChainDesc = [address], ppSwapChain = [address], ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+07:44:21:073 [ 6908] | INFO  | Using feature level b000.
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: [address], api: d3d11)
+
+[tail]
+07:41:14:975 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:14:975 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:14:975 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:14:975 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:14:975 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:14:975 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:14:975 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:14:975 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 12, root_dwords: 22 => 57, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:14:975 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:14:976 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 12, root_dwords: 22 => 57, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:14:976 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:14:976 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:14:976 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:14:977 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:14:977 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:14:977 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:14:977 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:14:994 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:14:994 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:14:994 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:14:994 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:14:994 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:14:994 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:14:994 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:14:994 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:000 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 12, root_dwords: 22 => 57, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:000 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:000 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 12, root_dwords: 22 => 57, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:000 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:000 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 12, root_dwords: 22 => 57, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:001 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:001 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 12, root_dwords: 22 => 57, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:001 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:003 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:003 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:003 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:003 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:004 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:004 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:004 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:004 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:004 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:004 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:004 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:005 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:046 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:046 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:053 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:053 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:053 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:053 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:058 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:059 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:059 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:059 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:059 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:059 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:191 [19408] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+07:41:15:191 [19408] | INFO  | Redirecting IDXGIFactory::EnumAdapters(this = [address], Adapter = 0, ppAdapter = [address]) ...
+07:41:15:191 [19408] | INFO  | Redirecting IDXGIFactory::EnumAdapters(this = [address], Adapter = 1, ppAdapter = [address]) ...
+07:41:15:191 [19408] | INFO  | Redirecting IDXGIFactory::EnumAdapters(this = [address], Adapter = 2, ppAdapter = [address]) ...
+07:41:15:191 [19408] | INFO  | Redirecting IDXGIFactory::EnumAdapters(this = [address], Adapter = 3, ppAdapter = [address]) ...
+07:41:15:195 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:195 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:195 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:196 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:196 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:196 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:196 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:196 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:220 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 12, root_dwords: 22 => 57, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:221 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:221 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 12, root_dwords: 22 => 57, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:221 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:243 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 12, root_dwords: 22 => 57, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:243 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:243 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 12, root_dwords: 22 => 57, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:243 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:243 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:244 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:244 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 11, root_dwords: 20 => 55, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:244 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:250 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:250 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:250 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:250 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:250 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:250 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:309 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:309 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:309 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:309 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:15:351 [19408] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+07:41:15:351 [19408] | INFO  | Redirecting IDXGIFactory::EnumAdapters(this = [address], Adapter = 0, ppAdapter = [address]) ...
+07:41:15:474 [ 6988] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 35 creating new size of 15, root_dwords: 21 => 56, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:15:475 [ 6988] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:16:156 [19368] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 11, root_dwords: 13 => 48, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:16:156 [19368] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:16:550 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:16:550 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:17:412 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 8 with slot count 35 creating new size of 9, root_dwords: 16 => 51, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:17:412 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 8, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:17:458 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 8 with slot count 35 creating new size of 9, root_dwords: 16 => 51, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:17:458 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 8, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:078 [13532] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 12, root_dwords: 15 => 50, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:078 [13532] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:078 [ 4676] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 35 creating new size of 15, root_dwords: 21 => 56, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:078 [ 4676] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:079 [ 6988] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 15 with slot count 35 creating new size of 17, root_dwords: 25 => 60, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:080 [ 6988] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 15, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:097 [20328] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 17 with slot count 35 creating new size of 19, root_dwords: 29 => 64, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:097 [20328] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 17, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:098 [ 6988] | WARN  | [RenoDX] mods::shader::OnCreatePipelineLayout(shader injection oversized: 35/33, root_dwords: 31, descriptor_injection_cost: 0 )
+07:41:20:099 [ 6988] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 18 with slot count 35 creating new size of 20, root_dwords: 31 => 64, constant_injection_cost: 33, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:099 [ 6988] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 18, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:099 [ 7088] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 6 with slot count 35 creating new size of 8, root_dwords: 10 => 45, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:099 [ 7088] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 6, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:099 [ 9712] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 12 with slot count 35 creating new size of 14, root_dwords: 19 => 54, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:100 [ 9712] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 12, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:100 [ 4444] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 12 with slot count 35 creating new size of 14, root_dwords: 19 => 54, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:100 [ 4444] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 12, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:100 [ 2692] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 8 with slot count 35 creating new size of 10, root_dwords: 14 => 49, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:100 [ 2692] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 8, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:100 [19608] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 14 with slot count 35 creating new size of 16, root_dwords: 23 => 58, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:100 [19608] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 14, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:100 [13532] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 14 with slot count 35 creating new size of 16, root_dwords: 23 => 58, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:101 [13532] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 14, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:101 [ 8660] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 13, root_dwords: 17 => 52, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:101 [ 8660] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:101 [ 4052] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 15 with slot count 35 creating new size of 17, root_dwords: 25 => 60, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:101 [ 4052] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 15, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:101 [ 3608] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 35 creating new size of 15, root_dwords: 21 => 56, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:101 [ 3608] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:102 [20124] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 13, root_dwords: 17 => 52, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:102 [20124] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:102 [13532] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 12 with slot count 35 creating new size of 14, root_dwords: 19 => 54, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:102 [13532] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 12, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:102 [ 8660] | WARN  | [RenoDX] mods::shader::OnCreatePipelineLayout(shader injection oversized: 35/33, root_dwords: 31, descriptor_injection_cost: 0 )
+07:41:20:102 [ 8660] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 18 with slot count 35 creating new size of 20, root_dwords: 31 => 64, constant_injection_cost: 33, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:103 [ 8660] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 18, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:103 [19652] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 5 with slot count 35 creating new size of 7, root_dwords: 8 => 43, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:103 [19652] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 5, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:103 [17924] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 14 with slot count 35 creating new size of 16, root_dwords: 23 => 58, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:103 [17924] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 14, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:105 [12656] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 16 with slot count 35 creating new size of 18, root_dwords: 27 => 62, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:105 [12656] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 16, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:106 [10252] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 17 with slot count 35 creating new size of 19, root_dwords: 29 => 64, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:106 [10252] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 17, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:112 [ 4680] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 17 with slot count 35 creating new size of 19, root_dwords: 29 => 64, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:112 [ 4680] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 17, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:116 [ 3608] | WARN  | [RenoDX] mods::shader::OnInitPipelineLayout(Params not created for: [address])
+07:41:20:116 [ 2692] | WARN  | [RenoDX] mods::shader::OnInitPipelineLayout(Params not created for: [address])
+07:41:20:117 [12656] | WARN  | [RenoDX] mods::shader::OnInitPipelineLayout(Params not created for: [address])
+07:41:20:117 [ 4676] | WARN  | [RenoDX] mods::shader::OnInitPipelineLayout(Params not created for: [address])
+07:41:20:119 [17924] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 14 with slot count 35 creating new size of 16, root_dwords: 23 => 58, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:120 [17924] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 14, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:123 [ 2692] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 18 with slot count 35 creating new size of 20, root_dwords: 29 => 64, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:123 [ 2692] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 18, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:124 [ 4676] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 16 with slot count 35 creating new size of 18, root_dwords: 27 => 62, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:124 [ 4676] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 16, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:124 [ 9456] | WARN  | [RenoDX] mods::shader::OnInitPipelineLayout(Params not created for: [address])
+07:41:20:124 [ 2692] | WARN  | [RenoDX] mods::shader::OnInitPipelineLayout(Params not created for: [address])
+07:41:20:125 [ 4136] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 8 with slot count 35 creating new size of 10, root_dwords: 11 => 46, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:125 [ 4136] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 8, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:125 [20124] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 13, root_dwords: 17 => 52, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:126 [20124] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:126 [19652] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 5 with slot count 35 creating new size of 7, root_dwords: 5 => 40, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:126 [19652] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 5, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:669 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 35 creating new size of 8, root_dwords: 14 => 49, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:669 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:20:670 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 35 creating new size of 8, root_dwords: 14 => 49, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:20:670 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:21:238 [ 2692] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 35 creating new size of 9, root_dwords: 12 => 47, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:21:239 [ 2692] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:21:239 [ 8660] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 35 creating new size of 15, root_dwords: 21 => 56, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:21:239 [ 8660] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:21:239 [21196] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 35 creating new size of 15, root_dwords: 21 => 56, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:21:239 [21196] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:21:241 [19320] | WARN  | [RenoDX] mods::shader::OnInitPipelineLayout(Params not created for: [address])
+07:41:21:249 [ 5896] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0x600c14aa)
+07:41:21:249 [ 5896] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0x600c14aa, pipeline: [address], index: 4, type: pixel_shader, stage: pixel_shader)
+07:41:21:829 [20124] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 17 with slot count 35 creating new size of 19, root_dwords: 29 => 64, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:21:829 [20124] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 17, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:21:829 [ 3608] | WARN  | [RenoDX] mods::shader::OnCreatePipelineLayout(shader injection oversized: 35/33, root_dwords: 31, descriptor_injection_cost: 0 )
+07:41:21:829 [ 3608] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 18 with slot count 35 creating new size of 20, root_dwords: 31 => 64, constant_injection_cost: 33, descriptor_injection_cost: 0, newParams: [address] )
+07:41:21:829 [ 3608] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 18, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:22:068 [11924] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0xf87dc33d)
+07:41:22:068 [11924] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0xf87dc33d, pipeline: [address], index: 4, type: pixel_shader, stage: pixel_shader)
+07:41:22:608 [ 1956] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 16 with slot count 35 creating new size of 18, root_dwords: 23 => 58, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:22:609 [ 1956] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 16, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:22:611 [19652] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 18 with slot count 35 creating new size of 20, root_dwords: 27 => 62, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:22:611 [19652] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 18, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:22:614 [ 8660] | WARN  | [RenoDX] mods::shader::OnInitPipelineLayout(Params not created for: [address])
+07:41:22:647 [19652] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 11 with slot count 35 creating new size of 13, root_dwords: 17 => 52, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:22:647 [19652] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 11, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:23:025 [ 5896] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0x2a860b0f)
+07:41:23:026 [ 5896] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0x2a860b0f, pipeline: [address], index: 3, type: pixel_shader, stage: pixel_shader)
+07:41:25:558 [ 4444] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 12, root_dwords: 15 => 50, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:41:25:559 [ 4444] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:41:26:366 [14024] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 8 with slot count 35 creating new size of 9, root_dwords: 16 => 51, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: 24210282976 )
+07:41:26:366 [14024] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 8, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:42:42:815 [ 6908] | INFO  | Redirecting D3D11CreateDevice(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 0, SDKVersion = 7, ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+07:42:42:815 [ 6908] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+07:42:42:815 [ 6908] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 0, SDKVersion = 7, pSwapChainDesc = [address], ppSwapChain = [address], ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+07:42:42:815 [ 6908] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+07:42:42:839 [ 6908] | INFO  | Using feature level b000.
+07:42:42:839 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: [address], api: d3d11)
+07:42:42:839 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2a860b0f)
+07:42:42:839 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe684565e)
+07:42:42:839 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xba55d64d)
+07:42:42:839 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xed7679ca)
+07:42:42:839 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x152f9c49)
+07:42:42:839 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4ef0a3bb)
+07:42:42:840 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x6691f295)
+07:42:42:840 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xc998f274)
+07:42:42:840 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd18d8a41)
+07:42:42:840 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdcde30de)
+07:42:42:840 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x78e96492)
+07:42:42:840 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x972473d4)
+07:42:42:841 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3300ea97)
+07:42:42:841 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x9d8f9163)
+07:42:42:841 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x43483fd7)
+07:42:42:841 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x9b7c5123)
+07:42:42:841 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3514c8e5)
+07:42:42:841 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3ee7fe93)
+07:42:42:841 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x69f7cb0d)
+07:42:42:842 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7efbf817)
+07:42:42:842 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xabec133c)
+07:42:42:842 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf87dc33d)
+07:42:42:842 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x71c6ee59)
+07:42:42:842 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3338fa89)
+07:42:42:842 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x48ae954b)
+07:42:42:842 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xcb3efd82)
+07:42:42:842 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xde5ad011)
+07:42:42:842 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe97d41c7)
+07:42:42:842 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x92a0a9ac)
+07:42:42:842 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x91ed54e1)
+07:42:42:842 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x798ace19)
+07:42:42:843 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2c3e9989)
+07:42:42:843 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf8b26ae0)
+07:42:42:843 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8dac982a)
+07:42:42:843 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xa8277d9c)
+07:42:42:843 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8fcfef14)
+07:42:42:843 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdbec487c)
+07:42:42:843 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7c4a124d)
+07:42:42:843 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x600c14aa)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x436ce001)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4eb6e00e)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x51e854cf)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf31e31f7)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd2e356a6)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x1e413351)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x10a5fbba)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7591fd94)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x581ecaa5)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xab68a073)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x825afcc9)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x26ebfeec)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdfc0f998)
+07:42:42:844 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x17f3919b)
+07:42:42:844 [ 6908] | INFO  | [RenoDX] mods::shader::OnInitDevice([address])
+07:42:42:845 [ 6908] | DEBUG | [RenoDX] utils::resource::upgrade::OnInitDevice([address], api: d3d11)
+07:42:42:845 [ 6908] | INFO  | [RenoDX] mods::swapchain::OnInitDevice([address], native: [address])
+07:42:42:845 [ 6908] | WARN  | [RenoDX] mods::shader::OnInitPipelineLayout(Forcing cbuffer index [address]: 13 )
+07:42:42:845 [ 6908] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout(Creating D3D11 Layout [address]: 1 )
+07:42:42:845 [ 6908] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 0, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:42:42:958 [ 6908] | INFO  | [RenoDX] utils::shader::OnDestroyDevice([address])
+07:42:42:958 [ 6908] | INFO  | [RenoDX] mods::shader::OnDestroyDevice([address])
+07:42:42:958 [ 6908] | INFO  | [RenoDX] utils::resource::upgrade::OnDestroyDevice([address])
+07:42:42:958 [ 6908] | INFO  | [RenoDX] mods::swapchain::OnDestroyDevice([address])
+07:42:42:958 [ 6908] | WARN  | Reference count for ID3D11Device0 object [address] ([address]) is inconsistent (6).
+07:42:42:958 [ 6908] | WARN  | Reference count for IDXGIAdapter0 object [address] ([address]) is inconsistent (3).
+07:42:43:337 [20328] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 10 with slot count 35 creating new size of 12, root_dwords: 15 => 50, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:42:43:337 [20328] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 10, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:42:43:493 [ 9604] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 8 with slot count 35 creating new size of 9, root_dwords: 16 => 51, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: 24248811200 )
+07:42:43:494 [ 9604] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 8, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:43:36:743 [19368] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0xe97d41c7)
+07:43:36:743 [19368] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0xe97d41c7, pipeline: [address], index: 3, type: pixel_shader, stage: pixel_shader)
+07:43:36:746 [ 2628] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:43:36:746 [ 2628] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:43:48:713 [ 9604] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 8 with slot count 35 creating new size of 9, root_dwords: 16 => 51, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: 24248809360 )
+07:43:48:713 [ 9604] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 8, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:43:48:735 [14024] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 8 with slot count 35 creating new size of 9, root_dwords: 16 => 51, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:43:48:735 [14024] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 8, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:43:48:735 [14024] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 35 creating new size of 10, root_dwords: 18 => 53, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:43:48:736 [14024] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:43:49:590 [ 3176] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 8 with slot count 35 creating new size of 9, root_dwords: 16 => 51, constant_injection_cost: 35, descriptor_injection_cost: 0, newParams: [address] )
+07:43:49:590 [ 3176] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 8, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:44:21:039 [ 6908] | INFO  | Redirecting D3D11CreateDevice(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 0, SDKVersion = 7, ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+07:44:21:048 [ 6908] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+07:44:21:048 [ 6908] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 0, SDKVersion = 7, pSwapChainDesc = [address], ppSwapChain = [address], ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+07:44:21:049 [ 6908] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+07:44:21:073 [ 6908] | INFO  | Using feature level b000.
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: [address], api: d3d11)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2a860b0f)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe684565e)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xba55d64d)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xed7679ca)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x152f9c49)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4ef0a3bb)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x6691f295)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xc998f274)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd18d8a41)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdcde30de)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x78e96492)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x972473d4)
+07:44:21:074 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3300ea97)
+07:44:21:075 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x9d8f9163)
+07:44:21:075 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x43483fd7)
+07:44:21:075 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x9b7c5123)
+07:44:21:075 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3514c8e5)
+07:44:21:075 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3ee7fe93)
+07:44:21:075 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x69f7cb0d)
+07:44:21:075 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7efbf817)
+07:44:21:075 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xabec133c)
+07:44:21:075 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf87dc33d)
+07:44:21:075 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x71c6ee59)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x3338fa89)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x48ae954b)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xcb3efd82)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xde5ad011)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xe97d41c7)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x92a0a9ac)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x91ed54e1)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x798ace19)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x2c3e9989)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf8b26ae0)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8dac982a)
+07:44:21:076 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xa8277d9c)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x8fcfef14)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdbec487c)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7c4a124d)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x600c14aa)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x436ce001)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4eb6e00e)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x51e854cf)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf31e31f7)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd2e356a6)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x1e413351)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x10a5fbba)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7591fd94)
+07:44:21:077 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x581ecaa5)
+07:44:21:078 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xab68a073)
+07:44:21:078 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x825afcc9)
+07:44:21:078 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x26ebfeec)
+07:44:21:078 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xdfc0f998)
+07:44:21:078 [ 6908] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x17f3919b)
+07:44:21:078 [ 6908] | INFO  | [RenoDX] mods::shader::OnInitDevice([address])
+07:44:21:078 [ 6908] | DEBUG | [RenoDX] utils::resource::upgrade::OnInitDevice([address], api: d3d11)
+07:44:21:078 [ 6908] | INFO  | [RenoDX] mods::swapchain::OnInitDevice([address], native: [address])
+07:44:21:078 [ 6908] | WARN  | [RenoDX] mods::shader::OnInitPipelineLayout(Forcing cbuffer index [address]: 13 )
+07:44:21:078 [ 6908] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout(Creating D3D11 Layout [address]: 1 )
+07:44:21:078 [ 6908] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 0, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+07:44:21:191 [ 6908] | INFO  | [RenoDX] utils::shader::OnDestroyDevice([address])
+07:44:21:191 [ 6908] | INFO  | [RenoDX] mods::shader::OnDestroyDevice([address])
+07:44:21:191 [ 6908] | INFO  | [RenoDX] utils::resource::upgrade::OnDestroyDevice([address])
+07:44:21:191 [ 6908] | INFO  | [RenoDX] mods::swapchain::OnDestroyDevice([address])
+07:44:21:191 [ 6908] | WARN  | Reference count for ID3D11Device0 object [address] ([address]) is inconsistent (6).
+07:44:21:191 [ 6908] | WARN  | Reference count for IDXGIAdapter0 object [address] ([address]) is inconsistent (3).

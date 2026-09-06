@@ -93,7 +93,7 @@ start.commandSignatureObserved=6
 start.commandSignatureUnknownUses=0
 frame,31,2420,1,0,0.0625,-0.462962955,1,1,1.35616302,1,none/active
 feature.flags=75 feature.create=1708x961->2560x1440
-resource.Color=dim:3 size:1708x964 array:1 mip:1 format=26 samples:1 flags:1
+resource.Color=dim:3 size:1708x964 array:1 mip:1 format:26 samples:1 flags:1
 resource.Output=dim:3 size:2560x1440 array:1 mip:1 format:10 samples:1 flags:5
 resource.Depth=dim:3 size:1708x964 array:1 mip:1 format:19 samples:1 flags:2
 resource.MotionVectors=dim:3 size:1708x961 array:1 mip:1 format:34 samples:1 flags:4
