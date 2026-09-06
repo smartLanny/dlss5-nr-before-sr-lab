@@ -34,6 +34,8 @@ def main():
 #include <cstdio>
 #include <limits>
 #include <initializer_list>
+struct Config { float transfer_strength=1.0f; } g_config;
+float ActiveTransferStrength(const Config &c) { return c.transfer_strength; }
 enum class CodecColorMode { Automatic, LinearSdr, SrgbEncodedSdr, ModelEncodedValueDomain, PqEncodedHdr };
 '''+definition(cpp,'float FiniteOr(')+'\n'+policy+r'''
 int checks=0, failures=0;
@@ -70,7 +72,7 @@ int main(){
  with tempfile.TemporaryDirectory(prefix='nr045-colour-') as td:
   src=Path(td)/'test.cpp';exe=Path(td)/('test.exe' if os.name=='nt' else 'test')
   src.write_text(code,encoding='utf-8')
-  subprocess.run([compiler,'-std=c++20','-Wall','-Wextra','-Werror',*(['-static'] if os.name=='nt' else []),str(src),'-o',str(exe)],check=True)
+  subprocess.run([compiler,'-std=c++20','-I'+str(ROOT/'src'),'-Wall','-Wextra','-Werror',*(['-static'] if os.name=='nt' else []),str(src),'-o',str(exe)],check=True)
   r=subprocess.run([str(exe)],capture_output=True,text=True);print(r.stdout,end='');print(r.stderr,end='')
   if args.negative_control:
    if r.returncode!=1 or 'FAIL manual unverified colour request reaches both modes' not in r.stdout:raise SystemExit('Exact disabled override was not rejected')

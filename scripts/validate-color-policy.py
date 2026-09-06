@@ -191,18 +191,22 @@ int main() {
     check(ColorPolicyStatusFor({},7,12,1,true,false,2000)==NrColorPolicyStatus::NoFrame,
           "startup does not assume SDR");
     Config next=g_config; bool changed=false;
-    ImGui::try_edits=true; Controls(next,false,changed);
-    check(ImGui::colour_disabled && ImGui::lighting_disabled && !changed &&
-          next.color_strength==1 && next.preserve_lighting,"blocked controls retain both requests");
-    check(ImGui::text.find("requested 1.00 / effective 0.00")!=std::string::npos &&
+    ImGui::try_edits=false; Controls(next,false,changed);
+    check(!changed && next.color_strength==1 && next.preserve_lighting,
+          "reading a suppressed historical colour does not edit settings");
+    check(ImGui::text.find("requested 1.00 / shader coefficient 0.00")!=std::string::npos &&
           ImGui::text.find("requested on / effective off")!=std::string::npos,
-          "real controls show actual suppressed values");
+          "real controls distinguish requested colour from the shader coefficient");
+    ImGui::try_edits=true; Controls(next,false,changed);
+    check(!ImGui::colour_disabled && ImGui::lighting_disabled && changed &&
+          next.color_strength==.25f && next.allow_unverified_hdr_color && next.preserve_lighting,
+          "approved explicit HDR opt-in edits colour but not forbidden lighting match");
     g_last_bypass_reason=static_cast<int>(BypassReason::Guard);
     next=g_config; next.mode=2; changed=true; ImGui::try_edits=false;
     ImGui::text.clear(); Controls(next,true,changed);
     check(ImGui::text.find("The current frame is bypassed")!=std::string::npos &&
           ImGui::text.find("Settings pending")==std::string::npos &&
-          ImGui::text.find("Last recorded blend")==std::string::npos,
+          ImGui::text.find("Last recorded colour")==std::string::npos,
           "real pending controls cannot conceal a current bypass with historical values");
     check(next.color_strength==g_config.color_strength &&
           next.preserve_lighting==g_config.preserve_lighting &&

@@ -1,5 +1,6 @@
 #include "nr_present_api_status.h"
 #include "nr_recommended_picture.inl"
+#include "nr_precision_ui.h"
 
 // A named overlay is an independent ReShade-owned window. nullptr registers
 // inside the add-on settings area, where long panels can displace other add-ons.
@@ -39,10 +40,13 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
         ImGui::TextWrapped("%s", ui("WARNING: unverified HDR colour may shift hue or flicker. Set colour to 0 or restore recommended settings to undo.", "警告：未验证 HDR 色彩可能偏色或闪烁；可拉回 0 或一键恢复推荐画质。"));
     if (color_policy_snapshot.status == NrColorPolicyStatus::Current) {
         const NrColorPolicy &policy = color_policy_snapshot.policy;
-        ImGui::TextDisabled(ui("Last recorded blend: requested %.2f / effective %.2f",
-            "最近记录的合成：请求 %.2f / 实际 %.2f"),
+        ImGui::TextDisabled(ui("Last recorded colour: requested %.2f / shader coefficient %.2f",
+            "最近颜色记录：请求 %.2f / 合成系数 %.2f"),
             static_cast<double>(policy.requested_color_strength),
             static_cast<double>(policy.effective_color_strength));
+        if (policy.amplification_color_limited) ImGui::TextWrapped("%s", ui(
+            "Mandatory colour protection is active above 1x. Pre-SR caps the chroma exponent at its unamplified budget; post-SR reduces the amplified colour mix. Brightness amplification is unchanged. The coefficient is not the measured visible effect.",
+            "超过 1 倍的强制颜色保护已生效：前置限制色度指数的额外放大，后置降低放大后色彩的混合权重。明暗放大不变；合成系数不是实测画面效果强度。"));
         ImGui::TextWrapped("%s", !policy.color_allowed
             ? ui("This HDR colour contract is unverified, so only colour follow is paused. "
                  "Luminance NR can still be active; check the running status and submission counter. "
@@ -191,6 +195,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     else
         ImGui::TextWrapped("%s", ui("NR path available. Compare the picture with F6; submitted work is shown in diagnostics.",
             "NR 链路可用。按 F6 对比画面，实际提交状态可在诊断中查看。"));
+
+
     if (next.identity_use_original)
         ImGui::TextWrapped("%s", ui(
             "Diagnostic identity mode is ON: NR may run, but its picture is deliberately discarded. Turn off 'Run NR but discard its picture' to compare the effect.",
@@ -226,58 +232,58 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsTooltip(ui("Before SR usually costs less; after SR processes the complete SR output for comparison. Game DLSS quality stays unchanged. Disabling restores native SR; DLAA is never forced.",
         "前置通常较省性能；后置处理完整 SR 输出，适合对照。游戏内 DLSS 档位不变，关闭插件就是原生 SR，不会强制开启 DLAA。"));
 #if NR_HAS_DETAIL_STABILITY
-    constexpr float maximum_strength = 4.0f;
-#else
-    constexpr float maximum_strength = 2.0f;
-#endif
-    float effect_strength = ActiveTransferStrength(next);
-    if (ImGui::SliderFloat(ui("Final effect strength", "最终效果强度"),
-            &effect_strength, 0.0f, maximum_strength, "%.2f")) {
-        next.transfer_strength = next.post_transfer_strength = effect_strength; changed = true;
+    const bool before_sr = next.mode == 2;
+    const bool legacy_preset = next.work_mode >= 1 && next.work_mode <= 4;
+    // These atomics are historical observations, NOT a coherent frame tuple.
+    // They only seed a visibly labelled estimate; no config is migrated until
+    // the user edits the slider. The GPU resolver still checks the real tuple.
+    float precision = nr_precision_ui::LegacyEstimate(next.work_mode, next.custom_work_scale,
+        g_last_dlss_input_width.load(), g_last_dlss_input_height.load(),
+        g_last_dlss_output_width.load(), g_last_dlss_output_height.load());
+    static bool precision_rejected = false;
+    if (!before_sr) ImGui::BeginDisabled();
+    if (ImGui::SliderFloat(ui("NR processing precision (%)", "NR 处理精度（%）"),
+            &precision, 0.0f, 100.0f, "%.1f%%")) {
+        const auto request = nr_precision_ui::Resolve(precision, before_sr);
+        precision_rejected = !request.accepted;
+        if (request.accepted) {
+            if (request.disable) {
+                next.enabled = false; // F6 can re-enable the previous precision.
+                apply_discrete_edit = true;
+            } else {
+                next.work_mode = request.mode;
+                next.custom_work_scale = request.scale;
+            }
+            changed = true;
+        }
     }
-    SettingsTooltip(ui("Final NR blend strength. 0 keeps native SR; 1.0 is the unscaled effect. New installations start at 1.2. Existing settings, including 0, are retained. The public range is 0-4; older requests above 4 are clamped. Higher values can amplify low-resolution noise and colour distortion; this is not the model's internal strength.",
-        "控制最终 NR 混合强度。0 保留原生 SR，1.0 是不额外放大的效果；新装默认 1.2。已有设置（包括 0）会保留。范围为 0–4，旧配置超过 4 会限制到 4。较高数值可能放大低分辨率噪点和颜色失真；这项不是模型内部强度。"));
+    SettingsTooltip(ui(
+        "100% follows the game render input exactly (N=R). 50-99% reduces only NR work, reconstructs edits to R, then uses native SR. 0 turns NR off and retains its previous precision. This build rejects 1-49%; it never silently runs 50% for a smaller request. Moving precision does not turn Enable on.",
+        "100% 精确跟随游戏渲染输入（N=R）；50–99% 只降低 NR 工作尺寸，修改回填 R 后交给原生 SR。0 关闭 NR 并保留先前精度，F6 可恢复。本版明确不支持 1–49%，不会暗中按 50% 运行；调整精度不会自动开启总开关。"));
+    if (!before_sr) {
+        ImGui::EndDisabled();
+        ImGui::TextWrapped("%s", ui(
+            "Post-SR still uses the full SR output. Reduced post-SR precision is not implemented in this build; the disabled value is your saved pre-SR request, not an applied post-SR scale.",
+            "后置仍使用完整 SR 输出。本版尚未实现低精度后置；灰色数值仅为保存的前置偏好，不代表后置实际比例。"));
+    } else {
+        ImGui::TextDisabled("%s", ui("Supported: 0 = NR off; 50-100% = NR precision.", "可用范围：0 = 关闭 NR；50–100% = NR 处理精度。"));
+        if (legacy_preset) ImGui::TextWrapped("%s", ui(
+            "Existing output-relative preset retained. The slider is a historical estimate until edited; opening this panel does not change your settings. Select 100% for exact N=R.",
+            "保留已有输出相关预设；滑块未编辑时只是历史尺寸估算，打开面板不会改设置。手动选择 100% 即精确 N=R。"));
+    }
+    if (precision_rejected) ImGui::TextWrapped("%s", ui(
+        "That precision is unsupported; the previous request is unchanged. Choose 50-100%, or 0 to switch NR off.",
+        "该精度暂不支持，原设置未更改。请选择 50–100%，或用 0 关闭 NR。"));
+#endif
     int style = static_cast<int>(next.style);
     if (ImGui::Combo(ui("Style", "风格"), &style,
             ui("Default\0Natural\0Cinematic\0", "默认\0自然\0电影\0"))) {
         next.style = static_cast<unsigned>(style); changed = true;
     }
-#if NR_HAS_DETAIL_STABILITY
-    if (next.mode != 2) ImGui::BeginDisabled();
-    changed |= ImGui::Combo(ui("NR quality", "NR 画质档位"), &next.work_mode,
-        ui("Reference 100%\0Quality\0Balanced\0Performance\0Ultra performance\0Custom\0",
-           "参考 100%\0高画质\0平衡\0性能\0超级性能\0自定义\0"));
-    SettingsTooltip(ui(
-        "Available only for Before SR. This changes Feature 18's working resolution; it does not switch to post-processing and does not change the game's DLSS quality.",
-        "仅用于前置 NR → SR。这里只改变 Feature 18 的工作分辨率，不会切成后置处理，也不会改变游戏内 DLSS 档位。"));
-    if (next.work_mode == 5) {
-        float percent = next.custom_work_scale * 100.0f;
-        if (ImGui::SliderFloat(ui("NR work resolution (%)", "NR 工作分辨率（%）"), &percent, 50.0f, 100.0f, "%.0f%%")) {
-            next.custom_work_scale = percent * 0.01f; changed = true;
-        }
-        SettingsTooltip(ui("Linear NR size relative to game render input, not output or pixel count. 50% uses about 25% of the input pixels. The current safe range is 50-100%; use Enable/F6 to turn NR off. Native game rendering is unchanged.",
-            "NR 宽高相对游戏渲染输入的比例，不是相对显示分辨率，也不是像素百分比。50% 约为 25% 的输入像素；当前安全范围为 50–100%，关闭请用启用/F6。不会降低游戏原始渲染分辨率。"));
-    }
-    if (next.mode != 2) {
-        ImGui::EndDisabled();
-        ImGui::TextDisabled("%s", ui("Post-processing mode uses the full SR output size.", "后置模式使用完整 SR 输出分辨率。"));
-    }
-#endif
 
-    if (next.identity_use_original && ImGui::Button(ui("Show NR picture (leave diagnostic identity)", "显示 NR 效果（退出诊断原图）"))) {
-        next.identity_use_original = false; changed = true;
-    }
-    if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {
-        if (ImGui::Button(ui("Post-SR comparison", "后置对照设置"))) {
-            next.mode = 1; next.enabled = true; next.identity_use_original = false;
-            next.transfer_strength = next.post_transfer_strength = 1.0f;
-            next.color_strength = 1.0f; changed = true;
-        }
-        SettingsTooltip(ui("Sets SR -> NR with strength 1.0 and colour request 1.0 for comparison. These are comparison values, not the new installation defaults. Colour restrictions still apply.",
-            "切到 SR → NR，采用强度 1.0、颜色请求 1.0 进行对照。这是对照基准，不是新装默认值；颜色准入限制仍然生效。"));
-        changed |= ImGui::SliderFloat(ui("Model internal strength", "模型内部强度"), &next.intensity, 0.f, 2.f, "%.2f");
+        changed |= ImGui::SliderFloat(ui("Model strength", "模型强度"), &next.intensity, 0.f, 2.f, "%.2f");
         SettingsTooltip(ui("This tunes the model itself, not the final effect multiplier. Saturation can limit the visible change.",
-            "这项调整模型内部行为，不等于最终效果倍率；模型饱和时，继续提高也可能看不出变化。"));
+            "这项调整模型内部行为，不等于强度放大。默认 1.0，保留已有值；模型参数提交后需要重建/预热，短暂原图不是人脸识别成功的证明。"));
         changed |= ImGui::SliderFloat(ui("Local tone", "局部影调"), &next.local_tone, 0.f, 2.f, "%.2f");
         SettingsTooltip(ui("Changes local contrast inside the NR model. It is separate from final blend strength.", "调整 NR 模型内部的局部明暗对比，与最终混合强度不同。"));
         changed |= ImGui::SliderFloat(ui("Local structure", "局部结构"), &next.local_structure, 0.f, 2.f, "%.2f");
@@ -294,9 +300,35 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         } else {
             ImGui::TextDisabled("%s", ui("Enable Face mask to adjust skin detail; currently follows Local structure.", "开启人脸遮罩后可调整皮肤细节；当前跟随局部结构。"));
         }
-        changed |= ImGui::Checkbox(ui("UI correction", "UI 校正"), &next.ui_correction);
+        changed |= ImGui::Checkbox(ui("UI correction", "UI 结构保护"), &next.ui_correction);
         ImGui::TextDisabled("%s", ui("New installations: UI protection on; your saved choice is retained.", "新装默认开启：优先保护 UI；保留你已保存的选择。"));
-        SettingsTooltip(ui("Sends the unsigned UI-correction value expected by DLSSNR. It can help only when the game supplies a separate UI layer; it cannot isolate subtitles or HUD already baked into SceneColor. New installations enable it; existing explicit settings are kept.", "按 DLSSNR 实际读取的无符号类型发送界面修正值。只有游戏提供独立 UI 层时才可能生效；已经混入 SceneColor 的字幕或 HUD 无法被单独识别。新装默认开启，已有明确设置会保留。"));
+        SettingsTooltip(ui("Requests the model UI-correction parameter with its unsigned type. This plugin does not supply a separate HUD mask here; preservation of text or HUD is not guaranteed. New installations enable it; existing explicit settings are kept.", "按无符号类型请求模型内置 UI 结构保护。本插件在此没有额外提供 HUD 遮罩，不保证字幕或界面完全不变；新装默认开启，保留已有明确设置。"));
+        // END PRIMARY MODEL CONTROLS
+
+    if (next.identity_use_original && ImGui::Button(ui("Show NR picture (leave diagnostic identity)", "显示 NR 效果（退出诊断原图）"))) {
+        next.identity_use_original = false; changed = true;
+    }
+    if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {
+#if NR_HAS_DETAIL_STABILITY
+    constexpr float maximum_strength = 4.0f;
+#else
+    constexpr float maximum_strength = 2.0f;
+#endif
+    float effect_strength = ActiveTransferStrength(next);
+    if (ImGui::SliderFloat(ui("Strength amplification", "强度放大"),
+            &effect_strength, 0.0f, maximum_strength, "%.2f")) {
+        next.transfer_strength = next.post_transfer_strength = effect_strength; changed = true;
+    }
+    SettingsTooltip(ui("Final NR blend strength. 0 keeps native SR; 1.0 is the unscaled effect. New installations start at 1.2. Existing settings, including 0, are retained. The public range is 0-4; older requests above 4 are clamped. Higher values can amplify low-resolution noise. Mandatory colour budgeting limits extra chroma amplification above 1x; this is not the model's internal strength.",
+        "控制最终 NR 混合强度。0 保留原生 SR，1.0 是不额外放大的效果；新装默认 1.2。已有设置（包括 0）会保留。范围为 0–4，旧配置超过 4 会限制到 4。较高数值仍可能放大低分辨率噪点。超过 1 倍自动限制额外颜色放大，不改变模型强度；这不保证消除模型自身色偏。"));
+
+        if (ImGui::Button(ui("Post-SR comparison", "后置对照设置"))) {
+            next.mode = 1; next.enabled = true; next.identity_use_original = false;
+            next.transfer_strength = next.post_transfer_strength = 1.0f;
+            next.color_strength = 1.0f; changed = true;
+        }
+        SettingsTooltip(ui("Sets SR -> NR with strength 1.0 and colour request 1.0 for comparison. These are comparison values, not the new installation defaults. Colour restrictions still apply.",
+            "切到 SR → NR，采用强度 1.0、颜色请求 1.0 进行对照。这是对照基准，不是新装默认值；颜色准入限制仍然生效。"));
 #if NR_HAS_DETAIL_STABILITY
         if (next.mode != 2) ImGui::BeginDisabled();
         changed |= ImGui::SliderFloat(ui("Detail stability (experimental)", "细节稳定保护（实验）"), &next.detail_stability, 0.f, 1.f, "%.2f");

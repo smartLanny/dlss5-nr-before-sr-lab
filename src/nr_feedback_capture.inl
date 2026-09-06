@@ -56,6 +56,48 @@ const char *FeedbackStageBlockReason(const ChainConfig &config) {
     return nullptr;
 }
 
+#if defined(NR_HAS_COMMAND_CREATION_EVIDENCE)
+void FeedbackAppendCommandHistory(FeedbackSession &s) {
+    FeedbackAppend(s, "commandHistory.schema=1\ncommandHistory.scope=historical distinct carrier samples; not a fresh snapshot or frame identity\n"
+        "commandLifetime.createCalls=%llu\ncommandLifetime.createSuccess=%llu\ncommandLifetime.create1Calls=%llu\ncommandLifetime.create1Success=%llu\n"
+        "commandLifetime.receiptFailures=%llu\ncommandLifetime.publicationFailures=%llu\n"
+        "commandLifetime.initEvents=%llu\ncommandLifetime.destroyEvents=%llu\n"
+        "commandLifetime.nativeResetEvents=%llu\ncommandLifetime.nativeResetFailures=%llu\n"
+        "commandLifetime.resetWithoutRecord=%llu\ncommandLifetime.resetIdentityMismatch=%llu\n",
+        g_command_create_calls.load(), g_command_create_successes.load(), g_command_create1_calls.load(), g_command_create1_successes.load(),
+        g_command_create_receipt_failures.load(), g_command_creation_publication_failures.load(),
+        g_command_init_events.load(), g_command_destroy_events.load(), g_command_native_reset_events.load(), g_command_native_reset_failures.load(),
+        g_command_reset_without_record.load(), g_command_reset_identity_mismatches.load());
+    auto history = std::unique_ptr<CommandEvidenceHistory>(new (std::nothrow) CommandEvidenceHistory);
+    if (!history || !TryAcquireSRWLockShared(&g_command_history_lock)) {
+        FeedbackAppend(s, "commandHistory.available=0\ncommandHistory.reason=allocation-or-snapshot-busy; counters-above-are-independent-atomics\n"); return;
+    }
+    *history = g_command_history;
+    ReleaseSRWLockShared(&g_command_history_lock);
+    const auto now = GetTickCount64();
+    FeedbackAppend(s, "commandHistory.available=1\ncommandHistory.count=%u\ncommandHistory.dropped=%llu\n", history->count, g_command_history_dropped.load());
+    for (unsigned i = 0; i < history->count; ++i) {
+        const auto &e = history->entries[i];
+        const char *next = e.captured ? "admitted-at-sample; inspect-runtime-and-submit-next" :
+            e.creation_method == 1 && e.native_resets == 0 && e.genuine_init_event && e.pipeline_writes > 0 &&
+            std::strcmp(e.reason, "awaiting-native-reset") == 0 ? "first-recording-candidate; prove-native-Create-baseline-before-admission" :
+            e.native_resets && !e.reset_successes ? "inspect-native-Reset-result; failed-Reset-is-not-a-baseline" :
+            std::strcmp(e.reason, "awaiting-native-reset") == 0 ? "inspect-create-receipt-and-native-reset-identity; do-not-remove-guard" :
+            "inspect-recorded-reason-and-current-runtime-stage";
+        FeedbackAppend(s, "commandHistory.%u=token:%llu,ageMs:%llu,captured:%d,reason:%s,baseline:%s,resetSerial:%llu,psoWrites:%llu,"
+            "createMethod:%u,createSerial:%llu,createTick:%llu,registeredTick:%llu,initEvent:%d,initialPso:%d,"
+            "resetNotifications:%llu,nativeResets:%llu,resetSuccess:%llu,captures:%llu,route:%s,dynamic:0x%llX,dirty:0x%X\n"
+            "commandHistory.%u.next=%s\n",
+            i, e.token, now >= e.sampled_at ? now - e.sampled_at : 0, e.captured ? 1 : 0, e.reason, e.baseline,
+            e.reset_serial, e.pipeline_writes, e.creation_method, e.creation_serial, e.creation_tick, e.registered_tick,
+            e.genuine_init_event ? 1 : 0, e.initial_pso ? 1 : 0, e.reset_notifications, e.native_resets, e.reset_successes,
+            e.captures, e.route, e.dynamic, e.dirty, i, next);
+    }
+    FeedbackAppend(s, "commandHistory.methodLegend=0:unknown,1:CreateCommandList-initially-open,2:CreateCommandList1-initially-closed\n"
+        "commandHistory.warning=ReShade-reset-notification-is-not-proof-of-native-Reset; next-steps-are-hypotheses-not-proven-fixes\ncommandLifetime.coverage=optional observers attempt each implementation once; missing receipts and earlier unobserved calls remain unknown\n");
+}
+#endif
+
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
 #if defined(NR_HAS_RUNTIME_LOAD_EVIDENCE)
     const auto load = SnapshotRuntimeLoadEvidence();
@@ -78,7 +120,8 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
 #endif
 #if defined(NR_HAS_COMMAND_STATE_EVIDENCE)
     const auto evidence = SnapshotCommandStateEvidence();
-    FeedbackAppend(s, "%s.commandState.available=%d\n", prefix, evidence.available ? 1 : 0);
+    FeedbackAppend(s, "%s.commandState.available=%d\n%s.commandState.snapshotReason=%s\n",
+        prefix, evidence.available ? 1 : 0, prefix, evidence.available ? "available" : evidence.reason);
     if (evidence.available) {
         FeedbackAppend(s, "%s.commandState.schema=1\n%s.commandState.ageMs=%llu\n"
             "%s.commandState.sequence=%llu\n%s.commandState.token=%llu\n"

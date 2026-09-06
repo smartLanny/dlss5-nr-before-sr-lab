@@ -142,7 +142,7 @@ void check(bool ok,const char *message){++checks;if(!ok){std::fprintf(stderr,"FA
 void drain(){while(!work.empty()){const auto w=work.front();work.erase(work.begin());w.fn(w.arg);}}
 void put(const std::filesystem::path &path,const std::string &value){std::ofstream out(path,std::ios::binary);out<<value;check(out.good(),"write fixture");}
 void save(const char *name){check(g_feedback_last_zip[0]!=0,"current ZIP exists");std::filesystem::copy_file(g_feedback_last_zip,std::filesystem::path(output_root)/name);}
-void begin(reshade::api::effect_runtime &runtime){check(RequestFeedbackBundle(),"new core request through legacy UI");check(!g_feedback_last_zip[0],"new request clears old path");check(!nr_core_feedback::g_submission[0],"new request clears old ticket");check(!nr_core_feedback::g_full_report && !nr_core_feedback::g_report_path[0],"new request clears old TXT");check(nr_core_feedback::SnapshotPair().session[0] && g_feedback_status==1,"legacy request initializes session and parameter observer");nr_core_feedback::Present(&runtime);}
+void begin(reshade::api::effect_runtime &runtime, bool archive=true){check(archive ? nr_core_feedback::Request(true) : RequestFeedbackBundle(),"explicit F7 archive or legacy F8 TXT request");check(!g_feedback_last_zip[0],"new request clears old path");check(!nr_core_feedback::g_submission[0],"new request clears old ticket");check(!nr_core_feedback::g_full_report && !nr_core_feedback::g_report_path[0],"new request clears old TXT");check(nr_core_feedback::SnapshotPair().session[0] && g_feedback_status==1,"legacy request initializes session and parameter observer");nr_core_feedback::Present(&runtime);}
 int main(int argc,char **argv) {
     check(argc==2,"output directory supplied");output_root=std::filesystem::absolute(argv[1]).wstring();
     std::filesystem::create_directories(output_root);InitializeCriticalSection(&g_chain_cs);
@@ -220,6 +220,31 @@ int main(int argc,char **argv) {
     check(!nr_f8::g_last_zip[0] && nr_f8::g_status==nr_f8::Status::Idle,"new core clears old image path and completion status");
     nr_core_feedback::Present(&runtime);drain();
     check(g_feedback_status==3,"fresh core completes after image-result reset");
+    check(!g_feedback_last_zip[0],"F8 never publishes a ZIP path");
+    check(!nr_core_feedback::SnapshotPair().complete,"text-only capture cannot masquerade as a paired image core");
+    check(nr_core_feedback::g_full_report && nr_core_feedback::g_report_path[0],"F8 standalone text saved");
+    const auto named = std::filesystem::path(nr_core_feedback::g_report_path);
+    unsigned siblings=0;
+    for (const auto &entry : std::filesystem::directory_iterator(named.parent_path())) {
+        ++siblings; check(entry.path()==named,"F8 has no ZIP, summaries or temporary siblings");
+    }
+    check(siblings==1,"successful F8 physically leaves exactly one TXT");
+    check(named.filename().string().find("-core-test-only-")!=std::string::npos,"filename carries actual build");
+    const auto fresh_report=*nr_core_feedback::g_full_report;
+    check(fresh_report.find("format=DLSS5-CoreText-v2")!=std::string::npos,"single text schema");
+    check(fresh_report.find("archive.requested=0")!=std::string::npos,"no false archive status");
+    check(fresh_report.find("capture.localTime=")!=std::string::npos && fresh_report.find("capture.utcTime=")!=std::string::npos,"local and UTC timestamps recorded");
+    check(fresh_report.find("null-pso-policy-disabled")!=std::string::npos,"standalone text retains first actual bypass");
+    check(fresh_report.find("Private Tester")==std::string::npos,"standalone text retains privacy rules");
+    begin(runtime,false);nr_core_feedback::Cancel();drain();
+    check(g_feedback_status==4 && nr_core_feedback::g_full_report && !g_feedback_last_zip[0],"cancelled F8 keeps partial TXT, not ZIP or old results");
+    snapshot_busy=true;begin(runtime,false);drain();snapshot_busy=false;
+    check(g_feedback_status==4 && nr_core_feedback::g_full_report->find("snapshot.valid=0")!=std::string::npos,"busy F8 snapshot explicit");
+    directory_fail=true;begin(runtime,false);drain();directory_fail=false;
+    check(g_feedback_status==5 && !nr_core_feedback::g_full_report && !nr_core_feedback::g_report_path[0],"failed F8 has no stale text");
+    begin(runtime,false);drain();
+    check(g_feedback_status==3 && std::filesystem::path(nr_core_feedback::g_report_path)!=named,"repeat F8 has a new filename");
+    check(std::filesystem::exists(named),"later F8 never overwrites previous evidence");
     // The generalized archive cap cannot be raised and handles underflow safely.
     auto *job=new nr_bundle::Job{};job->archive_limit=UINT64_MAX;
     check(nr_bundle::ArchiveLimit(*job)==nr_bundle::kArchiveLimit,"caller cannot raise global ZIP limit");
@@ -241,6 +266,7 @@ int main(int argc,char **argv) {
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--compiler', required=True)
+    p.add_argument('--compile-only', action='store_true')
     args = p.parse_args()
     source = (ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
     legacy = (ROOT/'src/nr_feedback_capture.inl').read_text(encoding='utf-8-sig')
@@ -270,6 +296,9 @@ def main():
     cpp.write_text(text, encoding='utf-8')
     subprocess.run([args.compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function',
                     '-static', '-I', str(ROOT/'src'), str(cpp), '-o', str(exe)], check=True)
+    if args.compile_only:
+        print('Windows harness cross-compiled; not executed.')
+        return
     subprocess.run([str(exe), str(out/'fixtures')], check=True)
     spec = importlib.util.spec_from_file_location('core_parser', ROOT/'scripts/parse-core-feedback.py')
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
