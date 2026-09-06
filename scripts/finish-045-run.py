@@ -2,6 +2,7 @@ from pathlib import Path
 p=Path(__file__).with_name('finish-045.py')
 s=p.read_text(encoding='utf-8')
 s=s.replace('std::clamp(FiniteOr(strength, 0.0f), 0.0f, 2.0f)', 'std::isfinite(strength) ? std::clamp(strength, 0.0f, 2.0f) : 0.0f')
+s=s.replace("['python3','scripts/'+script],cwd=root", "['python3','scripts/'+script]+(['--compiler','g++'] if script=='validate-043r2.py' else []),cwd=root")
 marker="  git('add','.')"
 assert s.count(marker)==1
 extra="""  p='docs/releases/beta0.4.5.md'
