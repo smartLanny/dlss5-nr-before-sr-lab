@@ -57,6 +57,10 @@
           "nr-before-sr/versions/*/*",
           "nr-before-sr/README.md"
         ]
+      },
+      {
+        "from": "src/product/nvapi-drs.ps1",
+        "to": "nvapi-drs.ps1"
       }
     ],
     "win": { "target": ["nsis", "portable"], "icon": "build/icon.ico" },
