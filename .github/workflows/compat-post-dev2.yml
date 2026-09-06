@@ -1,0 +1,120 @@
+name: Compatibility dev2 - RR post and scaled work
+on:
+  push:
+    branches: [codex/multiapi-045-integration]
+  pull_request:
+    branches: [release/0.4.5-test, release/0.4]
+    paths: ['src/**', 'scripts/**', 'tests/**', '.github/workflows/compat-post-dev2.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: compat-post-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Actual policies, RR execution and settings
+        env:
+          CXX: ${{ matrix.compiler }}
+          POST_COMPAT_CORE_SOURCE: src/nr_before_sr.cpp
+        run: |
+          set -euo pipefail
+          for test in post_policy rr_post_runtime post_settings motion_access; do
+            "$CXX" -std=c++17 -Wall -Wextra -Werror -I. "tests/multi_api/$test.cpp" -o "$RUNNER_TEMP/$test"
+            "$RUNNER_TEMP/$test"
+          done
+          python3 -m unittest discover -s tests/multi_api -p 'test_post*.py' -v
+      - name: Sanitizers
+        if: matrix.compiler == 'clang++'
+        run: |
+          set -euo pipefail
+          for test in post_policy rr_post_runtime post_settings motion_access; do
+            clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -I. "tests/multi_api/$test.cpp" -o "$RUNNER_TEMP/$test-san"
+            "$RUNNER_TEMP/$test-san"
+          done
+  windows:
+    needs: host
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Fixed build inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git clone --no-checkout https://github.com/NIGos/dlss5-bridge.git external-carrier
+          if ($LASTEXITCODE) { throw 'Carrier clone failed' }
+          git -C external-carrier checkout --detach 28aed4099b0fe1c207b20b5fee5364c0773c25c2
+          if ($LASTEXITCODE) { throw 'Carrier checkout failed' }
+          Invoke-WebRequest 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip' -OutFile llvm.zip
+          Expand-Archive llvm.zip -DestinationPath toolchain
+          $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
+          git clone --no-checkout https://github.com/crosire/reshade.git reshade-source
+          if ($LASTEXITCODE) { throw 'ReShade clone failed' }
+          git -C reshade-source checkout --detach 4a50d1eddace85734871d91792ff214f13f66c01
+          if ($LASTEXITCODE) { throw 'ReShade checkout failed' }
+          git -C reshade-source submodule update --init --recursive --depth 1
+          if ($LASTEXITCODE) { throw 'ReShade dependencies failed' }
+          "TOOLCHAIN_ROOT=$toolchain" | Out-File $env:GITHUB_ENV -Append
+          "RESHADE_ROOT=$pwd\reshade-source" | Out-File $env:GITHUB_ENV -Append
+      - name: Stage integrated dev2 and compile both cores
+        shell: pwsh
+        run: |
+          python scripts/prepare-compat-dev2.py --upstream external-carrier --output build/compat-dev2
+          if ($LASTEXITCODE) { throw 'Integrated source generation failed' }
+          ./build/compat-dev2/core/scripts/build.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
+          if ($LASTEXITCODE) { throw 'Bilingual core compile failed' }
+      - name: All actual staged HLSL entries and companion
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          cl /nologo /W4 /O2 /MT /EHsc /std:c++17 tests\multi_api\post_shader_compile.cpp /Fe:post_shader_compile.exe
+          if errorlevel 1 exit /b 1
+          python scripts\validate-post-shaders.py --source build\compat-dev2\core\src\nr_before_sr.cpp --compiler post_shader_compile.exe
+          if errorlevel 1 exit /b 1
+          cd build\compat-dev2\carrier\src
+          rc /nologo version.rc
+          if errorlevel 1 exit /b 1
+          cl /nologo /W4 /O2 /MT /EHsc /std:c++17 /Ireshade /LD dlss5-bridge.cpp version.res /Fe:dlss5-native-carrier-multiapi-dev2.addon64 /link /DLL user32.lib advapi32.lib bcrypt.lib
+          if errorlevel 1 exit /b 1
+      - name: Package separate languages, never publish or overwrite defaults
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force build/candidate | Out-Null
+          $addons = @(Get-ChildItem build/compat-dev2/core/build/*.addon64)
+          if ($addons.Count -ne 2) { throw 'Expected exactly two language builds' }
+          foreach ($addon in $addons) {
+            $package = Join-Path 'build/packages' $addon.BaseName
+            New-Item -ItemType Directory -Force "$package/defaults" | Out-Null
+            Copy-Item $addon.FullName $package/
+            Copy-Item build/compat-dev2/core/build/nrchain_nvngx.dll $package/
+            Copy-Item build/compat-dev2/core/build/nr_before_sr.ini "$package/defaults/"
+            Copy-Item build/compat-dev2/carrier/src/dlss5-native-carrier-multiapi-dev2.addon64 $package/
+            Copy-Item build/compat-dev2/carrier/LICENSE $package/LICENSE-carrier.txt
+            Copy-Item build/compat-dev2/source-manifest.json $package/
+            Copy-Item docs/interop/POST_COMPAT_DEV2.md $package/README.md
+            Get-ChildItem $package -File -Recurse | Get-FileHash -Algorithm SHA256 | Select-Object @{Name='File';Expression={[IO.Path]::GetRelativePath((Resolve-Path $package).Path,$_.Path)}},Hash | ConvertTo-Json | Set-Content $package/SHA256.json
+            Compress-Archive -Path "$package/*" -DestinationPath "build/candidate/$($addon.BaseName).zip"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compat-post-dev2-NOT-game-verified
+          path: build/candidate/
+          if-no-files-found: error
+# Existing dev1/#132 checks are intentionally retained. This workflow does not
+# claim to execute NVIDIA NR or replace full game/GPU acceptance.
