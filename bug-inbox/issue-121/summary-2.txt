@@ -1,0 +1,587 @@
+format=DLSS5-LogSummary-v1
+source.bytes=33508
+scan.bytes=33508
+scan.complete=1
+lines.scanned=275
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+23:02:06:430 [16124] | INFO  | Initializing crosire's ReShade version '6.8.0.0' (64-bit) loaded from '[local-path]
+23:02:06:431 [16124] | INFO  | Registering hooks for 'user32.dll' ...
+23:02:06:431 [16124] | INFO  | > Libraries loaded.
+23:02:06:431 [16124] | INFO  | > Found 21 match(es). Installing ...
+23:02:06:446 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:446 [16124] | INFO  | > Delayed.
+23:02:06:446 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:446 [16124] | INFO  | > Delayed.
+23:02:06:446 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:446 [16124] | INFO  | > Delayed.
+23:02:06:446 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:446 [16124] | INFO  | > Libraries loaded.
+23:02:06:447 [16124] | INFO  | > Found 11 match(es). Installing ...
+23:02:06:460 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:460 [16124] | INFO  | > Delayed.
+23:02:06:460 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:460 [16124] | INFO  | > Delayed.
+23:02:06:460 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:461 [16124] | INFO  | > Delayed.
+23:02:06:461 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:461 [16124] | INFO  | > Delayed until first call to an exported function.
+23:02:06:461 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:461 [16124] | INFO  | > Libraries loaded.
+23:02:06:461 [16124] | INFO  | > Found 5 match(es). Installing ...
+23:02:06:474 [16124] | INFO  | Registering hooks for 'openvr_api.dll' ...
+23:02:06:474 [16124] | INFO  | > Delayed.
+23:02:06:474 [16124] | INFO  | Initialized.
+23:02:06:961 [11228] | INFO  | Redirecting RegisterClassW(lpWndClass = [address] { "ScimitarSplashScreenWindow", style = 0 }) ...
+23:02:06:961 [11228] | INFO  | > Adding 'CS_OWNDC' window class style flag to "ScimitarSplashScreenWindow".
+23:02:06:983 [ 8372] | INFO  | Redirecting RegisterClassExW(lpWndClassEx = [address] { "ScimitarEngineWindowClass", style = 0x3 }) ...
+23:02:06:984 [ 8372] | INFO  | > Adding 'CS_OWNDC' window class style flag to "ScimitarEngineWindowClass".
+23:02:07:144 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+23:02:08:149 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+23:02:08:157 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+23:02:08:232 [16124] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {50C83A1C-E072-4C48-87B0-[address]}, ppFactory = [address]) ...
+23:02:08:233 [16124] | INFO  | Installing export hooks for '[local-path]
+23:02:08:234 [16124] | INFO  | > Found 8 match(es). Installing ...
+23:02:08:234 [16124] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+23:02:08:234 [16124] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+23:02:08:234 [16124] | INFO  | Loading add-on from '[local-path]
+23:02:08:237 [16124] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.5 (Chinese UI) | Bilibili UID 941799" v0.4.5.0 using ReShade API version 18.
+23:02:08:240 [16124] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:08:678 [16124] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.5 (Chinese UI) | Bilibili UID 941799" ...
+23:02:08:678 [16124] | WARN  | Add-on "DLSS 5 NR Perfect Chain beta0.4.5 (Chinese UI) | Bilibili UID 941799" was not unregistered!
+23:02:08:777 [16124] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+23:02:08:777 [16124] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.5 (Chinese UI) | Bilibili UID 941799" ...
+23:02:08:777 [16124] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+23:02:08:777 [16124] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:028 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+23:02:10:528 [16124] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:10:528 [16124] | INFO  | > Dumping command queue description:
+23:02:10:528 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:528 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:10:528 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:528 [16124] | INFO  |   | Type                                    | 0                                       |
+23:02:10:528 [16124] | INFO  |   | Priority                                | 0                                       |
+23:02:10:528 [16124] | INFO  |   | Flags                                   | 0                                       |
+23:02:10:528 [16124] | INFO  |   | NodeMask                                | 0                                       |
+23:02:10:528 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:553 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:554 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:554 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:555 [16124] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:10:555 [16124] | INFO  | > Dumping command queue description:
+23:02:10:555 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:555 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:10:555 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:555 [16124] | INFO  |   | Type                                    | 0                                       |
+23:02:10:555 [16124] | INFO  |   | Priority                                | 0                                       |
+23:02:10:555 [16124] | INFO  |   | Flags                                   | 0                                       |
+23:02:10:555 [16124] | INFO  |   | NodeMask                                | 0                                       |
+23:02:10:555 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:573 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:573 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:574 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:574 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:574 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:575 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:607 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:607 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:608 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:608 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:608 [16124] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:10:609 [16124] | INFO  | > Dumping command queue description:
+23:02:10:609 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:609 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:10:609 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:609 [16124] | INFO  |   | Type                                    | 0                                       |
+23:02:10:609 [16124] | INFO  |   | Priority                                | 0                                       |
+23:02:10:609 [16124] | INFO  |   | Flags                                   | 0                                       |
+23:02:10:609 [16124] | INFO  |   | NodeMask                                | 0                                       |
+23:02:10:609 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:631 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+23:02:10:751 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+23:02:10:798 [16124] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:10:799 [16124] | INFO  | > Dumping command queue description:
+23:02:10:799 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:799 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:10:799 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:799 [16124] | INFO  |   | Type                                    | 0                                       |
+23:02:10:799 [16124] | INFO  |   | Priority                                | 0                                       |
+23:02:10:799 [16124] | INFO  |   | Flags                                   | 0                                       |
+23:02:10:799 [16124] | INFO  |   | NodeMask                                | 0                                       |
+23:02:10:799 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:823 [16124] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:10:824 [16124] | INFO  | > Dumping command queue description:
+23:02:10:824 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:824 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:10:824 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:824 [16124] | INFO  |   | Type                                    | 2                                       |
+23:02:10:824 [16124] | INFO  |   | Priority                                | 0                                       |
+23:02:10:824 [16124] | INFO  |   | Flags                                   | 0                                       |
+23:02:10:824 [16124] | INFO  |   | NodeMask                                | 0                                       |
+23:02:10:824 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:930 [16124] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:12:930 [16124] | INFO  | > Dumping command queue description:
+23:02:12:930 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:930 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:12:930 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:930 [16124] | INFO  |   | Type                                    | 0                                       |
+23:02:12:930 [16124] | INFO  |   | Priority                                | 0                                       |
+23:02:12:930 [16124] | INFO  |   | Flags                                   | 0                                       |
+23:02:12:930 [16124] | INFO  |   | NodeMask                                | 0                                       |
+23:02:12:930 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:948 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:12:949 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:12:949 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:12:965 [16124] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForComposition(this = [address], pDevice = [address], pDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+23:02:12:965 [16124] | INFO  | > Dumping swap chain description:
+23:02:12:965 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:965 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:12:965 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:966 [16124] | INFO  |   | Width                                   | 1                                       |
+23:02:12:966 [16124] | INFO  |   | Height                                  | 1                                       |
+23:02:12:966 [16124] | INFO  |   | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |
+23:02:12:966 [16124] | INFO  |   | Stereo                                  | FALSE                                   |
+23:02:12:966 [16124] | INFO  |   | SampleCount                             | 1                                       |
+23:02:12:966 [16124] | INFO  |   | SampleQuality                           | 0                                       |
+23:02:12:966 [16124] | INFO  |   | BufferUsage                             | 0x60                                    |
+23:02:12:966 [16124] | INFO  |   | BufferCount                             | 2                                       |
+23:02:12:966 [16124] | INFO  |   | SwapEffect                              | 4                                       |
+23:02:12:966 [16124] | INFO  |   | AlphaMode                               | 0                                       |
+23:02:12:966 [16124] | INFO  |   | Flags                                   | 0x802                                   |
+23:02:12:966 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:970 [16124] | INFO  | Running on NVIDIA GeForce RTX 5060 Driver 616.64.
+23:02:13:160 [16124] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForComposition(this = [address], pDevice = [address], pDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+23:02:13:160 [16124] | INFO  | > Dumping swap chain description:
+23:02:13:160 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:160 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:13:160 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:160 [16124] | INFO  |   | Width                                   | 1                                       |
+23:02:13:160 [16124] | INFO  |   | Height                                  | 1                                       |
+23:02:13:160 [16124] | INFO  |   | Format                                  | DXGI_FORMAT_R16G16B16A16_FLOAT          |
+23:02:13:160 [16124] | INFO  |   | Stereo                                  | FALSE                                   |
+23:02:13:161 [16124] | INFO  |   | SampleCount                             | 1                                       |
+23:02:13:161 [16124] | INFO  |   | SampleQuality                           | 0                                       |
+23:02:13:161 [16124] | INFO  |   | BufferUsage                             | 0x60                                    |
+23:02:13:161 [16124] | INFO  |   | BufferCount                             | 2                                       |
+23:02:13:161 [16124] | INFO  |   | SwapEffect                              | 4                                       |
+23:02:13:161 [16124] | INFO  |   | AlphaMode                               | 0                                       |
+23:02:13:161 [16124] | INFO  |   | Flags                                   | 0x802                                   |
+23:02:13:161 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:164 [16124] | INFO  | Running on NVIDIA GeForce RTX 5060 Driver 616.64.
+23:02:13:165 [16124] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForComposition(this = [address], pDevice = [address], pDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+23:02:13:165 [16124] | INFO  | > Dumping swap chain description:
+23:02:13:165 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:165 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:13:165 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:165 [16124] | INFO  |   | Width                                   | 1                                       |
+23:02:13:165 [16124] | INFO  |   | Height                                  | 1                                       |
+23:02:13:165 [16124] | INFO  |   | Format                                  | DXGI_FORMAT_R10G10B10A2_UNORM           |
+23:02:13:165 [16124] | INFO  |   | Stereo                                  | FALSE                                   |
+23:02:13:165 [16124] | INFO  |   | SampleCount                             | 1                                       |
+23:02:13:165 [16124] | INFO  |   | SampleQuality                           | 0                                       |
+23:02:13:165 [16124] | INFO  |   | BufferUsage                             | 0x60                                    |
+23:02:13:165 [16124] | INFO  |   | BufferCount                             | 2                                       |
+23:02:13:165 [16124] | INFO  |   | SwapEffect                              | 4                                       |
+23:02:13:165 [16124] | INFO  |   | AlphaMode                               | 0                                       |
+23:02:13:166 [16124] | INFO  |   | Flags                                   | 0x802                                   |
+23:02:13:166 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:169 [16124] | INFO  | Running on NVIDIA GeForce RTX 5060 Driver 616.64.
+23:02:13:170 [16124] | INFO  | Redirecting IDXGIFactory::CreateSwapChain(this = [address], pDevice = [address], pDesc = [address], ppSwapChain = [address]) ...
+23:02:13:170 [16124] | INFO  | > Dumping swap chain description:
+23:02:13:170 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:170 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:13:170 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:170 [16124] | INFO  |   | Width                                   | 2560                                    |
+23:02:13:170 [16124] | INFO  |   | Height                                  | 1600                                    |
+23:02:13:170 [16124] | INFO  |   | RefreshRate                             | 30                  1                   |
+23:02:13:170 [16124] | INFO  |   | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |
+23:02:13:170 [16124] | INFO  |   | ScanlineOrdering                        | 0                                       |
+23:02:13:171 [16124] | INFO  |   | Scaling                                 | 0                                       |
+23:02:13:171 [16124] | INFO  |   | SampleCount                             | 1                                       |
+23:02:13:171 [16124] | INFO  |   | SampleQuality                           | 0                                       |
+23:02:13:171 [16124] | INFO  |   | BufferUsage                             | 0x60                                    |
+23:02:13:171 [16124] | INFO  |   | BufferCount                             | 3                                       |
+23:02:13:171 [16124] | INFO  |   | OutputWindow                            | [address]                        |
+23:02:13:171 [16124] | INFO  |   | Windowed                                | TRUE                                    |
+23:02:13:171 [16124] | INFO  |   | SwapEffect                              | 4                                       |
+23:02:13:171 [16124] | INFO  |   | Flags                                   | 0x802                                   |
+23:02:13:171 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:175 [16124] | INFO  | Running on NVIDIA GeForce RTX 5060 Driver 616.64.
+23:02:13:177 [16124] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:13:181 [ 5860] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 3, Width = 1254, Height = 649, NewFormat = 28, SwapChainFlags = 0x802) ...
+23:02:13:183 [ 5860] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+23:02:13:187 [ 5860] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:13:189 [ 5860] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 3, Width = 2560, Height = 1600, NewFormat = 28, SwapChainFlags = 0x802) ...
+23:02:13:190 [ 5860] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+23:02:13:195 [ 5860] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:13:358 [ 5860] | WARN  | Failed to resolve search path '[local-path]
+23:02:13:368 [ 5860] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 3, Width = 2559, Height = 1600, NewFormat = 28, SwapChainFlags = 0x802) ...
+23:02:13:370 [ 5860] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+23:02:13:375 [ 5860] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:13:375 [ 5860] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+23:02:13:377 [ 5860] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:13:377 [ 5860] | INFO  | > Dumping command queue description:
+23:02:13:377 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:377 [ 5860] | INFO  |   | Parameter                               | Value                                   |
+23:02:13:377 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:377 [ 5860] | INFO  |   | Type                                    | 0                                       |
+23:02:13:377 [ 5860] | INFO  |   | Priority                                | 100                                     |
+23:02:13:377 [ 5860] | INFO  |   | Flags                                   | 0                                       |
+23:02:13:377 [ 5860] | INFO  |   | NodeMask                                | 0                                       |
+23:02:13:377 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:399 [ 5860] | INFO  | Redirecting IDXGIFactory::CreateSwapChain(this = [address], pDevice = [address], pDesc = [address], ppSwapChain = [address]) ...
+23:02:13:399 [ 5860] | INFO  | > Dumping swap chain description:
+23:02:13:399 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:399 [ 5860] | INFO  |   | Parameter                               | Value                                   |
+23:02:13:399 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:399 [ 5860] | INFO  |   | Width                                   | 2560                                    |
+23:02:13:399 [ 5860] | INFO  |   | Height                                  | 1600                                    |
+23:02:13:399 [ 5860] | INFO  |   | RefreshRate                             | 30                  1                   |
+23:02:13:399 [ 5860] | INFO  |   | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |
+23:02:13:399 [ 5860] | INFO  |   | ScanlineOrdering                        | 0                                       |
+23:02:13:399 [ 5860] | INFO  |   | Scaling                                 | 0                                       |
+23:02:13:399 [ 5860] | INFO  |   | SampleCount                             | 1                                       |
+23:02:13:399 [ 5860] | INFO  |   | SampleQuality                           | 0                                       |
+23:02:13:399 [ 5860] | INFO  |   | BufferUsage                             | 0x60                                    |
+23:02:13:399 [ 5860] | INFO  |   | BufferCount                             | 6                                       |
+23:02:13:399 [ 5860] | INFO  |   | OutputWindow                            | [address]                        |
+23:02:13:399 [ 5860] | INFO  |   | Windowed                                | TRUE                                    |
+23:02:13:399 [ 5860] | INFO  |   | SwapEffect                              | 4                                       |
+23:02:13:399 [ 5860] | INFO  |   | Flags                                   | 0x842                                   |
+23:02:13:399 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:406 [ 5860] | INFO  | Running on NVIDIA GeForce RTX 5060 Driver 616.64.
+23:02:13:408 [ 5860] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:13:408 [ 5860] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:13:409 [ 5860] | INFO  | > Dumping command queue description:
+23:02:13:409 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:409 [ 5860] | INFO  |   | Parameter                               | Value                                   |
+23:02:13:409 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:409 [ 5860] | INFO  |   | Type                                    | 2                                       |
+23:02:13:409 [ 5860] | INFO  |   | Priority                                | 100                                     |
+23:02:13:409 [ 5860] | INFO  |   | Flags                                   | 0                                       |
+23:02:13:409 [ 5860] | INFO  |   | NodeMask                                | 0                                       |
+23:02:13:409 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:429 [ 5860] | WARN  | Failed to resolve search path '[local-path]
+23:02:13:733 [16664] | INFO  | Installing delayed hooks for '[local-path]
+23:02:13:733 [16664] | INFO  | > Found 2 match(es). Installing ...
+23:02:16:991 [16564] | INFO  | Installing delayed hooks for '[local-path]
+23:02:16:991 [16564] | INFO  | > Found 3 match(es). Installing ...
+23:02:17:007 [16564] | INFO  | Installing delayed hooks for '[local-path]
+23:02:17:007 [16564] | INFO  | > Found 18 match(es). Installing ...
+23:02:17:026 [16564] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+23:02:17:026 [16564] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+23:02:17:027 [16564] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:17:027 [16564] | INFO  | Redirecting Direct3DCreate9(SDKVersion = 0x20) ...
+23:02:17:057 [16564] | INFO  | Redirecting Direct3DCreate9(SDKVersion = 0x20) ...
+23:02:29:248 [18712] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 6, Width = 2560, Height = 1600, NewFormat = 24, SwapChainFlags = 0x842) ...
+23:02:29:250 [18712] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+23:02:29:257 [18712] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:29:257 [18712] | INFO  | Redirecting IDXGISwapChain3::SetColorSpace1(ColorSpace = 12) ...
+23:02:29:258 [18712] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+23:02:29:260 [18712] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:29:489 [18712] | WARN  | Failed to resolve search path '[local-path]
+
+[first events]
+23:02:13:358 [ 5860] | WARN  | Failed to resolve search path '[local-path]
+
+[recent important]
+23:02:06:431 [16124] | INFO  | Registering hooks for 'user32.dll' ...
+23:02:06:446 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:446 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:446 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:446 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:460 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:460 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:460 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:461 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:461 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:474 [16124] | INFO  | Registering hooks for 'openvr_api.dll' ...
+23:02:08:233 [16124] | INFO  | Installing export hooks for '[local-path]
+23:02:08:234 [16124] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+23:02:08:777 [16124] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+23:02:13:358 [ 5860] | WARN  | Failed to resolve search path '[local-path]
+23:02:13:429 [ 5860] | WARN  | Failed to resolve search path '[local-path]
+23:02:13:733 [16664] | INFO  | Installing delayed hooks for '[local-path]
+23:02:16:991 [16564] | INFO  | Installing delayed hooks for '[local-path]
+23:02:17:007 [16564] | INFO  | Installing delayed hooks for '[local-path]
+23:02:17:026 [16564] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+23:02:29:489 [18712] | WARN  | Failed to resolve search path '[local-path]
+
+[tail]
+23:02:06:430 [16124] | INFO  | Initializing crosire's ReShade version '6.8.0.0' (64-bit) loaded from '[local-path]
+23:02:06:431 [16124] | INFO  | Registering hooks for 'user32.dll' ...
+23:02:06:431 [16124] | INFO  | > Libraries loaded.
+23:02:06:431 [16124] | INFO  | > Found 21 match(es). Installing ...
+23:02:06:446 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:446 [16124] | INFO  | > Delayed.
+23:02:06:446 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:446 [16124] | INFO  | > Delayed.
+23:02:06:446 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:446 [16124] | INFO  | > Delayed.
+23:02:06:446 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:446 [16124] | INFO  | > Libraries loaded.
+23:02:06:447 [16124] | INFO  | > Found 11 match(es). Installing ...
+23:02:06:460 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:460 [16124] | INFO  | > Delayed.
+23:02:06:460 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:460 [16124] | INFO  | > Delayed.
+23:02:06:460 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:461 [16124] | INFO  | > Delayed.
+23:02:06:461 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:461 [16124] | INFO  | > Delayed until first call to an exported function.
+23:02:06:461 [16124] | INFO  | Registering hooks for '[local-path]
+23:02:06:461 [16124] | INFO  | > Libraries loaded.
+23:02:06:461 [16124] | INFO  | > Found 5 match(es). Installing ...
+23:02:06:474 [16124] | INFO  | Registering hooks for 'openvr_api.dll' ...
+23:02:06:474 [16124] | INFO  | > Delayed.
+23:02:06:474 [16124] | INFO  | Initialized.
+23:02:06:961 [11228] | INFO  | Redirecting RegisterClassW(lpWndClass = [address] { "ScimitarSplashScreenWindow", style = 0 }) ...
+23:02:06:961 [11228] | INFO  | > Adding 'CS_OWNDC' window class style flag to "ScimitarSplashScreenWindow".
+23:02:06:983 [ 8372] | INFO  | Redirecting RegisterClassExW(lpWndClassEx = [address] { "ScimitarEngineWindowClass", style = 0x3 }) ...
+23:02:06:984 [ 8372] | INFO  | > Adding 'CS_OWNDC' window class style flag to "ScimitarEngineWindowClass".
+23:02:07:144 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+23:02:08:149 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+23:02:08:157 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+23:02:08:232 [16124] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {50C83A1C-E072-4C48-87B0-[address]}, ppFactory = [address]) ...
+23:02:08:233 [16124] | INFO  | Installing export hooks for '[local-path]
+23:02:08:234 [16124] | INFO  | > Found 8 match(es). Installing ...
+23:02:08:234 [16124] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+23:02:08:234 [16124] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+23:02:08:234 [16124] | INFO  | Loading add-on from '[local-path]
+23:02:08:237 [16124] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.5 (Chinese UI) | Bilibili UID 941799" v0.4.5.0 using ReShade API version 18.
+23:02:08:240 [16124] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:08:678 [16124] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.5 (Chinese UI) | Bilibili UID 941799" ...
+23:02:08:678 [16124] | WARN  | Add-on "DLSS 5 NR Perfect Chain beta0.4.5 (Chinese UI) | Bilibili UID 941799" was not unregistered!
+23:02:08:777 [16124] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+23:02:08:777 [16124] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.5 (Chinese UI) | Bilibili UID 941799" ...
+23:02:08:777 [16124] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+23:02:08:777 [16124] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:028 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+23:02:10:528 [16124] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:10:528 [16124] | INFO  | > Dumping command queue description:
+23:02:10:528 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:528 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:10:528 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:528 [16124] | INFO  |   | Type                                    | 0                                       |
+23:02:10:528 [16124] | INFO  |   | Priority                                | 0                                       |
+23:02:10:528 [16124] | INFO  |   | Flags                                   | 0                                       |
+23:02:10:528 [16124] | INFO  |   | NodeMask                                | 0                                       |
+23:02:10:528 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:553 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:554 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:554 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:555 [16124] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:10:555 [16124] | INFO  | > Dumping command queue description:
+23:02:10:555 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:555 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:10:555 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:555 [16124] | INFO  |   | Type                                    | 0                                       |
+23:02:10:555 [16124] | INFO  |   | Priority                                | 0                                       |
+23:02:10:555 [16124] | INFO  |   | Flags                                   | 0                                       |
+23:02:10:555 [16124] | INFO  |   | NodeMask                                | 0                                       |
+23:02:10:555 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:573 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:573 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:574 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:574 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:574 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:575 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:607 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:607 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:608 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:608 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:10:608 [16124] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:10:609 [16124] | INFO  | > Dumping command queue description:
+23:02:10:609 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:609 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:10:609 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:609 [16124] | INFO  |   | Type                                    | 0                                       |
+23:02:10:609 [16124] | INFO  |   | Priority                                | 0                                       |
+23:02:10:609 [16124] | INFO  |   | Flags                                   | 0                                       |
+23:02:10:609 [16124] | INFO  |   | NodeMask                                | 0                                       |
+23:02:10:609 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:631 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+23:02:10:751 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+23:02:10:798 [16124] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:10:799 [16124] | INFO  | > Dumping command queue description:
+23:02:10:799 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:799 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:10:799 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:799 [16124] | INFO  |   | Type                                    | 0                                       |
+23:02:10:799 [16124] | INFO  |   | Priority                                | 0                                       |
+23:02:10:799 [16124] | INFO  |   | Flags                                   | 0                                       |
+23:02:10:799 [16124] | INFO  |   | NodeMask                                | 0                                       |
+23:02:10:799 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:823 [16124] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:10:824 [16124] | INFO  | > Dumping command queue description:
+23:02:10:824 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:824 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:10:824 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:10:824 [16124] | INFO  |   | Type                                    | 2                                       |
+23:02:10:824 [16124] | INFO  |   | Priority                                | 0                                       |
+23:02:10:824 [16124] | INFO  |   | Flags                                   | 0                                       |
+23:02:10:824 [16124] | INFO  |   | NodeMask                                | 0                                       |
+23:02:10:824 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:930 [16124] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:12:930 [16124] | INFO  | > Dumping command queue description:
+23:02:12:930 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:930 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:12:930 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:930 [16124] | INFO  |   | Type                                    | 0                                       |
+23:02:12:930 [16124] | INFO  |   | Priority                                | 0                                       |
+23:02:12:930 [16124] | INFO  |   | Flags                                   | 0                                       |
+23:02:12:930 [16124] | INFO  |   | NodeMask                                | 0                                       |
+23:02:12:930 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:948 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:12:949 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:12:949 [16124] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:12:965 [16124] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForComposition(this = [address], pDevice = [address], pDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+23:02:12:965 [16124] | INFO  | > Dumping swap chain description:
+23:02:12:965 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:965 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:12:965 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:966 [16124] | INFO  |   | Width                                   | 1                                       |
+23:02:12:966 [16124] | INFO  |   | Height                                  | 1                                       |
+23:02:12:966 [16124] | INFO  |   | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |
+23:02:12:966 [16124] | INFO  |   | Stereo                                  | FALSE                                   |
+23:02:12:966 [16124] | INFO  |   | SampleCount                             | 1                                       |
+23:02:12:966 [16124] | INFO  |   | SampleQuality                           | 0                                       |
+23:02:12:966 [16124] | INFO  |   | BufferUsage                             | 0x60                                    |
+23:02:12:966 [16124] | INFO  |   | BufferCount                             | 2                                       |
+23:02:12:966 [16124] | INFO  |   | SwapEffect                              | 4                                       |
+23:02:12:966 [16124] | INFO  |   | AlphaMode                               | 0                                       |
+23:02:12:966 [16124] | INFO  |   | Flags                                   | 0x802                                   |
+23:02:12:966 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:12:970 [16124] | INFO  | Running on NVIDIA GeForce RTX 5060 Driver 616.64.
+23:02:13:160 [16124] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForComposition(this = [address], pDevice = [address], pDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+23:02:13:160 [16124] | INFO  | > Dumping swap chain description:
+23:02:13:160 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:160 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:13:160 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:160 [16124] | INFO  |   | Width                                   | 1                                       |
+23:02:13:160 [16124] | INFO  |   | Height                                  | 1                                       |
+23:02:13:160 [16124] | INFO  |   | Format                                  | DXGI_FORMAT_R16G16B16A16_FLOAT          |
+23:02:13:160 [16124] | INFO  |   | Stereo                                  | FALSE                                   |
+23:02:13:161 [16124] | INFO  |   | SampleCount                             | 1                                       |
+23:02:13:161 [16124] | INFO  |   | SampleQuality                           | 0                                       |
+23:02:13:161 [16124] | INFO  |   | BufferUsage                             | 0x60                                    |
+23:02:13:161 [16124] | INFO  |   | BufferCount                             | 2                                       |
+23:02:13:161 [16124] | INFO  |   | SwapEffect                              | 4                                       |
+23:02:13:161 [16124] | INFO  |   | AlphaMode                               | 0                                       |
+23:02:13:161 [16124] | INFO  |   | Flags                                   | 0x802                                   |
+23:02:13:161 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:164 [16124] | INFO  | Running on NVIDIA GeForce RTX 5060 Driver 616.64.
+23:02:13:165 [16124] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForComposition(this = [address], pDevice = [address], pDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+23:02:13:165 [16124] | INFO  | > Dumping swap chain description:
+23:02:13:165 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:165 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:13:165 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:165 [16124] | INFO  |   | Width                                   | 1                                       |
+23:02:13:165 [16124] | INFO  |   | Height                                  | 1                                       |
+23:02:13:165 [16124] | INFO  |   | Format                                  | DXGI_FORMAT_R10G10B10A2_UNORM           |
+23:02:13:165 [16124] | INFO  |   | Stereo                                  | FALSE                                   |
+23:02:13:165 [16124] | INFO  |   | SampleCount                             | 1                                       |
+23:02:13:165 [16124] | INFO  |   | SampleQuality                           | 0                                       |
+23:02:13:165 [16124] | INFO  |   | BufferUsage                             | 0x60                                    |
+23:02:13:165 [16124] | INFO  |   | BufferCount                             | 2                                       |
+23:02:13:165 [16124] | INFO  |   | SwapEffect                              | 4                                       |
+23:02:13:165 [16124] | INFO  |   | AlphaMode                               | 0                                       |
+23:02:13:166 [16124] | INFO  |   | Flags                                   | 0x802                                   |
+23:02:13:166 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:169 [16124] | INFO  | Running on NVIDIA GeForce RTX 5060 Driver 616.64.
+23:02:13:170 [16124] | INFO  | Redirecting IDXGIFactory::CreateSwapChain(this = [address], pDevice = [address], pDesc = [address], ppSwapChain = [address]) ...
+23:02:13:170 [16124] | INFO  | > Dumping swap chain description:
+23:02:13:170 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:170 [16124] | INFO  |   | Parameter                               | Value                                   |
+23:02:13:170 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:170 [16124] | INFO  |   | Width                                   | 2560                                    |
+23:02:13:170 [16124] | INFO  |   | Height                                  | 1600                                    |
+23:02:13:170 [16124] | INFO  |   | RefreshRate                             | 30                  1                   |
+23:02:13:170 [16124] | INFO  |   | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |
+23:02:13:170 [16124] | INFO  |   | ScanlineOrdering                        | 0                                       |
+23:02:13:171 [16124] | INFO  |   | Scaling                                 | 0                                       |
+23:02:13:171 [16124] | INFO  |   | SampleCount                             | 1                                       |
+23:02:13:171 [16124] | INFO  |   | SampleQuality                           | 0                                       |
+23:02:13:171 [16124] | INFO  |   | BufferUsage                             | 0x60                                    |
+23:02:13:171 [16124] | INFO  |   | BufferCount                             | 3                                       |
+23:02:13:171 [16124] | INFO  |   | OutputWindow                            | [address]                        |
+23:02:13:171 [16124] | INFO  |   | Windowed                                | TRUE                                    |
+23:02:13:171 [16124] | INFO  |   | SwapEffect                              | 4                                       |
+23:02:13:171 [16124] | INFO  |   | Flags                                   | 0x802                                   |
+23:02:13:171 [16124] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:175 [16124] | INFO  | Running on NVIDIA GeForce RTX 5060 Driver 616.64.
+23:02:13:177 [16124] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:13:181 [ 5860] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 3, Width = 1254, Height = 649, NewFormat = 28, SwapChainFlags = 0x802) ...
+23:02:13:183 [ 5860] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+23:02:13:187 [ 5860] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:13:189 [ 5860] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 3, Width = 2560, Height = 1600, NewFormat = 28, SwapChainFlags = 0x802) ...
+23:02:13:190 [ 5860] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+23:02:13:195 [ 5860] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:13:358 [ 5860] | WARN  | Failed to resolve search path '[local-path]
+23:02:13:368 [ 5860] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 3, Width = 2559, Height = 1600, NewFormat = 28, SwapChainFlags = 0x802) ...
+23:02:13:370 [ 5860] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+23:02:13:375 [ 5860] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:13:375 [ 5860] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+23:02:13:377 [ 5860] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:13:377 [ 5860] | INFO  | > Dumping command queue description:
+23:02:13:377 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:377 [ 5860] | INFO  |   | Parameter                               | Value                                   |
+23:02:13:377 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:377 [ 5860] | INFO  |   | Type                                    | 0                                       |
+23:02:13:377 [ 5860] | INFO  |   | Priority                                | 100                                     |
+23:02:13:377 [ 5860] | INFO  |   | Flags                                   | 0                                       |
+23:02:13:377 [ 5860] | INFO  |   | NodeMask                                | 0                                       |
+23:02:13:377 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:399 [ 5860] | INFO  | Redirecting IDXGIFactory::CreateSwapChain(this = [address], pDevice = [address], pDesc = [address], ppSwapChain = [address]) ...
+23:02:13:399 [ 5860] | INFO  | > Dumping swap chain description:
+23:02:13:399 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:399 [ 5860] | INFO  |   | Parameter                               | Value                                   |
+23:02:13:399 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:399 [ 5860] | INFO  |   | Width                                   | 2560                                    |
+23:02:13:399 [ 5860] | INFO  |   | Height                                  | 1600                                    |
+23:02:13:399 [ 5860] | INFO  |   | RefreshRate                             | 30                  1                   |
+23:02:13:399 [ 5860] | INFO  |   | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |
+23:02:13:399 [ 5860] | INFO  |   | ScanlineOrdering                        | 0                                       |
+23:02:13:399 [ 5860] | INFO  |   | Scaling                                 | 0                                       |
+23:02:13:399 [ 5860] | INFO  |   | SampleCount                             | 1                                       |
+23:02:13:399 [ 5860] | INFO  |   | SampleQuality                           | 0                                       |
+23:02:13:399 [ 5860] | INFO  |   | BufferUsage                             | 0x60                                    |
+23:02:13:399 [ 5860] | INFO  |   | BufferCount                             | 6                                       |
+23:02:13:399 [ 5860] | INFO  |   | OutputWindow                            | [address]                        |
+23:02:13:399 [ 5860] | INFO  |   | Windowed                                | TRUE                                    |
+23:02:13:399 [ 5860] | INFO  |   | SwapEffect                              | 4                                       |
+23:02:13:399 [ 5860] | INFO  |   | Flags                                   | 0x842                                   |
+23:02:13:399 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:406 [ 5860] | INFO  | Running on NVIDIA GeForce RTX 5060 Driver 616.64.
+23:02:13:408 [ 5860] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:13:408 [ 5860] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+23:02:13:409 [ 5860] | INFO  | > Dumping command queue description:
+23:02:13:409 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:409 [ 5860] | INFO  |   | Parameter                               | Value                                   |
+23:02:13:409 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:409 [ 5860] | INFO  |   | Type                                    | 2                                       |
+23:02:13:409 [ 5860] | INFO  |   | Priority                                | 100                                     |
+23:02:13:409 [ 5860] | INFO  |   | Flags                                   | 0                                       |
+23:02:13:409 [ 5860] | INFO  |   | NodeMask                                | 0                                       |
+23:02:13:409 [ 5860] | INFO  |   +-----------------------------------------+-----------------------------------------+
+23:02:13:429 [ 5860] | WARN  | Failed to resolve search path '[local-path]
+23:02:13:733 [16664] | INFO  | Installing delayed hooks for '[local-path]
+23:02:13:733 [16664] | INFO  | > Found 2 match(es). Installing ...
+23:02:16:991 [16564] | INFO  | Installing delayed hooks for '[local-path]
+23:02:16:991 [16564] | INFO  | > Found 3 match(es). Installing ...
+23:02:17:007 [16564] | INFO  | Installing delayed hooks for '[local-path]
+23:02:17:007 [16564] | INFO  | > Found 18 match(es). Installing ...
+23:02:17:026 [16564] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+23:02:17:026 [16564] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+23:02:17:027 [16564] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+23:02:17:027 [16564] | INFO  | Redirecting Direct3DCreate9(SDKVersion = 0x20) ...
+23:02:17:057 [16564] | INFO  | Redirecting Direct3DCreate9(SDKVersion = 0x20) ...
+23:02:29:248 [18712] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 6, Width = 2560, Height = 1600, NewFormat = 24, SwapChainFlags = 0x842) ...
+23:02:29:250 [18712] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+23:02:29:257 [18712] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:29:257 [18712] | INFO  | Redirecting IDXGISwapChain3::SetColorSpace1(ColorSpace = 12) ...
+23:02:29:258 [18712] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+23:02:29:260 [18712] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+23:02:29:489 [18712] | WARN  | Failed to resolve search path '[local-path]
