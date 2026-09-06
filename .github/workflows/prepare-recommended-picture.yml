@@ -1,0 +1,26 @@
+name: Prepare recommended picture reset
+on:
+  push:
+    branches: [prep/sep06-review-fixes]
+    paths:
+      - .github/workflows/prepare-recommended-picture.yml
+      - scripts/prepare-recommended-picture.py
+      - scripts/validate-recommended-picture.py
+      - src/nr_recommended_picture.inl
+permissions:
+  contents: read
+jobs:
+  audited-blobs:
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/prep/sep06-review-fixes'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify production defaults and create blobs only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/prepare-recommended-picture.py
