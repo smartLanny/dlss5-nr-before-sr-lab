@@ -1,0 +1,32 @@
+name: DX11 045 source preparation (no release)
+on:
+  push:
+    branches: [codex/dx11-045-preparation]
+permissions:
+  contents: read
+jobs:
+  sources:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export exact reviewed sources, no runtime binaries or user evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p snapshots/core snapshots/old snapshots/carrier
+          git archive 61fe9a0fe527fb2304c382c332cbe62876228b8b src scripts config tests .github .gitattributes | tar -x -C snapshots/core
+          git archive 0f714b32597e395d0684567ed9296dc1d2a1f35c scripts/prepare-native-bridge.py scripts/prepare-native-bridge-r3.py src/interop tests/native_bridge .github/workflows/native-bridge-r3.yml docs/interop/DX11_R3_EXPERIMENT.md | tar -x -C snapshots/old
+          git clone --no-checkout https://github.com/NIGos/dlss5-bridge.git upstream
+          git -C upstream archive 29baa4cc56e0aeb21219de16528e697b91522efc src LICENSE | tar -x -C snapshots/carrier
+          printf '%s\n' 'core=61fe9a0fe527fb2304c382c332cbe62876228b8b' 'dx11=0f714b32597e395d0684567ed9296dc1d2a1f35c' 'carrier=29baa4cc56e0aeb21219de16528e697b91522efc' > snapshots/pins.txt
+          find snapshots -type f -print0 | sort -z | xargs -0 sha256sum > snapshots.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dx11-045-review-sources
+          path: |
+            snapshots/
+            snapshots.sha256
+          retention-days: 7
