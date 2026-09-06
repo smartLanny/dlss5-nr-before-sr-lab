@@ -17,13 +17,12 @@ jobs:
         shell: bash
         run: |
           mkdir source-review
-          git archive --format=tar 962f15577ac86b2f9ca6d1d2d670714ee0ca0cb6 > source-review/dev2.tar
-          git archive --format=tar c8a3791b10811bea9a764a74d41c4e162e84dc3b > source-review/maintenance045.tar
+          git cat-file -e 12009d0448fb8bba8c699020382bf5bb6b84dec4
           git bundle create source-review/history.bundle refs/remotes/origin/feature/050-layered-composite refs/remotes/origin/release/0.4.5-test
           sha256sum source-review/*
       - uses: actions/upload-artifact@v4
         with:
-          name: pinned-stability-review-sources
+          name: pinned-stability-followup-sources
           path: source-review/
           retention-days: 3
           if-no-files-found: error
