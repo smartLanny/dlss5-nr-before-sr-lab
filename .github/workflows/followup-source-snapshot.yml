@@ -1,0 +1,33 @@
+name: Followup source snapshot
+on:
+  push:
+    branches: [prep/045-followup-sweep]
+    paths: [.github/workflows/followup-source-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d403388158b189103f76bb0a6a3d1a404782e02b
+          persist-credentials: false
+          path: product
+      - uses: actions/checkout@v4
+        with:
+          ref: 437eee14b66bb62d4b1c8ba99ddd41fef18be02b
+          persist-credentials: false
+          path: evidence
+      - run: |
+          mkdir export
+          git -C product archive --format=zip HEAD -o ../export/product.zip
+          git -C evidence archive --format=zip HEAD bug-inbox -o ../export/evidence.zip
+          printf 'product=d403388158b189103f76bb0a6a3d1a404782e02b\nevidence=437eee14b66bb62d4b1c8ba99ddd41fef18be02b\n' > export/SOURCE.txt
+          sha256sum export/*.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: followup-reviewed-source
+          path: export/
+          retention-days: 3
+          if-no-files-found: error
