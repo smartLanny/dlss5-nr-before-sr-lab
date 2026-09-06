@@ -56,7 +56,7 @@ def main():
 #include <string>
 using ULONGLONG = unsigned long long;
 using DWORD = unsigned long;
-constexpr DWORD ERROR_SUCCESS=0, ERROR_GEN_FAILURE=31, ERROR_MOD_NOT_FOUND=126;
+constexpr DWORD ERROR_SUCCESS=0, ERROR_GEN_FAILURE=31;
 DWORD last_error=0;
 DWORD GetLastError(){return last_error;}
 namespace reshade::api {struct effect_runtime;}
