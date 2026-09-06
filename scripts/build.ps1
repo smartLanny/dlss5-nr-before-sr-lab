@@ -63,7 +63,9 @@ $Common = @(
     "-I$(Join-Path $ReShade 'include')",
     "-I$(Join-Path $ReShade 'deps\imgui')"
 )
-$SourceDefines = @(('-DNR_SOURCE_COMMIT="' + $SourceCommit + '"'), ('-DNR_SOURCE_DIRTY=' + $SourceDirty))
+# Windows PowerShell 5 strips unescaped quotes from native argv, which turns a
+# SHA such as 891ba89... into a decimal token and fails on the following hex digit.
+$SourceDefines = @(('-DNR_SOURCE_COMMIT=\"' + $SourceCommit + '\"'), ('-DNR_SOURCE_DIRTY=' + $SourceDirty))
 
 $CFiles = @(
     'src\buffer.c',
