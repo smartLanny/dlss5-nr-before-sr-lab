@@ -216,7 +216,7 @@ function gameDetail(game) {
         <div class="shortcut-block"><div class="shortcut-head"><h4>快捷键</h4><span>按游戏单独保存</span></div><div class="shortcut-row"><label>NR 效果切换</label><button class="button subtle nr-hotkey-btn" disabled>F6 开关</button></div><div class="shortcut-row"><label>ReShade 菜单</label><button class="button subtle reshade-hotkey-btn">Home</button></div><p class="config-note">NR 效果切换使用 F6 开关；ReShade 菜单键可以在这里改，下一次启动游戏时生效。</p></div>
         <div class="config-actions"><button class="button default-btn">恢复默认</button><button class="button open-folder-btn">打开目录</button></div>
       </div>
-      <div class="config-block component-block"><h4>安装状态</h4><div class="component-body">正在检查…</div><div class="config-actions"><button class="button repair-inline-btn">一键修复</button><button class="button danger uninstall-inline-btn">卸载</button></div><div class="compat-actions"><button class="button subtle d3d12-btn">${game.d3d12Route ? '恢复 DXGI 入口' : '尝试 D3D12 入口'}</button><span>部分 DX12 游戏对 dxgi.dll 入口不兼容；会先保留 .bak。</span></div></div>
+      <div class="config-block component-block"><h4>安装状态</h4><div class="component-body">正在检查…</div><div class="config-actions"><button class="button repair-inline-btn">一键修复</button><button class="button danger uninstall-inline-btn">卸载</button></div><div class="compat-actions"><button class="button subtle d3d12-btn">${game.d3d12Route ? '恢复 DXGI 入口' : '加载 D3D12 入口'}</button><span>${game.d3d12Route ? '当前已加载 D3D12 入口；如需恢复可点击“恢复 DXGI 入口”。' : '部分网游（异环、逆战）不兼容 DXGI，建议加载 D3D12。'}</span></div></div>
     </div>
     <div class="path-line">${escapeHtml(game.dir)}</div>
   </div>`;
@@ -569,7 +569,7 @@ function confirmD3D12(id) {
   const game = state.games.find(row => row.id === id);
   const enabled = !(game && game.d3d12Route);
   state.pendingModal = { type: 'd3d12', id, enabled };
-  $('modalTitle').textContent = enabled ? '尝试 D3D12 入口' : '恢复 DXGI 入口';
+  $('modalTitle').textContent = enabled ? '加载 D3D12 入口' : '恢复 DXGI 入口';
   $('modalBody').textContent = enabled
     ? '会把管理器的 ReShade 入口从 dxgi.dll 切换为 d3d12.dll，并保留 .bak。部分网游有反作弊或自带保护，若仍无法启动请恢复 DXGI 或卸载插件。'
     : '会把管理器的 ReShade 入口恢复为 dxgi.dll。游戏必须先完全退出。';

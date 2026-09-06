@@ -35,11 +35,11 @@
     if (effective === 'm') {
       performance = policy.fp8Penalty
         ? '⚠ RTX 20/30 缺少原生 FP8，M 的性能损失会明显高于 K；建议只用于手动 A/B。'
-        : 'M 是 DLSS 4.5 第二代 Transformer：高画质优先，通常需要更多 GPU 计算，帧数可能低于 K；适合 RTX 40/50 的 NR→SR。';
+        : 'M 是 DLSS 4.5 第二代 Transformer，NVIDIA 推荐用于 DLSS Performance；兼顾画质与性能，RTX 40/50 默认推荐。';
     } else if (effective === 'l') {
       performance = policy.fp8Penalty
         ? '⚠ RTX 20/30 缺少原生 FP8，L 的性能损失会明显高于 K；不建议作为默认。'
-        : 'L 是 DLSS 4.5 第二代模型，主要针对 4K Ultra Performance；可手动强制到其他 SR 档位，性能开销通常也高于 K。';
+        : 'L 是 DLSS 4.5 第二代模型：高画质优先，通常需要更多 GPU 计算，帧数可能低于 M/K；主要面向 4K Ultra Performance。';
     } else if (effective === 'k') {
       performance = 'K 是 DLSS 4.0 第一代 Transformer；RTX 20/30 默认推荐，兼顾性能与画质。';
     } else {
@@ -78,7 +78,7 @@
 
     const row = document.createElement('div');
     row.className = 'control-row sr-model-row';
-    row.innerHTML = '<label>DLSS SR 模型</label><select class="sr-model-select"><option value="auto">自动推荐（40/50 → M；20/30 → K）</option><option value="m">M — DLSS 4.5（高画质，可能低帧数）</option><option value="l">L — DLSS 4.5（手动实验）</option><option value="k">K — DLSS 4.0（20/30 推荐）</option><option value="default">NVIDIA 默认 / 不覆盖</option></select><span class="sr-model-effective"></span>';
+    row.innerHTML = '<label>DLSS SR 模型</label><select class="sr-model-select"><option value="auto">自动推荐（40/50 → M；20/30 → K）</option><option value="m">M — DLSS 4.5（推荐）</option><option value="l">L — DLSS 4.5（高画质，可能低帧数）</option><option value="k">K — DLSS 4.0（20/30 推荐）</option><option value="default">NVIDIA 默认 / 不覆盖</option></select><span class="sr-model-effective"></span>';
     const note = document.createElement('p');
     note.className = 'config-note sr-model-note';
     note.textContent = '正在读取显卡与模型策略…';
