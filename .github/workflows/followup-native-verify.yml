@@ -24,6 +24,8 @@ jobs:
         run: |
           python prepared/apply.py product
           if ($LASTEXITCODE -ne 0) { throw 'Patch anchors or base differ' }
+          python prepared/finish.py product
+          if ($LASTEXITCODE -ne 0) { throw 'Final UI/identity anchors differ' }
       - name: Fixed compiler
         shell: pwsh
         run: |
@@ -53,27 +55,35 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Policy failed' }
           python scripts/validate-compat-sweep.py --compiler $c
           if ($LASTEXITCODE -ne 0) { throw 'UI policy failed' }
-          & $c -std=c++20 -Wall -Wextra -Werror -static -Isrc tests/shortcut_edge_test.cpp -o shortcuts.exe
-          if ($LASTEXITCODE -ne 0) { throw 'Input compilation failed' }
-          ./shortcuts.exe
-          if ($LASTEXITCODE -ne 0) { throw 'Input oracle failed' }
+          foreach ($test in @('shortcut_edge','ui_activity')) {
+            & $c -std=c++20 -Wall -Wextra -Werror -static -Isrc "tests/${test}_test.cpp" -o "$test.exe"
+            if ($LASTEXITCODE -ne 0) { throw 'Input/activity compilation failed' }
+            & "./$test.exe"
+            if ($LASTEXITCODE -ne 0) { throw 'Input/activity oracle failed' }
+          }
+          python scripts/validate-beta04-structure.py
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate structure/identity failed' }
+          python tests/test_045_ota.py
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate OTA tests failed' }
       - name: Export immutable blobs only, never move a product branch
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           @'
-          import subprocess,json,base64,pathlib
+          import subprocess,json,base64,pathlib,zipfile
           r=pathlib.Path('product')
           paths=subprocess.check_output(['git','diff','--name-only'],cwd=r,text=True).splitlines()
           paths+=subprocess.check_output(['git','ls-files','--others','--exclude-standard'],cwd=r,text=True).splitlines()
-          paths=[p for p in paths if p.startswith(('src/','tests/','scripts/'))]
+          paths=[p for p in paths if p.startswith(('src/','tests/','scripts/','docs/','.github/'))]
           entries=[]
-          for p in sorted(set(paths)):
-              data=(r/p).read_text(encoding='utf-8-sig').encode('utf-8')
-              body=json.dumps({'content':base64.b64encode(data).decode(),'encoding':'base64'})
-              blob=json.loads(subprocess.check_output(['gh','api','repos/smartLanny/dlss5-nr-before-sr-lab/git/blobs','--input','-'],input=body,text=True))
-              entries.append({'path':p,'mode':'100644','type':'blob','sha':blob['sha']})
+          with zipfile.ZipFile('reviewed-changes.zip','w',zipfile.ZIP_DEFLATED) as archive:
+              for p in sorted(set(paths)):
+                  data=(r/p).read_text(encoding='utf-8-sig').encode('utf-8')
+                  body=json.dumps({'content':base64.b64encode(data).decode(),'encoding':'base64'})
+                  blob=json.loads(subprocess.check_output(['gh','api','repos/smartLanny/dlss5-nr-before-sr-lab/git/blobs','--input','-'],input=body,text=True))
+                  entries.append({'path':p,'mode':'100644','type':'blob','sha':blob['sha']})
+                  archive.writestr(p,data)
           print('REVIEWED_TREE_ENTRIES '+json.dumps(entries))
           pathlib.Path('reviewed-tree.json').write_text(json.dumps(entries),encoding='utf-8')
           '@ | python -
@@ -90,4 +100,5 @@ jobs:
             product/tests/targets_only_gpu.inl
             product/build/command-state-*/critical-stack-usage.txt
             reviewed-tree.json
+            reviewed-changes.zip
           retention-days: 3
