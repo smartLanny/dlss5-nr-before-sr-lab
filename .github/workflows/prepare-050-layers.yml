@@ -30,8 +30,17 @@ jobs:
           path: cap-input
           persist-credentials: false
       - name: Import pinned cap commit into local object database
-        run: git fetch ./cap-input 2f070400b19595774bf3fa6b4d46ea2e6c64adf3
+        run: git fetch --update-shallow ./cap-input 2f070400b19595774bf3fa6b4d46ea2e6c64adf3
       - name: Prepare and validate source without changing branch refs
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/prepare-050-layers.py
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          script = Path('scripts/prepare-050-layers.py').read_text(encoding='utf-8')
+          old = 'source = once(source, anchor, new + anchor)'
+          new = r"source = once(source, '\n' + anchor, '\n' + new + anchor)"
+          assert script.count(old) == 1
+          script = script.replace(old, new)
+          exec(compile(script, 'prepare-050-layers.py', 'exec'))
+          PY
