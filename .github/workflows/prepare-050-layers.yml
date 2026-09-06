@@ -61,6 +61,15 @@ jobs:
           anchor = "    assert 'abs(baseLog), lumaStrength - 1.0, budget)' in combine"
           v = once(v, anchor, anchor + "\n    assert 'const bool boostProtectionEnabled = (Passthrough & 1024u) != 0u;' in combine\n    assert 'if (boostProtectionEnabled && lumaStrength > 1.0)' in combine")
           put('scripts/validate-layered-composite.py', v)
+          # Checkout happened before the archive attribute change. Re-materialize
+          # original bytes, not normalized text; no archive is published as a change.
+          paths = subprocess.check_output(['git','ls-tree','-r','--name-only','-z',BASE,'--','bug-inbox']).split(b'\0')
+          for raw in paths:
+              if raw:
+                  path = raw.decode('utf-8')
+                  Path(path).write_bytes(subprocess.check_output(['git','show',BASE+':'+path]))
+          subprocess.run(['git','diff','--exit-code','--','bug-inbox'],check=True)
+          assert not any(path.startswith('bug-inbox/') for path in changes)
           '''
           anchor = '\nfor command in ['
           assert script.count(anchor) == 1
