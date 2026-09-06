@@ -1,0 +1,26 @@
+name: Prepare September returned-error and strength fixes
+on:
+  push:
+    branches: [prep/sep06-review-fixes]
+    paths:
+      - .github/workflows/prepare-sep06-fixes.yml
+      - scripts/prepare-sep06-fixes.py
+      - scripts/validate-retirement-return.py
+      - scripts/validate-strength-cap.py
+permissions:
+  contents: read
+jobs:
+  audited-blobs:
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/prep/sep06-review-fixes'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify production red/green controls and create blobs only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/prepare-sep06-fixes.py
