@@ -52,7 +52,8 @@ def main():
  if not compiler:raise SystemExit('C++ compiler not found')
  with tempfile.TemporaryDirectory(prefix='nr-strength-') as td:
   src=Path(td)/'test.cpp';exe=Path(td)/('test.exe' if os.name=='nt' else 'test');src.write_text(code,encoding='utf-8')
-  subprocess.run([compiler,'-std=c++20','-Wall','-Wextra','-Werror',str(src),'-o',str(exe)],check=True)
+  flags=['-std=c++20','-Wall','-Wextra','-Werror']+(['-static'] if os.name=='nt' else [])
+  subprocess.run([compiler,*flags,str(src),'-o',str(exe)],check=True)
   result=subprocess.run([str(exe)],text=True,capture_output=True);print(result.stdout,end='');print(result.stderr,end='')
   if a.expect_rejection:
    if result.returncode!=1 or 'FAIL final strength public cap' not in result.stdout or 'FAIL mode switch cannot restore legacy excessive strength' not in result.stdout:raise SystemExit('Historical normalization was not rejected by exact cap oracle')
@@ -66,7 +67,14 @@ def main():
   assert '&next.intensity, 0.f, 2.f' in ui
   assert 'TransferStrength=1.20' in ini and 'PostTransferStrength=1.20' in ini
   assert '8 extreme/diagnostic' not in ini
-  assert 'NormalizeConfig(loaded)' in text or 'NormalizeConfig(config)' in text
-  print('PASS public UI/filename/INI/default/model-intensity integration')
+  # Follow the real production variable and functions, not guessed aliases.
+  reload=definition(text,'void ReloadConfig(')
+  apply=definition(text,'bool ApplyConfig(')
+  overlay=definition(text,'OverlayApplyResult ApplyOverlayConfig(')
+  assert reload.index('ReadConfiguredTransferStrength(configured_mode)') < reload.index('NormalizeConfig(next);') < reload.index('g_config = next;')
+  assert apply.index('NormalizeConfig(next);') < apply.index('g_config = next;') < apply.index('SaveConfig(g_config)')
+  assert 'ApplyConfig(next, "ReShade simplified settings")' in overlay
+  assert 'ApplyOverlayConfig(pending, pending_generation)' in ui
+  print('PASS public UI/filename/INI/default/model-intensity and reload/commit integration')
 
 if __name__=='__main__':main()
