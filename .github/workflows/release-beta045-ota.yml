@@ -1,0 +1,61 @@
+name: Publish beta0.4.5 unified test OTA
+on:
+  push:
+    branches: [release/0.4.5-test]
+    paths: ['.github/workflows/release-beta045-ota.yml']
+permissions:
+  contents: read
+concurrency:
+  group: publish-beta045
+  cancel-in-progress: false
+jobs:
+  checkout-and-diagnostics:
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/release/0.4.5-test'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preserve archived evidence bytes and reject real edits
+        run: python -m unittest discover -s tests -p test_evidence_checkout.py -v
+      - name: Loader return semantics and precise negative control
+        if: runner.os == 'Linux'
+        run: |
+          python3 scripts/validate-runtime-load.py
+          python3 scripts/validate-runtime-load.py --negative-control
+      - name: Reject corrupt, stale, missing-companion and wrong-language OTA
+        run: python -m unittest discover -s tests -p test_045_ota.py -v
+  validate:
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/release/0.4.5-test'
+    uses: ./.github/workflows/beta042-validate.yml
+    permissions:
+      contents: read
+  feedback:
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/release/0.4.5-test'
+    uses: ./.github/workflows/feedback-integrity.yml
+    permissions:
+      contents: read
+  publish:
+    needs: [checkout-and-diagnostics, validate, feedback]
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/release/0.4.5-test'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: beta045-ota
+          path: ota
+      - name: Revalidate final bytes against this exact source commit
+        run: python3 scripts/package-045.py --verify-dir ota
+      - name: Publish both verified OTA assets without replacing existing releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish-045.py
