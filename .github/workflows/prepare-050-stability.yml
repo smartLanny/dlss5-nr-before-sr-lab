@@ -1,0 +1,50 @@
+name: Inspect 0.5 stability integration
+on:
+  push:
+    branches: [codex/050-stability-preparation]
+    paths: [.github/workflows/prepare-050-stability.yml, scripts/prepare-050-stability.py]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Inspect exact merge and original evidence
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import subprocess, re
+          a='962f15577ac86b2f9ca6d1d2d670714ee0ca0cb6'
+          b='c8a3791b10811bea9a764a74d41c4e162e84dc3b'
+          def git(*args):return subprocess.check_output(['git',*args],text=True)
+          result=subprocess.run(['git','merge-tree','--write-tree',a,b],capture_output=True,text=True)
+          print('MERGE_RESULT',result.returncode,result.stdout)
+          assert result.returncode in (0,1),result.stderr
+          tree=result.stdout.splitlines()[0]
+          changed=git('diff','--name-only',a,tree).splitlines()
+          print('NON_ARCHIVE_CHANGED',*[p for p in changed if not p.startswith('bug-inbox/')],sep='\n')
+          for p in changed:
+              if p.startswith('bug-inbox/'):continue
+              try:t=git('show',tree+':'+p)
+              except subprocess.CalledProcessError:continue
+              for m in re.finditer(r'^<<<<<<<.*?^>>>>>>>[^\n]*',t,re.M|re.S):
+                  print('CONFLICT_FILE',p,'\n',m.group(0))
+          main='381223472e941d85cb08faa493d469661f0782b7'
+          for n in (38,39,64,97,98,99,100,101):
+              paths=git('ls-tree','-r','--name-only',main,'--',f'bug-inbox/issue-{n}').splitlines()
+              print('EVIDENCE_ISSUE',n)
+              for p in paths:
+                  if 'capture-info' in p or p.endswith('CLOUD-FULLISH.md'):
+                      t=git('show',main+':'+p)
+                      print('FILE',p)
+                      for line in t.splitlines():
+                          if re.search(r'build=|exe.leaf|gpu=|start\.(nrSuccess|transferSubmitted|bypass)|end\.(nrSuccess|transferSubmitted|bypass)|scan.complete',line):print(line)
+                  if p.endswith('nr-current-summary.txt') or p.endswith('/logs/nr-before-sr.txt'):
+                      t=git('show',main+':'+p)
+                      matches=[l for l in t.splitlines() if re.search(r'runtime load|runtime failed|load failed|dynamic=0x8 |actual-mismatch=',l)]
+                      if matches:print('SIGNATURES',p,*matches[:3],*matches[-2:],sep='\n')
+          PY
