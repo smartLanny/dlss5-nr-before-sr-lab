@@ -1,0 +1,1603 @@
+format=DLSS5-LogSummary-v1
+source.bytes=193407
+scan.bytes=193407
+scan.complete=1
+lines.scanned=1387
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+22:38:57:291 [27136] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from '[local-path]
+22:38:57:324 [27136] | INFO  | Registering hooks for 'user32.dll' ...
+22:38:57:324 [27136] | INFO  | > Libraries loaded.
+22:38:57:325 [27136] | INFO  | > Found 21 match(es). Installing ...
+22:38:57:358 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:358 [27136] | INFO  | > Delayed.
+22:38:57:358 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:358 [27136] | INFO  | > Libraries loaded.
+22:38:57:358 [27136] | INFO  | > Found 2 match(es). Installing ...
+22:38:57:394 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:394 [27136] | INFO  | > Delayed.
+22:38:57:394 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:394 [27136] | INFO  | > Delayed.
+22:38:57:394 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:395 [27136] | INFO  | > Delayed.
+22:38:57:395 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:395 [27136] | INFO  | > Delayed.
+22:38:57:395 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:395 [27136] | INFO  | > Delayed.
+22:38:57:395 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:395 [27136] | INFO  | > Libraries loaded.
+22:38:57:395 [27136] | INFO  | > Found 8 match(es). Installing ...
+22:38:57:428 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:429 [27136] | INFO  | > Delayed until first call to an exported function.
+22:38:57:429 [27136] | INFO  | Registering hooks for 'openvr_api.dll' ...
+22:38:57:429 [27136] | INFO  | > Delayed.
+22:38:57:429 [27136] | INFO  | Initialized.
+22:38:57:431 [27136] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+22:38:57:431 [27136] | INFO  | Installing export hooks for '[local-path]
+22:38:57:433 [27136] | INFO  | > Found 5 match(es). Installing ...
+22:38:58:057 [27136] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+22:38:58:693 [27136] | INFO  | Redirecting RegisterClassA(lpWndClass = [address] { "NBA2K26", style = 0x60 }) ...
+22:38:58:760 [27136] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+22:38:58:761 [27136] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+22:38:58:761 [27136] | INFO  | Loading add-on from '[local-path]
+22:38:58:772 [27136] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.5 (Chinese UI) | Bilibili UID 941799" v0.4.5.0 using ReShade API version 18.
+22:38:58:781 [27136] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+22:38:58:951 [14900] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+22:39:00:507 [27136] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+22:39:00:557 [25808] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+22:39:00:559 [27136] | WARN  | Ignoring LoadLibrary('wldp.dll') call to avoid possible deadlock.
+22:39:00:560 [27136] | WARN  | Ignoring LoadLibrary('drvstore.dll') call to avoid possible deadlock.
+22:39:00:561 [27136] | WARN  | Ignoring LoadLibrary('devobj.dll') call to avoid possible deadlock.
+22:39:00:562 [27136] | WARN  | Ignoring LoadLibrary('Advapi32.dll') call to avoid possible deadlock.
+22:39:00:562 [27136] | WARN  | Ignoring LoadLibrary('gdi32.dll') call to avoid possible deadlock.
+22:39:00:563 [27136] | WARN  | Ignoring LoadLibrary('kernel32.dll') call to avoid possible deadlock.
+22:39:00:568 [27328] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+22:39:00:586 [25808] | WARN  | Ignoring LoadLibrary('[local-path]
+22:39:00:741 [27136] | WARN  | Ignoring LoadLibrary('gdi32.dll') call to avoid possible deadlock.
+22:39:00:758 [27136] | WARN  | Ignoring LoadLibrary('Advapi32.dll') call to avoid possible deadlock.
+22:39:00:759 [27136] | WARN  | Ignoring LoadLibrary('nvapi64.dll') call to avoid possible deadlock.
+22:39:00:820 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:00:820 [27136] | INFO  | > Dumping command queue description:
+22:39:00:820 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:820 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:00:820 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:820 [27136] | INFO  |   | Type                                    | 0                                       |
+22:39:00:820 [27136] | INFO  |   | Priority                                | 0                                       |
+22:39:00:820 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:00:820 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:00:821 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:863 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:00:863 [27136] | INFO  | > Dumping command queue description:
+22:39:00:864 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:864 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:00:864 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:864 [27136] | INFO  |   | Type                                    | 0                                       |
+22:39:00:864 [27136] | INFO  |   | Priority                                | 100                                     |
+22:39:00:864 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:00:864 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:00:864 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:883 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:00:884 [27136] | INFO  | > Dumping command queue description:
+22:39:00:884 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:884 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:00:884 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:884 [27136] | INFO  |   | Type                                    | 3                                       |
+22:39:00:884 [27136] | INFO  |   | Priority                                | 0                                       |
+22:39:00:884 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:00:884 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:00:884 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:890 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:00:891 [27136] | INFO  | > Dumping command queue description:
+22:39:00:891 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:891 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:00:891 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:891 [27136] | INFO  |   | Type                                    | 3                                       |
+22:39:00:891 [27136] | INFO  |   | Priority                                | 100                                     |
+22:39:00:891 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:00:891 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:00:891 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:897 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:00:897 [27136] | INFO  | > Dumping command queue description:
+22:39:00:898 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:898 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:00:898 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:898 [27136] | INFO  |   | Type                                    | 2                                       |
+22:39:00:898 [27136] | INFO  |   | Priority                                | 0                                       |
+22:39:00:898 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:00:898 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:00:898 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:910 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:00:910 [27136] | INFO  | > Dumping command queue description:
+22:39:00:910 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:910 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:00:910 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:910 [27136] | INFO  |   | Type                                    | 2                                       |
+22:39:00:910 [27136] | INFO  |   | Priority                                | 100                                     |
+22:39:00:910 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:00:910 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:00:910 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:921 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:00:921 [27136] | INFO  | > Dumping command queue description:
+22:39:00:921 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:921 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:00:921 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:922 [27136] | INFO  |   | Type                                    | 2                                       |
+22:39:00:922 [27136] | INFO  |   | Priority                                | 100                                     |
+22:39:00:922 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:00:922 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:00:922 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:934 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:00:934 [27136] | INFO  | > Dumping command queue description:
+22:39:00:934 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:934 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:00:935 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:935 [27136] | INFO  |   | Type                                    | 2                                       |
+22:39:00:935 [27136] | INFO  |   | Priority                                | 100                                     |
+22:39:00:935 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:00:935 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:00:935 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:948 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:00:948 [27136] | INFO  | > Dumping command queue description:
+22:39:00:948 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:948 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:00:948 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:948 [27136] | INFO  |   | Type                                    | 2                                       |
+22:39:00:948 [27136] | INFO  |   | Priority                                | 100                                     |
+22:39:00:948 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:00:948 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:00:948 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:962 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:00:962 [27136] | INFO  | > Dumping command queue description:
+22:39:00:962 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:963 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:00:963 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:963 [27136] | INFO  |   | Type                                    | 2                                       |
+22:39:00:963 [27136] | INFO  |   | Priority                                | 100                                     |
+22:39:00:963 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:00:963 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:00:963 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:978 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:00:978 [27136] | INFO  | > Dumping command queue description:
+22:39:00:978 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:978 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:00:978 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:978 [27136] | INFO  |   | Type                                    | 2                                       |
+22:39:00:978 [27136] | INFO  |   | Priority                                | 100                                     |
+22:39:00:978 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:00:978 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:00:978 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:990 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:00:990 [27136] | INFO  | > Dumping command queue description:
+22:39:00:991 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:991 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:00:991 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:00:991 [27136] | INFO  |   | Type                                    | 2                                       |
+22:39:00:991 [27136] | INFO  |   | Priority                                | 100                                     |
+22:39:00:991 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:00:991 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:00:991 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:01:003 [27136] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:01:003 [27136] | INFO  | > Dumping command queue description:
+22:39:01:003 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:01:004 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:01:004 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:01:004 [27136] | INFO  |   | Type                                    | 2                                       |
+22:39:01:004 [27136] | INFO  |   | Priority                                | 100                                     |
+22:39:01:004 [27136] | INFO  |   | Flags                                   | 0                                       |
+22:39:01:004 [27136] | INFO  |   | NodeMask                                | 0                                       |
+22:39:01:004 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:01:040 [27136] | INFO  | Redirecting IDXGIFactory::CreateSwapChain(this = [address], pDevice = [address], pDesc = [address], ppSwapChain = [address]) ...
+22:39:01:040 [27136] | INFO  | > Dumping swap chain description:
+22:39:01:040 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:01:040 [27136] | INFO  |   | Parameter                               | Value                                   |
+22:39:01:040 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:01:040 [27136] | INFO  |   | Width                                   | 0                                       |
+22:39:01:040 [27136] | INFO  |   | Height                                  | 0                                       |
+22:39:01:040 [27136] | INFO  |   | RefreshRate                             | 60                  1                   |
+22:39:01:041 [27136] | INFO  |   | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |
+22:39:01:041 [27136] | INFO  |   | ScanlineOrdering                        | 1                                       |
+22:39:01:041 [27136] | INFO  |   | Scaling                                 | 0                                       |
+22:39:01:041 [27136] | INFO  |   | SampleCount                             | 1                                       |
+22:39:01:041 [27136] | INFO  |   | SampleQuality                           | 0                                       |
+22:39:01:041 [27136] | INFO  |   | BufferUsage                             | 0x30                                    |
+22:39:01:041 [27136] | INFO  |   | BufferCount                             | 3                                       |
+22:39:01:041 [27136] | INFO  |   | OutputWindow                            | [address]                        |
+22:39:01:041 [27136] | INFO  |   | Windowed                                | TRUE                                    |
+22:39:01:041 [27136] | INFO  |   | SwapEffect                              | 4                                       |
+22:39:01:041 [27136] | INFO  |   | Flags                                   | 0x802                                   |
+22:39:01:041 [27136] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:01:051 [27136] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+22:39:01:053 [27136] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+22:39:01:056 [27136] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+22:39:01:058 [27136] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+22:39:01:060 [27136] | INFO  | Running on NVIDIA GeForce RTX 5060 Ti Driver 616.64.
+22:39:01:404 [27136] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+22:39:01:405 [27136] | INFO  | Redirecting IDXGISwapChain::SetFullscreenState(this = [address], Fullscreen = FALSE, pTarget = [address]) ...
+22:39:01:625 [ 1940] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798031-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+22:39:01:630 [ 1940] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798030-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+22:39:01:630 [ 1940] | INFO  | Redirecting IDirectInput8A::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+22:39:01:630 [ 1940] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+22:39:01:867 [ 2992] | INFO  | Installing delayed hooks for '[local-path]
+22:39:01:868 [ 2992] | INFO  | > Found 2 match(es). Installing ...
+22:39:01:909 [ 2992] | INFO  | Redirecting D2D1CreateFactory(factoryType = 1, riid = {06152247-6F50-465A-9245-[address]}, pFactoryOptions = [address], ppIFactory = [address]) ...
+22:39:01:972 [27136] | INFO  | Redirecting IDXGISwapChain::SetFullscreenState(this = [address], Fullscreen = FALSE, pTarget = [address]) ...
+22:39:02:143 [  360] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+22:39:02:144 [ 4056] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+22:39:02:182 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:183 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:183 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:183 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:183 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:184 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:185 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:186 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:188 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:194 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:204 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:218 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:219 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:219 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:220 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:221 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:222 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:223 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:231 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:236 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:236 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:243 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:250 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:253 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:255 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:256 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:256 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:257 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:260 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:267 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:270 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:273 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:287 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:289 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:292 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:293 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:02:294 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:295 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:295 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:302 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:305 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:311 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:314 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:322 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:330 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+
+22:39:02:330 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:331 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:335 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:337 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:338 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:339 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:349 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:355 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:357 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:364 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:365 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:366 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:373 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:375 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:377 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:377 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:379 [17308] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:02:383 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:387 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:395 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:397 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:403 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:407 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:410 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:413 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:419 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:420 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:424 [  360] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:02:424 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:425 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:430 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:435 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:439 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:447 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:448 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:448 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:462 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:462 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:463 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:464 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:468 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:470 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:475 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:475 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:478 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:483 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:491 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:497 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:497 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:502 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:02:503 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:504 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:509 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:514 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:517 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:520 [23568] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+
+22:39:02:520 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:529 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:530 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:531 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:536 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:536 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:540 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:547 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:557 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:559 [17308] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:02:562 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:569 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:572 [ 3956] | INFO  | Successfully compiled '[local-path]
+[local-path]
+
+
+
+
+
+
+[first events]
+22:39:02:379 [17308] | ERROR | Failed to compile '[local-path]
+
+[recent important]
+22:38:57:324 [27136] | INFO  | Registering hooks for 'user32.dll' ...
+22:38:57:358 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:358 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:394 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:394 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:394 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:395 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:395 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:395 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:428 [27136] | INFO  | Registering hooks for '[local-path]
+22:38:57:429 [27136] | INFO  | Registering hooks for 'openvr_api.dll' ...
+22:38:57:431 [27136] | INFO  | Installing export hooks for '[local-path]
+22:38:58:760 [27136] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+22:39:01:867 [ 2992] | INFO  | Installing delayed hooks for '[local-path]
+22:39:02:379 [17308] | ERROR | Failed to compile '[local-path]
+22:39:02:609 [10320] | ERROR | Failed to compile '[local-path]
+22:39:02:741 [10320] | ERROR | Failed to compile '[local-path]
+22:39:02:832 [10320] | ERROR | Failed to compile '[local-path]
+22:39:02:925 [10320] | ERROR | Failed to compile '[local-path]
+22:39:03:021 [23568] | ERROR | Failed to compile '[local-path]
+22:39:03:252 [22724] | ERROR | Failed to compile '[local-path]
+22:39:03:680 [22724] | ERROR | Failed to compile '[local-path]
+22:39:04:071 [17308] | ERROR | Failed to compile '[local-path]
+22:39:04:086 [22724] | ERROR | Failed to compile '[local-path]
+22:39:04:333 [  360] | ERROR | Failed to compile '[local-path]
+22:39:04:694 [  360] | ERROR | Failed to compile '[local-path]
+22:39:05:005 [  360] | ERROR | Failed to compile '[local-path]
+22:39:05:118 [  360] | ERROR | Failed to compile '[local-path]
+22:39:05:183 [  360] | ERROR | Failed to compile '[local-path]
+22:39:05:259 [  360] | ERROR | Failed to compile '[local-path]
+22:39:05:377 [  360] | ERROR | Failed to compile '[local-path]
+
+[tail]
+22:39:01:058 [27136] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+22:39:01:060 [27136] | INFO  | Running on NVIDIA GeForce RTX 5060 Ti Driver 616.64.
+22:39:01:404 [27136] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+22:39:01:405 [27136] | INFO  | Redirecting IDXGISwapChain::SetFullscreenState(this = [address], Fullscreen = FALSE, pTarget = [address]) ...
+22:39:01:625 [ 1940] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798031-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+22:39:01:630 [ 1940] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798030-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+22:39:01:630 [ 1940] | INFO  | Redirecting IDirectInput8A::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+22:39:01:630 [ 1940] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+22:39:01:867 [ 2992] | INFO  | Installing delayed hooks for '[local-path]
+22:39:01:868 [ 2992] | INFO  | > Found 2 match(es). Installing ...
+22:39:01:909 [ 2992] | INFO  | Redirecting D2D1CreateFactory(factoryType = 1, riid = {06152247-6F50-465A-9245-[address]}, pFactoryOptions = [address], ppIFactory = [address]) ...
+22:39:01:972 [27136] | INFO  | Redirecting IDXGISwapChain::SetFullscreenState(this = [address], Fullscreen = FALSE, pTarget = [address]) ...
+22:39:02:143 [  360] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+22:39:02:144 [ 4056] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+22:39:02:182 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:183 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:183 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:183 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:183 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:184 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:185 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:186 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:188 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:194 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:204 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:218 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:219 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:219 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:220 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:221 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:222 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:223 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:231 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:236 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:236 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:243 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:250 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:253 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:255 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:256 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:256 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:257 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:260 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:267 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:270 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:273 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:287 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:289 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:292 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:293 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:02:294 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:295 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:295 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:302 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:305 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:311 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:314 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:322 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:330 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+
+22:39:02:330 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:331 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:335 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:337 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:338 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:339 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:349 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:355 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:357 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:364 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:365 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:366 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:373 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:375 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:377 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:377 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:379 [17308] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:02:383 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:387 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:395 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:397 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:403 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:407 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:410 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:413 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:419 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:420 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:424 [  360] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:02:424 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:425 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:430 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:435 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:439 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:447 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:448 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:448 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:462 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:462 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:463 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:464 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:468 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:470 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:475 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:475 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:478 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:483 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:491 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:497 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:497 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:502 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:02:503 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:504 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:509 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:514 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:517 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:520 [23568] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+
+22:39:02:520 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:529 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:530 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:531 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:536 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:536 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:540 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:547 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:557 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:559 [17308] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:02:562 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:569 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:572 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:572 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:574 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:576 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:577 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:592 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:594 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:598 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:604 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:608 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:609 [10320] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:02:610 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:612 [ 3956] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+
+22:39:02:613 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:614 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:620 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:628 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:628 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:635 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:645 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:645 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:650 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:652 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:652 [17308] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:02:659 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:660 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:660 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:665 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:670 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:673 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:681 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:683 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:691 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:699 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:702 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:704 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:704 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:707 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:710 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:710 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:718 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:719 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:734 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:741 [10320] | ERROR | Failed to compile '[local-path]
+[local-path]
+
+22:39:02:744 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:747 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:749 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:749 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:749 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:752 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:755 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:758 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:762 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:769 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:782 [10320] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:02:785 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:792 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:795 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:795 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:797 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:800 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:805 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:812 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:819 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:827 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:832 [10320] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+
+22:39:02:834 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:838 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:838 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:842 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:842 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:845 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:847 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:02:861 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:864 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:875 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:881 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:884 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:885 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:886 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:886 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:890 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:893 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:907 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:908 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:919 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:923 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:924 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:924 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:925 [10320] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:02:928 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:929 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:930 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:953 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:02:956 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:02:962 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:02:965 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:02:967 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:02:967 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:02:968 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:02:969 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:02:969 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:02:975 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:02:978 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:02:997 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:005 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:005 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:008 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:010 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:013 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:015 [10320] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+
+22:39:03:016 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:021 [23568] | ERROR | Failed to compile '[local-path]
+[local-path]
+
+22:39:03:026 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:028 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:043 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:046 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:051 [22724] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+
+22:39:03:052 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:03:056 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:057 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:058 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:061 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:067 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:068 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:071 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:084 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:085 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:088 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:090 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:099 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:100 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:102 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:110 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:112 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:116 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:125 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:126 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:128 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:128 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:129 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:144 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:146 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:148 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:154 [11876] | WARN  | Successfully compiled '[local-path]
+warning: V__currTex: another effect (FakeMotionBlur.fx) already created a texture with the same name but different dimensions
+warning: V__prevTex: another effect (FakeMotionBlur.fx) already created a texture with the same name but different dimensions
+
+22:39:03:156 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:156 [10320] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:03:164 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:164 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:167 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:173 [17308] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:03:177 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:186 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:191 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:196 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:201 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:204 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:205 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:207 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:215 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:216 [17308] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:03:224 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:229 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:236 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:243 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:248 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:252 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:252 [22724] | ERROR | Failed to compile '[local-path]
+[local-path]
+
+22:39:03:256 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:260 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:261 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:263 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:270 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:272 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:279 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:289 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:290 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:291 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:293 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:299 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:300 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:03:307 [17308] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+
+22:39:03:307 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:314 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:317 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:318 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:331 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:331 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:332 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:339 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:03:340 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:349 [17308] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:03:350 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:351 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:353 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:354 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:359 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:366 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:368 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:371 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:375 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:03:382 [11876] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:03:389 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:394 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:396 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:397 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:402 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:403 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:404 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:411 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:412 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:415 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:428 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:430 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:433 [11876] | WARN  | Successfully compiled '[local-path]
+warning: V__PCGIpastTex: another effect (RadiantGI.fx) already created a texture with the same name but different dimensions
+warning: V__PCGIaccuTex: another effect (RadiantGI.fx) already created a texture with the same name but different dimensions
+warning: V__RadiantGITex: another effect (RadiantGI.fx) already created a texture with the same name but different dimensions
+warning: V__PCGIHorizontalTex: another effect (RadiantGI.fx) already created a texture with the same name but different dimensions
+warning: V__PCGIVerticalTex: another effect (RadiantGI.fx) already created a texture with the same name but different dimensions
+
+22:39:03:435 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:435 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:439 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:444 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:447 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:448 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:453 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:468 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:469 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:472 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:475 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:475 [ 3956] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:03:478 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:483 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:483 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:484 [11876] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:03:488 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:490 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:502 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:509 [17308] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:03:512 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:517 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:518 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:519 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:523 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:528 [25820] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:03:529 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:532 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:03:534 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:540 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:543 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:550 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:551 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:553 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:558 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:562 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:566 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:568 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:573 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:575 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:579 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:03:588 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:589 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:591 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:597 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:601 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:606 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:606 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:613 [25820] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:03:615 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:619 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:629 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:633 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:640 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:641 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:642 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:643 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:649 [25820] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:03:654 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:660 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:661 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:03:663 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:672 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:673 [ 4056] | WARN  | Successfully compiled '[local-path]
+warning: V__LUTTex: another effect (LutTools.fx) already created a texture with a different image file
+
+22:39:03:674 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:680 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:680 [22724] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+
+22:39:03:682 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:688 [25820] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:03:692 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:701 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:705 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:706 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:707 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:711 [22912] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:03:714 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:715 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:716 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:721 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:731 [17308] | WARN  | Successfully compiled '[local-path]
+warning: V__texTA: another effect (BloomingHDR.fx) already created a texture with the same name but different dimensions
+warning: V__texStored: another effect (BloomingHDR.fx) already created a texture with the same name but different dimensions
+
+22:39:03:734 [22724] | WARN  | Successfully compiled '[local-path]
+warning: V__BlueNoise__BlueNoiseTex: another effect (BlueNoiseMotionBlur.fx) already created a texture with the same name but different dimensions
+warning: V__BlueNoise__BlueNoiseTex: another effect (BlueNoiseMotionBlur.fx) already created a texture with a different image file
+
+22:39:03:739 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:740 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:746 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:749 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:752 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:755 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:755 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:756 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:768 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:771 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:772 [22724] | WARN  | Successfully compiled '[local-path]
+warning: V__BlueNoise__BlueNoiseTex: another effect (BlueNoiseMotionBlur.fx) already created a texture with the same name but different dimensions
+warning: V__BlueNoise__BlueNoiseTex: another effect (BlueNoiseMotionBlur.fx) already created a texture with a different image file
+
+22:39:03:775 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:781 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:787 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:798 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:803 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:803 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:811 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:815 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:815 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:817 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:826 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:827 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:834 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:835 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:837 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:840 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:849 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:851 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:853 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:860 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:861 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:863 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:868 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:870 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:873 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:876 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:879 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:885 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:885 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:885 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:890 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:893 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:903 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:911 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:03:912 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:916 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:918 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:922 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:927 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:928 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:932 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:937 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:945 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:03:948 [25820] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+warning: V__Transmission: another effect (RadiantGI - Copy.fx) already created a texture with the same name but different dimensions
+
+22:39:03:951 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:958 [22724] | WARN  | Successfully compiled '[local-path]
+warning: V__ssTexture: another effect (RadialSlitScan.fx) already created a texture with the same name but different dimensions
+
+22:39:03:962 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:963 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:963 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:971 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:03:975 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:03:977 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:03:979 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:03:986 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:03:990 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:03:991 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:03:992 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:03:993 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:03:995 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:007 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:010 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:016 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:017 [22724] | WARN  | Successfully compiled '[local-path]
+warning: V__ssTexture: another effect (RadialSlitScan.fx) already created a texture with the same name but different dimensions
+
+22:39:04:025 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:025 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:027 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:031 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:031 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:042 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:045 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:049 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:050 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:057 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:058 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:059 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:064 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:064 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:071 [17308] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:04:078 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:078 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:086 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:086 [22724] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+
+22:39:04:091 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:092 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:095 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:095 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:101 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:103 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:110 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:118 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:120 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:125 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:128 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:128 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:134 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:135 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:137 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:143 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:143 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:152 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:157 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:161 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:163 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:167 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:169 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:177 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:177 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:182 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:187 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:190 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:198 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:200 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:202 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:208 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:212 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:213 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:216 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:220 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:221 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:228 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:228 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:230 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:236 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:239 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:241 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:245 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:253 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:254 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:254 [ 3956] | WARN  | Successfully compiled '[local-path]
+warning: V__texMultiLUT: another effect (MultiLUT.fx) already created a texture with the same name but different dimensions
+warning: V__texMultiLUT: another effect (MultiLUT.fx) already created a texture with a different image file
+
+22:39:04:265 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:265 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:274 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:276 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:278 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:282 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:290 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:292 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:296 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:297 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:298 [17308] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:04:299 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:311 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:313 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:322 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:324 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:326 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:330 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:331 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:331 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:333 [  360] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:04:334 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:336 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:338 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:343 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:360 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:362 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:368 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:372 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:377 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:380 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:382 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:383 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:387 [ 8452] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+
+22:39:04:393 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:397 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:402 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:405 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:406 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:407 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:413 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:424 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:425 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:435 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:437 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:441 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:443 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:444 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:448 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:450 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:451 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:453 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:457 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:462 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:469 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:469 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:479 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:482 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:486 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:490 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:493 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:495 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:499 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:503 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:505 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:508 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:521 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:522 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:528 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:529 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:532 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:535 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:541 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:543 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:544 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:546 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:549 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:556 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:562 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:565 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:568 [10320] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:04:570 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:580 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:581 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:582 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:591 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:592 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:593 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:594 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:600 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:606 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:610 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:611 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:619 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:629 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:632 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:632 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:636 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:638 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:640 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:641 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:645 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:649 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:656 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:672 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:676 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:676 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:679 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:680 [ 3956] | WARN  | Successfully compiled '[local-path]
+[local-path]
+warning: V__NoiseTex: another effect (PandaFX.fx) already created a texture with the same name but different dimensions
+warning: V__NoiseTex: another effect (PandaFX.fx) already created a texture with a different image file
+
+22:39:04:680 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:687 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:688 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:693 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:693 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:694 [  360] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:04:715 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:716 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:719 [ 8452] | WARN  | Successfully compiled '[local-path]
+warning: V__texNoise: another effect (PD80_01B_RT_Correct_Color.fx) already created a texture with the same name but different dimensions
+warning: V__texNoise: another effect (PD80_01B_RT_Correct_Color.fx) already created a texture with a different image file
+
+22:39:04:720 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:721 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:727 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:734 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:735 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:735 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:740 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:746 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:750 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:753 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:757 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:758 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:763 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:772 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:781 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:785 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:789 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:789 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:790 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:798 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:801 [  360] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:04:808 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:817 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:820 [ 4056] | INFO  | Successfully compiled '[local-path]
+22:39:04:823 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:835 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:837 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:839 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:844 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:848 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:849 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:858 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:859 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:859 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:860 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:867 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:875 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:875 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:878 [23568] | INFO  | Successfully compiled '[local-path]
+22:39:04:881 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:882 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:894 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:898 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:900 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:906 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:910 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:911 [10320] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:04:912 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:923 [17308] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:04:924 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:04:925 [22912] | INFO  | Successfully compiled '[local-path]
+22:39:04:926 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:932 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:937 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:937 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:938 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:943 [10320] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+
+22:39:04:956 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:959 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:961 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:04:963 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:967 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:04:972 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:04:975 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:04:989 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:04:993 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:04:994 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:04:994 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:05:003 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:05:004 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:05:005 [  360] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:05:006 [ 8452] | INFO  | Successfully compiled '[local-path]
+22:39:05:020 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:05:028 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:05:029 [25820] | INFO  | Successfully compiled '[local-path]
+22:39:05:037 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:05:042 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:05:043 [ 3956] | WARN  | Successfully compiled '[local-path]
+warning: V__CinematicDOF__texCDBuffer1: another effect (CinematicDOF.fx) already created a texture with the same name but different dimensions
+warning: V__CinematicDOF__texCDBuffer2: another effect (CinematicDOF.fx) already created a texture with the same name but different dimensions
+warning: V__CinematicDOF__texCDBuffer3: another effect (CinematicDOF.fx) already created a texture with the same name but different dimensions
+warning: V__CinematicDOF__texCDBuffer4: another effect (CinematicDOF.fx) already created a texture with the same name but different dimensions
+warning: V__CinematicDOF__texCDBuffer5: another effect (CinematicDOF.fx) already created a texture with the same name but different dimensions
+
+22:39:05:044 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:05:045 [ 8452] | WARN  | Successfully compiled '[local-path]
+warning: V__QLC0__DownTex4: another effect (Zenteon_LocalContrast.fx) already created a texture with the same name but different dimensions
+warning: V__QLC0__DownTex5: another effect (Zenteon_LocalContrast.fx) already created a texture with the same name but different dimensions
+warning: V__QLC0__DownTex6: another effect (Zenteon_LocalContrast.fx) already created a texture with the same name but different dimensions
+warning: V__QLC0__UpTex5: another effect (Zenteon_LocalContrast.fx) already created a texture with the same name but different dimensions
+warning: V__QLC0__UpTex4: another effect (Zenteon_LocalContrast.fx) already created a texture with the same name but different dimensions
+
+22:39:05:045 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:05:050 [22724] | INFO  | Successfully compiled '[local-path]
+22:39:05:063 [10320] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:05:068 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:05:074 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:05:078 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:05:084 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:05:089 [ 3956] | INFO  | Successfully compiled '[local-path]
+22:39:05:095 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:05:105 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:05:113 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:05:118 [  360] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:05:124 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:05:130 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:05:132 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:05:143 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:05:154 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:05:163 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:05:174 [17308] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:05:177 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:05:179 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:05:183 [  360] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:05:195 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:05:195 [11876] | INFO  | Successfully compiled '[local-path]
+22:39:05:197 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:05:208 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:05:212 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:05:217 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:05:229 [17308] | INFO  | Successfully compiled '[local-path]
+22:39:05:236 [10320] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:05:253 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:05:259 [  360] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:05:268 [10320] | INFO  | Successfully compiled '[local-path]
+22:39:05:279 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:05:294 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:05:309 [  360] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+22:39:05:327 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:05:377 [  360] | ERROR | Failed to compile '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+22:39:05:404 [  360] | INFO  | Successfully compiled '[local-path]
+22:39:12:853 [ 1940] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+22:39:12:856 [ 1940] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+22:39:12:859 [ 1940] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:12:860 [ 1940] | INFO  | > Dumping command queue description:
+22:39:12:860 [ 1940] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:12:860 [ 1940] | INFO  |   | Parameter                               | Value                                   |
+22:39:12:860 [ 1940] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:12:860 [ 1940] | INFO  |   | Type                                    | 0                                       |
+22:39:12:861 [ 1940] | INFO  |   | Priority                                | 0                                       |
+22:39:12:861 [ 1940] | INFO  |   | Flags                                   | 0                                       |
+22:39:12:861 [ 1940] | INFO  |   | NodeMask                                | 0                                       |
+22:39:12:861 [ 1940] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:12:894 [ 1940] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+22:39:12:898 [ 1940] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+22:39:12:898 [ 1940] | INFO  | > Dumping command queue description:
+22:39:12:899 [ 1940] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:12:899 [ 1940] | INFO  |   | Parameter                               | Value                                   |
+22:39:12:899 [ 1940] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:12:899 [ 1940] | INFO  |   | Type                                    | 0                                       |
+22:39:12:899 [ 1940] | INFO  |   | Priority                                | 0                                       |
+22:39:12:899 [ 1940] | INFO  |   | Flags                                   | 0                                       |
+22:39:12:899 [ 1940] | INFO  |   | NodeMask                                | 0                                       |
+22:39:12:899 [ 1940] | INFO  |   +-----------------------------------------+-----------------------------------------+
+22:39:30:857 [27164] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+22:39:30:860 [27164] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+22:39:30:862 [27164] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
