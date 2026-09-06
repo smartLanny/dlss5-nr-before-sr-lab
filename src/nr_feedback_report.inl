@@ -92,7 +92,10 @@ Output Build(const nr_bundle::Job &job, const nr_bundle::Result &zip, bool captu
         "This text contains the complete bounded core metadata and included sanitized log summaries, not unlimited raw logs.\n"
         "Historical first errors are not current failures. Counters are not FPS or proof of visible image quality.\n";
     text += "format=DLSS5-CoreText-v1\nencoding=UTF-8\n";
-    text += std::string("zip.status=") + (zip.status == nr_bundle::Status::Failed ? "failed" : zip.required_complete && capture_complete ? "complete" : "partial") + "\n";
+    // Archive completeness is independent of required-core/capture completeness.
+    text += std::string("zip.status=") + (zip.status == nr_bundle::Status::Failed ? "failed" : zip.status == nr_bundle::Status::Complete ? "complete" : "partial") + "\n";
+    text += std::string("zip.requiredComplete=") + (zip.required_complete ? "1" : "0") + "\n";
+    text += std::string("capture.complete=") + (capture_complete ? "1" : "0") + "\n";
     text += "zip.win32Error=" + std::to_string(zip.win32_error) + "\n";
     text += "\n===== CURRENT CAPTURE METADATA / 本次采集 =====\n";
     if (!Append(text, SafeLines(job.metadata))) output.complete = false;

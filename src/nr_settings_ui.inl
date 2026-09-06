@@ -91,17 +91,20 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
 
 // The two maintained editions share the same small home screen. Technical
 // readouts remain available without putting implementation knobs on the home.
+// ImGui can be drawn by more than one swapchain; do not block another caller.
+nr_ui_activity::Sample ReadUiActivity() {
+    static SRWLOCK lock=SRWLOCK_INIT;
+    static nr_ui_activity::Window window;
+    if(!TryAcquireSRWLockExclusive(&lock)) return {};
+    const auto result=window.Observe(GetTickCount64(),{g_carrier_evaluations.load(),
+        g_nr_successful_evaluations.load(),g_nr_transfer_submitted_frames.load()});
+    ReleaseSRWLockExclusive(&lock);
+    return result;
+}
+
 void DrawSettings(reshade::api::effect_runtime *runtime) {
     const bool use_chinese_ui = UseChineseUi();
     const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
-    const auto live_reason = static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_acquire));
-    if (live_reason == BypassReason::RuntimeUnavailable) {
-        ImGui::TextWrapped("%s", ui("NR runtime could not load or initialize. Keep your NVIDIA DLLs; install the matching nrchain_nvngx.dll from this OTA, then restart. F8 TXT identifies the failed component and error.",
-            "NR 运行库加载或初始化失败。保留显卡对应 NVIDIA DLL，使用本 OTA 配套 nrchain_nvngx.dll 后重启游戏；F8 TXT 会列出失败组件及错误。"));
-    } else if (live_reason == BypassReason::CodecUnavailable) {
-        ImGui::TextWrapped("%s", ui("The NR conversion/composition pipeline could not initialize. Native output is preserved; use F8 for the actual failure record.",
-            "NR 转换/合成管线初始化失败，保留原生输出；请用 F8 记录具体失败。"));
-    }
     static ChainConfig pending = {};
     static bool has_pending = false;
     static unsigned pending_generation = 0;
@@ -118,12 +121,33 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     ImGui::TextDisabled("%s", kOfficialReleaseUrl);
     if (kChineseUi && !use_chinese_ui)
         ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
+    // Keep controls stationary while live status text changes (#121).
+    ImGui::BeginChild("nr-live-status", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 7.0f), true);
+    const auto activity=ReadUiActivity();
+    if(activity.valid) {
+        ImGui::TextWrapped(ui("Last %llu ms (process): SR %llu | NR %llu | submitted %llu",
+            "最近 %llu 毫秒（进程）：SR %llu | NR %llu | 已提交 %llu"),
+            static_cast<unsigned long long>(activity.elapsed_ms),
+            static_cast<unsigned long long>(activity.delta.carriers),
+            static_cast<unsigned long long>(activity.delta.nr),
+            static_cast<unsigned long long>(activity.delta.submitted));
+    } else ImGui::TextDisabled("%s",ui("Sampling actual activity...", "正在采样实际活动……"));
+    SettingsTooltip(ui("Historical process-wide counter deltas, not FPS or proof of picture quality. Enable is your request; NR success and composition submission are separate stages. Raw per-carrier reasons remain in F8.",
+        "这是历史进程计数增量，不是帧率或画质证明。开关是请求，NR 成功与合成提交是不同阶段；F8 仍保留真实的逐载体原因。"));
+    const auto live_reason = static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_acquire));
+    if (live_reason == BypassReason::RuntimeUnavailable) {
+        ImGui::TextWrapped("%s", ui("NR runtime could not load or initialize. Keep your NVIDIA DLLs; install the matching nrchain_nvngx.dll from this OTA, then restart. F8 TXT identifies the failed component and error.",
+            "NR 运行库加载或初始化失败。保留显卡对应 NVIDIA DLL，使用本 OTA 配套 nrchain_nvngx.dll 后重启游戏；F8 TXT 会列出失败组件及错误。"));
+    } else if (live_reason == BypassReason::CodecUnavailable) {
+        ImGui::TextWrapped("%s", ui("The NR conversion/composition pipeline could not initialize. Native output is preserved; use F8 for the actual failure record.",
+            "NR 转换/合成管线初始化失败，保留原生输出；请用 F8 记录具体失败。"));
+    }
     const auto reason = static_cast<BypassReason>(g_last_bypass_reason.load());
     if (nr_present_api_status::IsD3d11PresentRuntime(runtime))
         ImGui::TextWrapped("%s", ui(
             "This ReShade window is using Direct3D 11, so DLSS 5 NR cannot run. Switch the game to Direct3D 12, then install ReShade Full Add-on for Direct3D 12.",
             "当前 ReShade 画面使用 Direct3D 11，本插件无法运行。请把游戏切换到 Direct3D 12，并为 D3D12 安装 ReShade Full Add-on。"));
-    else if (!next.enabled || ActiveTransferStrength(next) <= 0.000001f)
+    else if (!current.config.enabled || ActiveTransferStrength(current.config) <= 0.000001f)
         ImGui::TextWrapped("%s", ui("Native game SR. Enable the plugin and raise effect strength to compare NR.",
             "当前为游戏原生 SR。启用插件并提高效果强度，即可对比 NR。"));
     else if (reason == BypassReason::RayReconstructionGuard)
@@ -175,13 +199,17 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImGui::TextWrapped("%s", ui("Settings cannot be saved. Check that the plugin folder is writable.",
             "设置无法保存，请检查插件目录是否可写。当前设置仍用于本次运行。"));
 
+    ImGui::EndChild();
+    bool apply_discrete_edit = false;
+
     if (ImGui::BeginTabBar("nr-main-tabs")) {
     if (ImGui::BeginTabItem(ui("Picture###nr-picture", "画质###nr-picture"))) {
 #if defined(NR_HAS_F8_SEQUENCE)
     const bool collecting = nr_f8::IsActive();
     if (collecting) ImGui::BeginDisabled();
 #endif
-    changed |= ImGui::Checkbox(ui("Enable (F6)", "启用（F6）"), &next.enabled);
+    apply_discrete_edit = ImGui::Checkbox(ui("Enable (F6)", "启用（F6）"), &next.enabled);
+    changed |= apply_discrete_edit;
     if (ImGui::Button(ui("Restore recommended picture settings", "一键恢复推荐画质"))) {
         RestoreRecommendedPictureSettings(next);
         changed = true;
@@ -281,8 +309,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     if (ImGui::CollapsingHeader(ui("HDR and colour", "HDR 与颜色"))) {
         DrawColorControls(next, has_pending, changed);
-        ImGui::TextWrapped("%s", ui("Unknown HDR inputs remain luminance-only. The post-processing preset follows colour only when the live resource/exposure contract permits it.",
-            "未知 HDR 输入仍只修改明暗。后置预设也只有在实际纹理和曝光条件允许时才跟随颜色。"));
+        ImGui::TextWrapped("%s", ui("Unknown HDR uses luminance-only unless you explicitly try colour above. Storage, exposure and ownership safety still apply in both modes.",
+            "未知 HDR 默认只修改明暗；上方手动试色是明确例外。两种模式仍保留存储、曝光与所有权安全检查。"));
         changed |= ImGui::Checkbox(ui("Experimental highlight mapping", "实验高光映射"), &next.experimental_peak_shoulder);
         changed |= ImGui::SliderFloat(ui("Maximum luminance ratio", "最大亮度倍率"), &next.max_luma_ratio, 1.f, 8.f, "%.2f");
 #if NR_HAS_DETAIL_STABILITY
@@ -362,7 +390,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         pending = next; pending_generation = current.generation;
         has_pending = true; edit_conflict = false;
     }
-    if (has_pending && !ImGui::IsAnyItemActive()) {
+    if (has_pending && (apply_discrete_edit || !ImGui::IsAnyItemActive())) {
         const auto result = ApplyOverlayConfig(pending, pending_generation);
         if (result != OverlayApplyResult::Busy) has_pending = false;
         if (result == OverlayApplyResult::Conflict) edit_conflict = true;

@@ -1,0 +1,50 @@
+name: Validate and publish 0.4.5 fix1
+on:
+  pull_request:
+    branches: [release/0.4.5-test]
+  push:
+    branches: [fix/045-flicker-input-targets]
+permissions:
+  contents: read
+jobs:
+  validate:
+    uses: ./.github/workflows/beta042-validate.yml
+  feedback:
+    uses: ./.github/workflows/feedback-integrity.yml
+  release-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Actual TXT status and precise historical negative
+        run: |
+          python3 scripts/validate-feedback-report-status.py
+          python3 scripts/validate-feedback-report-status.py --negative-control
+          python3 -m py_compile scripts/publish-045-fix1.py
+  publish:
+    needs: [validate, feedback, release-contracts]
+    if: github.event_name == 'push' && github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/fix/045-flicker-input-targets'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-beta045-fix1
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: beta045-fix1-ota
+          path: ota
+      - name: Check evidence bytes, release payload negatives and exact source
+        run: |
+          python3 -m unittest discover -s tests -p test_evidence_checkout.py -v
+          python3 -m unittest discover -s tests -p test_045_ota.py -v
+          python3 scripts/package-045.py --verify-dir ota
+      - name: Publish two verified assets without replacing historical tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish-045-fix1.py

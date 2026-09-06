@@ -33,6 +33,8 @@
 // Standard-library headers must be included outside the private runtime namespace.
 #include "nr_feedback_text.h"
 #include "nr_feedback_ticket.h"
+#include "nr_shortcut_edge.h"
+#include "nr_ui_activity.h"
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
@@ -48,11 +50,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.4.5";
+constexpr const char *kAddonVersion = "beta0.4.5-fix1";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.4.5";
+constexpr const char *kBuildIdentity = "beta0.4.5-fix1";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -10418,7 +10420,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
         nr_f8::g_hotkey.store(nr_feedback_text::CoreHotkey(key));feedback_key_loaded=true;}
     const SHORT f8_state = GetAsyncKeyState(static_cast<int>(nr_f8::g_hotkey.load()));
     const bool feedback_down = (f8_state & 0x8000) != 0;
-    if ((f8_state & 0x0001) != 0 || (feedback_down && !feedback_key_was_down)) {
+    if (nr_shortcut::Pressed(f8_state, feedback_key_was_down)) {
         nr_f8::RequestCore();
         nr_f8::OpenWindow();
         runtime->open_overlay(true, reshade::api::input_source::keyboard);
@@ -10430,8 +10432,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     const SHORT f7_state = GetAsyncKeyState(VK_F7);
     const bool stage_key_is_down = (f7_state & 0x8000) != 0;
     // Like '-', keep the transition fallback for short taps between Presents.
-    const bool stage_pressed = (f7_state & 0x0001) != 0 ||
-        (stage_key_is_down && !stage_key_was_down);
+    const bool stage_pressed = nr_shortcut::Pressed(f7_state, stage_key_was_down);
     if (stage_pressed && !nr_f8::IsActive() && now_ms - last_stage_request_ms >= 350) {
         last_stage_request_ms = now_ms;
         const bool accepted = nr_f8::RequestWithOptions({nr_f8::Comparison::Current,false,0,0});
@@ -10556,8 +10557,7 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     // the transition bit as a fallback, while keeping the down-edge check for
     // hosts that consume that bit before the addon sees it. The debounce also
     // prevents one physical press from being handled by both paths.
-    const bool f6_pressed = (f6_state & 0x0001) != 0 ||
-                            (f6_is_down && !f6_was_down);
+    const bool f6_pressed = nr_shortcut::Pressed(f6_state, f6_was_down);
     const ULONGLONG now_ms = GetTickCount64();
     if (f6_pressed && now_ms - last_f6_toggle_ms >= 250) {
         last_f6_toggle_ms = now_ms;
@@ -11321,13 +11321,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.4.5 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.4.5-fix1 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.4.5 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.4.5-fix1 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

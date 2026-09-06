@@ -4,7 +4,8 @@ param(
     [switch]$NegativeControl,
     [switch]$CpuDescriptorNegativeControl,
     [switch]$DynamicStateNegativeControl,
-    [switch]$BlendStateNegativeControl
+    [switch]$BlendStateNegativeControl,
+    [switch]$TargetsNegativeControl
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,7 +14,7 @@ if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) {
     throw 'Provide -ToolchainRoot or set DLSS5_LLVM_MINGW_ROOT.'
 }
 $projectRoot = Split-Path -Parent $PSScriptRoot
-if (@(@($MetaProbeOnly,$NegativeControl,$CpuDescriptorNegativeControl,$DynamicStateNegativeControl,$BlendStateNegativeControl) | Where-Object { $_ }).Count -gt 1) {
+if (@(@($MetaProbeOnly,$NegativeControl,$CpuDescriptorNegativeControl,$DynamicStateNegativeControl,$BlendStateNegativeControl,$TargetsNegativeControl) | Where-Object { $_ }).Count -gt 1) {
     throw 'Select one validation mode.'
 }
 $source = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_state.inl') -Raw
@@ -26,6 +27,14 @@ $production = $model.Groups[1].Value
 $blendFixture = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\blend_only_gpu.inl') -Raw
 if (!$harness.Contains('// @BLEND_ONLY_TEST@')) { throw 'Blend pixel fixture anchor missing' }
 $harness = $harness.Replace('// @BLEND_ONLY_TEST@', $blendFixture)
+$harness = $harness.Replace('// @TARGETS_ONLY_TEST@', (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\targets_only_gpu.inl') -Raw))
+if ($TargetsNegativeControl) {
+    $marker='d.target_count, d.targets, d.contiguous_targets, d.has_depth_target ? &d.depth_target : nullptr'
+    if (!$production.Contains($marker)) { throw 'Target replay anchor missing' }
+    $production=$production.Replace($marker,'d.target_count, &g_wrong_target, TRUE, d.has_depth_target ? &d.depth_target : nullptr')
+    $harness=$harness.Replace('// @NEGATIVE_CONTROL_CONSTANTS@','D3D12_CPU_DESCRIPTOR_HANDLE g_wrong_target{};')
+    $harness=$harness.Replace('// @TARGET_NEGATIVE_BINDING@','g_wrong_target=rtv; // valid decoy')
+}
 if ($BlendStateNegativeControl) {
     $marker = 'ID3D12GraphicsCommandList_OMSetBlendFactor(list, d.blend)'
     if (!$production.Contains($marker)) { throw 'Blend restore negative-control anchor missing' }
@@ -57,7 +66,7 @@ if ($DynamicStateNegativeControl) {
 $harness = $harness.Replace('// @PRODUCTION_STATE@', $production)
 $build = Join-Path $projectRoot 'build\command-state-gpu-validation'
 New-Item -ItemType Directory -Path $build -Force | Out-Null
-$stem = if ($BlendStateNegativeControl) { 'command_state_gpu_blend_negative' } elseif ($NegativeControl) { 'command_state_gpu_negative_control' } elseif ($CpuDescriptorNegativeControl) { 'command_state_gpu_cpu_descriptor_negative' } elseif ($DynamicStateNegativeControl) { 'command_state_gpu_dynamic_negative' } else { 'command_state_gpu_validation' }
+$stem = if ($TargetsNegativeControl) { 'command_state_gpu_targets_negative' } elseif ($BlendStateNegativeControl) { 'command_state_gpu_blend_negative' } elseif ($NegativeControl) { 'command_state_gpu_negative_control' } elseif ($CpuDescriptorNegativeControl) { 'command_state_gpu_cpu_descriptor_negative' } elseif ($DynamicStateNegativeControl) { 'command_state_gpu_dynamic_negative' } else { 'command_state_gpu_validation' }
 $generated = Join-Path $build ($stem + '.cpp')
 $binary = Join-Path $build ($stem + '.exe')
 [IO.File]::WriteAllText($generated, $harness, [Text.UTF8Encoding]::new($false))
@@ -93,6 +102,14 @@ if ($BlendStateNegativeControl) {
         throw 'Blend pixel oracle did not reject exact deliberately corrupted restore'
     }
     Write-Host 'Negative control passed: wrong blend factors rejected by real WARP pixels.'
+    exit 0
+}
+if ($TargetsNegativeControl) {
+    $output=& $binary '--targets-only' 2>&1
+    $code=$LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+    if ($code -ne 1 -or ($output -join "`n") -notmatch 'TARGETS_REPLAY_PIXEL_ORACLE') { throw 'Wrong target negative failure' }
+    Write-Host 'Negative control passed: recycled target rejected by WARP pixels.'
     exit 0
 }
 if ($MetaProbeOnly) { & $binary '--meta-probe-only' } else { & $binary }

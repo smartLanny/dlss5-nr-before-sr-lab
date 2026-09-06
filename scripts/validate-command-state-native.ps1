@@ -1,9 +1,15 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$PoolNegativeControl)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) { throw 'Provide -ToolchainRoot.' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $production = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_state.inl') -Raw
+$production = $production.Replace('#include "nr_command_pool_observation.inl"', (Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_pool_observation.inl') -Raw))
+if ($PoolNegativeControl) {
+    $needle='PrimeCommandListBeforeResetLocked(*record, native);'
+    if (!$production.Contains($needle)) { throw 'Pool negative anchor missing' }
+    $production=$production.Replace($needle,'(void)0; // exact old lazy-only defect')
+}
 $main = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_before_sr.cpp') -Raw
 foreach ($expression in @(
     'Substitution before_sr = PrepareBeforeSr\(\s*before_state.command_list,',
@@ -17,6 +23,7 @@ foreach ($expression in @(
 $harness = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\command_state_native_harness.cpp.in') -Raw
 $harness = $harness.Replace('// @PRODUCTION_COMMAND_STATE@', $production)
 $pristine = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\pristine_null_native.inl') -Raw
+$pristine = (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\command_pool_native.inl') -Raw) + "`n" + $pristine
 $harness = $harness.Replace('// @PRISTINE_NULL_TEST@', $pristine)
 $build = Join-Path $projectRoot 'build\command-state-native-validation'
 New-Item -ItemType Directory -Path $build -Force | Out-Null
@@ -35,7 +42,16 @@ foreach ($source in @('buffer', 'hook', 'trampoline', 'hde\hde64')) {
 }
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' '-fstack-usage' "-I$(Join-Path $minHook 'include')" $generated @objects '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'Native command-state harness compilation failed.' }
+if ($PoolNegativeControl) {
+    $output=& $binary '--pristine-null' 2>&1
+    $code=$LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+    if ($code -ne 41 -or ($output -join "`n") -notmatch 'POOL_FIRST_CAPTURE_ORACLE') { throw 'Wrong pool negative failure' }
+    Write-Output 'Negative control passed: old lazy-only observation misses first carrier.'
+    exit 0
+}
 & $binary '--pristine-null'
+
 if ($LASTEXITCODE -ne 0) { throw 'Default pristine-null native/GPU validation failed.' }
 & $binary '--pristine-null-negative'
 if ($LASTEXITCODE -ne 42) { throw 'Pristine-null negative control did not detect the deliberately omitted restore.' }
