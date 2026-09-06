@@ -49,5 +49,21 @@ jobs:
           for old, new in replacements.items():
               assert script.count(old) == 1, old
               script = script.replace(old, new)
+          post = r'''
+          s = changes['src/nr_before_sr.cpp']
+          s = once(s, '    const bool protectBoost = (Passthrough & 1024u) != 0u &&', '    const bool boostProtectionEnabled = (Passthrough & 1024u) != 0u;\n    const bool protectBoost = boostProtectionEnabled &&')
+          s = once(s, '    if ((Passthrough & 1024u) != 0u && lumaStrength > 1.0) {', '    if (boostProtectionEnabled && lumaStrength > 1.0) {')
+          put('src/nr_before_sr.cpp', s)
+          b = changes['scripts/validate-beta05-boost.py']
+          b = once(b, 'const bool protectBoost = (Passthrough & 1024u) != 0u &&', 'const bool protectBoost = boostProtectionEnabled &&')
+          put('scripts/validate-beta05-boost.py', b)
+          v = changes['scripts/validate-layered-composite.py']
+          anchor = "    assert 'abs(baseLog), lumaStrength - 1.0, budget)' in combine"
+          v = once(v, anchor, anchor + "\n    assert 'const bool boostProtectionEnabled = (Passthrough & 1024u) != 0u;' in combine\n    assert 'if (boostProtectionEnabled && lumaStrength > 1.0)' in combine")
+          put('scripts/validate-layered-composite.py', v)
+          '''
+          anchor = '\nfor command in ['
+          assert script.count(anchor) == 1
+          script = script.replace(anchor, '\n' + post + anchor)
           exec(compile(script, 'prepare-050-layers.py', 'exec'))
           PY
