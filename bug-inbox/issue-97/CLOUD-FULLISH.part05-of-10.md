@@ -1,4 +1,4 @@
- transfer-bound=0 transfer-submitted=0 lifecycle-bypass=0; void-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+ transfer-bound=0 transfer-submitted=0 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
 10:16:58.130  [state] bypass transition #9: waiting-feature1 -> master-disabled.
 10:16:58.138  Config updated from ReShade simplified settings: enabled=0 nrBeforeSr=1 transfer=1.200 colorFollowRequested=0.750 intensity=1.000 style=2 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=1 epoch=10 feature18Evals=0
 10:16:58.393  [state] bypass transition #10: master-disabled -> waiting-feature1.
@@ -12,5 +12,5 @@
 10:17:04.412  Config updated from ReShade simplified settings: enabled=0 nrBeforeSr=1 transfer=1.200 colorFollowRequested=0.750 intensity=1.000 style=2 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=1 epoch=16 feature18Evals=0
 10:17:04.904  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.200 colorFollowRequested=0.750 intensity=1.000 style=2 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=1 epoch=17 feature18Evals=0
 10:17:09.513  [stats] current contract: generation=2 mode=2 carrier-requests=600 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
-10:17:11.135  [stats] session totals: Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0 lifecycle-bypass=0; void-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+10:17:11.135  [stats] session totals: Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
 10:17:22.118  [stats] current contract: generation=2 mode=2 carrier-requests=1200 Feature18-success=0 tran
