@@ -1,0 +1,109 @@
+name: DX11 0.4.5 compatibility candidate (not game verification)
+on:
+  push:
+    branches: [codex/dx11-045-compat]
+  pull_request:
+    branches: [release/0.4.5-test, release/0.4, main]
+    paths: ['src/interop/**', 'scripts/prepare-native-bridge*', 'tests/native_bridge/**', '.github/workflows/native-bridge-045.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dx11-045-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  production-policies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Execute production rectangle, copy and inventory policies
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -I. tests/native_bridge/mirror_rect.cpp -o /tmp/mirror-rect
+          /tmp/mirror-rect
+          clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -I. tests/native_bridge/mirror_rect.cpp -o /tmp/mirror-sanitized
+          /tmp/mirror-sanitized
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Fetch pinned carrier and build toolchain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git clone --no-checkout https://github.com/NIGos/dlss5-bridge.git external-carrier
+          if ($LASTEXITCODE) { throw 'Carrier clone failed' }
+          git -C external-carrier checkout --detach 29baa4cc56e0aeb21219de16528e697b91522efc
+          if ($LASTEXITCODE) { throw 'Carrier checkout failed' }
+          Invoke-WebRequest 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip' -OutFile llvm.zip
+          Expand-Archive llvm.zip -DestinationPath toolchain
+          $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
+          git clone --no-checkout https://github.com/crosire/reshade.git reshade-source
+          if ($LASTEXITCODE) { throw 'ReShade clone failed' }
+          git -C reshade-source checkout --detach 4a50d1eddace85734871d91792ff214f13f66c01
+          if ($LASTEXITCODE) { throw 'ReShade checkout failed' }
+          git -C reshade-source submodule update --init --recursive --depth 1
+          if ($LASTEXITCODE) { throw 'ReShade dependencies failed' }
+          "TOOLCHAIN_ROOT=$toolchain" | Out-File $env:GITHUB_ENV -Append
+          "RESHADE_ROOT=$pwd\reshade-source" | Out-File $env:GITHUB_ENV -Append
+          "PINNED_CARRIER_ROOT=$pwd\external-carrier" | Out-File $env:GITHUB_ENV -Append
+      - name: Test actual source transformations and compile both cores
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests/native_bridge -p 'test_*.py' -v
+          if ($LASTEXITCODE) { throw 'Actual source tests failed' }
+          python scripts/prepare-native-bridge-045.py --upstream external-carrier --output build/native-045
+          if ($LASTEXITCODE) { throw 'Pinned staging failed' }
+          $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
+          $env:PATH = "$(Join-Path $env:TOOLCHAIN_ROOT 'bin');$env:PATH"
+          foreach ($test in @('history','forward','render_scale','mirror_rect')) {
+            & $compiler '-std=c++17' '-static' '-Wall' '-Wextra' '-Werror' '-I.' "tests/native_bridge/$test.cpp" '-o' "$test.exe"
+            if ($LASTEXITCODE) { throw "$test compile failed" }
+            & "./$test.exe"
+            if ($LASTEXITCODE) { throw "$test failed" }
+          }
+          ./build/native-045/core/scripts/build.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
+      - name: Compile companion and actual private-baseline WARP smoke
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
+          cl /nologo /W4 /O2 /MT /EHsc /std:c++17 /I. tests\native_bridge\baseline_warp.cpp /Fe:baseline_warp.exe
+          if errorlevel 1 exit /b 1
+          baseline_warp.exe
+          if errorlevel 1 exit /b 1
+          cd build\native-045\carrier\src
+          rc /nologo version.rc
+          if errorlevel 1 exit /b 1
+          cl /nologo /W4 /O2 /MT /EHsc /std:c++17 /Ireshade /LD dlss5-bridge.cpp version.res /Fe:dlss5-native-carrier-045-exp3.addon64 /link /DLL user32.lib advapi32.lib bcrypt.lib
+          if errorlevel 1 exit /b 1
+      - name: Package separate language candidates without overwriting user INI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force build/candidate | Out-Null
+          $addons = @(Get-ChildItem build/native-045/core/build/*.addon64)
+          if ($addons.Count -ne 2) { throw 'Expected exactly two language cores' }
+          foreach ($addon in $addons) {
+            $package = Join-Path 'build/packages' $addon.BaseName
+            New-Item -ItemType Directory -Force "$package/defaults" | Out-Null
+            Copy-Item $addon.FullName $package/
+            Copy-Item build/native-045/core/build/nrchain_nvngx.dll $package/
+            Copy-Item build/native-045/core/build/nr_before_sr.ini "$package/defaults/"
+            Copy-Item build/native-045/carrier/src/dlss5-native-carrier-045-exp3.addon64 $package/
+            Copy-Item build/native-045/source-manifest.json $package/
+            Copy-Item build/native-045/carrier/LICENSE $package/LICENSE-carrier.txt
+            Copy-Item docs/interop/DX11_045_COMPAT.md $package/README.md
+            Get-ChildItem $package -File -Recurse | Get-FileHash -Algorithm SHA256 | Select-Object @{Name='File';Expression={[IO.Path]::GetRelativePath((Resolve-Path $package).Path,$_.Path)}},Hash | ConvertTo-Json | Set-Content $package/SHA256.json
+            Compress-Archive -Path "$package/*" -DestinationPath "build/candidate/$($addon.BaseName).zip"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dx11-045-exp3-NOT-game-verified
+          path: build/candidate/
+          if-no-files-found: error
