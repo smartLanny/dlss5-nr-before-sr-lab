@@ -1,0 +1,37 @@
+name: Prepare beta0.5 layered source objects
+on:
+  push:
+    branches: [codex/050-layered-source-preparation]
+    paths:
+      - .github/workflows/prepare-050-layers.yml
+      - scripts/prepare-050-layers.py
+      - scripts/validate-layered-composite.py
+      - tests/layered_composite_gpu.inl
+      - docs/BETA_0_5_LAYERS.md
+permissions:
+  contents: read
+concurrency:
+  group: prepare-050-layered
+  cancel-in-progress: true
+jobs:
+  prepare:
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/codex/050-layered-source-preparation'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 2f070400b19595774bf3fa6b4d46ea2e6c64adf3
+          path: cap-input
+          persist-credentials: false
+      - name: Import pinned cap commit into local object database
+        run: git fetch ./cap-input 2f070400b19595774bf3fa6b4d46ea2e6c64adf3
+      - name: Prepare and validate source without changing branch refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/prepare-050-layers.py
