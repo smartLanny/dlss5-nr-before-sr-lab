@@ -1,0 +1,19 @@
+name: Prepare 045 packaging tools
+on:
+  push:
+    branches: [prep/045-integration]
+    paths: ['scripts/prepare-045-package.py', 'scripts/nr_ota_pe.py', 'scripts/publish-045.py', 'tests/test_045_ota.py', '.github/workflows/prepare-045-package.yml']
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify OTA positive and corruption cases, export blobs only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/prepare-045-package.py
