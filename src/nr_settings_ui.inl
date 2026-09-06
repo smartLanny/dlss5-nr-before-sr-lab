@@ -180,7 +180,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsTooltip(ui("Before SR usually costs less; after SR processes the complete SR output for comparison. Game DLSS quality stays unchanged. Disabling restores native SR; DLAA is never forced.",
         "前置通常较省性能；后置处理完整 SR 输出，适合对照。游戏内 DLSS 档位不变，关闭插件就是原生 SR，不会强制开启 DLAA。"));
 #if NR_HAS_DETAIL_STABILITY
-    constexpr float maximum_strength = 8.0f;
+    constexpr float maximum_strength = 4.0f;
 #else
     constexpr float maximum_strength = 2.0f;
 #endif
@@ -189,8 +189,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             &effect_strength, 0.0f, maximum_strength, "%.2f")) {
         next.transfer_strength = next.post_transfer_strength = effect_strength; changed = true;
     }
-    SettingsTooltip(ui("Final NR blend strength. 0 keeps native SR; 1.0 is the unscaled effect. New installations start at 1.2. Existing settings, including 0, are retained. Higher values can amplify low-resolution noise; this is not the model's internal strength.",
-        "控制最终 NR 混合强度。0 保留原生 SR，1.0 是不额外放大的效果；新装默认 1.2。已有设置（包括 0）会保留。提高数值可能放大低分辨率噪点；这项不是模型内部强度。"));
+    SettingsTooltip(ui("Final NR blend strength. 0 keeps native SR; 1.0 is the unscaled effect. New installations start at 1.2. Existing settings, including 0, are retained. The public range is 0-4; older requests above 4 are clamped. Higher values can amplify low-resolution noise and colour distortion; this is not the model's internal strength.",
+        "控制最终 NR 混合强度。0 保留原生 SR，1.0 是不额外放大的效果；新装默认 1.2。已有设置（包括 0）会保留。范围为 0–4，旧配置超过 4 会限制到 4。较高数值可能放大低分辨率噪点和颜色失真；这项不是模型内部强度。"));
     int style = static_cast<int>(next.style);
     if (ImGui::Combo(ui("Style", "风格"), &style,
             ui("Default\0Natural\0Cinematic\0", "默认\0自然\0电影\0"))) {

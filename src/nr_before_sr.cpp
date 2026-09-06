@@ -1227,7 +1227,7 @@ float ReadConfiguredTransferStrength(int configured_mode) {
 
 void NormalizeConfig(ChainConfig &config) {
     config.mode = config.mode == 2 ? 2 : 1;
-    config.transfer_strength = std::clamp(FiniteOr(config.transfer_strength, 0.0f), 0.0f, 8.0f);
+    config.transfer_strength = std::clamp(FiniteOr(config.transfer_strength, 0.0f), 0.0f, 4.0f);
     // One visible blend control owns both chains. Keeping the legacy field in
     // sync preserves compatibility with existing INI files without allowing a
     // mode switch to silently select a stale zero-strength value.
@@ -10311,7 +10311,7 @@ bool FormatScreenshotPostfix(char *postfix, std::size_t capacity,
         static_cast<double>(std::clamp(FiniteOr(config.intensity, 1.0f),
                                       0.0f, 2.0f)),
         std::min(config.style, 2u),
-        static_cast<double>(std::clamp(std::isfinite(blend) ? blend : 0.0f, 0.0f, 8.0f)),
+        static_cast<double>(std::clamp(std::isfinite(blend) ? blend : 0.0f, 0.0f, 4.0f)),
         static_cast<double>(std::clamp(std::isfinite(config.color_strength) ? config.color_strength : 0.0f, 0.0f, 2.0f)),
         config.experimental_peak_shoulder ? 1 : 0);
     return written > 0 && written <= 90 && static_cast<std::size_t>(written) < capacity;
