@@ -1,0 +1,46 @@
+name: Diagnose 045 native blend boundary
+on:
+  push:
+    branches: [prep/045-integration]
+    paths: [.github/workflows/diagnose-045-native.yml]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 12009d0448fb8bba8c699020382bf5bb6b84dec4
+          persist-credentials: false
+      - name: Fetch fixed compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Invoke-WebRequest 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip' -OutFile llvm.zip
+          if ((Get-FileHash llvm.zip -Algorithm SHA256).Hash -ne 'AE601F4E0F72BBDF441AD2DF8BB16F037E2E9251559EA6B37B4057AEF39C06C3') { throw 'compiler digest mismatch' }
+          Expand-Archive llvm.zip toolchain
+          "TOOLCHAIN_ROOT=$((Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName)" | Out-File $env:GITHUB_ENV -Append
+      - name: Trace the production-native test without changing production source
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          p=Path('tests/pristine_null_native.inl');s=p.read_text()
+          s=s.replace('    g_allow_experimental=false;','    setvbuf(stdout,nullptr,_IONBF,0); puts("TRACE start");\n    g_allow_experimental=false;')
+          markers=['    const float blend[4]','    ID3D12GraphicsCommandList_OMSetBlendFactor(list,blend);','    Check(CaptureNativeCommandState(list,*snapshot),"blend-only','        NativeCommandStateScope scope(list);','        ID3D12GraphicsCommandList_OMSetBlendFactor(list,wrong);','        scope.Restore();','    ID3D12GraphicsCommandList_OMSetBlendFactor(list,nullptr);','    Check(CaptureNativeCommandState(list,*snapshot),"legal NULL','    auto saved=g_state_BeginRenderPass.originals[3];']
+          for i,marker in enumerate(markers):
+              assert marker in s, marker
+              s=s.replace(marker,'    puts("TRACE checkpoint '+str(i)+'");\n'+marker)
+          p.write_text(s)
+          '@ | python -
+          try { ./scripts/validate-command-state-native.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT }
+          catch { Write-Host "NATIVE SCRIPT ERROR: $_"; Write-Host "NATIVE EXIT: $LASTEXITCODE" }
+          @'
+          import subprocess
+          p=subprocess.run(['build/command-state-native-validation/command_state_native.exe','--pristine-null'],capture_output=True)
+          print('EXACT_EXIT',hex(p.returncode & 0xffffffff));print(p.stdout.decode(errors='replace'));print(p.stderr.decode(errors='replace'))
+          '@ | python -
+      - name: Run independent blend-only WARP fixture
+        shell: pwsh
+        run: ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -BlendStateNegativeControl
