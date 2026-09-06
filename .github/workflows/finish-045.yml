@@ -1,0 +1,19 @@
+name: Prepare 045 GPU and TXT follow-up
+on:
+  push:
+    branches: [prep/045-integration]
+    paths: ['scripts/finish-045.py', 'tests/blend_only_gpu.inl', 'scripts/validate-045-color.py', '.github/workflows/finish-045.yml']
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check fixed production tree and export blobs only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/finish-045.py
