@@ -17,4 +17,15 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/prepare-050-stability.py
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/prepare-050-stability.py')
+          script=p.read_text(encoding='utf-8')
+          old="['git','diff','--cached','--check']"
+          assert script.count(old)==1
+          # The imported raw archive is byte-identical to B and includes original whitespace.
+          # Check all authored differences against B without rewriting archived user evidence.
+          script=script.replace(old,"['git','diff','--check',B,final]")
+          exec(compile(script,str(p),'exec'))
+          PY
