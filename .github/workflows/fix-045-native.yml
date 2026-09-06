@@ -1,0 +1,36 @@
+name: Verify 045 native blend fix
+on:
+  push:
+    branches: [prep/045-integration]
+    paths: ['scripts/fix-045-native.py', '.github/workflows/fix-045-native.yml']
+permissions:
+  contents: write
+jobs:
+  native:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 12009d0448fb8bba8c699020382bf5bb6b84dec4
+          path: product
+          persist-credentials: false
+      - name: Fetch fixed compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Invoke-WebRequest 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip' -OutFile llvm.zip
+          if ((Get-FileHash llvm.zip -Algorithm SHA256).Hash -ne 'AE601F4E0F72BBDF441AD2DF8BB16F037E2E9251559EA6B37B4057AEF39C06C3') { throw 'compiler digest mismatch' }
+          Expand-Archive llvm.zip toolchain
+          "TOOLCHAIN_ROOT=$((Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName)" | Out-File $env:GITHUB_ENV -Append
+      - name: Native hooks, WARP positive and exact negative controls
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/fix-045-native.py --root product --compiler-root $env:TOOLCHAIN_ROOT
+          if ($LASTEXITCODE -ne 0) { throw 'Native/WARP validation failed; no source accepted' }
