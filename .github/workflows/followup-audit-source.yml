@@ -1,0 +1,34 @@
+name: Follow-up fixed source review snapshot
+on:
+  push:
+    branches: [prep/045-followup-audit]
+    paths: [.github/workflows/followup-audit-source.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d403388158b189103f76bb0a6a3d1a404782e02b
+          path: product
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: a93be15f8bad7588e648aabbfad33afd1b744987
+          path: evidence
+          persist-credentials: false
+      - name: Export tracked fixed snapshots without credentials
+        run: |
+          mkdir out
+          git -C product archive --format=tar HEAD > out/product.tar
+          git -C evidence archive --format=tar HEAD bug-inbox > out/evidence.tar
+          printf '%s\n' 'product=d403388158b189103f76bb0a6a3d1a404782e02b' 'evidence=a93be15f8bad7588e648aabbfad33afd1b744987' > out/IDENTITY.txt
+          sha256sum out/*.tar > out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fixed-followup-review-source
+          path: out/
+          retention-days: 2
+          if-no-files-found: error
