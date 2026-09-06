@@ -47,8 +47,8 @@ npm start
   -ReShadeAddonRuntime D:\reshade\ReShade64.dll
 ```
 
-脚本会复制必要文件并生成 SHA-256 `bundle.json`；正式分发包将每个显卡族的固定 DLL 只携带一份，RTX 20/30/40 共用 RTX40 兼容组件，版本切换主要替换 addon 和配置。发行包默认使用 `0.3.3.5` 稳定槽，0.4.x 版本保留为可手动选择的测试槽。DX11 游戏在默认状态下会自动选择单独的 `0.4.2-dx11-native-bridge-exp1-r1` 兼容测试槽；它可能无法工作或影响启动，遇到问题请进群联系 `@群RBQ` 提交报告。内置版本包括历史
-`0.2.0-beta.2`（2K27 兼容候选）、`0.3.3.5`、`0.4.1-r2`、`0.4.4test`、`0.4.5-ota` 标准 OTA 更新槽和 DX11 兼容测试槽。0.4.x 共用显卡族固定 `nrchain_nvngx.dll`；标准 OTA 会验证包内 Addon、chain、文件大小和 SHA-256，应用时同时替换包内提供的 Addon 与配套 chain，并保留 INI、ReShade、Runtime 及游戏自带 DLSS。
+脚本会复制必要文件并生成 SHA-256 `bundle.json`；正式分发包将每个显卡族的固定 DLL 只携带一份，RTX 20/30/40 共用 RTX40 兼容组件，版本切换主要替换 addon 和配置。发行包默认使用 `0.3.3.5` 稳定槽，Beta0.4.x 版本保留为可手动选择的测试槽。DX11 游戏在默认状态下会自动选择单独的 Beta0.4.2 兼容测试槽（内部 ID 仍为 `0.4.2-dx11-native-bridge-exp1-r1`）；它可能无法工作或影响启动，遇到问题请进群联系 `@群RBQ` 提交报告。内置版本包括历史
+`0.2.0-beta.2`（2K27 兼容候选）、`0.3.3.5`、`Beta0.4.1-r2`、`Beta0.4.4test`、`Beta0.4.5` 标准 OTA 更新槽和 Beta0.4.2 DX11 兼容测试槽。0.4.x 共用显卡族固定 `nrchain_nvngx.dll`；标准 OTA 会验证包内 Addon、chain、文件大小和 SHA-256，应用时同时替换包内提供的 Addon 与配套 chain，并保留 INI、ReShade、Runtime 及游戏自带 DLSS。
 
 ## 用户路径
 

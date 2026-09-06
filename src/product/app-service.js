@@ -29,6 +29,11 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
   let games = [];
   let hardware = detectGpu();
 
+  // Keep internal IDs stable while presenting public 0.4 releases as Beta0.4.
+  const displayVersionLabel = value => typeof value === 'string'
+    ? value.replace(/\bbeta(?=0\.4(?:\.|\D|$))/ig, 'Beta')
+    : value;
+
   const pathKey = value => path.resolve(value).toLowerCase();
   const isInside = (file, root) => {
     const candidate = pathKey(file);
@@ -79,7 +84,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
       if (!fs.existsSync(addonFile) || !meta || meta.id !== version) return null;
       return {
         id: version,
-        label: meta.label || version,
+        label: displayVersionLabel(meta.label || version),
         notes: meta.kind === 'ota'
           ? `标准 OTA 更新包；替换配套 Addon${fs.existsSync(path.join(dir, 'nrchain_nvngx.dll')) ? ' 与 Bridge' : ''}，保留 INI、ReShade、Runtime 和游戏自带 DLSS。${meta.instructions ? ' 包内说明和反馈脚本已保留。' : ''}`
           : '仅替换 Addon；保留当前已安装的 ReShade、Bridge、Runtime 和配置。',
@@ -121,7 +126,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
     const bundled = inspected && inspected.versions
       ? Object.entries(inspected.versions).map(([id, item]) => ({
           id,
-          label: item.label || id,
+          label: displayVersionLabel(item.label || id),
           notes: item.notes || '',
           source: 'bundled',
           compatibility: item.compatibility || null,
