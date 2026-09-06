@@ -5,12 +5,33 @@ struct ObservedCommandFamily {
     UINT64 device_identity = 0;
     const ID3D12GraphicsCommandListVtbl *vtable = nullptr;
     bool null_guard = false;
+    unsigned interface_mask = 0;
 };
 ObservedCommandFamily g_observed_command_families[16] = {};
 constexpr unsigned kMaxPrimedCommandStates = 128; // bounded snapshots and CPU-only descriptor caches
 unsigned g_primed_command_state_count = 0;
 UINT64 g_command_prime_serial = 0;
 
+// Same base vtable does not prove per-object QI coverage. Match the complete
+// interface set observed by InstallNativeCommandStateHooks; reject tear-offs.
+// Only cold lists are queried. Already observed lists keep the existing path.
+bool CommandFamilyInterfaces(ID3D12GraphicsCommandList *native, unsigned &mask) {
+    static const GUID *const ids[] = {&IID_ID3D12GraphicsCommandList1,
+        &IID_ID3D12GraphicsCommandList3, &IID_ID3D12GraphicsCommandList4,
+        &IID_ID3D12GraphicsCommandList5, &IID_ID3D12GraphicsCommandList8,
+        &IID_ID3D12GraphicsCommandList9, &kCommandList10Interface};
+    mask=0;
+    for (unsigned i=0;i<sizeof(ids)/sizeof(ids[0]);++i) {
+        IUnknown *view=nullptr;
+        const HRESULT hr=ID3D12GraphicsCommandList_QueryInterface(native,*ids[i],reinterpret_cast<void **>(&view));
+        if (hr==E_NOINTERFACE && !view) continue;
+        const bool same=SUCCEEDED(hr) && view==reinterpret_cast<IUnknown *>(native);
+        if (view) IUnknown_Release(view);
+        if (!same) return false;
+        mask |= 1u<<i;
+    }
+    return true;
+}
 const ObservedCommandFamily *FindObservedCommandFamilyLocked(
         const CommandStateRecord &record, ID3D12GraphicsCommandList *native) {
     if (!native || !record.meta_contract.device_identity || !record.meta_contract.known ||
@@ -26,15 +47,17 @@ void RememberObservedCommandFamilyLocked(const CommandStateRecord &record,
     if (!native || !record.meta_contract.device_identity || !record.meta_contract.known ||
         ((record.meta_contract.initialization_dirty | record.meta_contract.execution_dirty) &
          ~kCommandStateCoveredDomains) != 0) return;
+    unsigned mask=0;
+    if (!CommandFamilyInterfaces(native,mask)) return;
     ObservedCommandFamily *empty = nullptr;
     for (auto &family : g_observed_command_families) {
         if (family.device_identity == record.meta_contract.device_identity && family.vtable == native->lpVtbl) {
-            family.null_guard = family.null_guard || null_guard;
+            if (family.interface_mask==mask) family.null_guard = family.null_guard || null_guard;
             return;
         }
         if (!family.device_identity && !empty) empty = &family;
     }
-    if (empty) *empty = {record.meta_contract.device_identity, native->lpVtbl, null_guard};
+    if (empty) *empty = {record.meta_contract.device_identity, native->lpVtbl, null_guard, mask};
     // Exhaustion means a missed optimization, never permission to trust a family.
 }
 void PrimeCommandListBeforeResetLocked(CommandStateRecord &record,
@@ -42,6 +65,8 @@ void PrimeCommandListBeforeResetLocked(CommandStateRecord &record,
     const auto *family = FindObservedCommandFamilyLocked(record, native);
     if (!family || record.native != native) return;
     if (record.state == nullptr) {
+        unsigned mask=0;
+        if (!CommandFamilyInterfaces(native,mask) || mask!=family->interface_mask) return;
         // Evict only observer states NEVER used by an NR carrier. No plugin
         // submission or fence can depend on these private CPU descriptors.
         if (g_primed_command_state_count >= kMaxPrimedCommandStates) {
