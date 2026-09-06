@@ -1,0 +1,33 @@
+name: F8 two-file delivery regression
+on:
+  pull_request:
+    branches: [release/0.4.5-test]
+    paths:
+      - src/nr_feedback_report.inl
+      - scripts/validate-feedback-delivery.py
+      - tests/feedback_delivery_win32.cpp
+      - .github/workflows/f8-delivery-validate.yml
+permissions:
+  contents: read
+jobs:
+  host-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/validate-feedback-delivery.py --compiler g++
+  windows-files:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and execute real file and archive regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'MSVC unavailable' }
+          $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+          cmd /c "`"$vcvars`" && cl /nologo /std:c++20 /EHsc /utf-8 /W3 /Isrc tests\feedback_delivery_win32.cpp /Fe:feedback-delivery.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'F8 delivery compilation failed' }
+          .\feedback-delivery.exe test-output\f8-delivery
+          if ($LASTEXITCODE -ne 0) { throw 'F8 delivery regression failed' }
