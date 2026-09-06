@@ -38,9 +38,12 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           script = Path('scripts/prepare-050-layers.py').read_text(encoding='utf-8')
-          old = 'source = once(source, anchor, new + anchor)'
-          new = r"source = once(source, '\n' + anchor, '\n' + new + anchor)"
-          assert script.count(old) == 1
-          script = script.replace(old, new)
+          replacements = {
+              'source = once(source, anchor, new + anchor)': r"source = once(source, '\n' + anchor, '\n' + new + anchor)",
+              "feedback = once(feedback, '      - next/0.5\\n', '      - next/0.5\\n      - codex/050-high-strength-guard\\n')": "pr, pushes = feedback.split('  push:', 1)\npr = once(pr, '      - next/0.5\\n', '      - next/0.5\\n      - codex/050-high-strength-guard\\n')\nfeedback = pr + '  push:' + pushes",
+          }
+          for old, new in replacements.items():
+              assert script.count(old) == 1, old
+              script = script.replace(old, new)
           exec(compile(script, 'prepare-050-layers.py', 'exec'))
           PY
