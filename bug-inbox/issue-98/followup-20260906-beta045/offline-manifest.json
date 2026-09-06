@@ -1,0 +1,191 @@
+{
+    "schema":  1,
+    "collector_version":  "beta0.4.3",
+    "created_utc":  "2026-09-06T14:02:35.4010748Z",
+    "source_directory":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh",
+    "status":  "partial",
+    "upload_performed":  false,
+    "configuration_modified":  false,
+    "dumps_collected":  false,
+    "binary_contents_included":  false,
+    "hash_bytes":  133151184,
+    "binary_count":  32,
+    "limits":  {
+                   "total_hash_bytes":  1073741824,
+                   "binary_count":  32,
+                   "config_bytes":  1048576,
+                   "log_bytes":  8388608,
+                   "subdirectory_depth":  2,
+                   "directory_entries":  256
+               },
+    "directories":  [
+                        {
+                            "id":  "dir00",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh",
+                            "status":  "available"
+                        },
+                        {
+                            "id":  "dir01",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh\\_storage_",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir02",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh\\plugins",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir03",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh\\addons",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir04",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh\\reshade-addons",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir05",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh\\_storage_\\plugins",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir06",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh\\_storage_\\addons",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir07",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh\\_storage_\\reshade-addons",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir08",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries",
+                            "status":  "available"
+                        },
+                        {
+                            "id":  "dir09",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\_storage_",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir10",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\plugins",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir11",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\addons",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir12",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\reshade-addons",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir13",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\_storage_\\plugins",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir14",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\_storage_\\addons",
+                            "status":  "missing"
+                        },
+                        {
+                            "id":  "dir15",
+                            "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\_storage_\\reshade-addons",
+                            "status":  "missing"
+                        }
+                    ],
+    "files":  [
+                  {
+                      "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh\\nr-before-sr.log",
+                      "kind":  "log",
+                      "status":  "collected",
+                      "entry":  "files/dir00/nr-before-sr.log",
+                      "source_bytes":  127396,
+                      "offset":  0,
+                      "copied_bytes":  127396,
+                      "limit_bytes":  8388608
+                  },
+                  {
+                      "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh\\nr-before-sr.previous.log",
+                      "kind":  "log",
+                      "status":  "collected",
+                      "entry":  "files/dir00/nr-before-sr.previous.log",
+                      "source_bytes":  190326,
+                      "offset":  0,
+                      "copied_bytes":  190326,
+                      "limit_bytes":  8388608
+                  },
+                  {
+                      "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh\\ReShade.log",
+                      "kind":  "log",
+                      "status":  "collected",
+                      "entry":  "files/dir00/ReShade.log",
+                      "source_bytes":  40637,
+                      "offset":  0,
+                      "copied_bytes":  40637,
+                      "limit_bytes":  8388608
+                  },
+                  {
+                      "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh\\nr_before_sr.ini",
+                      "kind":  "config",
+                      "status":  "collected",
+                      "entry":  "files/dir00/nr_before_sr.ini",
+                      "source_bytes":  1744,
+                      "offset":  0,
+                      "copied_bytes":  1744,
+                      "limit_bytes":  1048576
+                  },
+                  {
+                      "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh\\ReShade.ini",
+                      "kind":  "config",
+                      "status":  "collected",
+                      "entry":  "files/dir00/ReShade.ini",
+                      "source_bytes":  2352,
+                      "offset":  0,
+                      "copied_bytes":  2352,
+                      "limit_bytes":  1048576
+                  },
+                  {
+                      "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\Win64rh",
+                      "kind":  "binary",
+                      "status":  "capped-binary-count",
+                      "detail":  ""
+                  },
+                  {
+                      "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\nr-before-sr.log",
+                      "kind":  "log",
+                      "status":  "missing",
+                      "detail":  ""
+                  },
+                  {
+                      "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\nr-before-sr.previous.log",
+                      "kind":  "log",
+                      "status":  "missing",
+                      "detail":  ""
+                  },
+                  {
+                      "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\ReShade.log",
+                      "kind":  "log",
+                      "status":  "missing",
+                      "detail":  ""
+                  },
+                  {
+                      "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\nr_before_sr.ini",
+                      "kind":  "config",
+                      "status":  "missing",
+                      "detail":  ""
+                  },
+                  {
+                      "path":  "E:\\yysls\\yysls_medium\\Engine\\Binaries\\ReShade.ini",
+                      "kind":  "config",
+                      "status":  "missing",
+                      "detail":  ""
+                  }
+              ]
+}
