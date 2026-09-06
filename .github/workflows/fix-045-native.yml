@@ -2,7 +2,7 @@ name: Verify 045 native blend fix
 on:
   push:
     branches: [prep/045-integration]
-    paths: ['scripts/fix-045-native.py', '.github/workflows/fix-045-native.yml']
+    paths: ['scripts/fix-045-native.py', 'scripts/fix-045-native-run.py', '.github/workflows/fix-045-native.yml']
 permissions:
   contents: write
 jobs:
@@ -32,5 +32,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python scripts/fix-045-native.py --root product --compiler-root $env:TOOLCHAIN_ROOT
+          python scripts/fix-045-native-run.py --root product --compiler-root $env:TOOLCHAIN_ROOT
           if ($LASTEXITCODE -ne 0) { throw 'Native/WARP validation failed; no source accepted' }
