@@ -3,7 +3,8 @@ param(
     [switch]$MetaProbeOnly,
     [switch]$NegativeControl,
     [switch]$CpuDescriptorNegativeControl,
-    [switch]$DynamicStateNegativeControl
+    [switch]$DynamicStateNegativeControl,
+    [switch]$BlendStateNegativeControl
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,7 +13,7 @@ if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) {
     throw 'Provide -ToolchainRoot or set DLSS5_LLVM_MINGW_ROOT.'
 }
 $projectRoot = Split-Path -Parent $PSScriptRoot
-if (@(@($MetaProbeOnly,$NegativeControl,$CpuDescriptorNegativeControl,$DynamicStateNegativeControl) | Where-Object { $_ }).Count -gt 1) {
+if (@(@($MetaProbeOnly,$NegativeControl,$CpuDescriptorNegativeControl,$DynamicStateNegativeControl,$BlendStateNegativeControl) | Where-Object { $_ }).Count -gt 1) {
     throw 'Select one validation mode.'
 }
 $source = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_state.inl') -Raw
@@ -22,6 +23,15 @@ if (!$model.Success) {
     throw 'Production command-state extraction markers changed; update the GPU harness.'
 }
 $production = $model.Groups[1].Value
+$blendFixture = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\blend_only_gpu.inl') -Raw
+if (!$harness.Contains('// @BLEND_ONLY_TEST@')) { throw 'Blend pixel fixture anchor missing' }
+$harness = $harness.Replace('// @BLEND_ONLY_TEST@', $blendFixture)
+if ($BlendStateNegativeControl) {
+    $marker = 'ID3D12GraphicsCommandList_OMSetBlendFactor(list, d.blend)'
+    if (!$production.Contains($marker)) { throw 'Blend restore negative-control anchor missing' }
+    $production = $production.Replace($marker,'ID3D12GraphicsCommandList_OMSetBlendFactor(list, g_wrong_restore_blend)')
+    $harness = $harness.Replace('// @NEGATIVE_CONTROL_CONSTANTS@','const float g_wrong_restore_blend[4] = {};')
+}
 if ($NegativeControl) {
     # Mutate only this generated test translation unit. Valid bindings still
     # execute safely; wrong constants must be caught by independent GPU oracles.
@@ -47,7 +57,7 @@ if ($DynamicStateNegativeControl) {
 $harness = $harness.Replace('// @PRODUCTION_STATE@', $production)
 $build = Join-Path $projectRoot 'build\command-state-gpu-validation'
 New-Item -ItemType Directory -Path $build -Force | Out-Null
-$stem = if ($NegativeControl) { 'command_state_gpu_negative_control' } elseif ($CpuDescriptorNegativeControl) { 'command_state_gpu_cpu_descriptor_negative' } elseif ($DynamicStateNegativeControl) { 'command_state_gpu_dynamic_negative' } else { 'command_state_gpu_validation' }
+$stem = if ($BlendStateNegativeControl) { 'command_state_gpu_blend_negative' } elseif ($NegativeControl) { 'command_state_gpu_negative_control' } elseif ($CpuDescriptorNegativeControl) { 'command_state_gpu_cpu_descriptor_negative' } elseif ($DynamicStateNegativeControl) { 'command_state_gpu_dynamic_negative' } else { 'command_state_gpu_validation' }
 $generated = Join-Path $build ($stem + '.cpp')
 $binary = Join-Path $build ($stem + '.exe')
 [IO.File]::WriteAllText($generated, $harness, [Text.UTF8Encoding]::new($false))
@@ -73,6 +83,16 @@ if ($CpuDescriptorNegativeControl -or $DynamicStateNegativeControl) {
         throw 'Known-null GPU oracle failed to reject the corrupted dynamic/CPU descriptor restoration.'
     }
     Write-Host 'Negative control passed: known-null GPU oracle rejected incorrect graphics restoration.'
+    exit 0
+}
+if ($BlendStateNegativeControl) {
+    $output = & $binary '--blend-only' 2>&1
+    $code = $LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+    if ($code -ne 1 -or ($output -join "`n") -notmatch 'Restored blend-only state produced wrong pixels') {
+        throw 'Blend pixel oracle did not reject exact deliberately corrupted restore'
+    }
+    Write-Host 'Negative control passed: wrong blend factors rejected by real WARP pixels.'
     exit 0
 }
 if ($MetaProbeOnly) { & $binary '--meta-probe-only' } else { & $binary }

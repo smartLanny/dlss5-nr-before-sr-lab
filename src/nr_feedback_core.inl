@@ -3,6 +3,9 @@
 #include "nr_feedback_text.h"
 #include "nr_feedback_ticket.h"
 namespace nr_core_feedback {
+#define NR_HAS_CORE_TEXT_REPORT 1
+#include "nr_feedback_report.inl"
+#include "nr_feedback_picture.inl"
 struct PairSnapshot {
     char session[96] = {};
     unsigned config = 0;
@@ -15,6 +18,10 @@ struct CoreSession {
     char session[96] = {};
     bool snapshot_ok = false;
 };
+std::shared_ptr<const std::string> g_full_report; // g_feedback_lock
+wchar_t g_report_path[1024] = {};
+DWORD g_report_error = ERROR_SUCCESS;
+bool g_report_complete = false;
 PairSnapshot g_pair{}; // g_feedback_lock
 char g_reason[160] = {}; // g_feedback_lock
 char g_submission[nr_feedback_ticket::kCapacity] = {}; // same session, g_feedback_lock
@@ -37,6 +44,7 @@ bool Request() {
     AcquireSRWLockExclusive(&g_feedback_lock);
     if (Busy()) { ReleaseSRWLockExclusive(&g_feedback_lock); return false; }
     g_pair = {};
+    g_full_report.reset(); g_report_path[0] = 0; g_report_error = ERROR_SUCCESS; g_report_complete = false;
     // No allocation or exception is possible while holding the publication lock.
     std::snprintf(g_pair.session, sizeof(g_pair.session), "DLSS5_CORE_%lu_%llu_%llu",
         GetCurrentProcessId(), GetTickCount64(), ++g_serial);
@@ -54,7 +62,7 @@ void Cancel() {
     ReleaseSRWLockExclusive(&g_feedback_lock);
 }
 void Publish(const nr_bundle::Result &result, bool complete, const char *reason,
-             const char *report = nullptr) {
+             const char *report = nullptr, const nr_feedback_report::Output *text = nullptr) {
     char submission[nr_feedback_ticket::kCapacity] = {};
     if (result.zip_path[0])
         nr_feedback_ticket::Build(submission, sizeof(submission), report,
@@ -62,6 +70,11 @@ void Publish(const nr_bundle::Result &result, bool complete, const char *reason,
 
     AcquireSRWLockExclusive(&g_feedback_lock);
     g_job = nullptr;
+    g_full_report = text ? text->text : nullptr;
+    g_report_path[0] = 0;
+    g_report_error = text ? text->error : ERROR_SUCCESS;
+    g_report_complete = text && text->text && text->complete;
+    if (text && text->text) nr_bundle::CopyPath(g_report_path, text->path.c_str());
     nr_bundle::CopyPath(g_feedback_last_zip, result.zip_path);
     nr_bundle::CopyText(g_reason, sizeof(g_reason), reason);
     nr_bundle::CopyText(g_submission, sizeof(g_submission), submission);
@@ -177,6 +190,8 @@ void CollectLogs(nr_bundle::Job &job, const CoreSession &session) {
         }
     }
 }
+#include "nr_feedback_modules.inl"
+
 void Modules(FeedbackSession &s) {
     Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId()));
     MODULEENTRY32W entry{}; entry.dwSize = sizeof(entry);
@@ -189,7 +204,7 @@ void Modules(FeedbackSession &s) {
         const auto safe = nr_feedback_text::Sanitize(name);
         FeedbackAppend(s, "module.%u=%s\n", count++, safe.c_str());
     }
-    FeedbackAppend(s, "modules.contract=names only; no module bytes or process addresses collected\n");
+    FeedbackAppend(s, "modules.contract=name inventory plus bounded loaded-file fingerprints; no module bytes or process addresses exported\n");
 }
 DWORD WINAPI Worker(void *opaque) {
     auto *session = static_cast<CoreSession *>(opaque);
@@ -197,6 +212,7 @@ DWORD WINAPI Worker(void *opaque) {
     nr_bundle::Result result{};
     nr_bundle::Job *job = nullptr;
     bool complete = false;
+    nr_feedback_report::Output text;
     try {
         // Bounded CPU observation interval, independent of Present/NR/GPU.
         for (unsigned i = 0; i < 15 && !g_cancel.load(); ++i) Sleep(50);
@@ -211,6 +227,7 @@ DWORD WINAPI Worker(void *opaque) {
         FeedbackAppend(s, "artifact.sourceCommit=%s\nartifact.sourceDirty=%d\nartifact.addonSha256=%s\nartifact.identityStatus=%s\n",
             kSourceCommit, kSourceDirty ? 1 : 0, identity.sha256, identity.status);
         Modules(s);
+        FingerprintRuntimeFiles(s, *session);
         const auto color = SnapshotColorPolicy();
         FeedbackAppend(s, "color.status=%s\ncolor.requested=%.9g\ncolor.effective=%.9g\ncolor.reason=%s\n"
             "color.contract=last recorded blend; not a measured picture strength\ncollection.metadataTruncated=%d\n",
@@ -229,15 +246,17 @@ DWORD WINAPI Worker(void *opaque) {
             }
             result = nr_bundle::Run(*job);
             complete = !g_cancel.load() && session->snapshot_ok && !s.report_truncated;
+            text = nr_feedback_report::Build(*job, result, complete);
         }
     } catch (...) {
+        text.error = ERROR_NOT_ENOUGH_MEMORY;
         // Never let a failed diagnostic allocation unwind into the game.
         AcquireSRWLockExclusive(&g_feedback_lock);
         if (g_feedback_session == &s) g_feedback_session = nullptr;
         ReleaseSRWLockExclusive(&g_feedback_lock);
     }
     Publish(result, complete, g_cancel.load() ? "cancelled; inspect partial evidence" :
-        result.status == nr_bundle::Status::Failed ? "core package failed; no previous ZIP reused" : "core logs collected; no image readback requested", s.report);
+        result.status == nr_bundle::Status::Failed ? "core package failed; no previous ZIP reused" : "core logs collected; no image readback requested", s.report, &text);
     nr_bundle::DestroyJob(job);
     delete session;
     return 0;
@@ -294,6 +313,7 @@ void Present(reshade::api::effect_runtime *runtime) {
         config.ui_correction, static_cast<int>(config.jitter_mode), config.style,
         applied.instance_id, applied.frame_id, applied.config_generation, applied.tuning.intensity,
         applied.tuning.skin_structure, static_cast<unsigned long long>(nr_feedback_text::kCoreZipLimit));
+    AppendPictureConfig(s, config, session->snapshot_ok);
     FeedbackAppendActivity(s, "start");
     AcquireSRWLockExclusive(&g_feedback_lock);
     g_pair.config = generation; g_feedback_session = &s;

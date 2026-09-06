@@ -22,6 +22,7 @@
 #include <iterator>
 #include <limits>
 #include <new>
+#include <memory>
 
 #define ImTextureID ImU64
 #include <imgui.h>
@@ -47,11 +48,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dev2";
+constexpr const char *kAddonVersion = "beta0.5-dev3";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dev2";
+constexpr const char *kBuildIdentity = "beta0.5-dev3";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -358,6 +359,8 @@ enum class BypassReason : int {
     ModuleObserverInstalling,
     ModuleObserverUncertain,
     CommandStateUnverified,
+    RuntimeUnavailable,
+    CodecUnavailable,
 };
 
 std::atomic<int> g_last_bypass_reason{
@@ -456,6 +459,8 @@ const char *BypassReasonName(BypassReason reason) {
         return "module-observer-uncertain";
     case BypassReason::CommandStateUnverified:
         return "command-state-unverified";
+    case BypassReason::RuntimeUnavailable: return "nr-runtime-unavailable";
+    case BypassReason::CodecUnavailable: return "codec-unavailable";
     default: return "unknown";
     }
 }
@@ -1886,10 +1891,12 @@ void AddonDirectory(wchar_t (&directory)[MAX_PATH]) {
     if (slash != nullptr) *(slash + 1) = L'\0';
 }
 
+#include "nr_runtime_load_evidence.inl"
+
 bool EnsureNrApi(ID3D12Device *device) {
     ScopedSrwExclusive api_guard(&g_nr_api_lock);
     if (g_nr_api.initialized) return true;
-    if (g_nr_api.failed || device == nullptr) return false;
+    if (g_nr_api.failed || device == nullptr) { SetBypassReason(BypassReason::RuntimeUnavailable); return false; }
 
     wchar_t directory[MAX_PATH] = {};
     wchar_t bridge_path[MAX_PATH] = {};
@@ -1898,17 +1905,26 @@ bool EnsureNrApi(ID3D12Device *device) {
     swprintf_s(bridge_path, L"%lsnrchain_nvngx.dll", directory);
     swprintf_s(signed_path, L"%lsnvngx_dlssnr.dll", directory);
 
+    RuntimeLoadEvidence evidence;
+    evidence.stage = "load-modules";
     g_nr_api.bridge_module = LoadLibraryExW(
         bridge_path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+    evidence.loaded[0] = g_nr_api.bridge_module != nullptr;
+    evidence.errors[0] = RuntimeLoadError(evidence.loaded[0]);
     g_nr_api.signed_module = LoadLibraryExW(
         signed_path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+    evidence.loaded[1] = g_nr_api.signed_module != nullptr;
+    evidence.errors[1] = RuntimeLoadError(evidence.loaded[1]);
     HMODULE core = GetModuleHandleW(L"_nvngx.dll");
+    evidence.loaded[2] = core != nullptr;
+    evidence.errors[2] = RuntimeLoadError(evidence.loaded[2]);
     if (g_nr_api.bridge_module == nullptr || g_nr_api.signed_module == nullptr || core == nullptr) {
-        Log("NR runtime load failed: bridge=%p signed=%p core=%p error=%lu",
-            static_cast<void *>(g_nr_api.bridge_module),
-            static_cast<void *>(g_nr_api.signed_module), static_cast<void *>(core),
-            GetLastError());
+        Log("NR runtime load failed: bridgeLoaded=%d bridgeWin32=%lu signedLoaded=%d signedWin32=%lu coreLoaded=%d coreWin32=%lu; restart after repairing the installation.",
+            evidence.loaded[0] ? 1 : 0, evidence.errors[0], evidence.loaded[1] ? 1 : 0,
+            evidence.errors[1], evidence.loaded[2] ? 1 : 0, evidence.errors[2]);
         g_nr_api.failed = true;
+        RecordRuntimeLoadEvidence(evidence);
+        SetBypassReason(BypassReason::RuntimeUnavailable);
         return false;
     }
 
@@ -1933,6 +1949,17 @@ bool EnsureNrApi(ID3D12Device *device) {
     g_nr_api.bridge_release = reinterpret_cast<NrApi::BridgeReleaseFn>(GetProcAddress(
         g_nr_api.bridge_module, "NRChain_Release"));
 
+    evidence.stage = "resolve-exports";
+    if (!g_nr_api.signed_init) { evidence.missing_exports |= 1u << 0; Log("NR runtime missing export: NVSDK_NGX_D3D12_Init_Ext"); }
+    if (!g_nr_api.signed_create) { evidence.missing_exports |= 1u << 1; Log("NR runtime missing export: NVSDK_NGX_D3D12_CreateFeature"); }
+    if (!g_nr_api.signed_evaluate) { evidence.missing_exports |= 1u << 2; Log("NR runtime missing export: NVSDK_NGX_D3D12_EvaluateFeature"); }
+    if (!g_nr_api.signed_release) { evidence.missing_exports |= 1u << 3; Log("NR runtime missing export: NVSDK_NGX_D3D12_ReleaseFeature"); }
+    if (!g_nr_api.allocate) { evidence.missing_exports |= 1u << 4; Log("NR runtime missing export: NVSDK_NGX_D3D12_AllocateParameters"); }
+    if (!g_nr_api.destroy) { evidence.missing_exports |= 1u << 5; Log("NR runtime missing export: NVSDK_NGX_D3D12_DestroyParameters"); }
+    if (!g_nr_api.bridge_init) { evidence.missing_exports |= 1u << 6; Log("NR runtime missing export: NRChain_Init"); }
+    if (!g_nr_api.bridge_create) { evidence.missing_exports |= 1u << 7; Log("NR runtime missing export: NRChain_Create"); }
+    if (!g_nr_api.bridge_evaluate) { evidence.missing_exports |= 1u << 8; Log("NR runtime missing export: NRChain_Evaluate"); }
+    if (!g_nr_api.bridge_release) { evidence.missing_exports |= 1u << 9; Log("NR runtime missing export: NRChain_Release"); }
     if (g_nr_api.signed_init == nullptr || g_nr_api.signed_create == nullptr ||
         g_nr_api.signed_evaluate == nullptr || g_nr_api.signed_release == nullptr ||
         g_nr_api.allocate == nullptr || g_nr_api.destroy == nullptr ||
@@ -1940,21 +1967,30 @@ bool EnsureNrApi(ID3D12Device *device) {
         g_nr_api.bridge_evaluate == nullptr || g_nr_api.bridge_release == nullptr) {
         Log("NR runtime exports incomplete; signed feature 18 disabled.");
         g_nr_api.failed = true;
+        RecordRuntimeLoadEvidence(evidence);
+        SetBypassReason(BypassReason::RuntimeUnavailable);
         return false;
     }
 
     constexpr unsigned long long kApplicationId = 0x000000000E658703ull;
     constexpr std::uint32_t kNgxSdkVersion = 19u;
+    evidence.stage = "initialize";
+    RecordRuntimeLoadEvidence(evidence);
     const NgxResult result = g_nr_api.bridge_init(
         g_nr_api.signed_init, kApplicationId, directory, device,
         kNgxSdkVersion, nullptr);
+    evidence.init_result = result;
     if (result != kNgxSuccess && result != 0xBAD00003u) {
         Log("signed DLSSNR Init_Ext failed: 0x%08X (%s)", result, ResultName(result));
         g_nr_api.failed = true;
+        RecordRuntimeLoadEvidence(evidence);
+        SetBypassReason(BypassReason::RuntimeUnavailable);
         return false;
     }
 
     g_nr_api.initialized = true;
+    evidence.stage = "initialized";
+    RecordRuntimeLoadEvidence(evidence);
     Log("signed DLSSNR D3D12 runtime initialized through nrchain_nvngx.dll "
         "(result=0x%08X).", result);
     return true;
@@ -3707,26 +3743,51 @@ void DestroySlot(NrSlot &slot) {
 void DestroyContext(NrContext &context) {
     if (context.create_dependencies_quarantined ||
         context.lifecycle_dependencies_quarantined) {
-        // A failed Create returned a non-null handle after recording unknown
-        // initialization work. Its complete dependency closure intentionally
-        // survives to process exit; releasing only part of it is not safe.
+        // Keep the complete unproven dependency closure until process exit.
         return;
     }
     {
-        // NGX explicitly does not provide general method-level thread safety.
-        // Pending destruction runs outside g_chain_cs, so serialize it with
-        // init/allocate/create/evaluate without reintroducing release-under-lock.
+        // Serialize returned-error handling with every other NR API call.
+        // This is not an exception/AV recovery boundary: no opaque fault is caught.
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
-        if (context.nr_handle != nullptr && g_nr_api.initialized &&
-            g_nr_api.bridge_release != nullptr) {
+        if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+            context.lifecycle_dependencies_quarantined = true;
+            return;
+        }
+        if (context.nr_handle != nullptr) {
+            if (!g_nr_api.initialized || g_nr_api.bridge_release == nullptr ||
+                g_nr_api.signed_release == nullptr) {
+                context.lifecycle_dependencies_quarantined = true;
+                MarkLifecycleUncertain("NR retirement Release entry unavailable");
+                return;
+            }
             const NgxResult result = g_nr_api.bridge_release(
                 g_nr_api.signed_release, context.nr_handle);
             Log("NR ReleaseFeature handle=%p result=0x%08X",
                 context.nr_handle, result);
+            if (result != kNgxSuccess) {
+                // A returned error does not transfer ownership back to us.
+                // In particular, do not destroy parameters/textures or retry Release.
+                context.lifecycle_dependencies_quarantined = true;
+                MarkLifecycleUncertain("NR retirement Release returned an error");
+                return;
+            }
+            context.nr_handle = nullptr;
         }
-        context.nr_handle = nullptr;
-        if (context.params != nullptr && g_nr_api.destroy != nullptr) {
-            g_nr_api.destroy(context.params);
+        if (context.params != nullptr) {
+            if (g_nr_api.destroy == nullptr) {
+                context.lifecycle_dependencies_quarantined = true;
+                MarkLifecycleUncertain("NR retirement DestroyParameters entry unavailable");
+                return;
+            }
+            const NgxResult result = g_nr_api.destroy(context.params);
+            if (result != kNgxSuccess) {
+                Log("NR retirement DestroyParameters returned result=0x%08X; "
+                    "remaining dependencies quarantined, no automatic retry.", result);
+                context.lifecycle_dependencies_quarantined = true;
+                MarkLifecycleUncertain("NR retirement DestroyParameters returned an error");
+                return;
+            }
             context.params = nullptr;
         }
     }
@@ -6007,11 +6068,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         color_policy.requested_preserve_lighting = g_config.lighting_lock > 0.000001f;
         color_policy.effective_preserve_lighting = color_policy.requested_preserve_lighting;
     }
-    if (v2_combine && g_config.allow_unverified_hdr_color && !color_policy.color_allowed) {
-        color_policy.color_allowed = true;
-        color_policy.effective_color_strength = g_config.color_strength;
-        color_policy.color_reason = NrColorReason::ExperimentalUnverifiedHdr;
-    }
+    ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,
+        g_config.color_strength);
     const unsigned int base_codec_flags = source_flags |
         ((v2_combine && g_config.high_strength_protection) ? 1024u : 0u) |
         ((v2_combine && g_config.layered_enhancement) ? 2048u : 0u) |
@@ -7381,7 +7439,9 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
-    const bool ready = EnsureNrApi(device) && EnsureCodec(device);
+    const bool nr_ready = EnsureNrApi(device);
+    const bool ready = nr_ready && EnsureCodec(device);
+    if (nr_ready && !ready) SetBypassReason(BypassReason::CodecUnavailable);
     if (!ready) {
         ReleaseCom(device);
         return substitution;
@@ -9137,6 +9197,15 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                 Log("[command-state] post-SR state unavailable; native SR is "
                     "re-evaluated to its original Output without NR work.");
                 result = original(command_list, handle, params, callback);
+            } else {
+                static unsigned int post_state_failures = 0;
+                const unsigned int count = ++post_state_failures;
+                if (count <= 3 || (count % 600) == 0) {
+                    const auto state = SnapshotCommandStateEvidence();
+                    Log("[post-SR] stopped after successful native SR: stage=command-state "
+                        "reason=%s prepared-only=1 count=%u; original Output retained, "
+                        "no Feature18 call was made.", state.reason, count);
+                }
             }
         } else if (after_sr.redirected_output &&
                    g_config.retry_original_on_sr_failure) {
@@ -9230,7 +9299,8 @@ NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
-        return g_original_evaluate(command_list, handle, params, callback);
+        return CallNativeEvaluatePassThrough(
+            g_original_evaluate, command_list, handle, params, callback);
     }
     const unsigned int call = ++g_wrapper_calls;
     if (call <= 3) Log("nvngx_dlss EvaluateFeature reached: call=%u handle=%p", call,
@@ -9263,7 +9333,8 @@ NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
-        return g_original_evaluate_c(command_list, handle, params, callback);
+        return CallNativeEvaluatePassThrough(
+            g_original_evaluate_c, command_list, handle, params, callback);
     }
     return DispatchEvaluate(g_original_evaluate_c, command_list, handle, params, callback);
 }
@@ -9299,7 +9370,8 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
-        return g_original_core_evaluate(command_list, handle, params, callback);
+        return CallNativeEvaluatePassThrough(
+            g_original_core_evaluate, command_list, handle, params, callback);
     }
     const unsigned int call = ++g_core_calls;
     if (call <= 3) Log("_nvngx core EvaluateFeature reached: call=%u handle=%p", call,
@@ -9338,8 +9410,8 @@ NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
     if (!g_enabled_fast.load(std::memory_order_acquire) ||
         OtherNrOwnerActive() ||
         g_evaluate_target_overflow.load(std::memory_order_acquire)) {
-        return g_original_dlssd_evaluate(
-            command_list, handle, params, callback);
+        return CallNativeEvaluatePassThrough(
+            g_original_dlssd_evaluate, command_list, handle, params, callback);
     }
     const unsigned int call = ++g_dlssd_evaluate_calls;
     if (call <= 3) {
@@ -11381,13 +11453,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dev2 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dev3 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev2 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev3 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

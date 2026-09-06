@@ -26,6 +26,7 @@ void ConfigJson(JsonBuffer &b,const char *key,const ChainConfig &c) {
     b.Float("proxyScale",c.proxy_scale);b.Float("customWorkScale",c.custom_work_scale);
     b.Float("maxLumaRatio",c.max_luma_ratio);b.Float("lightingLock",c.lighting_lock);
     b.Float("edgeGuard",c.edge_guard);b.Float("detailStability",c.detail_stability);
+    b.Append(",\"highStrengthProtection\":%d",c.high_strength_protection);
     b.Append(",\"layeredEnhancement\":%d",c.layered_enhancement);
     b.Float("layerTone",c.layer_tone);b.Float("layerStructure",c.layer_structure);
     b.Float("layerBright",c.layer_bright);b.Float("layerShadow",c.layer_shadow);b.Append("}");
@@ -47,6 +48,8 @@ JsonBuffer FrameJson(const NrStageCaptureInfo &n,const NrCaptureParams &p,
     b.Float("workLinearScale",n.work_linear_scale);b.Float("lightingLock",n.lighting_lock);
     b.Float("edgeGuard",n.edge_guard);b.Float("frameConfidence",n.frame_confidence);
     b.Float("detailStability",n.detail_stability);
+    // Flag is captured per dispatch; it is not proof every pixel exceeded 1x.
+    b.Append(",\"highStrengthProtectionFlag\":%d",(n.codec_flags & 1024u) != 0u);
     b.Append(",\"layeredEffective\":%d",(n.codec_flags & 2048u) != 0u);
     b.Float("layerTone",n.layer_tone);b.Float("layerStructure",n.layer_structure);
     b.Float("layerBright",n.layer_bright);b.Float("layerShadow",n.layer_shadow);

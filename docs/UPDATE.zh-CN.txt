@@ -1,4 +1,4 @@
-DLSS 5 NR Before SR beta0.5-dev2 实验候选
+DLSS 5 NR Before SR beta0.5-dev3 实验候选
 
 这不是正式 Release/OTA。基于完整 beta0.4.3r3，0.4 继续维护兼容性。
 Mode2 新增默认开启的“高强度保护”：只限制大于1倍的额外增强；关闭可恢复旧算法。

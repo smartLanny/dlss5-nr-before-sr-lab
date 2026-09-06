@@ -1,0 +1,383 @@
+=== HEAD nr-current-summary.txt lines=1079 chars=138304 ===
+format=DLSS5-LogSummary-v1
+source.bytes=93201
+scan.bytes=93201
+scan.complete=1
+lines.scanned=753
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+11:16:15.098  DLSS 5 AI Rendering Perfect Chain beta0.4.4-test1 attached | author=@?????????????????? Bilibili | official_release=http[local-path] | language=zh-CN | file=DLSS5-AI???????????????-beta0.4.4-test1-@??????????????????-Bilibili.addon64 | build_id=beta0.4.4-test1 | sourceCommit=1a8490a2c76d93b0c5e4cc50b8d4f178df55eb83 sourceDirty=0
+11:16:15.100  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+11:16:15.100  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+11:16:15.100  Config: enabled=1 mode=2 identity=0 preTransfer=1.390 postTransfer=1.390 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.020 localTone=2.000 localStructure=1.310 skinStructure=0.000 autoMask=0 style=2 uiCorrection=0 r8OutputEncoding=0 perfEpoch=589 jitterMode=1 feature18Evals=0
+11:16:15.101  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+11:16:15.512  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+11:16:15.512  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:16:15.679  Found SR NGX module: [local-path]
+11:16:15.679  [module] pinned hook owner name=nvngx_dlss.dll address=[address] module=[address] until process exit.
+11:16:15.679  [module] pinned hook owner name=_nvngx.dll address=[address] module=[address] until process exit.
+11:16:15.679  [module] pinned hook owner name=D3D12_CreateFeature address=[address] module=[address] until process exit.
+11:16:15.680  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0 (MH_OK)
+11:16:15.680  [module] pinned hook owner name=D3D12_EvaluateFeature address=[address] module=[address] until process exit.
+11:16:15.680  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0 (MH_OK)
+11:16:15.680  [module] pinned hook owner name=D3D12_ReleaseFeature address=[address] module=[address] until process exit.
+11:16:15.680  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0 (MH_OK)
+11:16:15.680  [module] pinned hook owner name=core CreateFeature address=[address] module=[address] until process exit.
+11:16:15.680  MH_CreateHook core CreateFeature                     target=[address] status=0 (MH_OK)
+11:16:15.680  [module] pinned hook owner name=core EvaluateFeature address=[address] module=[address] until process exit.
+11:16:15.680  MH_CreateHook core EvaluateFeature                   target=[address] status=0 (MH_OK)
+11:16:15.680  [module] pinned hook owner name=core ReleaseFeature address=[address] module=[address] until process exit.
+11:16:15.680  MH_CreateHook core ReleaseFeature                    target=[address] status=0 (MH_OK)
+11:16:15.748  MH_EnableHook all status=0
+11:16:15.748  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+11:16:15.749  [module] initial scan complete: sr=[address] core=[address] dlssd=[address].
+11:16:15.749  NGX observer/AI-upscaling hooks active.
+11:16:17.007  [command-state] observed CreateCommandSignature: call=1 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=[address].
+11:16:17.008  [command-state] observed CreateCommandSignature: call=2 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=[address].
+11:16:17.008  [command-state] observed CreateCommandSignature: call=3 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=[address].
+11:16:17.008  [command-state] observed CreateCommandSignature: call=4 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=[address].
+11:16:17.008  [command-state] observed CreateCommandSignature: call=5 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=[address].
+11:16:17.008  [command-state] observed CreateCommandSignature: call=6 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=[address].
+11:16:17.009  [command-state] observed CreateCommandSignature: call=7 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=[address].
+11:16:17.009  [command-state] observed CreateCommandSignature: call=8 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=[address].
+11:16:17.009  [command-state] observed CreateCommandSignature: call=9 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=[address].
+11:16:17.009  [command-state] observed CreateCommandSignature: call=10 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=[address].
+11:16:17.009  [command-state] observed CreateCommandSignature: call=11 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=[address].
+11:16:17.009  [command-state] observed CreateCommandSignature: call=12 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=[address].
+11:16:17.009  [command-state] observed CreateCommandSignature: call=13 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=[address].
+11:16:17.009  [command-state] observed CreateCommandSignature: call=14 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=[address].
+11:16:17.009  [command-state] observed CreateCommandSignature: call=15 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=[address].
+11:16:17.009  [command-state] observed CreateCommandSignature: call=16 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=[address].
+11:16:19.247  [module] lazy rescan #1 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+11:16:19.248  [perf] reset stage=C-NR-transfer epoch=589 transfer=1.390; warming 180 frames
+11:16:19.282  [artifact-identity] sourceCommit=1a8490a2c76d93b0c5e4cc50b8d4f178df55eb83 sourceDirty=0 status=verified addonPath=[local-path]
+11:16:22.474  [module] lazy rescan #2 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+11:16:23.480  [module] lazy rescan #3 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+11:16:31.160  _nvngx core CreateFeature entered: call=1 id=1 (SuperSampling)
+11:16:31.208  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+11:16:31.208      Width                                      = 1707
+11:16:31.208      Height                                     = 960
+11:16:31.208      OutWidth                                   = 2560
+11:16:31.208      OutHeight                                  = 1440
+11:16:31.208      PerfQualityValue                           = 2
+11:16:31.208      DLSS.Feature.Create.Flags                  = 106
+11:16:31.208      CreationNodeMask                           = 1
+11:16:31.209      VisibilityNodeMask                         = 1
+11:16:31.209  Feature 1 contract generation=1 handle=[address] create=1707x960 -> 2560x1440 flags=106 quality=2; all NR contracts will be rebuilt.
+11:16:31.209  _nvngx core EvaluateFeature reached: call=1 handle=[address]
+11:16:31.209  --- SuperSampling Evaluate #1 handle=[address] generation=1 create=1707x960 -> 2560x1440 ---
+11:16:31.209      Color                                      = [address] physical=1707x960 format=28(R8G8B8A8_UNORM) mips=1 flags=0x1 sample=1
+11:16:31.209      MotionVectors                              = [address] physical=1707x960 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+11:16:31.209      Depth                                      = [address] physical=1707x960 format=41(R32_FLOAT) mips=1 flags=0x5 sample=1
+11:16:31.209      Output                                     = [address] physical=2560x1440 format=28(R8G8B8A8_UNORM) mips=1 flags=0x5 sample=1
+11:16:31.209      DLSS.Input.Color.Subrect.Base.X            = 0
+11:16:31.209      DLSS.Input.Color.Subrect.Base.Y            = 0
+11:16:31.209      DLSS.Input.Depth.Subrect.Base.X            = 0
+11:16:31.209      DLSS.Input.Depth.Subrect.Base.Y            = 0
+11:16:31.210      DLSS.Input.MV.Subrect.Base.X               = 0
+11:16:31.210      DLSS.Input.MV.Subrect.Base.Y               = 0
+11:16:31.210      DLSS.Output.Subrect.Base.X                 = 0
+=== KEY MIDDLE (filtered) ===
+11:16:31.210  Pipeline diagnostic scope reset: epoch=1 Feature1 generation=1 mode=2.
+11:16:31.210  [stats] current contract: generation=1 mode=2 carrier-requests=1 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+11:16:31.353  [command-state] NR bypass: reason=native-hooks-unavailable token=7 registered=1 installing=1 dirty=0x0 count=1 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:31.353  [state] bypass transition #1: waiting-feature1 -> command-state-unverified.
+11:16:31.362  _nvngx core CreateFeature entered: call=2 id=11 (FrameGeneration)
+11:16:31.520  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+11:16:31.527  [stats] current contract: generation=1 mode=2 carrier-requests=2 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+11:16:31.527  [command-state] NR bypass: reason=native-hooks-unavailable token=14 registered=1 installing=1 dirty=0x0 count=2 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:31.571  [stats] current contract: generation=1 mode=2 carrier-requests=3 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+11:16:31.572  [command-state] NR bypass: reason=native-hooks-unavailable token=15 registered=1 installing=1 dirty=0x0 count=3 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:31.594  [command-state] NR bypass: reason=native-hooks-unavailable token=18 registered=1 installing=1 dirty=0x0 count=4 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:33.535  [state] bypass transition #2: command-state-unverified -> queue-affinity-unverified.
+11:16:33.535  [command-state] restored native state: token=15 pso=[address] raytracing=[address] computeRoot=[address] graphicsRoot=[address] resourceHeap=[address] samplerHeap=[address].
+11:16:33.545  [command-state] NR bypass: reason=native-hooks-unavailable token=23 registered=1 installing=1 dirty=0x0 count=5 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:33.545  [state] bypass transition #3: queue-affinity-unverified -> command-state-unverified.
+11:16:33.552  [command-state] NR bypass: reason=native-hooks-unavailable token=10 registered=1 installing=1 dirty=0x0 count=6 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:34.010  [state] bypass transition #4: command-state-unverified -> queue-affinity-unverified.
+11:16:34.010  [command-state] restored native state: token=14 pso=[address] raytracing=[address] computeRoot=[address] graphicsRoot=[address] resourceHeap=[address] samplerHeap=[address].
+11:16:31.353  [command-state] NR bypass: reason=native-hooks-unavailable token=7 registered=1 installing=1 dirty=0x0 count=1 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:31.353  [state] bypass transition #1: waiting-feature1 -> command-state-unverified.
+11:16:34.020  Feature 18 create-time tuning: mode=2 extent=1707x960 intensity=1.020 style=2 autoMask=0 skin=-1.000 localTone=2.000 localStructure=1.310 uiCorrection=0 proxyMapping=existing.
+11:18:56.815  [command-state] NR bypass: reason=null-guard-graphics-state-used token=29 registered=1 installing=0 dirty=0x0 count=49 baseline=Reset resetSerial=257 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:16:15.100  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+11:16:15.100  Config: enabled=1 mode=2 identity=0 preTransfer=1.390 postTransfer=1.390 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.020 localTone=2.000 localStructure=1.310 skinStructure=0.000 autoMask=0 style=2 uiCorrection=0 r8OutputEncoding=0 perfEpoch=589 jitterMode=1 feature18Evals=0
+11:16:15.679  [module] pinned hook owner name=D3D12_CreateFeature address=[address] module=[address] until process exit.
+11:16:15.680  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0 (MH_OK)
+11:16:15.680  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0 (MH_OK)
+11:16:15.680  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0 (MH_OK)
+11:16:15.680  [module] pinned hook owner name=core CreateFeature address=[address] module=[address] until process exit.
+11:16:15.680  MH_CreateHook core CreateFeature                     target=[address] status=0 (MH_OK)
+11:16:15.680  MH_CreateHook core EvaluateFeature                   target=[address] status=0 (MH_OK)
+11:16:15.680  MH_CreateHook core ReleaseFeature                    target=[address] status=0 (MH_OK)
+11:16:15.748  MH_EnableHook all status=0
+11:16:19.247  [module] lazy rescan #1 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+11:16:22.474  [module] lazy rescan #2 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+11:16:23.480  [module] lazy rescan #3 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+11:16:31.160  _nvngx core CreateFeature entered: call=1 id=1 (SuperSampling)
+11:16:31.208  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+11:16:31.210  Pipeline diagnostic scope reset: epoch=1 Feature1 generation=1 mode=2.
+11:16:31.210  [stats] current contract: generation=1 mode=2 carrier-requests=1 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+11:16:31.353  [command-state] NR bypass: reason=native-hooks-unavailable token=7 registered=1 installing=1 dirty=0x0 count=1 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:31.353  [state] bypass transition #1: waiting-feature1 -> command-state-unverified.
+11:16:31.362  _nvngx core CreateFeature entered: call=2 id=11 (FrameGeneration)
+11:16:31.520  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+11:16:31.527  [stats] current contract: generation=1 mode=2 carrier-requests=2 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+11:16:31.527  [command-state] NR bypass: reason=native-hooks-unavailable token=14 registered=1 installing=1 dirty=0x0 count=2 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:31.571  [stats] current contract: generation=1 mode=2 carrier-requests=3 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+11:16:31.572  [command-state] NR bypass: reason=native-hooks-unavailable token=15 registered=1 installing=1 dirty=0x0 count=3 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:31.594  [command-state] NR bypass: reason=native-hooks-unavailable token=18 registered=1 installing=1 dirty=0x0 count=4 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:33.535  [state] bypass transition #2: command-state-unverified -> queue-affinity-unverified.
+11:16:33.545  [command-state] NR bypass: reason=native-hooks-unavailable token=23 registered=1 installing=1 dirty=0x0 count=5 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:33.545  [state] bypass transition #3: queue-affinity-unverified -> command-state-unverified.
+11:16:33.552  [command-state] NR bypass: reason=native-hooks-unavailable token=10 registered=1 installing=1 dirty=0x0 count=6 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:34.010  [state] bypass transition #4: command-state-unverified -> queue-affinity-unverified.
+11:16:34.020  Feature 18 create-time tuning: mode=2 extent=1707x960 intensity=1.020 style=2 autoMask=0 skin=-1.000 localTone=2.000 localStructure=1.310 uiCorrection=0 proxyMapping=existing.
+11:16:34.212  [nr-instance] created=1 mode=2 featureGeneration=1 config=2 intensity=1.020 style=2 proxyMapping=existing.
+11:16:34.274  D3D12 ExecuteCommandLists post-submit lifetime hook active: target=[address] slot=0.
+11:16:34.303  [command-state] NR bypass: reason=native-hooks-unavailable token=24 registered=1 installing=1 dirty=0x0 count=8 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:34.303  [state] bypass transition #5: queue-affinity-unverified -> command-state-unverified.
+11:16:34.307  [state] bypass transition #6: command-state-unverified -> none/active.
+11:16:34.314  [command-state] NR bypass: reason=native-hooks-unavailable token=17 registered=1 installing=1 dirty=0x0 count=9 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:34.314  [state] bypass transition #7: none/active -> command-state-unverified.
+11:16:34.336  [state] bypass transition #8: command-state-unverified -> none/active.
+11:16:34.524  [command-state] NR bypass: reason=native-hooks-unavailable token=26 registered=1 installing=1 dirty=0x0 count=10 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:34.524  [state] bypass transition #9: none/active -> command-state-unverified.
+11:16:34.538  [state] bypass transition #10: command-state-unverified -> none/active.
+11:16:34.567  [command-state] NR bypass: reason=native-hooks-unavailable token=20 registered=1 installing=1 dirty=0x0 count=11 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:34.568  [state] bypass transition #11: none/active -> command-state-unverified.
+11:16:34.581  [state] bypass transition #12: command-state-unverified -> none/active.
+11:16:35.449  core ReleaseFeature handle=[address] id=11 (FrameGeneration)
+11:16:39.642  ColorDiag #1 mode=2 featureGeneration=1 extent=1707x960 samples=1620 invalid=0 maxNrDelta=0.016846 changed=1620 maxFinalRelativeDelta=0.041761 meanFinalRelativeDelta=0.015881 finalChanged=1612 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.390 colorFollowEffective=0.000 preserveLighting=1.
+11:16:42.805  _nvngx core CreateFeature entered: call=3 id=11 (FrameGeneration)
+11:16:42.980  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+11:16:43.068  core ReleaseFeature handle=[address] id=11 (FrameGeneration)
+11:17:22.540  [module] lazy rescan #60 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=1 feature1CreateSuccess=1 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=42 observerFault=none.
+11:17:28.543  [command-state] NR bypass: reason=native-hooks-unavailable token=22 registered=1 installing=1 dirty=0x0 count=12 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:28.727  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+11:17:29.782  [command-state] NR bypass: reason=native-hooks-unavailable token=25 registered=1 installing=1 dirty=0x0 count=13 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:30.064  [command-state] NR bypass: reason=native-hooks-unavailable token=12 registered=1 installing=1 dirty=0x0 count=14 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:30.233  [command-state] NR bypass: reason=native-hooks-unavailable token=5 registered=1 installing=1 dirty=0x0 count=15 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:30.389  [command-state] NR bypass: reason=native-hooks-unavailable token=16 registered=1 installing=1 dirty=0x0 count=16 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:31.019  [command-state] NR bypass: reason=native-hooks-unavailable token=21 registered=1 installing=1 dirty=0x0 count=18 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:31.114  [command-state] NR bypass: reason=native-hooks-unavailable token=11 registered=1 installing=1 dirty=0x0 count=19 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:31.510  [command-state] NR bypass: reason=native-hooks-unavailable token=9 registered=1 installing=1 dirty=0x0 count=20 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:31.664  [command-state] NR bypass: reason=native-hooks-unavailable token=8 registered=1 installing=1 dirty=0x0 count=21 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:32.669  [command-state] NR bypass: reason=native-hooks-unavailable token=27 registered=1 installing=1 dirty=0x0 count=22 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:32.969  [command-state] NR bypass: reason=native-hooks-unavailable token=13 registered=1 installing=1 dirty=0x0 count=23 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:34.246  [command-state] NR bypass: reason=native-hooks-unavailable token=28 registered=1 installing=1 dirty=0x0 count=24 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:34.708  ColorDiag #2 mode=2 featureGeneration=1 extent=1707x960 samples=1620 invalid=0 maxNrDelta=0.075684 changed=1620 maxFinalRelativeDelta=0.106864 meanFinalRelativeDelta=0.025846 finalChanged=1618 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.390 colorFollowEffective=0.000 preserveLighting=1.
+11:17:34.802  [command-state] NR bypass: reason=native-hooks-unavailable token=29 registered=1 installing=1 dirty=0x0 count=25 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:34.933  [command-state] NR bypass: reason=native-hooks-unavailable token=33 registered=1 installing=1 dirty=0x0 count=29 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:35.119  [command-state] NR bypass: reason=native-hooks-unavailable token=36 registered=1 installing=1 dirty=0x0 count=32 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:35.193  [command-state] NR bypass: reason=native-hooks-unavailable token=37 registered=1 installing=1 dirty=0x0 count=33 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:35.256  [command-state] NR bypass: reason=native-hooks-unavailable token=38 registered=1 installing=1 dirty=0x0 count=34 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:35.409  [command-state] NR bypass: reason=native-hooks-unavailable token=40 registered=1 installing=1 dirty=0x0 count=36 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:35.545  [command-state] NR bypass: reason=native-hooks-unavailable token=41 registered=1 installing=1 dirty=0x0 count=37 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:35.679  [command-state] NR bypass: reason=native-hooks-unavailable token=42 registered=1 installing=1 dirty=0x0 count=38 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:35.852  [command-state] NR bypass: reason=native-hooks-unavailable token=43 registered=1 installing=1 dirty=0x0 count=39 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:36.122  [command-state] NR bypass: reason=native-hooks-unavailable token=44 registered=1 installing=1 dirty=0x0 count=40 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:36.203  [command-state] NR bypass: reason=native-hooks-unavailable token=45 registered=1 installing=1 dirty=0x0 count=41 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:36.295  [command-state] NR bypass: reason=native-hooks-unavailable token=46 registered=1 installing=1 dirty=0x0 count=42 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:36.447  [command-state] NR bypass: reason=native-hooks-unavailable token=47 registered=1 installing=1 dirty=0x0 count=43 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:39.935  core ReleaseFeature handle=[address] id=11 (FrameGeneration)
+11:17:40.501  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+11:17:41.000  [command-state] NR bypass: reason=native-hooks-unavailable token=48 registered=1 installing=1 dirty=0x0 count=44 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:17:43.033  [stats] all NGX evaluations=2720, upscaling-carrier evaluations=600 feature=1(SuperSampling)
+11:17:43.033  [stats] session totals: Feature18-success=549 transfer-prepared=543 transfer-recorded=543 transfer-bound=543 transfer-submitted=543 lifecycle-bypass=0; queue-affinity admitted=140 unknown-bypass=6 predicted-change-bypass=0 actual-mismatch=0.
+11:17:43.033  [stats] current contract: generation=1 mode=2 carrier-requests=600 Feature18-success=549 transfer-prepared=543 transfer-recorded=543 transfer-bound=543 transfer-submitted=543.
+11:17:43.503  ColorDiag #3 mode=2 featureGeneration=1 extent=1707x960 samples=1620 invalid=0 maxNrDelta=0.268310 changed=1620 maxFinalRelativeDelta=0.681424 meanFinalRelativeDelta=0.183028 finalChanged=1618 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.390 colorFollowEffective=0.000 preserveLighting=1.
+11:17:48.062  Config updated from F6: enabled=0 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=590 feature18Evals=786
+11:17:48.531  Config updated from F6: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=591 feature18Evals=786
+11:17:56.131  [stats] all NGX evaluations=5678, upscaling-carrier evaluations=1200 feature=1(SuperSampling)
+11:17:56.131  [stats] session totals: Feature18-success=1149 transfer-prepared=1141 transfer-recorded=1141 transfer-bound=1141 transfer-submitted=1141 lifecycle-bypass=0; queue-affinity admitted=236 unknown-bypass=6 predicted-change-bypass=0 actual-mismatch=0.
+11:17:56.131  [stats] current contract: generation=1 mode=2 carrier-requests=1200 Feature18-success=1149 transfer-prepared=1141 transfer-recorded=1141 transfer-bound=1141 transfer-submitted=1141.
+11:18:08.781  [stats] all NGX evaluations=8678, upscaling-carrier evaluations=1800 feature=1(SuperSampling)
+11:18:08.781  [stats] session totals: Feature18-success=1749 transfer-prepared=1741 transfer-recorded=1741 transfer-bound=1741 transfer-submitted=1741 lifecycle-bypass=0; queue-affinity admitted=244 unknown-bypass=6 predicted-change-bypass=0 actual-mismatch=0.
+11:18:08.781  [stats] current contract: generation=1 mode=2 carrier-requests=1800 Feature18-success=1749 transfer-prepared=1741 transfer-recorded=1741 transfer-bound=1741 transfer-submitted=1741.
+11:18:21.378  [stats] all NGX evaluations=11678, upscaling-carrier evaluations=2400 feature=1(SuperSampling)
+11:18:21.379  [stats] session totals: Feature18-success=2349 transfer-prepared=2341 transfer-recorded=2341 transfer-bound=2341 transfer-submitted=2341 lifecycle-bypass=0; queue-affinity admitted=246 unknown-bypass=6 predicted-change-bypass=0 actual-mismatch=0.
+11:18:21.379  [stats] current contract: generation=1 mode=2 carrier-requests=2400 Feature18-success=2349 transfer-prepared=2341 transfer-recorded=2341 transfer-bound=2341 transfer-submitted=2341.
+11:18:23.134  [module] lazy rescan #120 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=1 feature1CreateSuccess=1 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=2484 observerFault=none.
+11:18:25.566  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=592 feature18Evals=2549
+11:18:27.505  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=593 feature18Evals=2640
+11:18:30.245  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=594 feature18Evals=2769
+11:18:31.726  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=595 feature18Evals=2838
+11:18:32.515  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=596 feature18Evals=2875
+11:18:33.286  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=597 feature18Evals=2911
+11:18:34.102  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=598 feature18Evals=2949
+11:18:34.105  [stats] all NGX evaluations=14675, upscaling-carrier evaluations=3000 feature=1(SuperSampling)
+11:18:34.105  [stats] session totals: Feature18-success=2949 transfer-prepared=2941 transfer-recorded=2941 transfer-bound=2941 transfer-submitted=2941 lifecycle-bypass=0; queue-affinity admitted=291 unknown-bypass=6 predicted-change-bypass=0 actual-mismatch=0.
+11:18:34.105  [stats] current contract: generation=1 mode=2 carrier-requests=3000 Feature18-success=2949 transfer-prepared=2941 transfer-recorded=2941 transfer-bound=2941 transfer-submitted=2941.
+11:18:34.635  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=599 feature18Evals=2974
+11:18:35.140  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=600 feature18Evals=2997
+11:18:36.765  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=601 feature18Evals=3073
+11:18:37.797  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=602 feature18Evals=3121
+11:18:39.291  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=603 feature18Evals=3191
+11:18:40.153  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=604 feature18Evals=3231
+11:18:40.767  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=605 feature18Evals=3259
+11:18:42.893  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=606 feature18Evals=3359
+11:18:46.978  [stats] all NGX evaluations=17678, upscaling-carrier evaluations=3600 feature=1(SuperSampling)
+11:18:46.978  [stats] session totals: Feature18-success=3549 transfer-prepared=3541 transfer-recorded=3541 transfer-bound=3541 transfer-submitted=3541 lifecycle-bypass=0; queue-affinity admitted=373 unknown-bypass=6 predicted-change-bypass=0 actual-mismatch=0.
+11:18:46.978  [stats] current contract: generation=1 mode=2 carrier-requests=3600 Feature18-success=3549 transfer-prepared=3541 transfer-recorded=3541 transfer-bound=3541 transfer-submitted=3541.
+11:18:54.594  [command-state] NR bypass: reason=native-hooks-unavailable token=29 registered=1 installing=1 dirty=0x0 count=45 baseline=Reset resetSerial=247 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:18:54.933  [command-state] NR bypass: reason=native-hooks-unavailable token=43 registered=1 installing=1 dirty=0x0 count=47 baseline=Reset resetSerial=78 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:56.815  [command-state] NR bypass: reason=null-guard-graphics-state-used token=29 registered=1 installing=0 dirty=0x0 count=49 baseline=Reset resetSerial=257 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:56.839  [command-state] NR bypass: reason=native-hooks-unavailable token=32 registered=1 installing=1 dirty=0x0 count=50 baseline=Reset resetSerial=491 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:56.883  [command-state] NR bypass: reason=null-guard-graphics-state-used token=32 registered=1 installing=0 dirty=0x0 count=52 baseline=Reset resetSerial=492 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:56.904  [command-state] NR bypass: reason=native-hooks-unavailable token=36 registered=1 installing=1 dirty=0x0 count=53 baseline=Reset resetSerial=65 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:57.978  [command-state] NR bypass: reason=null-guard-graphics-state-used token=29 registered=1 installing=0 dirty=0x0 count=54 baseline=Reset resetSerial=263 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:58.005  [command-state] NR bypass: reason=native-hooks-unavailable token=30 registered=1 installing=1 dirty=0x0 count=55 baseline=Reset resetSerial=167 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:58.616  [command-state] NR bypass: reason=null-guard-graphics-state-used token=36 registered=1 installing=0 dirty=0x0 count=56 baseline=Reset resetSerial=66 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:59.637  [stats] all NGX evaluations=20641, upscaling-carrier evaluations=4200 feature=1(SuperSampling)
+11:18:59.637  [stats] session totals: Feature18-success=4136 transfer-prepared=4128 transfer-recorded=4128 transfer-bound=4128 transfer-submitted=4128 lifecycle-bypass=0; queue-affinity admitted=409 unknown-bypass=6 predicted-change-bypass=0 actual-mismatch=0.
+11:18:59.637  [stats] current contract: generation=1 mode=2 carrier-requests=4200 Feature18-success=4136 transfer-prepared=4128 transfer-recorded=4128 transfer-bound=4128 transfer-submitted=4128.
+11:19:00.111  [command-state] NR bypass: reason=null-guard-graphics-state-used token=31 registered=1 installing=0 dirty=0x0 count=58 baseline=Reset resetSerial=368 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:19:00.317  [command-state] NR bypass: reason=null-guard-graphics-state-used token=31 registered=1 installing=0 dirty=0x0 count=59 baseline=Reset resetSerial=369 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:19:00.339  [command-state] NR bypass: reason=native-hooks-unavailable token=28 registered=1 installing=1 dirty=0x0 count=60 baseline=Reset resetSerial=622 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:16:33.545  [command-state] NR bypass: reason=native-hooks-unavailable token=23 registered=1 installing=1 dirty=0x0 count=5 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:33.545  [state] bypass transition #3: queue-affinity-unverified -> command-state-unverified.
+11:16:33.552  [command-state] NR bypass: reason=native-hooks-unavailable token=10 registered=1 installing=1 dirty=0x0 count=6 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:34.010  [state] bypass transition #4: command-state-unverified -> queue-affinity-unverified.
+11:16:34.010  [command-state] restored native state: token=14 pso=[address] raytracing=[address] computeRoot=[address] graphicsRoot=[address] resourceHeap=[address] samplerHeap=[address].
+11:16:34.019  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1707x960 work=1707x960 scale=1.000000,1.000000 value=0.312500,0.203704.
+11:16:34.019  NR guide binding: mode=2 depth=1707x960@0,0 mv=1707x960@0,0 sourceMV=1707x960 converted=0 scale=1707.000000,960.000000 flags=104 depthInverted=1 historyReset=1.
+11:16:34.020  NR create contract: mode=2 extent=1707x960 depth=1707x960 mv=1707x960 gameFlags=106 normalizedFlags=104 perfQuality=5.
+11:16:34.020  Feature 18 create-time tuning: mode=2 extent=1707x960 intensity=1.020 style=2 autoMask=0 skin=-1.000 localTone=2.000 localStructure=1.310 uiCorrection=0 proxyMapping=existing.
+11:16:34.212  [nr-instance] created=1 mode=2 featureGeneration=1 config=2 intensity=1.020 style=2 proxyMapping=existing.
+11:16:34.215  NR-before-SR V2 evaluate succeeded: count=1 work=1707x960 render=1707x960 mode=Reference scale=1.000 identity=0 strength=1.390
+11:16:34.215  [command-state] restored native state: token=15 pso=[address] raytracing=[address] computeRoot=[address] graphicsRoot=[address] resourceHeap=[address] samplerHeap=[address].
+11:16:34.274  D3D12 ExecuteCommandLists post-submit lifetime hook active: target=[address] slot=0.
+11:16:34.289  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1707x960 work=1707x960 scale=1.000000,1.000000 value=-0.312500,-0.351852.
+11:16:34.290  NR-before-SR V2 evaluate succeeded: count=2 work=1707x960 render=1707x960 mode=Reference scale=1.000 identity=0 strength=1.390
+11:16:34.303  [command-state] NR bypass: reason=native-hooks-unavailable token=24 registered=1 installing=1 dirty=0x0 count=8 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:34.303  [state] bypass transition #5: queue-affinity-unverified -> command-state-unverified.
+11:16:34.306  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1707x960 work=1707x960 scale=1.000000,1.000000 value=-0.062500,0.314815.
+11:16:34.307  NR-before-SR V2 evaluate succeeded: count=3 work=1707x960 render=1707x960 mode=Reference scale=1.000 identity=0 strength=1.390
+11:16:34.307  [state] bypass transition #6: command-state-unverified -> none/active.
+11:16:34.314  [command-state] NR bypass: reason=native-hooks-unavailable token=17 registered=1 installing=1 dirty=0x0 count=9 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:16:34.314  [state] bypass transition #7: none/active -> command-state-unverified.
+11:16:34.336  [state] bypass transition #8: command-state-unverified -> none/active.
+=== TAIL ===
+11:18:34.104      DLSS.Render.Subrect.Dimensions.Height      = 960
+11:18:34.104      MV.Scale.X                                 = 1707
+11:18:34.104      MV.Scale.Y                                 = 960
+11:18:34.104      Jitter.Offset.X                            = -0.1875
+11:18:34.104      Jitter.Offset.Y                            = -0.12962961
+11:18:34.104      DLSS.Pre.Exposure                          = 1
+11:18:34.104      DLSS.Exposure.Scale                        = 1
+11:18:34.104      Reset                                      = 0
+11:18:34.105  [stats] all NGX evaluations=14675, upscaling-carrier evaluations=3000 feature=1(SuperSampling)
+11:18:34.105  [stats] session totals: Feature18-success=2949 transfer-prepared=2941 transfer-recorded=2941 transfer-bound=2941 transfer-submitted=2941 lifecycle-bypass=0; queue-affinity admitted=291 unknown-bypass=6 predicted-change-bypass=0 actual-mismatch=0.
+11:18:34.105  [stats] current contract: generation=1 mode=2 carrier-requests=3000 Feature18-success=2949 transfer-prepared=2941 transfer-recorded=2941 transfer-bound=2941 transfer-submitted=2941.
+11:18:34.103  [perf] reset stage=C-NR-transfer epoch=598 transfer=1.390; warming 180 frames
+11:18:34.635  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=599 feature18Evals=2974
+11:18:34.636  [perf] reset stage=C-NR-transfer epoch=599 transfer=1.390; warming 180 frames
+11:18:35.140  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=600 feature18Evals=2997
+11:18:35.141  [perf] reset stage=C-NR-transfer epoch=600 transfer=1.390; warming 180 frames
+11:18:35.175  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1707x960 work=1707x960 scale=1.000000,1.000000 value=0.062500,-0.462963.
+11:18:35.175  NR-before-SR V2 evaluate succeeded: count=3000 work=1707x960 render=1707x960 mode=Reference scale=1.000 identity=0 strength=1.390
+11:18:36.765  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=601 feature18Evals=3073
+11:18:36.767  [perf] reset stage=C-NR-transfer epoch=601 transfer=1.390; warming 180 frames
+11:18:37.797  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=602 feature18Evals=3121
+11:18:37.798  [perf] reset stage=C-NR-transfer epoch=602 transfer=1.390; warming 180 frames
+11:18:39.291  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=603 feature18Evals=3191
+11:18:39.292  [perf] reset stage=C-NR-transfer epoch=603 transfer=1.390; warming 180 frames
+11:18:40.153  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=604 feature18Evals=3231
+11:18:40.154  [perf] reset stage=C-NR-transfer epoch=604 transfer=1.390; warming 180 frames
+11:18:40.767  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=605 feature18Evals=3259
+11:18:40.768  [perf] reset stage=C-NR-transfer epoch=605 transfer=1.390; warming 180 frames
+11:18:42.893  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.390 colorFollowRequested=0.000 intensity=1.020 style=2 autoMask=0 skin=0.000 localTone=2.000 localStructure=1.310 uiCorrection=0 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=606 feature18Evals=3359
+11:18:42.894  [perf] reset stage=C-NR-transfer epoch=606 transfer=1.390; warming 180 frames
+11:18:46.976  --- SuperSampling Evaluate #3600 handle=[address] generation=1 create=1707x960 -> 2560x1440 ---
+11:18:46.976      Color                                      = [address] physical=1707x960 format=28(R8G8B8A8_UNORM) mips=1 flags=0x1 sample=1
+11:18:46.977      MotionVectors                              = [address] physical=1707x960 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+11:18:46.977      Depth                                      = [address] physical=1707x960 format=41(R32_FLOAT) mips=1 flags=0x5 sample=1
+11:18:46.977      Output                                     = [address] physical=2560x1440 format=28(R8G8B8A8_UNORM) mips=1 flags=0x5 sample=1
+11:18:46.977      DLSS.Input.Color.Subrect.Base.X            = 0
+11:18:46.977      DLSS.Input.Color.Subrect.Base.Y            = 0
+11:18:46.977      DLSS.Input.Depth.Subrect.Base.X            = 0
+11:18:46.977      DLSS.Input.Depth.Subrect.Base.Y            = 0
+11:18:46.977      DLSS.Input.MV.Subrect.Base.X               = 0
+11:18:46.977      DLSS.Input.MV.Subrect.Base.Y               = 0
+11:18:46.977      DLSS.Output.Subrect.Base.X                 = 0
+11:18:46.977      DLSS.Output.Subrect.Base.Y                 = 0
+11:18:46.978      DLSS.Render.Subrect.Dimensions.Width       = 1707
+11:18:46.978      DLSS.Render.Subrect.Dimensions.Height      = 960
+11:18:46.978      MV.Scale.X                                 = 1707
+11:18:46.978      MV.Scale.Y                                 = 960
+11:18:46.978      Jitter.Offset.X                            = 0.4375
+11:18:46.978      Jitter.Offset.Y                            = -0.24074075
+11:18:46.978      DLSS.Pre.Exposure                          = 1
+11:18:46.978      DLSS.Exposure.Scale                        = 1
+11:18:46.978      Reset                                      = 0
+11:18:46.978  [stats] all NGX evaluations=17678, upscaling-carrier evaluations=3600 feature=1(SuperSampling)
+11:18:46.978  [stats] session totals: Feature18-success=3549 transfer-prepared=3541 transfer-recorded=3541 transfer-bound=3541 transfer-submitted=3541 lifecycle-bypass=0; queue-affinity admitted=373 unknown-bypass=6 predicted-change-bypass=0 actual-mismatch=0.
+11:18:46.978  [stats] current contract: generation=1 mode=2 carrier-requests=3600 Feature18-success=3549 transfer-prepared=3541 transfer-recorded=3541 transfer-bound=3541 transfer-submitted=3541.
+11:18:48.033  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1707x960 work=1707x960 scale=1.000000,1.000000 value=-0.062500,0.314815.
+11:18:48.033  NR-before-SR V2 evaluate succeeded: count=3600 work=1707x960 render=1707x960 mode=Reference scale=1.000 identity=0 strength=1.390
+11:18:48.785  [perf] stage=C-NR-transfer epoch=606 transfer=1.390 samples=600 avgFPS=233.583 avgMs=4.2811 p95Ms=20.9201 p99Ms=23.9859 onePercentLowFPS=39.463
+11:18:53.839  [perf] stage=C-NR-transfer epoch=606 transfer=1.390 samples=600 avgFPS=238.479 avgMs=4.1932 p95Ms=20.3767 p99Ms=22.1842 onePercentLowFPS=41.664
+11:18:54.533  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.533  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.533  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.533  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.533  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.535  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.535  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.535  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.535  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.535  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.535  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.535  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.535  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.535  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.536  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.536  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.536  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.536  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.536  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.536  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.536  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+11:18:54.594  [command-state] NR bypass: reason=native-hooks-unavailable token=29 registered=1 installing=1 dirty=0x0 count=45 baseline=Reset resetSerial=247 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+11:18:54.933  [command-state] NR bypass: reason=native-hooks-unavailable token=43 registered=1 installing=1 dirty=0x0 count=47 baseline=Reset resetSerial=78 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:56.815  [command-state] NR bypass: reason=null-guard-graphics-state-used token=29 registered=1 installing=0 dirty=0x0 count=49 baseline=Reset resetSerial=257 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:56.839  [command-state] NR bypass: reason=native-hooks-unavailable token=32 registered=1 installing=1 dirty=0x0 count=50 baseline=Reset resetSerial=491 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:56.883  [command-state] NR bypass: reason=null-guard-graphics-state-used token=32 registered=1 installing=0 dirty=0x0 count=52 baseline=Reset resetSerial=492 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:56.904  [command-state] NR bypass: reason=native-hooks-unavailable token=36 registered=1 installing=1 dirty=0x0 count=53 baseline=Reset resetSerial=65 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:57.978  [command-state] NR bypass: reason=null-guard-graphics-state-used token=29 registered=1 installing=0 dirty=0x0 count=54 baseline=Reset resetSerial=263 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:58.005  [command-state] NR bypass: reason=native-hooks-unavailable token=30 registered=1 installing=1 dirty=0x0 count=55 baseline=Reset resetSerial=167 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:58.616  [command-state] NR bypass: reason=null-guard-graphics-state-used token=36 registered=1 installing=0 dirty=0x0 count=56 baseline=Reset resetSerial=66 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:18:59.074  [perf] stage=C-NR-transfer epoch=606 transfer=1.390 samples=600 avgFPS=227.265 avgMs=4.4001 p95Ms=20.3629 p99Ms=22.5782 onePercentLowFPS=40.463
+11:18:59.635  --- SuperSampling Evaluate #4200 handle=[address] generation=1 create=1707x960 -> 2560x1440 ---
+11:18:59.635      Color                                      = [address] physical=1707x960 format=28(R8G8B8A8_UNORM) mips=1 flags=0x1 sample=1
+11:18:59.635      MotionVectors                              = [address] physical=1707x960 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+11:18:59.635      Depth                                      = [address] physical=1707x960 format=41(R32_FLOAT) mips=1 flags=0x5 sample=1
+11:18:59.635      Output                                     = [address] physical=2560x1440 format=28(R8G8B8A8_UNORM) mips=1 flags=0x5 sample=1
+11:18:59.635      DLSS.Input.Color.Subrect.Base.X            = 0
+11:18:59.636      DLSS.Input.Color.Subrect.Base.Y            = 0
+11:18:59.636      DLSS.Input.Depth.Subrect.Base.X            = 0
+11:18:59.636      DLSS.Input.Depth.Subrect.Base.Y            = 0
+11:18:59.636      DLSS.Input.MV.Subrect.Base.X               = 0
+11:18:59.636      DLSS.Input.MV.Subrect.Base.Y               = 0
+11:18:59.636      DLSS.Output.Subrect.Base.X                 = 0
+11:18:59.636      DLSS.Output.Subrect.Base.Y                 = 0
+11:18:59.636      DLSS.Render.Subrect.Dimensions.Width       = 1707
+11:18:59.636      DLSS.Render.Subrect.Dimensions.Height      = 960
+11:18:59.636      MV.Scale.X                                 = 1707
+11:18:59.637      MV.Scale.Y                                 = 960
+11:18:59.637      Jitter.Offset.X                            = 0.25
+11:18:59.637      Jitter.Offset.Y                            = -0.3888889
+11:18:59.637      DLSS.Pre.Exposure                          = 1
+11:18:59.637      DLSS.Exposure.Scale                        = 1
+11:18:59.637      Reset                                      = 0
+11:18:59.637  [stats] all NGX evaluations=20641, upscaling-carrier evaluations=4200 feature=1(SuperSampling)
+11:18:59.637  [stats] session totals: Feature18-success=4136 transfer-prepared=4128 transfer-recorded=4128 transfer-bound=4128 transfer-submitted=4128 lifecycle-bypass=0; queue-affinity admitted=409 unknown-bypass=6 predicted-change-bypass=0 actual-mismatch=0.
+11:18:59.637  [stats] current contract: generation=1 mode=2 carrier-requests=4200 Feature18-success=4136 transfer-prepared=4128 transfer-recorded=4128 transfer-bound=4128 transfer-submitted=4128.
+11:19:00.111  [command-state] NR bypass: reason=null-guard-graphics-state-used token=31 registered=1 installing=0 dirty=0x0 count=58 baseline=Reset resetSerial=368 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:19:00.317  [command-state] NR bypass: reason=null-guard-graphics-state-used token=31 registered=1 installing=0 dirty=0x0 count=59 baseline=Reset resetSerial=369 pipelineWrites=0 nullBaseline=1 guard=1/1/1 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:19:00.339  [command-state] NR bypass: reason=native-hooks-unavailable token=28 registered=1 installing=1 dirty=0x0 count=60 baseline=Reset resetSerial=622 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x846 vb=0x0 so=0x0; unknown state remains native.
+11:19:01.037  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1707x960 work=1707x960 scale=1.000000,1.000000 value=0.000000,-0.166667.
+11:19:01.038  NR-before-SR V2 evaluate succeeded: count=4200 work=1707x960 render=1707x960 mode=Reference scale=1.000 identity=0 strength=1.390

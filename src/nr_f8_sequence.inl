@@ -409,6 +409,29 @@ void F8Tooltip(const char *text) {
         ImGui::TextUnformatted(text);ImGui::PopTextWrapPos();ImGui::EndTooltip();
     }
 }
+
+void DrawCoreTextStatus(bool chinese) {
+    if (g_feedback_status.load(std::memory_order_acquire) < 3) return;
+    struct View { wchar_t path[1024]{}; char utf8[4096]{}; std::shared_ptr<const std::string> text; DWORD error=0; bool complete=false; };
+    auto view = std::unique_ptr<View>(new (std::nothrow) View);
+    if (!view) return;
+    AcquireSRWLockShared(&g_feedback_lock);
+    view->text=nr_core_feedback::g_full_report; view->error=nr_core_feedback::g_report_error;
+    view->complete=nr_core_feedback::g_report_complete;
+    nr_bundle::CopyPath(view->path,nr_core_feedback::g_report_path);
+    ReleaseSRWLockShared(&g_feedback_lock);
+    if (view->text) {
+        ImGui::TextWrapped("%s", chinese ? "独立 TXT 已保存，可复制全文粘贴到群反馈文档；ZIP 请保留。" : "Standalone TXT saved. Copy its full text into your feedback document; retain the ZIP.");
+        if (!view->complete) ImGui::TextWrapped("%s", chinese ? "TXT 部分内容不可用，文内已注明；与 ZIP 状态分别判断。" : "TXT is partial; missing sections are explicit and independent of ZIP status.");
+        if (ImGui::Button(chinese ? "复制完整报告（群文档）" : "Copy full TXT report")) ImGui::SetClipboardText(view->text->c_str());
+        WideToUtf8(view->path,view->utf8,sizeof(view->utf8));
+        ImGui::TextWrapped("%s",view->utf8);
+        if (ImGui::Button(chinese ? "复制 TXT 路径" : "Copy TXT path")) ImGui::SetClipboardText(view->utf8);
+    } else if (view->error) {
+        ImGui::TextWrapped(chinese ? "TXT 保存失败（Win32 %lu）；ZIP 是否成功请看上方。" : "TXT failed (Win32 %lu); ZIP status is shown separately above.",view->error);
+    }
+}
+
 void DrawCoreStatus() {
     const bool zh=UseChineseUi();
     char path[4096]={},reason[160]={};
@@ -433,6 +456,7 @@ void DrawCoreStatus() {
             ImGui::SetClipboardText(submission);
 
     }
+    DrawCoreTextStatus(UseChineseUi());
 }
 void DrawControls() {
     const auto state=g_status.load();
@@ -444,7 +468,7 @@ void DrawControls() {
     const bool busy=IsActive() || state==Status::Packaging || nr_core_feedback::Busy();
     ImGui::BeginDisabled(busy);
     if(ImGui::Button(use_chinese_ui?"采集核心反馈包（F8，推荐）":"Collect core feedback (F8, recommended)"))RequestCore();
-    F8Tooltip(use_chinese_ui?"用于不生效、旁路和兼容性。只保存有界日志与状态，不采图片、不改设置，ZIP 上限 8 MiB。":"For bypass and compatibility issues. Bounded logs and state only; no images or setting changes. ZIP ceiling: 8 MiB.");
+    F8Tooltip(use_chinese_ui?"用于不生效、旁路和兼容性。同时保存 ZIP 和独立 TXT，可复制全文填表；只收有界日志与状态，不采图片、不改设置。ZIP 上限 8 MiB，TXT 上限 2 MiB。":"For bypass and compatibility issues. Saves ZIP plus standalone TXT with a copy-full-text button. Bounded logs/state only; no images or setting changes. ZIP ceiling: 8 MiB; TXT: 2 MiB.");
     ImGui::EndDisabled();
     if(!busy) {
         static int comparison=1,x=0,y=0,key=VK_F8;static bool custom=false;

@@ -74,3 +74,7 @@ beta050 workflow 继承 r3 的主机回归、所有 shader 编译、资源/命�
 ## 回退
 
 画质页关闭“高强度保护”，或在 `[NRBeforeSR]` 设置 `HighStrengthProtection=0`，恢复本基线原有 Mode2 增强算法。关闭插件/强度设为0仍是原生SR旁路。降级0.4时保留原配置备份；0.4不会识别新键，但不要覆盖其兼容性或安全设置。
+
+## dev3稳定化
+
+见[BETA_0_5_DEV3_STABILITY.md](BETA_0_5_DEV3_STABILITY.md)。0.4.5候选以保留父提交的方式前向同步；0.5分层推荐重置与反馈快照单独补齐，未合并canonical分支。

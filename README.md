@@ -1,4 +1,4 @@
-# beta0.5-dev2 experimental layered composition
+# beta0.5-dev3 experimental layered composition
 
 单次 NR 分层强化与最终强度 0–4；并非 PR26 的多次模型推理。默认分层关闭，游戏与性能仍待验证。
 

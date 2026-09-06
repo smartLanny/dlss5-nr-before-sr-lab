@@ -1,0 +1,94 @@
+format=DLSS5-LogSummary-v1
+source.bytes=19983
+scan.bytes=19983
+scan.complete=1
+lines.scanned=154
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+07:40:10:212 [ 8184] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from '[local-path]
+07:40:10:213 [ 8184] | INFO  | Registering hooks for 'user32.dll' ...
+07:40:10:213 [ 8184] | INFO  | > Libraries loaded.
+07:40:10:213 [ 8184] | INFO  | > Found 21 match(es). Installing ...
+07:40:10:242 [ 8184] | INFO  | Registering hooks for '[local-path]
+07:40:10:243 [ 8184] | INFO  | > Delayed.
+07:40:10:243 [ 8184] | INFO  | Registering hooks for '[local-path]
+07:40:10:243 [ 8184] | INFO  | > Delayed.
+07:40:10:243 [ 8184] | INFO  | Registering hooks for '[local-path]
+07:40:10:243 [ 8184] | INFO  | > Delayed.
+07:40:10:244 [ 8184] | INFO  | Registering hooks for '[local-path]
+07:40:10:244 [ 8184] | INFO  | > Delayed.
+07:40:10:244 [ 8184] | INFO  | Registering hooks for '[local-path]
+07:40:10:244 [ 8184] | INFO  | > Delayed.
+07:40:10:244 [ 8184] | INFO  | Registering hooks for '[local-path]
+07:40:10:245 [ 8184] | INFO  | > Delayed.
+07:40:10:245 [ 8184] | INFO  | Registering hooks for '[local-path]
+07:40:10:245 [ 8184] | INFO  | > Delayed.
+07:40:10:245 [ 8184] | INFO  | Registering hooks for '[local-path]
+07:40:10:245 [ 8184] | INFO  | > Delayed.
+07:40:10:245 [ 8184] | INFO  | Registering hooks for '[local-path]
+07:40:10:245 [ 8184] | INFO  | > Delayed until first call to an exported function.
+07:40:10:245 [ 8184] | INFO  | Registering hooks for 'openvr_api.dll' ...
+07:40:10:245 [ 8184] | INFO  | > Delayed.
+07:40:10:245 [ 8184] | INFO  | Initialized.
+07:40:10:414 [ 8184] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+07:40:10:414 [ 8184] | INFO  | Installing export hooks for '[local-path]
+07:40:10:425 [ 8184] | INFO  | > Found 5 match(es). Installing ...
+07:40:10:428 [ 8184] | INFO  | Installing delayed hooks for '[local-path]
+07:40:10:428 [ 8184] | INFO  | > Found 8 match(es). Installing ...
+07:40:10:457 [ 8184] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+=== FILTERED MIDDLE ===
+07:40:10:457 [ 8184] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+07:40:10:457 [ 8184] | INFO  | Loading add-on from '[local-path]
+07:40:11:472 [ 8184] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799" ...
+07:40:11:549 [ 8184] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799" ...
+07:40:11:549 [ 8184] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+07:40:10:212 [ 8184] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from '[local-path]
+07:40:10:213 [ 8184] | INFO  | > Libraries loaded.
+07:40:10:457 [ 8184] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+07:40:10:457 [ 8184] | INFO  | Loading add-on from '[local-path]
+07:40:11:472 [ 8184] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799" ...
+07:40:11:549 [ 8184] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.4-test1 (Chinese UI) | Bilibili UID 941799" ...
+07:40:11:549 [ 8184] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+=== TAIL ===
+07:40:14:533 [ 8184] | INFO  |   | Flags                                   | 0x842                                   |
+07:40:14:533 [ 8184] | INFO  |   +-----------------------------------------+-----------------------------------------+
+07:40:14:540 [ 8184] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:40:14:541 [ 8184] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:40:14:541 [ 8184] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:40:14:542 [ 8184] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:40:14:542 [ 8184] | INFO  | Running on NVIDIA GeForce RTX 5080 Driver 616.56.
+07:40:14:772 [ 8184] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+07:40:14:772 [ 8184] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+07:40:14:772 [ 8184] | INFO  | > Dumping command queue description:
+07:40:14:772 [ 8184] | INFO  |   +-----------------------------------------+-----------------------------------------+
+07:40:14:772 [ 8184] | INFO  |   | Parameter                               | Value                                   |
+07:40:14:772 [ 8184] | INFO  |   +-----------------------------------------+-----------------------------------------+
+07:40:14:772 [ 8184] | INFO  |   | Type                                    | 2                                       |
+07:40:14:772 [ 8184] | INFO  |   | Priority                                | 100                                     |
+07:40:14:772 [ 8184] | INFO  |   | Flags                                   | 0                                       |
+07:40:14:773 [ 8184] | INFO  |   | NodeMask                                | 0                                       |
+07:40:14:773 [ 8184] | INFO  |   +-----------------------------------------+-----------------------------------------+
+07:40:14:794 [ 8184] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 6, Width = 3840, Height = 2160, NewFormat = 24, SwapChainFlags = 0x842) ...
+07:40:14:795 [ 8184] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+07:40:14:803 [ 8184] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+07:40:14:893 [ 7924] | INFO  | Successfully compiled '[local-path]
+07:40:14:894 [ 4000] | INFO  | Successfully compiled '[local-path]
+07:40:14:894 [ 8776] | INFO  | Successfully compiled '[local-path]
+07:40:14:895 [22140] | INFO  | Successfully compiled '[local-path]
+07:40:14:896 [26984] | INFO  | Successfully compiled '[local-path]
+07:40:14:896 [27528] | INFO  | Successfully compiled '[local-path]
+07:40:14:897 [ 7152] | INFO  | Successfully compiled '[local-path]
+07:40:14:899 [27336] | INFO  | Successfully compiled '[local-path]
+07:40:14:902 [ 3120] | INFO  | Successfully compiled '[local-path]
+07:40:14:904 [15260] | INFO  | Successfully compiled '[local-path]
+07:40:14:915 [26468] | INFO  | Successfully compiled '[local-path]
+07:40:15:644 [ 8184] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {50C83A1C-E072-4C48-87B0-[address]}, ppFactory = [address]) ...
+07:40:17:607 [11996] | INFO  | Successfully compiled '[local-path]
+07:40:26:878 [ 2524] | INFO  | Installing delayed hooks for '[local-path]
+07:40:26:879 [ 2524] | INFO  | > Found 3 match(es). Installing ...
+07:40:26:908 [ 2524] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:41:19:167 [10560] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:41:19:167 [10560] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+07:41:19:168 [10560] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...

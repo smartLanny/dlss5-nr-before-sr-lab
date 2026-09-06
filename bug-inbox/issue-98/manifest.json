@@ -1,0 +1,55 @@
+{
+  "format": "DLSS5-DiagnosticBundle-v1",
+  "complete": true,
+  "required_complete": true,
+  "input_rejections": 0,
+  "metadata_entry": "capture-info.txt",
+  "metadata_text": "format=DLSS5-Core-v1\ncapture.kind=core\nsession=\nbuild=beta0.4.4-test1\nlanguage=zh-CN\nexe.leaf=yysls.exe\ngpu=NVIDIA GeForce RTX 5080 Laptop GPU\ndriver.raw=61664\ndriver.known=1\nvendor=4318\napi=49152\ndisplay.extent=2560x1440\ndisplay.storageFormat=28\ndisplay.colorSpace=1\nsnapshot.valid=1\nrequested.config=19\nrequested.enabled=1\nrequested.mode=2\nrequested.blend=1.38999999\nrequested.color=0\nrequested.workMode=0\nrequested.workScale=1\nrequested.lightingLock=0.310000002\nrequested.detailStability=0.310000002\nrequested.edgeGuard=0.319999993\nrequested.intensity=1.01999998\nrequested.localTone=2\nrequested.localStructure=1.30999994\nrequested.skin=0\nrequested.faceMask=0\nrequested.uiCorrection=0\nrequested.jitterMode=1\nrequested.style=2\napplied.instance=1\napplied.frame=4253\napplied.config=19\napplied.intensity=1.01999998\napplied.skin=-1\ncapture.automaticSettingChanges=none\nconfig.writesToIni=0\nimages.requested=0\ngpu.readbackRequested=0\nfg.status=unavailable; this collector does not intercept FG\napplied.contract=historical successful NR; compare config generation and start/end counters\ncore.zipLimitBytes=8388608\ntimeline.columns=tag,elapsedMs,SRcarrier,featureGeneration,reset,jitterX,jitterY,mvScaleX,mvScaleY,preExposure,exposureScale,previousBypass\nstart.commandState.available=1\nstart.commandState.schema=1\nstart.commandState.ageMs=0\nstart.commandState.sequence=4319\nstart.commandState.token=32\nstart.commandState.reason=none\nstart.commandState.route=typed-pso\nstart.commandState.registered=1\nstart.commandState.hooksReady=1\nstart.commandState.guardRequested=1\nstart.commandState.guardCovered=1\nstart.commandState.freshReset=1\nstart.commandState.tainted=0\nstart.commandState.baseline=Reset\nstart.commandState.resetSerial=517\nstart.commandState.pipelineWrites=6\nstart.commandState.nullBaseline=0\nstart.commandState.hasPso=1\nstart.commandState.hasDxrPso=0\nstart.commandState.dirty=0x0\nstart.commandState.dynamic=0x857\nstart.commandState.vertexMask=0x1\nstart.commandState.streamMask=0x0\nstart.commandState.metaKnown=1\nstart.commandState.metaInit=0x1020\nstart.commandState.metaExecute=0x1020\nstart.commandState.rootHeapPresence=1,1,1,1\nstart.commandState.rootArgumentCounts=0,5\nstart.ngxHookFailure.available=0\nstart.nrSuccess=4253\nstart.transferSubmitted=4245\nstart.bypass=none/active\nstart.srCarrierEvaluations=4319\nstart.lastCarrierFeature=1\nstart.rrLiveHandles=0\nstart.rrCreatesInProgress=0\nstart.rrEvaluations=0\nstart.otherNrOwner=0\nstart.genericRenoDxConflict=0\nstart.moduleObserverFault=none\nstart.feature1Preflight=0/0\nstart.preflightCoreLoaded=0\nstart.preflightDlssdLoaded=0\nstart.commandSignatureHook=1\nstart.commandSignatureDeferredStart=0\nstart.commandSignatureObserved=44\nstart.commandSignatureUnknownUses=0\nend.commandState.available=0\nend.ngxHookFailure.available=0\nend.nrSuccess=4289\nend.transferSubmitted=4281\nend.bypass=none/active\nend.srCarrierEvaluations=4355\nend.lastCarrierFeature=1\nend.rrLiveHandles=0\nend.rrCreatesInProgress=0\nend.rrEvaluations=0\nend.otherNrOwner=0\nend.genericRenoDxConflict=0\nend.moduleObserverFault=none\nend.feature1Preflight=0/0\nend.preflightCoreLoaded=0\nend.preflightDlssdLoaded=0\nend.commandSignatureHook=1\nend.commandSignatureDeferredStart=0\nend.commandSignatureObserved=44\nend.commandSignatureUnknownUses=0\ncollection.elapsedMs=766\ncollection.parameterSamples=0\ncollection.cancelled=0\nartifact.sourceCommit=1a8490a2c76d93b0c5e4cc50b8d4f178df55eb83\nartifact.sourceDirty=0\nartifact.addonSha256=38386426f02f879b9f50219b1af9b868f97efd810bd93acb6fb69f75fb64c600\nartifact.identityStatus=verified\nmodule.0=dxgi.dll\nmodule.1=d3d12.dll\nmodule.2=dxgi.dll\nmodule.3=sl.dlss.dll\nmodule.4=_nvngx.dll\nmodule.5=nvngx_deepdvc.dll\nmodule.6=sl.dlss_d.dll\nmodule.7=sl.dlss_g.dll\nmodule.8=DLSS5-AI???????????????-beta0.4.4-test1-@??????????????????-Bilibili.addon64\nmodule.9=D3DCOMPILER_47.dll\nmodule.10=nvwgf2umx.dll\nmodule.11=nvngx_dlss.dll\nmodule.12=nrchain_nvngx.dll\nmodule.13=nvngx_dlssnr.dll\nmodules.contract=names only; no module bytes or process addresses collected\ncolor.status=recent-recorded-combine\ncolor.requested=0\ncolor.effective=0\ncolor.reason=bounded-model-value-domain\ncolor.contract=last recorded blend; not a measured picture strength\ncollection.metadataTruncated=0\n",
+  "collection": "explicit allowlist only; no directory recursion, uploads or process dumps",
+  "live_log_contract": "initial-length bounded byte snapshot; concurrent writes may be non-atomic; SHA256 covers copied bytes only",
+  "module_hash_contract": "hash of opened loaded-module path file; not a memory-image hash; DLL bytes are not included",
+  "entries": [
+    {
+      "name": "logs/nr-current-summary.txt",
+      "kind": "copy",
+      "status": "included",
+      "required": true,
+      "reason": "",
+      "win32_error": 0,
+      "source_size": 138304,
+      "source_offset": 0,
+      "bytes": 138304,
+      "source_changed_during_read": false,
+      "sha256": "030b6ac103a81d2a1e1ffec84afcc3d779017a97cd9e1c006aad961058bcba66",
+      "crc32": 1478842299
+    },
+    {
+      "name": "logs/nr-previous-summary.txt",
+      "kind": "copy",
+      "status": "included",
+      "required": false,
+      "reason": "",
+      "win32_error": 0,
+      "source_size": 164864,
+      "source_offset": 0,
+      "bytes": 164864,
+      "source_changed_during_read": false,
+      "sha256": "a759487b886324d0c55c35fcc64525c20ee8d4f282ee812dab18f05649158880",
+      "crc32": 4071619746
+    },
+    {
+      "name": "logs/reshade-addon-summary.txt",
+      "kind": "copy",
+      "status": "included",
+      "required": false,
+      "reason": "",
+      "win32_error": 0,
+      "source_size": 72895,
+      "source_offset": 0,
+      "bytes": 72895,
+      "source_changed_during_read": false,
+      "sha256": "5b5ce0fb225401a11908dca74ff9b61a0eef30d2ca100ad3f487c5af7f78169b",
+      "crc32": 92657300
+    }
+  ]
+}

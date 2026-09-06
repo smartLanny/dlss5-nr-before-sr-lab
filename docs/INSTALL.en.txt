@@ -1,6 +1,6 @@
-beta0.5-dev2 experimental candidate, not a Release. Back up the old version. See docs/BETA_0_5_DEVELOPMENT.md and the PR for validation limits.
+beta0.5-dev3 experimental candidate, not a Release. Back up the old version. See docs/BETA_0_5_DEVELOPMENT.md and the PR for validation limits.
 
-DLSS 5 AI Rendering Perfect Chain beta0.5-dev2 Community Beta
+DLSS 5 AI Rendering Perfect Chain beta0.5-dev3 Community Beta
 Author: @野生的装机宅 Bilibili
 Official releases: https://space.bilibili.com/941799
 
@@ -23,7 +23,7 @@ Collect-Crash-Feedback.cmd
 collect-crash-feedback.ps1
 Instructions.txt
 
-Keep these files together. Remove old, HD2 experiment, or other-language copies of this addon. If `renodx-dlss5.addon64` is present, move it outside the game directory too; it is another NR owner and cannot coexist with this addon. Fully restart the game and check for beta0.5-dev2 in the ReShade addon panel.
+Keep these files together. Remove old, HD2 experiment, or other-language copies of this addon. If `renodx-dlss5.addon64` is present, move it outside the game directory too; it is another NR owner and cannot coexist with this addon. Fully restart the game and check for beta0.5-dev3 in the ReShade addon panel.
 
 If you already have a working full installation, you can use the small update package and keep the existing large runtime DLL, bridge DLL and settings file. Follow the instructions in that update package. It cannot be used for a first installation.
 

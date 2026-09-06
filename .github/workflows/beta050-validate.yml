@@ -1,9 +1,9 @@
-name: Validate beta0.5-dev2
+name: Validate beta0.5-dev3
 
 on:
   workflow_dispatch:
   pull_request:
-    branches: [next/0.5, codex/050-high-strength-guard]
+    branches: [next/0.5, codex/050-high-strength-guard, feature/050-layered-composite]
   push:
     branches: [next/0.5]
 
@@ -23,6 +23,15 @@ jobs:
           persist-credentials: false
       - name: Extracted production bug regressions
         run: |
+          python3 scripts/validate-050-stability.py --compiler g++
+          python3 scripts/validate-050-stability.py --compiler g++ --negative-control
+          python3 scripts/validate-045-color.py --compiler g++
+          python3 scripts/validate-045-color.py --compiler g++ --negative-control
+          python3 scripts/validate-044-compat.py --compiler g++
+          python3 scripts/validate-retirement-return.py --compiler g++
+          python3 scripts/validate-recommended-picture.py --compiler g++
+          python3 scripts/validate-recommended-picture.py --compiler g++ --negative-control
+          python3 -m unittest discover -s tests -p test_evidence_checkout.py -v
           python3 scripts/validate-layered-composite.py --compiler g++
           python3 scripts/validate-strength-cap.py
           python3 scripts/validate-beta05-boost.py --compiler g++
@@ -84,6 +93,14 @@ jobs:
         shell: pwsh
         run: |
           $compiler = Join-Path $env:TOOLCHAIN_ROOT 'bin\x86_64-w64-mingw32-clang++.exe'
+          python scripts/validate-050-stability.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw '0.5 snapshot/reset regression failed.' }
+          python scripts/validate-044-compat.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw '0.4.5 forwarding/guard regression failed.' }
+          python scripts/validate-retirement-return.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw 'Retirement return regression failed.' }
+          python scripts/validate-recommended-picture.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw '0.5 recommendation regression failed.' }
           python scripts/validate-bug-sweep.py --compiler $compiler
           if ($LASTEXITCODE -ne 0) { throw 'Bug sweep regression harness failed.' }
           python scripts/validate-compat-sweep.py --compiler $compiler
@@ -124,6 +141,8 @@ jobs:
         run: |
           ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
           ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -NegativeControl
+          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -DynamicStateNegativeControl
+          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -BlendStateNegativeControl
       - name: Execute the D3D12 codec harness
         shell: pwsh
         run: |
@@ -162,6 +181,8 @@ jobs:
           Copy-Item build/nrchain_nvngx.dll dist/
           Copy-Item build/nr_before_sr.ini dist/
           Copy-Item docs/BETA_0_5_LAYERS.md dist/README-TESTING.md
+          Copy-Item docs/testing/CP2077_DEV3.zh-CN.md dist/2077-TESTING.zh-CN.md
+          Copy-Item docs/testing/CP2077_DEV3_RESULTS.txt dist/2077-RESULTS.txt
           Copy-Item docs/BETA_0_4_PERFECT_CHAIN.md dist/TECHNICAL-NOTES.md
           Copy-Item docs/COMMAND_STATE_CONTRACT.md dist/COMMAND-STATE-NOTES.md
           @(
@@ -170,7 +191,7 @@ jobs:
             "sourceBranch=$env:SOURCE_BRANCH"
             "sourceCommit=$env:SOURCE_COMMIT"
             "workflowRun=$env:GITHUB_RUN_ID"
-            "build=beta0.5-dev2"
+            "build=beta0.5-dev3"
             "channel=experimental-not-release"
           ) | Set-Content -Encoding utf8NoBOM dist/BUILD-PROVENANCE.txt
           Get-ChildItem dist -File | Where-Object Name -ne 'SHA256SUMS.txt' |
@@ -191,6 +212,6 @@ jobs:
           Get-Content -Encoding utf8 dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: beta050-dev2-experimental-candidate
+          name: beta050-dev3-experimental-candidate
           path: dist/
           if-no-files-found: error

@@ -2,6 +2,7 @@ name: Validate main and 0.4 maintenance
 
 on:
   workflow_dispatch:
+  workflow_call:
   pull_request:
     branches:
       - main
@@ -30,6 +31,12 @@ jobs:
           python3 scripts/validate-bug-sweep.py --compiler g++
           python3 scripts/validate-043r2.py --compiler g++
           python3 scripts/validate-compat-sweep.py --compiler g++
+          python3 scripts/validate-044-compat.py --compiler g++
+          python3 scripts/validate-retirement-return.py
+          python3 scripts/validate-strength-cap.py
+          python3 scripts/validate-recommended-picture.py
+          python3 scripts/validate-045-color.py
+          python3 scripts/validate-045-color.py --negative-control
           python3 -m unittest discover -s tests -p test_feedback_report.py -v
           g++ -std=c++20 -Wall -Wextra -Werror -Isrc tests/feedback_text_test.cpp -o /tmp/feedback-text
           /tmp/feedback-text
@@ -85,6 +92,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Bug sweep regression harness failed.' }
           python scripts/validate-compat-sweep.py --compiler $compiler
           if ($LASTEXITCODE -ne 0) { throw 'Compatibility policy/UI regression failed.' }
+          python scripts/validate-044-compat.py --compiler $compiler
+          if ($LASTEXITCODE -ne 0) { throw '044 forwarding/raster regression failed.' }
           python scripts/validate-core-feedback.py --compiler $compiler
           if ($LASTEXITCODE -ne 0) { throw 'Core feedback production harness failed.' }
           $env:DLSS5_LLVM_MINGW_ROOT = $env:TOOLCHAIN_ROOT
@@ -121,6 +130,8 @@ jobs:
         run: |
           ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
           ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -NegativeControl
+          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -DynamicStateNegativeControl
+          ./scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -BlendStateNegativeControl
       - name: Execute the D3D12 codec harness
         shell: pwsh
         run: ./scripts/validate-codec-gpu.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT
@@ -144,6 +155,24 @@ jobs:
       - name: Build English and Chinese add-ons
         shell: pwsh
         run: ./scripts/build.ps1 -Clean -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
+      - name: Verify PE identity and package OTA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $addons = @(Get-ChildItem build -Filter '*beta0.4.5*.addon64')
+          if ($addons.Count -ne 2) { throw 'Expected two 0.4.5 language addons' }
+          foreach ($addon in $addons) {
+            $v = $addon.VersionInfo
+            if ($v.FileMajorPart -ne 0 -or $v.FileMinorPart -ne 4 -or $v.FileBuildPart -ne 5 -or $v.FilePrivatePart -ne 0) { throw 'Wrong numeric PE version' }
+            if ($v.FileVersion -ne '0.4.5 beta' -or $v.ProductVersion -ne '0.4.5 beta') { throw 'Wrong textual PE version' }
+          }
+          python scripts/package-045.py
+          if ($LASTEXITCODE -ne 0) { throw 'OTA verification failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beta045-ota
+          path: ota/*.zip
+          if-no-files-found: error
       - name: Assemble and verify clean test package
         shell: pwsh
         run: |
@@ -152,15 +181,15 @@ jobs:
           Copy-Item build/*.addon64 dist/
           Copy-Item build/nrchain_nvngx.dll dist/
           Copy-Item build/nr_before_sr.ini dist/
-          Copy-Item docs/COMPAT_FG_UI_SWEEP.md dist/README-TESTING.md
+          Copy-Item docs/releases/beta0.4.5.md dist/README-TESTING.md
           Copy-Item docs/BETA_0_4_PERFECT_CHAIN.md dist/TECHNICAL-NOTES.md
           Copy-Item docs/COMMAND_STATE_CONTRACT.md dist/COMMAND-STATE-NOTES.md
           @(
             "branch=$env:GITHUB_REF_NAME"
             "commit=$env:GITHUB_SHA"
             "workflowRun=$env:GITHUB_RUN_ID"
-            "build=beta0.4.3r3"
-            "channel=mainline-maintenance-candidate"
+            "build=beta0.4.5"
+            "channel=d3d12-branch-test-only"
           ) | Set-Content -Encoding utf8NoBOM dist/BUILD-PROVENANCE.txt
           Get-ChildItem dist -File | Where-Object Name -ne 'SHA256SUMS.txt' |
             Get-FileHash -Algorithm SHA256 | ForEach-Object {
@@ -180,6 +209,6 @@ jobs:
           Get-Content -Encoding utf8 dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: beta043r3-mainline-maintenance-candidate
+          name: beta045-d3d12-candidate
           path: dist/
           if-no-files-found: error

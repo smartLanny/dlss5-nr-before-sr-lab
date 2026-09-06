@@ -1,0 +1,1108 @@
+format=DLSS5-LogSummary-v1
+source.bytes=136877
+scan.bytes=136877
+scan.complete=1
+lines.scanned=1103
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+07:40:22.390  DLSS 5 AI Rendering Perfect Chain beta0.4.4-test1 attached | author=@?????????????????? Bilibili | official_release=http[local-path] | language=zh-CN | file=DLSS5-AI???????????????-beta0.4.4-test1-@??????????????????-Bilibili.addon64 | build_id=beta0.4.4-test1 | sourceCommit=1a8490a2c76d93b0c5e4cc50b8d4f178df55eb83 sourceDirty=0
+07:40:22.398  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+07:40:22.399  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+07:40:22.399  Config: enabled=0 mode=2 identity=0 preTransfer=1.100 postTransfer=1.100 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=3 intensity=2.000 localTone=1.140 localStructure=2.000 skinStructure=-0.000 autoMask=1 style=2 uiCorrection=1 r8OutputEncoding=0 perfEpoch=267 jitterMode=1 feature18Evals=0
+07:40:22.400  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+07:40:23.854  Found SR NGX module: [local-path]
+07:40:23.854  [module] pinned hook owner name=nvngx_dlss.dll address=[address] module=[address] until process exit.
+07:40:23.854  [module] pinned hook owner name=D3D12_CreateFeature address=[address] module=[address] until process exit.
+07:40:23.854  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0 (MH_OK)
+07:40:23.854  [module] pinned hook owner name=D3D12_EvaluateFeature address=[address] module=[address] until process exit.
+07:40:23.854  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0 (MH_OK)
+07:40:23.854  [module] pinned hook owner name=D3D12_ReleaseFeature address=[address] module=[address] until process exit.
+07:40:23.854  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0 (MH_OK)
+07:40:23.880  MH_EnableHook all status=0
+07:40:23.880  [module] initial scan complete: sr=[address] core=[address] dlssd=[address].
+07:40:23.881  NGX observer/AI-upscaling hooks active.
+07:40:25.765  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:40:25.765  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:40:26.046  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:40:26.073  [command-state] device meta-command contract: known=1 initDirty=0x0 executeDirty=0x0 supportedMask=0x1038.
+07:40:26.748  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:40:26.756  [command-state] observed CreateCommandSignature: call=1 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[0] root=[address].
+07:40:26.756  [command-state] observed CreateCommandSignature: call=2 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=[address].
+07:40:26.756  [command-state] observed CreateCommandSignature: call=3 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=[address].
+07:40:26.756  [command-state] observed CreateCommandSignature: call=4 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[9] root=[address].
+07:40:30.584  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:40:30.612  [module] late module discovered name=_nvngx.dll handle=[address] path=[local-path]
+07:40:30.612  [module] pinned hook owner name=_nvngx.dll address=[address] module=[address] until process exit.
+07:40:30.612  [module] pinned hook owner name=late core ReleaseFeature address=[address] module=[address] until process exit.
+07:40:30.612  MH_CreateHook late core ReleaseFeature               target=[address] status=0 (MH_OK)
+07:40:30.612  [module] MH_QueueEnableHook late core ReleaseFeature   target=[address] status=0
+07:40:30.612  [module] pinned hook owner name=late core CreateFeature address=[address] module=[address] until process exit.
+07:40:30.612  MH_CreateHook late core CreateFeature                target=[address] status=0 (MH_OK)
+07:40:30.612  [module] MH_QueueEnableHook late core CreateFeature    target=[address] status=0
+07:40:30.612  [module] pinned hook owner name=late core EvaluateFeature address=[address] module=[address] until process exit.
+07:40:30.612  MH_CreateHook late core EvaluateFeature              target=[address] status=0 (MH_OK)
+07:40:30.612  [module] MH_QueueEnableHook late core EvaluateFeature  target=[address] status=0
+07:40:30.612  [module] late module discovered name=nvngx_dlssd.dll handle=[address] path=[local-path]
+07:40:30.612  [module] pinned hook owner name=nvngx_dlssd.dll address=[address] module=[address] until process exit.
+07:40:30.612  [module] pinned hook owner name=late DLSSD ReleaseFeature address=[address] module=[address] until process exit.
+07:40:30.612  MH_CreateHook late DLSSD ReleaseFeature              target=[address] status=0 (MH_OK)
+07:40:30.612  [module] MH_QueueEnableHook late DLSSD ReleaseFeature  target=[address] status=0
+07:40:30.612  [module] pinned hook owner name=late DLSSD CreateFeature address=[address] module=[address] until process exit.
+07:40:30.613  MH_CreateHook late DLSSD CreateFeature               target=[address] status=0 (MH_OK)
+07:40:30.613  [module] MH_QueueEnableHook late DLSSD CreateFeature   target=[address] status=0
+07:40:30.613  [module] pinned hook owner name=late DLSSD EvaluateFeature address=[address] module=[address] until process exit.
+07:40:30.613  MH_CreateHook late DLSSD EvaluateFeature             target=[address] status=0 (MH_OK)
+07:40:30.613  [module] MH_QueueEnableHook late DLSSD EvaluateFeature target=[address] status=0
+07:40:30.637  [module] MH_ApplyQueued late NGX lifecycle status=0
+07:40:30.637  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+07:40:30.637  [module] late DLSSD coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+07:40:30.637  [module] startup-deferred RR-capable module entry points were fully hooked before the first observed Feature 1 Create/Evaluate; startup continues without a permanent ownership bypass.
+07:40:30.638  [module] lazy rescan #1 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+07:40:30.639  [perf] reset stage=A-SR-only epoch=267 transfer=1.100; warming 180 frames
+07:40:30.653  [artifact-identity] sourceCommit=1a8490a2c76d93b0c5e4cc50b8d4f178df55eb83 sourceDirty=0 status=verified addonPath=[local-path]
+07:40:36.779  _nvngx core CreateFeature entered: call=1 id=1 (SuperSampling)
+07:40:36.779  nvngx_dlss CreateFeature entered: call=1 id=1 (SuperSampling)
+07:40:36.880  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+07:40:36.880      Width                                      = 1920
+07:40:36.880      Height                                     = 1080
+07:40:36.880      OutWidth                                   = 3840
+07:40:36.880      OutHeight                                  = 2160
+07:40:36.880      PerfQualityValue                           = 2
+07:40:36.881      DLSS.Feature.Create.Flags                  = 75
+07:40:36.881      DLSS.Enable.Output.Subrects                = 0
+07:40:36.881      CreationNodeMask                           = 1
+07:40:36.881      VisibilityNodeMask                         = 1
+07:40:36.881  Feature 1 contract generation=1 handle=[address] create=1920x1080 -> 3840x2160 flags=75 quality=2; all NR contracts will be rebuilt.
+07:40:36.921  [module] lazy rescan #2 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=1 feature1CreateSuccess=1 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+07:40:37.914  [module] lazy rescan #3 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=1 feature1CreateSuccess=1 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+07:40:43.553  [perf] stage=A-SR-only epoch=267 transfer=1.100 samples=600 avgFPS=120.052 avgMs=8.3297 p95Ms=8.5323 p99Ms=9.2943 onePercentLowFPS=106.672
+07:40:50.086  [perf] stage=A-SR-only epoch=267 transfer=1.100 samples=600 avgFPS=105.043 avgMs=9.5199 p95Ms=9.9490 p99Ms=41.9060 onePercentLowFPS=8.716
+07:41:01.628  [perf] stage=A-SR-only epoch=267 transfer=1.100 samples=600 avgFPS=91.129 avgMs=10.9735 p95Ms=12.1735 p99Ms=45.8033 onePercentLowFPS=4.405
+07:41:06.693  _nvngx core CreateFeature entered: call=2 id=1 (SuperSampling)
+07:41:06.694  nvngx_dlss CreateFeature entered: call=2 id=1 (SuperSampling)
+07:41:06.718  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+07:41:06.718      Width                                      = 1920
+07:41:06.718      Height                                     = 1080
+07:41:06.718      OutWidth                                   = 3840
+07:41:06.718      OutHeight                                  = 2160
+07:41:06.718      PerfQualityValue                           = 0
+07:41:06.719      DLSS.Feature.Create.Flags                  = 75
+07:41:06.719      DLSS.Enable.Output.Subrects                = 0
+07:41:06.719      CreationNodeMask                           = 1
+07:41:06.719      VisibilityNodeMask                         = 1
+07:41:06.719  Feature 1 contract generation=2 handle=[address] create=1920x1080 -> 3840x2160 flags=75 quality=0; all NR contracts will be rebuilt.
+07:41:06.722  _nvngx core CreateFeature entered: call=3 id=11 (FrameGeneration)
+07:41:07.004  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+07:41:07.021  core ReleaseFeature handle=[address] id=1 (SuperSampling)
+07:41:09.907  [perf] stage=A-SR-only epoch=267 transfer=1.100 samples=600 avgFPS=72.548 avgMs=13.7840 p95Ms=23.6069 p99Ms=129.8274 onePercentLowFPS=4.757
+07:41:25.444  [perf] stage=A-SR-only epoch=267 transfer=1.100 samples=600 avgFPS=40.412 avgMs=24.7449 p95Ms=53.4563 p99Ms=135.3682 onePercentLowFPS=3.122
+07:41:36.124  [perf] stage=A-SR-only epoch=267 transfer=1.100 samples=600 avgFPS=56.288 avgMs=17.7658 p95Ms=22.7276 p99Ms=24.6282 onePercentLowFPS=30.420
+07:41:38.952  [module] lazy rescan #60 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+07:41:49.008  [perf] stage=A-SR-only epoch=267 transfer=1.100 samples=600 avgFPS=46.649 avgMs=21.4367 p95Ms=22.5857 p99Ms=22.9431 onePercentLowFPS=39.439
+07:42:01.979  [perf] stage=A-SR-only epoch=267 transfer=1.100 samples=600 avgFPS=46.336 avgMs=21.5814 p95Ms=22.6742 p99Ms=34.9824 onePercentLowFPS=25.700
+07:42:14.885  [perf] stage=A-SR-only epoch=267 transfer=1.100 samples=600 avgFPS=46.567 avgMs=21.4743 p95Ms=22.6057 p99Ms=23.2907 onePercentLowFPS=31.754
+07:42:18.335  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=268 feature18Evals=0
+07:42:18.335  _nvngx core EvaluateFeature reached: call=1 handle=[address]
+07:42:18.336  _nvngx core EvaluateFeature reached: call=2 handle=[address]
+07:42:18.344  _nvngx core EvaluateFeature reached: call=3 handle=[address]
+07:42:18.344  --- SuperSampling Evaluate #1 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:42:18.345      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:42:18.345      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:42:18.345      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:42:18.345      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:42:18.345      DLSS.Input.Color.Subrect.Base.X            = 0
+07:42:18.345      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:42:18.345      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:42:18.345      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:42:18.345      DLSS.Input.MV.Subrect.Base.X               = 0
+07:42:18.345      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:42:18.345      DLSS.Output.Subrect.Base.X                 = 0
+07:42:18.345      DLSS.Output.Subrect.Base.Y                 = 0
+07:42:18.345      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:42:18.345      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:42:18.345      MV.Scale.X                                 = 1
+07:42:18.345      MV.Scale.Y                                 = 1
+07:42:18.345      Jitter.Offset.X                            = 0.03125
+07:42:18.345      Jitter.Offset.Y                            = 0.42592597
+07:42:18.345      DLSS.Pre.Exposure                          = 1.4929397
+07:42:18.345      DLSS.Exposure.Scale                        = 1
+07:42:18.345      Reset                                      = 0
+07:42:18.345  Pipeline diagnostic scope reset: epoch=1 Feature1 generation=2 mode=2.
+07:42:18.345  [stats] current contract: generation=2 mode=2 carrier-requests=1 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.392  D3D12 native Reset success-gate hook active: target=[address] slot=0.
+07:42:18.392  [command-state] NR bypass: reason=native-hooks-unavailable token=26 registered=1 installing=1 dirty=0x0 count=1 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:18.392  [state] bypass transition #1: waiting-feature1 -> command-state-unverified.
+07:42:18.392  nvngx_dlss EvaluateFeature reached: call=1 handle=[address]
+07:42:18.392  Observed D3D12 graphics queue identity=1 native=[address] live=1. Feature 18 admission requires stable per-command-list affinity.
+07:42:18.392  [perf] reset stage=C-NR-transfer epoch=268 transfer=1.100; warming 180 frames
+07:42:18.419  --- SuperSampling Evaluate #2 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:42:18.419      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:42:18.419      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:42:18.419      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:42:18.419      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:42:18.419      DLSS.Input.Color.Subrect.Base.X            = 0
+07:42:18.419      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:42:18.419      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:42:18.419      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:42:18.419      DLSS.Input.MV.Subrect.Base.X               = 0
+07:42:18.419      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:42:18.419      DLSS.Output.Subrect.Base.X                 = 0
+07:42:18.419      DLSS.Output.Subrect.Base.Y                 = 0
+07:42:18.419      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:42:18.419      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:42:18.420      MV.Scale.X                                 = 1
+07:42:18.420      MV.Scale.Y                                 = 1
+07:42:18.420      Jitter.Offset.X                            = -0.21875
+07:42:18.420      Jitter.Offset.Y                            = -0.42592591
+07:42:18.420      DLSS.Pre.Exposure                          = 1.4934026
+07:42:18.420      DLSS.Exposure.Scale                        = 1
+07:42:18.420      Reset                                      = 0
+07:42:18.420  [stats] current contract: generation=2 mode=2 carrier-requests=2 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+07:42:18.420  [command-state] NR bypass: reason=native-hooks-unavailable token=7 registered=1 installing=1 dirty=0x0 count=2 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:18.420  nvngx_dlss EvaluateFeature reached: call=2 handle=[address]
+07:42:18.433  --- SuperSampling Evaluate #3 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:42:18.433      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:42:18.433      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:42:18.433      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:42:18.433      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:42:18.433      DLSS.Input.Color.Subrect.Base.X            = 0
+07:42:18.433      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:42:18.433      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:42:18.433      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:42:18.434      DLSS.Input.MV.Subrect.Base.X               = 0
+07:42:18.434      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:42:18.434      DLSS.Output.Subrect.Base.X                 = 0
+07:42:18.434      DLSS.Output.Subrect.Base.Y                 = 0
+07:42:18.434      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:42:18.434      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:42:18.434      MV.Scale.X                                 = 1
+07:42:18.434      MV.Scale.Y                                 = 1
+07:42:18.434      Jitter.Offset.X                            = 0.28125
+07:42:18.434      Jitter.Offset.Y                            = -0.092592567
+07:42:18.434      DLSS.Pre.Exposure                          = 1.4938618
+07:42:18.434      DLSS.Exposure.Scale                        = 1
+07:42:18.434      Reset                                      = 0
+07:42:18.434  [stats] current contract: generation=2 mode=2 carrier-requests=3 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+07:42:18.434  [command-state] NR bypass: reason=native-hooks-unavailable token=13 registered=1 installing=1 dirty=0x0 count=3 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:18.434  nvngx_dlss EvaluateFeature reached: call=3 handle=[address]
+07:42:18.455  --- SuperSampling Evaluate #4 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:42:18.456      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:42:18.456      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:42:18.456      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:42:18.456      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:42:18.456      DLSS.Input.Color.Subrect.Base.X            = 0
+07:42:18.456      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:42:18.456      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:42:18.456      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:42:18.456      DLSS.Input.MV.Subrect.Base.X               = 0
+07:42:18.456      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:42:18.456      DLSS.Output.Subrect.Base.X                 = 0
+07:42:18.456      DLSS.Output.Subrect.Base.Y                 = 0
+07:42:18.456      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:42:18.456      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:42:18.456      MV.Scale.X                                 = 1
+07:42:18.456      MV.Scale.Y                                 = 1
+07:42:18.456      Jitter.Offset.X                            = -0.34375
+07:42:18.456      Jitter.Offset.Y                            = 0.24074078
+07:42:18.456      DLSS.Pre.Exposure                          = 1.4943256
+07:42:18.456      DLSS.Exposure.Scale                        = 1
+07:42:18.457      Reset                                      = 0
+07:42:18.457  [command-state] NR bypass: reason=native-hooks-unavailable token=19 registered=1 installing=1 dirty=0x0 count=4 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:18.476  --- SuperSampling Evaluate #5 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:42:18.476      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:42:18.476      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:42:18.476      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:42:18.476      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:42:18.476      DLSS.Input.Color.Subrect.Base.X            = 0
+07:42:18.476      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:42:18.476      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:42:18.477      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:42:18.477      DLSS.Input.MV.Subrect.Base.X               = 0
+07:42:18.477      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:42:18.477      DLSS.Output.Subrect.Base.X                 = 0
+07:42:18.477      DLSS.Output.Subrect.Base.Y                 = 0
+07:42:18.477      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:42:18.477      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:42:18.477      MV.Scale.X                                 = 1
+07:42:18.477      MV.Scale.Y                                 = 1
+07:42:18.477      Jitter.Offset.X                            = 0.15625
+07:42:18.477      Jitter.Offset.Y                            = -0.31481481
+07:42:18.477      DLSS.Pre.Exposure                          = 1.4947929
+07:42:18.477      DLSS.Exposure.Scale                        = 1
+07:42:18.477      Reset                                      = 0
+07:42:18.477  [command-state] NR bypass: reason=native-hooks-unavailable token=12 registered=1 installing=1 dirty=0x0 count=5 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:18.498  --- SuperSampling Evaluate #6 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:42:18.498      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:42:18.498      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:42:18.498      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:42:18.498      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:42:18.498      DLSS.Input.Color.Subrect.Base.X            = 0
+07:42:18.498      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:42:18.498      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:42:18.498      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:42:18.498      DLSS.Input.MV.Subrect.Base.X               = 0
+07:42:18.498      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:42:18.499      DLSS.Output.Subrect.Base.X                 = 0
+07:42:18.499      DLSS.Output.Subrect.Base.Y                 = 0
+07:42:18.499      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:42:18.499      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:42:18.499      MV.Scale.X                                 = 1
+07:42:18.499      MV.Scale.Y                                 = 1
+07:42:18.499      Jitter.Offset.X                            = -0.09375
+07:42:18.499      Jitter.Offset.Y                            = 0.018518567
+07:42:18.499      DLSS.Pre.Exposure                          = 1.4952458
+07:42:18.499      DLSS.Exposure.Scale                        = 1
+07:42:18.499      Reset                                      = 0
+07:42:18.635  signed DLSSNR D3D12 runtime initialized through nrchain_nvngx.dll (result=0x00000001).
+07:42:20.644  HDR proxy/source-domain delta composition codec created.
+07:42:20.647  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1920x1080 work=1920x1080 scale=1.000000,1.000000 value=-0.093750,0.018519.
+07:42:20.647  NR guide binding: mode=2 depth=1920x1080@0,0 mv=1920x1080@0,0 sourceMV=1920x1080 converted=0 scale=1.000000,1.000000 flags=73 depthInverted=1 historyReset=1.
+07:42:20.647  NR create contract: mode=2 extent=1920x1080 depth=1920x1080 mv=1920x1080 gameFlags=75 normalizedFlags=73 perfQuality=5.
+07:42:20.647  HDR exposure contract adapted: source PreExposure=1.495246 scalarExposureScale=1.000000 scalarSourceToCanonical=0.668786 liveTexture=0; when present its 1x1 red channel overrides the scalar in the codec and the NR proxy uses canonical exposure 1.0.
+07:42:20.647  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:42:20.802  [nr-instance] created=1 mode=2 featureGeneration=2 config=3 intensity=2.000 style=2 proxyMapping=existing.
+07:42:20.802  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:42:20.803  NR-before-SR V2 evaluate succeeded: count=1 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:42:20.803  [command-state] restored native state: token=7 pso=[address] raytracing=[address] computeRoot=[address] graphicsRoot=[address] resourceHeap=[address] samplerHeap=[address].
+07:42:20.827  D3D12 ExecuteCommandLists post-submit lifetime hook active: target=[address] slot=0.
+07:42:20.827  Created GPU retirement fence for D3D12 queue=[address].
+07:42:20.829  Observed D3D12 graphics queue identity=2 native=[address] live=2. Feature 18 admission requires stable per-command-list affinity.
+07:42:20.840  --- SuperSampling Evaluate #7 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:42:20.840      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:42:20.840      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:42:20.840      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:42:20.840      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:42:20.840      DLSS.Input.Color.Subrect.Base.X            = 0
+07:42:20.840      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:42:20.840      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:42:20.840      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:42:20.840      DLSS.Input.MV.Subrect.Base.X               = 0
+07:42:20.840      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:42:20.840      DLSS.Output.Subrect.Base.X                 = 0
+07:42:20.841      DLSS.Output.Subrect.Base.Y                 = 0
+07:42:20.841      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:42:20.841      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:42:20.841      MV.Scale.X                                 = 1
+07:42:20.841      MV.Scale.Y                                 = 1
+07:42:20.841      Jitter.Offset.X                            = 0.40625
+07:42:20.841      Jitter.Offset.Y                            = 0.35185188
+07:42:20.841      DLSS.Pre.Exposure                          = 1.4959557
+07:42:20.841      DLSS.Exposure.Scale                        = 1
+07:42:20.841      Reset                                      = 0
+07:42:20.841  [command-state] NR bypass: reason=native-hooks-unavailable token=10 registered=1 installing=1 dirty=0x0 count=6 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:20.854  --- SuperSampling Evaluate #8 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:42:20.854      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:42:20.854      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:42:20.854      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:42:20.854      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+
+[first events]
+07:42:18.392  [command-state] NR bypass: reason=native-hooks-unavailable token=26 registered=1 installing=1 dirty=0x0 count=1 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:18.392  [state] bypass transition #1: waiting-feature1 -> command-state-unverified.
+07:42:20.647  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+
+[recent important]
+07:40:22.398  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+07:40:22.399  Config: enabled=0 mode=2 identity=0 preTransfer=1.100 postTransfer=1.100 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=3 intensity=2.000 localTone=1.140 localStructure=2.000 skinStructure=-0.000 autoMask=1 style=2 uiCorrection=1 r8OutputEncoding=0 perfEpoch=267 jitterMode=1 feature18Evals=0
+07:40:23.854  [module] pinned hook owner name=nvngx_dlss.dll address=[address] module=[address] until process exit.
+07:40:23.854  [module] pinned hook owner name=D3D12_CreateFeature address=[address] module=[address] until process exit.
+07:40:23.854  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0 (MH_OK)
+07:40:23.854  [module] pinned hook owner name=D3D12_EvaluateFeature address=[address] module=[address] until process exit.
+07:40:23.854  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0 (MH_OK)
+07:40:23.854  [module] pinned hook owner name=D3D12_ReleaseFeature address=[address] module=[address] until process exit.
+07:40:23.854  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0 (MH_OK)
+07:40:23.880  MH_EnableHook all status=0
+07:40:23.881  NGX observer/AI-upscaling hooks active.
+07:40:25.765  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:40:30.584  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:40:30.612  [module] pinned hook owner name=_nvngx.dll address=[address] module=[address] until process exit.
+07:40:30.612  [module] pinned hook owner name=late core ReleaseFeature address=[address] module=[address] until process exit.
+07:40:30.612  MH_CreateHook late core ReleaseFeature               target=[address] status=0 (MH_OK)
+07:40:30.612  [module] MH_QueueEnableHook late core ReleaseFeature   target=[address] status=0
+07:40:30.612  [module] pinned hook owner name=late core CreateFeature address=[address] module=[address] until process exit.
+07:40:30.612  MH_CreateHook late core CreateFeature                target=[address] status=0 (MH_OK)
+07:40:30.612  [module] MH_QueueEnableHook late core CreateFeature    target=[address] status=0
+07:40:30.612  [module] pinned hook owner name=late core EvaluateFeature address=[address] module=[address] until process exit.
+07:40:30.612  MH_CreateHook late core EvaluateFeature              target=[address] status=0 (MH_OK)
+07:40:30.612  [module] MH_QueueEnableHook late core EvaluateFeature  target=[address] status=0
+07:40:30.612  [module] pinned hook owner name=nvngx_dlssd.dll address=[address] module=[address] until process exit.
+07:40:30.612  [module] pinned hook owner name=late DLSSD ReleaseFeature address=[address] module=[address] until process exit.
+07:40:30.612  MH_CreateHook late DLSSD ReleaseFeature              target=[address] status=0 (MH_OK)
+07:40:30.612  [module] MH_QueueEnableHook late DLSSD ReleaseFeature  target=[address] status=0
+07:40:30.612  [module] pinned hook owner name=late DLSSD CreateFeature address=[address] module=[address] until process exit.
+07:40:30.613  MH_CreateHook late DLSSD CreateFeature               target=[address] status=0 (MH_OK)
+07:40:30.613  [module] MH_QueueEnableHook late DLSSD CreateFeature   target=[address] status=0
+07:40:30.613  [module] pinned hook owner name=late DLSSD EvaluateFeature address=[address] module=[address] until process exit.
+07:40:30.613  MH_CreateHook late DLSSD EvaluateFeature             target=[address] status=0 (MH_OK)
+07:40:30.613  [module] MH_QueueEnableHook late DLSSD EvaluateFeature target=[address] status=0
+07:40:30.637  [module] startup-deferred RR-capable module entry points were fully hooked before the first observed Feature 1 Create/Evaluate; startup continues without a permanent ownership bypass.
+07:40:30.638  [module] lazy rescan #1 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+07:40:36.779  _nvngx core CreateFeature entered: call=1 id=1 (SuperSampling)
+07:40:36.779  nvngx_dlss CreateFeature entered: call=1 id=1 (SuperSampling)
+07:40:36.880  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+07:40:36.881      DLSS.Feature.Create.Flags                  = 75
+07:40:36.881  Feature 1 contract generation=1 handle=[address] create=1920x1080 -> 3840x2160 flags=75 quality=2; all NR contracts will be rebuilt.
+07:40:36.921  [module] lazy rescan #2 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=1 feature1CreateSuccess=1 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+07:40:37.914  [module] lazy rescan #3 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=1 feature1CreateSuccess=1 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+07:41:06.693  _nvngx core CreateFeature entered: call=2 id=1 (SuperSampling)
+07:41:06.694  nvngx_dlss CreateFeature entered: call=2 id=1 (SuperSampling)
+07:41:06.718  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+07:41:06.719      DLSS.Feature.Create.Flags                  = 75
+07:41:06.719  Feature 1 contract generation=2 handle=[address] create=1920x1080 -> 3840x2160 flags=75 quality=0; all NR contracts will be rebuilt.
+07:41:06.722  _nvngx core CreateFeature entered: call=3 id=11 (FrameGeneration)
+07:41:07.004  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+07:41:07.021  core ReleaseFeature handle=[address] id=1 (SuperSampling)
+07:41:38.952  [module] lazy rescan #60 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+07:42:18.335  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=268 feature18Evals=0
+07:42:18.335  _nvngx core EvaluateFeature reached: call=1 handle=[address]
+07:42:18.336  _nvngx core EvaluateFeature reached: call=2 handle=[address]
+07:42:18.344  _nvngx core EvaluateFeature reached: call=3 handle=[address]
+07:42:18.345  Pipeline diagnostic scope reset: epoch=1 Feature1 generation=2 mode=2.
+07:42:18.345  [stats] current contract: generation=2 mode=2 carrier-requests=1 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.345  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.346  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:42:18.392  D3D12 native Reset success-gate hook active: target=[address] slot=0.
+07:42:18.392  [command-state] NR bypass: reason=native-hooks-unavailable token=26 registered=1 installing=1 dirty=0x0 count=1 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:18.392  [state] bypass transition #1: waiting-feature1 -> command-state-unverified.
+07:42:18.392  nvngx_dlss EvaluateFeature reached: call=1 handle=[address]
+07:42:18.392  Observed D3D12 graphics queue identity=1 native=[address] live=1. Feature 18 admission requires stable per-command-list affinity.
+07:42:18.420  [stats] current contract: generation=2 mode=2 carrier-requests=2 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+07:42:18.420  [command-state] NR bypass: reason=native-hooks-unavailable token=7 registered=1 installing=1 dirty=0x0 count=2 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:18.420  nvngx_dlss EvaluateFeature reached: call=2 handle=[address]
+07:42:18.434  [stats] current contract: generation=2 mode=2 carrier-requests=3 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+07:42:18.434  [command-state] NR bypass: reason=native-hooks-unavailable token=13 registered=1 installing=1 dirty=0x0 count=3 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:18.434  nvngx_dlss EvaluateFeature reached: call=3 handle=[address]
+07:42:18.457  [command-state] NR bypass: reason=native-hooks-unavailable token=19 registered=1 installing=1 dirty=0x0 count=4 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:18.477  [command-state] NR bypass: reason=native-hooks-unavailable token=12 registered=1 installing=1 dirty=0x0 count=5 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:20.647  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:42:20.802  [nr-instance] created=1 mode=2 featureGeneration=2 config=3 intensity=2.000 style=2 proxyMapping=existing.
+07:42:20.802  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:42:20.827  D3D12 ExecuteCommandLists post-submit lifetime hook active: target=[address] slot=0.
+07:42:20.829  Observed D3D12 graphics queue identity=2 native=[address] live=2. Feature 18 admission requires stable per-command-list affinity.
+07:42:20.841  [command-state] NR bypass: reason=native-hooks-unavailable token=10 registered=1 installing=1 dirty=0x0 count=6 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:20.920  [command-state] NR bypass: reason=native-hooks-unavailable token=27 registered=1 installing=1 dirty=0x0 count=9 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:21.020  [state] bypass transition #2: command-state-unverified -> none/active.
+07:42:21.054  ColorDiag #1 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.258176 changed=2039 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.326328 finalChanged=2040 sampledExposure=1.000000 sampledSourceToCanonical=0.654529 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:42:21.059  [command-state] NR bypass: reason=native-hooks-unavailable token=11 registered=1 installing=1 dirty=0x0 count=12 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:21.059  [state] bypass transition #3: none/active -> command-state-unverified.
+07:42:21.074  [state] bypass transition #4: command-state-unverified -> none/active.
+07:42:21.094  [command-state] NR bypass: reason=native-hooks-unavailable token=2 registered=1 installing=1 dirty=0x0 count=13 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:21.094  [state] bypass transition #5: none/active -> command-state-unverified.
+07:42:21.181  [state] bypass transition #6: command-state-unverified -> none/active.
+07:42:21.223  [command-state] NR bypass: reason=native-hooks-unavailable token=18 registered=1 installing=1 dirty=0x0 count=17 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:21.223  [state] bypass transition #7: none/active -> command-state-unverified.
+07:42:21.245  [state] bypass transition #8: command-state-unverified -> none/active.
+07:42:21.266  [command-state] NR bypass: reason=native-hooks-unavailable token=5 registered=1 installing=1 dirty=0x0 count=18 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:21.266  [state] bypass transition #9: none/active -> command-state-unverified.
+07:42:21.288  [state] bypass transition #10: command-state-unverified -> none/active.
+07:42:21.330  [command-state] NR bypass: reason=native-hooks-unavailable token=30 registered=1 installing=1 dirty=0x0 count=19 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:21.330  [state] bypass transition #11: none/active -> command-state-unverified.
+07:42:21.352  [state] bypass transition #12: command-state-unverified -> none/active.
+07:42:21.395  [command-state] NR bypass: reason=native-hooks-unavailable token=16 registered=1 installing=1 dirty=0x0 count=20 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:21.502  [command-state] NR bypass: reason=native-hooks-unavailable token=20 registered=1 installing=1 dirty=0x0 count=22 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:21.587  [command-state] NR bypass: reason=native-hooks-unavailable token=6 registered=1 installing=1 dirty=0x0 count=23 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:21.631  [command-state] NR bypass: reason=native-hooks-unavailable token=15 registered=1 installing=1 dirty=0x0 count=24 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:21.675  [command-state] NR bypass: reason=native-hooks-unavailable token=22 registered=1 installing=1 dirty=0x0 count=25 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:21.738  [command-state] NR bypass: reason=native-hooks-unavailable token=4 registered=1 installing=1 dirty=0x0 count=26 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:21.781  [command-state] NR bypass: reason=native-hooks-unavailable token=14 registered=1 installing=1 dirty=0x0 count=27 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:22.081  [command-state] NR bypass: reason=native-hooks-unavailable token=25 registered=1 installing=1 dirty=0x0 count=28 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:22.253  [command-state] NR bypass: reason=native-hooks-unavailable token=28 registered=1 installing=1 dirty=0x0 count=29 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:22.873  [command-state] NR bypass: reason=native-hooks-unavailable token=8 registered=1 installing=1 dirty=0x0 count=30 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:26.604  ColorDiag #2 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.303864 changed=2039 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.344423 finalChanged=2037 sampledExposure=1.000000 sampledSourceToCanonical=0.668634 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:42:28.768  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=2.650 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=269 feature18Evals=345
+07:42:29.701  [command-state] NR bypass: reason=native-hooks-unavailable token=32 registered=1 installing=1 dirty=0x0 count=31 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:42:29.723  ColorDiag #3 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.323670 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.598507 finalChanged=2040 sampledExposure=1.000000 sampledSourceToCanonical=0.626126 transfer=2.650 colorFollowEffective=0.000 preserveLighting=0.
+07:42:33.580  [stats] all NGX evaluations=1800, upscaling-carrier evaluations=600 feature=1(SuperSampling)
+07:42:33.580  [stats] session totals: Feature18-success=568 transfer-prepared=565 transfer-recorded=565 transfer-bound=565 transfer-submitted=565 lifecycle-bypass=0; queue-affinity admitted=546 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:42:33.580  [stats] current contract: generation=2 mode=2 carrier-requests=600 Feature18-success=568 transfer-prepared=565 transfer-recorded=565 transfer-bound=565 transfer-submitted=565.
+07:42:36.775  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=270 feature18Evals=717
+07:42:40.944  [module] lazy rescan #120 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=943 observerFault=none.
+07:42:46.453  [stats] all NGX evaluations=3600, upscaling-carrier evaluations=1200 feature=1(SuperSampling)
+07:42:46.453  [stats] session totals: Feature18-success=1168 transfer-prepared=1165 transfer-recorded=1165 transfer-bound=1165 transfer-submitted=1165 lifecycle-bypass=0; queue-affinity admitted=1071 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:42:46.453  [stats] current contract: generation=2 mode=2 carrier-requests=1200 Feature18-success=1168 transfer-prepared=1165 transfer-recorded=1165 transfer-bound=1165 transfer-submitted=1165.
+07:42:53.307  Config updated from ReShade simplified settings: enabled=0 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=271 feature18Evals=1488
+07:42:54.004  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=272 feature18Evals=1488
+07:42:54.981  Config updated from ReShade simplified settings: enabled=0 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=273 feature18Evals=1533
+07:42:55.421  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=274 feature18Evals=1533
+07:43:00.463  [stats] all NGX evaluations=5400, upscaling-carrier evaluations=1800 feature=1(SuperSampling)
+07:43:00.463  [stats] session totals: Feature18-success=1768 transfer-prepared=1759 transfer-recorded=1759 transfer-bound=1759 transfer-submitted=1759 lifecycle-bypass=0; queue-affinity admitted=1627 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:43:00.463  [stats] current contract: generation=2 mode=2 carrier-requests=1800 Feature18-success=1768 transfer-prepared=1759 transfer-recorded=1759 transfer-bound=1759 transfer-submitted=1759.
+07:43:01.620  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=0 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=275 feature18Evals=1822
+07:43:01.633  Pipeline diagnostic scope reset: epoch=2 Feature1 generation=2 mode=1.
+07:43:01.633  [stats] current contract: generation=2 mode=1 carrier-requests=1 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+07:43:01.638  Feature 18 create-time tuning: mode=1 extent=3840x2160 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:43:01.715  [nr-instance] created=2 mode=1 featureGeneration=2 config=10 intensity=2.000 style=2 proxyMapping=existing.
+07:43:01.715  post-SR signed feature 18 create 3840x2160 guides=1920x1080 result=0x00000001(Success) handle=[address]
+07:43:01.732  [stats] current contract: generation=2 mode=1 carrier-requests=2 Feature18-success=1 transfer-prepared=1 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+07:43:01.751  [stats] current contract: generation=2 mode=1 carrier-requests=3 Feature18-success=2 transfer-prepared=2 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+07:43:01.813  ColorDiag #18 mode=1 featureGeneration=2 extent=3840x2160 samples=8160 invalid=0 maxNrDelta=0.616903 changed=8160 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.251021 finalChanged=8157 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:43:06.103  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=276 feature18Evals=2002
+07:43:06.125  Pipeline diagnostic scope reset: epoch=3 Feature1 generation=2 mode=2.
+07:43:06.125  [stats] current contract: generation=2 mode=2 carrier-requests=1 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+07:43:06.137  [stats] current contract: generation=2 mode=2 carrier-requests=2 Feature18-success=1 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+07:43:06.153  [stats] current contract: generation=2 mode=2 carrier-requests=3 Feature18-success=2 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+07:43:13.953  [stats] all NGX evaluations=7200, upscaling-carrier evaluations=2400 feature=1(SuperSampling)
+07:43:13.953  [stats] session totals: Feature18-success=2368 transfer-prepared=2356 transfer-recorded=2353 transfer-bound=2353 transfer-submitted=2353 lifecycle-bypass=0; queue-affinity admitted=2041 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:43:14.230  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=277 feature18Evals=2381
+07:43:18.591  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=278 feature18Evals=2584
+07:43:18.967  [stats] current contract: generation=2 mode=2 carrier-requests=600 Feature18-success=599 transfer-prepared=596 transfer-recorded=596 transfer-bound=596 transfer-submitted=596.
+07:43:26.836  [stats] all NGX evaluations=9000, upscaling-carrier evaluations=3000 feature=1(SuperSampling)
+07:43:26.836  [stats] session totals: Feature18-success=2968 transfer-prepared=2956 transfer-recorded=2953 transfer-bound=2953 transfer-submitted=2953 lifecycle-bypass=0; queue-affinity admitted=2640 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:43:27.692  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=279 feature18Evals=3008
+07:43:28.497  [command-state] NR bypass: reason=native-hooks-unavailable token=37 registered=1 installing=1 dirty=0x0 count=32 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:28.775  [command-state] NR bypass: reason=native-hooks-unavailable token=34 registered=1 installing=1 dirty=0x0 count=33 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:28.968  [command-state] NR bypass: reason=native-hooks-unavailable token=35 registered=1 installing=1 dirty=0x0 count=34 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:29.268  [command-state] NR bypass: reason=native-hooks-unavailable token=33 registered=1 installing=1 dirty=0x0 count=35 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:30.918  [command-state] NR bypass: reason=native-hooks-unavailable token=36 registered=1 installing=1 dirty=0x0 count=36 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:31.840  [stats] current contract: generation=2 mode=2 carrier-requests=1200 Feature18-success=1194 transfer-prepared=1191 transfer-recorded=1191 transfer-bound=1191 transfer-submitted=1191.
+07:43:39.124  [command-state] NR bypass: reason=native-hooks-unavailable token=43 registered=1 installing=1 dirty=0x0 count=37 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:39.639  [command-state] NR bypass: reason=native-hooks-unavailable token=42 registered=1 installing=1 dirty=0x0 count=41 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:39.704  [stats] all NGX evaluations=10800, upscaling-carrier evaluations=3600 feature=1(SuperSampling)
+07:43:39.704  [stats] session totals: Feature18-success=3558 transfer-prepared=3546 transfer-recorded=3543 transfer-bound=3543 transfer-submitted=3543 lifecycle-bypass=0; queue-affinity admitted=3152 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:43:41.288  [module] lazy rescan #180 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=3674 observerFault=none.
+07:43:41.886  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=280 feature18Evals=3660
+07:43:42.455  [command-state] NR bypass: reason=native-hooks-unavailable token=39 registered=1 installing=1 dirty=0x0 count=42 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:44.703  [stats] current contract: generation=2 mode=2 carrier-requests=1800 Feature18-success=1788 transfer-prepared=1785 transfer-recorded=1785 transfer-bound=1785 transfer-submitted=1785.
+07:43:52.568  [stats] all NGX evaluations=12600, upscaling-carrier evaluations=4200 feature=1(SuperSampling)
+07:43:52.568  [stats] session totals: Feature18-success=4157 transfer-prepared=4145 transfer-recorded=4142 transfer-bound=4142 transfer-submitted=4142 lifecycle-bypass=0; queue-affinity admitted=3709 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:43:57.560  [stats] current contract: generation=2 mode=2 carrier-requests=2400 Feature18-success=2388 transfer-prepared=2385 transfer-recorded=2385 transfer-bound=2385 transfer-submitted=2385.
+07:43:58.312  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=281 feature18Evals=4425
+07:44:02.000  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=282 feature18Evals=4597
+07:44:04.388  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=283 feature18Evals=4708
+07:44:05.452  [stats] all NGX evaluations=14400, upscaling-carrier evaluations=4800 feature=1(SuperSampling)
+07:44:05.452  [stats] session totals: Feature18-success=4757 transfer-prepared=4745 transfer-recorded=4742 transfer-bound=4742 transfer-submitted=4742 lifecycle-bypass=0; queue-affinity admitted=4243 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:44:06.116  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=284 feature18Evals=4788
+07:44:08.139  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=285 feature18Evals=4882
+07:44:10.464  [stats] current contract: generation=2 mode=2 carrier-requests=3000 Feature18-success=2988 transfer-prepared=2985 transfer-recorded=2985 transfer-bound=2985 transfer-submitted=2985.
+07:44:14.641  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=0 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=286 feature18Evals=5185
+07:44:14.654  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->1 skin -0.000->-0.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:14.656  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:14.731  [nr-instance] created=3 mode=2 featureGeneration=2 config=21 intensity=2.000 style=2 proxyMapping=existing.
+07:44:14.731  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:14.733  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:14.734  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:15.336  ColorDiag #50 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.635887 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.253043 finalChanged=2039 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:18.420  [stats] all NGX evaluations=16200, upscaling-carrier evaluations=5400 feature=1(SuperSampling)
+07:44:18.420  [stats] session totals: Feature18-success=5357 transfer-prepared=5342 transfer-recorded=5339 transfer-bound=5339 transfer-submitted=5339 lifecycle-bypass=0; queue-affinity admitted=4795 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:44:22.149  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=287 feature18Evals=5531
+07:44:22.160  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->1 skin -0.000->-0.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:22.162  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:22.213  [nr-instance] created=4 mode=2 featureGeneration=2 config=22 intensity=2.000 style=2 proxyMapping=existing.
+07:44:22.213  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:22.218  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:22.219  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:22.652  ColorDiag #53 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.558006 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.255868 finalChanged=2036 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:23.462  [stats] current contract: generation=2 mode=2 carrier-requests=3600 Feature18-success=3588 transfer-prepared=3579 transfer-recorded=3579 transfer-bound=3579 transfer-submitted=3579.
+07:44:30.903  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=2.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=288 feature18Evals=5937
+07:44:30.914  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->1 skin -0.000->2.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:30.917  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=2.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:30.968  [nr-instance] created=5 mode=2 featureGeneration=2 config=23 intensity=2.000 style=2 proxyMapping=existing.
+07:44:30.968  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:30.973  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:30.973  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:31.173  ColorDiag #57 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.613477 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.266082 finalChanged=2037 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:31.387  [stats] all NGX evaluations=18000, upscaling-carrier evaluations=6000 feature=1(SuperSampling)
+07:44:31.387  [stats] session totals: Feature18-success=5957 transfer-prepared=5936 transfer-recorded=5933 transfer-bound=5933 transfer-submitted=5933 lifecycle-bypass=0; queue-affinity admitted=5340 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:44:33.682  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=289 feature18Evals=6064
+07:44:33.696  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->1 skin 2.000->0.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:33.698  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:33.750  [nr-instance] created=6 mode=2 featureGeneration=2 config=24 intensity=2.000 style=2 proxyMapping=existing.
+07:44:33.750  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:33.751  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:33.752  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:34.209  ColorDiag #59 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.613892 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.267998 finalChanged=2038 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:34.484  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=0 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=290 feature18Evals=6099
+07:44:34.497  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->0 skin 0.000->-1.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:34.499  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=0 skin=-1.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:34.553  [nr-instance] created=7 mode=2 featureGeneration=2 config=25 intensity=2.000 style=2 proxyMapping=existing.
+07:44:34.553  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:34.555  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:34.555  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:35.681  ColorDiag #60 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.621171 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.271376 finalChanged=2038 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:36.493  [stats] current contract: generation=2 mode=2 carrier-requests=4200 Feature18-success=4188 transfer-prepared=4170 transfer-recorded=4170 transfer-bound=4170 transfer-submitted=4170.
+07:44:41.594  [module] lazy rescan #240 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=6471 observerFault=none.
+07:44:42.663  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=291 feature18Evals=6478
+07:44:42.674  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 0->1 skin -1.000->0.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:42.676  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:42.731  [nr-instance] created=8 mode=2 featureGeneration=2 config=26 intensity=2.000 style=2 proxyMapping=existing.
+07:44:42.731  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:42.733  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:42.734  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:42.986  ColorDiag #64 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.630119 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.259168 finalChanged=2039 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:44.415  [stats] all NGX evaluations=19800, upscaling-carrier evaluations=6600 feature=1(SuperSampling)
+07:44:44.415  [stats] session totals: Feature18-success=6557 transfer-prepared=6527 transfer-recorded=6524 transfer-bound=6524 transfer-submitted=6524 lifecycle-bypass=0; queue-affinity admitted=5879 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:44:46.299  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=0.690 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=292 feature18Evals=6645
+07:44:46.313  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->1 skin 0.000->0.690 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:46.316  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=0.690 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:46.370  [nr-instance] created=9 mode=2 featureGeneration=2 config=27 intensity=2.000 style=2 proxyMapping=existing.
+07:44:46.370  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:46.371  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:46.372  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:46.470  ColorDiag #66 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.614678 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.264738 finalChanged=2038 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:47.945  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=293 feature18Evals=6719
+07:44:47.956  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->1 skin 0.690->0.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:47.959  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:48.010  [nr-instance] created=10 mode=2 featureGeneration=2 config=28 intensity=2.000 style=2 proxyMapping=existing.
+07:44:48.010  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:48.015  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:48.015  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:48.581  ColorDiag #67 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.624487 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.262367 finalChanged=2038 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:49.525  [stats] current contract: generation=2 mode=2 carrier-requests=4800 Feature18-success=4788 transfer-prepared=4761 transfer-recorded=4761 transfer-bound=4761 transfer-submitted=4761.
+07:44:57.387  [stats] all NGX evaluations=21600, upscaling-carrier evaluations=7200 feature=1(SuperSampling)
+07:44:57.387  [stats] session totals: Feature18-success=7157 transfer-prepared=7121 transfer-recorded=7118 transfer-bound=7118 transfer-submitted=7118 lifecycle-bypass=0; queue-affinity admitted=6409 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:45:02.421  [stats] current contract: generation=2 mode=2 carrier-requests=5400 Feature18-success=5388 transfer-prepared=5361 transfer-recorded=5361 transfer-bound=5361 transfer-submitted=5361.
+07:45:10.286  [stats] all NGX evaluations=23400, upscaling-carrier evaluations=7800 feature=1(SuperSampling)
+07:45:10.286  [stats] session totals: Feature18-success=7757 transfer-prepared=7721 transfer-recorded=7718 transfer-bound=7718 transfer-submitted=7718 lifecycle-bypass=0; queue-affinity admitted=6959 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:45:15.277  [stats] current contract: generation=2 mode=2 carrier-requests=6000 Feature18-success=5988 transfer-prepared=5961 transfer-recorded=5961 transfer-bound=5961 transfer-submitted=5961.
+07:45:16.262  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=294 feature18Evals=8036
+07:45:23.153  [stats] all NGX evaluations=25200, upscaling-carrier evaluations=8400 feature=1(SuperSampling)
+07:45:23.153  [stats] session totals: Feature18-success=8357 transfer-prepared=8321 transfer-recorded=8318 transfer-bound=8318 transfer-submitted=8318 lifecycle-bypass=0; queue-affinity admitted=7507 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:45:26.751  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=295 feature18Evals=8525
+07:45:28.155  [stats] current contract: generation=2 mode=2 carrier-requests=6600 Feature18-success=6588 transfer-prepared=6561 transfer-recorded=6561 transfer-bound=6561 transfer-submitted=6561.
+
+[tail]
+07:43:13.952      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:43:13.952      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:43:13.952      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:43:13.952      DLSS.Input.Color.Subrect.Base.X            = 0
+07:43:13.952      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:43:13.952      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:43:13.952      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:43:13.952      DLSS.Input.MV.Subrect.Base.X               = 0
+07:43:13.952      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:43:13.952      DLSS.Output.Subrect.Base.X                 = 0
+07:43:13.952      DLSS.Output.Subrect.Base.Y                 = 0
+07:43:13.952      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:43:13.952      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:43:13.952      MV.Scale.X                                 = 1
+07:43:13.952      MV.Scale.Y                                 = 1
+07:43:13.952      Jitter.Offset.X                            = -0.375
+07:43:13.952      Jitter.Offset.Y                            = -0.055555522
+07:43:13.952      DLSS.Pre.Exposure                          = 1
+07:43:13.953      DLSS.Exposure.Scale                        = 1
+07:43:13.953      Reset                                      = 0
+07:43:13.953  [stats] all NGX evaluations=7200, upscaling-carrier evaluations=2400 feature=1(SuperSampling)
+07:43:13.953  [stats] session totals: Feature18-success=2368 transfer-prepared=2356 transfer-recorded=2353 transfer-bound=2353 transfer-submitted=2353 lifecycle-bypass=0; queue-affinity admitted=2041 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:43:14.230  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=277 feature18Evals=2381
+07:43:14.245  [perf] reset stage=C-NR-transfer epoch=277 transfer=1.100; warming 180 frames
+07:43:14.628  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1920x1080 work=1920x1080 scale=1.000000,1.000000 value=0.250000,-0.388889.
+07:43:18.485  NR-before-SR V2 evaluate succeeded: count=2400 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:43:18.591  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=278 feature18Evals=2584
+07:43:18.605  [perf] reset stage=C-NR-transfer epoch=278 transfer=1.100; warming 180 frames
+07:43:18.967  [stats] current contract: generation=2 mode=2 carrier-requests=600 Feature18-success=599 transfer-prepared=596 transfer-recorded=596 transfer-bound=596 transfer-submitted=596.
+07:43:26.835  --- SuperSampling Evaluate #3000 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:43:26.835      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:43:26.835      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:43:26.835      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:43:26.835      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:43:26.835      DLSS.Input.Color.Subrect.Base.X            = 0
+07:43:26.835      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:43:26.835      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:43:26.835      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:43:26.835      DLSS.Input.MV.Subrect.Base.X               = 0
+07:43:26.835      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:43:26.835      DLSS.Output.Subrect.Base.X                 = 0
+07:43:26.835      DLSS.Output.Subrect.Base.Y                 = 0
+07:43:26.835      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:43:26.835      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:43:26.835      MV.Scale.X                                 = 1
+07:43:26.835      MV.Scale.Y                                 = 1
+07:43:26.836      Jitter.Offset.X                            = -0.28125
+07:43:26.836      Jitter.Offset.Y                            = -0.15432099
+07:43:26.836      DLSS.Pre.Exposure                          = 1
+07:43:26.836      DLSS.Exposure.Scale                        = 1
+07:43:26.836      Reset                                      = 0
+07:43:26.836  [stats] all NGX evaluations=9000, upscaling-carrier evaluations=3000 feature=1(SuperSampling)
+07:43:26.836  [stats] session totals: Feature18-success=2968 transfer-prepared=2956 transfer-recorded=2953 transfer-bound=2953 transfer-submitted=2953 lifecycle-bypass=0; queue-affinity admitted=2640 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:43:27.498  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1920x1080 work=1920x1080 scale=1.000000,1.000000 value=0.343750,-0.487654.
+07:43:27.692  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=279 feature18Evals=3008
+07:43:27.705  [perf] reset stage=C-NR-transfer epoch=279 transfer=1.100; warming 180 frames
+07:43:28.497  [command-state] NR bypass: reason=native-hooks-unavailable token=37 registered=1 installing=1 dirty=0x0 count=32 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:28.775  [command-state] NR bypass: reason=native-hooks-unavailable token=34 registered=1 installing=1 dirty=0x0 count=33 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:28.968  [command-state] NR bypass: reason=native-hooks-unavailable token=35 registered=1 installing=1 dirty=0x0 count=34 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:29.268  [command-state] NR bypass: reason=native-hooks-unavailable token=33 registered=1 installing=1 dirty=0x0 count=35 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:30.918  [command-state] NR bypass: reason=native-hooks-unavailable token=36 registered=1 installing=1 dirty=0x0 count=36 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:31.475  NR-before-SR V2 evaluate succeeded: count=3000 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:43:31.840  [stats] current contract: generation=2 mode=2 carrier-requests=1200 Feature18-success=1194 transfer-prepared=1191 transfer-recorded=1191 transfer-bound=1191 transfer-submitted=1191.
+07:43:39.124  [command-state] NR bypass: reason=native-hooks-unavailable token=43 registered=1 installing=1 dirty=0x0 count=37 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:39.639  [command-state] NR bypass: reason=native-hooks-unavailable token=42 registered=1 installing=1 dirty=0x0 count=41 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:39.703  --- SuperSampling Evaluate #3600 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:43:39.703      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:43:39.703      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:43:39.703      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:43:39.703      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:43:39.703      DLSS.Input.Color.Subrect.Base.X            = 0
+07:43:39.703      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:43:39.703      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:43:39.703      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:43:39.703      DLSS.Input.MV.Subrect.Base.X               = 0
+07:43:39.703      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:43:39.704      DLSS.Output.Subrect.Base.X                 = 0
+07:43:39.704      DLSS.Output.Subrect.Base.Y                 = 0
+07:43:39.704      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:43:39.704      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:43:39.704      MV.Scale.X                                 = 1
+07:43:39.704      MV.Scale.Y                                 = 1
+07:43:39.704      Jitter.Offset.X                            = -0.34375
+07:43:39.704      Jitter.Offset.Y                            = 0.24074078
+07:43:39.704      DLSS.Pre.Exposure                          = 1.3478583
+07:43:39.704      DLSS.Exposure.Scale                        = 1
+07:43:39.704      Reset                                      = 0
+07:43:39.704  [stats] all NGX evaluations=10800, upscaling-carrier evaluations=3600 feature=1(SuperSampling)
+07:43:39.704  [stats] session totals: Feature18-success=3558 transfer-prepared=3546 transfer-recorded=3543 transfer-bound=3543 transfer-submitted=3543 lifecycle-bypass=0; queue-affinity admitted=3152 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:43:40.579  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1920x1080 work=1920x1080 scale=1.000000,1.000000 value=0.218750,0.179012.
+07:43:41.288  [module] lazy rescan #180 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=3674 observerFault=none.
+07:43:41.886  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=280 feature18Evals=3660
+07:43:41.897  [perf] reset stage=C-NR-transfer epoch=280 transfer=1.100; warming 180 frames
+07:43:42.455  [command-state] NR bypass: reason=native-hooks-unavailable token=39 registered=1 installing=1 dirty=0x0 count=42 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+07:43:44.468  NR-before-SR V2 evaluate succeeded: count=3600 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:43:44.703  [stats] current contract: generation=2 mode=2 carrier-requests=1800 Feature18-success=1788 transfer-prepared=1785 transfer-recorded=1785 transfer-bound=1785 transfer-submitted=1785.
+07:43:52.567  --- SuperSampling Evaluate #4200 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:43:52.567      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:43:52.568      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:43:52.568      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:43:52.568      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:43:52.568      DLSS.Input.Color.Subrect.Base.X            = 0
+07:43:52.568      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:43:52.568      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:43:52.568      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:43:52.568      DLSS.Input.MV.Subrect.Base.X               = 0
+07:43:52.568      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:43:52.568      DLSS.Output.Subrect.Base.X                 = 0
+07:43:52.568      DLSS.Output.Subrect.Base.Y                 = 0
+07:43:52.568      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:43:52.568      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:43:52.568      MV.Scale.X                                 = 1
+07:43:52.568      MV.Scale.Y                                 = 1
+07:43:52.568      Jitter.Offset.X                            = -0.3125
+07:43:52.568      Jitter.Offset.Y                            = -0.35185182
+07:43:52.568      DLSS.Pre.Exposure                          = 1
+07:43:52.568      DLSS.Exposure.Scale                        = 1
+07:43:52.568      Reset                                      = 0
+07:43:52.568  [stats] all NGX evaluations=12600, upscaling-carrier evaluations=4200 feature=1(SuperSampling)
+07:43:52.568  [stats] session totals: Feature18-success=4157 transfer-prepared=4145 transfer-recorded=4142 transfer-bound=4142 transfer-submitted=4142 lifecycle-bypass=0; queue-affinity admitted=3709 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:43:53.467  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1920x1080 work=1920x1080 scale=1.000000,1.000000 value=-0.093750,0.018519.
+07:43:57.324  NR-before-SR V2 evaluate succeeded: count=4200 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:43:57.560  [stats] current contract: generation=2 mode=2 carrier-requests=2400 Feature18-success=2388 transfer-prepared=2385 transfer-recorded=2385 transfer-bound=2385 transfer-submitted=2385.
+07:43:58.312  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=281 feature18Evals=4425
+07:43:58.324  [perf] reset stage=C-NR-transfer epoch=281 transfer=1.100; warming 180 frames
+07:44:02.000  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=282 feature18Evals=4597
+07:44:02.015  [perf] reset stage=C-NR-transfer epoch=282 transfer=1.100; warming 180 frames
+07:44:04.388  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=283 feature18Evals=4708
+07:44:04.400  [perf] reset stage=C-NR-transfer epoch=283 transfer=1.100; warming 180 frames
+07:44:05.451  --- SuperSampling Evaluate #4800 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:44:05.451      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:44:05.451      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:44:05.451      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:44:05.451      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:44:05.451      DLSS.Input.Color.Subrect.Base.X            = 0
+07:44:05.451      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:44:05.451      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:44:05.451      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:44:05.451      DLSS.Input.MV.Subrect.Base.X               = 0
+07:44:05.451      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:44:05.451      DLSS.Output.Subrect.Base.X                 = 0
+07:44:05.451      DLSS.Output.Subrect.Base.Y                 = 0
+07:44:05.451      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:44:05.451      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:44:05.451      MV.Scale.X                                 = 1
+07:44:05.451      MV.Scale.Y                                 = 1
+07:44:05.451      Jitter.Offset.X                            = -0.375
+07:44:05.451      Jitter.Offset.Y                            = -0.055555522
+07:44:05.451      DLSS.Pre.Exposure                          = 1
+07:44:05.452      DLSS.Exposure.Scale                        = 1
+07:44:05.452      Reset                                      = 0
+07:44:05.452  [stats] all NGX evaluations=14400, upscaling-carrier evaluations=4800 feature=1(SuperSampling)
+07:44:05.452  [stats] session totals: Feature18-success=4757 transfer-prepared=4745 transfer-recorded=4742 transfer-bound=4742 transfer-submitted=4742 lifecycle-bypass=0; queue-affinity admitted=4243 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:44:06.116  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=284 feature18Evals=4788
+07:44:06.128  [perf] reset stage=C-NR-transfer epoch=284 transfer=1.100; warming 180 frames
+07:44:06.362  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1920x1080 work=1920x1080 scale=1.000000,1.000000 value=-0.062500,0.314815.
+07:44:08.139  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=285 feature18Evals=4882
+07:44:08.152  [perf] reset stage=C-NR-transfer epoch=285 transfer=1.100; warming 180 frames
+07:44:10.230  NR-before-SR V2 evaluate succeeded: count=4800 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:10.464  [stats] current contract: generation=2 mode=2 carrier-requests=3000 Feature18-success=2988 transfer-prepared=2985 transfer-recorded=2985 transfer-bound=2985 transfer-submitted=2985.
+07:44:14.641  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=0 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=286 feature18Evals=5185
+07:44:14.654  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->1 skin -0.000->-0.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:14.656  NR guide binding: mode=2 depth=1920x1080@0,0 mv=1920x1080@0,0 sourceMV=1920x1080 converted=0 scale=1.000000,1.000000 flags=73 depthInverted=1 historyReset=1.
+07:44:14.656  NR create contract: mode=2 extent=1920x1080 depth=1920x1080 mv=1920x1080 gameFlags=75 normalizedFlags=73 perfQuality=5.
+07:44:14.656  HDR exposure contract adapted: source PreExposure=1.000000 scalarExposureScale=1.000000 scalarSourceToCanonical=1.000000 liveTexture=0; when present its 1x1 red channel overrides the scalar in the codec and the NR proxy uses canonical exposure 1.0.
+07:44:14.656  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:14.731  [nr-instance] created=3 mode=2 featureGeneration=2 config=21 intensity=2.000 style=2 proxyMapping=existing.
+07:44:14.731  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:14.732  NR-before-SR V2 evaluate succeeded: count=1 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:14.733  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:14.734  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:14.734  [perf] reset stage=C-NR-transfer epoch=286 transfer=1.100; warming 180 frames
+07:44:14.747  NR-before-SR V2 evaluate succeeded: count=2 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:14.765  NR-before-SR V2 evaluate succeeded: count=3 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:15.336  [nr-diag] instance=3 frame=5189 config=21 eval=4 sinceReset=4 warmed=1 first=1 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1; frame identifies NR evaluation, not Present/FG. Model response requires image comparison; parameter acceptance alone is insufficient.
+07:44:15.336  ColorDiag #50 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.635887 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.253043 finalChanged=2039 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:15.336      original   meanRGB=(0.081207,0.093037,0.158710) luma=0.095262 hash=85F9FA66
+07:44:15.336      proxy      meanRGB=(0.080822,0.092541,0.157747) luma=0.094757 hash=874EE8FE
+07:44:15.336      nr-output  meanRGB=(0.080012,0.089795,0.137576) luma=0.091165 hash=FCEC4D19
+07:44:15.336      composited meanRGB=(0.077979,0.089763,0.154885) luma=0.091960 hash=10B57DFF
+07:44:15.336      mean-luma bias vs original: proxy=-0.53% NR=-4.30% final=-3.47%.
+07:44:15.336  [color] mean-luma attribution=neural-luminance-residual-transferred proxyStable=1 neuralVsProxy=-3.77% finalVsOriginal=-3.47% mode=2 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:18.419  --- SuperSampling Evaluate #5400 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:44:18.419      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:44:18.419      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:44:18.419      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:44:18.419      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:44:18.419      DLSS.Input.Color.Subrect.Base.X            = 0
+07:44:18.419      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:44:18.419      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:44:18.419      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:44:18.419      DLSS.Input.MV.Subrect.Base.X               = 0
+07:44:18.419      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:44:18.419      DLSS.Output.Subrect.Base.X                 = 0
+07:44:18.419      DLSS.Output.Subrect.Base.Y                 = 0
+07:44:18.419      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:44:18.420      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:44:18.420      MV.Scale.X                                 = 1
+07:44:18.420      MV.Scale.Y                                 = 1
+07:44:18.420      Jitter.Offset.X                            = -0.28125
+07:44:18.420      Jitter.Offset.Y                            = -0.15432099
+07:44:18.420      DLSS.Pre.Exposure                          = 1
+07:44:18.420      DLSS.Exposure.Scale                        = 1
+07:44:18.420      Reset                                      = 0
+07:44:18.420  [stats] all NGX evaluations=16200, upscaling-carrier evaluations=5400 feature=1(SuperSampling)
+07:44:18.420  [stats] session totals: Feature18-success=5357 transfer-prepared=5342 transfer-recorded=5339 transfer-bound=5339 transfer-submitted=5339 lifecycle-bypass=0; queue-affinity admitted=4795 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:44:19.318  NR jitter actual: mode=0 state=legacy input=valid,valid source=1920x1080 work=1920x1080 scale=1.000000,1.000000 value=unknown.
+07:44:22.149  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=287 feature18Evals=5531
+07:44:22.160  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->1 skin -0.000->-0.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:22.162  NR guide binding: mode=2 depth=1920x1080@0,0 mv=1920x1080@0,0 sourceMV=1920x1080 converted=0 scale=1.000000,1.000000 flags=73 depthInverted=1 historyReset=1.
+07:44:22.162  NR create contract: mode=2 extent=1920x1080 depth=1920x1080 mv=1920x1080 gameFlags=75 normalizedFlags=73 perfQuality=5.
+07:44:22.162  HDR exposure contract adapted: source PreExposure=1.000000 scalarExposureScale=1.000000 scalarSourceToCanonical=1.000000 liveTexture=0; when present its 1x1 red channel overrides the scalar in the codec and the NR proxy uses canonical exposure 1.0.
+07:44:22.162  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:22.213  [nr-instance] created=4 mode=2 featureGeneration=2 config=22 intensity=2.000 style=2 proxyMapping=existing.
+07:44:22.213  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:22.213  NR-before-SR V2 evaluate succeeded: count=1 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:22.215  [perf] reset stage=C-NR-transfer epoch=287 transfer=1.100; warming 180 frames
+07:44:22.218  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:22.219  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:22.227  NR-before-SR V2 evaluate succeeded: count=2 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:22.244  NR-before-SR V2 evaluate succeeded: count=3 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:22.651  [nr-diag] instance=4 frame=5535 config=22 eval=4 sinceReset=4 warmed=1 first=1 intensity=2.000 style=2 autoMask=1 skin=-0.000 localTone=1.140 localStructure=2.000 uiCorrection=1; frame identifies NR evaluation, not Present/FG. Model response requires image comparison; parameter acceptance alone is insufficient.
+07:44:22.652  ColorDiag #53 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.558006 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.255868 finalChanged=2036 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:22.652      original   meanRGB=(0.083090,0.095093,0.161509) luma=0.097336 hash=7D5E4219
+07:44:22.652      proxy      meanRGB=(0.082663,0.094532,0.160433) luma=0.096766 hash=33EC3CCB
+07:44:22.652      nr-output  meanRGB=(0.082070,0.091929,0.140033) luma=0.093306 hash=DE352DC0
+07:44:22.652      composited meanRGB=(0.079863,0.091797,0.157543) luma=0.094006 hash=7210B322
+07:44:22.652      mean-luma bias vs original: proxy=-0.58% NR=-4.14% final=-3.42%.
+07:44:22.652  [color] mean-luma attribution=neural-luminance-residual-transferred proxyStable=1 neuralVsProxy=-3.56% finalVsOriginal=-3.42% mode=2 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:23.462  [stats] current contract: generation=2 mode=2 carrier-requests=3600 Feature18-success=3588 transfer-prepared=3579 transfer-recorded=3579 transfer-bound=3579 transfer-submitted=3579.
+07:44:30.903  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=2.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=288 feature18Evals=5937
+07:44:30.914  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->1 skin -0.000->2.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:30.917  NR guide binding: mode=2 depth=1920x1080@0,0 mv=1920x1080@0,0 sourceMV=1920x1080 converted=0 scale=1.000000,1.000000 flags=73 depthInverted=1 historyReset=1.
+07:44:30.917  NR create contract: mode=2 extent=1920x1080 depth=1920x1080 mv=1920x1080 gameFlags=75 normalizedFlags=73 perfQuality=5.
+07:44:30.917  HDR exposure contract adapted: source PreExposure=1.000000 scalarExposureScale=1.000000 scalarSourceToCanonical=1.000000 liveTexture=0; when present its 1x1 red channel overrides the scalar in the codec and the NR proxy uses canonical exposure 1.0.
+07:44:30.917  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=2.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:30.968  [nr-instance] created=5 mode=2 featureGeneration=2 config=23 intensity=2.000 style=2 proxyMapping=existing.
+07:44:30.968  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:30.968  NR-before-SR V2 evaluate succeeded: count=1 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:30.969  [perf] reset stage=C-NR-transfer epoch=288 transfer=1.100; warming 180 frames
+07:44:30.973  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:30.973  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:30.983  NR-before-SR V2 evaluate succeeded: count=2 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:31.002  NR-before-SR V2 evaluate succeeded: count=3 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:31.173  [nr-diag] instance=5 frame=5941 config=23 eval=4 sinceReset=4 warmed=1 first=1 intensity=2.000 style=2 autoMask=1 skin=2.000 localTone=1.140 localStructure=2.000 uiCorrection=1; frame identifies NR evaluation, not Present/FG. Model response requires image comparison; parameter acceptance alone is insufficient.
+07:44:31.173  ColorDiag #57 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.613477 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.266082 finalChanged=2037 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:31.173      original   meanRGB=(0.081235,0.092757,0.159647) luma=0.095136 hash=EC342FF4
+07:44:31.173      proxy      meanRGB=(0.080827,0.092233,0.158646) luma=0.094603 hash=1179925F
+07:44:31.173      nr-output  meanRGB=(0.080282,0.090126,0.139611) luma=0.091606 hash=1175A562
+07:44:31.173      composited meanRGB=(0.078452,0.090080,0.157137) luma=0.092449 hash=1500B3C0
+07:44:31.173      mean-luma bias vs original: proxy=-0.56% NR=-3.71% final=-2.82%.
+07:44:31.173  [color] mean-luma attribution=neural-luminance-residual-contained proxyStable=1 neuralVsProxy=-3.15% finalVsOriginal=-2.82% mode=2 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:31.386  --- SuperSampling Evaluate #6000 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:44:31.386      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:44:31.386      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:44:31.386      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:44:31.386      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:44:31.386      DLSS.Input.Color.Subrect.Base.X            = 0
+07:44:31.386      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:44:31.386      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:44:31.386      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:44:31.386      DLSS.Input.MV.Subrect.Base.X               = 0
+07:44:31.386      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:44:31.386      DLSS.Output.Subrect.Base.X                 = 0
+07:44:31.386      DLSS.Output.Subrect.Base.Y                 = 0
+07:44:31.386      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:44:31.386      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:44:31.386      MV.Scale.X                                 = 1
+07:44:31.386      MV.Scale.Y                                 = 1
+07:44:31.386      Jitter.Offset.X                            = -0.34375
+07:44:31.386      Jitter.Offset.Y                            = 0.24074078
+07:44:31.386      DLSS.Pre.Exposure                          = 1
+07:44:31.386      DLSS.Exposure.Scale                        = 1
+07:44:31.387      Reset                                      = 0
+07:44:31.387  [stats] all NGX evaluations=18000, upscaling-carrier evaluations=6000 feature=1(SuperSampling)
+07:44:31.387  [stats] session totals: Feature18-success=5957 transfer-prepared=5936 transfer-recorded=5933 transfer-bound=5933 transfer-submitted=5933 lifecycle-bypass=0; queue-affinity admitted=5340 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:44:32.286  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1920x1080 work=1920x1080 scale=1.000000,1.000000 value=-0.031250,-0.376543.
+07:44:33.682  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=289 feature18Evals=6064
+07:44:33.696  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->1 skin 2.000->0.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:33.698  NR guide binding: mode=2 depth=1920x1080@0,0 mv=1920x1080@0,0 sourceMV=1920x1080 converted=0 scale=1.000000,1.000000 flags=73 depthInverted=1 historyReset=1.
+07:44:33.698  NR create contract: mode=2 extent=1920x1080 depth=1920x1080 mv=1920x1080 gameFlags=75 normalizedFlags=73 perfQuality=5.
+07:44:33.698  HDR exposure contract adapted: source PreExposure=1.000000 scalarExposureScale=1.000000 scalarSourceToCanonical=1.000000 liveTexture=0; when present its 1x1 red channel overrides the scalar in the codec and the NR proxy uses canonical exposure 1.0.
+07:44:33.698  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:33.750  [nr-instance] created=6 mode=2 featureGeneration=2 config=24 intensity=2.000 style=2 proxyMapping=existing.
+07:44:33.750  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:33.750  NR-before-SR V2 evaluate succeeded: count=1 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:33.751  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:33.752  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:33.752  [perf] reset stage=C-NR-transfer epoch=289 transfer=1.100; warming 180 frames
+07:44:33.765  NR-before-SR V2 evaluate succeeded: count=2 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:33.778  NR-before-SR V2 evaluate succeeded: count=3 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:34.209  [nr-diag] instance=6 frame=6068 config=24 eval=4 sinceReset=4 warmed=1 first=1 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1; frame identifies NR evaluation, not Present/FG. Model response requires image comparison; parameter acceptance alone is insufficient.
+07:44:34.209  ColorDiag #59 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.613892 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.267998 finalChanged=2038 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:34.209      original   meanRGB=(0.078690,0.090012,0.157793) luma=0.092498 hash=1F868C81
+07:44:34.209      proxy      meanRGB=(0.078381,0.089594,0.156909) luma=0.092070 hash=D1B788A4
+07:44:34.209      nr-output  meanRGB=(0.078046,0.087376,0.136512) luma=0.088940 hash=64FAF50C
+07:44:34.209      composited meanRGB=(0.075982,0.087079,0.154052) luma=0.089555 hash=B3C60012
+07:44:34.209      mean-luma bias vs original: proxy=-0.46% NR=-3.85% final=-3.18%.
+07:44:34.209  [color] mean-luma attribution=neural-luminance-residual-transferred proxyStable=1 neuralVsProxy=-3.38% finalVsOriginal=-3.18% mode=2 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:34.484  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=0 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=290 feature18Evals=6099
+07:44:34.497  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->0 skin 0.000->-1.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:34.499  NR guide binding: mode=2 depth=1920x1080@0,0 mv=1920x1080@0,0 sourceMV=1920x1080 converted=0 scale=1.000000,1.000000 flags=73 depthInverted=1 historyReset=1.
+07:44:34.499  NR create contract: mode=2 extent=1920x1080 depth=1920x1080 mv=1920x1080 gameFlags=75 normalizedFlags=73 perfQuality=5.
+07:44:34.499  HDR exposure contract adapted: source PreExposure=1.000000 scalarExposureScale=1.000000 scalarSourceToCanonical=1.000000 liveTexture=0; when present its 1x1 red channel overrides the scalar in the codec and the NR proxy uses canonical exposure 1.0.
+07:44:34.499  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=0 skin=-1.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:34.553  [nr-instance] created=7 mode=2 featureGeneration=2 config=25 intensity=2.000 style=2 proxyMapping=existing.
+07:44:34.553  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:34.554  NR-before-SR V2 evaluate succeeded: count=1 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:34.555  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:34.555  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:34.556  [perf] reset stage=C-NR-transfer epoch=290 transfer=1.100; warming 180 frames
+07:44:34.569  NR-before-SR V2 evaluate succeeded: count=2 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:34.586  NR-before-SR V2 evaluate succeeded: count=3 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:35.680  [nr-diag] instance=7 frame=6103 config=25 eval=4 sinceReset=4 warmed=1 first=1 intensity=2.000 style=2 autoMask=0 skin=-1.000 localTone=1.140 localStructure=2.000 uiCorrection=1; frame identifies NR evaluation, not Present/FG. Model response requires image comparison; parameter acceptance alone is insufficient.
+07:44:35.681  ColorDiag #60 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.621171 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.271376 finalChanged=2038 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:35.681      original   meanRGB=(0.081909,0.093155,0.161834) luma=0.095722 hash=A38E4E76
+07:44:35.681      proxy      meanRGB=(0.081549,0.092689,0.160921) luma=0.095247 hash=47EF98C2
+07:44:35.681      nr-output  meanRGB=(0.080822,0.090153,0.139282) luma=0.091717 hash=9A326869
+07:44:35.681      composited meanRGB=(0.078454,0.089755,0.158318) luma=0.092302 hash=F7610FE3
+07:44:35.681      mean-luma bias vs original: proxy=-0.50% NR=-4.18% final=-3.57%.
+07:44:35.681  [color] mean-luma attribution=neural-luminance-residual-transferred proxyStable=1 neuralVsProxy=-3.69% finalVsOriginal=-3.57% mode=2 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:36.493  [stats] current contract: generation=2 mode=2 carrier-requests=4200 Feature18-success=4188 transfer-prepared=4170 transfer-recorded=4170 transfer-bound=4170 transfer-submitted=4170.
+07:44:41.594  [module] lazy rescan #240 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=6471 observerFault=none.
+07:44:42.663  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=291 feature18Evals=6478
+07:44:42.674  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 0->1 skin -1.000->0.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:42.676  NR guide binding: mode=2 depth=1920x1080@0,0 mv=1920x1080@0,0 sourceMV=1920x1080 converted=0 scale=1.000000,1.000000 flags=73 depthInverted=1 historyReset=1.
+07:44:42.676  NR create contract: mode=2 extent=1920x1080 depth=1920x1080 mv=1920x1080 gameFlags=75 normalizedFlags=73 perfQuality=5.
+07:44:42.676  HDR exposure contract adapted: source PreExposure=1.000000 scalarExposureScale=1.000000 scalarSourceToCanonical=1.000000 liveTexture=0; when present its 1x1 red channel overrides the scalar in the codec and the NR proxy uses canonical exposure 1.0.
+07:44:42.676  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:42.731  [nr-instance] created=8 mode=2 featureGeneration=2 config=26 intensity=2.000 style=2 proxyMapping=existing.
+07:44:42.731  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:42.732  NR-before-SR V2 evaluate succeeded: count=1 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:42.733  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:42.734  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:42.734  [perf] reset stage=C-NR-transfer epoch=291 transfer=1.100; warming 180 frames
+07:44:42.746  NR-before-SR V2 evaluate succeeded: count=2 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:42.765  NR-before-SR V2 evaluate succeeded: count=3 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:42.986  [nr-diag] instance=8 frame=6482 config=26 eval=4 sinceReset=4 warmed=1 first=1 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1; frame identifies NR evaluation, not Present/FG. Model response requires image comparison; parameter acceptance alone is insufficient.
+07:44:42.986  ColorDiag #64 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.630119 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.259168 finalChanged=2039 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:42.986      original   meanRGB=(0.080063,0.092006,0.158912) luma=0.094297 hash=1D495A8E
+07:44:42.986      proxy      meanRGB=(0.079778,0.091606,0.158066) luma=0.093890 hash=831A3833
+07:44:42.986      nr-output  meanRGB=(0.079920,0.089888,0.138772) luma=0.091298 hash=8E074DE1
+07:44:42.986      composited meanRGB=(0.077752,0.089724,0.156477) luma=0.091999 hash=9E77F014
+07:44:42.986      mean-luma bias vs original: proxy=-0.43% NR=-3.18% final=-2.44%.
+07:44:42.987  [color] mean-luma attribution=within-mean-threshold proxyStable=1 neuralVsProxy=-2.75% finalVsOriginal=-2.44% mode=2 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:44.414  --- SuperSampling Evaluate #6600 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:44:44.414      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:44:44.414      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:44:44.414      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:44:44.414      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:44:44.414      DLSS.Input.Color.Subrect.Base.X            = 0
+07:44:44.414      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:44:44.414      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:44:44.414      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:44:44.414      DLSS.Input.MV.Subrect.Base.X               = 0
+07:44:44.414      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:44:44.414      DLSS.Output.Subrect.Base.X                 = 0
+07:44:44.414      DLSS.Output.Subrect.Base.Y                 = 0
+07:44:44.414      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:44:44.414      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:44:44.414      MV.Scale.X                                 = 1
+07:44:44.414      MV.Scale.Y                                 = 1
+07:44:44.414      Jitter.Offset.X                            = -0.3125
+07:44:44.414      Jitter.Offset.Y                            = -0.35185182
+07:44:44.415      DLSS.Pre.Exposure                          = 1
+07:44:44.415      DLSS.Exposure.Scale                        = 1
+07:44:44.415      Reset                                      = 0
+07:44:44.415  [stats] all NGX evaluations=19800, upscaling-carrier evaluations=6600 feature=1(SuperSampling)
+07:44:44.415  [stats] session totals: Feature18-success=6557 transfer-prepared=6527 transfer-recorded=6524 transfer-bound=6524 transfer-submitted=6524 lifecycle-bypass=0; queue-affinity admitted=5879 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:44:45.314  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1920x1080 work=1920x1080 scale=1.000000,1.000000 value=-0.093750,0.018519.
+07:44:46.299  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=0.690 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=292 feature18Evals=6645
+07:44:46.313  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->1 skin 0.000->0.690 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:46.316  NR guide binding: mode=2 depth=1920x1080@0,0 mv=1920x1080@0,0 sourceMV=1920x1080 converted=0 scale=1.000000,1.000000 flags=73 depthInverted=1 historyReset=1.
+07:44:46.316  NR create contract: mode=2 extent=1920x1080 depth=1920x1080 mv=1920x1080 gameFlags=75 normalizedFlags=73 perfQuality=5.
+07:44:46.316  HDR exposure contract adapted: source PreExposure=1.000000 scalarExposureScale=1.000000 scalarSourceToCanonical=1.000000 liveTexture=0; when present its 1x1 red channel overrides the scalar in the codec and the NR proxy uses canonical exposure 1.0.
+07:44:46.316  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=0.690 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:46.370  [nr-instance] created=9 mode=2 featureGeneration=2 config=27 intensity=2.000 style=2 proxyMapping=existing.
+07:44:46.370  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:46.370  NR-before-SR V2 evaluate succeeded: count=1 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:46.371  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:46.372  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:46.372  [perf] reset stage=C-NR-transfer epoch=292 transfer=1.100; warming 180 frames
+07:44:46.385  NR-before-SR V2 evaluate succeeded: count=2 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:46.403  NR-before-SR V2 evaluate succeeded: count=3 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:46.470  [nr-diag] instance=9 frame=6649 config=27 eval=4 sinceReset=4 warmed=1 first=1 intensity=2.000 style=2 autoMask=1 skin=0.690 localTone=1.140 localStructure=2.000 uiCorrection=1; frame identifies NR evaluation, not Present/FG. Model response requires image comparison; parameter acceptance alone is insufficient.
+07:44:46.470  ColorDiag #66 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.614678 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.264738 finalChanged=2038 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:46.470      original   meanRGB=(0.081192,0.092745,0.159536) luma=0.095110 hash=A7D19A92
+07:44:46.470      proxy      meanRGB=(0.080761,0.092193,0.158499) luma=0.094550 hash=25264F8D
+07:44:46.470      nr-output  meanRGB=(0.080371,0.089927,0.138630) luma=0.091412 hash=941689CA
+07:44:46.470      composited meanRGB=(0.078111,0.089553,0.156423) luma=0.091949 hash=474FCFDE
+07:44:46.470      mean-luma bias vs original: proxy=-0.59% NR=-3.89% final=-3.32%.
+07:44:46.470  [color] mean-luma attribution=neural-luminance-residual-transferred proxyStable=1 neuralVsProxy=-3.30% finalVsOriginal=-3.32% mode=2 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:47.945  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=293 feature18Evals=6719
+07:44:47.956  Feature 18 create-time tuning changed for handle=[address] mode=2 extent=1920x1080: intensity 2.000->2.000 style 2->2 autoMask 1->1 skin 0.690->0.000 localTone 1.140->1.140 localStructure 2.000->2.000 uiCorrection 1->1. Retiring the old temporal feature after its exact GPU fence.
+07:44:47.959  NR guide binding: mode=2 depth=1920x1080@0,0 mv=1920x1080@0,0 sourceMV=1920x1080 converted=0 scale=1.000000,1.000000 flags=73 depthInverted=1 historyReset=1.
+07:44:47.959  NR create contract: mode=2 extent=1920x1080 depth=1920x1080 mv=1920x1080 gameFlags=75 normalizedFlags=73 perfQuality=5.
+07:44:47.959  HDR exposure contract adapted: source PreExposure=1.000000 scalarExposureScale=1.000000 scalarSourceToCanonical=1.000000 liveTexture=0; when present its 1x1 red channel overrides the scalar in the codec and the NR proxy uses canonical exposure 1.0.
+07:44:47.959  Feature 18 create-time tuning: mode=2 extent=1920x1080 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 proxyMapping=existing.
+07:44:48.010  [nr-instance] created=10 mode=2 featureGeneration=2 config=28 intensity=2.000 style=2 proxyMapping=existing.
+07:44:48.010  signed feature 18 create 1920x1080 -> 1920x1080 result=0x00000001(Success) handle=[address]
+07:44:48.010  NR-before-SR V2 evaluate succeeded: count=1 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:48.012  [perf] reset stage=C-NR-transfer epoch=293 transfer=1.100; warming 180 frames
+07:44:48.015  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; scheduling Feature 18 release outside locks.
+07:44:48.015  NR ReleaseFeature handle=[address] result=0x00000001
+07:44:48.024  NR-before-SR V2 evaluate succeeded: count=2 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:48.043  NR-before-SR V2 evaluate succeeded: count=3 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:44:48.581  [nr-diag] instance=10 frame=6723 config=28 eval=4 sinceReset=4 warmed=1 first=1 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1; frame identifies NR evaluation, not Present/FG. Model response requires image comparison; parameter acceptance alone is insufficient.
+07:44:48.581  ColorDiag #67 mode=2 featureGeneration=2 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.624487 changed=2040 maxFinalRelativeDelta=3.000000 meanFinalRelativeDelta=0.262367 finalChanged=2038 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:48.581      original   meanRGB=(0.081561,0.093644,0.162311) luma=0.096032 hash=33A46EB5
+07:44:48.581      proxy      meanRGB=(0.081224,0.093204,0.161439) luma=0.095584 hash=01D15EEE
+07:44:48.581      nr-output  meanRGB=(0.080668,0.090476,0.140012) luma=0.091967 hash=EE46BA2A
+07:44:48.581      composited meanRGB=(0.078159,0.090097,0.158239) luma=0.092479 hash=889A8319
+07:44:48.581      mean-luma bias vs original: proxy=-0.47% NR=-4.23% final=-3.70%.
+07:44:48.581  [color] mean-luma attribution=neural-luminance-residual-transferred proxyStable=1 neuralVsProxy=-3.77% finalVsOriginal=-3.70% mode=2 transfer=1.100 colorFollowEffective=0.000 preserveLighting=0.
+07:44:49.525  [stats] current contract: generation=2 mode=2 carrier-requests=4800 Feature18-success=4788 transfer-prepared=4761 transfer-recorded=4761 transfer-bound=4761 transfer-submitted=4761.
+07:44:57.386  --- SuperSampling Evaluate #7200 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:44:57.386      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:44:57.386      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:44:57.386      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:44:57.386      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:44:57.386      DLSS.Input.Color.Subrect.Base.X            = 0
+07:44:57.386      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:44:57.386      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:44:57.386      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:44:57.386      DLSS.Input.MV.Subrect.Base.X               = 0
+07:44:57.386      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:44:57.386      DLSS.Output.Subrect.Base.X                 = 0
+07:44:57.386      DLSS.Output.Subrect.Base.Y                 = 0
+07:44:57.386      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:44:57.387      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:44:57.387      MV.Scale.X                                 = 1
+07:44:57.387      MV.Scale.Y                                 = 1
+07:44:57.387      Jitter.Offset.X                            = -0.375
+07:44:57.387      Jitter.Offset.Y                            = -0.055555522
+07:44:57.387      DLSS.Pre.Exposure                          = 1
+07:44:57.387      DLSS.Exposure.Scale                        = 1
+07:44:57.387      Reset                                      = 0
+07:44:57.387  [stats] all NGX evaluations=21600, upscaling-carrier evaluations=7200 feature=1(SuperSampling)
+07:44:57.387  [stats] session totals: Feature18-success=7157 transfer-prepared=7121 transfer-recorded=7118 transfer-bound=7118 transfer-submitted=7118 lifecycle-bypass=0; queue-affinity admitted=6409 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:44:58.285  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1920x1080 work=1920x1080 scale=1.000000,1.000000 value=-0.062500,0.314815.
+07:45:00.879  NR-before-SR V2 evaluate succeeded: count=600 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:45:02.421  [stats] current contract: generation=2 mode=2 carrier-requests=5400 Feature18-success=5388 transfer-prepared=5361 transfer-recorded=5361 transfer-bound=5361 transfer-submitted=5361.
+07:45:04.757  [perf] stage=C-NR-transfer epoch=293 transfer=1.100 samples=600 avgFPS=46.512 avgMs=21.4999 p95Ms=24.2440 p99Ms=25.5783 onePercentLowFPS=29.167
+07:45:10.285  --- SuperSampling Evaluate #7800 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:45:10.285      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:45:10.285      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:45:10.285      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:45:10.285      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:45:10.285      DLSS.Input.Color.Subrect.Base.X            = 0
+07:45:10.285      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:45:10.285      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:45:10.285      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:45:10.285      DLSS.Input.MV.Subrect.Base.X               = 0
+07:45:10.285      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:45:10.285      DLSS.Output.Subrect.Base.X                 = 0
+07:45:10.285      DLSS.Output.Subrect.Base.Y                 = 0
+07:45:10.285      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:45:10.285      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:45:10.285      MV.Scale.X                                 = 1
+07:45:10.285      MV.Scale.Y                                 = 1
+07:45:10.285      Jitter.Offset.X                            = -0.28125
+07:45:10.286      Jitter.Offset.Y                            = -0.15432099
+07:45:10.286      DLSS.Pre.Exposure                          = 1
+07:45:10.286      DLSS.Exposure.Scale                        = 1
+07:45:10.286      Reset                                      = 0
+07:45:10.286  [stats] all NGX evaluations=23400, upscaling-carrier evaluations=7800 feature=1(SuperSampling)
+07:45:10.286  [stats] session totals: Feature18-success=7757 transfer-prepared=7721 transfer-recorded=7718 transfer-bound=7718 transfer-submitted=7718 lifecycle-bypass=0; queue-affinity admitted=6959 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:45:11.184  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1920x1080 work=1920x1080 scale=1.000000,1.000000 value=-0.125000,-0.277778.
+07:45:13.734  NR-before-SR V2 evaluate succeeded: count=1200 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:45:15.277  [stats] current contract: generation=2 mode=2 carrier-requests=6000 Feature18-success=5988 transfer-prepared=5961 transfer-recorded=5961 transfer-bound=5961 transfer-submitted=5961.
+07:45:16.262  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=294 feature18Evals=8036
+07:45:16.275  [perf] reset stage=C-NR-transfer epoch=294 transfer=1.100; warming 180 frames
+07:45:23.152  --- SuperSampling Evaluate #8400 handle=[address] generation=2 create=1920x1080 -> 3840x2160 ---
+07:45:23.152      Color                                      = [address] physical=1920x1080 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+07:45:23.152      MotionVectors                              = [address] physical=1920x1080 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:45:23.152      Depth                                      = [address] physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:45:23.152      Output                                     = [address] physical=3840x2160 format=26(R11G11B10_FLOAT) mips=1 flags=0x4 sample=1
+07:45:23.152      DLSS.Input.Color.Subrect.Base.X            = 0
+07:45:23.152      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:45:23.152      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:45:23.152      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:45:23.152      DLSS.Input.MV.Subrect.Base.X               = 0
+07:45:23.152      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:45:23.152      DLSS.Output.Subrect.Base.X                 = 0
+07:45:23.152      DLSS.Output.Subrect.Base.Y                 = 0
+07:45:23.152      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:45:23.152      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:45:23.152      MV.Scale.X                                 = 1
+07:45:23.152      MV.Scale.Y                                 = 1
+07:45:23.152      Jitter.Offset.X                            = -0.34375
+07:45:23.152      Jitter.Offset.Y                            = 0.24074078
+07:45:23.152      DLSS.Pre.Exposure                          = 1
+07:45:23.152      DLSS.Exposure.Scale                        = 1
+07:45:23.153      Reset                                      = 0
+07:45:23.153  [stats] all NGX evaluations=25200, upscaling-carrier evaluations=8400 feature=1(SuperSampling)
+07:45:23.153  [stats] session totals: Feature18-success=8357 transfer-prepared=8321 transfer-recorded=8318 transfer-bound=8318 transfer-submitted=8318 lifecycle-bypass=0; queue-affinity admitted=7507 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+07:45:24.054  NR jitter actual: mode=1 state=forwarded input=valid,valid source=1920x1080 work=1920x1080 scale=1.000000,1.000000 value=-0.031250,-0.376543.
+07:45:26.603  NR-before-SR V2 evaluate succeeded: count=1800 work=1920x1080 render=1920x1080 mode=Reference scale=1.000 identity=0 strength=1.100
+07:45:26.751  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.100 colorFollowRequested=0.000 intensity=2.000 style=2 autoMask=1 skin=0.000 localTone=1.140 localStructure=2.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=295 feature18Evals=8525
+07:45:26.763  [perf] reset stage=C-NR-transfer epoch=295 transfer=1.100; warming 180 frames
+07:45:28.155  [stats] current contract: generation=2 mode=2 carrier-requests=6600 Feature18-success=6588 transfer-prepared=6561 transfer-recorded=6561 transfer-bound=6561 transfer-submitted=6561.

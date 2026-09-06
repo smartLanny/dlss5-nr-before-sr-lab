@@ -39,6 +39,7 @@ HARNESS = r'''
 #include <string>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include "nr_diagnostic_bundle.inl"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id };
@@ -135,12 +136,13 @@ bool IsActive(){return g_status==Status::Requested || g_status==Status::Running;
 unsigned StageCaptureStatus(){return 0;}
 REQUEST_CORE
 }
+LEGACY_REQUEST
 unsigned checks=0;
 void check(bool ok,const char *message){++checks;if(!ok){std::fprintf(stderr,"FAIL: %s Win32=%lu\n",message,GetLastError());std::exit(1);}}
 void drain(){while(!work.empty()){const auto w=work.front();work.erase(work.begin());w.fn(w.arg);}}
 void put(const std::filesystem::path &path,const std::string &value){std::ofstream out(path,std::ios::binary);out<<value;check(out.good(),"write fixture");}
 void save(const char *name){check(g_feedback_last_zip[0]!=0,"current ZIP exists");std::filesystem::copy_file(g_feedback_last_zip,std::filesystem::path(output_root)/name);}
-void begin(reshade::api::effect_runtime &runtime){check(nr_core_feedback::Request(),"new core request");check(!g_feedback_last_zip[0],"new request clears old path");check(!nr_core_feedback::g_submission[0],"new request clears old ticket");nr_core_feedback::Present(&runtime);}
+void begin(reshade::api::effect_runtime &runtime){check(RequestFeedbackBundle(),"new core request through legacy UI");check(!g_feedback_last_zip[0],"new request clears old path");check(!nr_core_feedback::g_submission[0],"new request clears old ticket");check(!nr_core_feedback::g_full_report && !nr_core_feedback::g_report_path[0],"new request clears old TXT");check(nr_core_feedback::SnapshotPair().session[0] && g_feedback_status==1,"legacy request initializes session and parameter observer");nr_core_feedback::Present(&runtime);}
 int main(int argc,char **argv) {
     check(argc==2,"output directory supplied");output_root=std::filesystem::absolute(argv[1]).wstring();
     std::filesystem::create_directories(output_root);InitializeCriticalSection(&g_chain_cs);
@@ -166,7 +168,10 @@ int main(int argc,char **argv) {
     AcquireSRWLockExclusive(&g_ngx_hook_failure_lock);
     check(!SnapshotNgxHookFailure().available,"hook evidence contention is nonblocking");
     ReleaseSRWLockExclusive(&g_ngx_hook_failure_lock);
+    g_config.high_strength_protection=false;g_config.layered_enhancement=true;
+    g_config.layer_tone=.5f;g_config.layer_structure=1.5f;g_config.layer_bright=.75f;g_config.layer_shadow=1.25f;
     begin(runtime);check(nr_core_feedback::Busy(),"worker owned by current session");
+    g_config.layer_bright=2.f; // Worker must serialize the earlier coherent snapshot.
     const auto first=nr_core_feedback::SnapshotPair();check(!nr_core_feedback::Request(),"no overlapping core jobs");
     drain(); // no second Present, no NR frame, no image or GPU stage functions even exist in this harness
     check(g_feedback_status==3 && !nr_core_feedback::Busy(),"zero-NR core completes independently");
@@ -177,6 +182,29 @@ int main(int argc,char **argv) {
     check(std::strstr(nr_core_feedback::g_submission,"end.commandState.reason=null-guard-awaiting-reset"),"actual ticket includes command-state reason");
     check(std::strstr(nr_core_feedback::g_submission,"end.ngxHookFailure.entry=existing-short-hotpatch"),"actual ticket includes historical hook shape");
     save("valid-core.zip");
+    check(nr_core_feedback::g_full_report && nr_core_feedback::g_report_path[0],"standalone TXT and cached content published");
+    const auto &report=*nr_core_feedback::g_full_report;
+    check(report.find(first.session)!=std::string::npos && report.find("null-pso-policy-disabled")!=std::string::npos,"TXT carries this session and first-error log");
+    check(report.find("Private Tester")==std::string::npos && report.find("ABCDEF00")==std::string::npos,"TXT privacy matches sanitized ZIP");
+    check(report.find("text.complete=1")!=std::string::npos,"all included core summaries present in TXT");
+    check(report.find("requested.highStrengthProtection=0\n")!=std::string::npos &&
+          report.find("requested.layeredEnhancement=1\n")!=std::string::npos &&
+          report.find("requested.layerBright=0.75\n")!=std::string::npos &&
+          report.find("requested.layerShadow=1.25\n")!=std::string::npos,
+          "TXT carries frozen 0.5 picture settings, not current globals");
+    std::ifstream txt(std::filesystem::path(nr_core_feedback::g_report_path),std::ios::binary);
+    check(std::string((std::istreambuf_iterator<char>(txt)),{})==report,"disk TXT equals clipboard cache");
+    txt.close();
+    std::filesystem::copy_file(nr_core_feedback::g_report_path,std::filesystem::path(output_root)/"valid-core.txt");
+
+    {
+        nr_core_feedback::nr_feedback_report::Output blocked;
+        const auto dir=std::filesystem::path(output_root)/"core-1";
+        check(!nr_core_feedback::nr_feedback_report::WriteAtomic(dir.c_str(),"replacement",blocked),"TXT cannot overwrite this session's published report");
+        check(blocked.error!=0 && blocked.path.empty(),"TXT error is explicit and has no false published path");
+        check(g_feedback_last_zip[0] && g_feedback_status==3,"independent TXT failure preserves valid ZIP");
+        check(!std::filesystem::exists(dir/"feedback-report.txt.tmp"),"failed TXT publication removes only owned temporary file");
+    }
     std::ifstream summary(std::filesystem::path(output_root)/"core-1/summary-0.txt",std::ios::binary);
     const std::string text((std::istreambuf_iterator<char>(summary)),{});
     check(text.find("null-pso-policy-disabled")!=std::string::npos,"first bypass survives long later success tail");
@@ -226,6 +254,7 @@ def main():
     legacy = (ROOT/'src/nr_feedback_capture.inl').read_text(encoding='utf-8-sig')
     command = (ROOT/'src/nr_command_state.inl').read_text(encoding='utf-8-sig')
     values = {
+        'LEGACY_REQUEST': definition(legacy, 'bool RequestFeedbackBundle('),
         'COMMAND_EVIDENCE': definition(command, 'struct CommandStateEvidence', True),
         'COMMAND_SNAPSHOT': definition(command, 'CommandStateEvidence SnapshotCommandStateEvidence('),
         'HOOK_EVIDENCE': definition(source, 'struct NgxHookFailureEvidence', True),
@@ -261,7 +290,9 @@ def main():
         for key in ('start.commandState.schema=1', 'end.commandState.token=42',
                     'end.commandState.reason=null-guard-awaiting-reset',
                     'end.commandState.guardCovered=1', 'end.commandState.freshReset=0',
-                    'end.ngxHookFailure.entry=existing-short-hotpatch'):
+                    'end.ngxHookFailure.entry=existing-short-hotpatch',
+                    'requested.highStrengthProtection=0', 'requested.layeredEnhancement=1',
+                    'requested.layerBright=0.75', 'requested.layerShadow=1.25'):
             assert key in metadata, key
     print('Actual Windows core ZIPs independently verified (complete / cancelled / snapshot busy).')
 

@@ -9,5 +9,9 @@
 *.txt text eol=lf
 *.ini text eol=crlf
 *.ps1 text eol=crlf
-# Archived evidence is immutable; never normalize its mixed original line endings.
+
+# Historical evidence is not editable source. Preserve the exact archived blob
+# bytes (and its recorded digest), including mixed CRLF/LF, on every platform.
+# Normalizing these pre-existing blobs makes a fresh checkout appear dirty and
+# incorrectly taints the binary source identity. Do not relax the release gate.
 bug-inbox/** -text !eol

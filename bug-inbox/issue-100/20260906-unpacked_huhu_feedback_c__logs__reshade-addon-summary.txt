@@ -1,0 +1,404 @@
+format=DLSS5-LogSummary-v1
+source.bytes=24388
+scan.bytes=24388
+scan.complete=1
+lines.scanned=183
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+02:55:45:658 [ 2576] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from '[local-path]
+02:55:45:661 [ 2576] | INFO  | Registering hooks for 'user32.dll' ...
+02:55:45:662 [ 2576] | INFO  | > Libraries loaded.
+02:55:45:664 [ 2576] | INFO  | > Found 21 match(es). Installing ...
+02:55:45:704 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:705 [ 2576] | INFO  | > Delayed.
+02:55:45:708 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:709 [ 2576] | INFO  | > Libraries loaded.
+02:55:45:709 [ 2576] | INFO  | > Found 2 match(es). Installing ...
+02:55:45:731 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:732 [ 2576] | INFO  | > Delayed.
+02:55:45:732 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:732 [ 2576] | INFO  | > Libraries loaded.
+02:55:45:732 [ 2576] | INFO  | > Found 11 match(es). Installing ...
+02:55:45:756 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:756 [ 2576] | INFO  | > Delayed.
+02:55:45:756 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:756 [ 2576] | INFO  | > Delayed.
+02:55:45:756 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:756 [ 2576] | INFO  | > Delayed.
+02:55:45:757 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:757 [ 2576] | INFO  | > Delayed until first call to an exported function.
+02:55:45:757 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:757 [ 2576] | INFO  | > Libraries loaded.
+02:55:45:757 [ 2576] | INFO  | > Found 5 match(es). Installing ...
+02:55:45:781 [ 2576] | INFO  | Registering hooks for 'openvr_api.dll' ...
+02:55:45:781 [ 2576] | INFO  | > Delayed.
+02:55:45:781 [ 2576] | INFO  | Initialized.
+02:55:45:781 [ 2576] | INFO  | Installing export hooks for '[local-path]
+02:55:45:781 [ 2576] | INFO  | > Found 8 match(es). Installing ...
+02:55:45:782 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+02:55:45:782 [ 2576] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+02:55:45:782 [ 2576] | INFO  | Loading add-on from '[local-path]
+02:55:45:901 [ 2576] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799" v0.4.3.3 using ReShade API version 18.
+02:55:45:903 [ 2576] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:55:46:040 [ 2576] | INFO  | Installing delayed hooks for '[local-path]
+02:55:46:040 [ 2576] | INFO  | > Found 3 match(es). Installing ...
+02:55:46:652 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:46:783 [ 2576] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799" ...
+02:55:46:783 [ 2576] | WARN  | Add-on "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799" was not unregistered!
+02:55:46:928 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+02:55:46:929 [ 2576] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799" ...
+02:55:46:929 [ 2576] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+02:55:46:929 [ 2576] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:55:46:935 [ 2576] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799" ...
+02:55:46:993 [ 2576] | INFO  | Redirecting RegisterClassW(lpWndClass = [address] { "UnrealWindow", style = 0x8 }) ...
+02:55:46:994 [ 2576] | INFO  | > Adding 'CS_OWNDC' window class style flag to "UnrealWindow".
+02:55:47:986 [ 2576] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {50C83A1C-E072-4C48-87B0-[address]}, ppFactory = [address]) ...
+02:55:47:987 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c200, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+02:55:47:987 [ 2576] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799" ...
+02:55:47:987 [ 2576] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+02:55:47:988 [ 2576] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:55:48:487 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:48:572 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:55:48:573 [ 2576] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:55:48:573 [ 2576] | INFO  | > Dumping command queue description:
+02:55:48:573 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:573 [ 2576] | INFO  |   | Parameter                               | Value                                   |
+02:55:48:573 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:573 [ 2576] | INFO  |   | Type                                    | 0                                       |
+02:55:48:573 [ 2576] | INFO  |   | Priority                                | 0                                       |
+02:55:48:573 [ 2576] | INFO  |   | Flags                                   | 0                                       |
+02:55:48:573 [ 2576] | INFO  |   | NodeMask                                | 1                                       |
+02:55:48:573 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:595 [ 2576] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:55:48:595 [ 2576] | INFO  | > Dumping command queue description:
+02:55:48:596 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:596 [ 2576] | INFO  |   | Parameter                               | Value                                   |
+02:55:48:596 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:596 [ 2576] | INFO  |   | Type                                    | 3                                       |
+02:55:48:596 [ 2576] | INFO  |   | Priority                                | 0                                       |
+02:55:48:596 [ 2576] | INFO  |   | Flags                                   | 0                                       |
+02:55:48:596 [ 2576] | INFO  |   | NodeMask                                | 1                                       |
+02:55:48:596 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:601 [ 2576] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:55:48:601 [ 2576] | INFO  | > Dumping command queue description:
+02:55:48:601 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:601 [ 2576] | INFO  |   | Parameter                               | Value                                   |
+02:55:48:601 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:601 [ 2576] | INFO  |   | Type                                    | 2                                       |
+02:55:48:601 [ 2576] | INFO  |   | Priority                                | 0                                       |
+02:55:48:601 [ 2576] | INFO  |   | Flags                                   | 0                                       |
+02:55:48:601 [ 2576] | INFO  |   | NodeMask                                | 1                                       |
+02:55:48:601 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:845 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:55:51:210 [ 2576] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:55:51:211 [ 2576] | INFO  | > Dumping command queue description:
+02:55:51:211 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:211 [ 2576] | INFO  |   | Parameter                               | Value                                   |
+02:55:51:211 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:211 [ 2576] | INFO  |   | Type                                    | 0                                       |
+02:55:51:211 [ 2576] | INFO  |   | Priority                                | 100                                     |
+02:55:51:211 [ 2576] | INFO  |   | Flags                                   | 0                                       |
+02:55:51:211 [ 2576] | INFO  |   | NodeMask                                | 0                                       |
+02:55:51:212 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:235 [ 2576] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForHwnd(this = [address], pDevice = [address], hWnd = [address], pDesc = [address], pFullscreenDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+02:55:51:235 [ 2576] | INFO  | > Dumping swap chain description:
+02:55:51:235 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:236 [ 2576] | INFO  |   | Parameter                               | Value                                   |
+02:55:51:236 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:236 [ 2576] | INFO  |   | Width                                   | 1920                                    |
+02:55:51:236 [ 2576] | INFO  |   | Height                                  | 1080                                    |
+02:55:51:236 [ 2576] | INFO  |   | RefreshRate                             | 0                   0                   |
+02:55:51:236 [ 2576] | INFO  |   | Format                                  | DXGI_FORMAT_R10G10B10A2_UNORM           |
+02:55:51:236 [ 2576] | INFO  |   | Stereo                                  | FALSE                                   |
+02:55:51:236 [ 2576] | INFO  |   | ScanlineOrdering                        | 0                                       |
+02:55:51:236 [ 2576] | INFO  |   | Scaling                                 | 0                                       |
+02:55:51:236 [ 2576] | INFO  |   | SampleCount                             | 1                                       |
+02:55:51:236 [ 2576] | INFO  |   | SampleQuality                           | 0                                       |
+02:55:51:236 [ 2576] | INFO  |   | BufferUsage                             | 0x30                                    |
+02:55:51:236 [ 2576] | INFO  |   | BufferCount                             | 4                                       |
+02:55:51:236 [ 2576] | INFO  |   | Windowed                                | TRUE                                    |
+02:55:51:236 [ 2576] | INFO  |   | SwapEffect                              | 4                                       |
+02:55:51:236 [ 2576] | INFO  |   | AlphaMode                               | 0                                       |
+02:55:51:236 [ 2576] | INFO  |   | Flags                                   | 0x842                                   |
+02:55:51:236 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:243 [ 2576] | INFO  | Running on NVIDIA GeForce RTX 5060 Ti Driver 616.64.
+02:55:51:447 [ 2576] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+02:55:51:448 [ 2576] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:55:51:448 [ 2576] | INFO  | > Dumping command queue description:
+02:55:51:448 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:448 [ 2576] | INFO  |   | Parameter                               | Value                                   |
+02:55:51:448 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:448 [ 2576] | INFO  |   | Type                                    | 2                                       |
+02:55:51:448 [ 2576] | INFO  |   | Priority                                | 100                                     |
+02:55:51:448 [ 2576] | INFO  |   | Flags                                   | 0                                       |
+02:55:51:449 [ 2576] | INFO  |   | NodeMask                                | 0                                       |
+02:55:51:449 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:465 [ 2576] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 4, Width = 1920, Height = 1080, NewFormat = 24, SwapChainFlags = 0x842) ...
+02:55:51:466 [ 2576] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+02:55:51:471 [ 2576] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+02:55:51:541 [ 7056] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+02:55:51:545 [20236] | INFO  | Successfully compiled '[local-path]
+02:55:51:546 [ 7636] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+02:55:51:548 [23648] | INFO  | Successfully compiled '[local-path]
+02:55:51:548 [20228] | INFO  | Successfully compiled '[local-path]
+02:55:51:551 [13720] | INFO  | Successfully compiled '[local-path]
+02:55:51:552 [22988] | INFO  | Successfully compiled '[local-path]
+02:55:51:553 [22324] | INFO  | Successfully compiled '[local-path]
+02:55:51:554 [24396] | INFO  | Successfully compiled '[local-path]
+02:55:51:555 [26060] | INFO  | Successfully compiled '[local-path]
+02:55:51:557 [24084] | INFO  | Successfully compiled '[local-path]
+02:55:51:558 [25776] | INFO  | Successfully compiled '[local-path]
+02:55:51:559 [22228] | INFO  | Successfully compiled '[local-path]
+02:55:51:590 [ 1036] | INFO  | Successfully compiled '[local-path]
+02:55:52:051 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = 1000, riid = {77ACCE80-638E-4E65-8895-[address]}, ppDevice = [address]) ...
+02:55:52:052 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = 1000, riid = {77ACCE80-638E-4E65-8895-[address]}, ppDevice = [address]) ...
+02:55:52:052 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = 1000, riid = {77ACCE80-638E-4E65-8895-[address]}, ppDevice = [address]) ...
+02:55:52:052 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = 1000, riid = {77ACCE80-638E-4E65-8895-[address]}, ppDevice = [address]) ...
+02:55:52:831 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:52:832 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:52:863 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:53:297 [20468] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+02:55:58:996 [14588] | INFO  | Redirecting D3D11CreateDevice(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 3, SDKVersion = 7, ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+02:55:58:996 [14588] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+02:55:58:996 [14588] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 3, SDKVersion = 7, pSwapChainDesc = [address], ppSwapChain = [address], ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+02:55:58:997 [14588] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:55:59:057 [14588] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:59:098 [14588] | INFO  | Using feature level b000.
+02:55:59:121 [14588] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:55:59:415 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:59:416 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:10:309 [ 3884] | INFO  | Redirecting RegisterClassW(lpWndClass = [address] { "CPGPMObilePcGameBridgeWnd", style = 0x3 }) ...
+02:56:10:309 [ 3884] | INFO  | > Adding 'CS_OWNDC' window class style flag to "CPGPMObilePcGameBridgeWnd".
+02:56:11:976 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:11:980 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:11:980 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:21:577 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:21:708 [ 2576] | INFO  | Redirecting RegisterClassExA(lpWndClassEx = [address] { "CustomHDHandle_75483185952", style = 0 }) ...
+02:56:21:732 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:30:971 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:30:972 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+
+[first events]
+
+[recent important]
+02:55:45:661 [ 2576] | INFO  | Registering hooks for 'user32.dll' ...
+02:55:45:704 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:708 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:731 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:732 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:756 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:756 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:756 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:757 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:757 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:781 [ 2576] | INFO  | Registering hooks for 'openvr_api.dll' ...
+02:55:45:781 [ 2576] | INFO  | Installing export hooks for '[local-path]
+02:55:45:782 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+02:55:46:040 [ 2576] | INFO  | Installing delayed hooks for '[local-path]
+02:55:46:928 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+02:55:47:987 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c200, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+02:55:52:051 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = 1000, riid = {77ACCE80-638E-4E65-8895-[address]}, ppDevice = [address]) ...
+02:55:52:052 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = 1000, riid = {77ACCE80-638E-4E65-8895-[address]}, ppDevice = [address]) ...
+02:55:52:052 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = 1000, riid = {77ACCE80-638E-4E65-8895-[address]}, ppDevice = [address]) ...
+02:55:52:052 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = 1000, riid = {77ACCE80-638E-4E65-8895-[address]}, ppDevice = [address]) ...
+02:55:58:996 [14588] | INFO  | Redirecting D3D11CreateDevice(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 3, SDKVersion = 7, ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+02:55:58:996 [14588] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 3, SDKVersion = 7, pSwapChainDesc = [address], ppSwapChain = [address], ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+02:55:59:098 [14588] | INFO  | Using feature level b000.
+
+[tail]
+02:55:45:658 [ 2576] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from '[local-path]
+02:55:45:661 [ 2576] | INFO  | Registering hooks for 'user32.dll' ...
+02:55:45:662 [ 2576] | INFO  | > Libraries loaded.
+02:55:45:664 [ 2576] | INFO  | > Found 21 match(es). Installing ...
+02:55:45:704 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:705 [ 2576] | INFO  | > Delayed.
+02:55:45:708 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:709 [ 2576] | INFO  | > Libraries loaded.
+02:55:45:709 [ 2576] | INFO  | > Found 2 match(es). Installing ...
+02:55:45:731 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:732 [ 2576] | INFO  | > Delayed.
+02:55:45:732 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:732 [ 2576] | INFO  | > Libraries loaded.
+02:55:45:732 [ 2576] | INFO  | > Found 11 match(es). Installing ...
+02:55:45:756 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:756 [ 2576] | INFO  | > Delayed.
+02:55:45:756 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:756 [ 2576] | INFO  | > Delayed.
+02:55:45:756 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:756 [ 2576] | INFO  | > Delayed.
+02:55:45:757 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:757 [ 2576] | INFO  | > Delayed until first call to an exported function.
+02:55:45:757 [ 2576] | INFO  | Registering hooks for '[local-path]
+02:55:45:757 [ 2576] | INFO  | > Libraries loaded.
+02:55:45:757 [ 2576] | INFO  | > Found 5 match(es). Installing ...
+02:55:45:781 [ 2576] | INFO  | Registering hooks for 'openvr_api.dll' ...
+02:55:45:781 [ 2576] | INFO  | > Delayed.
+02:55:45:781 [ 2576] | INFO  | Initialized.
+02:55:45:781 [ 2576] | INFO  | Installing export hooks for '[local-path]
+02:55:45:781 [ 2576] | INFO  | > Found 8 match(es). Installing ...
+02:55:45:782 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+02:55:45:782 [ 2576] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+02:55:45:782 [ 2576] | INFO  | Loading add-on from '[local-path]
+02:55:45:901 [ 2576] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799" v0.4.3.3 using ReShade API version 18.
+02:55:45:903 [ 2576] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:55:46:040 [ 2576] | INFO  | Installing delayed hooks for '[local-path]
+02:55:46:040 [ 2576] | INFO  | > Found 3 match(es). Installing ...
+02:55:46:652 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:46:783 [ 2576] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799" ...
+02:55:46:783 [ 2576] | WARN  | Add-on "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799" was not unregistered!
+02:55:46:928 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+02:55:46:929 [ 2576] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799" ...
+02:55:46:929 [ 2576] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+02:55:46:929 [ 2576] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:55:46:935 [ 2576] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799" ...
+02:55:46:993 [ 2576] | INFO  | Redirecting RegisterClassW(lpWndClass = [address] { "UnrealWindow", style = 0x8 }) ...
+02:55:46:994 [ 2576] | INFO  | > Adding 'CS_OWNDC' window class style flag to "UnrealWindow".
+02:55:47:986 [ 2576] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {50C83A1C-E072-4C48-87B0-[address]}, ppFactory = [address]) ...
+02:55:47:987 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c200, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+02:55:47:987 [ 2576] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.3r3 (Chinese UI) | Bilibili UID 941799" ...
+02:55:47:987 [ 2576] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+02:55:47:988 [ 2576] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:55:48:487 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:48:572 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:55:48:573 [ 2576] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:55:48:573 [ 2576] | INFO  | > Dumping command queue description:
+02:55:48:573 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:573 [ 2576] | INFO  |   | Parameter                               | Value                                   |
+02:55:48:573 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:573 [ 2576] | INFO  |   | Type                                    | 0                                       |
+02:55:48:573 [ 2576] | INFO  |   | Priority                                | 0                                       |
+02:55:48:573 [ 2576] | INFO  |   | Flags                                   | 0                                       |
+02:55:48:573 [ 2576] | INFO  |   | NodeMask                                | 1                                       |
+02:55:48:573 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:595 [ 2576] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:55:48:595 [ 2576] | INFO  | > Dumping command queue description:
+02:55:48:596 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:596 [ 2576] | INFO  |   | Parameter                               | Value                                   |
+02:55:48:596 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:596 [ 2576] | INFO  |   | Type                                    | 3                                       |
+02:55:48:596 [ 2576] | INFO  |   | Priority                                | 0                                       |
+02:55:48:596 [ 2576] | INFO  |   | Flags                                   | 0                                       |
+02:55:48:596 [ 2576] | INFO  |   | NodeMask                                | 1                                       |
+02:55:48:596 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:601 [ 2576] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:55:48:601 [ 2576] | INFO  | > Dumping command queue description:
+02:55:48:601 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:601 [ 2576] | INFO  |   | Parameter                               | Value                                   |
+02:55:48:601 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:601 [ 2576] | INFO  |   | Type                                    | 2                                       |
+02:55:48:601 [ 2576] | INFO  |   | Priority                                | 0                                       |
+02:55:48:601 [ 2576] | INFO  |   | Flags                                   | 0                                       |
+02:55:48:601 [ 2576] | INFO  |   | NodeMask                                | 1                                       |
+02:55:48:601 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:48:845 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:55:51:210 [ 2576] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:55:51:211 [ 2576] | INFO  | > Dumping command queue description:
+02:55:51:211 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:211 [ 2576] | INFO  |   | Parameter                               | Value                                   |
+02:55:51:211 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:211 [ 2576] | INFO  |   | Type                                    | 0                                       |
+02:55:51:211 [ 2576] | INFO  |   | Priority                                | 100                                     |
+02:55:51:211 [ 2576] | INFO  |   | Flags                                   | 0                                       |
+02:55:51:211 [ 2576] | INFO  |   | NodeMask                                | 0                                       |
+02:55:51:212 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:235 [ 2576] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForHwnd(this = [address], pDevice = [address], hWnd = [address], pDesc = [address], pFullscreenDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+02:55:51:235 [ 2576] | INFO  | > Dumping swap chain description:
+02:55:51:235 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:236 [ 2576] | INFO  |   | Parameter                               | Value                                   |
+02:55:51:236 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:236 [ 2576] | INFO  |   | Width                                   | 1920                                    |
+02:55:51:236 [ 2576] | INFO  |   | Height                                  | 1080                                    |
+02:55:51:236 [ 2576] | INFO  |   | RefreshRate                             | 0                   0                   |
+02:55:51:236 [ 2576] | INFO  |   | Format                                  | DXGI_FORMAT_R10G10B10A2_UNORM           |
+02:55:51:236 [ 2576] | INFO  |   | Stereo                                  | FALSE                                   |
+02:55:51:236 [ 2576] | INFO  |   | ScanlineOrdering                        | 0                                       |
+02:55:51:236 [ 2576] | INFO  |   | Scaling                                 | 0                                       |
+02:55:51:236 [ 2576] | INFO  |   | SampleCount                             | 1                                       |
+02:55:51:236 [ 2576] | INFO  |   | SampleQuality                           | 0                                       |
+02:55:51:236 [ 2576] | INFO  |   | BufferUsage                             | 0x30                                    |
+02:55:51:236 [ 2576] | INFO  |   | BufferCount                             | 4                                       |
+02:55:51:236 [ 2576] | INFO  |   | Windowed                                | TRUE                                    |
+02:55:51:236 [ 2576] | INFO  |   | SwapEffect                              | 4                                       |
+02:55:51:236 [ 2576] | INFO  |   | AlphaMode                               | 0                                       |
+02:55:51:236 [ 2576] | INFO  |   | Flags                                   | 0x842                                   |
+02:55:51:236 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:243 [ 2576] | INFO  | Running on NVIDIA GeForce RTX 5060 Ti Driver 616.64.
+02:55:51:447 [ 2576] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+02:55:51:448 [ 2576] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:55:51:448 [ 2576] | INFO  | > Dumping command queue description:
+02:55:51:448 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:448 [ 2576] | INFO  |   | Parameter                               | Value                                   |
+02:55:51:448 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:448 [ 2576] | INFO  |   | Type                                    | 2                                       |
+02:55:51:448 [ 2576] | INFO  |   | Priority                                | 100                                     |
+02:55:51:448 [ 2576] | INFO  |   | Flags                                   | 0                                       |
+02:55:51:449 [ 2576] | INFO  |   | NodeMask                                | 0                                       |
+02:55:51:449 [ 2576] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:55:51:465 [ 2576] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 4, Width = 1920, Height = 1080, NewFormat = 24, SwapChainFlags = 0x842) ...
+02:55:51:466 [ 2576] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+02:55:51:471 [ 2576] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+02:55:51:541 [ 7056] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+02:55:51:545 [20236] | INFO  | Successfully compiled '[local-path]
+02:55:51:546 [ 7636] | WARN  | Successfully compiled '[local-path]
+[local-path]
+
+02:55:51:548 [23648] | INFO  | Successfully compiled '[local-path]
+02:55:51:548 [20228] | INFO  | Successfully compiled '[local-path]
+02:55:51:551 [13720] | INFO  | Successfully compiled '[local-path]
+02:55:51:552 [22988] | INFO  | Successfully compiled '[local-path]
+02:55:51:553 [22324] | INFO  | Successfully compiled '[local-path]
+02:55:51:554 [24396] | INFO  | Successfully compiled '[local-path]
+02:55:51:555 [26060] | INFO  | Successfully compiled '[local-path]
+02:55:51:557 [24084] | INFO  | Successfully compiled '[local-path]
+02:55:51:558 [25776] | INFO  | Successfully compiled '[local-path]
+02:55:51:559 [22228] | INFO  | Successfully compiled '[local-path]
+02:55:51:590 [ 1036] | INFO  | Successfully compiled '[local-path]
+02:55:52:051 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = 1000, riid = {77ACCE80-638E-4E65-8895-[address]}, ppDevice = [address]) ...
+02:55:52:052 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = 1000, riid = {77ACCE80-638E-4E65-8895-[address]}, ppDevice = [address]) ...
+02:55:52:052 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = 1000, riid = {77ACCE80-638E-4E65-8895-[address]}, ppDevice = [address]) ...
+02:55:52:052 [ 2576] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = 1000, riid = {77ACCE80-638E-4E65-8895-[address]}, ppDevice = [address]) ...
+02:55:52:831 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:52:832 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:52:863 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:53:297 [20468] | WARN  | Successfully compiled '[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+[local-path]
+
+02:55:58:996 [14588] | INFO  | Redirecting D3D11CreateDevice(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 3, SDKVersion = 7, ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+02:55:58:996 [14588] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+02:55:58:996 [14588] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = [address], DriverType = 1, Software = [address], Flags = 0, pFeatureLevels = [address], FeatureLevels = 3, SDKVersion = 7, pSwapChainDesc = [address], ppSwapChain = [address], ppDevice = [address], pFeatureLevel = [address], ppImmediateContext = [address]) ...
+02:55:58:997 [14588] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:55:59:057 [14588] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:59:098 [14588] | INFO  | Using feature level b000.
+02:55:59:121 [14588] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:55:59:415 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:55:59:416 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:10:309 [ 3884] | INFO  | Redirecting RegisterClassW(lpWndClass = [address] { "CPGPMObilePcGameBridgeWnd", style = 0x3 }) ...
+02:56:10:309 [ 3884] | INFO  | > Adding 'CS_OWNDC' window class style flag to "CPGPMObilePcGameBridgeWnd".
+02:56:11:976 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:11:980 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:11:980 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:21:577 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:21:708 [ 2576] | INFO  | Redirecting RegisterClassExA(lpWndClassEx = [address] { "CustomHDHandle_75483185952", style = 0 }) ...
+02:56:21:732 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:30:971 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+02:56:30:972 [ 2576] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...

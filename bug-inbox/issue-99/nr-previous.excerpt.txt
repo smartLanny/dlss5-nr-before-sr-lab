@@ -1,0 +1,223 @@
+=== HEAD nr-previous-summary.txt lines=1218 chars=111850 ===
+format=DLSS5-LogSummary-v1
+source.bytes=340577
+scan.bytes=340577
+scan.complete=1
+lines.scanned=3244
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+17:33:12.526  DLSS 5 AI Rendering Upscaling Edition attached (language=zh-CN build Sep  2 2026 20:01:13)
+17:33:12.528  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+17:33:12.528  Config: enabled=1 mode=2 identity=0 preTransfer=1.000 postTransfer=1.000 preserveLighting=0 proxyScale=1.000 warmup=2 autoMask=1 style=2 perfEpoch=967
+17:33:12.529  Registered ReShade overlay and F6 hotkey (API 18).
+17:33:15.388  Found SR NGX module: [local-path]
+17:33:15.389  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0
+17:33:15.389  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0
+17:33:15.389  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0
+17:33:15.389  MH_CreateHook core D3D12_EvaluateFeature             target=[address] status=0
+17:33:15.389  MH_CreateHook core D3D12_CreateFeature               target=[address] status=0
+17:33:15.389  MH_CreateHook core D3D12_ReleaseFeature              target=[address] status=0
+17:33:15.461  MH_EnableHook all status=0
+17:33:15.461  NGX observer/AI-upscaling hooks active.
+17:33:17.233  [perf] reset stage=C-NR-transfer epoch=967 transfer=1.000; warming 180 frames
+17:33:25.431  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+17:33:25.431      Width                                      = 1708
+17:33:25.431      Height                                     = 961
+17:33:25.431      OutWidth                                   = 2560
+17:33:25.431      OutHeight                                  = 1440
+17:33:25.431      PerfQualityValue                           = 2
+17:33:25.431      DLSS.Feature.Create.Flags                  = 75
+17:33:25.431      DLSS.Enable.Output.Subrects                = 0
+17:33:25.431      CreationNodeMask                           = 1
+17:33:25.432      VisibilityNodeMask                         = 1
+17:33:25.432  _nvngx core EvaluateFeature reached: call=1 handle=[address]
+17:33:25.432  --- SuperSampling Evaluate #1 handle=[address] create=1708x961 -> 2560x1440 ---
+17:33:25.432      Color                                      = [address] physical=1708x964 format=26(R11G11B10_FLOAT) mips=1 flags=0x1 sample=1
+17:33:25.432      MotionVectors                              = [address] physical=1708x961 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+17:33:25.432      Depth                                      = [address] physical=1708x964 format=19(other) mips=1 flags=0x2 sample=1
+17:33:25.432      ExposureTexture                            = null
+17:33:25.432      Output                                     = [address] physical=2560x1440 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x5 sample=1
+=== KEY MIDDLE (filtered) ===
+17:33:25.598  NR create contract: mode=2 extent=1708x961 depth=1708x961 mv=1708x961 gameFlags=75 normalizedFlags=73 perfQuality=5.
+17:33:25.849  D3D12 ExecuteCommandLists post-submit lifetime hook active: target=[address] slot=0.
+17:33:25.905  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+17:33:32.740  [perf] stage=C-NR-transfer epoch=967 transfer=1.000 samples=600 avgFPS=58.182 avgMs=17.1875 p95Ms=17.8978 p99Ms=28.8511 onePercentLowFPS=11.463
+17:33:36.802  [stats] all NGX evaluations=2408, upscaling-carrier evaluations=600 feature=1(SuperSampling)
+17:33:43.449  [perf] stage=C-NR-transfer epoch=967 transfer=1.000 samples=600 avgFPS=59.419 avgMs=16.8296 p95Ms=28.1401 p99Ms=35.4327 onePercentLowFPS=22.534
+17:33:44.632  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+17:33:47.153  [stats] all NGX evaluations=4679, upscaling-carrier evaluations=1200 feature=1(SuperSampling)
+17:33:56.665  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+17:33:59.639  [perf] stage=C-NR-transfer epoch=967 transfer=1.000 samples=600 avgFPS=60.656 avgMs=16.4864 p95Ms=23.1341 p99Ms=62.1328 onePercentLowFPS=5.012
+17:34:02.654  [perf] stage=C-NR-transfer epoch=967 transfer=1.000 samples=600 avgFPS=199.107 avgMs=5.0224 p95Ms=22.8535 p99Ms=25.4693 onePercentLowFPS=24.927
+17:34:03.350  Recycled rotating chain slot: count=1 age=1401 mode=2 extent=1708x961.
+17:34:03.474  Recycled rotating chain slot: count=2 age=204 mode=2 extent=1708x961.
+17:34:03.495  Recycled rotating chain slot: count=3 age=204 mode=2 extent=1708x961.
+17:34:05.554  [perf] stage=C-NR-transfer epoch=967 transfer=1.000 samples=600 avgFPS=206.960 avgMs=4.8319 p95Ms=23.3703 p99Ms=27.2555 onePercentLowFPS=32.838
+17:34:08.472  [perf] stage=C-NR-transfer epoch=967 transfer=1.000 samples=600 avgFPS=205.679 avgMs=4.8620 p95Ms=23.0351 p99Ms=25.1574 onePercentLowFPS=37.666
+17:34:11.295  [perf] stage=C-NR-transfer epoch=967 transfer=1.000 samples=600 avgFPS=212.598 avgMs=4.7037 p95Ms=22.2464 p99Ms=24.0801 onePercentLowFPS=37.633
+17:33:12.528  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+17:33:15.389  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0
+17:33:15.389  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0
+17:33:15.389  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0
+17:33:15.389  MH_CreateHook core D3D12_EvaluateFeature             target=[address] status=0
+17:33:15.389  MH_CreateHook core D3D12_CreateFeature               target=[address] status=0
+17:33:15.389  MH_CreateHook core D3D12_ReleaseFeature              target=[address] status=0
+17:33:15.461  MH_EnableHook all status=0
+17:33:25.431  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+17:33:25.849  D3D12 ExecuteCommandLists post-submit lifetime hook active: target=[address] slot=0.
+17:33:25.905  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+17:33:36.802  [stats] all NGX evaluations=2408, upscaling-carrier evaluations=600 feature=1(SuperSampling)
+17:33:44.632  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+17:33:47.153  [stats] all NGX evaluations=4679, upscaling-carrier evaluations=1200 feature=1(SuperSampling)
+17:33:56.665  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+17:34:12.866  [stats] all NGX evaluations=7673, upscaling-carrier evaluations=1800 feature=1(SuperSampling)
+17:34:26.812  [stats] all NGX evaluations=10673, upscaling-carrier evaluations=2400 feature=1(SuperSampling)
+17:34:41.086  [stats] all NGX evaluations=13673, upscaling-carrier evaluations=3000 feature=1(SuperSampling)
+17:34:55.567  [stats] all NGX evaluations=16673, upscaling-carrier evaluations=3600 feature=1(SuperSampling)
+17:35:09.288  [stats] all NGX evaluations=19673, upscaling-carrier evaluations=4200 feature=1(SuperSampling)
+17:35:23.106  [stats] all NGX evaluations=22673, upscaling-carrier evaluations=4800 feature=1(SuperSampling)
+17:35:36.754  [stats] all NGX evaluations=25673, upscaling-carrier evaluations=5400 feature=1(SuperSampling)
+17:35:50.171  [stats] all NGX evaluations=28673, upscaling-carrier evaluations=6000 feature=1(SuperSampling)
+17:36:04.477  [stats] all NGX evaluations=31673, upscaling-carrier evaluations=6600 feature=1(SuperSampling)
+17:36:19.098  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+17:36:19.462  [stats] all NGX evaluations=34657, upscaling-carrier evaluations=7200 feature=1(SuperSampling)
+17:36:26.078  Deferred Feature 18 retirement for SR handle=[address] mode=2 extent=1708x961 until recorded command lists and GPU fences complete.
+17:36:26.078  GPU retirement fence completed for SR handle=[address] mode=2 extent=1708x961; releasing Feature 18 context.
+17:36:29.327  [stats] all NGX evaluations=36761, upscaling-carrier evaluations=7800 feature=1(SuperSampling)
+17:36:30.943  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+17:36:38.266  [stats] all NGX evaluations=38697, upscaling-carrier evaluations=8400 feature=1(SuperSampling)
+17:36:44.420  Deferred Feature 18 retirement for SR handle=[address] mode=2 extent=1708x961 until recorded command lists and GPU fences complete.
+17:36:44.420  GPU retirement fence completed for SR handle=[address] mode=2 extent=1708x961; releasing Feature 18 context.
+17:36:47.949  [stats] all NGX evaluations=40825, upscaling-carrier evaluations=9000 feature=1(SuperSampling)
+17:37:01.943  [stats] all NGX evaluations=43825, upscaling-carrier evaluations=9600 feature=1(SuperSampling)
+17:37:16.414  [stats] all NGX evaluations=46825, upscaling-carrier evaluations=10200 feature=1(SuperSampling)
+17:37:31.023  [stats] all NGX evaluations=49825, upscaling-carrier evaluations=10800 feature=1(SuperSampling)
+17:37:43.823  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+17:37:45.644  [stats] all NGX evaluations=52585, upscaling-carrier evaluations=11400 feature=1(SuperSampling)
+17:37:49.894  Deferred Feature 18 retirement for SR handle=[address] mode=2 extent=1920x1080 until recorded command lists and GPU fences complete.
+17:37:49.894  GPU retirement fence completed for SR handle=[address] mode=2 extent=1920x1080; releasing Feature 18 context.
+17:37:56.770  [stats] all NGX evaluations=54957, upscaling-carrier evaluations=12000 feature=1(SuperSampling)
+17:38:11.259  [stats] all NGX evaluations=57957, upscaling-carrier evaluations=12600 feature=1(SuperSampling)
+17:38:26.410  [stats] all NGX evaluations=60957, upscaling-carrier evaluations=13200 feature=1(SuperSampling)
+17:38:41.644  [stats] all NGX evaluations=63957, upscaling-carrier evaluations=13800 feature=1(SuperSampling)
+17:38:56.640  [stats] all NGX evaluations=66957, upscaling-carrier evaluations=14400 feature=1(SuperSampling)
+17:39:11.636  [stats] all NGX evaluations=69957, upscaling-carrier evaluations=15000 feature=1(SuperSampling)
+17:39:27.894  [stats] all NGX evaluations=72957, upscaling-carrier evaluations=15600 feature=1(SuperSampling)
+17:39:43.151  [stats] all NGX evaluations=75957, upscaling-carrier evaluations=16200 feature=1(SuperSampling)
+17:39:57.890  [stats] all NGX evaluations=78957, upscaling-carrier evaluations=16800 feature=1(SuperSampling)
+17:40:11.191  [stats] all NGX evaluations=81957, upscaling-carrier evaluations=17400 feature=1(SuperSampling)
+17:40:24.479  [stats] all NGX evaluations=84957, upscaling-carrier evaluations=18000 feature=1(SuperSampling)
+17:40:33.395  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+17:40:42.479  [stats] all NGX evaluations=87947, upscaling-carrier evaluations=18600 feature=1(SuperSampling)
+17:40:54.662  [stats] all NGX evaluations=90947, upscaling-carrier evaluations=19200 feature=1(SuperSampling)
+17:41:06.853  [stats] all NGX evaluations=93947, upscaling-carrier evaluations=19800 feature=1(SuperSampling)
+17:41:19.049  [stats] all NGX evaluations=96947, upscaling-carrier evaluations=20400 feature=1(SuperSampling)
+18:00:57.458  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+18:02:46.936  [stats] all NGX evaluations=99938, upscaling-carrier evaluations=21000 feature=1(SuperSampling)
+18:05:37.351  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+18:06:05.035  [stats] all NGX evaluations=102906, upscaling-carrier evaluations=21600 feature=1(SuperSampling)
+18:06:16.292  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+18:06:20.525  [stats] all NGX evaluations=105325, upscaling-carrier evaluations=22200 feature=1(SuperSampling)
+18:06:34.951  [stats] all NGX evaluations=108325, upscaling-carrier evaluations=22800 feature=1(SuperSampling)
+18:06:41.550  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+18:06:52.593  [stats] all NGX evaluations=111322, upscaling-carrier evaluations=23400 feature=1(SuperSampling)
+18:07:05.174  [stats] all NGX evaluations=114322, upscaling-carrier evaluations=24000 feature=1(SuperSampling)
+18:07:17.836  [stats] all NGX evaluations=117322, upscaling-carrier evaluations=24600 feature=1(SuperSampling)
+18:07:30.477  [stats] all NGX evaluations=120322, upscaling-carrier evaluations=25200 feature=1(SuperSampling)
+18:07:43.120  [stats] all NGX evaluations=123322, upscaling-carrier evaluations=25800 feature=1(SuperSampling)
+18:07:55.856  [stats] all NGX evaluations=126322, upscaling-carrier evaluations=26400 feature=1(SuperSampling)
+18:08:08.647  [stats] all NGX evaluations=129322, upscaling-carrier evaluations=27000 feature=1(SuperSampling)
+18:08:21.243  [stats] all NGX evaluations=132322, upscaling-carrier evaluations=27600 feature=1(SuperSampling)
+18:08:34.406  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+18:08:44.578  [stats] all NGX evaluations=135318, upscaling-carrier evaluations=28200 feature=1(SuperSampling)
+18:08:58.802  [stats] all NGX evaluations=138318, upscaling-carrier evaluations=28800 feature=1(SuperSampling)
+18:09:11.096  [stats] all NGX evaluations=141318, upscaling-carrier evaluations=29400 feature=1(SuperSampling)
+18:09:20.732  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+18:09:23.593  [stats] all NGX evaluations=143990, upscaling-carrier evaluations=30000 feature=1(SuperSampling)
+18:09:24.198  Deferred Feature 18 retirement for SR handle=[address] mode=2 extent=1708x961 until recorded command lists and GPU fences complete.
+18:09:24.199  GPU retirement fence completed for SR handle=[address] mode=2 extent=1708x961; releasing Feature 18 context.
+18:09:32.427  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+18:09:36.101  [stats] all NGX evaluations=146474, upscaling-carrier evaluations=30600 feature=1(SuperSampling)
+=== TAIL ===
+18:09:59.080      OutHeight                                  = 1440
+18:09:59.080      PerfQualityValue                           = 2
+18:09:59.081      DLSS.Feature.Create.Flags                  = 75
+18:09:59.081      DLSS.Enable.Output.Subrects                = 0
+18:09:59.081      CreationNodeMask                           = 1
+18:09:59.081      VisibilityNodeMask                         = 1
+18:09:59.083  NR guide contract accepted: depthActive=1708x961 depth=1708x964@0,0 motionActive=1708x961 motion=1708x961@0,0.
+18:09:59.084  NR create contract: mode=2 extent=1708x961 depth=1708x961 mv=1708x961 gameFlags=75 normalizedFlags=73 perfQuality=5.
+18:09:59.084  HDR exposure contract adapted: source PreExposure=1.000000 ExposureScale=1.000000 sourceToCanonical=1.000000 texture=0; the NR proxy uses canonical exposure 1.0.
+18:09:59.251  signed feature 18 create 1708x961 -> 1708x961 result=0x00000001(Success) handle=[address]
+18:09:59.253  NR-before-SR evaluate succeeded: count=1 extent=1708x961 identity=0 transfer=1.000
+18:09:59.269  NR-before-SR evaluate succeeded: count=2 extent=1708x961 identity=0 transfer=1.000
+18:09:59.296  NR-before-SR evaluate succeeded: count=3 extent=1708x961 identity=0 transfer=1.000
+18:10:03.374  --- SuperSampling Evaluate #32400 handle=[address] create=1708x961 -> 2560x1440 ---
+18:10:03.375      Color                                      = [address] physical=1708x964 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x1 sample=1
+18:10:03.375      MotionVectors                              = [address] physical=1708x961 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+18:10:03.375      Depth                                      = [address] physical=1708x964 format=19(other) mips=1 flags=0x2 sample=1
+18:10:03.375      ExposureTexture                            = null
+18:10:03.375      Output                                     = [address] physical=2560x1440 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x5 sample=1
+18:10:03.375      DLSS.Input.Color.Subrect.Base.X            = 0
+18:10:03.375      DLSS.Input.Color.Subrect.Base.Y            = 0
+18:10:03.375      DLSS.Input.Depth.Subrect.Base.X            = 0
+18:10:03.375      DLSS.Input.Depth.Subrect.Base.Y            = 0
+18:10:03.375      DLSS.Input.MV.Subrect.Base.X               = 0
+18:10:03.375      DLSS.Input.MV.Subrect.Base.Y               = 0
+18:10:03.375      DLSS.Output.Subrect.Base.X                 = 0
+18:10:03.375      DLSS.Output.Subrect.Base.Y                 = 0
+18:10:03.375      DLSS.Render.Subrect.Dimensions.Width       = 1708
+18:10:03.375      DLSS.Render.Subrect.Dimensions.Height      = 961
+18:10:03.375      MV.Scale.X                                 = 1
+18:10:03.375      MV.Scale.Y                                 = 1
+18:10:03.376      Jitter.Offset.X                            = 0.375
+18:10:03.376      Jitter.Offset.Y                            = 0.055555582
+18:10:03.376      DLSS.Pre.Exposure                          = 1.0005991
+18:10:03.376      DLSS.Exposure.Scale                        = 1
+18:10:03.376      Reset                                      = 0
+18:10:03.376  [stats] all NGX evaluations=152306, upscaling-carrier evaluations=32400 feature=1(SuperSampling)
+18:10:04.247  NR-before-SR evaluate succeeded: count=30000 extent=1708x961 identity=0 transfer=1.000
+18:10:04.499  core ReleaseFeature handle=[address] id=1 (SuperSampling)
+18:10:04.499  Deferred Feature 18 retirement for SR handle=[address] mode=2 extent=1708x961 until recorded command lists and GPU fences complete.
+18:10:04.499  GPU retirement fence completed for SR handle=[address] mode=2 extent=1708x961; releasing Feature 18 context.
+18:10:04.500  NR ReleaseFeature handle=[address] result=0x00000001
+18:10:04.541  [perf] stage=C-NR-transfer epoch=1287 transfer=1.000 samples=600 avgFPS=78.990 avgMs=12.6599 p95Ms=32.5379 p99Ms=42.2675 onePercentLowFPS=12.036
+18:10:07.523  [perf] stage=C-NR-transfer epoch=1287 transfer=1.000 samples=600 avgFPS=201.259 avgMs=4.9687 p95Ms=23.8567 p99Ms=25.9615 onePercentLowFPS=35.222
+18:10:10.485  [perf] stage=C-NR-transfer epoch=1287 transfer=1.000 samples=600 avgFPS=202.547 avgMs=4.9371 p95Ms=23.3782 p99Ms=26.5908 onePercentLowFPS=32.896
+18:10:13.464  [perf] stage=C-NR-transfer epoch=1287 transfer=1.000 samples=600 avgFPS=202.832 avgMs=4.9302 p95Ms=23.5653 p99Ms=26.6716 onePercentLowFPS=36.649
+18:10:16.472  [perf] stage=C-NR-transfer epoch=1287 transfer=1.000 samples=600 avgFPS=199.541 avgMs=5.0115 p95Ms=23.8579 p99Ms=28.6017 onePercentLowFPS=31.544
+18:10:17.802  --- SuperSampling Evaluate #33000 handle=[address] create=1708x961 -> 2560x1440 ---
+18:10:17.803      Color                                      = [address] physical=1708x964 format=26(R11G11B10_FLOAT) mips=1 flags=0x1 sample=1
+18:10:17.803      MotionVectors                              = [address] physical=1708x961 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+18:10:17.803      Depth                                      = [address] physical=1708x964 format=19(other) mips=1 flags=0x2 sample=1
+18:10:17.803      ExposureTexture                            = null
+18:10:17.803      Output                                     = [address] physical=2560x1440 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x5 sample=1
+18:10:17.803      DLSS.Input.Color.Subrect.Base.X            = 0
+18:10:17.803      DLSS.Input.Color.Subrect.Base.Y            = 0
+18:10:17.803      DLSS.Input.Depth.Subrect.Base.X            = 0
+18:10:17.804      DLSS.Input.Depth.Subrect.Base.Y            = 0
+18:10:17.804      DLSS.Input.MV.Subrect.Base.X               = 0
+18:10:17.804      DLSS.Input.MV.Subrect.Base.Y               = 0
+18:10:17.804      DLSS.Output.Subrect.Base.X                 = 0
+18:10:17.804      DLSS.Output.Subrect.Base.Y                 = 0
+18:10:17.804      DLSS.Render.Subrect.Dimensions.Width       = 1708
+18:10:17.804      DLSS.Render.Subrect.Dimensions.Height      = 961
+18:10:17.804      MV.Scale.X                                 = 1
+18:10:17.804      MV.Scale.Y                                 = 1
+18:10:17.804      Jitter.Offset.X                            = 0.375
+18:10:17.804      Jitter.Offset.Y                            = 0.055555582
+18:10:17.804      DLSS.Pre.Exposure                          = 1.4562345
+18:10:17.805      DLSS.Exposure.Scale                        = 1
+18:10:17.805      Reset                                      = 0
+18:10:17.805  [stats] all NGX evaluations=155210, upscaling-carrier evaluations=33000 feature=1(SuperSampling)
+18:10:19.114  NR-before-SR evaluate succeeded: count=30600 extent=1708x961 identity=0 transfer=1.000
+18:10:19.383  [perf] stage=C-NR-transfer epoch=1287 transfer=1.000 samples=600 avgFPS=206.148 avgMs=4.8509 p95Ms=22.1665 p99Ms=23.7531 onePercentLowFPS=40.049
+18:10:24.964  core ReleaseFeature handle=[address] id=1 (SuperSampling)
+18:10:24.964  Deferred Feature 18 retirement for SR handle=[address] mode=2 extent=1708x961 until recorded command lists and GPU fences complete.
+18:10:24.964  Deferred Feature 18 retirement for SR handle=[address] mode=1 extent=2560x1440 until recorded command lists and GPU fences complete.
+18:10:25.232  GPU retirement fence completed for SR handle=[address] mode=1 extent=2560x1440; releasing Feature 18 context.
+18:10:25.234  NR ReleaseFeature handle=[address] result=0x00000001
+18:10:25.244  GPU retirement fence completed for SR handle=[address] mode=2 extent=1708x961; releasing Feature 18 context.
+18:10:25.252  NR ReleaseFeature handle=[address] result=0x00000001
