@@ -103,7 +103,13 @@ int main() {
     for (auto name : {L"renodx-dlss5.addon64",L"RENODX-DLSS5-V_4_5_5.ADDON64",L"renodx-dlss5_v4.70.addon64"}) CHECK(GenericNr(name));
     for (auto name : {L"Luma.addon64",L"renodx-streetfighter6.addon64",L"renodx-dlss.addon64",L"renodx-dlss5-hdr.addon64",L"renodx-dlss5-v.addon64",L"renodx-dlss5.addon64.bak",L"renodx-dlss5-v4.dll",L""}) CHECK(!GenericNr(name));
     CHECK(Carrier(L"dlss5-native-carrier-045-exp3.addon64"));
+#ifdef NR_TEST_MULTIAPI
+    CHECK(MatchingCarrier(L"dlss5-native-carrier-multiapi-dev1.addon64"));
+    CHECK(!MatchingCarrier(L"dlss5-native-carrier-045-exp3.addon64"));
+#else
     CHECK(MatchingCarrier(L"dlss5-native-carrier-045-exp3.addon64"));
+    CHECK(!MatchingCarrier(L"dlss5-native-carrier-multiapi-dev1.addon64"));
+#endif
     CHECK(!MatchingCarrier(L"dlss5-native-carrier-r3-exp2.addon64"));
     CHECK(!Carrier(L"nvngx_dlss.dll"));
     std::cout << checks << " production rectangle/copy/deployment checks passed; no GPU/game claim\n";
