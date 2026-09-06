@@ -127,7 +127,7 @@ int main() {
     def test_face_controls_round_trip(self) -> None:
         marker = '        SettingsTooltip(ui("Adjusts the model local structure parameter;'
         start = ui_source.index(";\n", ui_source.index(marker)) + 2
-        end = ui_source.index("#if NR_HAS_DETAIL_STABILITY", start)
+        end = ui_source.index("        // END PRIMARY MODEL CONTROLS", start)
         controls = ui_source[start:end]
         self.run_cpp("face-ui", config_code() + r'''
 int toggle = -1, sliders = 0;

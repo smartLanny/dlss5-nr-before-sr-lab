@@ -1,0 +1,26 @@
+name: Picture colour budget and primary controls
+on:
+  pull_request:
+    branches: [fix/f8-single-txt-reset-evidence, release/0.4.5-test]
+permissions:
+  contents: read
+jobs:
+  portable:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/validate-picture-budget.py --compiler '${{ matrix.compiler }}'
+      - run: python3 scripts/validate-picture-budget.py --compiler '${{ matrix.compiler }}' --negative-control
+      - run: python3 scripts/validate-045-color.py --compiler '${{ matrix.compiler }}'
+      - run: python3 scripts/validate-045-color.py --compiler '${{ matrix.compiler }}' --negative-control
+      - run: python3 scripts/validate-color-policy.py --compiler '${{ matrix.compiler }}'
+      - run: python3 scripts/validate-bug-sweep.py --compiler '${{ matrix.compiler }}'
+      - run: python3 scripts/validate-strength-cap.py --compiler '${{ matrix.compiler }}'
+      - run: python3 scripts/validate-recommended-picture.py --compiler '${{ matrix.compiler }}'
+  full-build:
+    uses: ./.github/workflows/beta042-validate.yml
+  feedback:
+    uses: ./.github/workflows/feedback-integrity.yml
