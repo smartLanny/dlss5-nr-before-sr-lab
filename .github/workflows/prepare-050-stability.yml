@@ -1,28 +1,20 @@
-name: Inspect 0.5 stability integration
+name: Prepare verified 0.5 stability objects
 on:
   push:
     branches: [codex/050-stability-preparation]
     paths: [.github/workflows/prepare-050-stability.yml, scripts/prepare-050-stability.py]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  inspect:
+  prepare:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Export immutable review sources (no branch writes)
+      - name: Prepare immutable inputs and execute production regressions
         shell: bash
-        run: |
-          mkdir source-review
-          git cat-file -e 12009d0448fb8bba8c699020382bf5bb6b84dec4
-          git bundle create source-review/history.bundle refs/remotes/origin/feature/050-layered-composite refs/remotes/origin/release/0.4.5-test
-          sha256sum source-review/*
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pinned-stability-followup-sources
-          path: source-review/
-          retention-days: 3
-          if-no-files-found: error
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/prepare-050-stability.py
