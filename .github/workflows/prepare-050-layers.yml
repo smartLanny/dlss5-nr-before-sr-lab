@@ -37,6 +37,10 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          fixture = Path('scripts/validate-layered-composite.py')
+          data = fixture.read_text(encoding='utf-8')
+          assert data.count('return 1;++checks;') == 1
+          fixture.write_text(data.replace('return 1;++checks;', 'return 1;\n++checks;'), encoding='utf-8')
           script = Path('scripts/prepare-050-layers.py').read_text(encoding='utf-8')
           replacements = {
               'source = once(source, anchor, new + anchor)': r"source = once(source, '\n' + anchor, '\n' + new + anchor)",
