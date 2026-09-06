@@ -1471,7 +1471,7 @@ void ReloadConfig(bool force = false) {
         g_history_generation.fetch_add(1, std::memory_order_relaxed);
     }
     if (changed || force) {
-        Log("LayeredEnhancement requested=%d mode=%d tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
+        Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
             g_config.layered_enhancement, g_config.mode, g_config.layer_tone, g_config.layer_structure, g_config.layer_bright, g_config.layer_shadow);
         Log("HighStrengthProtection requested=%d; effective only in Mode 2 above 1x; codec flag=1024.",
             g_config.high_strength_protection ? 1 : 0);
@@ -1647,7 +1647,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
     const bool persisted = persist_to_ini ? SaveConfig(g_config) : true;
     const ChainConfig applied = g_config;
     LeaveCriticalSection(&g_chain_cs);
-    Log("LayeredEnhancement requested=%d mode=%d tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
+    Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
         applied.layered_enhancement, applied.mode, applied.layer_tone, applied.layer_structure, applied.layer_bright, applied.layer_shadow);
     Log("HighStrengthProtection requested=%d; effective only in Mode 2 above 1x; codec flag=1024.",
         applied.high_strength_protection ? 1 : 0);
@@ -2924,7 +2924,8 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
 
     // Remove only the low-frequency component of model luminance drift. The
     // centre plus four cross taps avoids the old 3x3 edge-heavy correction and
-    // keeps this branch completely free when LightingLock is zero.
+    // skips these reads when LightingLock is zero unless a non-neutral
+    // tone/structure split explicitly needs the same neighborhood.
     if (LightingLock > 0.000001 || (layeredActive && LayerTone != LayerStructure)) {
         const float radius = 8.0;
         // The centre ratio is already available. Average four sparse

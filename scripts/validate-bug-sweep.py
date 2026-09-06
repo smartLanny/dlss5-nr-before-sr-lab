@@ -179,7 +179,7 @@ int main() {
 '''.replace("CONTROLS", controls))
 
     def test_lighting_protection_is_only_attenuation(self) -> None:
-        block = definition(source, "if (LightingLock > 0.000001)")
+        block = definition(source, "if (LightingLock > 0.000001")
         self.run_cpp("lighting-lock", r'''
 float clamp(double x, double a, double b) { return static_cast<float>(std::clamp(x, a, b)); }
 float max(double a, double b) { return static_cast<float>(std::max(a, b)); }
@@ -190,6 +190,8 @@ struct float2 { float x, y; float2(float a, float b) : x(a), y(b) {} };
 float2 operator+(float2 a, float2 b) { return {a.x+b.x, a.y+b.y}; }
 float2 operator-(float2 a, float2 b) { return {a.x-b.x, a.y-b.y}; }
 float taps[4];
+bool layeredActive = false;
+float LayerTone = 1.f, LayerStructure = 1.f, layerMean = 0.f;
 float ModelLumaRatioV2(float2 p) { return taps[p.x > 0 ? 0 : p.x < 0 ? 1 : p.y > 0 ? 2 : 3]; }
 float apply(float logRatio, float rawLog, float LightingLock) {
     const float proxyLuma = 1.f, neuralLuma = std::exp2(rawLog);
@@ -213,7 +215,13 @@ int main() {
     for (int i = 0; i < 10000; ++i) {
         const float raw = log(rng), residual = raw * unit(rng);
         for (float &t : taps) t = std::exp2(log(rng));
-        const float result = apply(residual, raw, unit(rng));
+        layeredActive = (i & 1) != 0;
+        LayerTone = (i % 3) == 0 ? .5f : 1.f;
+        LayerStructure = (i % 3) == 0 ? 1.5f : 1.f;
+        const float lock = unit(rng);
+        const float result = apply(residual, raw, lock);
+        if (layeredActive)
+            check(apply(residual, raw, 0.f) == residual, "layer-only neighborhood never applies lighting attenuation");
         check(std::isfinite(result), "finite output");
         check(result >= std::min(residual, 0.f)-1e-6f && result <= std::max(residual, 0.f)+1e-6f,
               "lock never reverses or amplifies even an already stabilized residual");
