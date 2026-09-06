@@ -2,20 +2,23 @@
 // not its legacy screenshot/stage worker. No runtime pointer leaves Present.
 #include "nr_feedback_text.h"
 #include "nr_feedback_ticket.h"
+#include "nr_feedback_single_text.h"
 namespace nr_core_feedback {
 #define NR_HAS_CORE_TEXT_REPORT 1
 #include "nr_feedback_report.inl"
 struct PairSnapshot {
     char session[96] = {};
     unsigned config = 0;
-    bool ready = false, complete = false;
+    bool ready = false, complete = false, archive_requested = false;
 };
 struct CoreSession {
     FeedbackSession activity{};
     wchar_t directory[1024] = {};
     wchar_t exe[1024] = {}, reshade_module[1024] = {};
     char session[96] = {};
-    bool snapshot_ok = false;
+    bool snapshot_ok = false, archive_requested = false;
+    SYSTEMTIME local_time{}, utc_time{};
+    unsigned long long serial = 0;
 };
 std::shared_ptr<const std::string> g_full_report; // g_feedback_lock
 wchar_t g_report_path[1024] = {};
@@ -39,10 +42,11 @@ PairSnapshot SnapshotPair() {
     return pair;
 }
 // The caller serializes image/core requests with nr_f8::g_control.
-bool Request() {
+bool Request(bool archive_requested = false) {
     AcquireSRWLockExclusive(&g_feedback_lock);
     if (Busy()) { ReleaseSRWLockExclusive(&g_feedback_lock); return false; }
     g_pair = {};
+    g_pair.archive_requested = archive_requested;
     g_full_report.reset(); g_report_path[0] = 0; g_report_error = ERROR_SUCCESS; g_report_complete = false;
     // No allocation or exception is possible while holding the publication lock.
     std::snprintf(g_pair.session, sizeof(g_pair.session), "DLSS5_CORE_%lu_%llu_%llu",
@@ -61,11 +65,11 @@ void Cancel() {
     ReleaseSRWLockExclusive(&g_feedback_lock);
 }
 void Publish(const nr_bundle::Result &result, bool complete, const char *reason,
-             const char *report = nullptr, const nr_feedback_report::Output *text = nullptr) {
+             const char *report = nullptr, const nr_feedback_report::Output *text = nullptr, bool archive_requested = true) {
     char submission[nr_feedback_ticket::kCapacity] = {};
-    if (result.zip_path[0])
+    if (result.zip_path[0] || (text && text->text))
         nr_feedback_ticket::Build(submission, sizeof(submission), report,
-            complete && result.required_complete);
+            archive_requested ? complete && result.required_complete : text->complete);
 
     AcquireSRWLockExclusive(&g_feedback_lock);
     g_job = nullptr;
@@ -78,8 +82,10 @@ void Publish(const nr_bundle::Result &result, bool complete, const char *reason,
     nr_bundle::CopyText(g_reason, sizeof(g_reason), reason);
     nr_bundle::CopyText(g_submission, sizeof(g_submission), submission);
     g_pair.ready = true;
-    g_pair.complete = complete && result.required_complete && result.zip_path[0];
-    const unsigned status = result.status == nr_bundle::Status::Failed ? 5 : g_pair.complete ? 3 : 4;
+    g_pair.complete = archive_requested && complete && result.required_complete && result.zip_path[0];
+    const unsigned status = archive_requested ?
+        (result.status == nr_bundle::Status::Failed ? 5u : g_pair.complete ? 3u : 4u) :
+        (!text || !text->text ? 5u : text->complete ? 3u : 4u);
     g_feedback_status.store(status, std::memory_order_release);
     ReleaseSRWLockExclusive(&g_feedback_lock);
 }
@@ -91,9 +97,9 @@ struct Handle {
     Handle &operator=(const Handle &) = delete;
 };
 
-bool SummaryFile(const wchar_t *source, const wchar_t *output, bool &coverage, ULONGLONG deadline) {
-    coverage = false;
-    if (!nr_bundle::LocalAbsolutePath(source) || !nr_bundle::LocalAbsolutePath(output)) return false;
+bool ReadSummary(const wchar_t *source, std::string &text, bool &coverage, ULONGLONG deadline) {
+    coverage = false; text.clear();
+    if (!nr_bundle::LocalAbsolutePath(source)) return false;
     wchar_t native[1024] = {};
     if (!nr_bundle::NativePath(native, source)) return false;
     Handle input(CreateFileW(native, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -126,13 +132,13 @@ bool SummaryFile(const wchar_t *source, const wchar_t *output, bool &coverage, U
     coverage = read_ok && scanned == size;
     // A capped prefix is NOT a complete search for the first bypass. Record
     // that limitation, and still include the latest bounded tail.
-    if (!coverage && size > scanned && !g_cancel.load()) {
+    if (!coverage && size > scanned && !g_cancel.load() && GetTickCount64() < deadline) {
         LARGE_INTEGER offset{}; offset.QuadPart = static_cast<LONGLONG>(size > 65536 ? size - 65536 : 0);
         if (SetFilePointerEx(input.value, offset, nullptr, FILE_BEGIN)) {
             summary.tail = {}; line.clear(); long_line = false;
             UINT64 left = size - static_cast<UINT64>(offset.QuadPart);
             bool skip_fragment = offset.QuadPart != 0;
-            while (left && !g_cancel.load()) {
+            while (left && !g_cancel.load() && GetTickCount64() < deadline) {
                 DWORD got = 0;
                 if (!ReadFile(input.value, bytes, static_cast<DWORD>(std::min<UINT64>(left, sizeof(bytes))), &got, nullptr) || !got) break;
                 left -= got;
@@ -147,8 +153,20 @@ bool SummaryFile(const wchar_t *source, const wchar_t *output, bool &coverage, U
             if (!line.empty() || long_line) summary.Push(line, long_line);
         }
     }
-    auto text = summary.Text(size, scanned, coverage);
-    if (text.size() > nr_feedback_text::kSummaryLimit) return false;
+    // Detect replacement/resizing during the read; never claim a coherent full scan.
+    BY_HANDLE_FILE_INFORMATION after{};
+    if (!GetFileInformationByHandle(input.value, &after) ||
+        after.nFileSizeHigh != info.nFileSizeHigh || after.nFileSizeLow != info.nFileSizeLow ||
+        after.ftLastWriteTime.dwHighDateTime != info.ftLastWriteTime.dwHighDateTime ||
+        after.ftLastWriteTime.dwLowDateTime != info.ftLastWriteTime.dwLowDateTime) coverage = false;
+    text = summary.Text(size, scanned, coverage);
+    return text.size() <= nr_feedback_text::kSummaryLimit;
+}
+// F7's paired archive retains its existing temporary-file/ZIP contract.
+bool SummaryFile(const wchar_t *source, const wchar_t *output, bool &coverage, ULONGLONG deadline) {
+    std::string text;
+    if (!nr_bundle::LocalAbsolutePath(output) || !ReadSummary(source, text, coverage, deadline)) return false;
+    wchar_t native[1024] = {};
     if (!nr_bundle::NativePath(native, output)) return false;
     Handle out(CreateFileW(native, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
     DWORD written = 0;
@@ -189,6 +207,58 @@ void CollectLogs(nr_bundle::Job &job, const CoreSession &session) {
         }
     }
 }
+
+// F8 does not create a Job, a ZIP or summary scratch files. Build from the same
+// bounded sanitizer/summary reader used by F7 and persist exactly one text file.
+nr_feedback_report::Output CollectSingleText(const CoreSession &session, bool capture_complete) {
+    nr_feedback_report::Output output;
+    nr_feedback_single::Document doc;
+    doc.complete = capture_complete;
+    doc.Append("\n===== CURRENT CAPTURE METADATA / 本次采集 =====\n");
+    std::string metadata = nr_feedback_report::SafeLines(session.activity.report);
+    if (metadata.compare(0, 7, "format=") == 0) metadata.replace(0, 7, "metadata.format=");
+    doc.Append(metadata);
+    const std::wstring paths[] = {g_log_path, Beside(g_log_path, L"nr-before-sr.previous.log"),
+        Beside(g_log_path, L"ReShade.log"), Beside(session.exe, L"ReShade.log"),
+        Beside(session.reshade_module, L"ReShade.log")};
+    const char *names[] = {"nr-current", "nr-previous", "reshade-addon", "reshade-game", "reshade-module"};
+    const ULONGLONG deadline = GetTickCount64() + 3000;
+    for (unsigned i = 0; i < 5; ++i) {
+        bool duplicate = false;
+        for (unsigned j = 0; j < i; ++j)
+            if (!paths[i].empty() && _wcsicmp(paths[i].c_str(), paths[j].c_str()) == 0) duplicate = true;
+        if (duplicate) continue;
+        bool coverage = false;
+        std::string summary;
+        if (g_cancel.load() || paths[i].empty() || !ReadSummary(paths[i].c_str(), summary, coverage, deadline)) {
+            doc.Missing(names[i], g_cancel.load() ? "cancelled" : "source-or-read-unavailable", i == 0);
+            continue;
+        }
+        doc.Append(std::string("\n===== ") + names[i] +
+            (i == 1 ? " / PREVIOUS PROCESS, NOT CURRENT =====\n" : " / CURRENT PROCESS (head/first/tail) =====\n"));
+        if (!coverage) doc.Missing(std::string(names[i]) + ".coverage", "bounded or changing source; first-event completeness not guaranteed", i == 0);
+        nr_bundle::Sha256 digest;
+        digest.Update(reinterpret_cast<const unsigned char *>(summary.data()), summary.size());
+        char hash[65]{}; digest.Finish(hash);
+        doc.Append(std::string("summary.bytes=") + std::to_string(summary.size()) + "\nsummary.sha256=" + hash + "\n");
+        doc.Append(summary);
+    }
+    if (g_cancel.load()) { doc.complete = false; doc.Append("collection.cancelled=1\n"); }
+    doc.Finish();
+    output.complete = doc.complete;
+    char exe[1024]{};
+    const wchar_t *leaf = wcsrchr(session.exe, L'\\');
+    WideToUtf8(leaf ? leaf + 1 : session.exe, exe, sizeof(exe));
+    const auto &t = session.local_time;
+    const std::string name = nr_feedback_single::Filename(exe, kBuildIdentity,
+        t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond, t.wMilliseconds,
+        GetCurrentProcessId(), session.serial);
+    const std::wstring filename(name.begin(), name.end());
+    auto cached = std::make_shared<const std::string>(std::move(doc.text));
+    if (nr_feedback_report::WriteAtomic(session.directory, *cached, output, filename.c_str())) output.text = std::move(cached);
+    return output;
+}
+
 #include "nr_feedback_modules.inl"
 
 void Modules(FeedbackSession &s) {
@@ -220,6 +290,9 @@ DWORD WINAPI Worker(void *opaque) {
         g_feedback_status.store(2, std::memory_order_release);
         ReleaseSRWLockExclusive(&g_feedback_lock);
         FeedbackAppendActivity(s, "end");
+#if defined(NR_HAS_COMMAND_CREATION_EVIDENCE)
+        FeedbackAppendCommandHistory(s);
+#endif
         FeedbackAppend(s, "collection.elapsedMs=%llu\ncollection.parameterSamples=%u\ncollection.cancelled=%d\n",
             GetTickCount64() - s.started, s.observations, g_cancel.load() ? 1 : 0);
         const auto &identity = EnsureRuntimeIdentityOnWorker();
@@ -232,7 +305,14 @@ DWORD WINAPI Worker(void *opaque) {
             "color.contract=last recorded blend; not a measured picture strength\ncollection.metadataTruncated=%d\n",
             NrColorPolicyStatusName(color.status), color.policy.requested_color_strength,
             color.policy.effective_color_strength, NrColorReasonName(color.policy.color_reason), s.report_truncated ? 1 : 0);
-        if (FeedbackCreateDirectory(session->directory)) job = nr_bundle::CreateJob(session->directory, s.report);
+        complete = !g_cancel.load() && session->snapshot_ok && !s.report_truncated;
+        if (FeedbackCreateDirectory(session->directory)) {
+            if (session->archive_requested) job = nr_bundle::CreateJob(session->directory, s.report);
+            else text = CollectSingleText(*session, complete);
+        } else {
+            text.error = GetLastError();
+            if (!text.error) text.error = ERROR_PATH_NOT_FOUND;
+        }
         if (job) {
             job->archive_limit = nr_feedback_text::kCoreZipLimit;
             AcquireSRWLockExclusive(&g_feedback_lock); g_job = job; ReleaseSRWLockExclusive(&g_feedback_lock);
@@ -255,7 +335,8 @@ DWORD WINAPI Worker(void *opaque) {
         ReleaseSRWLockExclusive(&g_feedback_lock);
     }
     Publish(result, complete, g_cancel.load() ? "cancelled; inspect partial evidence" :
-        result.status == nr_bundle::Status::Failed ? "core package failed; no previous ZIP reused" : "core logs collected; no image readback requested", s.report, &text);
+        !session->archive_requested ? (text.text ? "single TXT saved; missing evidence is explicit; no ZIP or images requested" : "TXT save failed; no old report reused") :
+        result.status == nr_bundle::Status::Failed ? "core package failed; no previous ZIP reused" : "paired F7 core collected; no image readback requested", s.report, &text, session->archive_requested);
     nr_bundle::DestroyJob(job);
     delete session;
     return 0;
@@ -272,6 +353,9 @@ void Present(reshade::api::effect_runtime *runtime) {
     auto &s = session->activity;
     s.started = GetTickCount64();
     const auto pair = SnapshotPair();
+    session->archive_requested = pair.archive_requested;
+    session->serial = g_serial.load();
+    GetLocalTime(&session->local_time); GetSystemTime(&session->utc_time);
     nr_bundle::CopyText(session->session, sizeof(session->session), pair.session);
     ChainConfig config{}; NrDiagnosticIdentity applied{}; unsigned generation = 0;
     if (TryEnterCriticalSection(&g_chain_cs)) {
@@ -312,6 +396,13 @@ void Present(reshade::api::effect_runtime *runtime) {
         config.ui_correction, static_cast<int>(config.jitter_mode), config.style,
         applied.instance_id, applied.frame_id, applied.config_generation, applied.tuning.intensity,
         applied.tuning.skin_structure, static_cast<unsigned long long>(nr_feedback_text::kCoreZipLimit));
+    const auto &local = session->local_time;
+    const auto &utc = session->utc_time;
+    FeedbackAppend(s, "capture.delivery=%s\ncapture.localTime=%04u-%02u-%02uT%02u:%02u:%02u.%03u\n"
+        "capture.utcTime=%04u-%02u-%02uT%02u:%02u:%02u.%03uZ\n",
+        session->archive_requested ? "f7-paired-archive" : "single-txt",
+        local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute, local.wSecond, local.wMilliseconds,
+        utc.wYear, utc.wMonth, utc.wDay, utc.wHour, utc.wMinute, utc.wSecond, utc.wMilliseconds);
     FeedbackAppendActivity(s, "start");
     AcquireSRWLockExclusive(&g_feedback_lock);
     g_pair.config = generation; g_feedback_session = &s;

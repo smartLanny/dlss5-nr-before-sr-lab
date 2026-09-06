@@ -471,6 +471,12 @@ struct CommandStateMetaContract {
     UINT64 device_identity = 0; // private lifetime identity, not a device address
 };
 std::atomic<UINT64> g_next_command_device_identity{1};
+struct CommandCreationInfo {
+    UINT64 serial = 0, tick = 0, device_identity = 0;
+    unsigned method = 0; // 0 unknown, 1 CreateCommandList (open), 2 CreateCommandList1 (closed)
+    UINT node_mask = 0, flags = 0;
+    bool initial_pso = false;
+};
 struct CommandStateRecord {
     unsigned long long token = 0;
     ID3D12GraphicsCommandList *native = nullptr;
@@ -481,6 +487,9 @@ struct CommandStateRecord {
     bool null_guard_requested = false;
     ULONGLONG next_hook_attempt = 0;
     CommandStateMetaContract meta_contract;
+    CommandCreationInfo creation;
+    UINT64 registered_tick = 0, reset_notifications = 0, native_resets = 0, reset_successes = 0, captures = 0;
+    bool genuine_init_event = false;
 };
 CommandStateRecord g_command_states[2048] = {};
 SRWLOCK g_command_state_lock = SRWLOCK_INIT;
@@ -501,6 +510,10 @@ struct CommandStateEvidence {
     UINT arguments[2] = {};
     UINT64 sequence = 0, token = 0, reset_serial = 0, pipeline_writes = 0, dynamic = 0;
     ULONGLONG sampled_at = 0;
+    UINT64 creation_serial = 0, creation_tick = 0, registered_tick = 0;
+    UINT64 reset_notifications = 0, native_resets = 0, reset_successes = 0, captures = 0;
+    unsigned creation_method = 0;
+    bool initial_pso = false, genuine_init_event = false;
 };
 CommandStateEvidence g_command_state_evidence;
 CommandStateEvidence SnapshotCommandStateEvidence() {
@@ -513,6 +526,33 @@ CommandStateEvidence SnapshotCommandStateEvidence() {
     ReleaseSRWLockShared(&g_command_state_lock);
     return copy;
 }
+// Last distinct carrier samples retained independently of the hot state lock.
+// A contended F8 live snapshot stays explicitly unavailable; history is labelled
+// historical with age and loss counters, never substituted as a fresh snapshot.
+constexpr unsigned kCommandHistoryLimit = 12;
+struct CommandEvidenceHistory {
+    CommandStateEvidence entries[kCommandHistoryLimit];
+    unsigned count = 0;
+};
+SRWLOCK g_command_history_lock = SRWLOCK_INIT;
+CommandEvidenceHistory g_command_history;
+std::atomic<UINT64> g_command_history_dropped{0};
+void RememberCommandEvidence(const CommandStateEvidence &evidence) {
+    if (!TryAcquireSRWLockExclusive(&g_command_history_lock)) {
+        g_command_history_dropped.fetch_add(1, std::memory_order_relaxed); return;
+    }
+    unsigned index = 0;
+    for (; index < g_command_history.count; ++index)
+        if (g_command_history.entries[index].token == evidence.token) break;
+    if (index == kCommandHistoryLimit) {
+        index = kCommandHistoryLimit - 1;
+        g_command_history_dropped.fetch_add(1, std::memory_order_relaxed);
+    } else if (index == g_command_history.count) ++g_command_history.count;
+    for (; index > 0; --index) g_command_history.entries[index] = g_command_history.entries[index - 1];
+    g_command_history.entries[0] = evidence;
+    ReleaseSRWLockExclusive(&g_command_history_lock);
+}
+
 bool EnsureNativeCommandListResetHook(reshade::api::command_list *command_list);
 bool PinHookAddress(const void *address, const char *name, HMODULE expected_module);
 
@@ -947,6 +987,8 @@ bool PublishCommandStateHooks(CommandStateHookRequest *requests, unsigned int co
     ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
     return ok;
 }
+#include "nr_command_creation_observer.inl"
+
 void OnCommandStateInitDevice(reshade::api::device *device) {
     if (device == nullptr || device->get_api() != reshade::api::device_api::d3d12) return;
     auto *native = reinterpret_cast<ID3D12Device *>(device->get_native());
@@ -979,6 +1021,7 @@ void OnCommandStateInitDevice(reshade::api::device *device) {
         Log("[command-state] device meta-command contract: known=%d initDirty=0x%X executeDirty=0x%X supportedMask=0x%X.",
             meta.known ? 1 : 0, meta.initialization_dirty, meta.execution_dirty, kCommandStateCoveredDomains);
     }
+    EnsureCommandCreationObserver(native); // Evidence only, never an admission prerequisite.
     // Command signatures can be created early and reused much later by
     // ExecuteIndirect on the SR carrier list. Observe their immutable
     // descriptions at device creation regardless of the transient master
@@ -1103,7 +1146,7 @@ bool InstallNativeCommandStateHooks(ID3D12GraphicsCommandList *native, bool obse
     if (extended != nullptr) ID3D12GraphicsCommandList4_Release(extended);
     return result;
 }
-void OnCommandStateInitList(reshade::api::command_list *owner) {
+void RegisterCommandStateList(reshade::api::command_list *owner, bool genuine_init_event) {
     if (owner == nullptr || owner->get_device() == nullptr ||
         owner->get_device()->get_api() != reshade::api::device_api::d3d12) return;
     auto *native = reinterpret_cast<ID3D12GraphicsCommandList *>(owner->get_native());
@@ -1115,6 +1158,11 @@ void OnCommandStateInitList(reshade::api::command_list *owner) {
     CommandStateMetaContract meta;
     UINT meta_bytes = sizeof(meta);
     if (FAILED(ID3D12Device_GetPrivateData(native_device, kCommandStateMetaContract, &meta_bytes, &meta)) || meta_bytes != sizeof(meta)) meta = {};
+    CommandCreationInfo creation;
+    UINT creation_bytes = sizeof(creation);
+    if (FAILED(ID3D12GraphicsCommandList_GetPrivateData(native, kCommandCreationReceipt, &creation_bytes, &creation)) ||
+        creation_bytes != sizeof(creation) || creation.device_identity != meta.device_identity) creation = {};
+    if (genuine_init_event) g_command_init_events.fetch_add(1, std::memory_order_relaxed);
     const char *registration_failure = nullptr;
     AcquireSRWLockExclusive(&g_command_state_lock);
     if (FindCommandStateTokenLocked(ReadCommandStateToken(native)) == nullptr) {
@@ -1123,6 +1171,8 @@ void OnCommandStateInitList(reshade::api::command_list *owner) {
             const auto token = g_next_command_state_token++;
             if (SUCCEEDED(ID3D12GraphicsCommandList_SetPrivateData(native, kCommandStateIdentity, sizeof(token), &token))) {
                 record.token = token; record.native = native; record.owner = owner; record.meta_contract = meta;
+                record.creation = creation; record.genuine_init_event = genuine_init_event;
+                record.registered_tick = GetTickCount64();
                 g_command_state_epoch.fetch_add(1, std::memory_order_release);
                 registration_failure = nullptr;
             } else registration_failure = "private-data-publication";
@@ -1137,6 +1187,9 @@ void OnCommandStateInitList(reshade::api::command_list *owner) {
     }
 }
 
+void OnCommandStateInitList(reshade::api::command_list *owner) {
+    RegisterCommandStateList(owner, true);
+}
 void OnCommandStateObserveSubmission(reshade::api::command_list *owner) {
     if (!g_command_state_registration_repair_needed.load(std::memory_order_relaxed)) return;
     if (!owner || !owner->get_device() ||
@@ -1149,7 +1202,7 @@ void OnCommandStateObserveSubmission(reshade::api::command_list *owner) {
     ReleaseSRWLockShared(&g_command_state_lock);
     if (registered) return;
     // Real submission proves only the owner mapping, never the current bindings.
-    OnCommandStateInitList(owner);
+    RegisterCommandStateList(owner, false);
     const auto observed_token = ReadCommandStateToken(native);
     AcquireSRWLockShared(&g_command_state_lock);
     const bool recovered = FindCommandStateTokenLocked(observed_token) != nullptr;
@@ -1181,7 +1234,7 @@ void CompleteCommandStateInstallation(unsigned long long token,
 void OnCommandStateBeforeReset(reshade::api::command_list *owner) {
     if (owner == nullptr || owner->get_device() == nullptr || owner->get_device()->get_api() != reshade::api::device_api::d3d12) return;
     auto *native = reinterpret_cast<ID3D12GraphicsCommandList *>(owner->get_native());
-    if (ReadCommandStateToken(native) == 0) OnCommandStateInitList(owner);
+    if (ReadCommandStateToken(native) == 0) RegisterCommandStateList(owner, false);
     const auto token = ReadCommandStateToken(native);
     bool install = false, observe_null = false;
     AcquireSRWLockExclusive(&g_command_state_lock);
@@ -1195,6 +1248,7 @@ void OnCommandStateBeforeReset(reshade::api::command_list *owner) {
         }
         g_command_state_epoch.fetch_add(1, std::memory_order_release);
     }
+    if (record) ++record->reset_notifications; // ReShade also emits this on creation.
     // Prospective only: actual successful Reset remains mandatory.
     if (record && g_enabled_fast.load(std::memory_order_acquire))
         PrimeCommandListBeforeResetLocked(*record, native);
@@ -1216,6 +1270,26 @@ void OnCommandStateBeforeReset(reshade::api::command_list *owner) {
 }
 
 void OnCommandStateResetResult(ID3D12GraphicsCommandList *native, HRESULT result, ID3D12PipelineState *pipeline) {
+    g_command_native_reset_events.fetch_add(1, std::memory_order_relaxed);
+    if (FAILED(result)) g_command_native_reset_failures.fetch_add(1, std::memory_order_relaxed);
+    const auto token = ReadCommandStateToken(native);
+    AcquireSRWLockExclusive(&g_command_state_lock);
+    auto *record = FindCommandStateTokenLocked(token);
+    if (!record) g_command_reset_without_record.fetch_add(1, std::memory_order_relaxed);
+    else if (record->native != native) g_command_reset_identity_mismatches.fetch_add(1, std::memory_order_relaxed);
+    else {
+        ++record->native_resets;
+        if (SUCCEEDED(result)) {
+            ++record->reset_successes;
+            // Recover an omitted ReShade pre-reset notification using the REAL
+            // native Reset result, before any subsequent application recording.
+            // Reuses only an already-published device/interface family; no new
+            // hooks or speculative bindings are installed at this boundary.
+            if (g_enabled_fast.load(std::memory_order_acquire))
+                PrimeCommandListBeforeResetLocked(*record, native);
+        }
+    }
+    ReleaseSRWLockExclusive(&g_command_state_lock);
     MutateNativeCommandState(native, [&](NativeCommandState &state) {
         if (SUCCEEDED(result)) ResetNativeCommandState(state, pipeline);
         else { state.known = false; state.unknown_reason = "failed-native-reset"; }
@@ -1228,6 +1302,7 @@ void OnCommandStateDestroyList(reshade::api::command_list *owner) {
     AcquireSRWLockExclusive(&g_command_state_lock);
     auto *record = FindCommandStateTokenLocked(token);
     if (record != nullptr) {
+        g_command_destroy_events.fetch_add(1, std::memory_order_relaxed);
         if (record->prime_serial != 0) --g_primed_command_state_count;
         if (record->state != nullptr) { ReleaseNativeCommandState(*record->state); delete record->state; }
         *record = {};
@@ -1260,6 +1335,12 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
     AcquireSRWLockExclusive(&g_command_state_lock);
     auto *record = FindCommandStateTokenLocked(token);
     if (record != nullptr) {
+        ++record->captures;
+        evidence.creation_serial = record->creation.serial; evidence.creation_tick = record->creation.tick;
+        evidence.creation_method = record->creation.method; evidence.initial_pso = record->creation.initial_pso;
+        evidence.registered_tick = record->registered_tick; evidence.genuine_init_event = record->genuine_init_event;
+        evidence.reset_notifications = record->reset_notifications; evidence.native_resets = record->native_resets;
+        evidence.reset_successes = record->reset_successes; evidence.captures = record->captures;
         // A real carrier is permanently outside the speculative eviction pool.
         if (record->prime_serial != 0) {
             record->prime_serial = 0;
@@ -1345,6 +1426,7 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
     evidence.sequence = g_command_state_evidence.sequence + 1;
     const bool changed_reason = std::strcmp(evidence.reason, g_command_state_evidence.reason) != 0;
     g_command_state_evidence = evidence;
+    RememberCommandEvidence(evidence);
     ReleaseSRWLockExclusive(&g_command_state_lock);
     if (needs_install) {
         const bool ready = owner != nullptr &&
