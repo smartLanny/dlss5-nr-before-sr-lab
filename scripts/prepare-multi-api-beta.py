@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Stage the merged 0.4.5 compatibility candidate, without changing the checkout.
+"""Stage the merged 0.4.5 compatibility candidate without changing the checkout.
 
-Requires actual #131 and #132 ancestry. The entire operation, including final
-manifest validation, is transactional. This does not enable Vulkan event-park,
-Synthetic/Legacy execution, RR-post, FG control, or descriptor spoofing.
+Requires #131, #132 and the completed #134 merge. Generated-source availability
+is not game verification. MFG work is deferred for the current owner test batch.
 """
 from __future__ import annotations
 import argparse
@@ -19,7 +18,16 @@ VERSION = 'beta0.4.5-multiapi-dev1'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
+PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
+REQUIRED_ANCESTORS = (PR131, PR132, PR134)
+INTEGRATION_CORE_PINS = {
+    'src/nr_command_state.inl': STATE_132,
+    'src/nr_settings_ui.inl': '085742e4e02bd434bb491ce23a9a1df3f370b2ec',
+    'src/nr_color_policy.inl': 'e52bbc78b15647e8947de88afdbccf6ac7591361',
+    'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',
+    'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
+}
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
     'src/dlss5-bridge.cpp': 'f1337f31cfe3b42a950cb3df2fc83d2190ec5506',
@@ -43,18 +51,21 @@ def is_ancestor(root: Path, commit: str) -> bool:
         commit, 'HEAD'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
 def configure(core: Path):
-    for ancestor in (PR131, PR132):
+    for ancestor in REQUIRED_ANCESTORS:
         if not is_ancestor(core, ancestor):
             raise ValueError(f'Missing integration ancestor {ancestor}; merge, do not copy its files')
+    # Resolve all reviewed overrides before exposing a configured transformer.
+    # The library retains its original pins as a historical standalone fixture.
+    for path, expected in INTEGRATION_CORE_PINS.items():
+        actual = git(core, 'rev-parse', 'HEAD:' + path).decode().strip()
+        if actual != expected:
+            raise ValueError(f'Integrated source changed: {path}; review and repin, do not restore old UI')
     m = load('bridge_045_prerequisite', core / 'scripts/prepare-native-bridge-045.py')
     fmt = load('format_patch', core / 'scripts/patch-format-access.py')
     m.EXPERIMENT = m.legacy.EXPERIMENT = VERSION
     m.legacy.UPSTREAM = UPSTREAM
-    m.legacy.UPSTREAM_BLOBS = BRIDGE_BLOBS
-    state = git(core, 'rev-parse', 'HEAD:src/nr_command_state.inl').decode().strip()
-    if state != STATE_132:
-        raise ValueError('Reset source changed; review and repin the integration')
-    m.legacy.CORE_BLOBS['src/nr_command_state.inl'] = STATE_132
+    m.legacy.UPSTREAM_BLOBS = dict(BRIDGE_BLOBS)
+    m.legacy.CORE_BLOBS.update(INTEGRATION_CORE_PINS)
     prior_patch = m.patch_core
     def patch_core(text: str) -> str:
         return fmt.patch_core(prior_patch(text))
@@ -79,9 +90,6 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     names.write_text(text.replace(old,
         'return Equal(name, L"dlss5-native-carrier-multiapi-dev1.addon64");'),
         encoding='utf-8', newline='\n')
-    # Module enumeration is diagnostic, not permission to dereference GPU data.
-    # The consumer ABI and all resource/queue/NR-owner rules still determine
-    # admission. Only a positive duplicate-carrier observation blocks here.
     deployment = stage / 'core/src/interop/nr_dx11_deployment.inl'
     text = deployment.read_text(encoding='utf-8')
     old = ('return nr_dx11_deployment::duplicate_carriers.load(std::memory_order_acquire) ||\n'
@@ -95,7 +103,11 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'source_commit': source,
+        # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
+        'required_ancestors': list(REQUIRED_ANCESTORS),
+        'picture_pr134_ancestor': PR134,
+        'picture_source_pins': INTEGRATION_CORE_PINS,
         'bridge_release': 'v1.4.12', 'bridge_commit': UPSTREAM,
         'reset_source_blob': STATE_132, 'feedback': 'F8 single TXT; F7 optional paired archive',
         'format_path': 'typed FP16/FP32 SceneColor read -> existing FP16 codec',
@@ -103,7 +115,8 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'vulkan_native': 'disabled: submit synchronization not implemented',
         'synthetic_legacy': 'not integrated', 'rr_post': 'not implemented',
         'fg_control': 'not implemented', 'getdesc_spoof': 'not implemented',
-        'game_validation': 'none for this combination; old BG3 result retained separately',
+        'mfg_scope': 'deferred by owner; not a gate for this compatibility development round',
+        'game_validation': 'owner will test final batch; old BG3 result retained separately',
     }
     manifest['files'] = file_hashes(stage)
     mf.write_text(json.dumps(manifest, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
@@ -124,8 +137,6 @@ def prepare(core: Path, upstream: Path, output: Path) -> None:
         stage = Path(tmp) / 'candidate'
         m.prepare(core, upstream, stage)
         finalize(core, stage, source)
-        # Refuse a concurrent source edit, including a moved HEAD. No partially
-        # finalized candidate is exposed on failure; the checkout is never reset.
         if git(core, 'rev-parse', 'HEAD').decode().strip() != source or \
                 git(core, 'status', '--porcelain', '--untracked-files=no').strip():
             raise ValueError('Source changed during generation')

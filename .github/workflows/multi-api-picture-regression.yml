@@ -1,0 +1,47 @@
+name: Multi-API - preserve integrated picture policy in generated source
+on:
+  push:
+    branches: [codex/multiapi-045-integration]
+  pull_request:
+    branches: [release/0.4.5-test, release/0.4]
+    paths: ['src/**', 'scripts/**', 'tests/**', '.github/workflows/multi-api-picture-regression.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: multiapi-picture-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  generated-picture-policy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Current production budget and exact negative control
+        env:
+          CXX: ${{ matrix.compiler }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 145689aee077fa51c54d0b1dba2d79bc38633b2c HEAD
+          python3 scripts/validate-picture-budget.py --compiler "$CXX"
+          python3 scripts/validate-picture-budget.py --compiler "$CXX" --negative-control
+          python3 -m unittest discover -s tests/multi_api -p 'test_picture_integration.py' -v
+      - name: Verify actual generated core retains the same controls and budget
+        env:
+          CXX: ${{ matrix.compiler }}
+        run: |
+          set -euo pipefail
+          git clone --no-checkout https://github.com/NIGos/dlss5-bridge.git "$RUNNER_TEMP/picture-carrier"
+          git -C "$RUNNER_TEMP/picture-carrier" checkout --detach 28aed4099b0fe1c207b20b5fee5364c0773c25c2
+          python3 scripts/prepare-multi-api-beta.py --upstream "$RUNNER_TEMP/picture-carrier" --output "$RUNNER_TEMP/picture-generated"
+          python3 "$RUNNER_TEMP/picture-generated/core/scripts/validate-picture-budget.py" --compiler "$CXX"
+          python3 "$RUNNER_TEMP/picture-generated/core/scripts/validate-picture-budget.py" --compiler "$CXX" --negative-control
+# Exact source-generation/host evidence only. Existing unified Windows workflow
+# still owns actual SDK/WARP/addon builds. No artifact upload or release here.

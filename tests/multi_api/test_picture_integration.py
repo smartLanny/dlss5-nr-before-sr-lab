@@ -1,0 +1,60 @@
+"""Exercise actual generator configuration with explicit Git/source-library seams.
+This is not full source staging, Windows compilation, or a game test.
+"""
+import importlib.util
+from pathlib import Path
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location('picture_integration', ROOT/'scripts/prepare-multi-api-beta.py')
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+
+class PictureIntegration(unittest.TestCase):
+    def library(self):
+        return SimpleNamespace(patch_core=lambda text: 'bridge:' + text,
+            legacy=SimpleNamespace(CORE_BLOBS={'unrelated': 'preserved'}))
+
+    def fake_git(self, root, *args):
+        self.assertEqual(args[0], 'rev-parse')
+        return m.INTEGRATION_CORE_PINS[args[1].removeprefix('HEAD:')].encode()
+
+    def test_all_three_ancestors_required(self):
+        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134))
+        for missing in m.REQUIRED_ANCESTORS:
+            with self.subTest(missing=missing), patch.object(m, 'is_ancestor', side_effect=lambda r, c: c != missing), patch.object(m, 'load') as load:
+                with self.assertRaisesRegex(ValueError, 'Missing integration ancestor'):
+                    m.configure(ROOT)
+                load.assert_not_called()
+
+    def test_actual_config_replaces_old_pin_and_keeps_base(self):
+        library = self.library()
+        library.legacy.CORE_BLOBS['src/nr_settings_ui.inl'] = 'old-ui'
+        fmt = SimpleNamespace(patch_core=lambda text: 'format:' + text)
+        with patch.object(m, 'is_ancestor', return_value=True), patch.object(m, 'git', side_effect=self.fake_git), patch.object(m, 'load', side_effect=[library, fmt]):
+            result = m.configure(ROOT)
+        for path, digest in m.INTEGRATION_CORE_PINS.items():
+            self.assertEqual(result.legacy.CORE_BLOBS[path], digest)
+        self.assertEqual(result.legacy.CORE_BLOBS['unrelated'], 'preserved')
+        self.assertEqual(result.legacy.patch_core('core'), 'format:bridge:core')
+        self.assertEqual(result.legacy.UPSTREAM, m.UPSTREAM)
+
+    def test_each_changed_picture_dependency_requires_review(self):
+        for changed in m.INTEGRATION_CORE_PINS:
+            def read(root, *args):
+                path = args[1].removeprefix('HEAD:')
+                return ('0'*40 if path == changed else m.INTEGRATION_CORE_PINS[path]).encode()
+            with self.subTest(path=changed), patch.object(m, 'is_ancestor', return_value=True), patch.object(m, 'git', side_effect=read), patch.object(m, 'load') as load:
+                with self.assertRaisesRegex(ValueError, 'Integrated source changed'):
+                    m.configure(ROOT)
+                load.assert_not_called()
+
+    def test_pins_cover_actual_ui_and_composition_dependencies(self):
+        self.assertEqual(set(m.INTEGRATION_CORE_PINS), {'src/nr_command_state.inl', 'src/nr_settings_ui.inl',
+            'src/nr_color_policy.inl', 'src/nr_color_amplification.h', 'src/nr_precision_ui.h'})
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '085742e4e02bd434bb491ce23a9a1df3f370b2ec')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_132)
+
+if __name__ == '__main__': unittest.main()
