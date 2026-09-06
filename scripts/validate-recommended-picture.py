@@ -85,7 +85,7 @@ void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAI
  code+='c.enabled=enabled;c.depth_mode=1;c.r8_output_encoding=encoding;c.jitter_mode=NrJitterMode::Legacy;c.perf_epoch=777;\n'
  code+='for(int repeat=0;repeat<2;++repeat){RestoreRecommendedPictureSettings(c);\n'+'\n'.join(checks)+'\n'
  code+='check(c.enabled==enabled&&c.depth_mode==1&&c.r8_output_encoding==encoding&&c.jitter_mode==NrJitterMode::Legacy&&c.perf_epoch==777,"master and provider contracts preserved");\n'
- code+='}}std::printf("recommended picture reset: %d checks, %d failures\\n",count,failures);return failures?1:0;}\n'
+ code+='}\n}\nstd::printf("recommended picture reset: %d checks, %d failures\\n",count,failures);return failures?1:0;}\n'
  compiler=shutil.which(a.compiler)
  if not compiler:raise SystemExit('C++ compiler not found')
  with tempfile.TemporaryDirectory(prefix='nr-recommended-') as td:

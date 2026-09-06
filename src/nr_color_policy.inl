@@ -1,6 +1,8 @@
 // One decision feeds composition constants, completed-sample diagnostics and
 // the controls. Admission of a new HDR contract belongs elsewhere; this policy
 // deliberately preserves the existing FP16/unit-exposure post-SR exception.
+#include "nr_color_amplification.h"
+
 enum class NrColorReason : unsigned int {
     Unknown,
     NonHdr,
@@ -23,6 +25,8 @@ struct NrColorPolicy {
     float requested_color_strength = 0.0f;
     float effective_color_strength = 0.0f;
     bool color_allowed = false;
+    float amplification = 1.0f;
+    bool amplification_color_limited = false;
     NrColorReason color_reason = NrColorReason::Unknown;
     bool requested_preserve_lighting = false;
     bool effective_preserve_lighting = false;
@@ -61,12 +65,25 @@ NrColorPolicy ResolveNrColorPolicy(int mode, bool hdr_input,
     return result;
 }
 
-void ApplyRequestedUnverifiedHdrColor(NrColorPolicy &policy, bool allow, float strength) {
+// Called inside DispatchCodec's existing configuration lock before constants
+// and diagnostic snapshots are published. The explicit optional argument keeps
+// host tests independent; the production call uses the same committed strength
+// as TransferStrength. This finalization runs for BOTH verified colour and the
+// explicit unverified-HDR opt-in, not just for the latter.
+void ApplyRequestedUnverifiedHdrColor(NrColorPolicy &policy, bool allow, float strength,
+    float amplification = ActiveTransferStrength(g_config)) {
     if (allow && policy.color_reason == NrColorReason::UnverifiedHdr) {
         policy.color_allowed = true;
         policy.effective_color_strength = std::isfinite(strength) ? std::clamp(strength, 0.0f, 2.0f) : 0.0f;
         policy.color_reason = NrColorReason::ExperimentalUnverifiedHdr;
     }
+    const auto budget = nr_color_amplification::Resolve(
+        policy.effective_color_strength, amplification);
+    policy.effective_color_strength = policy.color_allowed ? budget.coefficient : 0.0f;
+    policy.amplification = budget.amplification;
+    policy.amplification_color_limited = policy.color_allowed && budget.limited;
+    // In Mode 1 this is a conservative reduction of the final colour MIX,
+    // not an exact cap on per-channel ratios (unlike Mode 2's log exponent).
 }
 
 const char *NrColorReasonName(NrColorReason reason) {
