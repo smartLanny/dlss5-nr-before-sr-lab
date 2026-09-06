@@ -14,8 +14,10 @@ function clamp(value, min, max) {
 function normalizeValue(key, value) {
   if (key === 'Enabled' || key === 'AutoMask' || key === 'UICorrection') return value ? 1 : 0;
   if (key === 'Mode') return Number(value) === 1 ? 1 : 2;
+  if (key === 'WorkMode') return Math.round(clamp(Number(value) || 0, 0, 5));
+  if (key === 'CustomWorkScale') return Number(clamp(Number(value) || 0, 0.25, 1).toFixed(2));
   if (key === 'Style') return Math.round(clamp(Number(value) || 0, 0, 2));
-  if (key === 'Intensity') return Number(clamp(Number(value) || 0, 0, 2).toFixed(2));
+  if (key === 'Intensity') return Number(clamp(Number(value) || 0, 0, 8).toFixed(2));
   if (key === 'SkinStructureStrength') return Number(clamp(Number(value), -1, 2).toFixed(2));
   if (key === 'LocalToneStrength' || key === 'LocalStructureStrength') {
     return Number(clamp(Number(value) || 0, 0, 2).toFixed(2));
@@ -49,20 +51,30 @@ function parseSection(text) {
 function readConfig(file) {
   let text = '';
   try { text = fs.readFileSync(file, 'utf8'); } catch {}
-  const full = { ...DEFAULT_NR_CONFIG, ...parseSection(text) };
+  const parsed = parseSection(text);
+  const full = { ...DEFAULT_NR_CONFIG, ...parsed };
   return {
     Enabled: full.Enabled,
-    Mode: full.Mode,
     Intensity: full.Intensity,
+    WorkMode: full.WorkMode,
+    CustomWorkScale: full.CustomWorkScale,
     Style: full.Style,
-    AutoMask: full.AutoMask
+    AutoMask: full.AutoMask,
+    ColorStrength: full.ColorStrength,
+    SkinStructureStrength: full.SkinStructureStrength,
+    capabilities: {
+      WorkMode: Object.prototype.hasOwnProperty.call(parsed, 'WorkMode'),
+      CustomWorkScale: Object.prototype.hasOwnProperty.call(parsed, 'CustomWorkScale'),
+      ColorStrength: Object.prototype.hasOwnProperty.call(parsed, 'ColorStrength'),
+      SkinStructureStrength: Object.prototype.hasOwnProperty.call(parsed, 'SkinStructureStrength')
+    }
   };
 }
 
 function updateSection(text, patch) {
   const normalized = {};
   for (const [key, value] of Object.entries(patch || {})) {
-    if (!PUBLIC_NR_KEYS.includes(key) && !(key in DEFAULT_NR_CONFIG)) {
+    if (!PUBLIC_NR_KEYS.includes(key)) {
       throw appError('ERR_BAD_REQUEST', { key });
     }
     normalized[key] = normalizeValue(key, value);
@@ -120,20 +132,22 @@ async function writeConfig(file, patch) {
   return readConfig(file);
 }
 
-function recommendedPatch() {
+function defaultPatch() {
   return {
     Enabled: 1,
-    Mode: 2,
-    Intensity: 1.2,
-    Style: 1,
-    AutoMask: 1,
-    SkinStructureStrength: -1,
-    LocalToneStrength: 1,
-    LocalStructureStrength: 1,
-    TransferStrength: 1,
-    ColorStrength: 0
+    Intensity: 1.0,
+    WorkMode: 0,
+    CustomWorkScale: 1.0,
+    Style: 0,
+    AutoMask: 0,
+    ColorStrength: 0.75,
+    SkinStructureStrength: -1
   };
 }
+
+// Kept as a compatibility alias for older renderer builds. The product UI calls
+// this “恢复默认”; it is deliberately a neutral product default.
+const recommendedPatch = defaultPatch;
 
 module.exports = {
   SECTION,
@@ -141,6 +155,7 @@ module.exports = {
   parseSection,
   updateSection,
   writeConfig,
+  defaultPatch,
   recommendedPatch,
   normalizeValue
 };

@@ -1,10 +1,10 @@
 {
   "name": "xiaofeng-dlss5-manager",
-  "version": "0.1.0",
+  "version": "0.2.0-beta.2",
   "private": true,
   "description": "A beginner-friendly desktop manager for the DLSS 5 NR-before-SR add-on.",
   "main": "main.js",
-  "author": "野生的装机宅 / Xiaofeng Edition contributors",
+  "author": "野生的装机宅 / 装机宅版 contributors",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
@@ -13,8 +13,12 @@
     "test:ui-contract": "node scripts/check-ui.js",
     "verify:vendor": "node scripts/verify-vendor.js",
     "verify:payload": "node scripts/verify-payload.js",
+    "icon": "electron scripts/build-icon.js",
     "build": "npm run verify:vendor && npm run verify:payload && electron-builder --win",
     "build:portable": "npm run verify:vendor && npm run verify:payload && electron-builder --win portable"
+  },
+  "dependencies": {
+    "yauzl": "^2.10.0"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -26,6 +30,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "build/icon.png",
       "src/**/*",
       "vendor/DLSS5-Swapper/LICENSE",
       "vendor/DLSS5-Swapper/src/library.js",
@@ -35,6 +40,7 @@
       "vendor/DLSS5-Swapper/src/core/file-journal.js",
       "vendor/DLSS5-Swapper/src/core/scan.js",
       "vendor/DLSS5-Swapper/src/core/install-guards.js",
+      "vendor/DLSS5-Swapper/src/steamart.js",
       "package.json",
       "product.json",
       "LICENSE",
@@ -45,11 +51,19 @@
       {
         "from": "payload",
         "to": "payload",
-        "filter": ["**/*"]
+        "filter": [
+          "nr-before-sr/bundle.json",
+          "nr-before-sr/fixed/**/*",
+          "nr-before-sr/versions/*/*",
+          "nr-before-sr/README.md"
+        ]
       }
     ],
-    "win": { "target": ["nsis", "portable"] },
-    "portable": { "artifactName": "Xiaofeng-DLSS5-Manager-${version}-portable.exe" },
+    "win": { "target": ["nsis", "portable"], "icon": "build/icon.ico" },
+    "fileAssociations": [
+      { "ext": "addon64", "name": "DLSS 5 Addon", "description": "DLSS 5 AI 超分 Addon 文件", "role": "Editor" }
+    ],
+  "portable": { "artifactName": "DLSS5-Manager-${version}-portable.exe" },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
@@ -57,8 +71,11 @@
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "DLSS 5 AI 超分管理器",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
       "deleteAppDataOnUninstall": false,
-      "artifactName": "Xiaofeng-DLSS5-Manager-Setup-${version}.exe"
+      "artifactName": "DLSS5-Manager-Setup-${version}.exe"
     }
   }
 }

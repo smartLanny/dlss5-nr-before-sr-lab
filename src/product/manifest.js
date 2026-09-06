@@ -27,6 +27,7 @@ function readManifest(gameDir) {
       !data.game || !Array.isArray(data.files) || !/^[a-f0-9-]{36}$/i.test(data.installId || '')) {
     throw appError('ERR_BACKUP_INVALID');
   }
+  if (!Array.isArray(data.conflicts)) data.conflicts = [];
   return data;
 }
 
@@ -42,7 +43,11 @@ function newManifest(gameDir, exePath, api) {
       exe: path.relative(gameDir, exePath),
       api
     },
-    files: []
+    files: [],
+    conflicts: [],
+    reshadeRoute: 'dxgi',
+    payloadVersion: null,
+    hardwareFamily: null
   };
 }
 

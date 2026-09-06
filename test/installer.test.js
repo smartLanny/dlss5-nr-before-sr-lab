@@ -74,6 +74,32 @@ test('installs, diagnoses, repairs and uninstalls without deleting kept settings
   assert.equal(fs.existsSync(path.join(f.exeDir, PAYLOAD_FILES.addon)), false);
 });
 
+test('warns about anti-cheat first and installs only after explicit confirmation', async () => {
+  const f = fixture();
+  const installer = createInstaller({
+    journal: makeJournal(),
+    scan: {
+      async scanGame() { return f.scan; },
+      inspectReShade(dir) {
+        const file = path.join(dir, 'dxgi.dll');
+        return fs.existsSync(file)
+          ? { installed: true, addonSupport: fs.readFileSync(file).includes('Searching for add-ons'), file: 'dxgi.dll' }
+          : { installed: false, addonSupport: false, file: null };
+      }
+    },
+    guards: { antiCheatPresent: () => true, assertGameClosed: async () => {} },
+    pe: { getBitness: () => 64 }
+  });
+  await assert.rejects(
+    installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan }),
+    error => error && error.code === 'ERR_ANTI_CHEAT_CONFIRM'
+  );
+  assert.equal(fs.existsSync(path.join(f.exeDir, PAYLOAD_FILES.addon)), false);
+  const installed = await installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan, allowAntiCheat: true });
+  assert.equal(installed.complete, true);
+  assert.equal(fs.existsSync(path.join(f.exeDir, PAYLOAD_FILES.addon)), true);
+});
+
 test('refuses to overwrite an unknown dxgi.dll', async () => {
   const f = fixture();
   fs.writeFileSync(path.join(f.exeDir, 'dxgi.dll'), 'some unrelated proxy');
@@ -117,8 +143,104 @@ test('keeps an existing add-on ReShade and restores an overwritten runtime', asy
   await installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   assert.equal(fs.readFileSync(reshadePath, 'utf8'), 'existing ReShade Searching for add-ons');
   assert.equal(fs.readFileSync(runtimePath, 'utf8'), PAYLOAD_FILES.runtime);
+  assert.equal(fs.readFileSync(`${runtimePath}.bak`, 'utf8'), 'original runtime');
   const removed = await installer.uninstall({ gameDir: f.gameDir, scan: f.scan });
   assert.equal(removed.removed, true);
   assert.equal(fs.readFileSync(reshadePath, 'utf8'), 'existing ReShade Searching for add-ons');
   assert.equal(fs.readFileSync(runtimePath, 'utf8'), 'original runtime');
+});
+
+test('moves DLSS/NR conflicts but preserves ReShade, game DLSS and ordinary RenoDX files', async () => {
+  const f = fixture();
+  fs.writeFileSync(path.join(f.exeDir, 'dxgi.dll'), 'existing ReShade Searching for add-ons');
+  fs.writeFileSync(path.join(f.exeDir, 'renodx-dlss5.addon64'), 'old dlss5 tool');
+  fs.writeFileSync(path.join(f.exeDir, 'old-nr-before-sr.addon64'), 'old nr');
+  fs.writeFileSync(path.join(f.exeDir, 'renodx-hdr.addon64'), 'keep hdr');
+  fs.writeFileSync(path.join(f.exeDir, 'nvngx_dlss.dll'), 'game dlss');
+  fs.writeFileSync(path.join(f.exeDir, 'nvngx_dlssg.dll'), 'game dlssg');
+  const installer = createInstaller({
+    journal: makeJournal(),
+    scan: {
+      async scanGame() { return f.scan; },
+      inspectReShade() { return { installed: true, addonSupport: true, file: 'dxgi.dll' }; }
+    },
+    guards: { antiCheatPresent: () => false, assertGameClosed: async () => {} },
+    pe: { getBitness: () => 64 }
+  });
+  const installed = await installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(installed.complete, true);
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'renodx-dlss5.addon64')), false);
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'old-nr-before-sr.addon64')), false);
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'renodx-hdr.addon64')), true);
+  assert.equal(fs.readFileSync(path.join(f.exeDir, 'dxgi.dll'), 'utf8'), 'existing ReShade Searching for add-ons');
+  assert.equal(fs.readFileSync(path.join(f.exeDir, 'nvngx_dlss.dll'), 'utf8'), 'game dlss');
+  assert.equal(fs.readFileSync(path.join(f.exeDir, 'nvngx_dlssg.dll'), 'utf8'), 'game dlssg');
+  const conflictRoot = path.join(f.gameDir, '_DLSS5_Backup', 'conflicts');
+  assert.equal(fs.readdirSync(conflictRoot, { recursive: true }).some(name => String(name).includes('renodx-dlss5.addon64')), true);
+  const removed = await installer.uninstall({ gameDir: f.gameDir, scan: f.scan });
+  assert.equal(removed.removed, true);
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'renodx-dlss5.addon64')), true);
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'old-nr-before-sr.addon64')), true);
+});
+
+test('upgrades the managed addon and optional paired bridge while leaving the rest intact', async () => {
+  const f = fixture();
+  const scanModule = {
+    async scanGame() { return f.scan; },
+    inspectReShade(dir) {
+      const file = path.join(dir, 'dxgi.dll');
+      return fs.existsSync(file)
+        ? { installed: true, addonSupport: fs.readFileSync(file).includes('Searching for add-ons'), file: 'dxgi.dll' }
+        : { installed: false, addonSupport: false, file: null };
+    }
+  };
+  const installer = createInstaller({
+    journal: makeJournal(),
+    scan: scanModule,
+    guards: { antiCheatPresent: () => false, assertGameClosed: async () => {} },
+    pe: { getBitness: () => 64 }
+  });
+  await installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  const replacement = path.join(f.root, 'new-version.addon64');
+  fs.writeFileSync(replacement, 'new imported addon');
+  const bridgeReplacement = path.join(f.root, 'new-bridge.dll');
+  fs.writeFileSync(bridgeReplacement, 'new imported bridge');
+  const result = await installer.upgradeAddon({
+    gameDir: f.gameDir,
+    addon: { id: 'imported-test', file: replacement, bridgeFile: bridgeReplacement },
+    version: 'imported-test',
+    scan: f.scan
+  });
+  assert.equal(result.complete, true);
+  assert.equal(fs.readFileSync(path.join(f.exeDir, PAYLOAD_FILES.addon), 'utf8'), 'new imported addon');
+  assert.equal(fs.readFileSync(path.join(f.exeDir, PAYLOAD_FILES.bridge), 'utf8'), 'new imported bridge');
+  assert.equal(fs.existsSync(path.join(f.exeDir, `${PAYLOAD_FILES.addon}.bak`)), true);
+});
+
+test('switches the managed ReShade hook to d3d12.dll and can roll it back', async () => {
+  const f = fixture();
+  const scanModule = {
+    async scanGame() { return f.scan; },
+    inspectReShade(dir) {
+      for (const name of ['dxgi.dll', 'd3d12.dll']) {
+        const file = path.join(dir, name);
+        if (fs.existsSync(file)) return { installed: true, addonSupport: fs.readFileSync(file).includes('Searching for add-ons'), file: name };
+      }
+      return { installed: false, addonSupport: false, file: null };
+    }
+  };
+  const installer = createInstaller({
+    journal: makeJournal(),
+    scan: scanModule,
+    guards: { antiCheatPresent: () => false, assertGameClosed: async () => {} },
+    pe: { getBitness: () => 64 }
+  });
+  await installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  await installer.toggleD3D12({ gameDir: f.gameDir, enabled: true, scan: f.scan });
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'dxgi.dll')), false);
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'd3d12.dll')), true);
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'dxgi.dll.bak')), true);
+  await installer.toggleD3D12({ gameDir: f.gameDir, enabled: false, scan: f.scan });
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'dxgi.dll')), true);
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'd3d12.dll')), false);
 });

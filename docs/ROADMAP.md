@@ -4,7 +4,7 @@
 
 - one-page game list;
 - launcher discovery plus manual folders;
-- x64 DX11/DX12 + native DLSS compatibility gate;
+- x64 DX12 + native DLSS compatibility gate；DX11 通过独立实验 carrier 槽接入，继续收集兼容性反馈；
 - transactional install, repair and uninstall;
 - payload SHA-256 verification;
 - live INI controls using the add-on's existing 500 ms reload;

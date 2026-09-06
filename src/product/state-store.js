@@ -8,8 +8,12 @@ const DEFAULTS = Object.freeze({
   scanDrives: false,
   scanFolders: [],
   manualGames: [],
+  manualExecutables: [],
+  gameOverrides: {},
   excludedRoots: [],
-  lastSelectedGame: null
+  excludedGames: [],
+  lastSelectedGame: null,
+  addonVersion: null
 });
 
 function uniquePaths(rows) {
@@ -25,6 +29,57 @@ function uniquePaths(rows) {
   return out;
 }
 
+function uniqueManualExecutables(rows) {
+  const seen = new Set();
+  const out = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row || typeof row !== 'object' || typeof row.root !== 'string' || typeof row.file !== 'string') continue;
+    if (!path.isAbsolute(row.root) || !path.isAbsolute(row.file) || !/\.exe$/i.test(row.file)) continue;
+    const root = path.resolve(row.root);
+    const file = path.resolve(row.file);
+    const key = `${root.toLowerCase()}|${file.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ root, file });
+  }
+  return out;
+}
+
+function normalizeGameOverrides(value) {
+  const out = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
+  for (const [rawDir, row] of Object.entries(value)) {
+    if (!path.isAbsolute(rawDir) || !row || typeof row !== 'object') continue;
+    const dir = path.resolve(rawDir).toLowerCase();
+    const name = typeof row.name === 'string' ? row.name.trim().slice(0, 160) : '';
+    const icon = typeof row.icon === 'string' && row.icon.length <= 1024 * 1024 ? row.icon : null;
+    if (!name && !icon) continue;
+    out[dir] = { name, icon };
+  }
+  return out;
+}
+
+function normalizeExcludedGames(value) {
+  const out = [];
+  const seen = new Set();
+  for (const row of Array.isArray(value) ? value : []) {
+    if (!row || typeof row !== 'object') continue;
+    const dir = typeof row.dir === 'string' && path.isAbsolute(row.dir) ? path.resolve(row.dir) : null;
+    const executable = typeof row.executable === 'string' && path.isAbsolute(row.executable) && /\.exe$/i.test(row.executable)
+      ? path.resolve(row.executable)
+      : null;
+    const launcher = typeof row.launcher === 'string' ? row.launcher.slice(0, 80) : '';
+    const id = typeof row.id === 'string' || typeof row.id === 'number' ? String(row.id) : null;
+    const appid = typeof row.appid === 'string' || typeof row.appid === 'number' ? String(row.appid) : null;
+    if (!dir && !executable && !(launcher && (id || appid))) continue;
+    const key = [dir && dir.toLowerCase(), executable && executable.toLowerCase(), launcher.toLowerCase(), id || '', appid || ''].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ dir, executable, launcher, id, appid });
+  }
+  return out;
+}
+
 function validate(value) {
   const state = value && value.version === 1 ? value : {};
   return {
@@ -34,8 +89,12 @@ function validate(value) {
     scanDrives: state.scanDrives === true,
     scanFolders: uniquePaths(state.scanFolders),
     manualGames: uniquePaths(state.manualGames),
+    manualExecutables: uniqueManualExecutables(state.manualExecutables),
+    gameOverrides: normalizeGameOverrides(state.gameOverrides),
     excludedRoots: uniquePaths(state.excludedRoots),
-    lastSelectedGame: typeof state.lastSelectedGame === 'string' ? state.lastSelectedGame : null
+    excludedGames: normalizeExcludedGames(state.excludedGames),
+    lastSelectedGame: typeof state.lastSelectedGame === 'string' ? state.lastSelectedGame : null,
+    addonVersion: typeof state.addonVersion === 'string' ? state.addonVersion : null
   };
 }
 
@@ -55,4 +114,4 @@ function createStore(file) {
   return { read, write };
 }
 
-module.exports = { DEFAULTS, validate, createStore, uniquePaths };
+module.exports = { DEFAULTS, validate, createStore, uniquePaths, uniqueManualExecutables, normalizeGameOverrides, normalizeExcludedGames };

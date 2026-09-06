@@ -13,7 +13,7 @@ git switch product/xiaofeng-manager-foundation
 # Create an independent history containing the current product tree.
 git switch --orphan standalone-main
 git add -A
-git commit -m "Initial Xiaofeng DLSS 5 manager foundation"
+git commit -m "Initial 装机宅版 DLSS 5 manager foundation"
 
 git remote add manager <NEW-REPOSITORY-URL>
 git push -u manager standalone-main:main

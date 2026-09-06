@@ -1,11 +1,32 @@
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 const { createAppService } = require('./src/product/app-service');
 
 let win = null;
 let service = null;
+
+function addonArgs(argv) {
+  return (argv || []).filter(file => typeof file === 'string' && /(?:\.addon64|\.zip)$/i.test(file));
+}
+
+async function iconDataFor(file) {
+  if (typeof file !== 'string' || !path.isAbsolute(file)) return null;
+  // `small` asks Windows for a 16px shell icon. The renderer then enlarges it
+  // to 52-58px, which is why manually added games looked noticeably blurry.
+  // Prefer the largest shell resource and keep fallbacks for unusual EXEs.
+  for (const size of ['large', 'normal', 'small']) {
+    try {
+      const icon = await app.getFileIcon(file, { size });
+      if (icon && !icon.isEmpty()) return icon.toDataURL();
+    } catch {}
+  }
+  return null;
+}
+
+const hasSingleInstance = app.requestSingleInstanceLock();
 
 function createWindow() {
   win = new BrowserWindow({
@@ -14,6 +35,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 620,
     backgroundColor: '#0c0e10',
+    icon: path.join(__dirname, 'build', 'icon.png'),
     frame: false,
     autoHideMenuBar: true,
     show: false,
@@ -30,22 +52,71 @@ function createWindow() {
 }
 
 function registerIpc() {
-  const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => service.withError(() => fn(...args)));
+  const loggedGameActions = new Set([
+    'game-install', 'game-repair', 'game-upgrade-addon', 'game-uninstall',
+    'game-toggle-d3d12', 'game-launch', 'game-diagnose', 'game-hotkeys-read',
+    'game-hotkey-write', 'nr-read', 'nr-write', 'nr-default', 'nr-recommended',
+    'feedback-export'
+  ]);
+  const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => service.withError(
+    () => fn(...args),
+    { action: name, gameId: loggedGameActions.has(name) && typeof args[0] === 'string' ? args[0] : null }
+  ));
   call('boot', () => service.boot());
   call('games-refresh', () => service.refresh());
-  call('game-install', id => service.install(id));
-  call('game-repair', id => service.repair(id));
+  call('game-install', (id, options) => service.install(id, options));
+  call('game-repair', (id, options) => service.repair(id, options));
+  call('game-upgrade-addon', (id, version, options) => service.upgradeAddon(id, version, options));
+  call('game-dismiss', id => service.dismissGame(id));
+  call('game-toggle-d3d12', (id, enabled, options) => service.toggleD3D12(id, enabled === true, options));
   call('game-uninstall', (id, removeSettings) => service.uninstall(id, removeSettings === true));
+  call('game-launch', id => service.launch(id));
   call('game-diagnose', id => service.diagnose(id));
   call('nr-read', id => service.readNrSettings(id));
   call('nr-write', (id, patch) => service.writeNrSettings(id, patch));
-  call('nr-recommended', id => service.applyRecommended(id));
+  call('game-hotkeys-read', id => service.readGameHotkeys(id));
+  call('game-hotkey-write', (id, target, binding) => service.writeGameHotkey(id, target, binding));
+  call('nr-default', id => service.applyDefault(id));
+  call('nr-recommended', id => service.applyDefault(id));
   call('settings-update', patch => service.updateSettings(patch));
+  call('addon-list', () => service.listAddonVersions());
+  call('addon-import', file => service.importAddonFile(file));
+  call('addon-remove', id => service.removeAddonVersion(id));
+  call('game-art', id => service.fetchGameArt(id));
+  call('game-icon', async id => {
+    const file = service.gameExecutable(id);
+    return iconDataFor(file);
+  });
+  call('game-selection-icon', file => iconDataFor(file));
 
   call('pick-game', async () => {
     const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: '选择游戏安装目录' });
     if (result.canceled || !result.filePaths[0]) return null;
-    return service.addManualGame(result.filePaths[0]);
+    return service.prepareGameSelection(result.filePaths[0]);
+  });
+  call('pick-executable', async () => {
+    const result = await dialog.showOpenDialog(win, { properties: ['openFile'], title: '选择游戏运行程序', filters: [{ name: 'Windows 游戏程序', extensions: ['exe'] }] });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return service.prepareGameSelection(result.filePaths[0], result.filePaths[0]);
+  });
+  call('game-confirm', selection => service.addManualSelection(selection));
+  call('pick-game-icon', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      title: '选择游戏图标',
+      filters: [{ name: '图标或程序', extensions: ['ico', 'exe', 'dll'] }]
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return { file: result.filePaths[0], icon: await iconDataFor(result.filePaths[0]) };
+  });
+  call('pick-addon', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      title: '选择 DLSS 5 Addon 或标准 OTA 包',
+      filters: [{ name: 'DLSS 5 Addon / 标准 OTA', extensions: ['addon64', 'zip'] }]
+    });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return service.importAddonFile(result.filePaths[0]);
   });
   call('pick-scan-folder', async () => {
     const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: '选择游戏库目录' });
@@ -67,20 +138,48 @@ function registerIpc() {
     clipboard.writeText(text);
     return true;
   });
+  call('feedback-export', async (id, options = {}) => {
+    const report = await service.collectFeedback(id, options);
+    const result = await dialog.showSaveDialog(win, {
+      title: '保存问题反馈日志',
+      defaultPath: path.join(app.getPath('downloads'), report.suggestedName),
+      filters: [{ name: '反馈日志（TXT）', extensions: ['txt'] }]
+    });
+    if (result.canceled || !result.filePath) return null;
+    await fs.promises.writeFile(result.filePath, report.text, 'utf8');
+    return result.filePath;
+  });
+  call('feedback-build', (id, options = {}) => service.collectFeedback(id, options));
 
   ipcMain.on('window-minimize', () => win && win.minimize());
   ipcMain.on('window-close', () => win && win.close());
 }
 
-app.setAppUserModelId('com.xiaofeng.dlss5.manager');
-app.whenReady().then(() => {
-  service = createAppService({
-    userData: app.getPath('userData'),
-    resourcesPath: process.resourcesPath,
-    appDir: __dirname,
-    version: app.getVersion()
+if (!hasSingleInstance) {
+  app.quit();
+} else {
+  app.on('second-instance', async (_event, argv) => {
+    if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
+    if (!service) return;
+    for (const file of addonArgs(argv)) {
+      try { await service.importAddonFile(file); } catch {}
+    }
+    if (win && !win.isDestroyed()) win.webContents.send('addon-imported');
   });
-  registerIpc();
-  createWindow();
-});
-app.on('window-all-closed', () => app.quit());
+
+  app.setAppUserModelId('com.xiaofeng.dlss5.manager');
+  app.whenReady().then(async () => {
+    service = createAppService({
+      userData: app.getPath('userData'),
+      resourcesPath: process.resourcesPath,
+      appDir: __dirname,
+      version: app.getVersion()
+    });
+    for (const file of addonArgs(process.argv)) {
+      try { await service.importAddonFile(file); } catch {}
+    }
+    registerIpc();
+    createWindow();
+  });
+  app.on('window-all-closed', () => app.quit());
+}

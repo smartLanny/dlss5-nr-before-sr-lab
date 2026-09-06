@@ -3,6 +3,7 @@ dist/
 out/
 build/
 *.log
+.demo-user-data-*/
 .DS_Store
 Thumbs.db
 payload/nr-before-sr/*
