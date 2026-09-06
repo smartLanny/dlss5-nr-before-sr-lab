@@ -144,6 +144,26 @@ void *g_original_dlssd_evaluate, *g_original_dlssd_release;
 using NgxResult = unsigned int;
 constexpr NgxResult kNgxSuccess = 1;
 struct NgxHandle {};
+struct NgxParams {};
+// Observation-only D3D11 hooks live in the extracted InstallHooks slice.
+// The fixture never exports NVSDK_NGX_D3D11_*, so those prepares stay no-ops.
+#include "nr_dx11_observer_status.h"
+using D3d11CreateFeatureFn = NgxResult (*)(void *, int, NgxParams *, NgxHandle **);
+using D3d11EvaluateFeatureFn = NgxResult (*)(void *, const NgxHandle *,
+                                             const NgxParams *, void *);
+using ReleaseFeatureFn = NgxResult (*)(NgxHandle *);
+D3d11CreateFeatureFn g_original_d3d11_create = nullptr;
+D3d11CreateFeatureFn g_original_d3d11_core_create = nullptr;
+D3d11EvaluateFeatureFn g_original_d3d11_evaluate = nullptr;
+D3d11EvaluateFeatureFn g_original_d3d11_core_evaluate = nullptr;
+ReleaseFeatureFn g_original_d3d11_release = nullptr;
+ReleaseFeatureFn g_original_d3d11_core_release = nullptr;
+std::atomic<int> g_presenting_device_api{
+    static_cast<int>(nr_dx11_observer_status::PresentingApi::Unknown)};
+std::atomic<unsigned long long> g_d3d11_feature1_create_attempts{0};
+std::atomic<unsigned long long> g_d3d11_feature1_create_success{0};
+std::atomic<unsigned long long> g_d3d11_feature1_evals{0};
+std::atomic<bool> g_d3d11_ngx_hooks_ready{false};
 std::atomic<bool> g_evaluate_hooks_ready{false};
 std::atomic<bool> g_evaluate_hooks_enabled{false};
 std::atomic<bool> g_core_unknown_handle_guard{false};
