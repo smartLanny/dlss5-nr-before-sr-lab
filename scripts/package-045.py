@@ -10,6 +10,7 @@ import re
 import struct
 import subprocess
 import zipfile
+from nr_ota_pe import companion_check
 
 ROOT=Path(__file__).resolve().parents[1]
 VERSION='beta0.4.5'
@@ -58,6 +59,7 @@ def verify(path:Path,sha:str,language:str)->dict:
             data=z.read(entry['name'])
             if digest(data)!=entry['sha256'] or len(data)!=entry['bytes']:raise ValueError('Payload hash/size mismatch')
         pe_check(z.read(ADDONS[language]),sha)
+        companion_check(z.read("nrchain_nvngx.dll"))
     return {'name':path.name,'bytes':path.stat().st_size,'sha256':digest(path.read_bytes()),'sourceCommit':sha,'language':language}
 
 def package(out:Path,sha:str)->None:
@@ -67,12 +69,13 @@ def package(out:Path,sha:str)->None:
     for language,addon in ADDONS.items():
         data={addon:(ROOT/'build'/addon).read_bytes(),'nrchain_nvngx.dll':(ROOT/'build/nrchain_nvngx.dll').read_bytes()}
         pe_check(data[addon],sha)
+        companion_check(data["nrchain_nvngx.dll"])
         for name in FEEDBACK:data[name]=(ROOT/'scripts'/name).read_bytes()
         readme=README_ZH if language=='Chinese' else README_EN
         data['Instructions.txt']=b'\xef\xbb\xbf'+readme.replace('\n','\r\n').encode('utf-8')
         manifest={'schema':'nr-branch-ota-v1','version':VERSION,'language':language,'api':'D3D12-x64',
           'sourceCommit':sha,'sourceDirty':False,'includesDx11':False,'channel':'targeted-test-prerelease',
-          'preserve':['nr_before_sr.ini','ReShade.ini','ReShadePreset.ini','nvngx_dlssnr.dll'],
+          'preserve':['nr_before_sr.ini','ReShade.ini','ReShadePreset.ini','nvngx_dlssnr.dll','nvngx_dlss.dll','nvngx_dlssg.dll','nvngx_dlssd.dll'],
           'files':[{'name':n,'bytes':len(b),'sha256':digest(b)} for n,b in sorted(data.items())]}
         data['ota-manifest.json']=(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n').encode('utf-8')
         path=out/f'DLSS5-{VERSION}-{language}-OTA.zip'

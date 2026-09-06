@@ -31,5 +31,6 @@ RuntimeLoadEvidence SnapshotRuntimeLoadEvidence() {
 DWORD RuntimeLoadError(bool succeeded) {
     if (succeeded) return ERROR_SUCCESS;
     const DWORD error = GetLastError();
-    return error != ERROR_SUCCESS ? error : ERROR_MOD_NOT_FOUND;
+    // Backport #119: zero is unknown, not evidence that a DLL was missing.
+    return error != ERROR_SUCCESS ? error : ERROR_GEN_FAILURE;
 }

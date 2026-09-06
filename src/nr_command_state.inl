@@ -304,6 +304,11 @@ bool CanAutoRestorePristineNull(const NativeCommandState &state) {
 // fully observed successful Reset. No handles, descriptors, predication,
 // vertex/stream-output buffers, queries, opaque commands or unknown domains
 // are admitted by this path. Full dynamic replay is still experimental.
+const FLOAT *CommandStateBlendFactorValues(const FLOAT values[4]) {
+    static constexpr FLOAT defaults[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    return values != nullptr ? values : defaults;
+}
+
 bool CanAutoRestoreRasterNull(const NativeCommandState &state) {
     const auto &d = state.dynamic;
     if (!state.known || !state.null_pipeline_baseline || state.pipeline ||
@@ -584,8 +589,25 @@ NR_STATE_HOOK(RSSetViewports, (ID3D12GraphicsCommandList *command_list, UINT cou
     (command_list, count, values), CommandStateViewports(state, count, values))
 NR_STATE_HOOK(RSSetScissorRects, (ID3D12GraphicsCommandList *command_list, UINT count, const D3D12_RECT *values),
     (command_list, count, values), CommandStateScissors(state, count, values))
-NR_STATE_HOOK(OMSetBlendFactor, (ID3D12GraphicsCommandList *command_list, const FLOAT values[4]),
-    (command_list, values), if (values) memcpy(state.dynamic.blend, values, sizeof(state.dynamic.blend)); else for (float &value : state.dynamic.blend) value=1.0f; state.dynamic.recorded |= kDynamicBlend;)
+// Microsoft documents NULL BlendFactor as {1,1,1,1}. Canonicalize before
+// forwarding: the non-debug WARP implementation in our Windows regression
+// dereferences a raw NULL before the old post-call observer can process it.
+// This preserves documented values without catching exceptions or changing PSOs.
+// https://learn.microsoft.com/windows/win32/api/d3d12/nf-d3d12-id3d12graphicscommandlist-omsetblendfactor
+CommandStateHookFamily g_state_OMSetBlendFactor;
+template <unsigned int I> void STDMETHODCALLTYPE StateHookOMSetBlendFactor(
+        ID3D12GraphicsCommandList *command_list, const FLOAT values[4]) {
+    using Fn = decltype(ID3D12GraphicsCommandListVtbl::OMSetBlendFactor);
+    const FLOAT *effective = CommandStateBlendFactorValues(values);
+    reinterpret_cast<Fn>(g_state_OMSetBlendFactor.originals[I])(command_list, effective);
+    MutateNativeCommandState(command_list, [&](NativeCommandState &state) {
+        memcpy(state.dynamic.blend, effective, sizeof(state.dynamic.blend));
+        state.dynamic.recorded |= kDynamicBlend;
+    });
+}
+void *const g_state_detours_OMSetBlendFactor[4] = {
+    reinterpret_cast<void *>(&StateHookOMSetBlendFactor<0>), reinterpret_cast<void *>(&StateHookOMSetBlendFactor<1>),
+    reinterpret_cast<void *>(&StateHookOMSetBlendFactor<2>), reinterpret_cast<void *>(&StateHookOMSetBlendFactor<3>) };
 NR_STATE_HOOK(OMSetStencilRef, (ID3D12GraphicsCommandList *command_list, UINT value),
     (command_list, value), state.dynamic.stencil_front=state.dynamic.stencil_back=value; state.dynamic.separate_stencil=false; state.dynamic.recorded |= kDynamicStencil)
 NR_STATE_HOOK(IASetIndexBuffer, (ID3D12GraphicsCommandList *command_list, const D3D12_INDEX_BUFFER_VIEW *value),

@@ -42,6 +42,7 @@ jobs:
           /tmp/feedback-text
           python3 -m unittest discover -s tests -p 'test_core_feedback.py'
           python3 tests/test_f8_parser.py
+          python3 -m unittest discover -s tests -p test_045_ota.py -v
 
   shader-structure-and-math:
     runs-on: windows-latest

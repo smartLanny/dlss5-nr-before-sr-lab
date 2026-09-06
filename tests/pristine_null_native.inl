@@ -1,6 +1,7 @@
 // Included into the generated native command-state harness after production code.
 // No NGX runtime or game is involved. Negative control must produce exactly 999.
 int RunPristineNullGate(bool negative) {
+    setvbuf(stdout,nullptr,_IONBF,0); // Preserve exact checkpoints if a future native regression terminates.
     g_allow_experimental=false;
     g_enabled_fast.store(true);
     IDXGIFactory4 *factory=nullptr; IDXGIAdapter *adapter=nullptr; ID3D12Device *device=nullptr;

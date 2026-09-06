@@ -1,6 +1,7 @@
 // Included after Gpu. Synthetic state policy + real production restore + actual WARP pixels.
 // Native-hook observation is covered separately by pristine_null_native.inl.
 void RunBlendOnly(Gpu &gpu, bool null_default, bool inject) {
+    std::setvbuf(stdout,nullptr,_IONBF,0);
     const char shader[] = R"(
 float4 VS(uint id : SV_VertexID) : SV_Position {
     float2 p = id == 0 ? float2(-1,-1) : id == 1 ? float2(3,-1) : float2(-1,3);
@@ -42,7 +43,9 @@ float4 PS() : SV_Target { return float4(1,1,1,1); }
     auto result=gpu.Buffer(size,D3D12_HEAP_TYPE_READBACK,D3D12_RESOURCE_STATE_COPY_DEST);
     const float expected[4]={null_default?1.f:.25f,null_default?1.f:.5f,null_default?1.f:.75f,1.f};
     gpu.list->ClearState(nullptr);
-    gpu.list->OMSetBlendFactor(null_default?nullptr:expected);
+    // Native raw-NULL hook is exercised by pristine_null_native.inl; this
+    // synthetic producer uses the same production canonicalizer before WARP.
+    gpu.list->OMSetBlendFactor(CommandStateBlendFactorValues(null_default?nullptr:expected));
     auto state=std::make_unique<NativeCommandState>();
     state->known=true;state->null_pipeline_baseline=true;
     state->null_guard_covered=true;state->null_guard_reset_observed=true;
