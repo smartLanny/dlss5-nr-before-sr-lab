@@ -1,11 +1,12 @@
-# concatenate CLOUD-FULLISH parts in order
-CLOUD-FULLISH.part01-of-10.md
-CLOUD-FULLISH.part02-of-10.md
-CLOUD-FULLISH.part03-of-10.md
-CLOUD-FULLISH.part04-of-10.md
-CLOUD-FULLISH.part05-of-10.md
-CLOUD-FULLISH.part06-of-10.md
-CLOUD-FULLISH.part07-of-10.md
-CLOUD-FULLISH.part08-of-10.md
-CLOUD-FULLISH.part09-of-10.md
-CLOUD-FULLISH.part10-of-10.md
+CLOUD-FULLISH.part01-of-11.md
+CLOUD-FULLISH.part02-of-11.md
+CLOUD-FULLISH.part03-of-11.md
+CLOUD-FULLISH.part04-of-11.md
+CLOUD-FULLISH.part05-of-11.md
+CLOUD-FULLISH.part06-of-11.md
+CLOUD-FULLISH.part07-of-11.md
+CLOUD-FULLISH.part08-of-11.md
+CLOUD-FULLISH.part09-of-11.md
+CLOUD-FULLISH.part10-of-11.md
+CLOUD-FULLISH.part11-of-11.md
+# total_chars=33113 chunk=3200
