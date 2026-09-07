@@ -11,7 +11,9 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('multi_prepare', ROOT/'scripts/prepare-multi-api-beta.py')
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-NAMES = 'return Equal(name, L"dlss5-native-carrier-045-exp3.addon64");'
+NAMES = ('return Equal(name, L"dlss5-native-carrier-045-exp3.addon64") ||\n'
+         '        Equal(name, L"dlss5-native-carrier-multiapi-dev3.addon64") ||\n'
+         '        Equal(name, L"dlss5-native-carrier-045-dx11-compat.addon64");')
 DEPLOYMENT = ('return nr_dx11_deployment::duplicate_carriers.load(std::memory_order_acquire) ||\n'
               '        !nr_dx11_deployment::Read().complete;')
 
