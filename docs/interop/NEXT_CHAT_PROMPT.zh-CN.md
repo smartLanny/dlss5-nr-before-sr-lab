@@ -1,5 +1,7 @@
 # 下次本地或云端任务的接续入口
 
+本批dev3 OTA已实际发布，Tag/构建源码为b03f474ba5127ab057fbb5e93708c47eb9dbb866；本地完整门禁、2077有限基础测试和原文件恢复已完成，细节见CURRENT_STATUS与CP2077_DEV3_SMOKE。不要重复发布同一Tag。当前等待维护者详细测试或新开发指示。
+
 先读 docs/interop/CURRENT_STATUS.md、远端 PR #133、Issue #80 和最新 Release。不要从旧聊天的 SHA 或未勾选清单重新开发；源码、构建和游戏测试分别以实际 Git 祖先、manifest、validation 和游戏记录为准。
 
 唯一持续兼容分支 codex/multiapi-045-integration，目标 release/0.4.5-test。本轮临时 codex/045-unified-candidate-20260907 用于整合；颜色维护 PR #137、兼容 dev2 #136 的真实历史已保存。原先两个云端对话已经停止，无需唤醒、发送接续任务或重复恢复附件。

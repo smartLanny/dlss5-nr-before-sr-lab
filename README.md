@@ -1,6 +1,6 @@
 # DLSS5 NR-Before-SR Lab
 
-当前兼容候选为 **beta0.4.5-multiapi-dev3**。唯一持续开发分支是 `codex/multiapi-045-integration`（PR #133），执行看板是 [Issue #80](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/80)。本地、ChatGPT App和云端新session都从同一份 [CURRENT_STATUS](docs/interop/CURRENT_STATUS.md) 接续。
+当前兼容预发布版 **[beta0.4.5-multiapi-dev3 OTA](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/beta0.4.5-multiapi-dev3)** 已发布。唯一持续开发分支是 `codex/multiapi-045-integration`（PR #133），执行看板是 [Issue #80](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/80)。本地、ChatGPT App和云端新session都从同一份 [CURRENT_STATUS](docs/interop/CURRENT_STATUS.md) 接续。
 
 - [普通玩家更新说明：改了什么、如何升级、建议操作](docs/interop/RELEASE_DEV3_PLAYER_NOTES.md)
 - [安装/回退与测试矩阵](docs/interop/POST_COMPAT_DEV3.md)
