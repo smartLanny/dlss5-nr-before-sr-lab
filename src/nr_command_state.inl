@@ -309,6 +309,13 @@ const FLOAT *CommandStateBlendFactorValues(const FLOAT values[4]) {
     return values != nullptr ? values : defaults;
 }
 
+// D3D12 OMSetBlendFactor accepts any finite float. The old [0,1] gate was a
+// conservative policy, not an API rule, and rejected measured post-Reset lists
+// whose only extra dynamic bit was blend (0x8) with finite out-of-unit values.
+bool CommandStateBlendFactorAdmissible(float value) {
+    return value == value && value <= 3.402823466e+38f && value >= -3.402823466e+38f;
+}
+
 bool CanAutoRestoreRasterNull(const NativeCommandState &state) {
     const auto &d = state.dynamic;
     if (!state.known || !state.null_pipeline_baseline || state.pipeline ||
@@ -342,7 +349,7 @@ bool CanAutoRestoreRasterNull(const NativeCommandState &state) {
     }
     if ((state.dynamic.recorded & kDynamicBlend) != 0)
         for (float value : state.dynamic.blend)
-            if (!(value >= 0.0f && value <= 1.0f)) return false;
+            if (!CommandStateBlendFactorAdmissible(value)) return false;
     return true;
 }
 
