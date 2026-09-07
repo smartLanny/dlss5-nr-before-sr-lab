@@ -62,8 +62,20 @@ bool Request(bool archive_requested = false) {
 }
 void Cancel() {
     g_cancel.store(true, std::memory_order_release);
+    // Retire a request which no Present callback has claimed. Without this,
+    // closing the overlay after requesting F8 could leave Busy() true forever
+    // when rendering had already stopped, preventing every later retry.
+    const bool pending = g_feedback_requested.exchange(false, std::memory_order_acq_rel);
     AcquireSRWLockExclusive(&g_feedback_lock);
-    if (g_job) nr_bundle::RequestCancel(*g_job);
+    if (pending) {
+        nr_bundle::CopyText(g_reason, sizeof(g_reason),
+            "cancelled before a render callback claimed the request");
+        g_pair.ready = true;
+        g_pair.complete = false;
+        g_feedback_status.store(5, std::memory_order_release);
+    } else if (g_job) {
+        nr_bundle::RequestCancel(*g_job);
+    }
     ReleaseSRWLockExclusive(&g_feedback_lock);
 }
 void Publish(const nr_bundle::Result &result, bool complete, const char *reason,
