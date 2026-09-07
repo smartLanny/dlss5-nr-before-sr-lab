@@ -74,7 +74,7 @@ class Packaging(unittest.TestCase):
     def test_separate_languages_and_ini_preserved(self):
         run = self.run_package()
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-        index = json.loads((self.root/'output/packages.json').read_text())
+        index = json.loads((self.root/'output/packages.json').read_text(encoding='utf-8-sig'))
         self.assertEqual(index['version'], 'synthetic-fixture')
         self.assertEqual(len(index['packages']), 2)
         for entry in index['packages']:
@@ -86,6 +86,19 @@ class Packaging(unittest.TestCase):
                 self.assertNotIn('nr_before_sr.ini', names)
                 self.assertIn('validation/post-scaled-work-result.json', names)
                 self.assertEqual(len([n for n in names if n.endswith('.addon64')]), 2)
+
+    def test_public_chinese_label_is_carried_by_zip_and_manifest(self):
+        self.manifest['integration']['version'] = 'core'
+        self.manifest['integration']['display_version'] = '0.4.5-DX11-兼容增强'
+        run = self.run_package()
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+        index = json.loads((self.root/'output/packages.json').read_text(encoding='utf-8-sig'))
+        self.assertEqual(index['display_version'], '0.4.5-DX11-兼容增强')
+        for entry in index['packages']:
+            self.assertIn('0.4.5-DX11-兼容增强', entry['file'])
+            with zipfile.ZipFile(self.root/'output'/entry['file']) as archive:
+                self.assertIsNone(archive.testzip())
+                self.assertIn('0.4.5-DX11-兼容增强', archive.read('INSTALL-CANDIDATE.txt').decode('utf-8-sig'))
 
     def test_tampered_evidence_never_publishes_package(self):
         for relative in ('source/core/src/nr_before_sr.cpp', 'source/core/build/core-en.addon64',

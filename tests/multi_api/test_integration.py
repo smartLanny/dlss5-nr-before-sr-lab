@@ -46,20 +46,20 @@ class Staging(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)/'stage'; fixture(None,None,root)
             m.finalize(root, root, 'a'*40)
-            d=(root/'core/src/interop/nr_dx11_deployment.inl').read_text()
+            d=(root/'core/src/interop/nr_dx11_deployment.inl').read_text(encoding='utf-8')
             self.assertIn('duplicate_carriers.load',d)
             self.assertNotIn('!nr_dx11_deployment::Read().complete',d)
-            self.assertIn(m.CARRIER_NAME, (root/'core/src/interop/nr_deployment_names.h').read_text())
-            manifest=json.loads((root/'source-manifest.json').read_text())
+            self.assertIn(m.CARRIER_NAME, (root/'core/src/interop/nr_deployment_names.h').read_text(encoding='utf-8'))
+            manifest=json.loads((root/'source-manifest.json').read_text(encoding='utf-8'))
             self.assertEqual(manifest['files'],m.file_hashes(root))
             self.assertEqual(manifest['integration']['parents_in_history'],[m.PR131,m.PR132])
             self.assertEqual(manifest['integration']['feedback'],'F8 single TXT; F7 optional paired archive')
             self.assertEqual(manifest['integration']['carrier_filename'],m.CARRIER_NAME)
-            self.assertIn('slot.source_srv_format',(root/'core/src/nr_codec_descriptors.inl').read_text())
-            self.assertIn('NrMotionReadFormat',(root/'core/src/nr_codec_descriptors.inl').read_text())
-            self.assertEqual((root/'core/src/nr_before_sr.rc').read_text(),'0.4.5 DX11 compatibility beta\nFILEVERSION 0,4,5,104')
-            self.assertIn('PostWorkPercent=100',(root/'core/config/nr_before_sr.ini').read_text())
-            self.assertEqual((root/'core/src/nr_feedback_capture.inl').read_text().count('#include "interop/nr_post_feedback.inl"'),1)
+            self.assertIn('slot.source_srv_format',(root/'core/src/nr_codec_descriptors.inl').read_text(encoding='utf-8'))
+            self.assertIn('NrMotionReadFormat',(root/'core/src/nr_codec_descriptors.inl').read_text(encoding='utf-8'))
+            self.assertEqual((root/'core/src/nr_before_sr.rc').read_text(encoding='utf-8'),'0.4.5 DX11 compatibility beta\nFILEVERSION 0,4,5,104')
+            self.assertIn('PostWorkPercent=100',(root/'core/config/nr_before_sr.ini').read_text(encoding='utf-8'))
+            self.assertEqual((root/'core/src/nr_feedback_capture.inl').read_text(encoding='utf-8').count('#include "interop/nr_post_feedback.inl"'),1)
 
     def test_pe_drift_rejects_final_candidate(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -67,7 +67,7 @@ class Staging(unittest.TestCase):
             (root/'core/src/nr_before_sr.rc').write_text('different version')
             with self.assertRaisesRegex(ValueError,'PE description'):
                 m.finalize(root,root,'a'*40)
-            self.assertNotIn('integration',json.loads((root/'source-manifest.json').read_text()))
+            self.assertNotIn('integration',json.loads((root/'source-manifest.json').read_text(encoding='utf-8')))
 
     def test_nested_manifest_not_excluded(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -94,7 +94,7 @@ class Staging(unittest.TestCase):
                  patch.object(m,'configure',return_value=SimpleNamespace(prepare=fixture)):
                 m.prepare(root/'core',root/'upstream',out)
             self.assertEqual(list(root.iterdir()),[out])
-            manifest=json.loads((out/'source-manifest.json').read_text())
+            manifest=json.loads((out/'source-manifest.json').read_text(encoding='utf-8'))
             self.assertEqual(manifest['files'],m.file_hashes(out))
 
     def test_existing_output_is_not_overwritten(self):
@@ -102,7 +102,7 @@ class Staging(unittest.TestCase):
             root=Path(tmp); (root/'sentinel').write_text('keep')
             with self.assertRaisesRegex(ValueError,'already exists'):
                 m.prepare(root,root,root)
-            self.assertEqual((root/'sentinel').read_text(),'keep')
+            self.assertEqual((root/'sentinel').read_text(encoding='utf-8'),'keep')
 
     def test_missing_identity_anchor_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
