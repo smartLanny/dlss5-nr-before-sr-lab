@@ -5,6 +5,9 @@
 )
 
 $ErrorActionPreference = 'Stop'
+# SourceDefines below intentionally uses Windows PowerShell 5 quote escaping.
+# Keep that argv contract when this script runs under PowerShell 7.3+ too.
+$PSNativeCommandArgumentPassing = 'Legacy'
 Set-StrictMode -Version Latest
 
 if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) {
