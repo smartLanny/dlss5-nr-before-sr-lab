@@ -22,7 +22,7 @@ def fixture(core, upstream, root):
     (directory/'nr_dx11_deployment.inl').write_text(DEPLOYMENT)
     (root/'core/config').mkdir(parents=True)
     (root/'core/config/nr_before_sr.ini').write_text('[NRBeforeSR]\n')
-    (root/'core/src/nr_before_sr.rc').write_text('0.4.5 DX11 exp3 beta')
+    (root/'core/src/nr_before_sr.rc').write_text('0.4.5-fix2 beta\nFILEVERSION 0,4,5,2')
     (root/'core/src/nr_codec_descriptors.inl').write_text(
         'srv(0,slot.source,slot.source_format);\n'
         'srv(3,slot.motion_source,slot.motion_source?ID3D12Resource_GetDesc(slot.motion_source).Format:DXGI_FORMAT_R16G16_FLOAT);')
