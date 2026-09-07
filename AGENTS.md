@@ -41,3 +41,20 @@ After handing the candidate to the owner for testing, follow the latest owner in
 - A skipped, cancelled, billing-blocked, or unstarted job is not a passing test.
 - Do not publish releases, change repository visibility, rewrite history, or
   remove evidence without an explicit maintainer request.
+
+## Keep player OTA packages minimal
+
+- A directly distributed OTA is a player update, not a CI evidence archive. It
+  contains only the required runtime components, exactly one complete
+  instruction file in the package language, and a `licenses/` directory.
+- A Chinese OTA contains only the Chinese primary add-on; an English OTA
+  contains only the English primary add-on. Never place both localized primary
+  add-ons in one package.
+- Prevent stale-language conflicts when switching packages: prefer one canonical
+  installed add-on filename, or make the installer remove the opposite-language
+  filename before copying the selected one.
+- Keep `validation/`, build logs, source manifests, validation JSON, developer
+  README files, and detailed test notes outside the player ZIP. Publish them as
+  separate CI or release evidence when they are needed.
+- Package validation must reject an opposite-language primary add-on, multiple
+  user instruction files, unexpected root files, and missing license notices.
