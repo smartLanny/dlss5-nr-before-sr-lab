@@ -93,8 +93,8 @@ test('DX11 deploys the matched carrier and restores the prior carrier on uninsta
   assert.match(enabledIni, /DisabledAddons=@user,,name\.addon64/);
   assert.match(enabledIni, /\[OTHER\]\r\nDisabledAddons=@dlss5-native-carrier/i);
   assert.match(enabledIni, /DisabledAddons=@keep\.addon64/);
-  assert.equal((enabledIni.match(new RegExp(`@${INSTALLED_NAMES.carrier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'ig')) || []).length, 1,
-    'only the exact token outside ADDON sections remains');
+  assert.equal((enabledIni.match(new RegExp(`@${INSTALLED_NAMES.carrier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'ig')) || []).length, 2,
+    'the token outside ADDON and the case-mismatched ReShade token remain');
 
   fs.writeFileSync(reshadeIni, `[ADDON]\nDisabledAddons=@${INSTALLED_NAMES.carrier}\n`);
   const disabled = await f.installer.diagnose({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
@@ -131,6 +131,45 @@ test('DX11 clears exact bare and named carrier exclusions using ReShade section 
   assert.match(enabledIni, /LoadFromDllMain=manual-third-party\.addon64/);
   assert.equal(enabledIni.charCodeAt(0), 0xFEFF, 'UTF-8 BOM is preserved');
   assert.equal(fs.readFileSync(`${reshadeIni}.bak`).equals(original), true, 'Manager keeps its own exact INI backup');
+  if (process.env.MANAGER_INTEROP_EVIDENCE_DIR) {
+    const evidenceDir = path.resolve(process.env.MANAGER_INTEROP_EVIDENCE_DIR);
+    fs.mkdirSync(evidenceDir, { recursive: true });
+    fs.writeFileSync(path.join(evidenceDir, '10-exact-carrier-before.ini'), original);
+    fs.writeFileSync(path.join(evidenceDir, '11-exact-carrier-after.ini'), enabledIni);
+  }
+});
+
+test('ReShade case-sensitive keys stay untouched and the fixed carrier registration name blocks completion', async t => {
+  const f = fixture(t, 'dx11');
+  const reshadeIni = path.join(f.exeDir, 'ReShade.ini');
+  const ineffective =
+    `[addon]\nDisabledAddons=@${INSTALLED_NAMES.carrier}\n` +
+    `[ADDON]\ndisabledaddons=@${INSTALLED_NAMES.carrier}\n` +
+    `[ADDON]\nDisabledAddons=@${INSTALLED_NAMES.carrier.toUpperCase()}\n`;
+  fs.writeFileSync(reshadeIni, ineffective);
+  const installed = await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(installed.complete, true, 'lowercase section/key do not disable an add-on in ReShade');
+  assert.equal(fs.readFileSync(reshadeIni, 'utf8'), ineffective);
+
+  const nameOnly = '[ADDON]\nDisabledAddons=DLSS 5 Bridge 1.4.12\n';
+  fs.writeFileSync(reshadeIni, nameOnly);
+  const diagnosed = await f.installer.diagnose({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(diagnosed.complete, false);
+  assert.match(diagnosed.components.find(row => row.key === 'carrier').detail, /注册名.*手动启用/);
+  const repaired = await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(repaired.complete, false, 'Manager must not claim repair removed a name-only user entry');
+  assert.equal(fs.readFileSync(reshadeIni, 'utf8'), nameOnly);
+  if (process.env.MANAGER_INTEROP_EVIDENCE_DIR) {
+    const evidenceDir = path.resolve(process.env.MANAGER_INTEROP_EVIDENCE_DIR);
+    fs.mkdirSync(evidenceDir, { recursive: true });
+    fs.writeFileSync(path.join(evidenceDir, '20-case-sensitive-ineffective.ini'), ineffective);
+    fs.writeFileSync(path.join(evidenceDir, '21-name-only-before.ini'), nameOnly);
+    fs.writeFileSync(path.join(evidenceDir, '22-name-only-after-repair.ini'), fs.readFileSync(reshadeIni));
+    fs.writeFileSync(path.join(evidenceDir, '23-name-only-diagnosis.json'), `${JSON.stringify({
+      complete: repaired.complete,
+      carrier: repaired.components.find(row => row.key === 'carrier')
+    }, null, 2)}\n`);
+  }
 });
 
 test('real PR160 receipt refuses restore after Manager changes its applied INI', {
