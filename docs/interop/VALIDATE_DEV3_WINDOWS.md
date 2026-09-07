@@ -16,7 +16,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-multi-ap
 if ($LASTEXITCODE) { throw 'Exact-source package verification failed' }
 ```
 
-构建/打包之间不要修改源码或文档、移动HEAD。build和package拒绝已有输出目录；修复后使用新目录保留旧日志。`validation.json`记录实际源码commit、依赖、编译器、通过项及二进制SHA256；`source-manifest.json`记录生成源。packager核对这些证据与当前HEAD、全部源码/二进制/INI和后置WARP输出，分别生成中英文包。
+构建/打包之间不要修改源码或文档、移动HEAD。build和package拒绝已有输出目录；修复后使用新目录保留旧日志。`validation.json`记录实际源码commit、依赖、编译器、通过项及二进制SHA256；`source-manifest.json`记录生成源。packager核对这些证据与当前HEAD、全部源码/二进制/INI和后置WARP输出，当前默认仅交付中文精简包；构建仍验证两种语言。
 
 门禁覆盖实际生成源、格式/曝光/运动能力、NGX ABI正负控、设置/采集、RR Release三入口54场景及旧泄漏负控、生成后的颜色默认/模型恢复、F8及carrier日志、原生命令状态/栈/WARP、48场景后置production shader、静态分析和双语/core/bridge/carrier构建。WARP的神经平面为测试替身，不等于NVIDIA模型或游戏通过。
 
@@ -25,3 +25,5 @@ if ($LASTEXITCODE) { throw 'Exact-source package verification failed' }
 旧严格`tests/post_sr_snapshot_gpu.cpp`需要D3D12 Debug Layer。本机缺该组件时返回`0x887a002d`，单独记为未通过，不移除要求、不用其他WARP结果替它背书。实际候选已有独立48场景后置WARP证据，两者范围不同。
 
 托管CI因账户付款/额度问题未启动时，以annotation记录真实失败原因；本地门禁明确标为local，不能把源码测试通过写成GitHub CI或游戏通过。
+
+精简包只带必要组件、安装说明、合并许可和短身份/哈希信息。完整source-manifest、validation与WARP日志保留于BuildRoot。打包源码可晚于二进制源码，仅允许已提交的文档/CI/打包改动，其他来源变化会要求重建；两种SHA在build-info中分开记录。
