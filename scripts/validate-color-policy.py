@@ -2,6 +2,7 @@
 import argparse
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 
@@ -106,6 +107,7 @@ namespace ImGui {
     }
 }
 void SettingsTooltip(const char*) {}
+void SettingsField(const char*) {} // Layout label; production policy/UI logic is extracted below.
 void Controls(Config& next,bool has_pending,bool& changed) {
     UI_BLOCK
 }
@@ -256,6 +258,9 @@ with tempfile.TemporaryDirectory(prefix="nr-color-policy-") as directory:
     cpp = Path(directory) / "policy.cpp"
     exe = Path(directory) / "policy.exe"
     cpp.write_text(harness, encoding="utf-8")
-    subprocess.run([args.compiler, "-std=c++17", "-O2", "-static", "-Wall", "-Wextra",
+    # Darwin does not supply a statically linked system runtime. Keep the
+    # existing static gate on Linux/Windows; this is only the host harness.
+    link_flags = [] if sys.platform == "darwin" else ["-static"]
+    subprocess.run([args.compiler, "-std=c++17", "-O2", *link_flags, "-Wall", "-Wextra",
                     "-I", str(root / "src"), str(cpp), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)

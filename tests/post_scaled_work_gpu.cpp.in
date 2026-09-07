@@ -166,6 +166,7 @@ struct Gpu {
     Com<ID3D12RootSignature> root;
     Com<ID3D12PipelineState> encode;
     Com<ID3D12PipelineState> combine;
+    Com<ID3D12PipelineState> combine_v2;
     Com<ID3D12DescriptorHeap> heap;
     UINT increment = 0;
     UINT64 submitted = 0;
@@ -245,6 +246,7 @@ struct Gpu {
         };
         compile("EncodeCS", encode);
         compile("CombineCS", combine);
+        compile("CombineV2CS", combine_v2);
     }
 
     ~Gpu() { if (completion != nullptr) CloseHandle(completion); }
@@ -953,6 +955,109 @@ void RunCase(Gpu &gpu, const CaseProfile &profile, unsigned percent,
             : "deterministic-nonzero-perturbation (NOT NVIDIA)");
 }
 
+Float4 RunLightingCase(Gpu &gpu, const std::vector<Float4> &proxy_pixels,
+                       const std::vector<Float4> &neural_pixels,
+                       float lighting_lock) {
+    constexpr unsigned width = 32, height = 32;
+    Require(proxy_pixels.size() == width * height &&
+                neural_pixels.size() == width * height,
+            "lighting fixture extent");
+    const std::vector<Float4> source_pixels(
+        width * height, Float4{0.5f, 0.5f, 0.5f, 1.f});
+    const std::vector<Float4> empty(width * height, Float4{0, 0, 0, 0});
+    auto source = gpu.MakeTexture(width, height, kModelFormat, source_pixels);
+    auto proxy = gpu.MakeTexture(width, height, kModelFormat, proxy_pixels);
+    auto neural = gpu.MakeTexture(width, height, kModelFormat, neural_pixels);
+    auto result = gpu.MakeTexture(width, height, kModelFormat, empty);
+
+    gpu.TextureState(source, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    gpu.TextureState(proxy, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    gpu.TextureState(neural, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    gpu.TextureState(result, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    BindProductionDescriptors(gpu, source, proxy, neural, result, nullptr);
+
+    CodecConstants constants{};
+    constants.width = width;
+    constants.height = height;
+    constants.proxy_scale = 1.f;
+    constants.transfer_strength = 1.f;
+    constants.source_to_canonical = 1.f;
+    constants.color_strength = 0.f;
+    constants.max_luma_ratio = 4.f;
+    constants.passthrough = 1u; // direct bounded-linear model/source domain
+    constants.pre_exposure = 1.f;
+    constants.source_width = width;
+    constants.source_height = height;
+    constants.model_width = width;
+    constants.model_height = height;
+    constants.lighting_lock = lighting_lock;
+    constants.edge_guard = 0.f;
+    constants.proxy_curve = 1u;
+    constants.frame_confidence = 1.f;
+    constants.detail_stability = 0.f;
+
+    ID3D12DescriptorHeap *heaps[] = {gpu.heap.p};
+    gpu.list->SetDescriptorHeaps(1, heaps);
+    gpu.list->SetComputeRootSignature(gpu.root.p);
+    gpu.list->SetComputeRootDescriptorTable(
+        0, gpu.heap->GetGPUDescriptorHandleForHeapStart());
+    gpu.list->SetComputeRoot32BitConstants(
+        1, kCodecRootConstantCount, &constants, 0);
+    gpu.list->SetPipelineState(gpu.combine_v2.p);
+    gpu.list->Dispatch((width + 7u) / 8u, (height + 7u) / 8u, 1);
+    gpu.ReadTexture(result);
+    gpu.Execute();
+    return gpu.TexturePixels(result)[16u * width + 15u];
+}
+
+void RunLightingEdgeCases(Gpu &gpu) {
+    constexpr unsigned width = 32, height = 32;
+    auto plane = [](Float4 value) {
+        return std::vector<Float4>(width * height, value);
+    };
+    auto flat_proxy = plane({0.5f, 0.5f, 0.5f, 1.f});
+    auto flat_neural = plane({0.25f, 0.25f, 0.25f, 1.f});
+    const Float4 unlocked = RunLightingCase(gpu, flat_proxy, flat_neural, 0.f);
+    const Float4 flat = RunLightingCase(gpu, flat_proxy, flat_neural, 1.f);
+    Require(unlocked.x < 0.3f && flat.x > 0.49f,
+            "flat field must exercise and fully apply LightingLock");
+
+    auto strong_proxy = flat_proxy;
+    auto strong_neural = flat_neural;
+    for (unsigned y = 0; y < height; ++y)
+        for (unsigned x = 16; x < width; ++x) {
+            strong_proxy[y * width + x] = {0.9f, 0.9f, 0.9f, 1.f};
+            strong_neural[y * width + x] = {0.9f, 0.9f, 0.9f, 1.f};
+        }
+    const Float4 strong = RunLightingCase(gpu, strong_proxy, strong_neural, 1.f);
+    Require(PixelEqual(strong, flat, 0.01f, "strong luma edge"),
+            "strong cross-surface luma tap changed protected foreground");
+
+    auto equal_gray_proxy = flat_proxy;
+    auto equal_gray_neural = flat_neural;
+    auto equal_color_proxy = flat_proxy;
+    auto equal_color_neural = flat_neural;
+    const Float4 equal_luma_color{1.f, 0.4018f, 0.f, 1.f};
+    for (unsigned y = 0; y < height; ++y)
+        for (unsigned x = 16; x < width; ++x) {
+            equal_gray_neural[y * width + x] = {0.5f, 0.5f, 0.5f, 1.f};
+            equal_color_proxy[y * width + x] = equal_luma_color;
+            equal_color_neural[y * width + x] = equal_luma_color;
+        }
+    const Float4 equal_gray = RunLightingCase(
+        gpu, equal_gray_proxy, equal_gray_neural, 1.f);
+    const Float4 equal_color = RunLightingCase(
+        gpu, equal_color_proxy, equal_color_neural, 1.f);
+    Require(equal_gray.x < flat.x - 0.02f,
+            "same-luma ratio boundary must retain documented luma-guide limit");
+    Require(PixelEqual(equal_color, equal_gray, 0.01f, "equal-luma color edge"),
+            "lighting-only guidance changed across an equal-luma color boundary");
+    Require(NearlyEqual(equal_color.x, equal_color.y, 0.01f) &&
+                NearlyEqual(equal_color.y, equal_color.z, 0.01f),
+            "lighting-only edge weights introduced chroma into gray source");
+    std::puts("PASS production CombineV2CS LightingLock WARP: flat, strong-luma edge, equal-luma color boundary");
+}
+
 int main(int argc, char **argv) {
     try {
         Require(kCodecExposureSrvIndex == 4u &&
@@ -996,6 +1101,7 @@ int main(int argc, char **argv) {
             }
         }
         Require(scenarios > 0, "no scenarios selected");
+        RunLightingEdgeCases(gpu);
         std::printf(
             "PASS post-scaled-work WARP: %u scenarios "
             "(production WriteCodecDescriptorSet, FP16 model planes, "
