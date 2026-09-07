@@ -100,6 +100,7 @@ struct Summary {
         tail.Push(line, 65536);
         const auto lower = Lower(line);
         const bool important = lower.find("bypass") != std::string::npos || lower.find("error") != std::string::npos ||
+            lower.find("[native-carrier]") != std::string::npos || lower.find("[native-contract]") != std::string::npos ||
             lower.find("fail") != std::string::npos || lower.find("hook") != std::string::npos ||
             lower.find("feature") != std::string::npos || lower.find("colordiag") != std::string::npos ||
             lower.find("another reshade instance") != std::string::npos ||
