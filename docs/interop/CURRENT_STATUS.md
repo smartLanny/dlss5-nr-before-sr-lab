@@ -1,5 +1,36 @@
 # 统一开发与测试交接入口
 
+## 2026-09-08 本地候选收口与 carrier 排除
+
+本轮从 `main@0afae4b` 接续，未合并 main、替换已发布 tag 或安装游戏。
+**有限 blend 准入只保留 #149；#154 已关闭为重复候选**。#149 已含
+#154 的完整测试/构建锁及细分 reason；不要双合。#150 以 #149 分支为 base，
+仅保留 RR 边界诊断，待 #149 合入后再改回 main。#151 LightingLock、
+#155 文件名识别、#156 signedWin32=126 分类、#157 source=off 私有设备
+bootstrap 分别独立；#155/#157 都不是 #153 游戏崩溃修复。
+
+上述六个保留候选已做 Windows compile/WARP 收口；组合构建源码仍为
+`a2a338012a97f98f9327c141f32e274989602eb1`，36 项统一门禁通过，
+后续 `aa88da0` 仅为文档/合并交接。具体命令和哈希见
+[组合验证记录](https://github.com/smartLanny/dlss5-nr-before-sr-lab/blob/codex/priority-validation-stack-20260907/docs/interop/PRIORITY_VALIDATION_STACK_20260907.md)。
+关闭 #154 没有改变该组合二进制。CI 因付款/额度未启动，不重跑、不计通过。
+#99/#123/#153 保持 open + needs-evidence；待 ROG 验收对应新候选，
+不重复索取已有旧包证据，也不阻塞独立 PR。
+
+#153 本轮选择先交付 [ReShade 预加载排除工具](RESHADE_CARRIER_EXCLUSION_20260908.md)：
+明确 D3D12/Vulkan profile 下使用现成 `DisabledAddons=@实际文件名`，
+在下次普通扫描中阻止映射；12 项 Python 和 12 项真实 Windows parser/DLL
+测试通过。DX11/未知 API 不自动改动，direct-load carrier 配置拒绝写入。
+Manager 默认不部署无关 carrier 由独立任务推进。自动 DX11 激活、早期 NGX
+Create 和多设备生命周期仍是另批评估范围，不能把配置工具称为自动激活实现。
+
+VS Build Tools 2022 C++/SDK 已安装；同一 canonical carrier 源码的 MSVC
+与 LLVM 产物现已具备，先前“本机缺少 MSVC”的记录是历史限制。
+编译器差异不等于已定位游戏 fault；这也不代表 Feeder 或游戏/NVIDIA
+Feature18 已验收。#151 没有鸣潮画面验收，黑线仍需游戏确认。
+
+以下保留已发布基线与历史交接，具体新候选以本节及 #80 最新评论为准。
+
 更新批次：2026-09-07。此页同时供本地 Codex、ChatGPT App 和云端对话读取。旧对话中的 SHA、旧路线表和“已安排”不作为完成证据。
 
 以下已发布批次与历史验证是基线；本轮尚未合入、尚未打包的修改及实际验证边界见下方“2026-09-07 定点接续”。不要把基线 Windows/游戏结果套到新 PR。
