@@ -1,0 +1,1210 @@
+format=DLSS5-LogSummary-v1
+source.bytes=235283
+scan.bytes=235283
+scan.complete=1
+lines.scanned=2517
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+01:49:23.156  DLSS 5 AI Rendering Upscaling Edition attached (language=zh-CN build Sep  6 2026 15:10:52)
+01:49:23.157  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+01:49:23.158  Config: enabled=1 mode=2 identity=0 preTransfer=0.000 postTransfer=0.000 preserveLighting=0 proxyScale=1.000 warmup=2 autoMask=0 style=0 perfEpoch=27
+01:49:23.159  Registered ReShade overlay and F6 hotkey (API 18).
+01:49:23.160  Found SR NGX module: [local-path]
+01:49:23.160  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0
+01:49:23.160  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0
+01:49:23.160  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0
+01:49:23.160  MH_CreateHook core D3D12_EvaluateFeature             target=[address] status=0
+01:49:23.160  MH_CreateHook core D3D12_CreateFeature               target=[address] status=0
+01:49:23.160  MH_CreateHook core D3D12_ReleaseFeature              target=[address] status=0
+01:49:23.204  MH_EnableHook all status=0
+01:49:23.205  NGX observer/AI-upscaling hooks active.
+01:49:36.525  [perf] reset stage=B2-zero-transfer epoch=27 transfer=0.000; warming 180 frames
+01:49:41.239  [perf] stage=B2-zero-transfer epoch=27 transfer=0.000 samples=600 avgFPS=165.002 avgMs=6.0605 p95Ms=6.1139 p99Ms=6.9288 onePercentLowFPS=140.454
+01:49:44.893  [perf] stage=B2-zero-transfer epoch=27 transfer=0.000 samples=600 avgFPS=164.451 avgMs=6.0808 p95Ms=6.2387 p99Ms=9.6897 onePercentLowFPS=77.385
+01:49:48.536  [perf] stage=B2-zero-transfer epoch=27 transfer=0.000 samples=600 avgFPS=165.004 avgMs=6.0605 p95Ms=6.3577 p99Ms=12.4850 onePercentLowFPS=68.939
+01:49:52.245  [perf] stage=B2-zero-transfer epoch=27 transfer=0.000 samples=600 avgFPS=162.031 avgMs=6.1717 p95Ms=6.1463 p99Ms=7.1597 onePercentLowFPS=40.629
+01:49:55.887  [perf] stage=B2-zero-transfer epoch=27 transfer=0.000 samples=600 avgFPS=165.003 avgMs=6.0605 p95Ms=6.1411 p99Ms=7.1553 onePercentLowFPS=134.618
+01:50:01.196  [perf] stage=B2-zero-transfer epoch=27 transfer=0.000 samples=600 avgFPS=158.028 avgMs=6.3280 p95Ms=6.1599 p99Ms=7.3272 onePercentLowFPS=24.634
+01:50:05.106  [perf] stage=B2-zero-transfer epoch=27 transfer=0.000 samples=600 avgFPS=153.726 avgMs=6.5051 p95Ms=6.1448 p99Ms=7.0920 onePercentLowFPS=17.618
+01:50:09.628  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+01:50:09.628      Width                                      = 2560
+01:50:09.629      Height                                     = 1440
+01:50:09.629      OutWidth                                   = 2560
+01:50:09.629      OutHeight                                  = 1440
+01:50:09.629      PerfQualityValue                           = 5
+01:50:09.629      DLSS.Feature.Create.Flags                  = 11
+01:50:09.629      CreationNodeMask                           = 1
+01:50:09.629      VisibilityNodeMask                         = 1
+01:50:09.629  _nvngx core EvaluateFeature reached: call=1 handle=[address]
+01:50:09.629  --- SuperSampling Evaluate #1 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:09.629      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.629      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.629      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:09.629      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:09.629      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.629      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:09.629      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:09.629      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:09.629      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:09.629      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:09.630      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:09.630      DLSS.Output.Subrect.Base.X                 = 0
+01:50:09.630      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:09.630      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:09.630      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:09.630      MV.Scale.X                                 = -1
+01:50:09.630      MV.Scale.Y                                 = -1
+01:50:09.630      Jitter.Offset.X                            = 0
+01:50:09.630      Jitter.Offset.Y                            = 0.16666666
+01:50:09.630      DLSS.Pre.Exposure                          = 1
+01:50:09.630      DLSS.Exposure.Scale                        = 1
+01:50:09.630      Reset                                      = 1
+01:50:09.630  nvngx_dlss EvaluateFeature reached: call=1 handle=[address]
+01:50:09.681  _nvngx core EvaluateFeature reached: call=2 handle=[address]
+01:50:09.681  --- SuperSampling Evaluate #2 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:09.681      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.681      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.681      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:09.681      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:09.681      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.681      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:09.681      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:09.682      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:09.682      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:09.682      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:09.682      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:09.682      DLSS.Output.Subrect.Base.X                 = 0
+01:50:09.682      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:09.682      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:09.682      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:09.682      MV.Scale.X                                 = -1
+01:50:09.682      MV.Scale.Y                                 = -1
+01:50:09.682      Jitter.Offset.X                            = -0.25
+01:50:09.682      Jitter.Offset.Y                            = -0.16666669
+01:50:09.682      DLSS.Pre.Exposure                          = 1
+01:50:09.682      DLSS.Exposure.Scale                        = 1
+01:50:09.682      Reset                                      = 0
+01:50:09.682  nvngx_dlss EvaluateFeature reached: call=2 handle=[address]
+01:50:09.688  _nvngx core EvaluateFeature reached: call=3 handle=[address]
+01:50:09.688  --- SuperSampling Evaluate #3 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:09.689      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.689      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.689      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:09.689      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:09.689      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.689      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:09.689      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:09.689      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:09.689      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:09.689      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:09.689      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:09.689      DLSS.Output.Subrect.Base.X                 = 0
+01:50:09.689      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:09.689      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:09.689      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:09.689      MV.Scale.X                                 = -1
+01:50:09.689      MV.Scale.Y                                 = -1
+01:50:09.689      Jitter.Offset.X                            = 0.25
+01:50:09.689      Jitter.Offset.Y                            = 0.3888889
+01:50:09.689      DLSS.Pre.Exposure                          = 1
+01:50:09.690      DLSS.Exposure.Scale                        = 1
+01:50:09.690      Reset                                      = 0
+01:50:09.690  nvngx_dlss EvaluateFeature reached: call=3 handle=[address]
+01:50:09.704  --- SuperSampling Evaluate #4 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:09.704      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.704      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.704      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:09.705      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:09.705      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.705      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:09.705      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:09.705      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:09.705      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:09.705      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:09.705      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:09.705      DLSS.Output.Subrect.Base.X                 = 0
+01:50:09.705      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:09.705      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:09.705      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:09.705      MV.Scale.X                                 = -1
+01:50:09.705      MV.Scale.Y                                 = -1
+01:50:09.706      Jitter.Offset.X                            = -0.375
+01:50:09.706      Jitter.Offset.Y                            = 0.055555522
+01:50:09.706      DLSS.Pre.Exposure                          = 1
+01:50:09.706      DLSS.Exposure.Scale                        = 1
+01:50:09.706      Reset                                      = 0
+01:50:09.712  --- SuperSampling Evaluate #5 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:09.712      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.712      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.712      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:09.712      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:09.712      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.712      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:09.712      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:09.712      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:09.712      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:09.712      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:09.712      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:09.712      DLSS.Output.Subrect.Base.X                 = 0
+01:50:09.712      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:09.712      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:09.712      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:09.713      MV.Scale.X                                 = -1
+01:50:09.713      MV.Scale.Y                                 = -1
+01:50:09.713      Jitter.Offset.X                            = 0.125
+01:50:09.713      Jitter.Offset.Y                            = -0.27777779
+01:50:09.713      DLSS.Pre.Exposure                          = 1
+01:50:09.713      DLSS.Exposure.Scale                        = 1
+01:50:09.713      Reset                                      = 0
+01:50:09.722  --- SuperSampling Evaluate #6 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:09.722      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.722      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.722      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:09.722      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:09.722      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.722      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:09.722      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:09.722      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:09.722      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:09.723      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:09.723      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:09.723      DLSS.Output.Subrect.Base.X                 = 0
+01:50:09.723      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:09.723      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:09.723      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:09.723      MV.Scale.X                                 = -1
+01:50:09.723      MV.Scale.Y                                 = -1
+01:50:09.723      Jitter.Offset.X                            = -0.125
+01:50:09.723      Jitter.Offset.Y                            = 0.27777776
+01:50:09.723      DLSS.Pre.Exposure                          = 1
+01:50:09.723      DLSS.Exposure.Scale                        = 1
+01:50:09.723      Reset                                      = 0
+01:50:09.732  --- SuperSampling Evaluate #7 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:09.732      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.732      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.732      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:09.732      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:09.732      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.732      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:09.732      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:09.733      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:09.733      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:09.733      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:09.733      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:09.733      DLSS.Output.Subrect.Base.X                 = 0
+01:50:09.733      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:09.733      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:09.733      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:09.733      MV.Scale.X                                 = -1
+01:50:09.733      MV.Scale.Y                                 = -1
+01:50:09.733      Jitter.Offset.X                            = 0.375
+01:50:09.733      Jitter.Offset.Y                            = -0.055555582
+01:50:09.733      DLSS.Pre.Exposure                          = 1
+01:50:09.733      DLSS.Exposure.Scale                        = 1
+01:50:09.733      Reset                                      = 0
+01:50:09.741  --- SuperSampling Evaluate #8 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:09.741      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.741      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.741      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:09.741      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:09.741      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.741      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:09.741      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:09.741      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:09.742      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:09.742      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:09.742      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:09.742      DLSS.Output.Subrect.Base.X                 = 0
+01:50:09.742      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:09.742      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:09.742      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:09.742      MV.Scale.X                                 = -1
+01:50:09.742      MV.Scale.Y                                 = -1
+01:50:09.742      Jitter.Offset.X                            = -0.4375
+01:50:09.742      Jitter.Offset.Y                            = -0.38888896
+01:50:09.742      DLSS.Pre.Exposure                          = 1
+01:50:09.742      DLSS.Exposure.Scale                        = 1
+01:50:09.742      Reset                                      = 0
+01:50:09.752  --- SuperSampling Evaluate #9 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:09.752      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.752      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.752      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:09.752      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:09.752      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.752      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:09.752      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:09.752      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:09.752      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:09.752      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:09.752      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:09.752      DLSS.Output.Subrect.Base.X                 = 0
+01:50:09.752      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:09.753      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:09.753      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:09.753      MV.Scale.X                                 = -1
+01:50:09.753      MV.Scale.Y                                 = -1
+01:50:09.753      Jitter.Offset.X                            = 0
+01:50:09.753      Jitter.Offset.Y                            = 0.16666666
+01:50:09.753      DLSS.Pre.Exposure                          = 1
+01:50:09.753      DLSS.Exposure.Scale                        = 1
+01:50:09.753      Reset                                      = 0
+01:50:09.762  --- SuperSampling Evaluate #10 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:09.763      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.763      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.763      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:09.763      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:09.763      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.763      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:09.763      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:09.763      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:09.763      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:09.763      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:09.763      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:09.763      DLSS.Output.Subrect.Base.X                 = 0
+01:50:09.763      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:09.763      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:09.763      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:09.763      MV.Scale.X                                 = -1
+01:50:09.764      MV.Scale.Y                                 = -1
+01:50:09.764      Jitter.Offset.X                            = -0.25
+01:50:09.764      Jitter.Offset.Y                            = -0.16666669
+01:50:09.764      DLSS.Pre.Exposure                          = 1
+01:50:09.764      DLSS.Exposure.Scale                        = 1
+01:50:09.764      Reset                                      = 0
+01:50:09.772  --- SuperSampling Evaluate #11 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:09.773      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.773      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.773      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:09.773      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:09.773      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.773      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:09.773      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:09.773      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:09.773      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:09.773      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:09.773      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:09.773      DLSS.Output.Subrect.Base.X                 = 0
+01:50:09.773      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:09.773      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:09.773      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:09.773      MV.Scale.X                                 = -1
+01:50:09.773      MV.Scale.Y                                 = -1
+01:50:09.773      Jitter.Offset.X                            = 0.25
+01:50:09.773      Jitter.Offset.Y                            = 0.3888889
+01:50:09.773      DLSS.Pre.Exposure                          = 1
+01:50:09.773      DLSS.Exposure.Scale                        = 1
+01:50:09.774      Reset                                      = 0
+01:50:09.782  --- SuperSampling Evaluate #12 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:09.782      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.783      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.783      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:09.783      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:09.783      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:09.783      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:09.783      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:09.783      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:09.783      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:09.783      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:09.783      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:09.783      DLSS.Output.Subrect.Base.X                 = 0
+01:50:09.783      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:09.783      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:09.783      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:09.783      MV.Scale.X                                 = -1
+01:50:09.783      MV.Scale.Y                                 = -1
+01:50:09.783      Jitter.Offset.X                            = -0.375
+01:50:09.783      Jitter.Offset.Y                            = 0.055555522
+01:50:09.783      DLSS.Pre.Exposure                          = 1
+01:50:09.783      DLSS.Exposure.Scale                        = 1
+01:50:09.783      Reset                                      = 0
+01:50:10.532  [perf] stage=B2-zero-transfer epoch=27 transfer=0.000 samples=600 avgFPS=131.037 avgMs=7.6315 p95Ms=9.9762 p99Ms=12.1694 onePercentLowFPS=6.331
+01:50:14.235  --- SuperSampling Evaluate #600 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:14.235      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:14.235      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:14.235      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:14.236      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:14.236      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:14.236      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:14.236      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:14.236      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:14.236      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:14.236      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:14.236      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:14.236      DLSS.Output.Subrect.Base.X                 = 0
+01:50:14.236      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:14.236      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:14.236      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:14.236      MV.Scale.X                                 = -1
+01:50:14.237      MV.Scale.Y                                 = -1
+01:50:14.237      Jitter.Offset.X                            = -0.4375
+01:50:14.237      Jitter.Offset.Y                            = -0.38888896
+01:50:14.237      DLSS.Pre.Exposure                          = 1
+01:50:14.237      DLSS.Exposure.Scale                        = 1
+01:50:14.237      Reset                                      = 0
+01:50:14.237  [stats] all NGX evaluations=600, upscaling-carrier evaluations=600 feature=1(SuperSampling)
+01:50:15.030  [perf] stage=B2-zero-transfer epoch=27 transfer=0.000 samples=600 avgFPS=153.041 avgMs=6.5342 p95Ms=12.1035 p99Ms=12.6065 onePercentLowFPS=17.074
+01:50:18.433  --- SuperSampling Evaluate #1200 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:18.433      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:18.433      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:18.433      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:18.433      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:18.433      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:18.433      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:18.433      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:18.433      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:18.433      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:18.433      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:18.433      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:18.434      DLSS.Output.Subrect.Base.X                 = 0
+01:50:18.434      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:18.434      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:18.434      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:18.434      MV.Scale.X                                 = -1
+01:50:18.434      MV.Scale.Y                                 = -1
+01:50:18.434      Jitter.Offset.X                            = -0.4375
+01:50:18.434      Jitter.Offset.Y                            = -0.38888896
+01:50:18.434      DLSS.Pre.Exposure                          = 1
+01:50:18.434      DLSS.Exposure.Scale                        = 1
+01:50:18.434      Reset                                      = 0
+01:50:18.434  [stats] all NGX evaluations=1200, upscaling-carrier evaluations=1200 feature=1(SuperSampling)
+01:50:19.235  [perf] stage=B2-zero-transfer epoch=27 transfer=0.000 samples=600 avgFPS=159.484 avgMs=6.2702 p95Ms=12.1792 p99Ms=12.8417 onePercentLowFPS=55.928
+01:50:22.063  --- SuperSampling Evaluate #1800 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:50:22.064      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:22.064      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:50:22.064      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:50:22.064      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:50:22.064      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:50:22.064      DLSS.Input.Color.Subrect.Base.X            = 0
+01:50:22.064      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:50:22.064      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:50:22.064      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:50:22.064      DLSS.Input.MV.Subrect.Base.X               = 0
+01:50:22.064      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:50:22.064      DLSS.Output.Subrect.Base.X                 = 0
+01:50:22.064      DLSS.Output.Subrect.Base.Y                 = 0
+01:50:22.064      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:50:22.064      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:50:22.064      MV.Scale.X                                 = -1
+01:50:22.065      MV.Scale.Y                                 = -1
+01:50:22.065      Jitter.Offset.X                            = -0.4375
+
+[first events]
+
+[recent important]
+01:49:23.157  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+01:49:23.160  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0
+01:49:23.160  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0
+01:49:23.160  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0
+01:49:23.160  MH_CreateHook core D3D12_EvaluateFeature             target=[address] status=0
+01:49:23.160  MH_CreateHook core D3D12_CreateFeature               target=[address] status=0
+01:49:23.160  MH_CreateHook core D3D12_ReleaseFeature              target=[address] status=0
+01:49:23.204  MH_EnableHook all status=0
+01:49:23.205  NGX observer/AI-upscaling hooks active.
+01:50:09.628  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+01:50:09.629      DLSS.Feature.Create.Flags                  = 11
+01:50:09.629  _nvngx core EvaluateFeature reached: call=1 handle=[address]
+01:50:09.630  nvngx_dlss EvaluateFeature reached: call=1 handle=[address]
+01:50:09.681  _nvngx core EvaluateFeature reached: call=2 handle=[address]
+01:50:09.682  nvngx_dlss EvaluateFeature reached: call=2 handle=[address]
+01:50:09.688  _nvngx core EvaluateFeature reached: call=3 handle=[address]
+01:50:09.690  nvngx_dlss EvaluateFeature reached: call=3 handle=[address]
+01:50:14.237  [stats] all NGX evaluations=600, upscaling-carrier evaluations=600 feature=1(SuperSampling)
+01:50:18.434  [stats] all NGX evaluations=1200, upscaling-carrier evaluations=1200 feature=1(SuperSampling)
+01:50:22.065  [stats] all NGX evaluations=1800, upscaling-carrier evaluations=1800 feature=1(SuperSampling)
+01:50:25.702  [stats] all NGX evaluations=2400, upscaling-carrier evaluations=2400 feature=1(SuperSampling)
+01:50:29.339  [stats] all NGX evaluations=3000, upscaling-carrier evaluations=3000 feature=1(SuperSampling)
+01:50:32.977  [stats] all NGX evaluations=3600, upscaling-carrier evaluations=3600 feature=1(SuperSampling)
+01:50:37.297  [stats] all NGX evaluations=4200, upscaling-carrier evaluations=4200 feature=1(SuperSampling)
+01:50:40.937  [stats] all NGX evaluations=4800, upscaling-carrier evaluations=4800 feature=1(SuperSampling)
+01:50:44.572  [stats] all NGX evaluations=5400, upscaling-carrier evaluations=5400 feature=1(SuperSampling)
+01:50:48.210  [stats] all NGX evaluations=6000, upscaling-carrier evaluations=6000 feature=1(SuperSampling)
+01:51:19.584  [stats] all NGX evaluations=6600, upscaling-carrier evaluations=6600 feature=1(SuperSampling)
+01:51:23.923  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=1).
+01:51:23.928  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=2).
+01:51:23.942  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=3).
+01:51:24.997  [stats] all NGX evaluations=7200, upscaling-carrier evaluations=7200 feature=1(SuperSampling)
+01:51:27.602  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=600).
+01:51:28.682  [stats] all NGX evaluations=7800, upscaling-carrier evaluations=7800 feature=1(SuperSampling)
+01:51:31.238  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=1200).
+01:51:32.317  [stats] all NGX evaluations=8400, upscaling-carrier evaluations=8400 feature=1(SuperSampling)
+01:51:34.880  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=1800).
+01:51:35.960  [stats] all NGX evaluations=9000, upscaling-carrier evaluations=9000 feature=1(SuperSampling)
+01:51:38.636  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=2400).
+01:51:39.726  [stats] all NGX evaluations=9600, upscaling-carrier evaluations=9600 feature=1(SuperSampling)
+01:51:42.547  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=3000).
+01:51:43.625  [stats] all NGX evaluations=10200, upscaling-carrier evaluations=10200 feature=1(SuperSampling)
+01:51:46.232  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=3600).
+01:51:47.337  [stats] all NGX evaluations=10800, upscaling-carrier evaluations=10800 feature=1(SuperSampling)
+01:51:49.936  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=4200).
+01:51:51.035  [stats] all NGX evaluations=11400, upscaling-carrier evaluations=11400 feature=1(SuperSampling)
+01:51:53.626  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=4800).
+01:51:54.721  [stats] all NGX evaluations=12000, upscaling-carrier evaluations=12000 feature=1(SuperSampling)
+01:51:57.328  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=5400).
+01:51:58.433  [stats] all NGX evaluations=12600, upscaling-carrier evaluations=12600 feature=1(SuperSampling)
+01:52:01.749  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=6000).
+01:52:02.696  [stats] all NGX evaluations=13200, upscaling-carrier evaluations=13200 feature=1(SuperSampling)
+01:52:07.453  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=6600).
+01:52:07.839  [stats] all NGX evaluations=13800, upscaling-carrier evaluations=13800 feature=1(SuperSampling)
+01:52:11.157  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=7200).
+01:52:11.544  [stats] all NGX evaluations=14400, upscaling-carrier evaluations=14400 feature=1(SuperSampling)
+01:52:14.863  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=7800).
+01:52:15.255  [stats] all NGX evaluations=15000, upscaling-carrier evaluations=15000 feature=1(SuperSampling)
+01:52:18.578  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=8400).
+01:52:18.964  [stats] all NGX evaluations=15600, upscaling-carrier evaluations=15600 feature=1(SuperSampling)
+01:52:22.270  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=9000).
+01:52:22.731  [stats] all NGX evaluations=16200, upscaling-carrier evaluations=16200 feature=1(SuperSampling)
+01:52:44.230  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=9600).
+01:52:44.607  [stats] all NGX evaluations=16800, upscaling-carrier evaluations=16800 feature=1(SuperSampling)
+01:52:48.770  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=10200).
+01:52:49.147  [stats] all NGX evaluations=17400, upscaling-carrier evaluations=17400 feature=1(SuperSampling)
+01:52:52.853  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=10800).
+01:52:53.231  [stats] all NGX evaluations=18000, upscaling-carrier evaluations=18000 feature=1(SuperSampling)
+01:52:56.684  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=11400).
+01:52:57.060  [stats] all NGX evaluations=18600, upscaling-carrier evaluations=18600 feature=1(SuperSampling)
+01:53:00.320  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=12000).
+01:53:00.697  [stats] all NGX evaluations=19200, upscaling-carrier evaluations=19200 feature=1(SuperSampling)
+01:53:03.958  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=12600).
+01:53:04.334  [stats] all NGX evaluations=19800, upscaling-carrier evaluations=19800 feature=1(SuperSampling)
+01:53:07.592  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=13200).
+01:53:07.971  [stats] all NGX evaluations=20400, upscaling-carrier evaluations=20400 feature=1(SuperSampling)
+01:53:11.229  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=13800).
+01:53:11.606  [stats] all NGX evaluations=21000, upscaling-carrier evaluations=21000 feature=1(SuperSampling)
+01:53:14.866  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=14400).
+01:53:15.243  [stats] all NGX evaluations=21600, upscaling-carrier evaluations=21600 feature=1(SuperSampling)
+01:53:18.502  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=15000).
+01:53:18.881  [stats] all NGX evaluations=22200, upscaling-carrier evaluations=22200 feature=1(SuperSampling)
+01:53:22.138  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=15600).
+01:53:22.516  [stats] all NGX evaluations=22800, upscaling-carrier evaluations=22800 feature=1(SuperSampling)
+01:53:26.575  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=16200).
+01:53:26.986  [stats] all NGX evaluations=23400, upscaling-carrier evaluations=23400 feature=1(SuperSampling)
+01:53:30.716  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=16800).
+01:53:31.144  [stats] all NGX evaluations=24000, upscaling-carrier evaluations=24000 feature=1(SuperSampling)
+01:53:34.996  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=17400).
+01:53:35.907  [stats] all NGX evaluations=24600, upscaling-carrier evaluations=24600 feature=1(SuperSampling)
+01:53:40.651  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=18000).
+01:53:41.089  [stats] all NGX evaluations=25200, upscaling-carrier evaluations=25200 feature=1(SuperSampling)
+01:53:46.331  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=18600).
+01:53:46.769  [stats] all NGX evaluations=25800, upscaling-carrier evaluations=25800 feature=1(SuperSampling)
+01:53:50.527  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=19200).
+01:53:51.001  [stats] all NGX evaluations=26400, upscaling-carrier evaluations=26400 feature=1(SuperSampling)
+01:53:54.740  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=19800).
+01:53:55.173  [stats] all NGX evaluations=27000, upscaling-carrier evaluations=27000 feature=1(SuperSampling)
+01:53:58.919  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=20400).
+01:53:59.351  [stats] all NGX evaluations=27600, upscaling-carrier evaluations=27600 feature=1(SuperSampling)
+01:54:03.097  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=21000).
+01:54:03.527  [stats] all NGX evaluations=28200, upscaling-carrier evaluations=28200 feature=1(SuperSampling)
+01:54:07.272  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=21600).
+01:54:07.708  [stats] all NGX evaluations=28800, upscaling-carrier evaluations=28800 feature=1(SuperSampling)
+01:54:11.447  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=22200).
+01:54:11.879  [stats] all NGX evaluations=29400, upscaling-carrier evaluations=29400 feature=1(SuperSampling)
+01:54:15.623  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=22800).
+01:54:16.056  [stats] all NGX evaluations=30000, upscaling-carrier evaluations=30000 feature=1(SuperSampling)
+01:54:19.807  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=23400).
+01:54:20.243  [stats] all NGX evaluations=30600, upscaling-carrier evaluations=30600 feature=1(SuperSampling)
+
+[tail]
+01:53:22.838  [perf] reset stage=C-NR-transfer epoch=289 transfer=1.000; warming 180 frames
+01:53:22.840  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=290
+01:53:22.844  [perf] reset stage=C-NR-transfer epoch=290 transfer=1.000; warming 180 frames
+01:53:23.192  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=291
+01:53:23.196  [perf] reset stage=C-NR-transfer epoch=291 transfer=1.000; warming 180 frames
+01:53:23.198  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=292
+01:53:23.202  [perf] reset stage=C-NR-transfer epoch=292 transfer=1.000; warming 180 frames
+01:53:23.204  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=293
+01:53:23.208  [perf] reset stage=C-NR-transfer epoch=293 transfer=1.000; warming 180 frames
+01:53:23.210  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=294
+01:53:23.214  [perf] reset stage=C-NR-transfer epoch=294 transfer=1.000; warming 180 frames
+01:53:23.216  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=295
+01:53:23.220  [perf] reset stage=C-NR-transfer epoch=295 transfer=1.000; warming 180 frames
+01:53:23.222  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=296
+01:53:23.226  [perf] reset stage=C-NR-transfer epoch=296 transfer=1.000; warming 180 frames
+01:53:23.229  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=297
+01:53:23.232  [perf] reset stage=C-NR-transfer epoch=297 transfer=1.000; warming 180 frames
+01:53:23.234  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=298
+01:53:23.238  [perf] reset stage=C-NR-transfer epoch=298 transfer=1.000; warming 180 frames
+01:53:23.240  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=299
+01:53:23.244  [perf] reset stage=C-NR-transfer epoch=299 transfer=1.000; warming 180 frames
+01:53:23.247  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=300
+01:53:23.250  [perf] reset stage=C-NR-transfer epoch=300 transfer=1.000; warming 180 frames
+01:53:23.253  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=301
+01:53:23.257  [perf] reset stage=C-NR-transfer epoch=301 transfer=1.000; warming 180 frames
+01:53:23.260  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=302
+01:53:23.262  [perf] reset stage=C-NR-transfer epoch=302 transfer=1.000; warming 180 frames
+01:53:23.265  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=303
+01:53:23.268  [perf] reset stage=C-NR-transfer epoch=303 transfer=1.000; warming 180 frames
+01:53:23.271  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=304
+01:53:23.275  [perf] reset stage=C-NR-transfer epoch=304 transfer=1.000; warming 180 frames
+01:53:23.277  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=305
+01:53:23.281  [perf] reset stage=C-NR-transfer epoch=305 transfer=1.000; warming 180 frames
+01:53:23.284  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=306
+01:53:23.287  [perf] reset stage=C-NR-transfer epoch=306 transfer=1.000; warming 180 frames
+01:53:23.289  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=307
+01:53:23.293  [perf] reset stage=C-NR-transfer epoch=307 transfer=1.000; warming 180 frames
+01:53:23.295  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=308
+01:53:23.299  [perf] reset stage=C-NR-transfer epoch=308 transfer=1.000; warming 180 frames
+01:53:23.301  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=309
+01:53:23.305  [perf] reset stage=C-NR-transfer epoch=309 transfer=1.000; warming 180 frames
+01:53:23.308  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=310
+01:53:23.311  [perf] reset stage=C-NR-transfer epoch=310 transfer=1.000; warming 180 frames
+01:53:23.313  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=311
+01:53:23.317  [perf] reset stage=C-NR-transfer epoch=311 transfer=1.000; warming 180 frames
+01:53:23.319  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=312
+01:53:23.323  [perf] reset stage=C-NR-transfer epoch=312 transfer=1.000; warming 180 frames
+01:53:23.325  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=313
+01:53:23.329  [perf] reset stage=C-NR-transfer epoch=313 transfer=1.000; warming 180 frames
+01:53:23.331  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=314
+01:53:23.335  [perf] reset stage=C-NR-transfer epoch=314 transfer=1.000; warming 180 frames
+01:53:23.337  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=315
+01:53:23.341  [perf] reset stage=C-NR-transfer epoch=315 transfer=1.000; warming 180 frames
+01:53:23.344  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=316
+01:53:23.347  [perf] reset stage=C-NR-transfer epoch=316 transfer=1.000; warming 180 frames
+01:53:23.349  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=317
+01:53:23.353  [perf] reset stage=C-NR-transfer epoch=317 transfer=1.000; warming 180 frames
+01:53:23.356  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=318
+01:53:23.359  [perf] reset stage=C-NR-transfer epoch=318 transfer=1.000; warming 180 frames
+01:53:23.362  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=319
+01:53:23.365  [perf] reset stage=C-NR-transfer epoch=319 transfer=1.000; warming 180 frames
+01:53:23.373  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=320
+01:53:23.378  [perf] reset stage=C-NR-transfer epoch=320 transfer=1.000; warming 180 frames
+01:53:23.380  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=321
+01:53:23.384  [perf] reset stage=C-NR-transfer epoch=321 transfer=1.000; warming 180 frames
+01:53:23.386  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=322
+01:53:23.390  [perf] reset stage=C-NR-transfer epoch=322 transfer=1.000; warming 180 frames
+01:53:23.392  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=323
+01:53:23.396  [perf] reset stage=C-NR-transfer epoch=323 transfer=1.000; warming 180 frames
+01:53:23.398  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=324
+01:53:23.402  [perf] reset stage=C-NR-transfer epoch=324 transfer=1.000; warming 180 frames
+01:53:23.404  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=325
+01:53:23.408  [perf] reset stage=C-NR-transfer epoch=325 transfer=1.000; warming 180 frames
+01:53:23.410  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=326
+01:53:23.414  [perf] reset stage=C-NR-transfer epoch=326 transfer=1.000; warming 180 frames
+01:53:23.416  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=327
+01:53:23.420  [perf] reset stage=C-NR-transfer epoch=327 transfer=1.000; warming 180 frames
+01:53:23.422  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=328
+01:53:23.426  [perf] reset stage=C-NR-transfer epoch=328 transfer=1.000; warming 180 frames
+01:53:23.429  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=329
+01:53:23.432  [perf] reset stage=C-NR-transfer epoch=329 transfer=1.000; warming 180 frames
+01:53:23.434  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=330
+01:53:23.438  [perf] reset stage=C-NR-transfer epoch=330 transfer=1.000; warming 180 frames
+01:53:23.440  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=331
+01:53:23.444  [perf] reset stage=C-NR-transfer epoch=331 transfer=1.000; warming 180 frames
+01:53:23.446  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=332
+01:53:23.450  [perf] reset stage=C-NR-transfer epoch=332 transfer=1.000; warming 180 frames
+01:53:23.452  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=333
+01:53:23.456  [perf] reset stage=C-NR-transfer epoch=333 transfer=1.000; warming 180 frames
+01:53:23.458  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=334
+01:53:23.462  [perf] reset stage=C-NR-transfer epoch=334 transfer=1.000; warming 180 frames
+01:53:23.465  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=335
+01:53:23.468  [perf] reset stage=C-NR-transfer epoch=335 transfer=1.000; warming 180 frames
+01:53:23.470  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=336
+01:53:23.474  [perf] reset stage=C-NR-transfer epoch=336 transfer=1.000; warming 180 frames
+01:53:23.477  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=337
+01:53:23.480  [perf] reset stage=C-NR-transfer epoch=337 transfer=1.000; warming 180 frames
+01:53:23.483  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=338
+01:53:23.486  [perf] reset stage=C-NR-transfer epoch=338 transfer=1.000; warming 180 frames
+01:53:23.489  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=339
+01:53:23.492  [perf] reset stage=C-NR-transfer epoch=339 transfer=1.000; warming 180 frames
+01:53:23.495  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=340
+01:53:23.499  [perf] reset stage=C-NR-transfer epoch=340 transfer=1.000; warming 180 frames
+01:53:23.501  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=341
+01:53:23.505  [perf] reset stage=C-NR-transfer epoch=341 transfer=1.000; warming 180 frames
+01:53:23.507  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=342
+01:53:23.511  [perf] reset stage=C-NR-transfer epoch=342 transfer=1.000; warming 180 frames
+01:53:23.513  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=343
+01:53:23.517  [perf] reset stage=C-NR-transfer epoch=343 transfer=1.000; warming 180 frames
+01:53:23.519  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=344
+01:53:23.523  [perf] reset stage=C-NR-transfer epoch=344 transfer=1.000; warming 180 frames
+01:53:23.525  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=345
+01:53:23.529  [perf] reset stage=C-NR-transfer epoch=345 transfer=1.000; warming 180 frames
+01:53:23.531  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=346
+01:53:23.535  [perf] reset stage=C-NR-transfer epoch=346 transfer=1.000; warming 180 frames
+01:53:23.537  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=347
+01:53:23.541  [perf] reset stage=C-NR-transfer epoch=347 transfer=1.000; warming 180 frames
+01:53:23.543  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=348
+01:53:23.547  [perf] reset stage=C-NR-transfer epoch=348 transfer=1.000; warming 180 frames
+01:53:23.549  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=349
+01:53:23.553  [perf] reset stage=C-NR-transfer epoch=349 transfer=1.000; warming 180 frames
+01:53:23.555  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=350
+01:53:23.559  [perf] reset stage=C-NR-transfer epoch=350 transfer=1.000; warming 180 frames
+01:53:23.562  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=351
+01:53:23.565  [perf] reset stage=C-NR-transfer epoch=351 transfer=1.000; warming 180 frames
+01:53:23.568  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=352
+01:53:23.571  [perf] reset stage=C-NR-transfer epoch=352 transfer=1.000; warming 180 frames
+01:53:23.573  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=353
+01:53:23.577  [perf] reset stage=C-NR-transfer epoch=353 transfer=1.000; warming 180 frames
+01:53:23.586  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=354
+01:53:23.589  [perf] reset stage=C-NR-transfer epoch=354 transfer=1.000; warming 180 frames
+01:53:23.592  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=355
+01:53:23.595  [perf] reset stage=C-NR-transfer epoch=355 transfer=1.000; warming 180 frames
+01:53:23.604  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=356
+01:53:23.608  [perf] reset stage=C-NR-transfer epoch=356 transfer=1.000; warming 180 frames
+01:53:23.610  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=357
+01:53:23.614  [perf] reset stage=C-NR-transfer epoch=357 transfer=1.000; warming 180 frames
+01:53:23.616  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=358
+01:53:23.620  [perf] reset stage=C-NR-transfer epoch=358 transfer=1.000; warming 180 frames
+01:53:23.622  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=359
+01:53:23.626  [perf] reset stage=C-NR-transfer epoch=359 transfer=1.000; warming 180 frames
+01:53:23.634  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=360
+01:53:23.638  [perf] reset stage=C-NR-transfer epoch=360 transfer=1.000; warming 180 frames
+01:53:23.646  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=361
+01:53:23.650  [perf] reset stage=C-NR-transfer epoch=361 transfer=1.000; warming 180 frames
+01:53:23.652  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=362
+01:53:23.656  [perf] reset stage=C-NR-transfer epoch=362 transfer=1.000; warming 180 frames
+01:53:26.575  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=16200).
+01:53:26.985  --- SuperSampling Evaluate #23400 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:53:26.985      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:26.985      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:53:26.985      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:53:26.985      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:53:26.985      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:26.985      DLSS.Input.Color.Subrect.Base.X            = 0
+01:53:26.985      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:53:26.985      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:53:26.985      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:53:26.985      DLSS.Input.MV.Subrect.Base.X               = 0
+01:53:26.985      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:53:26.985      DLSS.Output.Subrect.Base.X                 = 0
+01:53:26.986      DLSS.Output.Subrect.Base.Y                 = 0
+01:53:26.986      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:53:26.986      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:53:26.986      MV.Scale.X                                 = -1
+01:53:26.986      MV.Scale.Y                                 = -1
+01:53:26.986      Jitter.Offset.X                            = -0.375
+01:53:26.986      Jitter.Offset.Y                            = 0.055555522
+01:53:26.986      DLSS.Pre.Exposure                          = 1
+01:53:26.986      DLSS.Exposure.Scale                        = 1
+01:53:26.986      Reset                                      = 0
+01:53:26.986  [stats] all NGX evaluations=23400, upscaling-carrier evaluations=23400 feature=1(SuperSampling)
+01:53:29.541  [perf] stage=C-NR-transfer epoch=362 transfer=1.000 samples=600 avgFPS=141.623 avgMs=7.0610 p95Ms=9.9472 p99Ms=10.8923 onePercentLowFPS=71.477
+01:53:30.716  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=16800).
+01:53:31.142  --- SuperSampling Evaluate #24000 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:53:31.143      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:31.143      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:53:31.143      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:53:31.143      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:53:31.143      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:31.143      DLSS.Input.Color.Subrect.Base.X            = 0
+01:53:31.143      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:53:31.143      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:53:31.143      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:53:31.143      DLSS.Input.MV.Subrect.Base.X               = 0
+01:53:31.143      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:53:31.143      DLSS.Output.Subrect.Base.X                 = 0
+01:53:31.143      DLSS.Output.Subrect.Base.Y                 = 0
+01:53:31.143      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:53:31.143      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:53:31.143      MV.Scale.X                                 = -1
+01:53:31.143      MV.Scale.Y                                 = -1
+01:53:31.144      Jitter.Offset.X                            = -0.375
+01:53:31.144      Jitter.Offset.Y                            = 0.055555522
+01:53:31.144      DLSS.Pre.Exposure                          = 1
+01:53:31.144      DLSS.Exposure.Scale                        = 1
+01:53:31.144      Reset                                      = 0
+01:53:31.144  [stats] all NGX evaluations=24000, upscaling-carrier evaluations=24000 feature=1(SuperSampling)
+01:53:33.768  [perf] stage=C-NR-transfer epoch=362 transfer=1.000 samples=600 avgFPS=142.241 avgMs=7.0303 p95Ms=9.6047 p99Ms=10.5765 onePercentLowFPS=92.534
+01:53:34.996  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=17400).
+01:53:35.438  --- SuperSampling Evaluate #24600 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:53:35.906      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:35.906      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:53:35.906      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:53:35.906      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:53:35.906      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:35.906      DLSS.Input.Color.Subrect.Base.X            = 0
+01:53:35.906      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:53:35.906      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:53:35.906      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:53:35.906      DLSS.Input.MV.Subrect.Base.X               = 0
+01:53:35.906      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:53:35.906      DLSS.Output.Subrect.Base.X                 = 0
+01:53:35.906      DLSS.Output.Subrect.Base.Y                 = 0
+01:53:35.906      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:53:35.906      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:53:35.906      MV.Scale.X                                 = -1
+01:53:35.906      MV.Scale.Y                                 = -1
+01:53:35.906      Jitter.Offset.X                            = -0.375
+01:53:35.906      Jitter.Offset.Y                            = 0.055555522
+01:53:35.907      DLSS.Pre.Exposure                          = 1
+01:53:35.907      DLSS.Exposure.Scale                        = 1
+01:53:35.907      Reset                                      = 0
+01:53:35.907  [stats] all NGX evaluations=24600, upscaling-carrier evaluations=24600 feature=1(SuperSampling)
+01:53:38.885  [perf] stage=C-NR-transfer epoch=362 transfer=1.000 samples=600 avgFPS=117.405 avgMs=8.5175 p95Ms=10.5471 p99Ms=12.3247 onePercentLowFPS=11.048
+01:53:39.664  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=363
+01:53:40.191  [perf] reset stage=C-NR-transfer epoch=363 transfer=1.000; warming 180 frames
+01:53:40.194  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=364
+01:53:40.204  [perf] reset stage=C-NR-transfer epoch=364 transfer=1.000; warming 180 frames
+01:53:40.243  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=365
+01:53:40.254  [perf] reset stage=C-NR-transfer epoch=365 transfer=1.000; warming 180 frames
+01:53:40.651  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=18000).
+01:53:41.024  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=366
+01:53:41.029  [perf] reset stage=C-NR-transfer epoch=366 transfer=1.000; warming 180 frames
+01:53:41.031  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=367
+01:53:41.036  [perf] reset stage=C-NR-transfer epoch=367 transfer=1.000; warming 180 frames
+01:53:41.038  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=368
+01:53:41.042  [perf] reset stage=C-NR-transfer epoch=368 transfer=1.000; warming 180 frames
+01:53:41.045  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=369
+01:53:41.049  [perf] reset stage=C-NR-transfer epoch=369 transfer=1.000; warming 180 frames
+01:53:41.051  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=370
+01:53:41.056  [perf] reset stage=C-NR-transfer epoch=370 transfer=1.000; warming 180 frames
+01:53:41.059  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=371
+01:53:41.063  [perf] reset stage=C-NR-transfer epoch=371 transfer=1.000; warming 180 frames
+01:53:41.065  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=372
+01:53:41.070  [perf] reset stage=C-NR-transfer epoch=372 transfer=1.000; warming 180 frames
+01:53:41.072  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=373
+01:53:41.077  [perf] reset stage=C-NR-transfer epoch=373 transfer=1.000; warming 180 frames
+01:53:41.079  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=374
+01:53:41.084  [perf] reset stage=C-NR-transfer epoch=374 transfer=1.000; warming 180 frames
+01:53:41.088  --- SuperSampling Evaluate #25200 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:53:41.088      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:41.088      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:53:41.088      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:53:41.088      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:53:41.088      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:41.088      DLSS.Input.Color.Subrect.Base.X            = 0
+01:53:41.088      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:53:41.088      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:53:41.088      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:53:41.089      DLSS.Input.MV.Subrect.Base.X               = 0
+01:53:41.089      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:53:41.089      DLSS.Output.Subrect.Base.X                 = 0
+01:53:41.089      DLSS.Output.Subrect.Base.Y                 = 0
+01:53:41.089      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:53:41.089      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:53:41.089      MV.Scale.X                                 = -1
+01:53:41.089      MV.Scale.Y                                 = -1
+01:53:41.089      Jitter.Offset.X                            = -0.375
+01:53:41.089      Jitter.Offset.Y                            = 0.055555522
+01:53:41.089      DLSS.Pre.Exposure                          = 1
+01:53:41.089      DLSS.Exposure.Scale                        = 1
+01:53:41.089      Reset                                      = 0
+01:53:41.089  [stats] all NGX evaluations=25200, upscaling-carrier evaluations=25200 feature=1(SuperSampling)
+01:53:41.094  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=375
+01:53:41.098  [perf] reset stage=C-NR-transfer epoch=375 transfer=1.000; warming 180 frames
+01:53:41.121  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=376
+01:53:41.130  [perf] reset stage=C-NR-transfer epoch=376 transfer=1.000; warming 180 frames
+01:53:41.189  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=377
+01:53:41.194  [perf] reset stage=C-NR-transfer epoch=377 transfer=1.000; warming 180 frames
+01:53:41.205  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=378
+01:53:41.209  [perf] reset stage=C-NR-transfer epoch=378 transfer=1.000; warming 180 frames
+01:53:41.212  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=379
+01:53:41.215  [perf] reset stage=C-NR-transfer epoch=379 transfer=1.000; warming 180 frames
+01:53:41.217  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=380
+01:53:41.222  [perf] reset stage=C-NR-transfer epoch=380 transfer=1.000; warming 180 frames
+01:53:41.225  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=381
+01:53:41.229  [perf] reset stage=C-NR-transfer epoch=381 transfer=1.000; warming 180 frames
+01:53:41.231  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=382
+01:53:41.237  [perf] reset stage=C-NR-transfer epoch=382 transfer=1.000; warming 180 frames
+01:53:41.239  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=383
+01:53:41.243  [perf] reset stage=C-NR-transfer epoch=383 transfer=1.000; warming 180 frames
+01:53:41.245  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=384
+01:53:41.250  [perf] reset stage=C-NR-transfer epoch=384 transfer=1.000; warming 180 frames
+01:53:41.252  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=385
+01:53:41.257  [perf] reset stage=C-NR-transfer epoch=385 transfer=1.000; warming 180 frames
+01:53:41.259  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=386
+01:53:41.264  [perf] reset stage=C-NR-transfer epoch=386 transfer=1.000; warming 180 frames
+01:53:41.266  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=387
+01:53:41.271  [perf] reset stage=C-NR-transfer epoch=387 transfer=1.000; warming 180 frames
+01:53:41.274  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=388
+01:53:41.279  [perf] reset stage=C-NR-transfer epoch=388 transfer=1.000; warming 180 frames
+01:53:41.281  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=389
+01:53:41.286  [perf] reset stage=C-NR-transfer epoch=389 transfer=1.000; warming 180 frames
+01:53:41.288  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=390
+01:53:41.294  [perf] reset stage=C-NR-transfer epoch=390 transfer=1.000; warming 180 frames
+01:53:41.296  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=391
+01:53:41.303  [perf] reset stage=C-NR-transfer epoch=391 transfer=1.000; warming 180 frames
+01:53:41.305  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=392
+01:53:41.309  [perf] reset stage=C-NR-transfer epoch=392 transfer=1.000; warming 180 frames
+01:53:41.311  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=393
+01:53:41.316  [perf] reset stage=C-NR-transfer epoch=393 transfer=1.000; warming 180 frames
+01:53:41.318  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=394
+01:53:41.323  [perf] reset stage=C-NR-transfer epoch=394 transfer=1.000; warming 180 frames
+01:53:41.325  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=395
+01:53:41.330  [perf] reset stage=C-NR-transfer epoch=395 transfer=1.000; warming 180 frames
+01:53:41.332  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=396
+01:53:41.337  [perf] reset stage=C-NR-transfer epoch=396 transfer=1.000; warming 180 frames
+01:53:41.339  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=397
+01:53:41.344  [perf] reset stage=C-NR-transfer epoch=397 transfer=1.000; warming 180 frames
+01:53:41.347  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=398
+01:53:41.351  [perf] reset stage=C-NR-transfer epoch=398 transfer=1.000; warming 180 frames
+01:53:41.354  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=399
+01:53:41.358  [perf] reset stage=C-NR-transfer epoch=399 transfer=1.000; warming 180 frames
+01:53:41.361  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=400
+01:53:41.365  [perf] reset stage=C-NR-transfer epoch=400 transfer=1.000; warming 180 frames
+01:53:41.367  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=401
+01:53:41.372  [perf] reset stage=C-NR-transfer epoch=401 transfer=1.000; warming 180 frames
+01:53:41.375  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=402
+01:53:41.379  [perf] reset stage=C-NR-transfer epoch=402 transfer=1.000; warming 180 frames
+01:53:41.381  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=403
+01:53:41.388  [perf] reset stage=C-NR-transfer epoch=403 transfer=1.000; warming 180 frames
+01:53:41.390  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=404
+01:53:41.398  [perf] reset stage=C-NR-transfer epoch=404 transfer=1.000; warming 180 frames
+01:53:41.401  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=405
+01:53:41.406  [perf] reset stage=C-NR-transfer epoch=405 transfer=1.000; warming 180 frames
+01:53:41.409  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=406
+01:53:41.418  [perf] reset stage=C-NR-transfer epoch=406 transfer=1.000; warming 180 frames
+01:53:41.420  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=407
+01:53:41.427  [perf] reset stage=C-NR-transfer epoch=407 transfer=1.000; warming 180 frames
+01:53:41.430  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=408
+01:53:41.435  [perf] reset stage=C-NR-transfer epoch=408 transfer=1.000; warming 180 frames
+01:53:41.437  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=409
+01:53:41.446  [perf] reset stage=C-NR-transfer epoch=409 transfer=1.000; warming 180 frames
+01:53:41.449  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=410
+01:53:41.457  [perf] reset stage=C-NR-transfer epoch=410 transfer=1.000; warming 180 frames
+01:53:41.460  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=411
+01:53:41.467  [perf] reset stage=C-NR-transfer epoch=411 transfer=1.000; warming 180 frames
+01:53:41.469  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=412
+01:53:41.474  [perf] reset stage=C-NR-transfer epoch=412 transfer=1.000; warming 180 frames
+01:53:41.477  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=413
+01:53:41.483  [perf] reset stage=C-NR-transfer epoch=413 transfer=1.000; warming 180 frames
+01:53:41.485  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=414
+01:53:41.492  [perf] reset stage=C-NR-transfer epoch=414 transfer=1.000; warming 180 frames
+01:53:41.495  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=415
+01:53:41.500  [perf] reset stage=C-NR-transfer epoch=415 transfer=1.000; warming 180 frames
+01:53:41.503  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=416
+01:53:41.508  [perf] reset stage=C-NR-transfer epoch=416 transfer=1.000; warming 180 frames
+01:53:43.106  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=417
+01:53:43.110  [perf] reset stage=C-NR-transfer epoch=417 transfer=1.000; warming 180 frames
+01:53:43.175  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=418
+01:53:43.180  [perf] reset stage=C-NR-transfer epoch=418 transfer=1.000; warming 180 frames
+01:53:43.182  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=419
+01:53:43.187  [perf] reset stage=C-NR-transfer epoch=419 transfer=1.000; warming 180 frames
+01:53:43.189  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=420
+01:53:43.195  [perf] reset stage=C-NR-transfer epoch=420 transfer=1.000; warming 180 frames
+01:53:43.198  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=421
+01:53:43.204  [perf] reset stage=C-NR-transfer epoch=421 transfer=1.000; warming 180 frames
+01:53:43.206  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=422
+01:53:43.212  [perf] reset stage=C-NR-transfer epoch=422 transfer=1.000; warming 180 frames
+01:53:43.214  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=423
+01:53:43.220  [perf] reset stage=C-NR-transfer epoch=423 transfer=1.000; warming 180 frames
+01:53:43.223  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=424
+01:53:43.228  [perf] reset stage=C-NR-transfer epoch=424 transfer=1.000; warming 180 frames
+01:53:43.230  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=425
+01:53:43.238  [perf] reset stage=C-NR-transfer epoch=425 transfer=1.000; warming 180 frames
+01:53:43.240  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=426
+01:53:43.245  [perf] reset stage=C-NR-transfer epoch=426 transfer=1.000; warming 180 frames
+01:53:43.247  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=427
+01:53:43.252  [perf] reset stage=C-NR-transfer epoch=427 transfer=1.000; warming 180 frames
+01:53:43.254  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=428
+01:53:43.259  [perf] reset stage=C-NR-transfer epoch=428 transfer=1.000; warming 180 frames
+01:53:43.262  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=429
+01:53:43.268  [perf] reset stage=C-NR-transfer epoch=429 transfer=1.000; warming 180 frames
+01:53:43.271  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=430
+01:53:43.275  [perf] reset stage=C-NR-transfer epoch=430 transfer=1.000; warming 180 frames
+01:53:43.277  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=431
+01:53:43.281  [perf] reset stage=C-NR-transfer epoch=431 transfer=1.000; warming 180 frames
+01:53:43.284  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=432
+01:53:43.288  [perf] reset stage=C-NR-transfer epoch=432 transfer=1.000; warming 180 frames
+01:53:43.290  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=433
+01:53:43.296  [perf] reset stage=C-NR-transfer epoch=433 transfer=1.000; warming 180 frames
+01:53:43.298  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=434
+01:53:43.304  [perf] reset stage=C-NR-transfer epoch=434 transfer=1.000; warming 180 frames
+01:53:43.307  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=435
+01:53:43.311  [perf] reset stage=C-NR-transfer epoch=435 transfer=1.000; warming 180 frames
+01:53:43.314  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=436
+01:53:43.318  [perf] reset stage=C-NR-transfer epoch=436 transfer=1.000; warming 180 frames
+01:53:43.319  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=437
+01:53:43.325  [perf] reset stage=C-NR-transfer epoch=437 transfer=1.000; warming 180 frames
+01:53:43.328  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=438
+01:53:43.332  [perf] reset stage=C-NR-transfer epoch=438 transfer=1.000; warming 180 frames
+01:53:43.334  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=439
+01:53:43.341  [perf] reset stage=C-NR-transfer epoch=439 transfer=1.000; warming 180 frames
+01:53:43.343  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=440
+01:53:43.348  [perf] reset stage=C-NR-transfer epoch=440 transfer=1.000; warming 180 frames
+01:53:43.350  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=441
+01:53:43.359  [perf] reset stage=C-NR-transfer epoch=441 transfer=1.000; warming 180 frames
+01:53:43.361  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=442
+01:53:43.369  [perf] reset stage=C-NR-transfer epoch=442 transfer=1.000; warming 180 frames
+01:53:43.371  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=443
+01:53:43.376  [perf] reset stage=C-NR-transfer epoch=443 transfer=1.000; warming 180 frames
+01:53:43.378  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=444
+01:53:43.384  [perf] reset stage=C-NR-transfer epoch=444 transfer=1.000; warming 180 frames
+01:53:43.387  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=445
+01:53:43.391  [perf] reset stage=C-NR-transfer epoch=445 transfer=1.000; warming 180 frames
+01:53:43.393  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=446
+01:53:43.398  [perf] reset stage=C-NR-transfer epoch=446 transfer=1.000; warming 180 frames
+01:53:43.400  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=447
+01:53:43.406  [perf] reset stage=C-NR-transfer epoch=447 transfer=1.000; warming 180 frames
+01:53:43.408  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=448
+01:53:43.414  [perf] reset stage=C-NR-transfer epoch=448 transfer=1.000; warming 180 frames
+01:53:43.417  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=449
+01:53:43.422  [perf] reset stage=C-NR-transfer epoch=449 transfer=1.000; warming 180 frames
+01:53:43.424  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=450
+01:53:43.430  [perf] reset stage=C-NR-transfer epoch=450 transfer=1.000; warming 180 frames
+01:53:43.434  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=451
+01:53:43.443  [perf] reset stage=C-NR-transfer epoch=451 transfer=1.000; warming 180 frames
+01:53:43.445  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=452
+01:53:43.450  [perf] reset stage=C-NR-transfer epoch=452 transfer=1.000; warming 180 frames
+01:53:43.452  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=453
+01:53:43.458  [perf] reset stage=C-NR-transfer epoch=453 transfer=1.000; warming 180 frames
+01:53:43.460  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=454
+01:53:43.464  [perf] reset stage=C-NR-transfer epoch=454 transfer=1.000; warming 180 frames
+01:53:43.467  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=455
+01:53:43.471  [perf] reset stage=C-NR-transfer epoch=455 transfer=1.000; warming 180 frames
+01:53:43.474  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=456
+01:53:43.478  [perf] reset stage=C-NR-transfer epoch=456 transfer=1.000; warming 180 frames
+01:53:43.481  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=457
+01:53:43.485  [perf] reset stage=C-NR-transfer epoch=457 transfer=1.000; warming 180 frames
+01:53:43.487  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=458
+01:53:43.492  [perf] reset stage=C-NR-transfer epoch=458 transfer=1.000; warming 180 frames
+01:53:43.494  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=459
+01:53:43.499  [perf] reset stage=C-NR-transfer epoch=459 transfer=1.000; warming 180 frames
+01:53:43.501  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=460
+01:53:43.506  [perf] reset stage=C-NR-transfer epoch=460 transfer=1.000; warming 180 frames
+01:53:43.508  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=461
+01:53:43.513  [perf] reset stage=C-NR-transfer epoch=461 transfer=1.000; warming 180 frames
+01:53:43.515  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=462
+01:53:43.522  [perf] reset stage=C-NR-transfer epoch=462 transfer=1.000; warming 180 frames
+01:53:43.525  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=463
+01:53:43.529  [perf] reset stage=C-NR-transfer epoch=463 transfer=1.000; warming 180 frames
+01:53:43.532  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=464
+01:53:43.538  [perf] reset stage=C-NR-transfer epoch=464 transfer=1.000; warming 180 frames
+01:53:43.541  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=465
+01:53:43.545  [perf] reset stage=C-NR-transfer epoch=465 transfer=1.000; warming 180 frames
+01:53:43.547  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=466
+01:53:43.552  [perf] reset stage=C-NR-transfer epoch=466 transfer=1.000; warming 180 frames
+01:53:43.554  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=467
+01:53:43.558  [perf] reset stage=C-NR-transfer epoch=467 transfer=1.000; warming 180 frames
+01:53:43.560  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=468
+01:53:43.565  [perf] reset stage=C-NR-transfer epoch=468 transfer=1.000; warming 180 frames
+01:53:44.746  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=469
+01:53:44.763  [perf] reset stage=C-NR-transfer epoch=469 transfer=1.000; warming 180 frames
+01:53:44.766  Config updated from ReShade overlay: enabled=1 nrBeforeSr=1 transfer=1.000 epoch=470
+01:53:44.781  [perf] reset stage=C-NR-transfer epoch=470 transfer=1.000; warming 180 frames
+01:53:46.331  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=18600).
+01:53:46.767  --- SuperSampling Evaluate #25800 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:53:46.767      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:46.767      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:53:46.767      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:53:46.767      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:53:46.767      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:46.767      DLSS.Input.Color.Subrect.Base.X            = 0
+01:53:46.767      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:53:46.767      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:53:46.768      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:53:46.768      DLSS.Input.MV.Subrect.Base.X               = 0
+01:53:46.768      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:53:46.768      DLSS.Output.Subrect.Base.X                 = 0
+01:53:46.768      DLSS.Output.Subrect.Base.Y                 = 0
+01:53:46.768      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:53:46.768      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:53:46.768      MV.Scale.X                                 = -1
+01:53:46.768      MV.Scale.Y                                 = -1
+01:53:46.768      Jitter.Offset.X                            = -0.375
+01:53:46.768      Jitter.Offset.Y                            = 0.055555522
+01:53:46.768      DLSS.Pre.Exposure                          = 1
+01:53:46.768      DLSS.Exposure.Scale                        = 1
+01:53:46.769      Reset                                      = 0
+01:53:46.769  [stats] all NGX evaluations=25800, upscaling-carrier evaluations=25800 feature=1(SuperSampling)
+01:53:50.353  [perf] stage=C-NR-transfer epoch=470 transfer=1.000 samples=600 avgFPS=142.687 avgMs=7.0084 p95Ms=12.6739 p99Ms=13.2830 onePercentLowFPS=71.676
+01:53:50.527  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=19200).
+01:53:50.999  --- SuperSampling Evaluate #26400 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:53:51.000      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:51.000      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:53:51.000      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:53:51.000      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:53:51.000      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:51.000      DLSS.Input.Color.Subrect.Base.X            = 0
+01:53:51.000      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:53:51.000      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:53:51.000      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:53:51.000      DLSS.Input.MV.Subrect.Base.X               = 0
+01:53:51.000      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:53:51.000      DLSS.Output.Subrect.Base.X                 = 0
+01:53:51.000      DLSS.Output.Subrect.Base.Y                 = 0
+01:53:51.000      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:53:51.000      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:53:51.000      MV.Scale.X                                 = -1
+01:53:51.001      MV.Scale.Y                                 = -1
+01:53:51.001      Jitter.Offset.X                            = -0.375
+01:53:51.001      Jitter.Offset.Y                            = 0.055555522
+01:53:51.001      DLSS.Pre.Exposure                          = 1
+01:53:51.001      DLSS.Exposure.Scale                        = 1
+01:53:51.001      Reset                                      = 0
+01:53:51.001  [stats] all NGX evaluations=26400, upscaling-carrier evaluations=26400 feature=1(SuperSampling)
+01:53:54.566  [perf] stage=C-NR-transfer epoch=470 transfer=1.000 samples=600 avgFPS=142.666 avgMs=7.0094 p95Ms=12.8952 p99Ms=13.2837 onePercentLowFPS=50.983
+01:53:54.740  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=19800).
+01:53:55.171  --- SuperSampling Evaluate #27000 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:53:55.171      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:55.171      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:53:55.172      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:53:55.172      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:53:55.172      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:55.172      DLSS.Input.Color.Subrect.Base.X            = 0
+01:53:55.172      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:53:55.172      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:53:55.172      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:53:55.172      DLSS.Input.MV.Subrect.Base.X               = 0
+01:53:55.172      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:53:55.172      DLSS.Output.Subrect.Base.X                 = 0
+01:53:55.172      DLSS.Output.Subrect.Base.Y                 = 0
+01:53:55.172      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:53:55.172      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:53:55.172      MV.Scale.X                                 = -1
+01:53:55.172      MV.Scale.Y                                 = -1
+01:53:55.172      Jitter.Offset.X                            = -0.375
+01:53:55.173      Jitter.Offset.Y                            = 0.055555522
+01:53:55.173      DLSS.Pre.Exposure                          = 1
+01:53:55.173      DLSS.Exposure.Scale                        = 1
+01:53:55.173      Reset                                      = 0
+01:53:55.173  [stats] all NGX evaluations=27000, upscaling-carrier evaluations=27000 feature=1(SuperSampling)
+01:53:58.757  [perf] stage=C-NR-transfer epoch=470 transfer=1.000 samples=600 avgFPS=143.607 avgMs=6.9634 p95Ms=13.0233 p99Ms=13.3907 onePercentLowFPS=73.655
+01:53:58.919  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=20400).
+01:53:59.350  --- SuperSampling Evaluate #27600 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:53:59.350      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:59.350      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:53:59.350      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:53:59.350      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:53:59.350      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:53:59.350      DLSS.Input.Color.Subrect.Base.X            = 0
+01:53:59.350      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:53:59.350      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:53:59.350      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:53:59.350      DLSS.Input.MV.Subrect.Base.X               = 0
+01:53:59.350      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:53:59.350      DLSS.Output.Subrect.Base.X                 = 0
+01:53:59.350      DLSS.Output.Subrect.Base.Y                 = 0
+01:53:59.351      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:53:59.351      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:53:59.351      MV.Scale.X                                 = -1
+01:53:59.351      MV.Scale.Y                                 = -1
+01:53:59.351      Jitter.Offset.X                            = -0.375
+01:53:59.351      Jitter.Offset.Y                            = 0.055555522
+01:53:59.351      DLSS.Pre.Exposure                          = 1
+01:53:59.351      DLSS.Exposure.Scale                        = 1
+01:53:59.351      Reset                                      = 0
+01:53:59.351  [stats] all NGX evaluations=27600, upscaling-carrier evaluations=27600 feature=1(SuperSampling)
+01:54:02.941  [perf] stage=C-NR-transfer epoch=470 transfer=1.000 samples=600 avgFPS=143.625 avgMs=6.9626 p95Ms=12.9048 p99Ms=13.4559 onePercentLowFPS=72.802
+01:54:03.097  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=21000).
+01:54:03.526  --- SuperSampling Evaluate #28200 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:54:03.526      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:54:03.526      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:54:03.526      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:54:03.526      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:54:03.526      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:54:03.526      DLSS.Input.Color.Subrect.Base.X            = 0
+01:54:03.526      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:54:03.526      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:54:03.526      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:54:03.526      DLSS.Input.MV.Subrect.Base.X               = 0
+01:54:03.526      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:54:03.526      DLSS.Output.Subrect.Base.X                 = 0
+01:54:03.526      DLSS.Output.Subrect.Base.Y                 = 0
+01:54:03.526      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:54:03.526      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:54:03.527      MV.Scale.X                                 = -1
+01:54:03.527      MV.Scale.Y                                 = -1
+01:54:03.527      Jitter.Offset.X                            = -0.375
+01:54:03.527      Jitter.Offset.Y                            = 0.055555522
+01:54:03.527      DLSS.Pre.Exposure                          = 1
+01:54:03.527      DLSS.Exposure.Scale                        = 1
+01:54:03.527      Reset                                      = 0
+01:54:03.527  [stats] all NGX evaluations=28200, upscaling-carrier evaluations=28200 feature=1(SuperSampling)
+01:54:07.125  [perf] stage=C-NR-transfer epoch=470 transfer=1.000 samples=600 avgFPS=143.648 avgMs=6.9614 p95Ms=12.9852 p99Ms=13.4262 onePercentLowFPS=72.793
+01:54:07.272  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=21600).
+01:54:07.707  --- SuperSampling Evaluate #28800 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:54:07.707      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:54:07.707      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:54:07.707      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:54:07.707      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:54:07.707      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:54:07.707      DLSS.Input.Color.Subrect.Base.X            = 0
+01:54:07.707      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:54:07.707      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:54:07.707      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:54:07.707      DLSS.Input.MV.Subrect.Base.X               = 0
+01:54:07.707      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:54:07.707      DLSS.Output.Subrect.Base.X                 = 0
+01:54:07.707      DLSS.Output.Subrect.Base.Y                 = 0
+01:54:07.707      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:54:07.707      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:54:07.708      MV.Scale.X                                 = -1
+01:54:07.708      MV.Scale.Y                                 = -1
+01:54:07.708      Jitter.Offset.X                            = -0.375
+01:54:07.708      Jitter.Offset.Y                            = 0.055555522
+01:54:07.708      DLSS.Pre.Exposure                          = 1
+01:54:07.708      DLSS.Exposure.Scale                        = 1
+01:54:07.708      Reset                                      = 0
+01:54:07.708  [stats] all NGX evaluations=28800, upscaling-carrier evaluations=28800 feature=1(SuperSampling)
+01:54:11.306  [perf] stage=C-NR-transfer epoch=470 transfer=1.000 samples=600 avgFPS=143.759 avgMs=6.9561 p95Ms=13.0455 p99Ms=13.3158 onePercentLowFPS=74.603
+01:54:11.447  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=22200).
+01:54:11.878  --- SuperSampling Evaluate #29400 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:54:11.878      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:54:11.878      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:54:11.878      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:54:11.878      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:54:11.878      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:54:11.878      DLSS.Input.Color.Subrect.Base.X            = 0
+01:54:11.878      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:54:11.878      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:54:11.878      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:54:11.878      DLSS.Input.MV.Subrect.Base.X               = 0
+01:54:11.878      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:54:11.878      DLSS.Output.Subrect.Base.X                 = 0
+01:54:11.878      DLSS.Output.Subrect.Base.Y                 = 0
+01:54:11.878      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:54:11.879      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:54:11.879      MV.Scale.X                                 = -1
+01:54:11.879      MV.Scale.Y                                 = -1
+01:54:11.879      Jitter.Offset.X                            = -0.375
+01:54:11.879      Jitter.Offset.Y                            = 0.055555522
+01:54:11.879      DLSS.Pre.Exposure                          = 1
+01:54:11.879      DLSS.Exposure.Scale                        = 1
+01:54:11.879      Reset                                      = 0
+01:54:11.879  [stats] all NGX evaluations=29400, upscaling-carrier evaluations=29400 feature=1(SuperSampling)
+01:54:15.491  [perf] stage=C-NR-transfer epoch=470 transfer=1.000 samples=600 avgFPS=143.627 avgMs=6.9625 p95Ms=12.9887 p99Ms=13.2483 onePercentLowFPS=74.767
+01:54:15.623  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=22800).
+01:54:16.055  --- SuperSampling Evaluate #30000 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:54:16.055      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:54:16.055      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:54:16.055      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:54:16.055      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:54:16.055      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:54:16.055      DLSS.Input.Color.Subrect.Base.X            = 0
+01:54:16.055      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:54:16.055      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:54:16.055      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:54:16.055      DLSS.Input.MV.Subrect.Base.X               = 0
+01:54:16.055      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:54:16.055      DLSS.Output.Subrect.Base.X                 = 0
+01:54:16.055      DLSS.Output.Subrect.Base.Y                 = 0
+01:54:16.056      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:54:16.056      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:54:16.056      MV.Scale.X                                 = -1
+01:54:16.056      MV.Scale.Y                                 = -1
+01:54:16.056      Jitter.Offset.X                            = -0.375
+01:54:16.056      Jitter.Offset.Y                            = 0.055555522
+01:54:16.056      DLSS.Pre.Exposure                          = 1
+01:54:16.056      DLSS.Exposure.Scale                        = 1
+01:54:16.056      Reset                                      = 0
+01:54:16.056  [stats] all NGX evaluations=30000, upscaling-carrier evaluations=30000 feature=1(SuperSampling)
+01:54:19.682  [perf] stage=C-NR-transfer epoch=470 transfer=1.000 samples=600 avgFPS=143.426 avgMs=6.9722 p95Ms=13.0240 p99Ms=13.3480 onePercentLowFPS=73.765
+01:54:19.807  Mode 2 bypassed because HDR ExposureTexture is present but has no verified same-frame Feature 18 contract; original SR is preserved (count=23400).
+01:54:20.242  --- SuperSampling Evaluate #30600 handle=[address] create=2560x1440 -> 2560x1440 ---
+01:54:20.242      Color                                      = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:54:20.242      MotionVectors                              = [address] physical=2560x1440 format=34(R16G16_FLOAT) mips=1 flags=0x5 sample=1
+01:54:20.242      Depth                                      = [address] physical=2560x1440 format=20(other) mips=1 flags=0x2 sample=1
+01:54:20.242      ExposureTexture                            = [address] physical=1x1 format=39(R32_TYPELESS) mips=1 flags=0x4 sample=1
+01:54:20.242      Output                                     = [address] physical=2560x1440 format=26(R11G11B10_FLOAT) mips=1 flags=0x5 sample=1
+01:54:20.243      DLSS.Input.Color.Subrect.Base.X            = 0
+01:54:20.243      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:54:20.243      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:54:20.243      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:54:20.243      DLSS.Input.MV.Subrect.Base.X               = 0
+01:54:20.243      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:54:20.243      DLSS.Output.Subrect.Base.X                 = 0
+01:54:20.243      DLSS.Output.Subrect.Base.Y                 = 0
+01:54:20.243      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:54:20.243      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:54:20.243      MV.Scale.X                                 = -1
+01:54:20.243      MV.Scale.Y                                 = -1
+01:54:20.243      Jitter.Offset.X                            = -0.375
+01:54:20.243      Jitter.Offset.Y                            = 0.055555522
+01:54:20.243      DLSS.Pre.Exposure                          = 1
+01:54:20.243      DLSS.Exposure.Scale                        = 1
+01:54:20.243      Reset                                      = 0
+01:54:20.243  [stats] all NGX evaluations=30600, upscaling-carrier evaluations=30600 feature=1(SuperSampling)
+01:54:22.056  Config updated from F6: enabled=0 nrBeforeSr=1 transfer=1.000 epoch=471
+01:54:22.056  [perf] reset stage=A-SR-only epoch=471 transfer=1.000; warming 180 frames
+01:54:26.934  [perf] stage=A-SR-only epoch=471 transfer=1.000 samples=600 avgFPS=164.999 avgMs=6.0606 p95Ms=6.1537 p99Ms=6.9394 onePercentLowFPS=130.366
+01:54:32.075  [perf] stage=A-SR-only epoch=471 transfer=1.000 samples=600 avgFPS=150.121 avgMs=6.6613 p95Ms=7.0600 p99Ms=15.2747 onePercentLowFPS=19.978

@@ -1,0 +1,558 @@
+format=DLSS5-LogSummary-v1
+source.bytes=32552
+scan.bytes=32552
+scan.complete=1
+lines.scanned=264
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+02:44:21:506 [ 2288] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from '[local-path]
+02:44:21:543 [ 2288] | INFO  | Registering hooks for 'user32.dll' ...
+02:44:21:544 [ 2288] | INFO  | > Libraries loaded.
+02:44:21:546 [ 2288] | INFO  | > Found 21 match(es). Installing ...
+02:44:21:587 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:588 [ 2288] | INFO  | > Delayed.
+02:44:21:589 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:590 [ 2288] | INFO  | > Libraries loaded.
+02:44:21:590 [ 2288] | INFO  | > Found 2 match(es). Installing ...
+02:44:21:631 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:632 [ 2288] | INFO  | > Delayed.
+02:44:21:633 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:634 [ 2288] | INFO  | > Delayed.
+02:44:21:634 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:635 [ 2288] | INFO  | > Delayed.
+02:44:21:636 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:637 [ 2288] | INFO  | > Delayed.
+02:44:21:637 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:638 [ 2288] | INFO  | > Delayed.
+02:44:21:639 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:640 [ 2288] | INFO  | > Libraries loaded.
+02:44:21:641 [ 2288] | INFO  | > Found 8 match(es). Installing ...
+02:44:21:676 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:677 [ 2288] | INFO  | > Delayed until first call to an exported function.
+02:44:21:678 [ 2288] | INFO  | Registering hooks for 'openvr_api.dll' ...
+02:44:21:678 [ 2288] | INFO  | > Delayed.
+02:44:21:679 [ 2288] | INFO  | Initialized.
+02:44:21:681 [ 2288] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:44:21:682 [ 2288] | INFO  | Installing export hooks for '[local-path]
+02:44:21:684 [ 2288] | INFO  | > Found 5 match(es). Installing ...
+02:44:22:792 [ 2288] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:44:23:313 [ 2288] | INFO  | Redirecting RegisterClassA(lpWndClass = [address] { "NBA2K25", style = 0x60 }) ...
+02:44:23:390 [ 2288] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+02:44:23:391 [ 2288] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+02:44:23:391 [ 2288] | INFO  | Loading add-on from '[local-path]
+02:44:23:452 [ 2288] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.5-fix1 (Chinese UI) | Bilibili UID 941799" v0.4.5.1 using ReShade API version 18.
+02:44:23:460 [ 2288] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:23:650 [ 6816] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+02:44:23:651 [ 8488] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+02:44:27:856 [ 2288] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:44:27:881 [11372] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+02:44:27:882 [ 2288] | WARN  | Ignoring LoadLibrary('drvstore.dll') call to avoid possible deadlock.
+02:44:27:883 [11372] | WARN  | Ignoring LoadLibrary('cryptbase.dll') call to avoid possible deadlock.
+02:44:27:884 [ 2288] | WARN  | Ignoring LoadLibrary('kernel32.dll') call to avoid possible deadlock.
+02:44:27:891 [ 5932] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+02:44:28:168 [20684] | WARN  | Ignoring LoadLibrary('cryptbase.dll') call to avoid possible deadlock.
+02:44:28:177 [ 2288] | WARN  | Ignoring LoadLibrary('devobj.dll') call to avoid possible deadlock.
+02:44:28:178 [ 2288] | WARN  | Ignoring LoadLibrary('wldp.dll') call to avoid possible deadlock.
+02:44:29:200 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:233 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:249 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:250 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:251 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:252 [ 2288] | INFO  |   | Type                                    | 0                                       |
+02:44:29:252 [ 2288] | INFO  |   | Priority                                | 0                                       |
+02:44:29:253 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:254 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:255 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:320 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:321 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:321 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:322 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:323 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:324 [ 2288] | INFO  |   | Type                                    | 0                                       |
+02:44:29:325 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:325 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:326 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:327 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:360 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:360 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:361 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:362 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:363 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:363 [ 2288] | INFO  |   | Type                                    | 0                                       |
+02:44:29:364 [ 2288] | INFO  |   | Priority                                | 0                                       |
+02:44:29:365 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:366 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:366 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:400 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:401 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:401 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:402 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:403 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:403 [ 2288] | INFO  |   | Type                                    | 0                                       |
+02:44:29:404 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:405 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:406 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:406 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:441 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:442 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:443 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:443 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:444 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:445 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:445 [ 2288] | INFO  |   | Priority                                | 0                                       |
+02:44:29:446 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:447 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:447 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:468 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:468 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:469 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:470 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:470 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:471 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:472 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:473 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:473 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:474 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:492 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:493 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:494 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:494 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:495 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:496 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:496 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:497 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:498 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:498 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:519 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:520 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:520 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:521 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:522 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:522 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:523 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:524 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:525 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:525 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:545 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:545 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:546 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:547 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:548 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:548 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:549 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:550 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:550 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:551 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:570 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:571 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:572 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:573 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:573 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:574 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:575 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:576 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:576 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:577 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:598 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:599 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:600 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:600 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:601 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:602 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:603 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:603 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:604 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:605 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:626 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:627 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:627 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:628 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:629 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:629 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:630 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:631 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:631 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:632 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:654 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:654 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:655 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:656 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:656 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:657 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:658 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:658 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:660 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:660 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:778 [ 2288] | INFO  | Redirecting IDXGIFactory::CreateSwapChain(this = [address], pDevice = [address], pDesc = [address], ppSwapChain = [address]) ...
+02:44:29:778 [ 2288] | INFO  | > Dumping swap chain description:
+02:44:29:779 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:780 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:780 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:781 [ 2288] | INFO  |   | Width                                   | 0                                       |
+02:44:29:782 [ 2288] | INFO  |   | Height                                  | 0                                       |
+02:44:29:782 [ 2288] | INFO  |   | RefreshRate                             | 60                  1                   |
+02:44:29:783 [ 2288] | INFO  |   | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |
+02:44:29:784 [ 2288] | INFO  |   | ScanlineOrdering                        | 1                                       |
+02:44:29:784 [ 2288] | INFO  |   | Scaling                                 | 0                                       |
+02:44:29:785 [ 2288] | INFO  |   | SampleCount                             | 1                                       |
+02:44:29:786 [ 2288] | INFO  |   | SampleQuality                           | 0                                       |
+02:44:29:787 [ 2288] | INFO  |   | BufferUsage                             | 0x30                                    |
+02:44:29:787 [ 2288] | INFO  |   | BufferCount                             | 3                                       |
+02:44:29:788 [ 2288] | INFO  |   | OutputWindow                            | [address]                        |
+02:44:29:789 [ 2288] | INFO  |   | Windowed                                | TRUE                                    |
+02:44:29:789 [ 2288] | INFO  |   | SwapEffect                              | 4                                       |
+02:44:29:790 [ 2288] | INFO  |   | Flags                                   | 0x802                                   |
+02:44:29:791 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:813 [ 2288] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:29:820 [ 2288] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:29:822 [ 2288] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:29:825 [ 2288] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:29:828 [ 2288] | INFO  | Running on NVIDIA GeForce RTX 5070 Driver 616.64.
+02:44:30:822 [ 2288] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+02:44:30:823 [ 2288] | INFO  | Redirecting IDXGISwapChain::SetFullscreenState(this = [address], Fullscreen = FALSE, pTarget = [address]) ...
+02:44:41:140 [ 9548] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798031-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+02:44:41:159 [ 9548] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798030-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+02:44:41:161 [ 9548] | INFO  | Redirecting IDirectInput8A::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+02:44:41:162 [ 9548] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+02:44:41:249 [ 9548] | INFO  | Redirecting IDirectInput8A::CreateDevice(this = [address], rguid = {8A9317C0-604D-11F1-8001-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+02:44:41:249 [ 9548] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {8A9317C0-604D-11F1-8001-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+02:44:41:489 [ 9548] | INFO  | Redirecting IDirectInput8A::CreateDevice(this = [address], rguid = {8AA12180-604D-11F1-8003-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+02:44:41:490 [ 9548] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {8AA12180-604D-11F1-8003-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+02:44:41:588 [ 2288] | INFO  | Redirecting IDXGISwapChain::SetFullscreenState(this = [address], Fullscreen = FALSE, pTarget = [address]) ...
+02:44:42:068 [20488] | WARN  | Failed to resolve search path '[local-path]
+02:44:52:162 [ 9548] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:52:164 [ 9548] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:52:166 [ 9548] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:52:167 [ 9548] | INFO  | > Dumping command queue description:
+02:44:52:170 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:172 [ 9548] | INFO  |   | Parameter                               | Value                                   |
+02:44:52:173 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:174 [ 9548] | INFO  |   | Type                                    | 0                                       |
+02:44:52:174 [ 9548] | INFO  |   | Priority                                | 0                                       |
+02:44:52:175 [ 9548] | INFO  |   | Flags                                   | 0                                       |
+02:44:52:176 [ 9548] | INFO  |   | NodeMask                                | 0                                       |
+02:44:52:176 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:245 [ 9548] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:52:251 [ 9548] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:52:253 [ 9548] | INFO  | > Dumping command queue description:
+02:44:52:254 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:255 [ 9548] | INFO  |   | Parameter                               | Value                                   |
+02:44:52:256 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:257 [ 9548] | INFO  |   | Type                                    | 0                                       |
+02:44:52:258 [ 9548] | INFO  |   | Priority                                | 0                                       |
+02:44:52:259 [ 9548] | INFO  |   | Flags                                   | 0                                       |
+02:44:52:261 [ 9548] | INFO  |   | NodeMask                                | 0                                       |
+02:44:52:262 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:408 [ 9548] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:52:412 [ 9548] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:52:414 [ 9548] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:52:415 [ 9548] | INFO  | > Dumping command queue description:
+02:44:52:415 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:416 [ 9548] | INFO  |   | Parameter                               | Value                                   |
+02:44:52:417 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:417 [ 9548] | INFO  |   | Type                                    | 0                                       |
+02:44:52:418 [ 9548] | INFO  |   | Priority                                | 0                                       |
+02:44:52:419 [ 9548] | INFO  |   | Flags                                   | 0                                       |
+02:44:52:421 [ 9548] | INFO  |   | NodeMask                                | 0                                       |
+02:44:52:422 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:487 [ 9548] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:52:584 [ 9548] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:52:649 [ 9548] | INFO  | > Dumping command queue description:
+02:44:52:650 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:651 [ 9548] | INFO  |   | Parameter                               | Value                                   |
+02:44:52:652 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:653 [ 9548] | INFO  |   | Type                                    | 0                                       |
+02:44:52:654 [ 9548] | INFO  |   | Priority                                | 0                                       |
+02:44:52:655 [ 9548] | INFO  |   | Flags                                   | 0                                       |
+02:44:52:656 [ 9548] | INFO  |   | NodeMask                                | 0                                       |
+02:44:52:657 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:46:45:480 [20488] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:46:45:483 [20488] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:46:45:488 [20488] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+
+[first events]
+02:44:42:068 [20488] | WARN  | Failed to resolve search path '[local-path]
+
+[recent important]
+02:44:21:543 [ 2288] | INFO  | Registering hooks for 'user32.dll' ...
+02:44:21:587 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:589 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:631 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:633 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:634 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:636 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:637 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:639 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:676 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:678 [ 2288] | INFO  | Registering hooks for 'openvr_api.dll' ...
+02:44:21:682 [ 2288] | INFO  | Installing export hooks for '[local-path]
+02:44:23:390 [ 2288] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+02:44:42:068 [20488] | WARN  | Failed to resolve search path '[local-path]
+
+[tail]
+02:44:21:506 [ 2288] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from '[local-path]
+02:44:21:543 [ 2288] | INFO  | Registering hooks for 'user32.dll' ...
+02:44:21:544 [ 2288] | INFO  | > Libraries loaded.
+02:44:21:546 [ 2288] | INFO  | > Found 21 match(es). Installing ...
+02:44:21:587 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:588 [ 2288] | INFO  | > Delayed.
+02:44:21:589 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:590 [ 2288] | INFO  | > Libraries loaded.
+02:44:21:590 [ 2288] | INFO  | > Found 2 match(es). Installing ...
+02:44:21:631 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:632 [ 2288] | INFO  | > Delayed.
+02:44:21:633 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:634 [ 2288] | INFO  | > Delayed.
+02:44:21:634 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:635 [ 2288] | INFO  | > Delayed.
+02:44:21:636 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:637 [ 2288] | INFO  | > Delayed.
+02:44:21:637 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:638 [ 2288] | INFO  | > Delayed.
+02:44:21:639 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:640 [ 2288] | INFO  | > Libraries loaded.
+02:44:21:641 [ 2288] | INFO  | > Found 8 match(es). Installing ...
+02:44:21:676 [ 2288] | INFO  | Registering hooks for '[local-path]
+02:44:21:677 [ 2288] | INFO  | > Delayed until first call to an exported function.
+02:44:21:678 [ 2288] | INFO  | Registering hooks for 'openvr_api.dll' ...
+02:44:21:678 [ 2288] | INFO  | > Delayed.
+02:44:21:679 [ 2288] | INFO  | Initialized.
+02:44:21:681 [ 2288] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:44:21:682 [ 2288] | INFO  | Installing export hooks for '[local-path]
+02:44:21:684 [ 2288] | INFO  | > Found 5 match(es). Installing ...
+02:44:22:792 [ 2288] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:44:23:313 [ 2288] | INFO  | Redirecting RegisterClassA(lpWndClass = [address] { "NBA2K25", style = 0x60 }) ...
+02:44:23:390 [ 2288] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c000, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+02:44:23:391 [ 2288] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+02:44:23:391 [ 2288] | INFO  | Loading add-on from '[local-path]
+02:44:23:452 [ 2288] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.5-fix1 (Chinese UI) | Bilibili UID 941799" v0.4.5.1 using ReShade API version 18.
+02:44:23:460 [ 2288] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:23:650 [ 6816] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+02:44:23:651 [ 8488] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+02:44:27:856 [ 2288] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+02:44:27:881 [11372] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+02:44:27:882 [ 2288] | WARN  | Ignoring LoadLibrary('drvstore.dll') call to avoid possible deadlock.
+02:44:27:883 [11372] | WARN  | Ignoring LoadLibrary('cryptbase.dll') call to avoid possible deadlock.
+02:44:27:884 [ 2288] | WARN  | Ignoring LoadLibrary('kernel32.dll') call to avoid possible deadlock.
+02:44:27:891 [ 5932] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+02:44:28:168 [20684] | WARN  | Ignoring LoadLibrary('cryptbase.dll') call to avoid possible deadlock.
+02:44:28:177 [ 2288] | WARN  | Ignoring LoadLibrary('devobj.dll') call to avoid possible deadlock.
+02:44:28:178 [ 2288] | WARN  | Ignoring LoadLibrary('wldp.dll') call to avoid possible deadlock.
+02:44:29:200 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:233 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:249 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:250 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:251 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:252 [ 2288] | INFO  |   | Type                                    | 0                                       |
+02:44:29:252 [ 2288] | INFO  |   | Priority                                | 0                                       |
+02:44:29:253 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:254 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:255 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:320 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:321 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:321 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:322 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:323 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:324 [ 2288] | INFO  |   | Type                                    | 0                                       |
+02:44:29:325 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:325 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:326 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:327 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:360 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:360 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:361 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:362 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:363 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:363 [ 2288] | INFO  |   | Type                                    | 0                                       |
+02:44:29:364 [ 2288] | INFO  |   | Priority                                | 0                                       |
+02:44:29:365 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:366 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:366 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:400 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:401 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:401 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:402 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:403 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:403 [ 2288] | INFO  |   | Type                                    | 0                                       |
+02:44:29:404 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:405 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:406 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:406 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:441 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:442 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:443 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:443 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:444 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:445 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:445 [ 2288] | INFO  |   | Priority                                | 0                                       |
+02:44:29:446 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:447 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:447 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:468 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:468 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:469 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:470 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:470 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:471 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:472 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:473 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:473 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:474 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:492 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:493 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:494 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:494 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:495 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:496 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:496 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:497 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:498 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:498 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:519 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:520 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:520 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:521 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:522 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:522 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:523 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:524 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:525 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:525 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:545 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:545 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:546 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:547 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:548 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:548 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:549 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:550 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:550 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:551 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:570 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:571 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:572 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:573 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:573 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:574 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:575 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:576 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:576 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:577 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:598 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:599 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:600 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:600 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:601 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:602 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:603 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:603 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:604 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:605 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:626 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:627 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:627 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:628 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:629 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:629 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:630 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:631 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:631 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:632 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:654 [ 2288] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:29:654 [ 2288] | INFO  | > Dumping command queue description:
+02:44:29:655 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:656 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:656 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:657 [ 2288] | INFO  |   | Type                                    | 2                                       |
+02:44:29:658 [ 2288] | INFO  |   | Priority                                | 100                                     |
+02:44:29:658 [ 2288] | INFO  |   | Flags                                   | 0                                       |
+02:44:29:660 [ 2288] | INFO  |   | NodeMask                                | 0                                       |
+02:44:29:660 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:778 [ 2288] | INFO  | Redirecting IDXGIFactory::CreateSwapChain(this = [address], pDevice = [address], pDesc = [address], ppSwapChain = [address]) ...
+02:44:29:778 [ 2288] | INFO  | > Dumping swap chain description:
+02:44:29:779 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:780 [ 2288] | INFO  |   | Parameter                               | Value                                   |
+02:44:29:780 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:781 [ 2288] | INFO  |   | Width                                   | 0                                       |
+02:44:29:782 [ 2288] | INFO  |   | Height                                  | 0                                       |
+02:44:29:782 [ 2288] | INFO  |   | RefreshRate                             | 60                  1                   |
+02:44:29:783 [ 2288] | INFO  |   | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |
+02:44:29:784 [ 2288] | INFO  |   | ScanlineOrdering                        | 1                                       |
+02:44:29:784 [ 2288] | INFO  |   | Scaling                                 | 0                                       |
+02:44:29:785 [ 2288] | INFO  |   | SampleCount                             | 1                                       |
+02:44:29:786 [ 2288] | INFO  |   | SampleQuality                           | 0                                       |
+02:44:29:787 [ 2288] | INFO  |   | BufferUsage                             | 0x30                                    |
+02:44:29:787 [ 2288] | INFO  |   | BufferCount                             | 3                                       |
+02:44:29:788 [ 2288] | INFO  |   | OutputWindow                            | [address]                        |
+02:44:29:789 [ 2288] | INFO  |   | Windowed                                | TRUE                                    |
+02:44:29:789 [ 2288] | INFO  |   | SwapEffect                              | 4                                       |
+02:44:29:790 [ 2288] | INFO  |   | Flags                                   | 0x802                                   |
+02:44:29:791 [ 2288] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:29:813 [ 2288] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:29:820 [ 2288] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:29:822 [ 2288] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:29:825 [ 2288] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:29:828 [ 2288] | INFO  | Running on NVIDIA GeForce RTX 5070 Driver 616.64.
+02:44:30:822 [ 2288] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+02:44:30:823 [ 2288] | INFO  | Redirecting IDXGISwapChain::SetFullscreenState(this = [address], Fullscreen = FALSE, pTarget = [address]) ...
+02:44:41:140 [ 9548] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798031-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+02:44:41:159 [ 9548] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798030-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+02:44:41:161 [ 9548] | INFO  | Redirecting IDirectInput8A::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+02:44:41:162 [ 9548] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+02:44:41:249 [ 9548] | INFO  | Redirecting IDirectInput8A::CreateDevice(this = [address], rguid = {8A9317C0-604D-11F1-8001-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+02:44:41:249 [ 9548] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {8A9317C0-604D-11F1-8001-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+02:44:41:489 [ 9548] | INFO  | Redirecting IDirectInput8A::CreateDevice(this = [address], rguid = {8AA12180-604D-11F1-8003-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+02:44:41:490 [ 9548] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {8AA12180-604D-11F1-8003-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+02:44:41:588 [ 2288] | INFO  | Redirecting IDXGISwapChain::SetFullscreenState(this = [address], Fullscreen = FALSE, pTarget = [address]) ...
+02:44:42:068 [20488] | WARN  | Failed to resolve search path '[local-path]
+02:44:52:162 [ 9548] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:52:164 [ 9548] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:52:166 [ 9548] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:52:167 [ 9548] | INFO  | > Dumping command queue description:
+02:44:52:170 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:172 [ 9548] | INFO  |   | Parameter                               | Value                                   |
+02:44:52:173 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:174 [ 9548] | INFO  |   | Type                                    | 0                                       |
+02:44:52:174 [ 9548] | INFO  |   | Priority                                | 0                                       |
+02:44:52:175 [ 9548] | INFO  |   | Flags                                   | 0                                       |
+02:44:52:176 [ 9548] | INFO  |   | NodeMask                                | 0                                       |
+02:44:52:176 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:245 [ 9548] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:52:251 [ 9548] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:52:253 [ 9548] | INFO  | > Dumping command queue description:
+02:44:52:254 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:255 [ 9548] | INFO  |   | Parameter                               | Value                                   |
+02:44:52:256 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:257 [ 9548] | INFO  |   | Type                                    | 0                                       |
+02:44:52:258 [ 9548] | INFO  |   | Priority                                | 0                                       |
+02:44:52:259 [ 9548] | INFO  |   | Flags                                   | 0                                       |
+02:44:52:261 [ 9548] | INFO  |   | NodeMask                                | 0                                       |
+02:44:52:262 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:408 [ 9548] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:52:412 [ 9548] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:52:414 [ 9548] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:52:415 [ 9548] | INFO  | > Dumping command queue description:
+02:44:52:415 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:416 [ 9548] | INFO  |   | Parameter                               | Value                                   |
+02:44:52:417 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:417 [ 9548] | INFO  |   | Type                                    | 0                                       |
+02:44:52:418 [ 9548] | INFO  |   | Priority                                | 0                                       |
+02:44:52:419 [ 9548] | INFO  |   | Flags                                   | 0                                       |
+02:44:52:421 [ 9548] | INFO  |   | NodeMask                                | 0                                       |
+02:44:52:422 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:487 [ 9548] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:44:52:584 [ 9548] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+02:44:52:649 [ 9548] | INFO  | > Dumping command queue description:
+02:44:52:650 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:651 [ 9548] | INFO  |   | Parameter                               | Value                                   |
+02:44:52:652 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:44:52:653 [ 9548] | INFO  |   | Type                                    | 0                                       |
+02:44:52:654 [ 9548] | INFO  |   | Priority                                | 0                                       |
+02:44:52:655 [ 9548] | INFO  |   | Flags                                   | 0                                       |
+02:44:52:656 [ 9548] | INFO  |   | NodeMask                                | 0                                       |
+02:44:52:657 [ 9548] | INFO  |   +-----------------------------------------+-----------------------------------------+
+02:46:45:480 [20488] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:46:45:483 [20488] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+02:46:45:488 [20488] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...

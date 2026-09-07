@@ -1,0 +1,191 @@
+format=DLSS5-LogSummary-v1
+source.bytes=8852
+scan.bytes=8852
+scan.complete=1
+lines.scanned=68
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+07:30:29.537  DLSS 5 AI Rendering Perfect Chain beta0.4.5-fix1 attached | author=@?????????????????? Bilibili | official_release=http[local-path] | language=zh-CN | file=DLSS5-AI???????????????-beta0.4.5-fix1-@??????????????????-Bilibili.addon64 | build_id=beta0.4.5-fix1 | sourceCommit=e5ce12109da0a81fa099c027172b0fee8336888e sourceDirty=0
+07:30:29.543  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+07:30:29.543  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+07:30:29.543  Config: enabled=0 mode=2 identity=0 preTransfer=1.100 postTransfer=1.100 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=3 intensity=2.000 localTone=1.140 localStructure=2.000 skinStructure=0.000 autoMask=1 style=2 uiCorrection=1 r8OutputEncoding=0 perfEpoch=410 jitterMode=1 feature18Evals=0
+07:30:29.544  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+07:30:29.554  Found SR NGX module: [local-path]
+07:30:29.554  [module] pinned hook owner name=nvngx_dlss.dll address=[address] module=[address] until process exit.
+07:30:29.554  [module] pinned hook owner name=D3D12_CreateFeature address=[address] module=[address] until process exit.
+07:30:29.554  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0 (MH_OK)
+07:30:29.554  [module] pinned hook owner name=D3D12_EvaluateFeature address=[address] module=[address] until process exit.
+07:30:29.554  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0 (MH_OK)
+07:30:29.554  [module] pinned hook owner name=D3D12_ReleaseFeature address=[address] module=[address] until process exit.
+07:30:29.554  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0 (MH_OK)
+07:30:29.596  MH_EnableHook all status=0
+07:30:29.596  [module] initial scan complete: sr=[address] core=[address] dlssd=[address].
+07:30:29.596  NGX observer/AI-upscaling hooks active.
+07:30:30.287  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:30:30.288  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:30:30.612  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:30:30.640  [command-state] device meta-command contract: known=1 initDirty=0x0 executeDirty=0x0 supportedMask=0x1038.
+07:30:31.336  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:30:31.350  [command-state] observed CreateCommandSignature: call=1 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[0] root=[address].
+07:30:31.350  [command-state] observed CreateCommandSignature: call=2 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=[address].
+07:30:31.351  [command-state] observed CreateCommandSignature: call=3 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=[address].
+07:30:31.351  [command-state] observed CreateCommandSignature: call=4 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[9] root=[address].
+07:30:33.930  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:30:33.961  [module] late module discovered name=_nvngx.dll handle=[address] path=[local-path]
+07:30:33.961  [module] pinned hook owner name=_nvngx.dll address=[address] module=[address] until process exit.
+07:30:33.961  [module] pinned hook owner name=late core ReleaseFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late core ReleaseFeature               target=[address] status=0 (MH_OK)
+07:30:33.961  [module] MH_QueueEnableHook late core ReleaseFeature   target=[address] status=0
+07:30:33.961  [module] pinned hook owner name=late core CreateFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late core CreateFeature                target=[address] status=0 (MH_OK)
+07:30:33.961  [module] MH_QueueEnableHook late core CreateFeature    target=[address] status=0
+07:30:33.961  [module] pinned hook owner name=late core EvaluateFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late core EvaluateFeature              target=[address] status=0 (MH_OK)
+07:30:33.961  [module] MH_QueueEnableHook late core EvaluateFeature  target=[address] status=0
+07:30:33.961  [module] late module discovered name=nvngx_dlssd.dll handle=[address] path=[local-path]
+07:30:33.961  [module] pinned hook owner name=nvngx_dlssd.dll address=[address] module=[address] until process exit.
+07:30:33.961  [module] pinned hook owner name=late DLSSD ReleaseFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late DLSSD ReleaseFeature              target=[address] status=0 (MH_OK)
+07:30:33.961  [module] MH_QueueEnableHook late DLSSD ReleaseFeature  target=[address] status=0
+07:30:33.961  [module] pinned hook owner name=late DLSSD CreateFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late DLSSD CreateFeature               target=[address] status=0 (MH_OK)
+07:30:33.962  [module] MH_QueueEnableHook late DLSSD CreateFeature   target=[address] status=0
+07:30:33.962  [module] pinned hook owner name=late DLSSD EvaluateFeature address=[address] module=[address] until process exit.
+07:30:33.962  MH_CreateHook late DLSSD EvaluateFeature             target=[address] status=0 (MH_OK)
+07:30:33.962  [module] MH_QueueEnableHook late DLSSD EvaluateFeature target=[address] status=0
+07:30:33.992  [module] MH_ApplyQueued late NGX lifecycle status=0
+07:30:33.992  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+07:30:33.992  [module] late DLSSD coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+07:30:33.992  [module] startup-deferred RR-capable module entry points were fully hooked before the first observed Feature 1 Create/Evaluate; startup continues without a permanent ownership bypass.
+07:30:33.992  [module] lazy rescan #1 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+07:30:33.993  [perf] reset stage=A-SR-only epoch=410 transfer=1.100; warming 180 frames
+07:30:34.002  [artifact-identity] sourceCommit=e5ce12109da0a81fa099c027172b0fee8336888e sourceDirty=0 status=verified addonPath=[local-path]
+07:30:39.106  _nvngx core CreateFeature entered: call=1 id=1 (SuperSampling)
+07:30:39.106  nvngx_dlss CreateFeature entered: call=1 id=1 (SuperSampling)
+07:30:39.147  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+07:30:39.147      Width                                      = 1920
+07:30:39.147      Height                                     = 1080
+07:30:39.147      OutWidth                                   = 3840
+07:30:39.147      OutHeight                                  = 2160
+07:30:39.147      PerfQualityValue                           = 2
+07:30:39.147      DLSS.Feature.Create.Flags                  = 75
+07:30:39.147      DLSS.Enable.Output.Subrects                = 0
+07:30:39.147      CreationNodeMask                           = 1
+07:30:39.147      VisibilityNodeMask                         = 1
+07:30:39.147  Feature 1 contract generation=1 handle=[address] create=1920x1080 -> 3840x2160 flags=75 quality=2; all NR contracts will be rebuilt.
+
+[first events]
+
+[recent important]
+07:30:29.543  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+07:30:29.543  Config: enabled=0 mode=2 identity=0 preTransfer=1.100 postTransfer=1.100 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=3 intensity=2.000 localTone=1.140 localStructure=2.000 skinStructure=0.000 autoMask=1 style=2 uiCorrection=1 r8OutputEncoding=0 perfEpoch=410 jitterMode=1 feature18Evals=0
+07:30:29.554  [module] pinned hook owner name=nvngx_dlss.dll address=[address] module=[address] until process exit.
+07:30:29.554  [module] pinned hook owner name=D3D12_CreateFeature address=[address] module=[address] until process exit.
+07:30:29.554  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0 (MH_OK)
+07:30:29.554  [module] pinned hook owner name=D3D12_EvaluateFeature address=[address] module=[address] until process exit.
+07:30:29.554  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0 (MH_OK)
+07:30:29.554  [module] pinned hook owner name=D3D12_ReleaseFeature address=[address] module=[address] until process exit.
+07:30:29.554  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0 (MH_OK)
+07:30:29.596  MH_EnableHook all status=0
+07:30:29.596  NGX observer/AI-upscaling hooks active.
+07:30:30.288  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:30:33.930  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:30:33.961  [module] pinned hook owner name=_nvngx.dll address=[address] module=[address] until process exit.
+07:30:33.961  [module] pinned hook owner name=late core ReleaseFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late core ReleaseFeature               target=[address] status=0 (MH_OK)
+07:30:33.961  [module] MH_QueueEnableHook late core ReleaseFeature   target=[address] status=0
+07:30:33.961  [module] pinned hook owner name=late core CreateFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late core CreateFeature                target=[address] status=0 (MH_OK)
+07:30:33.961  [module] MH_QueueEnableHook late core CreateFeature    target=[address] status=0
+07:30:33.961  [module] pinned hook owner name=late core EvaluateFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late core EvaluateFeature              target=[address] status=0 (MH_OK)
+07:30:33.961  [module] MH_QueueEnableHook late core EvaluateFeature  target=[address] status=0
+07:30:33.961  [module] pinned hook owner name=nvngx_dlssd.dll address=[address] module=[address] until process exit.
+07:30:33.961  [module] pinned hook owner name=late DLSSD ReleaseFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late DLSSD ReleaseFeature              target=[address] status=0 (MH_OK)
+07:30:33.961  [module] MH_QueueEnableHook late DLSSD ReleaseFeature  target=[address] status=0
+07:30:33.961  [module] pinned hook owner name=late DLSSD CreateFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late DLSSD CreateFeature               target=[address] status=0 (MH_OK)
+07:30:33.962  [module] MH_QueueEnableHook late DLSSD CreateFeature   target=[address] status=0
+07:30:33.962  [module] pinned hook owner name=late DLSSD EvaluateFeature address=[address] module=[address] until process exit.
+07:30:33.962  MH_CreateHook late DLSSD EvaluateFeature             target=[address] status=0 (MH_OK)
+07:30:33.962  [module] MH_QueueEnableHook late DLSSD EvaluateFeature target=[address] status=0
+07:30:33.992  [module] startup-deferred RR-capable module entry points were fully hooked before the first observed Feature 1 Create/Evaluate; startup continues without a permanent ownership bypass.
+07:30:33.992  [module] lazy rescan #1 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+07:30:39.106  _nvngx core CreateFeature entered: call=1 id=1 (SuperSampling)
+07:30:39.106  nvngx_dlss CreateFeature entered: call=1 id=1 (SuperSampling)
+07:30:39.147  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+07:30:39.147      DLSS.Feature.Create.Flags                  = 75
+07:30:39.147  Feature 1 contract generation=1 handle=[address] create=1920x1080 -> 3840x2160 flags=75 quality=2; all NR contracts will be rebuilt.
+
+[tail]
+07:30:29.537  DLSS 5 AI Rendering Perfect Chain beta0.4.5-fix1 attached | author=@?????????????????? Bilibili | official_release=http[local-path] | language=zh-CN | file=DLSS5-AI???????????????-beta0.4.5-fix1-@??????????????????-Bilibili.addon64 | build_id=beta0.4.5-fix1 | sourceCommit=e5ce12109da0a81fa099c027172b0fee8336888e sourceDirty=0
+07:30:29.543  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+07:30:29.543  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+07:30:29.543  Config: enabled=0 mode=2 identity=0 preTransfer=1.100 postTransfer=1.100 colorFollowRequested=0.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=3 intensity=2.000 localTone=1.140 localStructure=2.000 skinStructure=0.000 autoMask=1 style=2 uiCorrection=1 r8OutputEncoding=0 perfEpoch=410 jitterMode=1 feature18Evals=0
+07:30:29.544  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+07:30:29.554  Found SR NGX module: [local-path]
+07:30:29.554  [module] pinned hook owner name=nvngx_dlss.dll address=[address] module=[address] until process exit.
+07:30:29.554  [module] pinned hook owner name=D3D12_CreateFeature address=[address] module=[address] until process exit.
+07:30:29.554  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0 (MH_OK)
+07:30:29.554  [module] pinned hook owner name=D3D12_EvaluateFeature address=[address] module=[address] until process exit.
+07:30:29.554  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0 (MH_OK)
+07:30:29.554  [module] pinned hook owner name=D3D12_ReleaseFeature address=[address] module=[address] until process exit.
+07:30:29.554  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0 (MH_OK)
+07:30:29.596  MH_EnableHook all status=0
+07:30:29.596  [module] initial scan complete: sr=[address] core=[address] dlssd=[address].
+07:30:29.596  NGX observer/AI-upscaling hooks active.
+07:30:30.287  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:30:30.288  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:30:30.612  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:30:30.640  [command-state] device meta-command contract: known=1 initDirty=0x0 executeDirty=0x0 supportedMask=0x1038.
+07:30:31.336  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:30:31.350  [command-state] observed CreateCommandSignature: call=1 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[0] root=[address].
+07:30:31.350  [command-state] observed CreateCommandSignature: call=2 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=[address].
+07:30:31.351  [command-state] observed CreateCommandSignature: call=3 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=[address].
+07:30:31.351  [command-state] observed CreateCommandSignature: call=4 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[9] root=[address].
+07:30:33.930  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+07:30:33.961  [module] late module discovered name=_nvngx.dll handle=[address] path=[local-path]
+07:30:33.961  [module] pinned hook owner name=_nvngx.dll address=[address] module=[address] until process exit.
+07:30:33.961  [module] pinned hook owner name=late core ReleaseFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late core ReleaseFeature               target=[address] status=0 (MH_OK)
+07:30:33.961  [module] MH_QueueEnableHook late core ReleaseFeature   target=[address] status=0
+07:30:33.961  [module] pinned hook owner name=late core CreateFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late core CreateFeature                target=[address] status=0 (MH_OK)
+07:30:33.961  [module] MH_QueueEnableHook late core CreateFeature    target=[address] status=0
+07:30:33.961  [module] pinned hook owner name=late core EvaluateFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late core EvaluateFeature              target=[address] status=0 (MH_OK)
+07:30:33.961  [module] MH_QueueEnableHook late core EvaluateFeature  target=[address] status=0
+07:30:33.961  [module] late module discovered name=nvngx_dlssd.dll handle=[address] path=[local-path]
+07:30:33.961  [module] pinned hook owner name=nvngx_dlssd.dll address=[address] module=[address] until process exit.
+07:30:33.961  [module] pinned hook owner name=late DLSSD ReleaseFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late DLSSD ReleaseFeature              target=[address] status=0 (MH_OK)
+07:30:33.961  [module] MH_QueueEnableHook late DLSSD ReleaseFeature  target=[address] status=0
+07:30:33.961  [module] pinned hook owner name=late DLSSD CreateFeature address=[address] module=[address] until process exit.
+07:30:33.961  MH_CreateHook late DLSSD CreateFeature               target=[address] status=0 (MH_OK)
+07:30:33.962  [module] MH_QueueEnableHook late DLSSD CreateFeature   target=[address] status=0
+07:30:33.962  [module] pinned hook owner name=late DLSSD EvaluateFeature address=[address] module=[address] until process exit.
+07:30:33.962  MH_CreateHook late DLSSD EvaluateFeature             target=[address] status=0 (MH_OK)
+07:30:33.962  [module] MH_QueueEnableHook late DLSSD EvaluateFeature target=[address] status=0
+07:30:33.992  [module] MH_ApplyQueued late NGX lifecycle status=0
+07:30:33.992  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+07:30:33.992  [module] late DLSSD coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+07:30:33.992  [module] startup-deferred RR-capable module entry points were fully hooked before the first observed Feature 1 Create/Evaluate; startup continues without a permanent ownership bypass.
+07:30:33.992  [module] lazy rescan #1 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+07:30:33.993  [perf] reset stage=A-SR-only epoch=410 transfer=1.100; warming 180 frames
+07:30:34.002  [artifact-identity] sourceCommit=e5ce12109da0a81fa099c027172b0fee8336888e sourceDirty=0 status=verified addonPath=[local-path]
+07:30:39.106  _nvngx core CreateFeature entered: call=1 id=1 (SuperSampling)
+07:30:39.106  nvngx_dlss CreateFeature entered: call=1 id=1 (SuperSampling)
+07:30:39.147  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+07:30:39.147      Width                                      = 1920
+07:30:39.147      Height                                     = 1080
+07:30:39.147      OutWidth                                   = 3840
+07:30:39.147      OutHeight                                  = 2160
+07:30:39.147      PerfQualityValue                           = 2
+07:30:39.147      DLSS.Feature.Create.Flags                  = 75
+07:30:39.147      DLSS.Enable.Output.Subrects                = 0
+07:30:39.147      CreationNodeMask                           = 1
+07:30:39.147      VisibilityNodeMask                         = 1
+07:30:39.147  Feature 1 contract generation=1 handle=[address] create=1920x1080 -> 3840x2160 flags=75 quality=2; all NR contracts will be rebuilt.

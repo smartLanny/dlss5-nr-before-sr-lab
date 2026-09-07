@@ -1,0 +1,1173 @@
+format=DLSS5-LogSummary-v1
+source.bytes=165359
+scan.bytes=165359
+scan.complete=1
+lines.scanned=1525
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+01:31:46.400  DLSS 5 AI Rendering Perfect Chain beta0.4.5 attached | author=@?????????????????? Bilibili | official_release=http[local-path] | language=zh-CN | file=DLSS5-AI???????????????-beta0.4.5-@??????????????????-Bilibili.addon64 | build_id=beta0.4.5 | sourceCommit=d403388158b189103f76bb0a6a3d1a404782e02b sourceDirty=0
+01:31:46.401  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+01:31:46.401  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+01:31:46.401  Config: enabled=1 mode=2 identity=0 preTransfer=1.000 postTransfer=1.000 colorFollowRequested=1.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=2.000 localTone=2.000 localStructure=2.000 skinStructure=0.000 autoMask=1 style=0 uiCorrection=0 r8OutputEncoding=0 perfEpoch=86 jitterMode=1 feature18Evals=0
+01:31:46.403  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+01:31:46.405  Found SR NGX module: [local-path]
+01:31:46.405  [module] pinned hook owner name=nvngx_dlss.dll address=[address] module=[address] until process exit.
+01:31:46.405  [module] pinned hook owner name=_nvngx.dll address=[address] module=[address] until process exit.
+01:31:46.406  [module] pinned hook owner name=D3D12_CreateFeature address=[address] module=[address] until process exit.
+01:31:46.406  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0 (MH_OK)
+01:31:46.406  [module] pinned hook owner name=D3D12_EvaluateFeature address=[address] module=[address] until process exit.
+01:31:46.406  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0 (MH_OK)
+01:31:46.406  [module] pinned hook owner name=D3D12_ReleaseFeature address=[address] module=[address] until process exit.
+01:31:46.406  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0 (MH_OK)
+01:31:46.407  [module] pinned hook owner name=core CreateFeature address=[address] module=[address] until process exit.
+01:31:46.407  MH_CreateHook core CreateFeature                     target=[address] status=0 (MH_OK)
+01:31:46.407  [module] pinned hook owner name=core EvaluateFeature address=[address] module=[address] until process exit.
+01:31:46.407  MH_CreateHook core EvaluateFeature                   target=[address] status=0 (MH_OK)
+01:31:46.407  [module] pinned hook owner name=core ReleaseFeature address=[address] module=[address] until process exit.
+01:31:46.407  MH_CreateHook core ReleaseFeature                    target=[address] status=0 (MH_OK)
+01:31:46.453  MH_EnableHook all status=0
+01:31:46.453  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+01:31:46.453  [module] initial scan complete: sr=[address] core=[address] dlssd=[address].
+01:31:46.454  NGX observer/AI-upscaling hooks active.
+01:31:46.719  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+01:31:46.719  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:31:48.141  [command-state] observed CreateCommandSignature: call=1 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[0] root=[address].
+01:31:48.141  [command-state] observed CreateCommandSignature: call=2 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=[address].
+01:31:48.141  [command-state] observed CreateCommandSignature: call=3 signature=[address] result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=[address].
+01:31:50.845  [module] lazy rescan #1 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+01:31:50.848  [perf] reset stage=C-NR-transfer epoch=86 transfer=1.000; warming 180 frames
+01:31:50.864  [artifact-identity] sourceCommit=d403388158b189103f76bb0a6a3d1a404782e02b sourceDirty=0 status=verified addonPath=[local-path]
+01:31:52.288  [module] lazy rescan #2 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+01:31:53.308  [module] lazy rescan #3 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+01:32:04.020  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=110.219 avgMs=9.0728 p95Ms=12.0208 p99Ms=21.8042 onePercentLowFPS=6.163
+01:32:12.833  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=134.249 avgMs=7.4489 p95Ms=7.7021 p99Ms=9.1489 onePercentLowFPS=29.134
+01:32:22.138  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=123.515 avgMs=8.0962 p95Ms=8.7549 p99Ms=15.7236 onePercentLowFPS=12.365
+01:32:27.266  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=117.155 avgMs=8.5357 p95Ms=7.8445 p99Ms=16.5211 onePercentLowFPS=7.203
+01:32:31.091  _nvngx core CreateFeature entered: call=1 id=11 (FrameGeneration)
+01:32:31.193  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+01:32:31.198  _nvngx core CreateFeature entered: call=2 id=1 (SuperSampling)
+01:32:31.198  nvngx_dlss CreateFeature entered: call=1 id=1 (SuperSampling)
+01:32:31.243  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+01:32:31.244      Width                                      = 2560
+01:32:31.244      Height                                     = 1440
+01:32:31.244      OutWidth                                   = 3840
+01:32:31.244      OutHeight                                  = 2160
+01:32:31.244      PerfQualityValue                           = 2
+01:32:31.244      DLSS.Feature.Create.Flags                  = 75
+01:32:31.245      DLSS.Enable.Output.Subrects                = 0
+01:32:31.245      CreationNodeMask                           = 1
+01:32:31.245      VisibilityNodeMask                         = 1
+01:32:31.245  Feature 1 contract generation=1 handle=[address] create=2560x1440 -> 3840x2160 flags=75 quality=2; all NR contracts will be rebuilt.
+01:32:31.252  _nvngx core EvaluateFeature reached: call=1 handle=[address]
+01:32:31.253  --- SuperSampling Evaluate #1 handle=[address] generation=1 create=2560x1440 -> 3840x2160 ---
+01:32:31.253      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:32:31.253      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:32:31.254      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:32:31.254      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:32:31.254      DLSS.Input.Color.Subrect.Base.X            = 0
+01:32:31.254      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:32:31.254      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:32:31.255      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:32:31.255      DLSS.Input.MV.Subrect.Base.X               = 0
+01:32:31.255      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:32:31.255      DLSS.Output.Subrect.Base.X                 = 0
+01:32:31.255      DLSS.Output.Subrect.Base.Y                 = 0
+01:32:31.255      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:32:31.256      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:32:31.256      MV.Scale.X                                 = -1440
+01:32:31.256      MV.Scale.Y                                 = -1440
+01:32:31.256      Jitter.Offset.X                            = 0.4375
+01:32:31.256      Jitter.Offset.Y                            = -0.24074075
+01:32:31.256      DLSS.Pre.Exposure                          = 1
+01:32:31.256      DLSS.Exposure.Scale                        = 1
+01:32:31.257      Reset                                      = 1
+01:32:31.257  Pipeline diagnostic scope reset: epoch=1 Feature1 generation=1 mode=2.
+01:32:31.257  [stats] current contract: generation=1 mode=2 carrier-requests=1 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+01:32:31.257  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.257  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.257  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.257  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.260  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.260  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.260  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.260  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.358  D3D12 native Reset success-gate hook active: target=[address] slot=0.
+01:32:31.358  [command-state] NR bypass: reason=native-hooks-unavailable token=3 registered=1 installing=1 dirty=0x0 count=1 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+01:32:31.358  [state] bypass transition #1: waiting-feature1 -> command-state-unverified.
+01:32:31.359  nvngx_dlss EvaluateFeature reached: call=1 handle=[address]
+01:32:31.371  Observed D3D12 graphics queue identity=1 native=[address] live=1. Feature 18 admission requires stable per-command-list affinity.
+01:32:31.371  Observed D3D12 graphics queue identity=2 native=[address] live=2. Feature 18 admission requires stable per-command-list affinity.
+01:32:31.375  _nvngx core EvaluateFeature reached: call=2 handle=[address]
+01:32:31.375  --- SuperSampling Evaluate #2 handle=[address] generation=1 create=2560x1440 -> 3840x2160 ---
+01:32:31.375      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:32:31.375      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:32:31.376      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:32:31.376      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:32:31.376      DLSS.Input.Color.Subrect.Base.X            = 0
+01:32:31.376      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:32:31.376      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:32:31.376      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:32:31.377      DLSS.Input.MV.Subrect.Base.X               = 0
+01:32:31.377      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:32:31.377      DLSS.Output.Subrect.Base.X                 = 0
+01:32:31.377      DLSS.Output.Subrect.Base.Y                 = 0
+01:32:31.377      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:32:31.377      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:32:31.377      MV.Scale.X                                 = -1440
+01:32:31.378      MV.Scale.Y                                 = -1440
+01:32:31.378      Jitter.Offset.X                            = -0.46875
+01:32:31.378      Jitter.Offset.Y                            = 0.092592597
+01:32:31.378      DLSS.Pre.Exposure                          = 1
+01:32:31.378      DLSS.Exposure.Scale                        = 1
+01:32:31.378      Reset                                      = 0
+01:32:31.378  [stats] current contract: generation=1 mode=2 carrier-requests=2 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+01:32:31.379  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.379  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.379  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.382  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.436  [command-state] NR bypass: reason=native-hooks-unavailable token=3 registered=1 installing=1 dirty=0x0 count=2 baseline=Reset resetSerial=1 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+01:32:31.436  nvngx_dlss EvaluateFeature reached: call=2 handle=[address]
+01:32:31.444  _nvngx core EvaluateFeature reached: call=3 handle=[address]
+01:32:31.445  --- SuperSampling Evaluate #3 handle=[address] generation=1 create=2560x1440 -> 3840x2160 ---
+01:32:31.445      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:32:31.445      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:32:31.445      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:32:31.446      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:32:31.446      DLSS.Input.Color.Subrect.Base.X            = 0
+01:32:31.446      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:32:31.446      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:32:31.446      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:32:31.446      DLSS.Input.MV.Subrect.Base.X               = 0
+01:32:31.447      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:32:31.447      DLSS.Output.Subrect.Base.X                 = 0
+01:32:31.447      DLSS.Output.Subrect.Base.Y                 = 0
+01:32:31.447      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:32:31.447      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:32:31.447      MV.Scale.X                                 = -1440
+01:32:31.448      MV.Scale.Y                                 = -1440
+01:32:31.448      Jitter.Offset.X                            = 0.03125
+01:32:31.448      Jitter.Offset.Y                            = 0.42592591
+01:32:31.448      DLSS.Pre.Exposure                          = 1
+01:32:31.448      DLSS.Exposure.Scale                        = 1
+01:32:31.448      Reset                                      = 0
+01:32:31.448  [stats] current contract: generation=1 mode=2 carrier-requests=3 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+01:32:31.449  [command-state] known-null snapshot: token=3 baseline=Reset resetSerial=2 route=pristine-null dynamic=0x0; native ClearState(NULL) restores the dummy PSO.
+01:32:31.449  AI upscaling chain accepted Color subrect: physical=3840x2160 active=2560x1440 base=0,0. Only the active region is processed.
+01:32:31.449  Pre-SR accepted packed HDR PQ contract: format=24 (R10G10B10A2_UNORM) gameFlags=75 active=2560x1440@0,0 paperWhiteScale=1.000. PQ is decoded to normalized linear FP16 before NR and encoded back symmetrically for game SR; support1=0x33FCD3F3 support2=0x2C0.
+01:32:31.629  signed DLSSNR D3D12 runtime initialized through nrchain_nvngx.dll (result=0x00000001).
+01:32:33.277  HDR proxy/source-domain delta composition codec created.
+01:32:33.281  SceneColor format conversion enabled: R10G10B10A2_UNORM -> R16G16B16A16_FLOAT (typed SRV + FP16 codec pass).
+01:32:33.281  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.031250,0.425926.
+01:32:33.281  NR guide binding: mode=2 depth=2560x1440@0,0 mv=2560x1440@0,0 sourceMV=2560x1440 converted=0 scale=-1440.000000,-1440.000000 flags=73 depthInverted=1 historyReset=1.
+01:32:33.281  NR create contract: mode=2 extent=2560x1440 depth=2560x1440 mv=2560x1440 gameFlags=75 normalizedFlags=73 perfQuality=5.
+01:32:33.281  HDR exposure contract adapted: source PreExposure=1.000000 scalarExposureScale=1.000000 scalarSourceToCanonical=1.000000 liveTexture=0; when present its 1x1 red channel overrides the scalar in the codec and the NR proxy uses canonical exposure 1.0.
+01:32:33.281  Feature 18 create-time tuning: mode=2 extent=2560x1440 intensity=2.000 style=0 autoMask=1 skin=0.000 localTone=2.000 localStructure=2.000 uiCorrection=0 proxyMapping=existing.
+01:32:33.443  [nr-instance] created=1 mode=2 featureGeneration=1 config=2 intensity=2.000 style=0 proxyMapping=existing.
+01:32:33.443  signed feature 18 create 2560x1440 -> 2560x1440 result=0x00000001(Success) handle=[address]
+01:32:33.443  NR-before-SR V2 evaluate succeeded: count=1 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:32:33.443  [command-state] restored native state: token=3 pso=[address] raytracing=[address] computeRoot=[address] graphicsRoot=[address] resourceHeap=[address] samplerHeap=[address].
+01:32:33.444  [command-state] restored known-null baseline: token=3 origin=Reset resetSerial=2 dynamic=0x0.
+01:32:33.444  nvngx_dlss EvaluateFeature reached: call=3 handle=[address]
+01:32:33.491  D3D12 ExecuteCommandLists post-submit lifetime hook active: target=[address] slot=0.
+01:32:33.491  Created GPU retirement fence for D3D12 queue=[address].
+01:32:33.502  --- SuperSampling Evaluate #4 handle=[address] generation=1 create=2560x1440 -> 3840x2160 ---
+01:32:33.502      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:32:33.503      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:32:33.503      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:32:33.503      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:32:33.503      DLSS.Input.Color.Subrect.Base.X            = 0
+01:32:33.503      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:32:33.504      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:32:33.504      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:32:33.504      DLSS.Input.MV.Subrect.Base.X               = 0
+01:32:33.504      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:32:33.504      DLSS.Output.Subrect.Base.X                 = 0
+01:32:33.504      DLSS.Output.Subrect.Base.Y                 = 0
+01:32:33.504      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:32:33.505      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:32:33.505      MV.Scale.X                                 = -1440
+01:32:33.505      MV.Scale.Y                                 = -1440
+01:32:33.505      Jitter.Offset.X                            = -0.21875
+01:32:33.505      Jitter.Offset.Y                            = -0.42592591
+01:32:33.505      DLSS.Pre.Exposure                          = 1
+01:32:33.505      DLSS.Exposure.Scale                        = 1
+01:32:33.506      Reset                                      = 0
+01:32:33.506  [command-state] known-null snapshot: token=3 baseline=Reset resetSerial=3 route=pristine-null dynamic=0x0; native ClearState(NULL) restores the dummy PSO.
+01:32:33.506  Pre-SR accepted packed HDR PQ contract: format=24 (R10G10B10A2_UNORM) gameFlags=75 active=2560x1440@0,0 paperWhiteScale=1.000. PQ is decoded to normalized linear FP16 before NR and encoded back symmetrically for game SR; support1=0x33FCD3F3 support2=0x2C0.
+01:32:33.506  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=-0.218750,-0.425926.
+01:32:33.506  NR-before-SR V2 evaluate succeeded: count=2 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:32:33.507  [command-state] restored native state: token=3 pso=[address] raytracing=[address] computeRoot=[address] graphicsRoot=[address] resourceHeap=[address] samplerHeap=[address].
+01:32:33.507  [command-state] restored known-null baseline: token=3 origin=Reset resetSerial=3 dynamic=0x0.
+01:32:33.517  --- SuperSampling Evaluate #5 handle=[address] generation=1 create=2560x1440 -> 3840x2160 ---
+01:32:33.518      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:32:33.518      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:32:33.518      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:32:33.518      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:32:33.518      DLSS.Input.Color.Subrect.Base.X            = 0
+01:32:33.518      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:32:33.518      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:32:33.518      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:32:33.519      DLSS.Input.MV.Subrect.Base.X               = 0
+01:32:33.519      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:32:33.519      DLSS.Output.Subrect.Base.X                 = 0
+01:32:33.520      DLSS.Output.Subrect.Base.Y                 = 0
+01:32:33.520      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:32:33.520      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:32:33.520      MV.Scale.X                                 = -1440
+01:32:33.520      MV.Scale.Y                                 = -1440
+01:32:33.520      Jitter.Offset.X                            = 0
+01:32:33.520      Jitter.Offset.Y                            = -0.16666666
+01:32:33.521      DLSS.Pre.Exposure                          = 1
+01:32:33.521      DLSS.Exposure.Scale                        = 1
+01:32:33.521      Reset                                      = 0
+01:32:33.521  [command-state] known-null snapshot: token=3 baseline=Reset resetSerial=4 route=pristine-null dynamic=0x0; native ClearState(NULL) restores the dummy PSO.
+01:32:33.521  Pre-SR accepted packed HDR PQ contract: format=24 (R10G10B10A2_UNORM) gameFlags=75 active=2560x1440@0,0 paperWhiteScale=1.000. PQ is decoded to normalized linear FP16 before NR and encoded back symmetrically for game SR; support1=0x33FCD3F3 support2=0x2C0.
+01:32:33.521  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.000000,-0.166667.
+01:32:33.521  NR-before-SR V2 evaluate succeeded: count=3 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:32:33.522  [state] bypass transition #2: command-state-unverified -> none/active.
+01:32:33.522  [command-state] restored native state: token=3 pso=[address] raytracing=[address] computeRoot=[address] graphicsRoot=[address] resourceHeap=[address] samplerHeap=[address].
+01:32:33.523  [command-state] restored known-null baseline: token=3 origin=Reset resetSerial=4 dynamic=0x0.
+01:32:33.534  [nr-diag] instance=1 frame=3 config=2 eval=3 sinceReset=3 warmed=1 first=1 intensity=2.000 style=0 autoMask=1 skin=0.000 localTone=2.000 localStructure=2.000 uiCorrection=0; frame identifies NR evaluation, not Present/FG. Model response requires image comparison; parameter acceptance alone is insufficient.
+01:32:33.535  ColorDiag #1 mode=2 featureGeneration=1 extent=2560x1440 samples=3600 invalid=0 maxNrDelta=0.001225 changed=2456 maxFinalRelativeDelta=0.122786 meanFinalRelativeDelta=0.024517 finalChanged=3595 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.000 colorFollowEffective=0.000 preserveLighting=1.
+01:32:33.535      original   meanRGB=(0.004358,0.013478,0.012655) luma=0.011480 hash=828A09A8
+01:32:33.535      proxy      meanRGB=(0.004356,0.013471,0.012648) luma=0.011474 hash=ADC3035B
+01:32:33.535      nr-output  meanRGB=(0.004512,0.013849,0.012848) luma=0.011792 hash=C97B7957
+01:32:33.535      composited meanRGB=(0.004457,0.013779,0.012944) luma=0.011737 hash=07060F0B
+01:32:33.535      mean-luma bias vs original: proxy=-0.05% NR=+2.72% final=+2.24%.
+01:32:33.535  [color] mean-luma attribution=within-mean-threshold proxyStable=1 neuralVsProxy=+2.77% finalVsOriginal=+2.24% mode=2 transfer=1.000 colorFollowEffective=0.000 preserveLighting=1.
+01:32:33.536  --- SuperSampling Evaluate #6 handle=[address] generation=1 create=2560x1440 -> 3840x2160 ---
+01:32:33.536      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:32:33.536      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:32:33.536      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:32:33.536      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:32:33.536      DLSS.Input.Color.Subrect.Base.X            = 0
+01:32:33.537      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:32:33.537      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:32:33.537      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:32:33.537      DLSS.Input.MV.Subrect.Base.X               = 0
+01:32:33.537      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:32:33.537      DLSS.Output.Subrect.Base.X                 = 0
+01:32:33.537      DLSS.Output.Subrect.Base.Y                 = 0
+01:32:33.537      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:32:33.538      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:32:33.538      MV.Scale.X                                 = -1440
+01:32:33.538      MV.Scale.Y                                 = -1440
+01:32:33.538      Jitter.Offset.X                            = -0.25
+01:32:33.538      Jitter.Offset.Y                            = 0.16666669
+01:32:33.538      DLSS.Pre.Exposure                          = 1
+01:32:33.538      DLSS.Exposure.Scale                        = 1
+01:32:33.538      Reset                                      = 0
+01:32:33.539  [command-state] known-null snapshot: token=3 baseline=Reset resetSerial=5 route=pristine-null dynamic=0x0; native ClearState(NULL) restores the dummy PSO.
+01:32:33.614  --- SuperSampling Evaluate #7 handle=[address] generation=1 create=2560x1440 -> 3840x2160 ---
+01:32:33.615      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:32:33.615      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:32:33.615      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:32:33.615      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:32:33.615      DLSS.Input.Color.Subrect.Base.X            = 0
+01:32:33.616      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:32:33.616      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:32:33.616      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:32:33.616      DLSS.Input.MV.Subrect.Base.X               = 0
+01:32:33.616      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:32:33.616      DLSS.Output.Subrect.Base.X                 = 0
+01:32:33.616      DLSS.Output.Subrect.Base.Y                 = 0
+01:32:33.617      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:32:33.617      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:32:33.617      MV.Scale.X                                 = -1440
+01:32:33.617      MV.Scale.Y                                 = -1440
+01:32:33.617      Jitter.Offset.X                            = 0.25
+01:32:33.617      Jitter.Offset.Y                            = -0.3888889
+01:32:33.617      DLSS.Pre.Exposure                          = 1
+01:32:33.617      DLSS.Exposure.Scale                        = 1
+
+[first events]
+01:32:31.358  [command-state] NR bypass: reason=native-hooks-unavailable token=3 registered=1 installing=1 dirty=0x0 count=1 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+01:32:31.358  [state] bypass transition #1: waiting-feature1 -> command-state-unverified.
+01:32:33.281  Feature 18 create-time tuning: mode=2 extent=2560x1440 intensity=2.000 style=0 autoMask=1 skin=0.000 localTone=2.000 localStructure=2.000 uiCorrection=0 proxyMapping=existing.
+
+[recent important]
+01:31:46.401  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+01:31:46.401  Config: enabled=1 mode=2 identity=0 preTransfer=1.000 postTransfer=1.000 colorFollowRequested=1.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=2.000 localTone=2.000 localStructure=2.000 skinStructure=0.000 autoMask=1 style=0 uiCorrection=0 r8OutputEncoding=0 perfEpoch=86 jitterMode=1 feature18Evals=0
+01:31:46.405  [module] pinned hook owner name=nvngx_dlss.dll address=[address] module=[address] until process exit.
+01:31:46.405  [module] pinned hook owner name=_nvngx.dll address=[address] module=[address] until process exit.
+01:31:46.406  [module] pinned hook owner name=D3D12_CreateFeature address=[address] module=[address] until process exit.
+01:31:46.406  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0 (MH_OK)
+01:31:46.406  [module] pinned hook owner name=D3D12_EvaluateFeature address=[address] module=[address] until process exit.
+01:31:46.406  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0 (MH_OK)
+01:31:46.406  [module] pinned hook owner name=D3D12_ReleaseFeature address=[address] module=[address] until process exit.
+01:31:46.406  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0 (MH_OK)
+01:31:46.407  [module] pinned hook owner name=core CreateFeature address=[address] module=[address] until process exit.
+01:31:46.407  MH_CreateHook core CreateFeature                     target=[address] status=0 (MH_OK)
+01:31:46.407  [module] pinned hook owner name=core EvaluateFeature address=[address] module=[address] until process exit.
+01:31:46.407  MH_CreateHook core EvaluateFeature                   target=[address] status=0 (MH_OK)
+01:31:46.407  [module] pinned hook owner name=core ReleaseFeature address=[address] module=[address] until process exit.
+01:31:46.407  MH_CreateHook core ReleaseFeature                    target=[address] status=0 (MH_OK)
+01:31:46.453  MH_EnableHook all status=0
+01:31:46.454  NGX observer/AI-upscaling hooks active.
+01:31:46.719  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:31:50.845  [module] lazy rescan #1 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+01:31:52.288  [module] lazy rescan #2 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+01:31:53.308  [module] lazy rescan #3 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+01:32:31.091  _nvngx core CreateFeature entered: call=1 id=11 (FrameGeneration)
+01:32:31.193  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=[address]
+01:32:31.198  _nvngx core CreateFeature entered: call=2 id=1 (SuperSampling)
+01:32:31.198  nvngx_dlss CreateFeature entered: call=1 id=1 (SuperSampling)
+01:32:31.243  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+01:32:31.244      DLSS.Feature.Create.Flags                  = 75
+01:32:31.245  Feature 1 contract generation=1 handle=[address] create=2560x1440 -> 3840x2160 flags=75 quality=2; all NR contracts will be rebuilt.
+01:32:31.252  _nvngx core EvaluateFeature reached: call=1 handle=[address]
+01:32:31.257  Pipeline diagnostic scope reset: epoch=1 Feature1 generation=1 mode=2.
+01:32:31.257  [stats] current contract: generation=1 mode=2 carrier-requests=1 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+01:32:31.257  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.257  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.257  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.257  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.258  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.259  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.260  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.260  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.260  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.260  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.358  D3D12 native Reset success-gate hook active: target=[address] slot=0.
+01:32:31.358  [command-state] NR bypass: reason=native-hooks-unavailable token=3 registered=1 installing=1 dirty=0x0 count=1 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+01:32:31.358  [state] bypass transition #1: waiting-feature1 -> command-state-unverified.
+01:32:31.359  nvngx_dlss EvaluateFeature reached: call=1 handle=[address]
+01:32:31.371  Observed D3D12 graphics queue identity=1 native=[address] live=1. Feature 18 admission requires stable per-command-list affinity.
+01:32:31.371  Observed D3D12 graphics queue identity=2 native=[address] live=2. Feature 18 admission requires stable per-command-list affinity.
+01:32:31.375  _nvngx core EvaluateFeature reached: call=2 handle=[address]
+01:32:31.378  [stats] current contract: generation=1 mode=2 carrier-requests=2 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+01:32:31.379  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.379  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.379  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.380  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.381  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.382  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+01:32:31.436  [command-state] NR bypass: reason=native-hooks-unavailable token=3 registered=1 installing=1 dirty=0x0 count=2 baseline=Reset resetSerial=1 pipelineWrites=0 nullBaseline=1 guard=1/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+01:32:31.436  nvngx_dlss EvaluateFeature reached: call=2 handle=[address]
+01:32:31.444  _nvngx core EvaluateFeature reached: call=3 handle=[address]
+01:32:31.448  [stats] current contract: generation=1 mode=2 carrier-requests=3 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+01:32:33.281  Feature 18 create-time tuning: mode=2 extent=2560x1440 intensity=2.000 style=0 autoMask=1 skin=0.000 localTone=2.000 localStructure=2.000 uiCorrection=0 proxyMapping=existing.
+01:32:33.443  [nr-instance] created=1 mode=2 featureGeneration=1 config=2 intensity=2.000 style=0 proxyMapping=existing.
+01:32:33.443  signed feature 18 create 2560x1440 -> 2560x1440 result=0x00000001(Success) handle=[address]
+01:32:33.444  nvngx_dlss EvaluateFeature reached: call=3 handle=[address]
+01:32:33.491  D3D12 ExecuteCommandLists post-submit lifetime hook active: target=[address] slot=0.
+01:32:33.522  [state] bypass transition #2: command-state-unverified -> none/active.
+01:32:33.535  ColorDiag #1 mode=2 featureGeneration=1 extent=2560x1440 samples=3600 invalid=0 maxNrDelta=0.001225 changed=2456 maxFinalRelativeDelta=0.122786 meanFinalRelativeDelta=0.024517 finalChanged=3595 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.000 colorFollowEffective=0.000 preserveLighting=1.
+01:32:35.630  ColorDiag #2 mode=2 featureGeneration=1 extent=2560x1440 samples=3600 invalid=0 maxNrDelta=0.008351 changed=3184 maxFinalRelativeDelta=0.320460 meanFinalRelativeDelta=0.035511 finalChanged=3600 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.000 colorFollowEffective=0.000 preserveLighting=1.
+01:32:37.233  core ReleaseFeature handle=[address] id=1 (SuperSampling)
+01:32:37.233  Deferred Feature 18 retirement for SR handle=[address] mode=2 extent=2560x1440 until recorded command lists and GPU fences complete.
+01:32:37.275  Observed D3D12 graphics queue identity=3 native=[address] live=3. Feature 18 admission requires stable per-command-list affinity.
+01:32:39.020  GPU retirement fence completed for SR handle=[address] mode=2 extent=2560x1440; scheduling Feature 18 release outside locks.
+01:32:39.045  NR ReleaseFeature handle=[address] result=0x00000001
+01:32:39.046  _nvngx core CreateFeature entered: call=3 id=1 (SuperSampling)
+01:32:39.046  nvngx_dlss CreateFeature entered: call=2 id=1 (SuperSampling)
+01:32:39.079  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=[address]
+01:32:39.080      DLSS.Feature.Create.Flags                  = 75
+01:32:39.081  Feature 1 contract generation=2 handle=[address] create=2560x1440 -> 3840x2160 flags=75 quality=2; all NR contracts will be rebuilt.
+01:32:39.084  Pipeline diagnostic scope reset: epoch=2 Feature1 generation=2 mode=2.
+01:32:39.084  [stats] current contract: generation=2 mode=2 carrier-requests=1 Feature18-success=0 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+01:32:39.089  Feature 18 create-time tuning: mode=2 extent=2560x1440 intensity=2.000 style=0 autoMask=1 skin=0.000 localTone=2.000 localStructure=2.000 uiCorrection=0 proxyMapping=existing.
+01:32:39.199  [nr-instance] created=2 mode=2 featureGeneration=2 config=2 intensity=2.000 style=0 proxyMapping=existing.
+01:32:39.199  signed feature 18 create 2560x1440 -> 2560x1440 result=0x00000001(Success) handle=[address]
+01:32:39.217  [stats] current contract: generation=2 mode=2 carrier-requests=2 Feature18-success=1 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+01:32:39.232  [stats] current contract: generation=2 mode=2 carrier-requests=3 Feature18-success=2 transfer-prepared=0 transfer-recorded=0 transfer-bound=0 transfer-submitted=0.
+01:32:39.254  ColorDiag #3 mode=2 featureGeneration=2 extent=2560x1440 samples=3600 invalid=0 maxNrDelta=0.001267 changed=2958 maxFinalRelativeDelta=0.091333 meanFinalRelativeDelta=0.023183 finalChanged=3600 sampledExposure=1.000000 sampledSourceToCanonical=1.000000 transfer=1.000 colorFollowEffective=0.000 preserveLighting=1.
+01:32:50.191  [stats] all NGX evaluations=2412, upscaling-carrier evaluations=600 feature=1(SuperSampling)
+01:32:50.191  [stats] session totals: Feature18-success=597 transfer-prepared=593 transfer-recorded=593 transfer-bound=593 transfer-submitted=593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:32:53.690  [module] lazy rescan #60 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=721 observerFault=none.
+01:32:55.361  [stats] current contract: generation=2 mode=2 carrier-requests=600 Feature18-success=599 transfer-prepared=597 transfer-recorded=597 transfer-bound=597 transfer-submitted=597.
+01:33:07.533  [stats] all NGX evaluations=4812, upscaling-carrier evaluations=1200 feature=1(SuperSampling)
+01:33:07.533  [stats] session totals: Feature18-success=1197 transfer-prepared=1193 transfer-recorded=1193 transfer-bound=1193 transfer-submitted=1193 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:33:12.704  [stats] current contract: generation=2 mode=2 carrier-requests=1200 Feature18-success=1199 transfer-prepared=1197 transfer-recorded=1197 transfer-bound=1197 transfer-submitted=1197.
+01:33:24.876  [stats] all NGX evaluations=7212, upscaling-carrier evaluations=1800 feature=1(SuperSampling)
+01:33:24.876  [stats] session totals: Feature18-success=1797 transfer-prepared=1793 transfer-recorded=1793 transfer-bound=1793 transfer-submitted=1793 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:33:30.046  [stats] current contract: generation=2 mode=2 carrier-requests=1800 Feature18-success=1799 transfer-prepared=1797 transfer-recorded=1797 transfer-bound=1797 transfer-submitted=1797.
+01:33:42.218  [stats] all NGX evaluations=9612, upscaling-carrier evaluations=2400 feature=1(SuperSampling)
+01:33:42.218  [stats] session totals: Feature18-success=2397 transfer-prepared=2393 transfer-recorded=2393 transfer-bound=2393 transfer-submitted=2393 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:33:47.389  [stats] current contract: generation=2 mode=2 carrier-requests=2400 Feature18-success=2399 transfer-prepared=2397 transfer-recorded=2397 transfer-bound=2397 transfer-submitted=2397.
+01:33:54.360  [module] lazy rescan #120 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=2820 observerFault=none.
+01:33:59.561  [stats] all NGX evaluations=12012, upscaling-carrier evaluations=3000 feature=1(SuperSampling)
+01:33:59.561  [stats] session totals: Feature18-success=2997 transfer-prepared=2993 transfer-recorded=2993 transfer-bound=2993 transfer-submitted=2993 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:34:04.731  [stats] current contract: generation=2 mode=2 carrier-requests=3000 Feature18-success=2999 transfer-prepared=2997 transfer-recorded=2997 transfer-bound=2997 transfer-submitted=2997.
+01:34:15.430  [stats] all NGX evaluations=14028, upscaling-carrier evaluations=3600 feature=1(SuperSampling)
+01:34:15.430  [stats] session totals: Feature18-success=3597 transfer-prepared=3593 transfer-recorded=3593 transfer-bound=3593 transfer-submitted=3593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:34:18.099  [stats] current contract: generation=2 mode=2 carrier-requests=3600 Feature18-success=3599 transfer-prepared=3597 transfer-recorded=3597 transfer-bound=3597 transfer-submitted=3597.
+01:34:24.077  [stats] all NGX evaluations=14628, upscaling-carrier evaluations=4200 feature=1(SuperSampling)
+01:34:24.077  [stats] session totals: Feature18-success=4197 transfer-prepared=4193 transfer-recorded=4193 transfer-bound=4193 transfer-submitted=4193 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:34:26.554  [stats] current contract: generation=2 mode=2 carrier-requests=4200 Feature18-success=4199 transfer-prepared=4197 transfer-recorded=4197 transfer-bound=4197 transfer-submitted=4197.
+01:34:34.503  [stats] all NGX evaluations=15609, upscaling-carrier evaluations=4800 feature=1(SuperSampling)
+01:34:34.503  [stats] session totals: Feature18-success=4797 transfer-prepared=4793 transfer-recorded=4793 transfer-bound=4793 transfer-submitted=4793 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:34:39.672  [stats] current contract: generation=2 mode=2 carrier-requests=4800 Feature18-success=4799 transfer-prepared=4797 transfer-recorded=4797 transfer-bound=4797 transfer-submitted=4797.
+01:34:51.844  [stats] all NGX evaluations=18009, upscaling-carrier evaluations=5400 feature=1(SuperSampling)
+01:34:51.844  [stats] session totals: Feature18-success=5397 transfer-prepared=5393 transfer-recorded=5393 transfer-bound=5393 transfer-submitted=5393 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:34:54.822  [module] lazy rescan #180 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=5503 observerFault=none.
+01:34:57.015  [stats] current contract: generation=2 mode=2 carrier-requests=5400 Feature18-success=5399 transfer-prepared=5397 transfer-recorded=5397 transfer-bound=5397 transfer-submitted=5397.
+01:35:09.188  [stats] all NGX evaluations=20409, upscaling-carrier evaluations=6000 feature=1(SuperSampling)
+01:35:09.188  [stats] session totals: Feature18-success=5997 transfer-prepared=5993 transfer-recorded=5993 transfer-bound=5993 transfer-submitted=5993 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:35:14.357  [stats] current contract: generation=2 mode=2 carrier-requests=6000 Feature18-success=5999 transfer-prepared=5997 transfer-recorded=5997 transfer-bound=5997 transfer-submitted=5997.
+01:35:26.529  [stats] all NGX evaluations=22809, upscaling-carrier evaluations=6600 feature=1(SuperSampling)
+01:35:26.529  [stats] session totals: Feature18-success=6597 transfer-prepared=6593 transfer-recorded=6593 transfer-bound=6593 transfer-submitted=6593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:35:31.719  [stats] current contract: generation=2 mode=2 carrier-requests=6600 Feature18-success=6599 transfer-prepared=6597 transfer-recorded=6597 transfer-bound=6597 transfer-submitted=6597.
+01:35:41.102  [stats] all NGX evaluations=24543, upscaling-carrier evaluations=7200 feature=1(SuperSampling)
+01:35:41.102  [stats] session totals: Feature18-success=7197 transfer-prepared=7193 transfer-recorded=7193 transfer-bound=7193 transfer-submitted=7193 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:35:43.686  [stats] current contract: generation=2 mode=2 carrier-requests=7200 Feature18-success=7199 transfer-prepared=7197 transfer-recorded=7197 transfer-bound=7197 transfer-submitted=7197.
+01:35:50.243  [stats] all NGX evaluations=25212, upscaling-carrier evaluations=7800 feature=1(SuperSampling)
+01:35:50.243  [stats] session totals: Feature18-success=7797 transfer-prepared=7793 transfer-recorded=7793 transfer-bound=7793 transfer-submitted=7793 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:35:55.215  [module] lazy rescan #240 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=7931 observerFault=none.
+01:35:57.053  [stats] current contract: generation=2 mode=2 carrier-requests=7800 Feature18-success=7799 transfer-prepared=7797 transfer-recorded=7797 transfer-bound=7797 transfer-submitted=7797.
+01:36:13.199  [stats] all NGX evaluations=27612, upscaling-carrier evaluations=8400 feature=1(SuperSampling)
+01:36:13.199  [stats] session totals: Feature18-success=8397 transfer-prepared=8393 transfer-recorded=8393 transfer-bound=8393 transfer-submitted=8393 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:36:20.042  [stats] current contract: generation=2 mode=2 carrier-requests=8400 Feature18-success=8399 transfer-prepared=8397 transfer-recorded=8397 transfer-bound=8397 transfer-submitted=8397.
+01:36:33.720  [stats] all NGX evaluations=29694, upscaling-carrier evaluations=9000 feature=1(SuperSampling)
+01:36:33.720  [stats] session totals: Feature18-success=8997 transfer-prepared=8993 transfer-recorded=8993 transfer-bound=8993 transfer-submitted=8993 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:36:38.869  [stats] current contract: generation=2 mode=2 carrier-requests=9000 Feature18-success=8999 transfer-prepared=8997 transfer-recorded=8997 transfer-bound=8997 transfer-submitted=8997.
+01:36:54.852  [stats] all NGX evaluations=31890, upscaling-carrier evaluations=9600 feature=1(SuperSampling)
+01:36:54.852  [stats] session totals: Feature18-success=9597 transfer-prepared=9593 transfer-recorded=9593 transfer-bound=9593 transfer-submitted=9593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:36:55.796  [module] lazy rescan #300 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=9625 observerFault=none.
+01:37:01.583  [stats] current contract: generation=2 mode=2 carrier-requests=9600 Feature18-success=9599 transfer-prepared=9597 transfer-recorded=9597 transfer-bound=9597 transfer-submitted=9597.
+01:37:17.509  [stats] all NGX evaluations=34290, upscaling-carrier evaluations=10200 feature=1(SuperSampling)
+01:37:17.510  [stats] session totals: Feature18-success=10197 transfer-prepared=10193 transfer-recorded=10193 transfer-bound=10193 transfer-submitted=10193 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:37:20.671  [stats] current contract: generation=2 mode=2 carrier-requests=10200 Feature18-success=10199 transfer-prepared=10197 transfer-recorded=10197 transfer-bound=10197 transfer-submitted=10197.
+01:37:30.523  [stats] all NGX evaluations=35454, upscaling-carrier evaluations=10800 feature=1(SuperSampling)
+01:37:30.523  [stats] session totals: Feature18-success=10797 transfer-prepared=10793 transfer-recorded=10793 transfer-bound=10793 transfer-submitted=10793 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:37:35.744  [stats] current contract: generation=2 mode=2 carrier-requests=10800 Feature18-success=10799 transfer-prepared=10797 transfer-recorded=10797 transfer-bound=10797 transfer-submitted=10797.
+01:37:47.917  [stats] all NGX evaluations=37854, upscaling-carrier evaluations=11400 feature=1(SuperSampling)
+01:37:47.918  [stats] session totals: Feature18-success=11397 transfer-prepared=11393 transfer-recorded=11393 transfer-bound=11393 transfer-submitted=11393 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:37:53.086  [stats] current contract: generation=2 mode=2 carrier-requests=11400 Feature18-success=11399 transfer-prepared=11397 transfer-recorded=11397 transfer-bound=11397 transfer-submitted=11397.
+01:37:56.479  [module] lazy rescan #360 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=11696 observerFault=none.
+01:38:05.259  [stats] all NGX evaluations=40254, upscaling-carrier evaluations=12000 feature=1(SuperSampling)
+01:38:05.259  [stats] session totals: Feature18-success=11997 transfer-prepared=11993 transfer-recorded=11993 transfer-bound=11993 transfer-submitted=11993 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:38:10.428  [stats] current contract: generation=2 mode=2 carrier-requests=12000 Feature18-success=11999 transfer-prepared=11997 transfer-recorded=11997 transfer-bound=11997 transfer-submitted=11997.
+01:38:22.601  [stats] all NGX evaluations=42654, upscaling-carrier evaluations=12600 feature=1(SuperSampling)
+01:38:22.601  [stats] session totals: Feature18-success=12597 transfer-prepared=12593 transfer-recorded=12593 transfer-bound=12593 transfer-submitted=12593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:38:27.771  [stats] current contract: generation=2 mode=2 carrier-requests=12600 Feature18-success=12599 transfer-prepared=12597 transfer-recorded=12597 transfer-bound=12597 transfer-submitted=12597.
+01:38:39.945  [stats] all NGX evaluations=45054, upscaling-carrier evaluations=13200 feature=1(SuperSampling)
+01:38:39.945  [stats] session totals: Feature18-success=13197 transfer-prepared=13193 transfer-recorded=13193 transfer-bound=13193 transfer-submitted=13193 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:38:45.114  [stats] current contract: generation=2 mode=2 carrier-requests=13200 Feature18-success=13199 transfer-prepared=13197 transfer-recorded=13197 transfer-bound=13197 transfer-submitted=13197.
+01:38:57.116  [module] lazy rescan #420 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=13794 observerFault=none.
+01:38:57.286  [stats] all NGX evaluations=47454, upscaling-carrier evaluations=13800 feature=1(SuperSampling)
+01:38:57.286  [stats] session totals: Feature18-success=13797 transfer-prepared=13793 transfer-recorded=13793 transfer-bound=13793 transfer-submitted=13793 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:39:02.456  [stats] current contract: generation=2 mode=2 carrier-requests=13800 Feature18-success=13799 transfer-prepared=13797 transfer-recorded=13797 transfer-bound=13797 transfer-submitted=13797.
+01:39:14.628  [stats] all NGX evaluations=49854, upscaling-carrier evaluations=14400 feature=1(SuperSampling)
+01:39:14.628  [stats] session totals: Feature18-success=14397 transfer-prepared=14393 transfer-recorded=14393 transfer-bound=14393 transfer-submitted=14393 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:39:19.798  [stats] current contract: generation=2 mode=2 carrier-requests=14400 Feature18-success=14399 transfer-prepared=14397 transfer-recorded=14397 transfer-bound=14397 transfer-submitted=14397.
+01:39:31.970  [stats] all NGX evaluations=52254, upscaling-carrier evaluations=15000 feature=1(SuperSampling)
+01:39:31.970  [stats] session totals: Feature18-success=14997 transfer-prepared=14993 transfer-recorded=14993 transfer-bound=14993 transfer-submitted=14993 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:39:37.141  [stats] current contract: generation=2 mode=2 carrier-requests=15000 Feature18-success=14999 transfer-prepared=14997 transfer-recorded=14997 transfer-bound=14997 transfer-submitted=14997.
+01:39:49.311  [stats] all NGX evaluations=54654, upscaling-carrier evaluations=15600 feature=1(SuperSampling)
+01:39:49.312  [stats] session totals: Feature18-success=15597 transfer-prepared=15593 transfer-recorded=15593 transfer-bound=15593 transfer-submitted=15593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:39:54.484  [stats] current contract: generation=2 mode=2 carrier-requests=15600 Feature18-success=15599 transfer-prepared=15597 transfer-recorded=15597 transfer-bound=15597 transfer-submitted=15597.
+01:39:57.727  [module] lazy rescan #480 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=15891 observerFault=none.
+01:40:06.657  [stats] all NGX evaluations=57054, upscaling-carrier evaluations=16200 feature=1(SuperSampling)
+01:40:06.657  [stats] session totals: Feature18-success=16197 transfer-prepared=16193 transfer-recorded=16193 transfer-bound=16193 transfer-submitted=16193 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:40:11.827  [stats] current contract: generation=2 mode=2 carrier-requests=16200 Feature18-success=16199 transfer-prepared=16197 transfer-recorded=16197 transfer-bound=16197 transfer-submitted=16197.
+01:40:24.003  [stats] all NGX evaluations=59454, upscaling-carrier evaluations=16800 feature=1(SuperSampling)
+01:40:24.003  [stats] session totals: Feature18-success=16797 transfer-prepared=16793 transfer-recorded=16793 transfer-bound=16793 transfer-submitted=16793 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:40:29.169  [stats] current contract: generation=2 mode=2 carrier-requests=16800 Feature18-success=16799 transfer-prepared=16797 transfer-recorded=16797 transfer-bound=16797 transfer-submitted=16797.
+01:40:41.341  [stats] all NGX evaluations=61854, upscaling-carrier evaluations=17400 feature=1(SuperSampling)
+01:40:41.341  [stats] session totals: Feature18-success=17397 transfer-prepared=17393 transfer-recorded=17393 transfer-bound=17393 transfer-submitted=17393 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:40:46.510  [stats] current contract: generation=2 mode=2 carrier-requests=17400 Feature18-success=17399 transfer-prepared=17397 transfer-recorded=17397 transfer-bound=17397 transfer-submitted=17397.
+01:40:58.310  [module] lazy rescan #540 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=17987 observerFault=none.
+01:40:58.684  [stats] all NGX evaluations=64254, upscaling-carrier evaluations=18000 feature=1(SuperSampling)
+01:40:58.684  [stats] session totals: Feature18-success=17997 transfer-prepared=17993 transfer-recorded=17993 transfer-bound=17993 transfer-submitted=17993 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:41:03.854  [stats] current contract: generation=2 mode=2 carrier-requests=18000 Feature18-success=17999 transfer-prepared=17997 transfer-recorded=17997 transfer-bound=17997 transfer-submitted=17997.
+01:41:16.025  [stats] all NGX evaluations=66654, upscaling-carrier evaluations=18600 feature=1(SuperSampling)
+01:41:16.025  [stats] session totals: Feature18-success=18597 transfer-prepared=18593 transfer-recorded=18593 transfer-bound=18593 transfer-submitted=18593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:41:21.194  [stats] current contract: generation=2 mode=2 carrier-requests=18600 Feature18-success=18599 transfer-prepared=18597 transfer-recorded=18597 transfer-bound=18597 transfer-submitted=18597.
+01:41:33.366  [stats] all NGX evaluations=69054, upscaling-carrier evaluations=19200 feature=1(SuperSampling)
+01:41:33.366  [stats] session totals: Feature18-success=19197 transfer-prepared=19193 transfer-recorded=19193 transfer-bound=19193 transfer-submitted=19193 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:41:38.537  [stats] current contract: generation=2 mode=2 carrier-requests=19200 Feature18-success=19199 transfer-prepared=19197 transfer-recorded=19197 transfer-bound=19197 transfer-submitted=19197.
+01:41:50.711  [stats] all NGX evaluations=71454, upscaling-carrier evaluations=19800 feature=1(SuperSampling)
+01:41:50.711  [stats] session totals: Feature18-success=19797 transfer-prepared=19793 transfer-recorded=19793 transfer-bound=19793 transfer-submitted=19793 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:41:55.880  [stats] current contract: generation=2 mode=2 carrier-requests=19800 Feature18-success=19799 transfer-prepared=19797 transfer-recorded=19797 transfer-bound=19797 transfer-submitted=19797.
+01:41:58.892  [module] lazy rescan #600 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=20083 observerFault=none.
+01:42:08.052  [stats] all NGX evaluations=73854, upscaling-carrier evaluations=20400 feature=1(SuperSampling)
+01:42:08.052  [stats] session totals: Feature18-success=20397 transfer-prepared=20393 transfer-recorded=20393 transfer-bound=20393 transfer-submitted=20393 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:42:13.222  [stats] current contract: generation=2 mode=2 carrier-requests=20400 Feature18-success=20399 transfer-prepared=20397 transfer-recorded=20397 transfer-bound=20397 transfer-submitted=20397.
+01:42:25.394  [stats] all NGX evaluations=76254, upscaling-carrier evaluations=21000 feature=1(SuperSampling)
+01:42:25.395  [stats] session totals: Feature18-success=20997 transfer-prepared=20993 transfer-recorded=20993 transfer-bound=20993 transfer-submitted=20993 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:42:30.564  [stats] current contract: generation=2 mode=2 carrier-requests=21000 Feature18-success=20999 transfer-prepared=20997 transfer-recorded=20997 transfer-bound=20997 transfer-submitted=20997.
+01:42:42.755  [stats] all NGX evaluations=78654, upscaling-carrier evaluations=21600 feature=1(SuperSampling)
+01:42:42.755  [stats] session totals: Feature18-success=21597 transfer-prepared=21593 transfer-recorded=21593 transfer-bound=21593 transfer-submitted=21593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:42:46.868  core ReleaseFeature handle=[address] id=1 (SuperSampling)
+01:42:46.868  Deferred Feature 18 retirement for SR handle=[address] mode=2 extent=2560x1440 until recorded command lists and GPU fences complete.
+
+[tail]
+01:36:41.992  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=41.714 avgMs=23.9729 p95Ms=115.6736 p99Ms=119.9616 onePercentLowFPS=8.002
+01:36:47.699  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=42.063 avgMs=23.7737 p95Ms=115.2128 p99Ms=118.7328 onePercentLowFPS=8.246
+01:36:53.388  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=42.198 avgMs=23.6978 p95Ms=115.0080 p99Ms=119.5264 onePercentLowFPS=8.095
+01:36:54.849  --- SuperSampling Evaluate #9600 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:36:54.849      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:36:54.849      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:36:54.849      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:36:54.849      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:36:54.850      DLSS.Input.Color.Subrect.Base.X            = 0
+01:36:54.850      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:36:54.850      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:36:54.850      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:36:54.850      DLSS.Input.MV.Subrect.Base.X               = 0
+01:36:54.850      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:36:54.851      DLSS.Output.Subrect.Base.X                 = 0
+01:36:54.851      DLSS.Output.Subrect.Base.Y                 = 0
+01:36:54.851      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:36:54.851      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:36:54.851      MV.Scale.X                                 = -1440
+01:36:54.851      MV.Scale.Y                                 = -1440
+01:36:54.852      Jitter.Offset.X                            = 0.125
+01:36:54.852      Jitter.Offset.Y                            = 0.27777779
+01:36:54.852      DLSS.Pre.Exposure                          = 1
+01:36:54.852      DLSS.Exposure.Scale                        = 1
+01:36:54.852      Reset                                      = 0
+01:36:54.852  [stats] all NGX evaluations=31890, upscaling-carrier evaluations=9600 feature=1(SuperSampling)
+01:36:54.852  [stats] session totals: Feature18-success=9597 transfer-prepared=9593 transfer-recorded=9593 transfer-bound=9593 transfer-submitted=9593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:36:54.941  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.375000,0.055556.
+01:36:55.796  [module] lazy rescan #300 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=9625 observerFault=none.
+01:36:58.999  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=42.777 avgMs=23.3769 p95Ms=115.3792 p99Ms=120.1024 onePercentLowFPS=8.265
+01:37:01.583  [stats] current contract: generation=2 mode=2 carrier-requests=9600 Feature18-success=9599 transfer-prepared=9597 transfer-recorded=9597 transfer-bound=9597 transfer-submitted=9597.
+01:37:01.583  NR-before-SR V2 evaluate succeeded: count=9600 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:37:04.733  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=42.158 avgMs=23.7203 p95Ms=112.6400 p99Ms=117.6448 onePercentLowFPS=8.412
+01:37:10.411  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=42.271 avgMs=23.6567 p95Ms=115.5968 p99Ms=118.8480 onePercentLowFPS=8.320
+01:37:16.071  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=42.417 avgMs=23.5752 p95Ms=113.1904 p99Ms=119.4112 onePercentLowFPS=8.253
+01:37:17.506  --- SuperSampling Evaluate #10200 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:37:17.506      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:37:17.507      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:37:17.507      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:37:17.507      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:37:17.507      DLSS.Input.Color.Subrect.Base.X            = 0
+01:37:17.507      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:37:17.507      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:37:17.507      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:37:17.507      DLSS.Input.MV.Subrect.Base.X               = 0
+01:37:17.508      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:37:17.508      DLSS.Output.Subrect.Base.X                 = 0
+01:37:17.508      DLSS.Output.Subrect.Base.Y                 = 0
+01:37:17.508      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:37:17.508      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:37:17.508      MV.Scale.X                                 = -1440
+01:37:17.509      MV.Scale.Y                                 = -1440
+01:37:17.509      Jitter.Offset.X                            = 0.3125
+01:37:17.509      Jitter.Offset.Y                            = 0.2037037
+01:37:17.509      DLSS.Pre.Exposure                          = 1
+01:37:17.509      DLSS.Exposure.Scale                        = 1
+01:37:17.509      Reset                                      = 0
+01:37:17.509  [stats] all NGX evaluations=34290, upscaling-carrier evaluations=10200 feature=1(SuperSampling)
+01:37:17.510  [stats] session totals: Feature18-success=10197 transfer-prepared=10193 transfer-recorded=10193 transfer-bound=10193 transfer-submitted=10193 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:37:17.585  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.187500,-0.018519.
+01:37:20.671  [stats] current contract: generation=2 mode=2 carrier-requests=10200 Feature18-success=10199 transfer-prepared=10197 transfer-recorded=10197 transfer-bound=10197 transfer-submitted=10197.
+01:37:20.671  NR-before-SR V2 evaluate succeeded: count=10200 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:37:23.957  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=34.043 avgMs=29.3750 p95Ms=99.9680 p99Ms=112.9472 onePercentLowFPS=8.647
+01:37:30.520  --- SuperSampling Evaluate #10800 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:37:30.520      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:37:30.521      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:37:30.521      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:37:30.521      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:37:30.521      DLSS.Input.Color.Subrect.Base.X            = 0
+01:37:30.521      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:37:30.521      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:37:30.521      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:37:30.522      DLSS.Input.MV.Subrect.Base.X               = 0
+01:37:30.522      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:37:30.522      DLSS.Output.Subrect.Base.X                 = 0
+01:37:30.522      DLSS.Output.Subrect.Base.Y                 = 0
+01:37:30.522      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:37:30.522      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:37:30.523      MV.Scale.X                                 = -1440
+01:37:30.523      MV.Scale.Y                                 = -1440
+01:37:30.523      Jitter.Offset.X                            = 0.03125
+01:37:30.523      Jitter.Offset.Y                            = 0.42592591
+01:37:30.523      DLSS.Pre.Exposure                          = 1
+01:37:30.523      DLSS.Exposure.Scale                        = 1
+01:37:30.523      Reset                                      = 0
+01:37:30.523  [stats] all NGX evaluations=35454, upscaling-carrier evaluations=10800 feature=1(SuperSampling)
+01:37:30.523  [stats] session totals: Feature18-success=10797 transfer-prepared=10793 transfer-recorded=10793 transfer-bound=10793 transfer-submitted=10793 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:37:30.559  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.000000,-0.166667.
+01:37:30.826  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=102.924 avgMs=9.7160 p95Ms=29.7688 p99Ms=35.7888 onePercentLowFPS=11.038
+01:37:35.744  [stats] current contract: generation=2 mode=2 carrier-requests=10800 Feature18-success=10799 transfer-prepared=10797 transfer-recorded=10797 transfer-bound=10797 transfer-submitted=10797.
+01:37:35.745  NR-before-SR V2 evaluate succeeded: count=10800 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:37:39.595  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.429 avgMs=7.2239 p95Ms=28.9760 p99Ms=31.2416 onePercentLowFPS=30.253
+01:37:47.913  --- SuperSampling Evaluate #11400 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:37:47.913      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:37:47.913      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:37:47.913      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:37:47.914      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:37:47.914      DLSS.Input.Color.Subrect.Base.X            = 0
+01:37:47.915      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:37:47.915      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:37:47.915      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:37:47.915      DLSS.Input.MV.Subrect.Base.X               = 0
+01:37:47.915      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:37:47.915      DLSS.Output.Subrect.Base.X                 = 0
+01:37:47.916      DLSS.Output.Subrect.Base.Y                 = 0
+01:37:47.916      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:37:47.916      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:37:47.916      MV.Scale.X                                 = -1440
+01:37:47.916      MV.Scale.Y                                 = -1440
+01:37:47.916      Jitter.Offset.X                            = 0.125
+01:37:47.917      Jitter.Offset.Y                            = 0.27777779
+01:37:47.917      DLSS.Pre.Exposure                          = 1
+01:37:47.917      DLSS.Exposure.Scale                        = 1
+01:37:47.917      Reset                                      = 0
+01:37:47.917  [stats] all NGX evaluations=37854, upscaling-carrier evaluations=11400 feature=1(SuperSampling)
+01:37:47.918  [stats] session totals: Feature18-success=11397 transfer-prepared=11393 transfer-recorded=11393 transfer-bound=11393 transfer-submitted=11393 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:37:47.970  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.375000,0.055556.
+01:37:48.295  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.367 avgMs=7.2271 p95Ms=29.2656 p99Ms=31.2304 onePercentLowFPS=30.135
+01:37:53.086  [stats] current contract: generation=2 mode=2 carrier-requests=11400 Feature18-success=11399 transfer-prepared=11397 transfer-recorded=11397 transfer-bound=11397 transfer-submitted=11397.
+01:37:53.087  NR-before-SR V2 evaluate succeeded: count=11400 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:37:56.479  [module] lazy rescan #360 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=11696 observerFault=none.
+01:37:56.967  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.362 avgMs=7.2274 p95Ms=28.8768 p99Ms=30.8672 onePercentLowFPS=30.687
+01:38:05.255  --- SuperSampling Evaluate #12000 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:38:05.255      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:38:05.256      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:38:05.256      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:38:05.256      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:38:05.257      DLSS.Input.Color.Subrect.Base.X            = 0
+01:38:05.257      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:38:05.257      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:38:05.257      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:38:05.257      DLSS.Input.MV.Subrect.Base.X               = 0
+01:38:05.257      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:38:05.257      DLSS.Output.Subrect.Base.X                 = 0
+01:38:05.258      DLSS.Output.Subrect.Base.Y                 = 0
+01:38:05.258      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:38:05.258      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:38:05.258      MV.Scale.X                                 = -1440
+01:38:05.258      MV.Scale.Y                                 = -1440
+01:38:05.258      Jitter.Offset.X                            = 0.3125
+01:38:05.258      Jitter.Offset.Y                            = 0.2037037
+01:38:05.259      DLSS.Pre.Exposure                          = 1
+01:38:05.259      DLSS.Exposure.Scale                        = 1
+01:38:05.259      Reset                                      = 0
+01:38:05.259  [stats] all NGX evaluations=40254, upscaling-carrier evaluations=12000 feature=1(SuperSampling)
+01:38:05.259  [stats] session totals: Feature18-success=11997 transfer-prepared=11993 transfer-recorded=11993 transfer-bound=11993 transfer-submitted=11993 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:38:05.313  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.187500,-0.018519.
+01:38:05.640  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.322 avgMs=7.2295 p95Ms=29.0912 p99Ms=31.6768 onePercentLowFPS=30.966
+01:38:10.428  [stats] current contract: generation=2 mode=2 carrier-requests=12000 Feature18-success=11999 transfer-prepared=11997 transfer-recorded=11997 transfer-bound=11997 transfer-submitted=11997.
+01:38:10.430  NR-before-SR V2 evaluate succeeded: count=12000 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:38:14.309  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.360 avgMs=7.2275 p95Ms=28.8512 p99Ms=31.3888 onePercentLowFPS=30.257
+01:38:22.597  --- SuperSampling Evaluate #12600 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:38:22.597      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:38:22.598      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:38:22.598      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:38:22.598      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:38:22.598      DLSS.Input.Color.Subrect.Base.X            = 0
+01:38:22.598      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:38:22.598      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:38:22.599      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:38:22.599      DLSS.Input.MV.Subrect.Base.X               = 0
+01:38:22.599      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:38:22.599      DLSS.Output.Subrect.Base.X                 = 0
+01:38:22.599      DLSS.Output.Subrect.Base.Y                 = 0
+01:38:22.599      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:38:22.599      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:38:22.600      MV.Scale.X                                 = -1440
+01:38:22.600      MV.Scale.Y                                 = -1440
+01:38:22.600      Jitter.Offset.X                            = 0.03125
+01:38:22.601      Jitter.Offset.Y                            = 0.42592591
+01:38:22.601      DLSS.Pre.Exposure                          = 1
+01:38:22.601      DLSS.Exposure.Scale                        = 1
+01:38:22.601      Reset                                      = 0
+01:38:22.601  [stats] all NGX evaluations=42654, upscaling-carrier evaluations=12600 feature=1(SuperSampling)
+01:38:22.601  [stats] session totals: Feature18-success=12597 transfer-prepared=12593 transfer-recorded=12593 transfer-bound=12593 transfer-submitted=12593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:38:22.655  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.000000,-0.166667.
+01:38:23.013  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.410 avgMs=7.2249 p95Ms=28.9600 p99Ms=31.7376 onePercentLowFPS=29.934
+01:38:27.771  [stats] current contract: generation=2 mode=2 carrier-requests=12600 Feature18-success=12599 transfer-prepared=12597 transfer-recorded=12597 transfer-bound=12597 transfer-submitted=12597.
+01:38:27.771  NR-before-SR V2 evaluate succeeded: count=12600 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:38:31.681  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.452 avgMs=7.2227 p95Ms=28.9216 p99Ms=31.1424 onePercentLowFPS=30.304
+01:38:39.941  --- SuperSampling Evaluate #13200 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:38:39.941      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:38:39.941      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:38:39.941      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:38:39.941      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:38:39.942      DLSS.Input.Color.Subrect.Base.X            = 0
+01:38:39.942      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:38:39.942      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:38:39.943      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:38:39.943      DLSS.Input.MV.Subrect.Base.X               = 0
+01:38:39.943      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:38:39.943      DLSS.Output.Subrect.Base.X                 = 0
+01:38:39.943      DLSS.Output.Subrect.Base.Y                 = 0
+01:38:39.943      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:38:39.944      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:38:39.944      MV.Scale.X                                 = -1440
+01:38:39.944      MV.Scale.Y                                 = -1440
+01:38:39.944      Jitter.Offset.X                            = 0.125
+01:38:39.944      Jitter.Offset.Y                            = 0.27777779
+01:38:39.944      DLSS.Pre.Exposure                          = 1
+01:38:39.944      DLSS.Exposure.Scale                        = 1
+01:38:39.945      Reset                                      = 0
+01:38:39.945  [stats] all NGX evaluations=45054, upscaling-carrier evaluations=13200 feature=1(SuperSampling)
+01:38:39.945  [stats] session totals: Feature18-success=13197 transfer-prepared=13193 transfer-recorded=13193 transfer-bound=13193 transfer-submitted=13193 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:38:40.001  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.375000,0.055556.
+01:38:40.356  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.437 avgMs=7.2235 p95Ms=29.4208 p99Ms=32.9728 onePercentLowFPS=29.469
+01:38:45.114  [stats] current contract: generation=2 mode=2 carrier-requests=13200 Feature18-success=13199 transfer-prepared=13197 transfer-recorded=13197 transfer-bound=13197 transfer-submitted=13197.
+01:38:45.115  NR-before-SR V2 evaluate succeeded: count=13200 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:38:49.027  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.492 avgMs=7.2206 p95Ms=29.1008 p99Ms=31.9040 onePercentLowFPS=30.330
+01:38:57.116  [module] lazy rescan #420 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=13794 observerFault=none.
+01:38:57.282  --- SuperSampling Evaluate #13800 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:38:57.282      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:38:57.282      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:38:57.282      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:38:57.282      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:38:57.283      DLSS.Input.Color.Subrect.Base.X            = 0
+01:38:57.283      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:38:57.283      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:38:57.283      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:38:57.283      DLSS.Input.MV.Subrect.Base.X               = 0
+01:38:57.283      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:38:57.284      DLSS.Output.Subrect.Base.X                 = 0
+01:38:57.284      DLSS.Output.Subrect.Base.Y                 = 0
+01:38:57.284      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:38:57.284      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:38:57.284      MV.Scale.X                                 = -1440
+01:38:57.284      MV.Scale.Y                                 = -1440
+01:38:57.285      Jitter.Offset.X                            = 0.3125
+01:38:57.285      Jitter.Offset.Y                            = 0.2037037
+01:38:57.285      DLSS.Pre.Exposure                          = 1
+01:38:57.286      DLSS.Exposure.Scale                        = 1
+01:38:57.286      Reset                                      = 0
+01:38:57.286  [stats] all NGX evaluations=47454, upscaling-carrier evaluations=13800 feature=1(SuperSampling)
+01:38:57.286  [stats] session totals: Feature18-success=13797 transfer-prepared=13793 transfer-recorded=13793 transfer-bound=13793 transfer-submitted=13793 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:38:57.340  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.187500,-0.018519.
+01:38:57.722  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.418 avgMs=7.2245 p95Ms=28.8384 p99Ms=30.4960 onePercentLowFPS=31.212
+01:39:02.456  [stats] current contract: generation=2 mode=2 carrier-requests=13800 Feature18-success=13799 transfer-prepared=13797 transfer-recorded=13797 transfer-bound=13797 transfer-submitted=13797.
+01:39:02.457  NR-before-SR V2 evaluate succeeded: count=13800 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:39:06.393  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.474 avgMs=7.2216 p95Ms=29.1776 p99Ms=30.6688 onePercentLowFPS=31.340
+01:39:14.624  --- SuperSampling Evaluate #14400 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:39:14.624      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:39:14.624      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:39:14.624      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:39:14.624      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:39:14.625      DLSS.Input.Color.Subrect.Base.X            = 0
+01:39:14.625      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:39:14.625      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:39:14.625      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:39:14.625      DLSS.Input.MV.Subrect.Base.X               = 0
+01:39:14.625      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:39:14.625      DLSS.Output.Subrect.Base.X                 = 0
+01:39:14.626      DLSS.Output.Subrect.Base.Y                 = 0
+01:39:14.626      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:39:14.626      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:39:14.627      MV.Scale.X                                 = -1440
+01:39:14.627      MV.Scale.Y                                 = -1440
+01:39:14.627      Jitter.Offset.X                            = 0.03125
+01:39:14.627      Jitter.Offset.Y                            = 0.42592591
+01:39:14.627      DLSS.Pre.Exposure                          = 1
+01:39:14.628      DLSS.Exposure.Scale                        = 1
+01:39:14.628      Reset                                      = 0
+01:39:14.628  [stats] all NGX evaluations=49854, upscaling-carrier evaluations=14400 feature=1(SuperSampling)
+01:39:14.628  [stats] session totals: Feature18-success=14397 transfer-prepared=14393 transfer-recorded=14393 transfer-bound=14393 transfer-submitted=14393 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:39:14.681  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.000000,-0.166667.
+01:39:15.066  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.492 avgMs=7.2206 p95Ms=28.8128 p99Ms=31.1552 onePercentLowFPS=30.516
+01:39:19.798  [stats] current contract: generation=2 mode=2 carrier-requests=14400 Feature18-success=14399 transfer-prepared=14397 transfer-recorded=14397 transfer-bound=14397 transfer-submitted=14397.
+01:39:19.799  NR-before-SR V2 evaluate succeeded: count=14400 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:39:23.737  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.406 avgMs=7.2251 p95Ms=28.7488 p99Ms=30.9760 onePercentLowFPS=30.583
+01:39:31.967  --- SuperSampling Evaluate #15000 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:39:31.967      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:39:31.967      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:39:31.967      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:39:31.968      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:39:31.968      DLSS.Input.Color.Subrect.Base.X            = 0
+01:39:31.968      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:39:31.968      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:39:31.968      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:39:31.968      DLSS.Input.MV.Subrect.Base.X               = 0
+01:39:31.968      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:39:31.968      DLSS.Output.Subrect.Base.X                 = 0
+01:39:31.969      DLSS.Output.Subrect.Base.Y                 = 0
+01:39:31.969      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:39:31.969      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:39:31.969      MV.Scale.X                                 = -1440
+01:39:31.969      MV.Scale.Y                                 = -1440
+01:39:31.969      Jitter.Offset.X                            = 0.125
+01:39:31.969      Jitter.Offset.Y                            = 0.27777779
+01:39:31.970      DLSS.Pre.Exposure                          = 1
+01:39:31.970      DLSS.Exposure.Scale                        = 1
+01:39:31.970      Reset                                      = 0
+01:39:31.970  [stats] all NGX evaluations=52254, upscaling-carrier evaluations=15000 feature=1(SuperSampling)
+01:39:31.970  [stats] session totals: Feature18-success=14997 transfer-prepared=14993 transfer-recorded=14993 transfer-bound=14993 transfer-submitted=14993 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:39:32.024  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.375000,0.055556.
+01:39:32.435  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.349 avgMs=7.2281 p95Ms=28.8640 p99Ms=31.3216 onePercentLowFPS=30.098
+01:39:37.141  [stats] current contract: generation=2 mode=2 carrier-requests=15000 Feature18-success=14999 transfer-prepared=14997 transfer-recorded=14997 transfer-bound=14997 transfer-submitted=14997.
+01:39:37.142  NR-before-SR V2 evaluate succeeded: count=15000 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:39:41.106  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.370 avgMs=7.2270 p95Ms=29.3504 p99Ms=31.2704 onePercentLowFPS=31.109
+01:39:49.308  --- SuperSampling Evaluate #15600 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:39:49.308      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:39:49.309      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:39:49.309      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:39:49.309      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:39:49.309      DLSS.Input.Color.Subrect.Base.X            = 0
+01:39:49.309      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:39:49.309      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:39:49.309      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:39:49.310      DLSS.Input.MV.Subrect.Base.X               = 0
+01:39:49.310      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:39:49.310      DLSS.Output.Subrect.Base.X                 = 0
+01:39:49.310      DLSS.Output.Subrect.Base.Y                 = 0
+01:39:49.310      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:39:49.310      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:39:49.310      MV.Scale.X                                 = -1440
+01:39:49.311      MV.Scale.Y                                 = -1440
+01:39:49.311      Jitter.Offset.X                            = 0.3125
+01:39:49.311      Jitter.Offset.Y                            = 0.2037037
+01:39:49.311      DLSS.Pre.Exposure                          = 1
+01:39:49.311      DLSS.Exposure.Scale                        = 1
+01:39:49.311      Reset                                      = 0
+01:39:49.311  [stats] all NGX evaluations=54654, upscaling-carrier evaluations=15600 feature=1(SuperSampling)
+01:39:49.312  [stats] session totals: Feature18-success=15597 transfer-prepared=15593 transfer-recorded=15593 transfer-bound=15593 transfer-submitted=15593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:39:49.366  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.187500,-0.018519.
+01:39:49.778  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.453 avgMs=7.2227 p95Ms=28.8384 p99Ms=31.3088 onePercentLowFPS=31.254
+01:39:54.484  [stats] current contract: generation=2 mode=2 carrier-requests=15600 Feature18-success=15599 transfer-prepared=15597 transfer-recorded=15597 transfer-bound=15597 transfer-submitted=15597.
+01:39:54.484  NR-before-SR V2 evaluate succeeded: count=15600 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:39:57.727  [module] lazy rescan #480 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=15891 observerFault=none.
+01:39:58.452  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.342 avgMs=7.2285 p95Ms=29.0176 p99Ms=31.9104 onePercentLowFPS=29.313
+01:40:06.653  --- SuperSampling Evaluate #16200 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:40:06.654      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:40:06.654      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:40:06.654      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:40:06.655      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:40:06.655      DLSS.Input.Color.Subrect.Base.X            = 0
+01:40:06.655      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:40:06.655      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:40:06.655      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:40:06.655      DLSS.Input.MV.Subrect.Base.X               = 0
+01:40:06.655      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:40:06.656      DLSS.Output.Subrect.Base.X                 = 0
+01:40:06.656      DLSS.Output.Subrect.Base.Y                 = 0
+01:40:06.656      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:40:06.656      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:40:06.656      MV.Scale.X                                 = -1440
+01:40:06.656      MV.Scale.Y                                 = -1440
+01:40:06.656      Jitter.Offset.X                            = 0.03125
+01:40:06.657      Jitter.Offset.Y                            = 0.42592591
+01:40:06.657      DLSS.Pre.Exposure                          = 1
+01:40:06.657      DLSS.Exposure.Scale                        = 1
+01:40:06.657      Reset                                      = 0
+01:40:06.657  [stats] all NGX evaluations=57054, upscaling-carrier evaluations=16200 feature=1(SuperSampling)
+01:40:06.657  [stats] session totals: Feature18-success=16197 transfer-prepared=16193 transfer-recorded=16193 transfer-bound=16193 transfer-submitted=16193 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:40:06.711  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.000000,-0.166667.
+01:40:07.154  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.371 avgMs=7.2269 p95Ms=29.0304 p99Ms=31.4112 onePercentLowFPS=29.764
+01:40:11.827  [stats] current contract: generation=2 mode=2 carrier-requests=16200 Feature18-success=16199 transfer-prepared=16197 transfer-recorded=16197 transfer-bound=16197 transfer-submitted=16197.
+01:40:11.827  NR-before-SR V2 evaluate succeeded: count=16200 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:40:15.821  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.460 avgMs=7.2223 p95Ms=29.1072 p99Ms=31.0016 onePercentLowFPS=29.960
+01:40:23.998  --- SuperSampling Evaluate #16800 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:40:23.998      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:40:23.999      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:40:23.999      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:40:23.999      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:40:23.999      DLSS.Input.Color.Subrect.Base.X            = 0
+01:40:24.000      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:40:24.000      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:40:24.000      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:40:24.000      DLSS.Input.MV.Subrect.Base.X               = 0
+01:40:24.000      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:40:24.001      DLSS.Output.Subrect.Base.X                 = 0
+01:40:24.001      DLSS.Output.Subrect.Base.Y                 = 0
+01:40:24.001      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:40:24.001      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:40:24.001      MV.Scale.X                                 = -1440
+01:40:24.002      MV.Scale.Y                                 = -1440
+01:40:24.002      Jitter.Offset.X                            = 0.125
+01:40:24.002      Jitter.Offset.Y                            = 0.27777779
+01:40:24.002      DLSS.Pre.Exposure                          = 1
+01:40:24.002      DLSS.Exposure.Scale                        = 1
+01:40:24.002      Reset                                      = 0
+01:40:24.003  [stats] all NGX evaluations=59454, upscaling-carrier evaluations=16800 feature=1(SuperSampling)
+01:40:24.003  [stats] session totals: Feature18-success=16797 transfer-prepared=16793 transfer-recorded=16793 transfer-bound=16793 transfer-submitted=16793 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:40:24.054  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.375000,0.055556.
+01:40:24.494  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.316 avgMs=7.2298 p95Ms=28.7232 p99Ms=31.1168 onePercentLowFPS=31.183
+01:40:29.169  [stats] current contract: generation=2 mode=2 carrier-requests=16800 Feature18-success=16799 transfer-prepared=16797 transfer-recorded=16797 transfer-bound=16797 transfer-submitted=16797.
+01:40:29.170  NR-before-SR V2 evaluate succeeded: count=16800 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:40:33.166  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.354 avgMs=7.2278 p95Ms=28.9920 p99Ms=31.1040 onePercentLowFPS=30.904
+01:40:41.336  --- SuperSampling Evaluate #17400 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:40:41.337      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:40:41.337      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:40:41.337      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:40:41.337      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:40:41.337      DLSS.Input.Color.Subrect.Base.X            = 0
+01:40:41.338      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:40:41.338      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:40:41.338      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:40:41.338      DLSS.Input.MV.Subrect.Base.X               = 0
+01:40:41.338      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:40:41.338      DLSS.Output.Subrect.Base.X                 = 0
+01:40:41.339      DLSS.Output.Subrect.Base.Y                 = 0
+01:40:41.339      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:40:41.339      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:40:41.339      MV.Scale.X                                 = -1440
+01:40:41.339      MV.Scale.Y                                 = -1440
+01:40:41.339      Jitter.Offset.X                            = 0.3125
+01:40:41.340      Jitter.Offset.Y                            = 0.2037037
+01:40:41.340      DLSS.Pre.Exposure                          = 1
+01:40:41.340      DLSS.Exposure.Scale                        = 1
+01:40:41.340      Reset                                      = 0
+01:40:41.341  [stats] all NGX evaluations=61854, upscaling-carrier evaluations=17400 feature=1(SuperSampling)
+01:40:41.341  [stats] session totals: Feature18-success=17397 transfer-prepared=17393 transfer-recorded=17393 transfer-bound=17393 transfer-submitted=17393 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:40:41.394  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.187500,-0.018519.
+01:40:41.863  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.481 avgMs=7.2212 p95Ms=28.9920 p99Ms=31.0784 onePercentLowFPS=30.363
+01:40:46.510  [stats] current contract: generation=2 mode=2 carrier-requests=17400 Feature18-success=17399 transfer-prepared=17397 transfer-recorded=17397 transfer-bound=17397 transfer-submitted=17397.
+01:40:46.511  NR-before-SR V2 evaluate succeeded: count=17400 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:40:50.534  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.429 avgMs=7.2239 p95Ms=28.6336 p99Ms=31.4880 onePercentLowFPS=30.486
+01:40:58.310  [module] lazy rescan #540 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=17987 observerFault=none.
+01:40:58.679  --- SuperSampling Evaluate #18000 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:40:58.679      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:40:58.680      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:40:58.680      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:40:58.680      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:40:58.680      DLSS.Input.Color.Subrect.Base.X            = 0
+01:40:58.680      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:40:58.680      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:40:58.680      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:40:58.680      DLSS.Input.MV.Subrect.Base.X               = 0
+01:40:58.681      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:40:58.681      DLSS.Output.Subrect.Base.X                 = 0
+01:40:58.681      DLSS.Output.Subrect.Base.Y                 = 0
+01:40:58.682      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:40:58.682      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:40:58.683      MV.Scale.X                                 = -1440
+01:40:58.683      MV.Scale.Y                                 = -1440
+01:40:58.683      Jitter.Offset.X                            = 0.03125
+01:40:58.683      Jitter.Offset.Y                            = 0.42592591
+01:40:58.683      DLSS.Pre.Exposure                          = 1
+01:40:58.683      DLSS.Exposure.Scale                        = 1
+01:40:58.684      Reset                                      = 0
+01:40:58.684  [stats] all NGX evaluations=64254, upscaling-carrier evaluations=18000 feature=1(SuperSampling)
+01:40:58.684  [stats] session totals: Feature18-success=17997 transfer-prepared=17993 transfer-recorded=17993 transfer-bound=17993 transfer-submitted=17993 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:40:58.737  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.000000,-0.166667.
+01:40:59.207  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.383 avgMs=7.2263 p95Ms=29.0816 p99Ms=31.1808 onePercentLowFPS=30.792
+01:41:03.854  [stats] current contract: generation=2 mode=2 carrier-requests=18000 Feature18-success=17999 transfer-prepared=17997 transfer-recorded=17997 transfer-bound=17997 transfer-submitted=17997.
+01:41:03.855  NR-before-SR V2 evaluate succeeded: count=18000 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:41:07.878  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.436 avgMs=7.2236 p95Ms=28.8512 p99Ms=30.7200 onePercentLowFPS=31.532
+01:41:16.021  --- SuperSampling Evaluate #18600 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:41:16.021      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:41:16.021      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:41:16.021      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:41:16.022      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:41:16.022      DLSS.Input.Color.Subrect.Base.X            = 0
+01:41:16.022      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:41:16.022      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:41:16.022      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:41:16.022      DLSS.Input.MV.Subrect.Base.X               = 0
+01:41:16.022      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:41:16.023      DLSS.Output.Subrect.Base.X                 = 0
+01:41:16.023      DLSS.Output.Subrect.Base.Y                 = 0
+01:41:16.023      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:41:16.023      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:41:16.023      MV.Scale.X                                 = -1440
+01:41:16.023      MV.Scale.Y                                 = -1440
+01:41:16.023      Jitter.Offset.X                            = 0.125
+01:41:16.023      Jitter.Offset.Y                            = 0.27777779
+01:41:16.024      DLSS.Pre.Exposure                          = 1
+01:41:16.024      DLSS.Exposure.Scale                        = 1
+01:41:16.024      Reset                                      = 0
+01:41:16.025  [stats] all NGX evaluations=66654, upscaling-carrier evaluations=18600 feature=1(SuperSampling)
+01:41:16.025  [stats] session totals: Feature18-success=18597 transfer-prepared=18593 transfer-recorded=18593 transfer-bound=18593 transfer-submitted=18593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:41:16.078  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.375000,0.055556.
+01:41:16.575  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.415 avgMs=7.2247 p95Ms=28.7744 p99Ms=30.9760 onePercentLowFPS=30.718
+01:41:21.194  [stats] current contract: generation=2 mode=2 carrier-requests=18600 Feature18-success=18599 transfer-prepared=18597 transfer-recorded=18597 transfer-bound=18597 transfer-submitted=18597.
+01:41:21.195  NR-before-SR V2 evaluate succeeded: count=18600 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:41:25.249  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.371 avgMs=7.2270 p95Ms=29.1328 p99Ms=32.2048 onePercentLowFPS=29.956
+01:41:33.363  --- SuperSampling Evaluate #19200 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:41:33.363      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:41:33.363      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:41:33.363      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:41:33.363      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:41:33.364      DLSS.Input.Color.Subrect.Base.X            = 0
+01:41:33.364      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:41:33.364      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:41:33.364      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:41:33.364      DLSS.Input.MV.Subrect.Base.X               = 0
+01:41:33.364      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:41:33.364      DLSS.Output.Subrect.Base.X                 = 0
+01:41:33.365      DLSS.Output.Subrect.Base.Y                 = 0
+01:41:33.365      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:41:33.365      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:41:33.365      MV.Scale.X                                 = -1440
+01:41:33.365      MV.Scale.Y                                 = -1440
+01:41:33.365      Jitter.Offset.X                            = 0.3125
+01:41:33.365      Jitter.Offset.Y                            = 0.2037037
+01:41:33.365      DLSS.Pre.Exposure                          = 1
+01:41:33.365      DLSS.Exposure.Scale                        = 1
+01:41:33.366      Reset                                      = 0
+01:41:33.366  [stats] all NGX evaluations=69054, upscaling-carrier evaluations=19200 feature=1(SuperSampling)
+01:41:33.366  [stats] session totals: Feature18-success=19197 transfer-prepared=19193 transfer-recorded=19193 transfer-bound=19193 transfer-submitted=19193 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:41:33.420  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.187500,-0.018519.
+01:41:33.918  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.412 avgMs=7.2248 p95Ms=28.8768 p99Ms=31.4624 onePercentLowFPS=30.180
+01:41:38.537  [stats] current contract: generation=2 mode=2 carrier-requests=19200 Feature18-success=19199 transfer-prepared=19197 transfer-recorded=19197 transfer-bound=19197 transfer-submitted=19197.
+01:41:38.538  NR-before-SR V2 evaluate succeeded: count=19200 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:41:42.593  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.314 avgMs=7.2299 p95Ms=29.2864 p99Ms=31.4112 onePercentLowFPS=31.397
+01:41:50.705  --- SuperSampling Evaluate #19800 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:41:50.706      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:41:50.706      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:41:50.707      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:41:50.707      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:41:50.707      DLSS.Input.Color.Subrect.Base.X            = 0
+01:41:50.707      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:41:50.707      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:41:50.708      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:41:50.708      DLSS.Input.MV.Subrect.Base.X               = 0
+01:41:50.709      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:41:50.709      DLSS.Output.Subrect.Base.X                 = 0
+01:41:50.709      DLSS.Output.Subrect.Base.Y                 = 0
+01:41:50.709      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:41:50.709      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:41:50.710      MV.Scale.X                                 = -1440
+01:41:50.710      MV.Scale.Y                                 = -1440
+01:41:50.710      Jitter.Offset.X                            = 0.03125
+01:41:50.710      Jitter.Offset.Y                            = 0.42592591
+01:41:50.710      DLSS.Pre.Exposure                          = 1
+01:41:50.710      DLSS.Exposure.Scale                        = 1
+01:41:50.711      Reset                                      = 0
+01:41:50.711  [stats] all NGX evaluations=71454, upscaling-carrier evaluations=19800 feature=1(SuperSampling)
+01:41:50.711  [stats] session totals: Feature18-success=19797 transfer-prepared=19793 transfer-recorded=19793 transfer-bound=19793 transfer-submitted=19793 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:41:50.764  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.000000,-0.166667.
+01:41:51.294  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.355 avgMs=7.2278 p95Ms=29.0304 p99Ms=31.5648 onePercentLowFPS=30.770
+01:41:55.880  [stats] current contract: generation=2 mode=2 carrier-requests=19800 Feature18-success=19799 transfer-prepared=19797 transfer-recorded=19797 transfer-bound=19797 transfer-submitted=19797.
+01:41:55.881  NR-before-SR V2 evaluate succeeded: count=19800 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:41:58.892  [module] lazy rescan #600 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=2 feature1CreateSuccess=2 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=20083 observerFault=none.
+01:41:59.963  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.492 avgMs=7.2207 p95Ms=29.1328 p99Ms=30.5408 onePercentLowFPS=32.212
+01:42:08.048  --- SuperSampling Evaluate #20400 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:42:08.048      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:42:08.049      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:42:08.049      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:42:08.049      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:42:08.049      DLSS.Input.Color.Subrect.Base.X            = 0
+01:42:08.049      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:42:08.049      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:42:08.049      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:42:08.050      DLSS.Input.MV.Subrect.Base.X               = 0
+01:42:08.050      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:42:08.050      DLSS.Output.Subrect.Base.X                 = 0
+01:42:08.050      DLSS.Output.Subrect.Base.Y                 = 0
+01:42:08.050      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:42:08.050      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:42:08.050      MV.Scale.X                                 = -1440
+01:42:08.051      MV.Scale.Y                                 = -1440
+01:42:08.051      Jitter.Offset.X                            = 0.125
+01:42:08.051      Jitter.Offset.Y                            = 0.27777779
+01:42:08.051      DLSS.Pre.Exposure                          = 1
+01:42:08.051      DLSS.Exposure.Scale                        = 1
+01:42:08.051      Reset                                      = 0
+01:42:08.052  [stats] all NGX evaluations=73854, upscaling-carrier evaluations=20400 feature=1(SuperSampling)
+01:42:08.052  [stats] session totals: Feature18-success=20397 transfer-prepared=20393 transfer-recorded=20393 transfer-bound=20393 transfer-submitted=20393 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:42:08.106  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.375000,0.055556.
+01:42:08.636  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.320 avgMs=7.2296 p95Ms=28.8000 p99Ms=31.4368 onePercentLowFPS=30.037
+01:42:13.222  [stats] current contract: generation=2 mode=2 carrier-requests=20400 Feature18-success=20399 transfer-prepared=20397 transfer-recorded=20397 transfer-bound=20397 transfer-submitted=20397.
+01:42:13.222  NR-before-SR V2 evaluate succeeded: count=20400 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:42:17.309  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.315 avgMs=7.2299 p95Ms=28.6720 p99Ms=30.6688 onePercentLowFPS=31.642
+01:42:25.391  --- SuperSampling Evaluate #21000 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:42:25.391      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:42:25.391      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:42:25.391      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:42:25.392      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:42:25.392      DLSS.Input.Color.Subrect.Base.X            = 0
+01:42:25.392      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:42:25.392      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:42:25.393      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:42:25.393      DLSS.Input.MV.Subrect.Base.X               = 0
+01:42:25.393      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:42:25.393      DLSS.Output.Subrect.Base.X                 = 0
+01:42:25.393      DLSS.Output.Subrect.Base.Y                 = 0
+01:42:25.393      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:42:25.393      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:42:25.393      MV.Scale.X                                 = -1440
+01:42:25.394      MV.Scale.Y                                 = -1440
+01:42:25.394      Jitter.Offset.X                            = 0.3125
+01:42:25.394      Jitter.Offset.Y                            = 0.2037037
+01:42:25.394      DLSS.Pre.Exposure                          = 1
+01:42:25.394      DLSS.Exposure.Scale                        = 1
+01:42:25.394      Reset                                      = 0
+01:42:25.394  [stats] all NGX evaluations=76254, upscaling-carrier evaluations=21000 feature=1(SuperSampling)
+01:42:25.395  [stats] session totals: Feature18-success=20997 transfer-prepared=20993 transfer-recorded=20993 transfer-bound=20993 transfer-submitted=20993 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:42:25.449  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.187500,-0.018519.
+01:42:26.010  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.211 avgMs=7.2353 p95Ms=28.6208 p99Ms=31.3088 onePercentLowFPS=30.454
+01:42:30.564  [stats] current contract: generation=2 mode=2 carrier-requests=21000 Feature18-success=20999 transfer-prepared=20997 transfer-recorded=20997 transfer-bound=20997 transfer-submitted=20997.
+01:42:30.565  NR-before-SR V2 evaluate succeeded: count=21000 work=2560x1440 render=2560x1440 mode=Reference scale=1.000 identity=0 strength=1.000
+01:42:34.675  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=138.416 avgMs=7.2246 p95Ms=29.0816 p99Ms=31.0528 onePercentLowFPS=30.430
+01:42:42.751  --- SuperSampling Evaluate #21600 handle=[address] generation=2 create=2560x1440 -> 3840x2160 ---
+01:42:42.751      Color                                      = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x0 sample=1
+01:42:42.752      MotionVectors                              = [address] physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x0 sample=1
+01:42:42.752      Depth                                      = [address] physical=3840x2160 format=19(R32G8X24_TYPELESS) mips=1 flags=0x0 sample=1
+01:42:42.752      Output                                     = [address] physical=3840x2160 format=24(R10G10B10A2_UNORM) mips=1 flags=0x5 sample=1
+01:42:42.752      DLSS.Input.Color.Subrect.Base.X            = 0
+01:42:42.752      DLSS.Input.Color.Subrect.Base.Y            = 0
+01:42:42.752      DLSS.Input.Depth.Subrect.Base.X            = 0
+01:42:42.752      DLSS.Input.Depth.Subrect.Base.Y            = 0
+01:42:42.753      DLSS.Input.MV.Subrect.Base.X               = 0
+01:42:42.753      DLSS.Input.MV.Subrect.Base.Y               = 0
+01:42:42.753      DLSS.Output.Subrect.Base.X                 = 0
+01:42:42.753      DLSS.Output.Subrect.Base.Y                 = 0
+01:42:42.754      DLSS.Render.Subrect.Dimensions.Width       = 2560
+01:42:42.754      DLSS.Render.Subrect.Dimensions.Height      = 1440
+01:42:42.754      MV.Scale.X                                 = -1440
+01:42:42.754      MV.Scale.Y                                 = -1440
+01:42:42.754      Jitter.Offset.X                            = 0.03125
+01:42:42.754      Jitter.Offset.Y                            = 0.42592591
+01:42:42.754      DLSS.Pre.Exposure                          = 1
+01:42:42.755      DLSS.Exposure.Scale                        = 1
+01:42:42.755      Reset                                      = 0
+01:42:42.755  [stats] all NGX evaluations=78654, upscaling-carrier evaluations=21600 feature=1(SuperSampling)
+01:42:42.755  [stats] session totals: Feature18-success=21597 transfer-prepared=21593 transfer-recorded=21593 transfer-bound=21593 transfer-submitted=21593 lifecycle-bypass=0; queue-affinity admitted=0 unknown-bypass=0 predicted-change-bypass=0 actual-mismatch=0.
+01:42:42.809  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1440 work=2560x1440 scale=1.000000,1.000000 value=0.000000,-0.166667.
+01:42:44.824  [perf] stage=C-NR-transfer epoch=86 transfer=1.000 samples=600 avgFPS=103.309 avgMs=9.6797 p95Ms=29.2864 p99Ms=32.3584 onePercentLowFPS=24.570
+01:42:46.868  core ReleaseFeature handle=[address] id=1 (SuperSampling)
+01:42:46.868  Deferred Feature 18 retirement for SR handle=[address] mode=2 extent=2560x1440 until recorded command lists and GPU fences complete.
