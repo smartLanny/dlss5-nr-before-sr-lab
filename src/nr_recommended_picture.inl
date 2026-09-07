@@ -12,6 +12,12 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.lighting_lock = 0.20f;
     next.edge_guard = 0.25f;
     next.detail_stability = 0.0f;
+    next.high_strength_protection = true;
+    next.layered_enhancement = false;
+    next.layer_tone = 1.0f;
+    next.layer_structure = 1.0f;
+    next.layer_bright = 1.0f;
+    next.layer_shadow = 1.0f;
     next.motion_stability = false;
     next.proxy_curve = 1;
     next.allow_unverified_hdr_color = false;

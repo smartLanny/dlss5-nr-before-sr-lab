@@ -363,7 +363,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
               UINT requested_stride, UINT flags, int variant,
               bool v2 = false, UINT requested_model_width = 0,
               UINT requested_model_height = 0,
-              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f) {
+              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f, Float4 layers = {1.f,1.f,1.f,1.f}) {
     constexpr UINT sx = 3, sy = 2, dx = 2, dy = 1;
     const UINT model_width = requested_model_width != 0
         ? requested_model_width : width;
@@ -403,6 +403,22 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                 neural[y * model_width + x] = {
                     0.5f * gain, 0.5f * gain, 0.5f * gain, 1.0f};
             }
+    }
+    if (variant == 12) {
+        std::fill(original.begin(), original.end(), Float4{0.60f, 0.55f, 0.50f, 0.625f});
+        std::fill(proxy.begin(), proxy.end(), Float4{0.60f, 0.55f, 0.50f, 0.75f});
+        std::fill(neural.begin(), neural.end(), Float4{0.84f, 0.77f, 0.70f, 0.875f});
+    }
+    if (variant == 13)
+        std::fill(original.begin(), original.end(), Float4{8.0f, 4.0f, 2.0f, 0.625f});
+    if (variant == 14) {
+        std::fill(original.begin(), original.end(), Float4{0.22f, 0.32f, 0.14f, 0.625f});
+        std::fill(neural.begin(), neural.end(), Float4{0.45f, 0.40f, 0.25f, 0.875f});
+    }
+    if (variant == 15) {
+        std::fill(original.begin(), original.end(), Float4{.60f,.55f,.50f,.625f});
+        std::fill(proxy.begin(), proxy.end(), Float4{.60f,.55f,.50f,.75f});
+        std::fill(neural.begin(), neural.end(), Float4{.42f,.385f,.35f,.875f});
     }
     if (variant == 3) neural[0].x = std::numeric_limits<float>::quiet_NaN();
     auto source_texture = gpu.MakeTexture(source_width, source_height, original);
@@ -450,11 +466,13 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     const float color_strength = variant == 5 ? 2.0f : 0.25f;
     const float max_luma_ratio = variant == 5 ? 16.0f : 2.0f;
     const float frame_confidence = variant == 4 ? 0.0f : 1.0f;
-    const CodecConstants constants = {width, height, 1.0f,
+    CodecConstants constants = {width, height, 1.0f,
         transfer_strength, exposure_case.source_to_canonical, color_strength, max_luma_ratio, flags,
         sx, sy, dx, dy, 0, 0, 0, 0, exposure_case.pre_exposure, stride,
         width, height, model_width, model_height,
         0.0f, 0.0f, 1u, frame_confidence, detail_stability, roi.x, roi.y, roi.width, roi.height};
+    constants.layer_tone = layers.x; constants.layer_structure = layers.y;
+    constants.layer_bright = layers.z; constants.layer_shadow = layers.w;
     ID3D12DescriptorHeap *heaps[] = {gpu.heap.p};
     gpu.list->SetDescriptorHeaps(1, heaps);
     gpu.list->SetComputeRootSignature(gpu.root.p);
@@ -531,6 +549,29 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                         ? source_y * model_width + source_x : 0;
                 Float4 expected_proxy = proxy[model_index];
         Float4 expected_neural = neural[model_index];
+        const bool patterned_scaled = v2 && variant == 6 &&
+            (model_width != width || model_height != height);
+        if (patterned_scaled) {
+            Require((flags & 1u) != 0u,
+                "Patterned capture oracle currently requires the explicit model-value domain");
+            const double mx = (static_cast<double>(source_x)+0.5)*model_width/width-0.5;
+            const double my = (static_cast<double>(source_y)+0.5)*model_height/height-0.5;
+            const int ix = static_cast<int>(std::floor(mx));
+            const int iy = static_cast<int>(std::floor(my));
+            const double fx = mx-ix, fy = my-iy;
+            const auto sample = [&](const std::vector<Float4> &pixels) {
+                double r=0.0,g=0.0,b=0.0;
+                for (int oy=0;oy<2;++oy) for (int ox=0;ox<2;++ox) {
+                    const int x0=std::clamp(ix+ox,0,static_cast<int>(model_width)-1);
+                    const int y0=std::clamp(iy+oy,0,static_cast<int>(model_height)-1);
+                    const double weight=(ox?fx:1.0-fx)*(oy?fy:1.0-fy);
+                    const auto &p=pixels[static_cast<UINT>(y0)*model_width+static_cast<UINT>(x0)];
+                    r+=weight*p.x;g+=weight*p.y;b+=weight*p.z;
+                }
+                return Float4{static_cast<float>(r),static_cast<float>(g),static_cast<float>(b),1.0f};
+            };
+            expected_proxy=sample(proxy);expected_neural=sample(neural);
+        }
         // V2 model planes are deliberately opaque. Original and
         // composited planes still preserve the game's alpha.
         if (v2) {
@@ -544,7 +585,15 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                     &result.output[(source_y + dy) * output_width + source_x + dx]};
                 for (UINT stage = 0; stage < 4; ++stage) {
                     const auto *words = result.capture.data() + stage * plane_words + (y*capture_width+x)*4;
-                    if (v2 && (flags & 1u) == 0 && (stage == 1 || stage == 2)) {
+                    if (patterned_scaled && (stage == 1 || stage == 2)) {
+                        Float4 actual{}; std::memcpy(&actual, words, sizeof(actual));
+                        // Double analytic interpolation versus SM5 float coordinates/FMA.
+                        // Only these two reconstructed model planes need this tolerance.
+                        Require(std::abs(actual.x-expected[stage]->x)<0.000002f &&
+                                std::abs(actual.y-expected[stage]->y)<0.000002f &&
+                                std::abs(actual.z-expected[stage]->z)<0.000002f && actual.w==1.0f,
+                                "Patterned scaled model capture differs from independent bilinear oracle");
+                    } else if (v2 && (flags & 1u) == 0 && (stage == 1 || stage == 2)) {
                         // V2 interpolates in linear space then encodes again; source/output remain exact.
                         Float4 actual{}; std::memcpy(&actual, words, sizeof(actual));
                         Require(std::abs(actual.x-expected[stage]->x)<0.000002f &&
@@ -562,12 +611,19 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     return result;
 }
 
-int main() {
+// @V3_BOOST_TESTS@
+// @LAYER_TESTS@
+
+int main(int argc, char **argv) {
     try {
         Gpu gpu;
+        const bool negative_control = argc == 2 && std::strcmp(argv[1], "--negative-control") == 0;
+        const bool layer_negative = argc == 2 && std::strcmp(argv[1], "--layer-negative-control") == 0;
+        Require(argc == 1 || negative_control || layer_negative, "Unknown codec harness argument");
         ValidateProductionDescriptors(gpu);
         ValidateMotionResampleFormats(gpu);
-        unsigned int scenarios = 0;
+        unsigned int scenarios = ValidateHighStrengthV3(gpu, negative_control);
+        scenarios += ValidateLayeredComposition(gpu, layer_negative);
         for (UINT flags : {0u, 1u, 16u, 32u, 128u, 256u, 384u}) {
             for (int variant = 0; variant < 4; ++variant) {
                 const auto off = Run(gpu, 13, 9, 0, 2, flags, variant);

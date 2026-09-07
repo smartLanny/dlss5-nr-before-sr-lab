@@ -7,6 +7,7 @@
 namespace nr_core_feedback {
 #define NR_HAS_CORE_TEXT_REPORT 1
 #include "nr_feedback_report.inl"
+#include "nr_feedback_picture.inl"
 struct PairSnapshot {
     char session[96] = {};
     unsigned config = 0;
@@ -504,6 +505,7 @@ void Present(reshade::api::effect_runtime *runtime) {
         session->archive_requested ? "f7-paired-archive" : "single-txt",
         local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute, local.wSecond, local.wMilliseconds,
         utc.wYear, utc.wMonth, utc.wDay, utc.wHour, utc.wMinute, utc.wSecond, utc.wMilliseconds);
+    AppendPictureConfig(s, config, session->snapshot_ok);
     FeedbackAppendActivity(s, "start");
     AcquireSRWLockExclusive(&g_feedback_lock);
     g_pair.config = generation; g_feedback_session = &s;
