@@ -18,9 +18,12 @@ class RecoverySourceTests(unittest.TestCase):
     def test_actual_core_transform_and_repeat_rejection(self):
         transform = module('prepare-external-provider-recovery')
         original = (ROOT / 'src/nr_before_sr.cpp').read_text(encoding='utf-8')
-        patched = transform.patch_core(original)
-        self.assertEqual(patched.count('owner_provider_id.load('), 2)
+        patched = transform.patch_core(original,
+            (ROOT / 'src/nr_feedback_core.inl').read_text(encoding='utf-8'))
+        self.assertEqual(patched.count('owner_provider_id.load(\n'), 2)
         self.assertIn('return EnsureNativeCommandListResetHookRaw(native_command_list);', patched)
+        self.assertIn('external.recordedFrames=%llu', patched)
+        self.assertIn('external.completion=producer-owned; not observed by this snapshot', patched)
         with self.assertRaises(ValueError):
             transform.patch_core(patched)
 

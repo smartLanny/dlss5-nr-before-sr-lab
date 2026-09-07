@@ -14,7 +14,7 @@ def once(text: str, old: str, new: str) -> str:
     return text.replace(old, new, 1)
 
 
-def patch_core(text: str) -> str:
+def patch_core(text: str, feedback_text: str | None = None) -> str:
     text = once(text, '#include "MinHook.h"',
                 '#include "MinHook.h"\n#include "interop/nr_external_provider_feedback.h"')
     text = once(text,
@@ -45,6 +45,23 @@ def patch_core(text: str) -> str:
         'bool EnsureNativeCommandListResetHookRaw(ID3D12GraphicsCommandList *native_command_list);\n'
         + prefix + '    return EnsureNativeCommandListResetHookRaw(native_command_list);\n}\n\n'
         'bool EnsureNativeCommandListResetHookRaw(ID3D12GraphicsCommandList *native_command_list) {\n')
+    if feedback_text is not None:
+        feedback_text = once(feedback_text, '        Modules(s);\n', '''        FeedbackAppend(s,
+            "external.owner=%llu\\nexternal.provenance=%s\\nexternal.reason=%s\\n"
+            "external.admittedFrames=%llu\\nexternal.recordedFrames=%llu\\nexternal.submitCalls=%llu\\n"
+            "external.backendKind=%u\\nexternal.completion=producer-owned; not observed by this snapshot\\n"
+            "external.contract=recorded is not submitted, completed, or visually verified; Synthetic is not true render scaling\\n",
+            nr_external_provider_feedback::owner_provider_id.load(),
+            NrGuideProvenanceName(static_cast<NrGuideProvenance>(nr_external_provider_feedback::last_provenance.load())),
+            NrExternalProviderReasonName(static_cast<NrExternalProviderReason>(nr_external_provider_feedback::last_reason.load())),
+            nr_external_provider_feedback::admitted_frames.load(),
+            nr_external_provider_feedback::writeback_frames.load(),
+            nr_external_provider_feedback::external_submits.load(),
+            nr_external_provider_feedback::nr_backend.load());
+        Modules(s);
+''')
+        text = once(text, '#include "nr_feedback_core.inl"',
+                    '// Expanded F8 collector for this opt-in provider build.\n' + feedback_text)
     return text + '\n#include "interop/nr_external_provider_consumer.inl"\n'
 
 
@@ -53,7 +70,8 @@ def main() -> None:
     ap.add_argument('--source', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)
     args = ap.parse_args()
-    patched = patch_core(args.source.read_text(encoding='utf-8'))
+    patched = patch_core(args.source.read_text(encoding='utf-8'),
+                         (args.source.parent / 'nr_feedback_core.inl').read_text(encoding='utf-8'))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('x', encoding='utf-8', newline='\n') as out:
         out.write(patched)
