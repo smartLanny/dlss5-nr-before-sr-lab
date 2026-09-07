@@ -3,6 +3,9 @@
 Base: `main@7d17c10d8abf0b6342b0bcf4ff0e4a1e164647d3`.
 Branch: `fix/045-lighting-edge-weights`. Independent of the P0/P1 null-guard
 reason patch; neither branch requires the other to be reviewed or reverted.
+The later online `main@db0577c565d0a81a6f5c010b35698e078adf1205`
+adds feedback evidence only; the merge base and production source base remain
+the commit above.
 
 ## Evidence boundary
 
@@ -78,10 +81,51 @@ its existing ModelLumaRatioV2, not the new lighting-only helper.
   23 pass, one explicit skip (real complete-core generator fixture required).
 - `git diff --check`: pass.
 
-Host compilation of extracted arithmetic is NOT HLSL compilation. Analytic gray
-luma taps are NOT a texture/driver/image replay. No Windows addon build, package,
-new WARP/NVIDIA execution, measured GPU performance or in-game acceptance was
-performed. Hosted CI is tracked separately and an unstarted job is not a pass.
+Host compilation of extracted arithmetic is not a texture/driver/image replay.
+
+## Windows compile and WARP validation
+
+The initial Windows build correctly refused the candidate because the integration
+generator and its format-transform identity test still pinned the pre-change core
+blob. Commits `438bbfb` and `58853c2` repin both checks to the reviewed production
+blob `4f0b836ce57246cf68204b1df8d63f69df6422e3`; the gates continue to reject any
+other source instead of bypassing identity validation.
+
+The complete isolated Windows gate passed at source commit
+`58853c24270dbaa09c72afb886c44b91d109c40a` with LLVM-MinGW clang 23.1.0:
+
+- all six staged production HLSL compute entries compiled;
+- 48 production EncodeCS/CombineCS WARP cases passed across FP16/FP32,
+  SDR/HDR, 50/67/75/100% work sizes, nonzero destination bases, identity and
+  deterministic nonzero neural planes;
+- typed-format and private-baseline WARP, 24 command-state WARP cases and the
+  wrong-blend pixel negative control passed;
+- the bilingual core, `nrchain`, native carrier and Windows resources compiled
+  and linked; LLVM static analysis reported zero diagnostics.
+
+Full-build `validation.json` SHA256 is
+`8acb6a883e464e85c71082737bbe95ec5aba38b0f429de8caa2c07e61e799d3e`;
+the retained local build log SHA256 is
+`4a23650a16fa14746e0b33321b7eebbf5e0ef92bedf16def178a124805b1a8ab`.
+Generated binaries and raw logs remain local.
+
+Review found that the pre-existing 48 cases left `LightingLock=0` and compiled
+the legacy `CombineCS`, so they did not execute this candidate's new branch.
+Commit `2ae0daf56fccbe2ffd5fdb6ceb338d71751d46b9` adds a focused WARP oracle that
+compiles and dispatches the actual production `CombineV2CS` with FP16 textures.
+It verifies a fully protected flat field, rejection of a strong cross-surface
+luma tap, and the documented equal-luma color-boundary limit. It also verifies
+that the lighting-only path does not inject chroma into a gray source. The
+focused result JSON SHA256 is
+`6f0d3dc00643c0f35b958edfdf0715d63fc00414a2d09e69f01781270142d260`;
+stdout SHA256 is
+`87e9613d92f603be9060b2fb472990f3ab964463ab23408f67ccbd983e441e31`.
+
+These WARP neural planes are deterministic test inputs, not NVIDIA Feature18.
+No package was published, GPU cost was not measured, and no Wuthering Waves,
+HDR display, motion or long-run game acceptance was performed. Hosted CI remains
+unstarted because of the account billing/spending-limit annotation and is not a
+passing check.
 
 ## Risks / ROG retest
 
