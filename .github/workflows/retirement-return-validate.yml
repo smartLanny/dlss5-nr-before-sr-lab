@@ -1,7 +1,7 @@
 name: NR retirement returned-error ownership
 on:
-  pull_request:
-    branches: [main, release/0.4]
+  workflow_call:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

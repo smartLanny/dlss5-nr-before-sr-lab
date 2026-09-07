@@ -1,9 +1,6 @@
 name: Compatibility continuation - exact committed inputs
 on:
-  push:
-    branches: [codex/compat-dev2-import-20260907]
-  pull_request:
-    branches: [codex/multiapi-045-integration]
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read

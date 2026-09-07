@@ -1,10 +1,6 @@
 name: Exposure FLOAT access - production adapter and staging
 on:
-  push:
-    branches: [main, codex/compat-dev2-import-20260907, codex/multiapi-045-integration]
-  pull_request:
-    branches: [main, codex/multiapi-045-integration, release/0.4.5-test]
-    paths: ['src/interop/**', 'scripts/**', 'tests/multi_api/**', '.github/workflows/exposure-access.yml']
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
