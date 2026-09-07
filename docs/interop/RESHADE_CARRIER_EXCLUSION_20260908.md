@@ -73,3 +73,35 @@ python scripts/configure-carrier-exclusion.py --ini '<ReShade.ini>' `
 真实 ReShade parser、映射前跳过和 DllMain 未执行由
 `scripts/validate-reshade-carrier-exclusion.py` 的独立 Windows fixture验证；
 NVIDIA、目标游戏、启动/退出生命周期与多 ReShade 场景仍需 ROG 验收。
+
+## 2026-09-08 Windows 验证
+
+配置工具 SHA256 为
+`fc1a4b2c347346eb74051ca8191affebffa611221b941106b340c7e1036623cd`。
+12 项 Python 测试通过，涵盖原字节保留、显式 API、direct-load 拒绝、
+重复键/转义逗号、UTF-8 BOM/大小写、并发修改和恢复边界。
+
+独立 native fixture 固定 ReShade
+`4a50d1eddace85734871d91792ff214f13f66c01`，直接编译其生产
+`ini_file.cpp`，并从 `addon_manager.cpp` 原样提取预加载过滤块。
+测试 DLL 在 DllMain 写入一次性标记；实际 Windows `LoadLibraryExW`
+和标记文件共同作为判断依据，不用 Python 配置解析器自证。
+
+12 项 native 场景全部通过：未禁用/仅名称/大小写错误仍映射；精确
+`@文件名`、名称加文件名、重复键可阻止映射；实际 CLI 写入的 D3D12、
+Vulkan、Unicode/BOM、AddonPath 与逗号、旧 bridge 别名均可阻止 DllMain。
+其它 addon 仍正常加载；原字节恢复后 carrier 又可加载；DX11/未知 API
+维持原配置。validation JSON SHA256 为
+`a82dc3305d6e192134e82798df5c7b7b988abdaaf1a1327988673b867add1ccd`。
+
+```powershell
+python -m unittest tests/test_carrier_exclusion.py -v
+python scripts/validate-reshade-carrier-exclusion.py `
+  --reshade '<clean pinned ReShade checkout>' `
+  --compiler '<LLVM-MinGW>/bin/x86_64-w64-mingw32-clang++.exe' `
+  --output '<new evidence directory>'
+```
+
+这是生产 parser/filter + 真实 Windows DLL 加载验证，没有启动完整
+ReShade 或目标游戏，也不声称已有自动 API 检测、运行时延迟激活或
+#153 游戏崩溃修复。没有改 carrier/NGX/shared-resource 的生产代码。
