@@ -84,6 +84,11 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-colour-defaults.py') --compiler $Cxx --root (Join-Path $Stage 'core')
     if ($LASTEXITCODE) { throw 'Actual staged colour defaults/model reset failed.' }
     $Checks.Add('actual staged colour defaults and model-only reset: 165 checks')
+    & python (Join-Path $PSScriptRoot 'validate-rr-retirement.py') --compiler $Cxx --source (Join-Path $Stage 'core/src/nr_before_sr.cpp')
+    if ($LASTEXITCODE) { throw 'Actual staged RR release retirement failed.' }
+    & python (Join-Path $PSScriptRoot 'validate-rr-retirement.py') --compiler $Cxx --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --negative-control
+    if ($LASTEXITCODE) { throw 'RR historical leak control failed.' }
+    $Checks.Add('actual staged RR Release hooks: 54 scenarios and historical leak negative control')
     foreach ($Script in @('validate-picture-budget.py', 'validate-command-creation.py', 'validate-reset-notification-gap.py')) {
         & python (Join-Path $PSScriptRoot $Script) --compiler $Cxx
         if ($LASTEXITCODE) { throw "Production regression failed: $Script" }

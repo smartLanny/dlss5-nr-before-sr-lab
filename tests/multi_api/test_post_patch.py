@@ -127,6 +127,9 @@ NgxResult ProcessEvaluate() {
 _production_core=(ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
 _diagnostic_start,_diagnostic_end=m.block(_production_core,'void DrawTechnicalDiagnostics(')
 FIXTURE += _production_core[_diagnostic_start:_diagnostic_end]
+for _release in ('NgxResult HookRelease(', 'NgxResult HookCoreRelease(', 'NgxResult HookDlssdRelease('):
+    _start,_end=m.block(_production_core,_release)
+    FIXTURE += '\n'+_production_core[_start:_end]
 class SourcePatch(unittest.TestCase):
     def test_actual_diagnostics_uses_observed_scope_not_rr_ownership_as_activity(self):
         source=_production_core[_diagnostic_start:_diagnostic_end]

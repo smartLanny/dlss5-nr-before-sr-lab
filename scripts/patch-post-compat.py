@@ -36,6 +36,14 @@ def patch_core(text: str) -> str:
         '    }'))
     # RR histories have real generations too, without relabeling their feature.
     text=edit(text,'void RememberFeature(',lambda s:once(s,'    if (feature_id == 1) {','    if (feature_id == 1 || feature_id == 13) {'))
+    # Feature 13 now owns an NrContext as well. Preserve the original successful
+    # native-release gate and fence-delayed retirement; failed Release retains it.
+    for release in ('NgxResult HookRelease(', 'NgxResult HookCoreRelease(', 'NgxResult HookDlssdRelease('):
+        text=edit(text,release,lambda s:once(s,
+            '        if (feature.feature_id == 1) {',
+            '        if (feature.feature_id == 1 || feature.feature_id == 13) {')
+            .replace('// Only Feature 1 owns an NrContext. Auxiliary handle classification is',
+                     '// Feature 1 and post-RR Feature 13 own NrContexts. Auxiliary classification is'))
 
     # Model texture allocations follow N, while the native output snapshot must
     # still fit O. It is copied to origin 0, separately from the game's atlas.
