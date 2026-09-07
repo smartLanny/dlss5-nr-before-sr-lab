@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 import struct
+import subprocess
 
 
 def verify(root, m=None):
@@ -74,6 +75,12 @@ def main():
             'source_sha256':digest,'source_manifest_sha256':hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
             'contract_sha256':hashlib.sha256((a.capture/'contract.json').read_bytes()).hexdigest(),
             'planes':hashes,'warp_fixture_only':True,'nvidia_verified':False,'game_verified':False}
+    fixture_root=Path(__file__).resolve().parents[1]
+    report['fixture_commit']=subprocess.check_output(['git','-C',str(fixture_root),'rev-parse','HEAD'],text=True).strip()
+    report['fixture_dirty']=bool(subprocess.check_output(['git','-C',str(fixture_root),'status','--porcelain','--untracked-files=no'],text=True).strip())
+    report['fixture_files']={name:hashlib.sha256((fixture_root/name).read_bytes()).hexdigest() for name in (
+        'scripts/validate-codec-gpu.ps1','scripts/validate-composition-contract.py',
+        'tests/codec_gpu_harness.cpp.in','tests/composition_contract_gpu.inl')}
     (a.capture/'validation.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     print('PASS 72 production pre/post pairs: actual N planes, alpha, dimensions, independent metrics, source manifest and SHA256.')
 
