@@ -28,3 +28,18 @@ test('atomically writes and reads a new config', async () => {
     capabilities: { WorkMode: true, CustomWorkScale: true, ColorStrength: true, SkinStructureStrength: true }
   });
 });
+
+
+test('recommended reset sets both final blend routes to one without confusing model or color strength', () => {
+  const { defaultPatch } = require('../src/product/nr-config');
+  const original = '[NRBeforeSR]\nTransferStrength=3.25\nPostTransferStrength=0.66\nColorStrength=0.2\nIntensity=2\nOtherValue=keep\n';
+  const editedColor = updateSection(original, { ColorStrength: 0.6 });
+  assert.match(editedColor, /TransferStrength=3.25/);
+  assert.match(editedColor, /PostTransferStrength=0.66/);
+  assert.equal(parseSection(editedColor).TransferStrength, 3.25, 'reading does not pretend an explicit high blend is one');
+  const restored = parseSection(updateSection(original, defaultPatch()));
+  assert.equal(restored.TransferStrength, 1);
+  assert.equal(restored.PostTransferStrength, 1);
+  assert.equal(restored.ColorStrength, 0.75);
+  assert.match(updateSection(original, defaultPatch()), /OtherValue=keep/);
+});

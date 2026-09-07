@@ -279,10 +279,10 @@ function gameDetail(game) {
         <h4>常用设置</h4>
         ${addonVersionRow(game, true)}
         <div class="control-row"><label>风格</label><div class="segmented style-segment"><button data-value="0">默认</button><button data-value="1">自然</button><button data-value="2">电影</button></div><span></span></div>
-        <div class="control-row"><label>人脸保护</label><span></span><input class="switch nr-mask" type="checkbox"></div>
-        <div class="control-row"><label>NR 颜色跟随</label><div class="range-wrap"><input class="nr-color-strength" type="range" min="0" max="1" step="0.01"><span class="value-pill nr-color-value">0.75</span></div><span></span></div>
-        <div class="control-row skin-strength-row"><label>皮肤强度</label><div class="range-wrap"><input class="nr-skin-strength" type="range" min="-1" max="2" step="0.01"><span class="value-pill nr-skin-value">关闭</span></div><span></span></div>
-        <p class="config-note">这里提供颜色跟随和人脸保护后的皮肤强度。NR 工作分辨率仍由游戏内 ReShade Overlay 管理，默认与渲染分辨率匹配，不在这里重复设置。</p>
+        <div class="control-row"><label title="模型内部的皮肤结构控制，不是最终合成的人脸遮罩，也不能单独调整脸部效果倍率。">皮肤结构保护</label><span></span><input class="switch nr-mask" type="checkbox"></div>
+        <div class="control-row"><label title="控制模型色相与饱和度修改的跟随程度，不是整体 NR 效果倍率。">NR 色调跟随</label><div class="range-wrap"><input class="nr-color-strength" type="range" min="0" max="1" step="0.01"><span class="value-pill nr-color-value">0.75</span></div><span></span></div>
+        <div class="control-row skin-strength-row"><label>皮肤结构强度</label><div class="range-wrap"><input class="nr-skin-strength" type="range" min="-1" max="2" step="0.01"><span class="value-pill nr-skin-value">关闭</span></div><span></span></div>
+        <p class="config-note">皮肤结构保护属于模型内部控制，不是最终人脸遮罩。整体 NR 效果倍率和工作分辨率在游戏内面板调整；这里的色调跟随只控制色相与饱和度修改。</p>
         <div class="shortcut-block"><div class="shortcut-head"><h4>快捷键</h4><span>按游戏单独保存</span></div><div class="shortcut-row"><label>NR 效果切换</label><button class="button subtle nr-hotkey-btn" disabled>F6 开关</button></div><div class="shortcut-row"><label>ReShade 菜单</label><button class="button subtle reshade-hotkey-btn">Home</button></div><p class="config-note">NR 效果切换使用 F6 开关；ReShade 菜单键可以在这里改，下一次启动游戏时生效。</p></div>
         <div class="config-actions"><button class="button default-btn">恢复默认</button><button class="button open-folder-btn">打开目录</button></div>
       </div>

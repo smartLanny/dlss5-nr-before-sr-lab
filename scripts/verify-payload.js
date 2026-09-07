@@ -45,6 +45,14 @@ try {
       }
       bundle = createCompactBundle(dir, [...entries, ENTRY], ENTRY.id);
     }
+    const hotfixDir = path.join(dir, 'versions', '0.4.6-hotfix.1');
+    if (fs.existsSync(hotfixDir)) {
+      if (bundle.version !== 4) throw new Error('0.4.6-hotfix.1 requires the compact paired payload');
+      const { ENTRY, verifyVersion } = require('./prepare-release-046-hotfix1');
+      verifyVersion(hotfixDir);
+      const entries = Object.entries(bundle.versions).map(([id, row]) => ({ ...row, id, label: row.label.replace('（最新）', '') }));
+      bundle = createCompactBundle(dir, [...entries, ENTRY], ENTRY.id);
+    }
     fs.writeFileSync(path.join(dir, 'bundle.json'), JSON.stringify(bundle, null, 2) + '\n', 'utf8');
     console.log('Wrote payload/nr-before-sr/bundle.json');
   }

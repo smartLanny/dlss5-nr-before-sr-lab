@@ -36,3 +36,15 @@ node scripts/verify-payload.js --write
 
 脚本会写入带 SHA-256 校验值的 `bundle.json`。缺失或校验不匹配时，应用会拒绝安装。
 除非单独确认了再分发权利，否则不要把这些二进制提交到公开仓库。
+
+
+0.4.6-hotfix.1 候选追加方式：
+
+```powershell
+node scripts/prepare-release-046-hotfix1.js <已核验的hotfix.1中文OTA解包目录> <已核验的hotfix.1默认INI>
+```
+
+源码固定 `35ef9a826642e0eabcecd46d012167dd52b98105`，中文核心 PE 0.4.6.1，
+默认 INI 两条最终倍率都为 1.00。已安装游戏的明确 INI 在升级/OTA 时保留；
+只有用户主动“恢复默认”时才同时写回 TransferStrength 和 PostTransferStrength=1。
+旧 0.4.6 和 0.4.5 槽保持原字节，新候选使用独立槽位，不改旧公开附件。

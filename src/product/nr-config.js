@@ -22,7 +22,10 @@ function normalizeValue(key, value) {
   if (key === 'LocalToneStrength' || key === 'LocalStructureStrength') {
     return Number(clamp(Number(value) || 0, 0, 2).toFixed(2));
   }
-  if (key === 'TransferStrength' || key === 'ColorStrength') {
+  if (key === 'TransferStrength' || key === 'PostTransferStrength') {
+    return Number(clamp(Number(value) || 0, 0, 4).toFixed(2));
+  }
+  if (key === 'ColorStrength') {
     return Number(clamp(Number(value) || 0, 0, 1).toFixed(2));
   }
   throw appError('ERR_BAD_REQUEST', { key });
@@ -141,7 +144,9 @@ function defaultPatch() {
     Style: 0,
     AutoMask: 0,
     ColorStrength: 0.75,
-    SkinStructureStrength: -1
+    SkinStructureStrength: -1,
+    TransferStrength: 1.0,
+    PostTransferStrength: 1.0
   };
 }
 

@@ -7,16 +7,61 @@ const yauzl = require('yauzl');
 const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 const MAX_METADATA_BYTES = 1024 * 1024;
-const DX11_VERSION = 'beta0.4.5-dx11-compat';
-const DX11_CORE = 'dlss5-ai渲染超分版-beta0.4.5-dx11-compat-@野生的装机宅-bilibili.addon64';
 const DX11_CARRIER = 'dlss5-native-carrier-045-dx11-compat.addon64';
-const RELEASE_046_VERSION = 'beta0.4.6';
-const RELEASE_046_CORE = 'dlss5-ai渲染超分版-beta0.4.6-@野生的装机宅-bilibili.addon64';
-const RELEASE_046_SOURCE = '9087a9efbc7bb53a3c79e7766a174534f49c412c';
-const RELEASE_046_HASHES = Object.freeze({
-  addon: 'b68f2709a131c9ce0513b6366dbcc2e7d551bef5bcd41934075407378a48c090',
-  carrier: '8268ba3a9d7614ca0e0efad22f7c477780547224dfd0847a1d67188fc05f13c0',
-  bridge: '46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb'
+const PAIRED_OTA_PROFILES = Object.freeze({
+  'beta0.4.5-dx11-compat': Object.freeze({
+    coreName: 'dlss5-ai渲染超分版-beta0.4.5-dx11-compat-@野生的装机宅-bilibili.addon64',
+    metadata: Object.freeze({
+      display_version: '0.4.5-DX11-兼容增强',
+      core_pe_version: '0.4.5.104'
+    })
+  }),
+  'beta0.4.6': Object.freeze({
+    coreName: 'dlss5-ai渲染超分版-beta0.4.6-@野生的装机宅-bilibili.addon64',
+    metadata: Object.freeze({
+      display_version: '0.4.6',
+      source_commit: '9087a9efbc7bb53a3c79e7766a174534f49c412c',
+      packaging_commit: '9087a9efbc7bb53a3c79e7766a174534f49c412c',
+      core_pe_version: '0.4.6.0',
+      core_file_version: '0.4.6 beta',
+      carrier_upstream_file_version: '1.4.12.0',
+      bridge_upstream_commit: '28aed4099b0fe1c207b20b5fee5364c0773c25c2',
+      source_manifest_sha256: '7bb174529eb077e5b3e619c06e53209e778c3a3795dffc8d8a02ef31f84cfb71',
+      validation_sha256: '394bcb44a8f5c921508d8103cb9c597f28c61003731f16bb62b083114e931daa',
+      local_windows_verified: true,
+      local_warp_verified: true,
+      game_runtime_verified: false,
+      stable_release: false
+    }),
+    hashes: Object.freeze({
+      addon: 'b68f2709a131c9ce0513b6366dbcc2e7d551bef5bcd41934075407378a48c090',
+      carrier: '8268ba3a9d7614ca0e0efad22f7c477780547224dfd0847a1d67188fc05f13c0',
+      bridge: '46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb'
+    })
+  }),
+  'beta0.4.6-hotfix.1': Object.freeze({
+    coreName: 'dlss5-ai渲染超分版-beta0.4.6-hotfix.1-@野生的装机宅-bilibili.addon64',
+    metadata: Object.freeze({
+      display_version: '0.4.6-hotfix.1',
+      source_commit: '35ef9a826642e0eabcecd46d012167dd52b98105',
+      packaging_commit: '35ef9a826642e0eabcecd46d012167dd52b98105',
+      core_pe_version: '0.4.6.1',
+      core_file_version: '0.4.6 hotfix.1 beta',
+      carrier_upstream_file_version: '1.4.12.0',
+      bridge_upstream_commit: '28aed4099b0fe1c207b20b5fee5364c0773c25c2',
+      source_manifest_sha256: 'bf69c537c4c20b75b68940463d4990742f95d17ddffbdd5a7bbe19688c51f90d',
+      validation_sha256: '62dfd5ac613c3d14575d3f9a6de4e13a7fe9f929608baba8fd133d80e0224da2',
+      local_windows_verified: true,
+      local_warp_verified: true,
+      game_runtime_verified: false,
+      stable_release: false
+    }),
+    hashes: Object.freeze({
+      addon: '0727be26ceddcf60354535cee7c12a3138eef3075d7f90110b3693508fb633a5',
+      carrier: '4656d9aac382a6f9b5c8488669aa5365283f03b5b94b2267f1c7f9b53927dc86',
+      bridge: '46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb'
+    })
+  })
 });
 
 function sha256Buffer(value) {
@@ -131,6 +176,10 @@ function exactlyOne(rows, predicate, label) {
   return matches[0];
 }
 
+function matchesMetadata(actual, expected) {
+  return Object.entries(expected).every(([field, value]) => actual[field] === value);
+}
+
 function instructionText(entries, names) {
   const matches = names.filter(name => entries.has(name));
   if (matches.length > 1) throw new Error('OTA package contains ambiguous instructions');
@@ -181,19 +230,10 @@ function standardPackage(entries) {
 function dx11Package(entries) {
   const buildInfo = parseJson(entries.get('build-info.json'), 'build-info.json');
   const hashes = parseJson(entries.get('SHA256.json'), 'SHA256.json');
-  const legacy045 = buildInfo && buildInfo.version === DX11_VERSION &&
-    buildInfo.display_version === '0.4.5-DX11-兼容增强' && buildInfo.core_pe_version === '0.4.5.104';
-  const release046 = buildInfo && buildInfo.version === RELEASE_046_VERSION &&
-    buildInfo.display_version === '0.4.6' && buildInfo.core_pe_version === '0.4.6.0' &&
-    buildInfo.core_file_version === '0.4.6 beta' &&
-    buildInfo.carrier_upstream_file_version === '1.4.12.0' &&
-    buildInfo.source_commit === RELEASE_046_SOURCE && buildInfo.packaging_commit === RELEASE_046_SOURCE &&
-    buildInfo.bridge_upstream_commit === '28aed4099b0fe1c207b20b5fee5364c0773c25c2' &&
-    buildInfo.source_manifest_sha256 === '7bb174529eb077e5b3e619c06e53209e778c3a3795dffc8d8a02ef31f84cfb71' &&
-    buildInfo.validation_sha256 === '394bcb44a8f5c921508d8103cb9c597f28c61003731f16bb62b083114e931daa' &&
-    buildInfo.local_windows_verified === true && buildInfo.local_warp_verified === true &&
-    buildInfo.game_runtime_verified === false && buildInfo.stable_release === false;
-  if (!buildInfo || (!legacy045 && !release046) ||
+  const profile = buildInfo && typeof buildInfo.version === 'string' &&
+    Object.prototype.hasOwnProperty.call(PAIRED_OTA_PROFILES, buildInfo.version)
+    ? PAIRED_OTA_PROFILES[buildInfo.version] : null;
+  if (!buildInfo || !profile || !matchesMetadata(buildInfo, profile.metadata) ||
       buildInfo.language !== 'zh-CN' ||
       typeof buildInfo.carrier_upstream_file_version !== 'string' || !buildInfo.carrier_upstream_file_version ||
       typeof buildInfo.source_commit !== 'string' || !/^[0-9a-f]{40}$/i.test(buildInfo.source_commit) ||
@@ -203,13 +243,12 @@ function dx11Package(entries) {
   const rows = verifyRows(entries, hashes, 'file', 'SHA256.json');
   const addonRows = rows.filter(item => /\.addon64$/i.test(item.name));
   const carrier = exactlyOne(addonRows, item => item.name.toLowerCase() === DX11_CARRIER, 'matched DX11 carrier');
-  const coreName = release046 ? RELEASE_046_CORE : DX11_CORE;
-  const addon = exactlyOne(addonRows, item => item.name.toLowerCase() === coreName, 'published core addon64');
+  const addon = exactlyOne(addonRows, item => item.name.toLowerCase() === profile.coreName, 'published core addon64');
   if (addonRows.length !== 2) throw new Error('OTA package contains an ambiguous addon64 role');
   const bridge = exactlyOne(rows, item => /^nrchain_nvngx\.dll$/i.test(item.name), 'nrchain_nvngx.dll');
-  if (release046 && (addon.sha256 !== RELEASE_046_HASHES.addon ||
-      carrier.sha256 !== RELEASE_046_HASHES.carrier || bridge.sha256 !== RELEASE_046_HASHES.bridge)) {
-    throw new Error('0.4.6 OTA component identity mismatch');
+  if (profile.hashes && (addon.sha256 !== profile.hashes.addon ||
+      carrier.sha256 !== profile.hashes.carrier || bridge.sha256 !== profile.hashes.bridge)) {
+    throw new Error(`${buildInfo.version} OTA component identity mismatch`);
   }
   const instructions = instructionText(entries, ['安装说明.txt', 'Instructions.txt']);
   return result(buildInfo, addon, bridge, carrier, 'dx11', instructions);

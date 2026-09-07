@@ -8,6 +8,7 @@ const { readOtaPackage, sha256Buffer } = require('../src/product/ota');
 const { CORE, CARRIER, BRIDGE, zip, tempZip, standardFixture, dx11Fixture } = require('./helpers/ota-fixture');
 
 const CORE_046 = 'DLSS5-AI渲染超分版-beta0.4.6-@野生的装机宅-Bilibili.addon64';
+const CORE_046_HOTFIX1 = 'DLSS5-AI渲染超分版-beta0.4.6-hotfix.1-@野生的装机宅-Bilibili.addon64';
 
 function release046Fixture(options = {}) {
   const source = '9087a9efbc7bb53a3c79e7766a174534f49c412c';
@@ -27,6 +28,31 @@ function release046Fixture(options = {}) {
     [options.carrierName || CARRIER, Buffer.from('self-consistent-but-unpublished-carrier')],
     [CORE_046, Buffer.from('self-consistent-but-unpublished-core')],
     [BRIDGE, Buffer.from('self-consistent-but-unpublished-bridge')]
+  ]);
+  const hashes = [...payload].map(([file, data]) => ({ file, sha256: sha256Buffer(data) }));
+  return [...payload].map(([name, data]) => ({ name, data })).concat({
+    name: 'SHA256.json', data: JSON.stringify(hashes)
+  });
+}
+
+function release046Hotfix1Fixture(options = {}) {
+  const source = '35ef9a826642e0eabcecd46d012167dd52b98105';
+  const buildInfo = Buffer.from(JSON.stringify({
+    display_version: '0.4.6-hotfix.1', version: 'beta0.4.6-hotfix.1',
+    source_commit: source, packaging_commit: source, language: 'zh-CN',
+    core_pe_version: '0.4.6.1', core_file_version: '0.4.6 hotfix.1 beta',
+    carrier_upstream_file_version: '1.4.12.0',
+    bridge_upstream_commit: '28aed4099b0fe1c207b20b5fee5364c0773c25c2',
+    source_manifest_sha256: 'bf69c537c4c20b75b68940463d4990742f95d17ddffbdd5a7bbe19688c51f90d',
+    validation_sha256: '62dfd5ac613c3d14575d3f9a6de4e13a7fe9f929608baba8fd133d80e0224da2',
+    local_windows_verified: true, local_warp_verified: true,
+    game_runtime_verified: false, stable_release: false
+  }));
+  const payload = new Map([
+    ['build-info.json', buildInfo],
+    [CARRIER, Buffer.from('self-consistent-but-unpublished-hotfix-carrier')],
+    [options.coreName || CORE_046_HOTFIX1, Buffer.from('self-consistent-but-unpublished-hotfix-core')],
+    [BRIDGE, Buffer.from('self-consistent-but-unpublished-hotfix-bridge')]
   ]);
   const hashes = [...payload].map(([file, data]) => ({ file, sha256: sha256Buffer(data) }));
   return [...payload].map(([name, data]) => ({ name, data })).concat({
@@ -115,6 +141,42 @@ test('does not widen the 0.4.6 profile to self-declared binaries, carriers or fu
   await t.test('unknown future version', async () => {
     await assert.rejects(readOtaPackage(zip(tempZip(), release046Fixture({ version: 'beta0.4.7' }))),
       /unsupported DX11 OTA metadata/);
+  });
+  await t.test('inherited object-key version', async () => {
+    await assert.rejects(readOtaPackage(zip(tempZip(), release046Fixture({ version: 'constructor' }))),
+      /unsupported DX11 OTA metadata/);
+  });
+});
+
+const release046Hotfix1Package = path.resolve(__dirname, '..', '..', 'deliveries',
+  'DLSS5-Core-0.4.6-hotfix.1-20260908', 'DLSS5-0.4.6-hotfix.1-zh-CN-OTA.zip');
+test('reads the verified 0.4.6-hotfix.1 Chinese OTA with its exact component set',
+  { skip: !fs.existsSync(release046Hotfix1Package) }, async () => {
+    const ota = await readOtaPackage(release046Hotfix1Package);
+    assert.equal(ota.manifest.version, 'beta0.4.6-hotfix.1');
+    assert.equal(ota.manifest.display_version, '0.4.6-hotfix.1');
+    assert.equal(ota.manifest.source_commit, '35ef9a826642e0eabcecd46d012167dd52b98105');
+    assert.equal(ota.manifest.packaging_commit, '35ef9a826642e0eabcecd46d012167dd52b98105');
+    assert.equal(ota.manifest.core_pe_version, '0.4.6.1');
+    assert.equal(ota.manifest.game_runtime_verified, false);
+    assert.equal(ota.compatibility, 'dx11');
+    assert.equal(ota.addonName, CORE_046_HOTFIX1);
+    assert.equal(ota.addonSha256, '0727be26ceddcf60354535cee7c12a3138eef3075d7f90110b3693508fb633a5');
+    assert.equal(ota.carrierName, CARRIER);
+    assert.equal(ota.carrierSha256, '4656d9aac382a6f9b5c8488669aa5365283f03b5b94b2267f1c7f9b53927dc86');
+    assert.equal(ota.bridgeName, BRIDGE);
+    assert.equal(ota.bridgeSha256, '46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb');
+    assert.match(ota.instructions, /Windows\/WARP通过不等于所有游戏通过/);
+  });
+
+test('rejects self-declared and cross-release hotfix component sets', async t => {
+  await t.test('self-consistent unpublished hotfix binaries', async () => {
+    await assert.rejects(readOtaPackage(zip(tempZip(), release046Hotfix1Fixture())),
+      /beta0\.4\.6-hotfix\.1 OTA component identity mismatch/);
+  });
+  await t.test('hotfix metadata paired with the original 0.4.6 core role', async () => {
+    await assert.rejects(readOtaPackage(zip(tempZip(), release046Hotfix1Fixture({ coreName: CORE_046 }))),
+      /published core addon64/);
   });
 });
 

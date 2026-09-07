@@ -45,11 +45,12 @@ const DEFAULT_NR_CONFIG = Object.freeze({
   LocalToneStrength: 1,
   LocalStructureStrength: 1,
   TransferStrength: 1,
+  PostTransferStrength: 1,
   UICorrection: 0
 });
 
 const PUBLIC_NR_KEYS = Object.freeze([
-  'Enabled', 'Intensity', 'WorkMode', 'CustomWorkScale', 'Style', 'AutoMask', 'ColorStrength', 'SkinStructureStrength'
+  'Enabled', 'Intensity', 'WorkMode', 'CustomWorkScale', 'Style', 'AutoMask', 'ColorStrength', 'SkinStructureStrength', 'TransferStrength', 'PostTransferStrength'
 ]);
 
 module.exports = {

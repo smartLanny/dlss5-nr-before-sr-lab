@@ -18,17 +18,18 @@ const ENTRY = {
   notes: '中文核心 0.4.6，修复 RR/SR 切换阻断并改进光照保护与反馈。DX12 使用核心和 nrchain；仅已确认 DX11 且兼容桥接开启时部署配套 carrier。保留现有 INI；不支持 Vulkan、无普通 DLSS 或 x86。新版本游戏效果仍待实测。'
 };
 
-function verifyVersion(dir) {
-  for (const [name, [, hash]] of Object.entries(FILES)) assert.equal(sha256(path.join(dir, name)), hash, `reviewed 0.4.6 ${name}`);
+function verifyVersion(dir, files = FILES) {
+  for (const [name, [, hash]] of Object.entries(files)) assert.equal(sha256(path.join(dir, name)), hash, `reviewed 0.4.6 ${name}`);
 }
 
-function prepare(otaDir, config) {
+function prepare(otaDir, config, profile = { ENTRY, FILES, SOURCE, peVersion: '0.4.6.0' }) {
+  const { ENTRY, FILES, SOURCE, peVersion } = profile;
   const old = inspectPayload(ROOT);
   assert.equal(old.bundle.version, 4);
   for (const item of Object.values(old.versions)) assert.equal(item.ready, true, 'existing payload must be intact');
   const info = JSON.parse(fs.readFileSync(path.join(otaDir, 'build-info.json'), 'utf8'));
   assert.equal(info.source_commit, SOURCE); assert.equal(info.packaging_commit, SOURCE);
-  assert.equal(info.core_pe_version, '0.4.6.0'); assert.equal(info.language, 'zh-CN');
+  assert.equal(info.core_pe_version, peVersion); assert.equal(info.language, 'zh-CN');
   const inputs = Object.entries(FILES).map(([name, [source, hash]]) => ({ name, file: source ? path.join(otaDir, source) : config, hash }));
   for (const row of inputs) assert.equal(sha256(row.file), row.hash, `input ${row.name}`);
   const target = path.join(ROOT, 'versions', ENTRY.id);
@@ -36,11 +37,12 @@ function prepare(otaDir, config) {
   for (const dir of [ROOT, path.join(ROOT, 'versions'), target]) {
     if (fs.existsSync(dir)) assert.equal(fs.lstatSync(dir).isSymbolicLink(), false, dir);
   }
-  if (fs.existsSync(target)) verifyVersion(target);
+  if (fs.existsSync(target)) verifyVersion(target, FILES);
   fs.mkdirSync(target, { recursive: true });
   for (const row of inputs) fs.copyFileSync(row.file, path.join(target, row.name));
-  verifyVersion(target);
+  verifyVersion(target, FILES);
   const entries = Object.entries(old.bundle.versions).filter(([id]) => id !== ENTRY.id).map(([id, entry]) => ({ ...entry, id }));
+  for (const entry of entries) entry.label = entry.label.replace('（最新）', '');
   for (const entry of entries) if (entry.id === '0.3.3.5') {
     entry.label = '0.3.3.5（历史稳定版）'; entry.notes = '保留的历史核心，用于兼容性对比与回退。';
   }
@@ -53,4 +55,4 @@ if (require.main === module) {
   if (process.argv.length !== 4) throw new Error('Usage: node scripts/prepare-release-046.js <reviewed OTA directory> <reviewed INI>');
   prepare(path.resolve(process.argv[2]), path.resolve(process.argv[3]));
 }
-module.exports = { ENTRY, FILES, SOURCE, verifyVersion };
+module.exports = { ENTRY, FILES, SOURCE, verifyVersion, prepare };
