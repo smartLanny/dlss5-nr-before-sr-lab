@@ -1,10 +1,6 @@
 name: Compatibility dev2 - exact staged RR post and scaled work
 on:
-  push:
-    branches: [codex/multiapi-045-integration]
-  pull_request:
-    branches: [release/0.4.5-test, release/0.4]
-    paths: ['src/**', 'scripts/**', 'tests/**', '.github/workflows/compat-post-dev2.yml']
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
