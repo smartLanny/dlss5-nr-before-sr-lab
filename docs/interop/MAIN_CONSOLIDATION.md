@@ -80,3 +80,18 @@ PR#133/#138也已关闭并回帖指main，累计9个重复入口收口；剩余7
 - portable：313392629字节，SHA256 `45d066176597cbaa2c51c1271698081eb031d51f7c8b1d885f479c9166a7a01b`。
 
 两个热修附件已上传，同一Release服务端uploaded/大小/摘要逐项回查匹配。源码诊断记录在Manager分支 `docs/INSTALLER-HOTFIX-20260908.md`；本地交付与验证收据在同级 `deliveries/DLSS5-Manager-0.4.5-hotfix.1-20260908`，构建及发布回查在 `nr-manager-readiness-20260908/build/hotfix-*.log/json`。本次仍未在反馈者电脑或2K27实机回测。
+
+## 2026-09-08 API 与部署热修 hotfix.2
+
+推荐安装器已更新为 **0.4.5-hotfix.2**（Windows文件版本`0.4.5.2`）。内置插件仍为 **0.4.5-DX11-兼容增强**；核心、配套组件和精简OTA字节未变，没有混入其他任务的未发布核心/carrier测试包。Manager维护分支快进至 `8acf31f9cd6245a32256f28accbb2c0a49bc5386`。
+
+修复`DirectX 11/12`和`dx12=true`误判纯DX11；API与核心版本分别决定，明确选择/版本锁不再被覆盖。DX12不部署carrier且保留nrchain，DX11要求包内成套carrier。静态EXE11仅是线索，综合引擎模块、启动配置、EXE绑定的历史ReShade日志；混合/未知由用户在游戏卡片指定API，并绑定EXE保存。安装、修复、OTA、版本切换走相同规则；保存API后需应用组件路线才允许Manager启动已安装游戏。
+
+旧carrier可逆移出，受管文件改动/备份损坏先停止；冲突移动纳入真实journal，卸载不提前销毁持久原始备份。明确DX11部署只解除配套carrier精确`@文件名`禁用并保存ReShade.ini侧备份，保留重复section、其他项及逗号转义。ReShade运行时预加载防护由PR#160独立维护，不把它描述为已经实现全自动API激活。
+
+119项主机测试与UI契约通过；两个最终EXE分别解包核对37个应用源码文件、完整载荷SHA及12项归档版本选择检查；从成品提取的服务代码再次通过2条完整API/OTA事务链。实际Electron界面夹具验证API保存、DX12启用安装及独立核心版本显示，并保存截图。所有这些均不代表燕云、2K27或其他游戏实机兼容性通过。
+
+- Setup：313737210字节，SHA256 `1435758165c4c0c62025fa9bceac0d8ebbe820bf7f5d6bbb7c6e242c76d4a4cc`。
+- portable：313400179字节，SHA256 `63972e26c21ca943fcb9632ef2ab22e0327716c166bc0ea6d2af55586256b7da`。
+
+同一Release已上传两个hotfix.2附件并回查uploaded/大小/服务端摘要匹配；旧安装器标为历史，发布页顶部推荐hotfix.2。源码说明在Manager分支`docs/INSTALLER-API-ROUTING-20260908.md`；本地交付`deliveries/DLSS5-Manager-0.4.5-hotfix.2-20260908`，构建/成品/UI/发布收据在`nr-manager-api-routing-20260908/build/api-*`。主线同步保留了其他任务后来新增的#158归档。
