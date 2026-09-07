@@ -30,6 +30,8 @@ DX11桥接会等待真实GPU完成后才回填，可能降低帧率；本版不�
 
 历史NR尺寸可能早于当前设置。RR句柄存在、请求开启、已录制和已提交均不等于GPU完成或画面已显示。F8保留这些不同证据，并增加同锁采样的真实blend四值；unobserved/unavailable不是四个零。requested.blend仍是用户强度，不能当D3D12四值。
 
+性能日志`A1-RR-owner-observed`仅表示存在RR所有者，不能单靠这一标签判断NR执行或旁路；请结合RR-post、Feature18及提交记录。旧测试源码346a74f的`A1-native-RR-bypass`名称已在最终包纠正。
+
 本批没有开放无原生DLSS的Feeder/provider-only、Vulkan、DX9/DX10/OpenGL/x86 Legacy、线性深度/FFX RR或新FG/MFG路线。BG3旧版通过不等于新组合所有游戏通过。
 
 ## 本地验证与剩余范围

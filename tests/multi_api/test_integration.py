@@ -23,6 +23,7 @@ def fixture(core, upstream, root):
     (root/'core/config').mkdir(parents=True)
     (root/'core/config/nr_before_sr.ini').write_text('[NRBeforeSR]\n')
     (root/'core/src/nr_before_sr.rc').write_text('0.4.5-fix2 beta\nFILEVERSION 0,4,5,2')
+    (root/'core/src/nr_before_sr.cpp').write_text('if (signature.rr_bypass) return "A1-native-RR-bypass";')
     (root/'core/src/nr_feedback_capture.inl').write_text('void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {\n}')
     (root/'core/src/nr_codec_descriptors.inl').write_text(
         'srv(0,slot.source,slot.source_format);\n'

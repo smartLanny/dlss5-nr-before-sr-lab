@@ -104,6 +104,14 @@ def file_hashes(root: Path) -> dict[str, str]:
     return result
 
 def finalize(core: Path, stage: Path, source: str) -> None:
+    runtime = stage / 'core/src/nr_before_sr.cpp'
+    runtime_text = runtime.read_text(encoding='utf-8')
+    old_rr_meter = 'if (signature.rr_bypass) return "A1-native-RR-bypass";'
+    if runtime_text.count(old_rr_meter) != 1:
+        raise ValueError('RR cadence label anchor changed')
+    runtime.write_text(runtime_text.replace(old_rr_meter,
+        'if (signature.rr_bypass) return "A1-RR-owner-observed";'),
+        encoding='utf-8', newline='\n')
     names = stage / 'core/src/interop/nr_deployment_names.h'
     text = names.read_text(encoding='utf-8')
     old = 'return Equal(name, L"dlss5-native-carrier-045-exp3.addon64");'
