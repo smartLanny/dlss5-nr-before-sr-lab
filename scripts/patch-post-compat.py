@@ -245,7 +245,56 @@ def patch_core(text: str) -> str:
         return ProcessRrPost(original,command_list,handle,params,callback,feature);
     }
 '''+s[b:]
-    return edit(text,'NgxResult ProcessEvaluate(',process)
+    text=edit(text,'NgxResult ProcessEvaluate(',process)
+    return edit(text,'void DrawTechnicalDiagnostics(',patch_diagnostics)
+
+
+def patch_diagnostics(text: str) -> str:
+    # The original panel treats any historical RR handle as permanent bypass.
+    # Only an actual guard reason means that in the post-compatible runtime.
+    text=once(text,'    } else if (rr_protected ||\n               bypass_reason == BypassReason::RayReconstructionGuard) {',
+        '    } else if (bypass_reason == BypassReason::RayReconstructionGuard) {')
+    text=once(text,'    } else if (rr_protected) {',
+        '    } else if (bypass_reason == BypassReason::RayReconstructionGuard) {')
+    start=text.index('        ImGui::Text(ui("Perfect chain:')
+    end=text.index('\n    if (generic_renodx_conflict) {',start)
+    text=text[:start]+'''        ImGui::Text(ui("Historical NR raster: %ux%u | reference grid %ux%u | %.0f%%",
+                       "历史 NR 尺寸：%u x %u | 参考网格 %u x %u | %.0f%%"),
+                    width, height, nr_render_width, nr_render_height,
+                    static_cast<double>(nr_linear_scale * 100.0f));
+        ImGui::TextDisabled("%s", ui(
+            "Last successful NR dimensions; may precede current mode/settings. Game R/O above is a separate observation.",
+            "最后一次 NR 成功时的尺寸，可能早于当前模式或设置；上方游戏 R/O 是独立观察。"));
+    }
+    if (scoped_mode == 1 || scoped_mode == 2) {
+        ImGui::Text("%s", scoped_mode == 1 ? ui(
+            "Observed scope: native SR/RR output -> NR -> output composition",
+            "已观察统计域：原生 SR/RR 输出 -> NR -> 输出合成") : ui(
+            "Observed scope: NR -> native SR -> output",
+            "已观察统计域：NR -> 原生 SR -> 输出"));
+        ImGui::Text(ui("Scope NR success / recorded / submitted: %llu / %llu / %llu",
+                       "统计域 NR 成功 / 录制 / 提交：%llu / %llu / %llu"),
+                    scoped_success, scoped_recorded, scoped_submitted);
+        ImGui::TextDisabled("%s", ui(
+            "Counters belong to the displayed historical scope. Recording/submission is not proof of GPU completion or visible effect.",
+            "计数属于显示的历史统计域；录制或提交不代表 GPU 完成或可见效果。"));
+    }
+    if (carrier_feature == 13 || rr_protected) {
+        ImGui::Text("%s", ui(
+            "Observed carrier/ownership: Ray Reconstruction (Feature 13); see post attempts and actual bypass reason.",
+            "已观察载体或所有权：光线重构（Feature 13）；请结合后置尝试与实际旁路原因。"));
+    } else if (carrier_feature == 1) {
+        ImGui::Text("%s", ui("Last observed carrier: DLSS Super Resolution (Feature 1)",
+                              "最后观察到的载体：DLSS 超分（Feature 1）"));
+    } else {
+        ImGui::TextDisabled("%s", ui("No identified SR/RR carrier observed yet",
+                                      "尚未观察到可识别的 SR/RR 载体"));
+    }
+    if (live_rr_handles != 0) {
+        ImGui::TextDisabled(ui("Live RR handles: %u; ownership alone does not establish post-NR activity.",
+                              "存活 RR 句柄：%u 个；所有权本身不代表后置 NR 已生效。"), live_rr_handles);
+    }'''+text[end:]
+    return text
 
 def patch_ui(text: str) -> str:
     # Preserve #134's actual main-panel model controls and front precision
