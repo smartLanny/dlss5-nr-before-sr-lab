@@ -7,6 +7,7 @@ must complete without a further Present and without any stage/image request.
 from pathlib import Path
 import argparse
 import importlib.util
+import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -144,7 +145,7 @@ void put(const std::filesystem::path &path,const std::string &value){std::ofstre
 void save(const char *name){check(g_feedback_last_zip[0]!=0,"current ZIP exists");std::filesystem::copy_file(g_feedback_last_zip,std::filesystem::path(output_root)/name);}
 void begin(reshade::api::effect_runtime &runtime, bool archive=true){check(archive ? nr_core_feedback::Request(true) : RequestFeedbackBundle(),"explicit F7 archive or legacy F8 TXT request");check(!g_feedback_last_zip[0],"new request clears old path");check(!nr_core_feedback::g_submission[0],"new request clears old ticket");check(!nr_core_feedback::g_full_report && !nr_core_feedback::g_report_path[0],"new request clears old TXT");check(nr_core_feedback::SnapshotPair().session[0] && g_feedback_status==1,"legacy request initializes session and parameter observer");nr_core_feedback::Present(&runtime);}
 int main(int argc,char **argv) {
-    check(argc==2,"output directory supplied");output_root=std::filesystem::absolute(argv[1]).wstring();
+    check(argc==3,"output directory and matched companion fixture supplied");output_root=std::filesystem::absolute(argv[1]).wstring();
     std::filesystem::create_directories(output_root);InitializeCriticalSection(&g_chain_cs);
     const auto log=std::filesystem::path(output_root)/"nr-before-sr.log";
     std::wstring logwide=log.wstring();wcscpy_s(g_log_path,logwide.c_str());
@@ -153,6 +154,18 @@ int main(int argc,char **argv) {
     content+="NR bypass: reason=null-pso-policy-disabled token=00001234ABCDEF00\n";
     for(unsigned i=0;i<20000;++i)content+="Feature 1 native frame; NR success=0\n";
     put(log,content);
+    const auto carrier_path=std::filesystem::absolute(argv[2]);
+    HMODULE carrier=LoadLibraryW(carrier_path.c_str());
+    check(carrier!=nullptr,"actual matching companion fixture loaded from separate directory");
+    const auto carrier_log=carrier_path.parent_path()/"dlss5-bridge.log";
+    std::string bridge_content;
+    for(unsigned i=0;i<3000;++i)bridge_content+="ordinary carrier progress before diagnostic\n";
+    bridge_content+="[native-carrier] private baseline unavailable; native SR retained.\n"
+        "[native-carrier] real depth transport failed; native SR retained.\n"
+        "addonPath=C:\\Users\\Private Tester\\carrier.addon64 | owner=fixture\n"
+        "[native-contract] originalCreate=1920x1080 Evaluate=1280x720\n";
+    for(unsigned i=0;i<3000;++i)bridge_content+="ordinary carrier progress after diagnostic\n";
+    put(carrier_log,bridge_content);
     reshade::api::effect_runtime runtime;
     g_command_state_evidence.available=true;g_command_state_evidence.sampled_at=GetTickCount64();
     g_command_state_evidence.reason="null-guard-awaiting-reset";g_command_state_evidence.token=42;
@@ -252,6 +265,17 @@ int main(int argc,char **argv) {
     check(fresh_report.find("capture.localTime=")!=std::string::npos && fresh_report.find("capture.utcTime=")!=std::string::npos,"local and UTC timestamps recorded");
     check(fresh_report.find("null-pso-policy-disabled")!=std::string::npos,"standalone text retains first actual bypass");
     check(fresh_report.find("Private Tester")==std::string::npos,"standalone text retains privacy rules");
+    check(fresh_report.find("carrierLog.status=matched-loaded-path")!=std::string::npos,"matched loaded companion path discovered by actual module enumeration");
+    check(fresh_report.find("[native-carrier] real depth transport failed")!=std::string::npos &&
+          fresh_report.find("[native-carrier] private baseline unavailable")!=std::string::npos &&
+          fresh_report.find("[native-contract] originalCreate=1920x1080")!=std::string::npos,"F8 single TXT retains carrier failure and native contract from separate module directory");
+    std::filesystem::remove(carrier_log);
+    begin(runtime,false);drain();
+    check(g_feedback_status==3 && nr_core_feedback::g_full_report && !g_feedback_last_zip[0],"missing optional bridge log leaves complete single TXT");
+    check(nr_core_feedback::g_full_report->find("real depth transport failed")==std::string::npos,"missing log never reuses previous carrier contents");
+    FreeLibrary(carrier);
+    begin(runtime,false);drain();
+    check(g_feedback_status==3 && nr_core_feedback::g_full_report->find("carrierLog.status=matching-companion-not-loaded")!=std::string::npos,"unloaded companion is explicit and not required for D3D12 feedback");
     begin(runtime,false);nr_core_feedback::Cancel();drain();
     check(g_feedback_status==4 && nr_core_feedback::g_full_report && !g_feedback_last_zip[0],"cancelled F8 keeps partial TXT, not ZIP or old results");
     snapshot_busy=true;begin(runtime,false);drain();snapshot_busy=false;
@@ -315,7 +339,14 @@ def main():
     if args.compile_only:
         print('Windows harness cross-compiled; not executed.')
         return
-    subprocess.run([str(exe), str(out/'fixtures')], check=True)
+    matching = definition((ROOT/'src/interop/nr_deployment_names.h').read_text(encoding='utf-8'), 'inline bool MatchingCarrier(')
+    leaf = re.search(r'Equal\(name, L"([^"]+)"\)', matching).group(1)
+    carrier_dir = out/'matched-companion'
+    carrier_dir.mkdir(exist_ok=True)
+    carrier_cpp, carrier_dll = carrier_dir/'fixture.cpp', carrier_dir/leaf
+    carrier_cpp.write_text('extern "C" __declspec(dllexport) void FeedbackFixture() {}\n')
+    subprocess.run([args.compiler, '-shared', '-static', str(carrier_cpp), '-o', str(carrier_dll)], check=True)
+    subprocess.run([str(exe), str(out/'fixtures'), str(carrier_dll)], check=True)
     spec = importlib.util.spec_from_file_location('core_parser', ROOT/'scripts/parse-core-feedback.py')
     module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
     for name in ('valid-core.zip','cancelled-core.zip','busy-core.zip'):
@@ -323,6 +354,8 @@ def main():
         assert result['required_complete'] == (name == 'valid-core.zip'), result
     import zipfile
     with zipfile.ZipFile(out/'fixtures/valid-core.zip') as archive:
+        bridge = archive.read('logs/carrier-summary.txt').decode('utf-8-sig')
+        assert 'real depth transport failed' in bridge and 'Private Tester' not in bridge
         metadata = archive.read('capture-info.txt').decode('utf-8-sig')
         for key in ('start.commandState.schema=1', 'end.commandState.token=42',
                     'end.commandState.reason=null-guard-awaiting-reset',

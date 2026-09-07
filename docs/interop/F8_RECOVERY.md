@@ -30,6 +30,18 @@ NR recordings, native failures, and last-attempt age. Counts are explicitly samp
 atomics; a request or recording is not GPU completion, presentation, or game approval.
 F8 remains a single named TXT; F7 is an optional separate image/archive capture.
 
+The worker also resolves the uniquely matching loaded carrier's actual module
+directory and includes its optional `dlss5-bridge.log` through the same bounded
+sanitizer and summary reader. A missing/unloaded/ambiguous carrier never makes
+ordinary D3D12 feedback incomplete. Native-carrier failures and native-contract
+lines remain eligible for the bounded important-event window. F7's paired archive
+uses that same source. No recursive log search or additional player upload is needed.
+
+The actual Windows feedback regression loads a minimal companion fixture from a
+separate directory, verifies bridge diagnostics buried between long progress logs,
+checks privacy and single-TXT output, and verifies missing logs and unloading leave
+complete feedback without stale contents (130 checks plus independent ZIP inspection).
+
 ## Packaging contract
 
 `package-multi-api-candidate.ps1` uses the staged manifest version and companion

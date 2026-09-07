@@ -21,7 +21,7 @@ import zlib
 
 LIMIT = 8 * 1024 * 1024
 META_LIMIT = 512 * 1024
-ENTRY = re.compile(r"^logs/(nr-current|nr-previous|reshade-addon|reshade-game|reshade-module)-summary\.txt$")
+ENTRY = re.compile(r"^logs/(nr-current|nr-previous|reshade-addon|reshade-game|reshade-module|carrier)-summary\.txt$")
 SESSION = re.compile(r"^DLSS5_CORE_[0-9]+_[0-9]+_[0-9]+$")
 CURRENT_LOG = 'logs/nr-current-summary.txt'
 

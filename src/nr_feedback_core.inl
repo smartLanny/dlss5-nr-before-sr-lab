@@ -3,6 +3,7 @@
 #include "nr_feedback_text.h"
 #include "nr_feedback_ticket.h"
 #include "nr_feedback_single_text.h"
+#include "interop/nr_deployment_names.h"
 namespace nr_core_feedback {
 #define NR_HAS_CORE_TEXT_REPORT 1
 #include "nr_feedback_report.inl"
@@ -15,6 +16,7 @@ struct CoreSession {
     FeedbackSession activity{};
     wchar_t directory[1024] = {};
     wchar_t exe[1024] = {}, reshade_module[1024] = {};
+    std::wstring carrier_log; // Worker-only path from the uniquely matched loaded companion.
     char session[96] = {};
     bool snapshot_ok = false, archive_requested = false;
     SYSTEMTIME local_time{}, utc_time{};
@@ -181,14 +183,38 @@ std::wstring Beside(const wchar_t *path, const wchar_t *leaf) {
     result.resize(slash + 1); result += leaf;
     return result.size() < 1024 ? result : std::wstring{};
 }
+std::wstring FindCarrierLog(FeedbackSession &s) {
+    Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId()));
+    if (snapshot.value == INVALID_HANDLE_VALUE) {
+        FeedbackAppend(s, "carrierLog.status=module-inventory-unavailable\n"); return {};
+    }
+    MODULEENTRY32W entry{}; entry.dwSize = sizeof(entry);
+    unsigned matches = 0, scanned = 0;
+    std::wstring result;
+    BOOL more = Module32FirstW(snapshot.value, &entry);
+    for (; more && scanned < 2048; more = Module32NextW(snapshot.value, &entry), ++scanned) {
+        if (!nr_deployment_names::MatchingCarrier(entry.szModule)) continue;
+        ++matches;
+        if (nr_bundle::LocalAbsolutePath(entry.szExePath))
+            result = Beside(entry.szExePath, L"dlss5-bridge.log");
+    }
+    const bool complete = !more && GetLastError() == ERROR_NO_MORE_FILES;
+    const bool found = complete && matches == 1 && !result.empty();
+    FeedbackAppend(s, "carrierLog.status=%s\ncarrierLog.matches=%u\n"
+        "carrierLog.scope=optional bounded sanitized log beside the matched loaded companion; file contents are not proof of delivery\n",
+        found ? "matched-loaded-path" : !complete ? "module-inventory-incomplete" :
+        matches > 1 ? "ambiguous-companion" : matches == 0 ? "matching-companion-not-loaded" : "path-unavailable", matches);
+    return found ? result : std::wstring{};
+}
 void CollectLogs(nr_bundle::Job &job, const CoreSession &session) {
     const std::wstring paths[] = {g_log_path, Beside(g_log_path, L"nr-before-sr.previous.log"),
         Beside(g_log_path, L"ReShade.log"), Beside(session.exe, L"ReShade.log"),
-        Beside(session.reshade_module, L"ReShade.log")};
+        Beside(session.reshade_module, L"ReShade.log"), session.carrier_log};
     const char *names[] = {"logs/nr-current-summary.txt", "logs/nr-previous-summary.txt",
-        "logs/reshade-addon-summary.txt", "logs/reshade-game-summary.txt", "logs/reshade-module-summary.txt"};
+        "logs/reshade-addon-summary.txt", "logs/reshade-game-summary.txt", "logs/reshade-module-summary.txt",
+        "logs/carrier-summary.txt"};
     const ULONGLONG deadline = GetTickCount64() + 3000;
-    for (unsigned i = 0; i < 5; ++i) {
+    for (unsigned i = 0; i < 6; ++i) {
         bool duplicate = false;
         for (unsigned j = 0; j < i; ++j)
             if (!paths[i].empty() && _wcsicmp(paths[i].c_str(), paths[j].c_str()) == 0) duplicate = true;
@@ -220,10 +246,10 @@ nr_feedback_report::Output CollectSingleText(const CoreSession &session, bool ca
     doc.Append(metadata);
     const std::wstring paths[] = {g_log_path, Beside(g_log_path, L"nr-before-sr.previous.log"),
         Beside(g_log_path, L"ReShade.log"), Beside(session.exe, L"ReShade.log"),
-        Beside(session.reshade_module, L"ReShade.log")};
-    const char *names[] = {"nr-current", "nr-previous", "reshade-addon", "reshade-game", "reshade-module"};
+        Beside(session.reshade_module, L"ReShade.log"), session.carrier_log};
+    const char *names[] = {"nr-current", "nr-previous", "reshade-addon", "reshade-game", "reshade-module", "carrier"};
     const ULONGLONG deadline = GetTickCount64() + 3000;
-    for (unsigned i = 0; i < 5; ++i) {
+    for (unsigned i = 0; i < 6; ++i) {
         bool duplicate = false;
         for (unsigned j = 0; j < i; ++j)
             if (!paths[i].empty() && _wcsicmp(paths[i].c_str(), paths[j].c_str()) == 0) duplicate = true;
@@ -299,6 +325,7 @@ DWORD WINAPI Worker(void *opaque) {
         FeedbackAppend(s, "artifact.sourceCommit=%s\nartifact.sourceDirty=%d\nartifact.addonSha256=%s\nartifact.identityStatus=%s\n",
             kSourceCommit, kSourceDirty ? 1 : 0, identity.sha256, identity.status);
         Modules(s);
+        session->carrier_log = FindCarrierLog(s);
         FingerprintRuntimeFiles(s, *session);
         const auto color = SnapshotColorPolicy();
         FeedbackAppend(s, "color.status=%s\ncolor.requested=%.9g\ncolor.effective=%.9g\ncolor.reason=%s\n"
