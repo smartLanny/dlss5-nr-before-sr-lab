@@ -67,3 +67,16 @@ Manager应用源码dfa0a2e，后续交付脚本/文档/辅助脚本提交至7e2d
 PR#133/#138也已关闭并回帖指main，累计9个重复入口收口；剩余7个开放PR保留独立研究/游戏兼容/Manager评审。未关闭未经游戏验证的问题。
 
 最终发布回查：同一Release已正式包含且仅包含中文精简OTA、Setup和portable三个附件；服务端uploaded状态、三个字节数和SHA256均与本地独立核验匹配。记录保存在build/published-release-verification.json。Main检出为原项目同级nr-main-unify并跟踪origin/main，原product及旧worktrees保持不动。
+
+## 2026-09-08 安装器热修补充
+
+上述三个附件记录对应首发状态。当前同一Release已追加 **Manager 0.4.5-hotfix.1** 的Setup和portable，旧Manager附件已标注改用hotfix.1；核心及中文OTA字节不变。Manager维护分支已快进到 `2ca90d1b32e16cfe332a068a5c01530b46595d64`，无新增长期远端分支。
+
+本轮从两张玩家照片区分出 `ERR_GAME_RUNNING` 和全局“安装组件未准备”，不是反作弊确认错误。已复现并修复：移除旧DX11选择项后，前端误用残留设置，把后端完整组件改判未准备；游戏目录内便携启动器/安装器自身子进程被旧目录匹配规则拦截。新守卫只按PID关系与精确路径豁免自身，保留真正游戏及其他程序阻断；报错/反馈增加进程名和PID。若UAC使父进程关系不可确认，则继续保守拦截。不能仅凭截图确认该玩家的具体触发条件，也不宣称2K27已实机验收。
+
+69项Windows测试及UI契约通过；真实CIM空目录查询通过。从两个最终EXE分别解包核对35个应用源码文件、固定vendor、全部组件SHA及12项真实归档renderer版本切换，均通过。界面/产品版本 `0.4.5-hotfix.1`，Windows文件版本 `0.4.5.1`，内置条目仍为 `0.4.5-DX11-兼容增强`。
+
+- Setup：313729661字节，SHA256 `119e60f291c3f4ee111fda8cf4dfec587a552bfb92a827605db3ddacbed6f6fc`。
+- portable：313392629字节，SHA256 `45d066176597cbaa2c51c1271698081eb031d51f7c8b1d885f479c9166a7a01b`。
+
+两个热修附件已上传，同一Release服务端uploaded/大小/摘要逐项回查匹配。源码诊断记录在Manager分支 `docs/INSTALLER-HOTFIX-20260908.md`；本地交付与验证收据在同级 `deliveries/DLSS5-Manager-0.4.5-hotfix.1-20260908`，构建及发布回查在 `nr-manager-readiness-20260908/build/hotfix-*.log/json`。本次仍未在反馈者电脑或2K27实机回测。
