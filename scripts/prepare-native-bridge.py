@@ -10,9 +10,11 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import subprocess
 import tarfile
 import tempfile
+import time
 from pathlib import Path, PurePosixPath
 
 BASE = "15909ef10914fcdf151ee193460451667fbf31dc"
@@ -27,6 +29,57 @@ UPSTREAM_BLOBS = {
     "src/dlss5-bridge.cpp": "7a0365a35727d41506e3cce038d2fd6daca402f6",
 }
 EXPERIMENT = "beta0.4.2-native-bridge-exp1"
+_PUBLISH_RETRY_WINERRORS = {5, 32, 33}
+_PUBLISH_RETRY_DELAYS = (0.05, 0.1, 0.2, 0.4, 0.5)
+
+
+def _publish_paths(source: Path, output: Path) -> tuple[Path, Path]:
+    """Resolve and validate the two paths for one publication attempt."""
+    resolved_source = source.resolve()
+    resolved_output = output.resolve()
+    try:
+        resolved_source.relative_to(resolved_output.parent)
+    except ValueError as exc:
+        raise ValueError("Staging source must be inside the output parent") from exc
+    try:
+        resolved_output.relative_to(resolved_source)
+    except ValueError:
+        return resolved_source, resolved_output
+    raise ValueError("Output must not be inside the staging source")
+
+
+def _destination_exists(output: Path, resolved_output: Path) -> bool:
+    # Check the requested spelling too: a broken symlink must not be treated as
+    # an absent destination merely because resolve() follows it to nowhere.
+    return os.path.lexists(output) or os.path.lexists(resolved_output)
+
+
+def publish_stage(source: Path, output: Path, *, rename=None, sleep=None) -> None:
+    """Publish a staged directory without overwriting or deleting anything.
+
+    Windows can briefly keep a just-created file open (for example, an
+    antivirus/indexer handle) after generation is complete.  Only the three
+    documented sharing/permission winerrors are retried, and the final native
+    exception is re-raised unchanged after six total attempts.
+    """
+    move = rename or (lambda src, dst: src.rename(dst))
+    wait = sleep or time.sleep
+    for attempt in range(len(_PUBLISH_RETRY_DELAYS) + 1):
+        resolved_source, resolved_output = _publish_paths(source, output)
+        if _destination_exists(output, resolved_output):
+            raise ValueError("Output appeared during generation; refusing to overwrite")
+        try:
+            move(resolved_source, resolved_output)
+            return
+        except PermissionError as exc:
+            if (os.name != "nt" or
+                    getattr(exc, "winerror", None) not in _PUBLISH_RETRY_WINERRORS):
+                raise
+            if _destination_exists(output, resolved_output):
+                raise ValueError("Output appeared during generation; refusing to overwrite")
+            if attempt == len(_PUBLISH_RETRY_DELAYS):
+                raise
+            wait(_PUBLISH_RETRY_DELAYS[attempt])
 
 
 def git(root: Path, *args: str) -> bytes:
@@ -218,7 +271,7 @@ def prepare(core: Path, upstream: Path, output: Path) -> None:
             if path.is_file():
                 manifest["files"][path.relative_to(stage).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
         (stage / "source-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-        stage.rename(output)
+        publish_stage(stage, output)
     print(f"Staged {EXPERIMENT}: {output}")
 
 

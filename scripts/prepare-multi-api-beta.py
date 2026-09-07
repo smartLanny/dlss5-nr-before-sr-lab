@@ -214,7 +214,7 @@ def prepare(core: Path, upstream: Path, output: Path) -> None:
             raise ValueError('Source changed during generation')
         if output.exists():
             raise ValueError('Output appeared during generation')
-        stage.rename(output)
+        m.legacy.publish_stage(stage, output)
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)

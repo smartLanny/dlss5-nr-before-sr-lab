@@ -216,7 +216,7 @@ def prepare(core: Path, upstream: Path, output: Path) -> None:
         manifest["files"] = {p.relative_to(stage).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(stage.rglob("*")) if p.is_file() and p != mf}
         mf.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-        stage.rename(output)
+        legacy.publish_stage(stage, output)
 
 legacy.patch_core = patch_core
 legacy.patch_ui = patch_ui
