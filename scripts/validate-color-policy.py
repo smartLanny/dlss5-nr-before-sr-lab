@@ -47,6 +47,7 @@ CODEC_ENUM
 struct Config {
     bool enabled=true, identity_use_original=false, preserve_lighting=false;
     bool experimental_peak_shoulder=false, allow_unverified_hdr_color=false;
+    bool high_strength_protection=true, layered_enhancement=false;
     float lighting_lock=0;
     int mode=2;
     float transfer_strength=1, color_strength=1;
