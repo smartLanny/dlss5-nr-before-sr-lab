@@ -95,3 +95,16 @@ PR#133/#138也已关闭并回帖指main，累计9个重复入口收口；剩余7
 - portable：313400179字节，SHA256 `63972e26c21ca943fcb9632ef2ab22e0327716c166bc0ea6d2af55586256b7da`。
 
 同一Release已上传两个hotfix.2附件并回查uploaded/大小/服务端摘要匹配；旧安装器标为历史，发布页顶部推荐hotfix.2。源码说明在Manager分支`docs/INSTALLER-API-ROUTING-20260908.md`；本地交付`deliveries/DLSS5-Manager-0.4.5-hotfix.2-20260908`，构建/成品/UI/发布收据在`nr-manager-api-routing-20260908/build/api-*`。主线同步保留了其他任务后来新增的#158归档。
+
+## 2026-09-08 ReShade 禁用项互操作热修 hotfix.3
+
+PR#161完整HEAD `5c5dfe0d2941089bb448adea63af5313db3ea880` 已快进整合，GitHub回查为MERGED。Manager维护分支现为 `4efa5f03345fa12d90b209d041eb549893d661ed`；产品版本 **0.4.5-hotfix.3**，Windows文件版本`0.4.5.3`。核心与内置组件仍固定原发布身份，服务端回查hotfix.2和中文OTA摘要未变。
+
+明确DX11修复按ReShade实际规则解除纯`@文件名`与`显示名称@文件名`，只匹配第一`@`之后的当前配套carrier精确文件名；保留大小写不匹配的无效项、其他条目、逗号转义、LoadFromDllMain和配置备份。若固定注册名`DLSS 5 Bridge 1.4.12`被名称禁用，则保留并明确诊断未完成，提示手动启用。自定义AddonPath布局本轮未扩展。
+
+父任务启用固定PR160实际CLI独立重跑122/122（零跳过）及UI契约通过，实际apply→repair→restore最后一步以`current-hash-mismatch`拒绝覆盖新配置。9/9原生preload oracle的SHA、结果及对应生产源码一致性已核对，本次没有重复运行该原生实验；名称-only负控不代表完整ReShade注册。两个成品各37源码文件、载荷SHA/版本身份核对通过，成品提取代码再跑13项安装/OTA/回滚/实际CLI互操作通过；没有游戏实测结论。
+
+- Setup：313737019字节，SHA256 `72887ea1bcfa14fdb0b264dd6f30e98822819623fb5e40a28a2976d29de31e29`。
+- portable：313400001字节，SHA256 `799bb374553e81c507358a388bbcce8fec20a6dffd57a3f73af059c8c5794d1c`。
+
+同一Release已上传并逐项回查服务端uploaded/大小/摘要，顶部推荐hotfix.3；历史安装器仍保留原字节。交付在同级`deliveries/DLSS5-Manager-0.4.5-hotfix.3-20260908`，父任务独立门禁、真实CLI互操作、原生oracle复核与成品/发布收据在`nr-manager-carrier-filter-20260908/build`。
