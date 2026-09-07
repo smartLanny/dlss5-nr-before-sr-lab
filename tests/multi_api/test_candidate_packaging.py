@@ -69,7 +69,7 @@ class Packaging(unittest.TestCase):
         environment = {key: value for key, value in environment.items() if key.upper() != 'PSMODULEPATH'}
         return subprocess.run([SHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
                                str(ROOT/'scripts/package-multi-api-candidate.ps1'), '-BuildRoot', str(self.build),
-                               '-OutputRoot', str(self.root/'output')], capture_output=True, text=True, env=environment)
+                               '-OutputRoot', str(self.root/'output')], capture_output=True, text=True, encoding="utf-8", errors="replace", env=environment)
 
     def test_separate_languages_and_ini_preserved(self):
         run = self.run_package()
