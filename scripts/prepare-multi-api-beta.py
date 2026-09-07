@@ -21,9 +21,12 @@ PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
 PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
-REQUIRED_ANCESTORS = (PR131, PR132, PR134)
+STATE_CURRENT = 'ca61df92bb2d8c689648b12a35e7e1835d294748'
+PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
+REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137)
 INTEGRATION_CORE_PINS = {
-    'src/nr_command_state.inl': STATE_132,
+    'src/nr_command_state.inl': STATE_CURRENT,
+    'src/nr_feedback_capture.inl': '1ea44b68b5da07b018bc93eef13111d2f274601e',
     'src/nr_settings_ui.inl': '805447d69dcd53709d2fa9fd28b8a4d3f25f4063',
     'src/nr_before_sr.cpp': 'e2c5ff0facc80b84c1bea29df05974f87b910429',
     'src/nr_before_sr.rc': '25985f691b7f3104ba7c696f3da03eae709d4e52',
@@ -117,6 +120,13 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'return nr_dx11_deployment::duplicate_carriers.load(std::memory_order_acquire);'),
         encoding='utf-8', newline='\n')
     post = load('post_finalize', core / 'scripts/patch-post-compat.py')
+    feedback = stage / 'core/src/nr_feedback_capture.inl'
+    feedback_text = feedback.read_text(encoding='utf-8')
+    activity = 'void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {'
+    if feedback_text.count(activity) != 1:
+        raise ValueError('Post feedback activity anchor changed')
+    feedback.write_text(feedback_text.replace(activity,
+        activity + '\n#include "interop/nr_post_feedback.inl"', 1), encoding='utf-8', newline='\n')
     descriptors = stage / 'core/src/nr_codec_descriptors.inl'
     descriptors.write_text(post.patch_descriptors(descriptors.read_text(encoding='utf-8')),
                            encoding='utf-8', newline='\n')
@@ -141,7 +151,10 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'picture_source_pins': INTEGRATION_CORE_PINS,
         'bridge_release': 'v1.4.12', 'bridge_commit': UPSTREAM,
         'ngx_parameter_abi': 'Microsoft x64 native 17-slot layout; MSVC and Windows-GNU declarations',
-        'reset_source_blob': STATE_132, 'feedback': 'F8 single TXT; F7 optional paired archive',
+        'reset_132_source_blob': STATE_132, 'reset_source_blob': STATE_CURRENT,
+        'feedback': 'F8 single TXT; F7 optional paired archive',
+        'post_feedback': 'requested state and sampled RR counters; not GPU completion; same TXT',
+        'blend_feedback': 'four observed native blend factors from the same locked state sample; explicit unobserved/unavailable',
         'format_path': 'typed FP16/FP32 SceneColor read -> existing FP16 codec',
         'exposure_path': '1x1 mip0 final-scale red channel; typed R16/R32 FLOAT-family view and actual device ShaderLoad; no source UAV requirement',
         'optional_inventory_blocks_on_failure': False,
