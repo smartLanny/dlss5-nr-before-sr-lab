@@ -35,6 +35,9 @@ $OldToolchain = $env:DLSS5_LLVM_MINGW_ROOT
 $OldCarrier = $env:PINNED_CARRIER_ROOT
 $OldSource = $env:MULTIAPI_CORE_SOURCE
 $OldPostSource = $env:POST_COMPAT_CORE_SOURCE
+$OldCompletionSource = $env:CARRIER_COMPLETION_SOURCE
+$OldCompletionPatched = $env:CARRIER_COMPLETION_ALREADY_PATCHED
+$OldCxx = $env:CXX
 $Checks = New-Object 'System.Collections.Generic.List[string]'
 Push-Location $Root
 try {
@@ -42,12 +45,16 @@ try {
     $env:PINNED_CARRIER_ROOT = $Upstream
     $env:MULTIAPI_CORE_SOURCE = Join-Path $Root 'src/nr_before_sr.cpp'
     $env:POST_COMPAT_CORE_SOURCE = Join-Path $Root 'src/nr_before_sr.cpp'
+    $env:CARRIER_COMPLETION_SOURCE = $Stage
+    $env:CARRIER_COMPLETION_ALREADY_PATCHED = '1'
+    $env:CXX = $Cxx
     & python -m unittest discover -s tests/multi_api -v
     if ($LASTEXITCODE) { throw 'Multi-API host/source tests failed.' }
     $Checks.Add('multi_api Python source + actual Windows source-identity compile/run')
     & python -m unittest discover -s tests/native_bridge -p 'test_*.py' -v
     if ($LASTEXITCODE) { throw 'Native bridge transformations failed.' }
     $Checks.Add('native_bridge Python exact-source transformations')
+    $Checks.Add('carrier completion: staged production state machine, WARP fence, real access-violation propagation')
     $TestBuild = Join-Path $Output 'tests'
     New-Item -ItemType Directory -Path $TestBuild | Out-Null
     $Include = @('-DNR_TEST_MULTIAPI=1', "-I$(Join-Path $Stage 'core')", "-I$Root", "-I$(Join-Path $Math 'Inc')")
@@ -145,4 +152,7 @@ try {
     $env:PINNED_CARRIER_ROOT = $OldCarrier
     $env:MULTIAPI_CORE_SOURCE = $OldSource
     $env:POST_COMPAT_CORE_SOURCE = $OldPostSource
+    $env:CARRIER_COMPLETION_SOURCE = $OldCompletionSource
+    $env:CARRIER_COMPLETION_ALREADY_PATCHED = $OldCompletionPatched
+    $env:CXX = $OldCxx
 }

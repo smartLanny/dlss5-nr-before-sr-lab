@@ -82,7 +82,7 @@ class Packaging(unittest.TestCase):
             self.assertEqual(digest(package), entry['sha256'])
             with zipfile.ZipFile(package) as archive:
                 names = archive.namelist()
-                self.assertIn('defaults/nr_before_sr.ini', names)
+                self.assertFalse(any(n.lower().endswith('.ini') for n in names))
                 self.assertNotIn('nr_before_sr.ini', names)
                 self.assertIn('validation/post-scaled-work-result.json', names)
                 self.assertEqual(len([n for n in names if n.endswith('.addon64')]), 2)

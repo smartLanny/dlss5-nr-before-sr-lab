@@ -107,13 +107,14 @@ class ExposurePatch(unittest.TestCase):
         passthrough=SimpleNamespace(patch_core=lambda s:s,patch_ui=lambda s:s)
         abi=SimpleNamespace(apply=lambda stage:calls.append('abi'))
         exposure=SimpleNamespace(apply=lambda stage:calls.append('exposure'))
+        completion=SimpleNamespace(apply=lambda stage:calls.append('completion'))
         def fake_git(root,*args):
             return canonical.INTEGRATION_CORE_PINS[args[1].removeprefix('HEAD:')].encode()
         with patch.object(canonical,'is_ancestor',return_value=True), patch.object(canonical,'git',side_effect=fake_git), \
-             patch.object(canonical,'load',side_effect=[library,passthrough,passthrough,abi,exposure]):
+             patch.object(canonical,'load',side_effect=[library,passthrough,passthrough,abi,exposure,completion]):
             configured=canonical.configure(ROOT)
             configured.prepare(ROOT,ROOT,ROOT)
-        self.assertEqual(calls,['base','abi','exposure'])
+        self.assertEqual(calls,['base','abi','exposure','completion'])
     @unittest.skipUnless(os.environ.get('MULTIAPI_CORE_SOURCE'),'full pinned core not mounted; excerpt tests are not a full-core build')
     def test_complete_core_read_from_environment(self):
         source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_text(encoding='utf-8')

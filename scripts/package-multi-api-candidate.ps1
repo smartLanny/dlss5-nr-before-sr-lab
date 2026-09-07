@@ -83,12 +83,10 @@ try {
     $Packages = New-Object 'System.Collections.Generic.List[object]'
     foreach ($Addon in $Addons) {
         $Package = Join-Path $Temporary $Addon.BaseName
-        New-Item -ItemType Directory -Path (Join-Path $Package 'defaults') -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $Package 'validation') -Force | Out-Null
         Copy-Item -LiteralPath $Addon.FullName -Destination $Package
         Copy-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll') -Destination $Package
         Copy-Item -LiteralPath (Join-Path $Build $CarrierLeaf) -Destination $Package
-        Copy-Item -LiteralPath (Join-Path $CoreBuild 'nr_before_sr.ini') -Destination (Join-Path $Package 'defaults')
         Copy-Item -LiteralPath (Join-Path $Stage 'source-manifest.json') -Destination $Package
         Copy-Item -LiteralPath (Join-Path $Build 'validation.json') -Destination $Package
         Copy-Item -LiteralPath $PostLog -Destination (Join-Path $Package 'validation/post-scaled-work-stdout.txt')
@@ -104,7 +102,7 @@ Version: $Version
 Exact source: $Commit
 Install only ONE language core and its matching $CarrierLeaf companion.
 Do not stack generic Feeder/RenoDX NR owners or an older lab carrier.
-Keep your existing nr_before_sr.ini. The supplied defaults/INI is opt-in only.
+Keep your existing nr_before_sr.ini. This OTA does not contain a replacement INI.
 This package does not install ReShade or NVIDIA/NGX/model/game binaries.
 F8 still creates one named TXT for BUG feedback; use F7 separately for pictures.
 The distribution ZIP is not the F8 feedback format.
@@ -117,7 +115,7 @@ No game files, tags or Releases were modified by the packager.
             [ordered]@{file=$_.FullName.Substring($Package.Length + 1).Replace('\','/'); sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
         })
         [IO.File]::WriteAllText((Join-Path $Package 'SHA256.json'), ($Hashes | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
-        $ZipLeaf = $Addon.BaseName + '.zip'
+        $ZipLeaf = $Addon.BaseName + '-OTA.zip'
         $Zip = Join-Path $Temporary $ZipLeaf
         Compress-Archive -Path (Join-Path $Package '*') -DestinationPath $Zip
         $Packages.Add([ordered]@{file=$ZipLeaf; sha256=(Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToLowerInvariant()})

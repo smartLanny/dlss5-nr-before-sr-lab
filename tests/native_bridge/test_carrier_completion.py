@@ -39,6 +39,7 @@ class CarrierCompletion(unittest.TestCase):
         wait=self.bridge.index('NrWaitForGpu(g_bridge.fence_progress, v_out, 500)')
         copy=self.bridge.index('nr_mirror_rect::CopyOutput<')
         self.assertLess(wait,copy)
+        self.assertNotIn('__except',extract(self.bridge,'static HRESULT SafeCreateDevice('))
         for source,signature in ((self.bridge,'static NVSDK_NGX_Result SafeEvaluateGuarded('),
                                  (self.host,'static NVSDK_NGX_Result SafeCreateFeature(')):
             body=extract(source,signature)

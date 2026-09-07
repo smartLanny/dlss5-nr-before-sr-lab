@@ -89,6 +89,8 @@ def configure(core: Path):
         abi.apply(stage)
         exposure = load('exposure_adapter', core_root / 'scripts/patch-exposure-access.py')
         exposure.apply(stage)
+        completion = load('carrier_completion', core_root / 'scripts/patch-carrier-completion.py')
+        completion.apply(stage)
     m.prepare = prepare_with_native_abi
     return m
 
@@ -161,6 +163,8 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'vulkan_native': 'disabled: submit synchronization not implemented',
         'synthetic_legacy': 'not integrated',
         'carrier_filename': CARRIER_NAME,
+        'carrier_completion': 'actual GPU progress before DX11 copyback; 500ms frame timeout quarantines resources until restart; no CPU completion signal',
+        'carrier_faults': 'NGX hardware exceptions propagate; ordinary error codes retain native fallback',
         'rr_post': 'Feature13 successful native output, known hardware depth, same NR core; not game verified',
         'post_work': '50-100 percent Npost/O; 0 disables while retaining precision; invalid requests rejected',
         'rr_linear_depth': 'not converted; native RR output retained with F8 feedback reason',

@@ -103,6 +103,13 @@ def patch_host(text):
 
 def patch_bridge(text):
     text=remove_fault_conversion(text,'static NVSDK_NGX_Result SafeEvaluateGuarded(')
+    text=edit(text,'static HRESULT SafeCreateDevice(',lambda s:once(s,
+        '''        __try { hr = fn(ad, kLevels[i], __uuidof(ID3D12Device),
+                        reinterpret_cast<void **>(out)); }
+        __except (CaptureFault(GetExceptionInformation()))
+        { *code = GetExceptionCode(); return E_FAIL; }''',
+        '''        hr = fn(ad, kLevels[i], __uuidof(ID3D12Device),
+                reinterpret_cast<void **>(out));'''))
     text=once(text,'static void BridgeDisable(const char *why)',HELPERS+'static void BridgeDisable(const char *why)')
     def disable(s):
         a=s.index('    // Before anything else.')

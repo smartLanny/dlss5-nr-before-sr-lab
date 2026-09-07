@@ -22,6 +22,8 @@ carrier's FreeLibrary branch removes hooks but does not release these mirrors.
 NGX initialization, parameter allocation, Create and Evaluate no longer convert
 hardware exceptions into ordinary errors. Ordinary returned statuses remain
 unchanged; read-only diagnostic probes retain their own exception guards.
+The D3D12 device-creation call also propagates hardware faults, while ordinary
+HRESULT failure still allows the existing feature-level fallback sequence.
 
 Focused verification uses the actual staged function bodies. Set
 `CARRIER_COMPLETION_SOURCE` to the final canonical stage,
