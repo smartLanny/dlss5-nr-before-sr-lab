@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('multi_prepare', ROOT/'scripts/prepare-multi-api-beta.py')
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
+PUBLISH_STAGE=m.load("publish_fixture", ROOT/"scripts/prepare-native-bridge.py").publish_stage
 NAMES = ('return Equal(name, L"dlss5-native-carrier-045-exp3.addon64") ||\n'
          '        Equal(name, L"dlss5-native-carrier-multiapi-dev3.addon64") ||\n'
          '        Equal(name, L"dlss5-native-carrier-045-dx11-compat.addon64");')
@@ -85,7 +86,7 @@ class Staging(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); out=root/'output'
             with patch.object(m,'git',side_effect=fake_git), \
-                 patch.object(m,'configure',return_value=SimpleNamespace(prepare=fixture, legacy=SimpleNamespace(publish_stage=m.load('publish_fixture', ROOT/'scripts/prepare-native-bridge.py').publish_stage))), \
+                 patch.object(m,'configure',return_value=SimpleNamespace(prepare=fixture, legacy=SimpleNamespace(publish_stage=PUBLISH_STAGE))), \
                  patch.object(m,'finalize',side_effect=ValueError('late failure')):
                 with self.assertRaisesRegex(ValueError,'late failure'):
                     m.prepare(root/'core',root/'upstream',out)
@@ -96,7 +97,7 @@ class Staging(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); out=root/'output'
             with patch.object(m,'git',side_effect=fake_git), \
-                 patch.object(m,'configure',return_value=SimpleNamespace(prepare=fixture, legacy=SimpleNamespace(publish_stage=m.load('publish_fixture', ROOT/'scripts/prepare-native-bridge.py').publish_stage))):
+                 patch.object(m,'configure',return_value=SimpleNamespace(prepare=fixture, legacy=SimpleNamespace(publish_stage=PUBLISH_STAGE))):
                 m.prepare(root/'core',root/'upstream',out)
             self.assertEqual(list(root.iterdir()),[out])
             manifest=json.loads((out/'source-manifest.json').read_text(encoding='utf-8'))
