@@ -1,10 +1,11 @@
 param(
     [Parameter(Mandatory = $true)][string]$ToolchainRoot,
-    [Parameter(Mandatory = $true)][string]$ReShadeSourceRoot
+    [Parameter(Mandatory = $true)][string]$ReShadeSourceRoot,
+    [string]$SourceRoot = (Split-Path -Parent $PSScriptRoot)
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$root = Split-Path -Parent $PSScriptRoot
+$root = (Resolve-Path -LiteralPath $SourceRoot).Path
 $compiler = Join-Path (Resolve-Path -LiteralPath $ToolchainRoot).Path 'bin\x86_64-w64-mingw32-clang++.exe'
 $reshade = (Resolve-Path -LiteralPath $ReShadeSourceRoot).Path
 $output = Join-Path $root 'build\analysis'

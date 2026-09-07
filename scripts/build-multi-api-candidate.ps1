@@ -99,6 +99,8 @@ try {
     & (Join-Path $PSScriptRoot 'validate-command-state-gpu.ps1') -ToolchainRoot $Toolchain
     & (Join-Path $PSScriptRoot 'validate-command-state-gpu.ps1') -ToolchainRoot $Toolchain -BlendStateNegativeControl
     $Checks.Add('command-state WARP including actual blend restore and wrong-blend negative control')
+    & (Join-Path $PSScriptRoot 'validate-static-analysis.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -SourceRoot (Join-Path $Stage 'core')
+    $Checks.Add('actual staged bilingual core and nrchain LLVM static analysis: zero diagnostics')
     & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade
     $Checks.Add('staged bilingual core + nrchain compilation and link')
     $CarrierRoot = Join-Path $Stage 'carrier/src'
