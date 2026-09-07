@@ -1,0 +1,39 @@
+name: Publish 0.4.5 fix1
+
+on:
+  push:
+    branches: [fix/045-flicker-input-targets]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    uses: ./.github/workflows/followup-validate.yml
+
+  publish:
+    needs: validate
+    if: github.repository == 'smartLanny/dlss5-nr-before-sr-lab' && github.ref == 'refs/heads/fix/045-flicker-input-targets'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-beta045-fix1
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: beta045-fix1-ota
+          path: ota
+      - name: Check evidence bytes, release payload negatives and exact source
+        run: |
+          python3 -m unittest discover -s tests -p test_evidence_checkout.py -v
+          python3 -m unittest discover -s tests -p test_045_ota.py -v
+          python3 scripts/package-045.py --verify-dir ota
+      - name: Publish two verified assets without replacing historical tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish-045-fix1.py
