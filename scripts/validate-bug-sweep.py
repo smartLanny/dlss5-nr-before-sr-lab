@@ -152,6 +152,9 @@ bool SliderFloat(const char *, float *value, float lo, float hi, const char *) {
 }
 void TextDisabled(const char *, ...) {}
 }
+bool SettingsSliderFloat(const char *label, const char *, float *value, float lo, float hi, const char *format) {
+    return ImGui::SliderFloat(label, value, lo, hi, format);
+}
 bool DrawFaceControls(ChainConfig &next, bool chinese) {
     bool changed = false;
     const auto ui = [chinese](const char *en, const char *zh) { return chinese ? zh : en; };

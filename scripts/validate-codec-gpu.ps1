@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -6,7 +6,8 @@ if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) {
     throw 'Provide -ToolchainRoot or set DLSS5_LLVM_MINGW_ROOT.'
 }
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$source = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_before_sr.cpp') -Raw -Encoding UTF8
+if ([string]::IsNullOrWhiteSpace($SourceRoot)) { $SourceRoot = $projectRoot }
+$source = Get-Content -LiteralPath (Join-Path $SourceRoot 'src\nr_before_sr.cpp') -Raw -Encoding UTF8
 $harness = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\codec_gpu_harness.cpp.in') -Raw -Encoding UTF8
 $shader = [regex]::Match($source, 'const char kCodecShader\[\] = R"HLSL\([\s\S]*?\)HLSL";')
 $constants = [regex]::Match($source, 'struct CodecConstants \{[\s\S]*?\n\};')
@@ -21,7 +22,7 @@ $layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_co
 $harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
 $harness = $harness.Replace('// @PRODUCTION_CONSTANTS@', $constants.Value)
 $harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_CONSTANTS@', $descriptors.Value)
-$writer = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_codec_descriptors.inl') -Raw -Encoding UTF8
+$writer = Get-Content -LiteralPath (Join-Path $SourceRoot 'src\nr_codec_descriptors.inl') -Raw -Encoding UTF8
 $writerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\codec_descriptors_gpu.inl') -Raw -Encoding UTF8
 $statsCount = [regex]::Match($source, 'constexpr unsigned int kDiagnosticStatsUintCount = \d+;')
 if (!$statsCount.Success -or !$source.Contains('WritePostSrSnapshotDescriptors(device, slot);')) {
@@ -37,7 +38,7 @@ foreach ($entry in @(
 )) {
     $name = $entry[0]
     if ($writer.Contains($name + '(')) {
-        $helperPath = Join-Path $projectRoot ('src\interop\' + $entry[1])
+        $helperPath = Join-Path $SourceRoot ('src\interop\' + $entry[1])
         $helperText = Get-Content -LiteralPath $helperPath -Raw -Encoding UTF8
         $pattern = '(?ms)^DXGI_FORMAT ' + [regex]::Escape($name) + '\([^{}]*\)\s*\{.*?^\}'
         $definitions = [regex]::Matches($helperText, $pattern)

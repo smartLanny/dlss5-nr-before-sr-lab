@@ -124,6 +124,18 @@ try {
     & (Join-Path $PSScriptRoot 'validate-command-state-gpu.ps1') -ToolchainRoot $Toolchain
     & (Join-Path $PSScriptRoot 'validate-command-state-gpu.ps1') -ToolchainRoot $Toolchain -BlendStateNegativeControl
     $Checks.Add('command-state WARP including actual blend restore and wrong-blend negative control')
+    foreach ($ResearchGate in @('validate-beta05-boost.py', 'validate-layered-composite.py', 'validate-050-stability.py', 'validate-bug-sweep.py')) {
+        & python (Join-Path $PSScriptRoot $ResearchGate) --compiler $Cxx
+        if ($LASTEXITCODE) { throw "0.5 research regression failed: $ResearchGate" }
+        $Checks.Add("0.5 research: $ResearchGate")
+    }
+    & python (Join-Path $PSScriptRoot 'validate-050-stability.py') --compiler $Cxx --negative-control
+    if ($LASTEXITCODE) { throw '0.5 frozen picture negative control failed.' }
+    $Checks.Add('0.5 frozen picture serialization negative control')
+    & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core')
+    & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -NegativeControl
+    & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -LayerNegativeControl
+    $Checks.Add('0.5 actual generated HLSL WARP high-strength/layered/maintenance lighting, 35-root ABI and independent negative controls')
     & (Join-Path $PSScriptRoot 'validate-static-analysis.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -SourceRoot (Join-Path $Stage 'core')
     $Checks.Add('actual staged bilingual core and nrchain LLVM static analysis: zero diagnostics')
     & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade

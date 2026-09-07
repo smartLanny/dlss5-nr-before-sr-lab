@@ -66,3 +66,7 @@ jobs:
   strength-cap:
     if: contains(fromJSON('["main","release/0.4"]'), github.base_ref)
     uses: ./.github/workflows/strength-cap-validate.yml
+
+  research-050:
+    if: github.base_ref == 'next/0.5'
+    uses: ./.github/workflows/beta050-validate.yml
