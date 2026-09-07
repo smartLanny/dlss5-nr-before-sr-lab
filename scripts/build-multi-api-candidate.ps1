@@ -89,11 +89,16 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-rr-retirement.py') --compiler $Cxx --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --negative-control
     if ($LASTEXITCODE) { throw 'RR historical leak control failed.' }
     $Checks.Add('actual staged RR Release hooks: 54 scenarios and historical leak negative control')
-    foreach ($Script in @('validate-picture-budget.py', 'validate-command-creation.py', 'validate-reset-notification-gap.py')) {
+    foreach ($Script in @('validate-picture-budget.py', 'validate-command-creation.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py', 'validate-recommended-picture.py')) {
         & python (Join-Path $PSScriptRoot $Script) --compiler $Cxx
         if ($LASTEXITCODE) { throw "Production regression failed: $Script" }
         $Checks.Add($Script)
     }
+    & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain
+    $Checks.Add('native command state, observed blend history, 64KiB worker and stack gate')
+    & (Join-Path $PSScriptRoot 'validate-command-state-gpu.ps1') -ToolchainRoot $Toolchain
+    & (Join-Path $PSScriptRoot 'validate-command-state-gpu.ps1') -ToolchainRoot $Toolchain -BlendStateNegativeControl
+    $Checks.Add('command-state WARP including actual blend restore and wrong-blend negative control')
     & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade
     $Checks.Add('staged bilingual core + nrchain compilation and link')
     $CarrierRoot = Join-Path $Stage 'carrier/src'
