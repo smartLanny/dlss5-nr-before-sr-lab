@@ -39,12 +39,18 @@ class RecoverySourceTests(unittest.TestCase):
         self.assertLess(frame.index('CanPrepareFrame()'), frame.index('get_texture_binding('))
         self.assertLess(frame.index('CanPrepareFrame()'), frame.index('copy_resource('))
         self.assertIn('FeatureMissingForMode() && !nr_external_provider_client::ShouldDisableFeederNr()', frame)
-        self.assertIn('external_delegated = EndCommands() != 0;', frame)
+        self.assertIn('const UINT64 submitted = EndCommands();', frame)
+        self.assertIn('nr_external_provider_completion::Wait(g.fence12, g.fence_event,', frame)
+        self.assertIn('external_delegated = submitted != 0 &&', frame)
         self.assertIn('feed_in.epoch = nr_external_resource_epoch;', frame)
         self.assertNotIn('__has_include', patched)
         # All Vk/GL/D3D11 frame implementations remain byte-for-byte unchanged.
         old_tail = original[original.index('static void FeedFrameVk('):]
         self.assertEqual(patched[end:], old_tail)
+        release = patched[patched.index('static bool ReleaseFrameResources()'):]
+        self.assertLess(release.index('if (!DrainGpu()) return false;'),
+                        release.index('nr_external_provider_client::Release();'))
+        self.assertIn('if (!ReleaseFrameResources()) return;', patched)
         with self.assertRaises(ValueError):
             transform.patch_feed_cpp(patched)
 

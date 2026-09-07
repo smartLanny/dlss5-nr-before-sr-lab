@@ -29,6 +29,7 @@ PRODUCER_INCLUDES = (
     '#if 1 // staged provider build: missing headers must fail compilation\n'
     '#include "nr_external_provider_producer.h"\n'
     '#include "nr_external_provider_feeder_map.h"\n'
+    '#include "nr_external_provider_completion.h"\n'
     '#define NR_FEED_EXTERNAL_PROVIDER 1\n'
     '#endif\n'
 )
@@ -173,7 +174,16 @@ REPLACEMENT = r'''                Breadcrumb("running the same-device evaluate")
                         nr_external_provider_client::Submit(ext_frame, ext_result) &&
                         ext_result.writeback_performed)
                     {
-                        external_delegated = EndCommands() != 0;
+                        const UINT64 submitted = EndCommands();
+                        external_delegated = submitted != 0 &&
+                            nr_external_provider_completion::Wait(g.fence12, g.fence_event,
+                                submitted, static_cast<DWORD>(g_cfg.gpu_timeout_ms)) ==
+                                nr_external_provider_completion::Result::Complete;
+                        if (submitted && !external_delegated)
+                        {
+                            nr_external_gpu_quarantined = true;
+                            FeedDisable("external NR completion unconfirmed; retaining resources and original frame");
+                        }
                         re = external_delegated ? static_cast<NVSDK_NGX_Result>(0x1) : NVSDK_NGX_Result_Fail;
                     }
                     else
@@ -245,6 +255,75 @@ def assert_feeder_commit(feeder_root: Path) -> str:
     return actual
 
 
+def patch_completion(text: str) -> str:
+    """Harden the shared queue lifetime without changing legacy frame adapters."""
+    def once(old, new):
+        nonlocal text
+        if text.count(old) != 1:
+            raise ValueError(f'Feeder completion anchor changed: {old[:80]!r}')
+        text = text.replace(old, new, 1)
+    once('static bool BeginCommands()\n{\n',
+         'static bool nr_external_gpu_quarantined = false;\n'
+         'static bool BeginCommands()\n{\n'
+         '    if (nr_external_gpu_quarantined) return false;\n')
+    once('    g.queue->Signal(g.fence12, v);\n    CK("queue Signal(fence12)");',
+         '    const HRESULT signaled = g.queue->Signal(g.fence12, v);\n'
+         '    if (FAILED(signaled))\n'
+         '    {\n'
+         '        g.alloc_fence[g.frame_slot] = v;\n'
+         '        nr_external_gpu_quarantined = true;\n'
+         '        FeedDisable("queue Signal failed; submitted resources retained");\n'
+         '        return 0;\n'
+         '    }\n'
+         '    CK("queue Signal(fence12)");')
+    start = text.index('static void DrainGpu()\n{\n')
+    end = text.index('\n}\n', start) + 3
+    text = text[:start] + '''static bool DrainGpu()
+{
+    if (g.queue == nullptr || g.fence12 == nullptr) return !nr_external_gpu_quarantined;
+    const UINT64 v = ++g.fence_value;
+    const auto result = nr_external_provider_completion::SignalAndWait(
+        g.queue, g.fence12, g.fence_event, v, 5000);
+    if (result != nr_external_provider_completion::Result::Complete)
+    {
+        nr_external_gpu_quarantined = true;
+        FeedDisable("queue drain unconfirmed; resources and allocator fences retained");
+        return false;
+    }
+    nr_external_gpu_quarantined = false;
+    for (int i = 0; i < Feed::kFrames; ++i) g.alloc_fence[i] = 0;
+    return true;
+}
+''' + text[end:]
+    once('static void ReleaseFrameResources()\n{\n', 'static bool ReleaseFrameResources()\n{\n')
+    once('    DrainGpu();\n    FeedVkProbeRelease();',
+         '    if (!DrainGpu()) return false;\n'
+         '    ++nr_external_resource_epoch;\n'
+         '    nr_external_provider_client::Release();\n'
+         '    FeedVkProbeRelease();')
+    once('    g.frame_ready = false;\n}\n\n// One texture visible',
+         '    g.frame_ready = false;\n    return true;\n}\n\n// One texture visible')
+    # Drain before replacing the old feature, so a failed drain cannot lose its handle.
+    once('static bool RecreateFeatureOnly(UINT w, UINT h)\n{\n',
+         'static bool RecreateFeatureOnly(UINT w, UINT h)\n{\n'
+         '    if (!DrainGpu()) return false;\n')
+    once('        DrainGpu();  // the old feature\'s last evaluate may still be in flight\n', '')
+    # Each resource constructor has one initial teardown, plus harmless cleanup
+    # calls on error paths that already immediately return false.
+    for name in ('BuildResources', 'BuildResources12', 'BuildResourcesVk', 'BuildResourcesGl'):
+        start = text.index('static bool ' + name + '(')
+        at = text.index('    ReleaseFrameResources();', start)
+        text = text[:at] + text[at:].replace('    ReleaseFrameResources();',
+              '    if (!ReleaseFrameResources()) return false;', 1)
+    once('static void ShutdownSession()\n{\n    ReleaseFrameResources();',
+         'static void ShutdownSession()\n{\n    if (!ReleaseFrameResources()) return;')
+    for name in ('InitSession', 'InitSession12', 'InitSessionVk', 'InitSessionGl'):
+        start = text.index('static bool ' + name + '(')
+        at = text.index('\n{\n', start) + 3
+        text = text[:at] + '    if (nr_external_gpu_quarantined) return false;\n' + text[at:]
+    return text
+
+
 def patch_feed_cpp(text: str) -> str:
     if text.count(INCLUDES_ANCHOR) != 1:
         raise ValueError('Feeder feed_ngx include anchor missing or duplicated')
@@ -309,10 +388,8 @@ def patch_feed_cpp(text: str) -> str:
     if text.count(release_anchor) != 1:
         raise ValueError('resource teardown anchor changed')
     text = text.replace(release_anchor,
-        'static std::uint64_t nr_external_resource_epoch = 1;\n' + release_anchor +
-        '    ++nr_external_resource_epoch;\n'
-        '    nr_external_provider_client::Release();\n', 1)
-    return text
+        'static std::uint64_t nr_external_resource_epoch = 1;\n' + release_anchor, 1)
+    return patch_completion(text)
 
 
 def stage_feeder(feeder_root: Path, output: Path, producer_headers: Path) -> dict:
@@ -351,6 +428,7 @@ def stage_feeder(feeder_root: Path, output: Path, producer_headers: Path) -> dic
         'nr_external_provider_abi.h',
         'nr_external_provider_producer.h',
         'nr_external_provider_feeder_map.h',
+        'nr_external_provider_completion.h',
     ):
         src = producer_headers / name
         if not src.is_file():
