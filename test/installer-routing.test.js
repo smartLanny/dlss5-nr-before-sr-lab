@@ -145,7 +145,8 @@ test('ReShade case-sensitive keys stay untouched and the fixed carrier registrat
   const ineffective =
     `[addon]\nDisabledAddons=@${INSTALLED_NAMES.carrier}\n` +
     `[ADDON]\ndisabledaddons=@${INSTALLED_NAMES.carrier}\n` +
-    `[ADDON]\nDisabledAddons=@${INSTALLED_NAMES.carrier.toUpperCase()}\n`;
+    `[ADDON]\nDisabledAddons=@${INSTALLED_NAMES.carrier.toUpperCase()}\n` +
+    `[ADDON]\nDisabledAddons=@${INSTALLED_NAMES.carrier} ,Other, DLSS 5 Bridge 1.4.12\n`;
   fs.writeFileSync(reshadeIni, ineffective);
   const installed = await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   assert.equal(installed.complete, true, 'lowercase section/key do not disable an add-on in ReShade');

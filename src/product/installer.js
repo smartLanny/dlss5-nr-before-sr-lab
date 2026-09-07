@@ -190,7 +190,7 @@ function createInstaller(overrides = {}) {
 
   function editCarrierDisabled(text, remove = false) {
     const carrierFile = path.basename(INSTALLED_NAMES.carrier);
-    // Fixed paired carrier source contract; do not load an add-on to discover it.
+    // Fixed 28aed409 paired carrier NAME export; do not load an add-on to discover it.
     const carrierRegisteredName = 'DLSS 5 Bridge 1.4.12';
     let section = '';
     let found = false;
@@ -207,10 +207,14 @@ function createInstaller(overrides = {}) {
       if (section !== 'ADDON') return line;
       const match = line.match(/^([ \t]*DisabledAddons[ \t]*=[ \t]*)(.*?)(\r?)$/);
       if (!match) return line;
-      const items = splitDisabledAddons(match[2]);
+      // ReShade trims the complete value before splitting it. Spaces inside
+      // comma-separated elements remain part of the name or filename.
+      const valueEnd = match[2].search(/[ \t]*$/);
+      const valueTail = match[2].slice(valueEnd);
+      const items = splitDisabledAddons(match[2].slice(0, valueEnd));
       let lineChanged = false;
       const kept = items.filter(item => {
-        const value = item.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
+        const value = item;
         if (value === carrierRegisteredName) {
           found = true;
           nameOnly = true;
@@ -224,7 +228,7 @@ function createInstaller(overrides = {}) {
         if (remove) { changed = true; lineChanged = true; }
         return !remove;
       });
-      return lineChanged ? `${match[1]}${kept.join(',')}${match[3]}` : line;
+      return lineChanged ? `${match[1]}${kept.join(',')}${valueTail}${match[3]}` : line;
     });
     return { found, nameOnly, changed, text: lines.join('\n') };
   }
