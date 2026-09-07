@@ -12,9 +12,10 @@
 2. 只有在游戏卡片里明确选择新版本并点击“应用版本”，才会真正切换。
    应用完成后右侧“Addon 版本”会按游戏目录中的实际记录显示，不再显示旧版本或版本不一致。
 
-3. 标准 OTA 如果包含 nr-before-sr.zh-CN.addon64 和 nrchain_nvngx.dll，
-   两个文件会作为配套更新一起导入、备份和应用。INI、ReShade、AI Runtime、
-   游戏自带 nvngx_dlss.dll / nvngx_dlssg.dll 不会被 OTA 覆盖。
+3. 内置 0.4.5-DX11-兼容增强只使用中文核心，并把匹配的核心、nrchain 和
+   DX11 carrier 作为一组校验、备份和应用。INI、ReShade、AI Runtime、
+   游戏自带 nvngx_dlss.dll / nvngx_dlssg.dll 不会被覆盖；旧核心和旧 carrier
+   会移出并备份，不能与新版叠加。
 
 4. 应用安装、修复或版本切换时不再重复扫描游戏库，减少卡顿；旧的异步诊断结果
    也不会覆盖新结果。
@@ -45,7 +46,7 @@
 保存“安装失败反馈日志”，把生成的 TXT 完整发给维护者。请同时说明：游戏名称、实际 EXE、
 选择的 Addon/OTA 版本、显卡型号、是否检测到反作弊，以及问题发生在安装、切换还是启动阶段。
 
-当前 beta 不绕过反作弊，也不会删除反作弊文件。遇到 DX11 兼容测试问题，请在群里联系 @群RBQ 提交报告。
+兼容范围为已有原生或模组 DLSS 的 DX11-x64 游戏，以及 D3D12 原生 SR 与已知硬件深度 RR。无 DLSS/Feeder、Vulkan、DX9/DX10/OpenGL 和 x86 Legacy 不在支持范围。当前 beta 不绕过反作弊，也不会删除反作弊文件。
 
 【DXGI / D3D12 入口提示】
 

@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { PAYLOAD_FILES } = require('../src/product/constants');
+const { PAYLOAD_FILES, DX11_COMPAT_VERSION, DX11_COMPAT_LABEL, DX11_COMPAT_CARRIER } = require('../src/product/constants');
 const { createBundle, createVariantsBundle, createVersionedBundle, createCompactBundle, inspectPayload, requirePayload } = require('../src/product/payload');
 
 test('requires every payload file and detects tampering', () => {
@@ -78,4 +78,36 @@ test('shares fixed runtime files while switching only the versioned addon and co
   assert.equal(inspected.ready, true);
   assert.match(requirePayload(dir, 'RTX40', '0.4.4test').addon.file, /versions[\\/]0\.4\.4test[\\/]/);
   assert.match(requirePayload(dir, 'RTX40', '0.4.4test').runtime.file, /fixed[\\/]RTX40[\\/]/);
+});
+
+test('0.4.5 compatibility entry owns its matched bridge and carrier', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-payload-dx11-compat-'));
+  for (const family of ['RTX40', 'RTX50']) {
+    const fixed = path.join(dir, 'fixed', family);
+    fs.mkdirSync(fixed, { recursive: true });
+    for (const name of ['ReShade64.dll', 'nrchain_nvngx.dll', 'nvngx_dlssnr.dll']) {
+      fs.writeFileSync(path.join(fixed, name), `fixed:${family}:${name}`);
+    }
+  }
+  for (const version of ['0.3.3.5', DX11_COMPAT_VERSION]) {
+    const versionDir = path.join(dir, 'versions', version);
+    fs.mkdirSync(versionDir, { recursive: true });
+    fs.writeFileSync(path.join(versionDir, PAYLOAD_FILES.addon), `${version}:addon`);
+    fs.writeFileSync(path.join(versionDir, PAYLOAD_FILES.config), `${version}:config`);
+  }
+  const compatDir = path.join(dir, 'versions', DX11_COMPAT_VERSION);
+  fs.writeFileSync(path.join(compatDir, PAYLOAD_FILES.bridge), 'matched:bridge');
+  fs.writeFileSync(path.join(compatDir, DX11_COMPAT_CARRIER), 'matched:carrier');
+  const bundle = createCompactBundle(dir, [
+    { id: '0.3.3.5', label: '0.3.3.5' },
+    { id: DX11_COMPAT_VERSION, label: DX11_COMPAT_LABEL, compatibility: 'dx11' }
+  ], '0.3.3.5');
+  fs.writeFileSync(path.join(dir, 'bundle.json'), JSON.stringify(bundle));
+
+  const stable = requirePayload(dir, 'RTX40', '0.3.3.5');
+  const compat = requirePayload(dir, 'RTX40', DX11_COMPAT_VERSION);
+  assert.match(stable.bridge.file, /fixed[\\/]RTX40[\\/]nrchain_nvngx\.dll$/);
+  assert.match(compat.bridge.file, /versions[\\/]0\.4\.5-ota[\\/]nrchain_nvngx\.dll$/);
+  assert.equal(compat.carrier.name, DX11_COMPAT_CARRIER);
+  assert.equal(compat.versionInfo.label, DX11_COMPAT_LABEL);
 });

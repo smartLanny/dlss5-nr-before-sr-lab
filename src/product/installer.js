@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { INSTALLED_NAMES, DX11_COMPAT_VERSION } = require('./constants');
 const { appError } = require('./errors');
-const { assess } = require('./game-support');
+const { assess, isDx11Only } = require('./game-support');
 const { sha256 } = require('./payload');
 const { scanConflicts, moveConflicts, restoreConflicts } = require('./conflicts');
 const {
@@ -113,6 +113,15 @@ function createInstaller(overrides = {}) {
     manifest.updatedAt = new Date().toISOString();
   }
 
+  async function retireManagedCarriers(gameDir, manifest, keepTarget = null) {
+    const keep = keepTarget ? path.normalize(path.relative(gameDir, keepTarget)).toLowerCase() : null;
+    const obsolete = manifest.files.filter(row => row.kind === 'carrier' &&
+      (!keep || path.normalize(row.rel).toLowerCase() !== keep));
+    for (const row of obsolete) {
+      await removeManaged(gameDir, manifest, path.join(gameDir, row.rel), 'carrier');
+    }
+  }
+
   async function saveManifest(gameDir, manifest) {
     const file = manifestPath(gameDir);
     await journal.capture(gameDir, file);
@@ -131,6 +140,7 @@ function createInstaller(overrides = {}) {
     if (!payload || !payload.addon || !payload.bridge || !payload.runtime || !payload.config || !payload.reshade) {
       throw appError('ERR_PAYLOAD_MISSING');
     }
+    if (isDx11Only(scan.chosen) && !payload.carrier) throw appError('ERR_PAYLOAD_MISSING', { file: INSTALLED_NAMES.carrier });
     for (const kind of ['reshade', 'addon', 'bridge', 'runtime']) {
       if (pe.getBitness(payload[kind].file) !== 64) {
         throw appError('ERR_PAYLOAD_HASH', { file: payload[kind].name, reason: 'not-x64' });
@@ -166,6 +176,12 @@ function createInstaller(overrides = {}) {
         if (existingProxyConflict(exeDir, reshade)) throw appError('ERR_RESHADER_CONFLICT');
         if (reshade.installed && !reshade.addonSupport) throw appError('ERR_RESHADER_NO_ADDON');
 
+        // Retire a carrier managed under an older filename first. If that
+        // restores a pre-existing carrier, the conflict pass below moves it
+        // aside before the matched compatibility set is installed.
+        const carrierTarget = installedFile(exeDir, 'carrier');
+        await retireManagedCarriers(gameDir, manifest, payload.carrier ? carrierTarget : null);
+
         // Move only known DLSS/NR/NGX add-ons into a reversible manager backup.
         // ReShade itself, game DLSS DLLs and ordinary RenoDX add-ons are never
         // part of this list.
@@ -189,9 +205,9 @@ function createInstaller(overrides = {}) {
 
         if (payload.carrier) {
           await writeManaged(gameDir, manifest, payload.carrier.file,
-            installedFile(exeDir, 'carrier'), 'carrier');
+            carrierTarget, 'carrier');
         } else {
-          await removeManaged(gameDir, manifest, installedFile(exeDir, 'carrier'), 'carrier');
+          await removeManaged(gameDir, manifest, carrierTarget, 'carrier');
         }
 
         const configTarget = installedFile(exeDir, 'config');
@@ -253,8 +269,10 @@ function createInstaller(overrides = {}) {
       detail: reshade.installed && !reshade.addonSupport ? '已安装，但不支持 Add-on' : null
     });
 
-    const managedAddon = manifest && manifest.files.find(row => row.kind === 'addon');
-    const activeConflicts = scanConflicts(gameDir, { exclude: managedAddon ? [managedAddon.rel] : [] });
+    const managedAddons = manifest
+      ? manifest.files.filter(row => row.kind === 'addon' || row.kind === 'carrier').map(row => row.rel)
+      : [];
+    const activeConflicts = scanConflicts(gameDir, { exclude: managedAddons });
     const savedConflicts = manifest && Array.isArray(manifest.conflicts) ? manifest.conflicts : [];
     components.push({
       key: 'conflicts', label: '冲突 Addon',
@@ -275,7 +293,7 @@ function createInstaller(overrides = {}) {
     }
 
     const kinds = ['addon', 'bridge', 'runtime', 'config'];
-    if (manifest && manifest.files.some(row => row.kind === 'carrier')) kinds.splice(2, 0, 'carrier');
+    if (isDx11Only(scan && scan.chosen) || (manifest && manifest.files.some(row => row.kind === 'carrier'))) kinds.splice(2, 0, 'carrier');
     for (const kind of kinds) {
       const file = installedFile(exeDir, kind);
       const exists = fs.existsSync(file);
@@ -356,6 +374,7 @@ function createInstaller(overrides = {}) {
       (!addon.compatibility && manifest.payloadVersion === DX11_COMPAT_VERSION);
     const support = assess(scan, { allowDx11 });
     if (!support.supported) throw appError(support.code);
+    if (isDx11Only(scan.chosen)) throw appError('ERR_PAYLOAD_MISSING', { file: INSTALLED_NAMES.carrier });
     const exePath = scan.chosen && scan.chosen.path
       ? scan.chosen.path
       : path.join(gameDir, manifest.game.exe);
@@ -370,6 +389,7 @@ function createInstaller(overrides = {}) {
     return journal.transaction(gameDir, async () => {
       const movedConflicts = [];
       try {
+        await retireManagedCarriers(gameDir, manifest);
         const found = await moveConflicts(gameDir, manifest.installId, {
           exclude: manifest.files.map(row => row.rel)
         });
@@ -380,7 +400,6 @@ function createInstaller(overrides = {}) {
           await writeManaged(gameDir, manifest, addon.bridgeFile,
             installedFile(exeDir, 'bridge'), 'bridge');
         }
-        await removeManaged(gameDir, manifest, path.join(exeDir, INSTALLED_NAMES.carrier), 'carrier');
         manifest.payloadVersion = version || addon.id || null;
         manifest.updatedAt = new Date().toISOString();
         await saveManifest(gameDir, manifest);

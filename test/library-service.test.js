@@ -145,7 +145,7 @@ test('DX11 games stay installable when a remembered DX12 test version is selecte
     manualGames: [root], manualExecutables: [], gameOverrides: {}, addonVersion: '0.4.1-r2'
   });
   assert.equal(rows[0].supported, true);
-  assert.equal(rows[0].recommendedAddonVersion, '0.4.2-dx11-native-bridge-exp1-r1');
+  assert.equal(rows[0].recommendedAddonVersion, '0.4.5-ota');
 });
 
 test('a small real game executable is still recommended when the folder and name are strong signals', async () => {

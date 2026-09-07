@@ -47,8 +47,9 @@ npm start
   -ReShadeAddonRuntime D:\reshade\ReShade64.dll
 ```
 
-脚本会复制必要文件并生成 SHA-256 `bundle.json`；正式分发包将每个显卡族的固定 DLL 只携带一份，RTX 20/30/40 共用 RTX40 兼容组件，版本切换主要替换 addon 和配置。发行包默认使用 `0.3.3.5` 稳定槽，标准 DX12 测试槽只保留 `Beta0.4.5.2`。DX11 游戏在默认状态下会自动选择单独的 Beta0.4.2 兼容测试槽（内部 ID 仍为 `0.4.2-dx11-native-bridge-exp1-r1`）；它可能无法工作或影响启动，遇到问题请进群联系 `@群RBQ` 提交报告。内置版本包括历史
-`0.2.0-beta.2`（2K27 兼容候选）、`0.3.3.5`、`Beta0.4.5.2` 标准 OTA 更新槽和 `Beta0.4.2` DX11 兼容测试槽。0.4.x 共用显卡族固定 `nrchain_nvngx.dll`；标准 OTA 会验证包内 Addon、chain、文件大小和 SHA-256，应用时同时替换包内提供的 Addon 与配套 chain，并保留 INI、ReShade、Runtime 及游戏自带 DLSS。
+脚本会复制必要文件并生成 SHA-256 `bundle.json`。管理器自身版本为 `0.4.5`；新版内置 Addon 的公共名称是 `0.4.5-DX11-兼容增强`，两者分开显示。内部 ID 继续使用 `0.4.5-ota`，因此直接替换旧 0.4.5 选择；纯 DX11 游戏也解析到这一统一槽，不再静默安装旧 0.4.2 载荷。
+
+该槽只包含中文核心，并使用版本目录中的匹配 `nrchain_nvngx.dll` 与 `dlss5-native-carrier-045-dx11-compat.addon64`。它支持已有原生或模组 DLSS 的 DX11-x64 游戏，并保留 D3D12 SR/RR 路线；不包含无 DLSS/Feeder、Vulkan 或 Legacy 支持。安装保留 INI、ReShade、Runtime 和游戏自带 DLSS，并会移出旧核心与旧 carrier。历史 `0.2.0-beta.2` 和 `0.3.3.5` 仍可独立选择。
 
 ## 用户路径
 

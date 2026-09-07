@@ -19,12 +19,12 @@ test('an explicit version apply overrides the existing game lock', () => {
   }), 'imported-new-ota');
 });
 
-test('DX11-only games keep their dedicated compatibility version', () => {
+test('DX11-only games resolve to the unified 0.4.5 compatibility replacement', () => {
   assert.equal(resolveVersion({
     game: { addonVersion: '0.3.3.4' },
     requestedVersion: '0.4.5',
     globalVersion: '0.4.1-r2',
-    dx11Version: 'dx11',
+    dx11Version: '0.4.5-ota',
     dx11Only: true
-  }), 'dx11');
+  }), '0.4.5-ota');
 });

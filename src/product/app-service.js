@@ -57,10 +57,10 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
   }
 
   function selectedVersionForGame(game, requestedVersion = null) {
-    // A pure DX11 game must use the separately packaged experimental carrier
-    // even when the user previously selected a DX12 test slot globally. The
-    // global selector remains the default for DX12 games; it must not make a
-    // DX11 game look unsupported just because settings.json is remembered.
+    // Pure DX11 games use the unified 0.4.5 compatibility payload even when a
+    // different historical slot is selected globally. That payload also owns
+    // the D3D12 routes, so the public catalog has one 0.4.5 entry rather than a
+    // second experimental DX11 version.
     return resolveVersion({
       game,
       requestedVersion,

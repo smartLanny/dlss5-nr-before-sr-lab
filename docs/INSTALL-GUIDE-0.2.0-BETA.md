@@ -40,9 +40,10 @@ Steam 游戏的图片会自动按以下顺序处理：本机 Steam `library_600x
 
 - `0.2.0-beta.2`：从历史 `v0.2.0-beta.2` 源码隔离构建的 legacy addon，作为《NBA 2K27》等反馈中“0.2 可用、0.3 不兼容”的首选兼容性候选；
 
-- `Beta0.4.5.2`（内部 ID `0.4.5-ota`）：当前唯一的 Beta0.4 标准 OTA 更新槽。它会验证 `ota-manifest.json`、每个文件大小和 SHA-256；如果 OTA 包含配套 `nrchain_nvngx.dll`，应用时会和 Addon 一起替换，保留当前 INI、ReShade、Runtime 和游戏自带 DLSS；仅支持 D3D12，不含 DX11；
+- `0.4.5-DX11-兼容增强`（内部 ID `0.4.5-ota`，机器版本 `beta0.4.5-dx11-compat`）：直接替换旧 0.4.5 槽。只包含中文核心，并成套校验和安装匹配的核心、`nrchain_nvngx.dll` 与 carrier；已有 INI、ReShade、Runtime 和游戏自带 DLSS 保持不变；
 - `0.3.3.5`：默认稳定版槽；本地现有的 0.3.3 legacy addon 与配置，用于日常安装和兼容性基线。当前工作区没有找到身份明确为 `0.3.3.4` 的二进制，因此没有冒充命名。
-- `Beta0.4.2 · DX11 前置兼容测试`（内部 ID `0.4.2-dx11-native-bridge-exp1-r1`）：打开 DX11 游戏时的默认推荐槽，只针对 DX11 原生/模组 DLSS 游戏；可能无法工作或影响启动，遇到问题请进群联系 `@群RBQ` 并提交报告。DX12/Vulkan 不使用此槽。
+
+新版 0.4.5 支持已有原生或模组 DLSS 的 DX11-x64 游戏，同时保留 D3D12 原生 SR 与已知硬件深度 RR 路线。不支持任意无 DLSS 游戏、Feeder、Vulkan、DX9/DX10/OpenGL 或 x86 Legacy。安装前会移出旧核心和旧 carrier，不能叠加混装。
 
 选择版本后，点击游戏卡片的“应用版本”或“一键修复”就会替换对应 addon。替换前会自动产生 `.bak`，并记录版本信息，方便反复切换和卸载恢复。0.4.x 内置槽共用当前显卡族的一套固定 ReShade/Bridge/Runtime，其中包含 `nrchain_nvngx.dll`；导入标准 OTA 时会校验包内同名 chain，包内带 chain 时会和 Addon 一起更新，INI、ReShade、Runtime 和游戏自带 DLSS 保留。DX11 兼容槽会额外管理 native carrier addon，切换回其他版本时自动恢复/移除它。
 

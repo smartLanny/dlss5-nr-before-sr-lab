@@ -84,7 +84,7 @@
         <div class="panel addon-intro">
           <div>
             <h3>插件版本管理</h3>
-            <p>内置版本用于完整安装；推荐导入标准 OTA 压缩包（也支持单独 .addon64）。OTA 会校验清单，只替换 Addon，保留 INI、ReShade、Bridge、Runtime 和游戏自带 DLSS，适合退出游戏后快速升级或做 A/B 对比。</p>
+            <p>内置版本用于完整安装。0.4.5-DX11-兼容增强会成套安装中文核心、匹配的 nrchain 和 DX11 carrier，同时保留现有 INI、ReShade、Runtime 与游戏自带 DLSS；不要叠加旧核心或旧 carrier。导入普通 OTA 或单独 .addon64 仍用于退出游戏后的版本对比。</p>
           </div>
           <div class="addon-drop" id="addonDropZone">把标准 OTA .zip 或 .addon64 拖到这里</div>
           <div class="config-actions addon-actions"><button class="button primary" id="importAddonBtn">选择 OTA / addon 文件</button></div>
@@ -100,7 +100,7 @@
             <article class="addon-guide-card"><span class="addon-guide-version">0.3</span><h4>让 NR→SR 更稳定</h4><p>仍是“NR → 游戏原生 SR”，但迁移 NR 效果的过程更稳。</p><small>NR 处理 1440p；最终放大到 4K 由游戏原生 SR 负责。</small><b>NR→SR 开始真正工程化、稳定化。</b></article>
             <article class="addon-guide-card featured"><span class="addon-guide-version">Beta0.4</span><h4>NR 可以单独用更低分辨率</h4><p>游戏保留 1440p → 额外缩一份 1080p 给 NR → AI 修改贴回 1440p → 游戏原生 SR → 4K。</p><small>NR 实际处理 1080p，和游戏自己的渲染分辨率解耦。</small><b>核心飞跃：降低 NR 成本，同时保留游戏原生超分。</b></article>
           </div>
-          <p class="addon-guide-footer">简单选择建议：日常先用 <strong>0.3.3.5 默认稳定版</strong>；想测试低分 NR，再切换标明为 <strong>Beta0.4</strong> 的测试版；DX11 游戏请使用单独标明的 Beta0.4 DX11 实验槽。RenoDX、OptiScaler NR 低分版、DLSS5-AIO 属于不同处理路线，不要把版本号直接横向等同。</p>
+          <p class="addon-guide-footer">简单选择建议：历史游戏仍可选择保留的旧版本；新版统一选择 <strong>0.4.5-DX11-兼容增强</strong>。它支持已有原生或模组 DLSS 的 DX11-x64 游戏，也保留 D3D12 SR/RR 路线；不支持无 DLSS 游戏、Feeder、Vulkan、DX9/DX10/OpenGL 或 x86 Legacy。</p>
         </div>
         <div class="panel">
           <div class="addon-list-head"><h3>可用版本</h3><span class="muted" id="addonListHint"></span></div>

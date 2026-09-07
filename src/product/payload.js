@@ -3,12 +3,12 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { PAYLOAD_FILES } = require('./constants');
+const { PAYLOAD_FILES, DX11_COMPAT_CARRIER } = require('./constants');
 const { FAMILIES } = require('./gpu');
 const { appError } = require('./errors');
 
 const OPTIONAL_PAYLOAD_FILES = Object.freeze({
-  carrier: 'dlss5-native-carrier-exp1.addon64'
+  carrier: DX11_COMPAT_CARRIER
 });
 
 function sha256(file) {
@@ -97,7 +97,9 @@ function inspectCompactVersion(root, id, entry, fixed) {
     const expected = { ...fixedExpected, ...versionExpected };
     const files = inspectFilesAt('', expected, {
       reshade: path.join(fixedDir, PAYLOAD_FILES.reshade),
-      bridge: path.join(fixedDir, PAYLOAD_FILES.bridge),
+      bridge: entry && entry.files && entry.files[PAYLOAD_FILES.bridge]
+        ? path.join(versionDir, PAYLOAD_FILES.bridge)
+        : path.join(fixedDir, PAYLOAD_FILES.bridge),
       runtime: path.join(fixedDir, PAYLOAD_FILES.runtime),
       addon: path.join(versionDir, PAYLOAD_FILES.addon),
       config: path.join(versionDir, PAYLOAD_FILES.config)
@@ -273,6 +275,8 @@ function createCompactBundle(dir, entries, defaultVersion) {
       if (!fs.existsSync(file)) throw appError('ERR_PAYLOAD_MISSING', { file: `versions/${id}/${name}` });
       files[name] = sha256(file);
     }
+    const bridge = path.join(base, PAYLOAD_FILES.bridge);
+    if (fs.existsSync(bridge)) files[PAYLOAD_FILES.bridge] = sha256(bridge);
     const carrier = path.join(base, OPTIONAL_PAYLOAD_FILES.carrier);
     if (fs.existsSync(carrier)) files[OPTIONAL_PAYLOAD_FILES.carrier] = sha256(carrier);
     return [id, { label: entry.label || id, notes: entry.notes || '', source: entry.source || '', compatibility: entry.compatibility || null, ota: Boolean(entry.ota), files }];

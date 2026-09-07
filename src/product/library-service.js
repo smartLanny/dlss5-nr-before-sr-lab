@@ -430,8 +430,8 @@ function createLibraryService(overrides = {}) {
           scanError: error && error.message ? error.message : 'scan failed'
         };
       }
-      // DX11 has its own experimental carrier slot. A remembered global
-      // DX12/0.4 test selection must not make a DX11 game appear unsupported;
+      // Pure DX11 uses the unified 0.4.5 compatibility payload. A remembered
+      // historical selection must not hide an otherwise eligible DX11 game;
       // the actual payload choice is normalized per game in app-service.
       const allowDx11 = isDx11Only(scan.chosen) ||
         !state.addonVersion || state.addonVersion === DX11_COMPAT_VERSION;

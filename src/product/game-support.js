@@ -8,10 +8,9 @@ function isDx11Only(chosen) {
 function apiSupported(chosen, options = {}) {
   if (!chosen) return false;
   const label = String(chosen.apiLabel || '');
-  // The stable NR addon path is validated for DX12 only. A Unity title that
-  // exposes both runtime backends is acceptable because it carries explicit
-  // DX12 evidence; DX11 is enabled only when the caller selected the
-  // separately packaged experimental carrier slot.
+  // D3D12 remains supported by the ordinary core path. Pure DX11 is admitted
+  // only for the compatibility payload and still requires an existing native
+  // or mod-provided nvngx_dlss.dll; this is not a no-DLSS/Feeder route.
   return chosen.api === 'dxgi' && (/DirectX\s*12/i.test(label) || chosen.dx12 === true ||
     (options.allowDx11 === true && isDx11Only(chosen)));
 }
