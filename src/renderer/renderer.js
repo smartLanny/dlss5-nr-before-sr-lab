@@ -174,9 +174,9 @@ function renderVersionSelector() {
   renderPayloadNotice(removedSelection);
 }
 
-function versionOptionsMarkup(selected = state.payload && state.payload.selectedVersion) {
+function versionOptionsMarkup(selected = state.payload && state.payload.selectedVersion, includeImported = true) {
   const versions = state.payload && state.payload.versions ? Object.entries(state.payload.versions).map(([id, item]) => [id, item]) : [];
-  const imported = (state.addons || []).filter(item => item.addonOnly).map(item => [item.id, item]);
+  const imported = includeImported ? (state.addons || []).filter(item => item.addonOnly).map(item => [item.id, item]) : [];
   const all = [...versions, ...imported];
   if (!all.length) return '<option value="">当前组件</option>';
   return all.map(([id, item]) => `<option value="${escapeHtml(id)}"${id === selected ? ' selected' : ''}>${escapeHtml(item.label || id)}${item.addonOnly ? '（导入）' : ''}</option>`).join('');
@@ -218,18 +218,40 @@ function cardAction(game) {
   if (game.installed) return `<button class="button primary launch-btn">启动游戏</button><button class="button subtle card-open">设置</button>${dismiss}`;
   if (game.supported && payloadReadyForHardware()) return `<button class="button primary install-btn">一键安装</button>${dismiss}`;
   if (game.supported) return `<button class="button" disabled>安装组件未准备</button>${dismiss}`;
+  if (game.supportCode === 'ERR_API_SELECTION_REQUIRED') return `<button class="button subtle">请选择游戏 API</button>${dismiss}`;
   return `<button class="button" disabled>无法安装</button>${dismiss}`;
+}
+
+function apiControls(game) {
+  if (!game.chosen) return '';
+  const resolution = game.chosen.apiResolution || {};
+  const labels = { dx11: 'DirectX 11', dx12: 'DirectX 12', mixed: '多条 API 线索，待选择', unknown: 'API 未确认', unsupported: '当前路线不支持' };
+  const selected = game.apiOverride || 'auto';
+  const options = [['auto', '自动（综合证据）'], ['dx11', 'DirectX 11'], ['dx12', 'DirectX 12']]
+    .map(([id, label]) => `<option value="${id}"${id === selected ? ' selected' : ''}>${label}</option>`).join('');
+  const deployment = resolution.api === 'dx11' ? '需要兼容核心、配套 nrchain 和 DX11 carrier。'
+    : resolution.api === 'dx12' ? '安装所选核心和 nrchain，移出并备份旧 DX11 carrier。'
+    : '请按游戏启动设置确认 API，再安装或修复。';
+  return `<div class="config-block"><h4>游戏 API 与部署</h4><div class="control-row"><label>实际启动 API</label><select class="game-api-select">${options}</select><button class="button subtle api-save-btn">保存 API</button></div><p>${escapeHtml(labels[resolution.api] || 'API 未确认')} · ${escapeHtml(deployment)}</p><p class="config-note">保存选择后，点击安装、修复或应用版本才会调整组件。此选择不修改游戏的启动参数。</p><p class="config-note">${escapeHtml((resolution.evidence || []).join('；'))}</p></div>`;
+}
+
+function gameApiLabel(chosen) {
+  const resolution = chosen && chosen.apiResolution;
+  if (!resolution) return chosen && chosen.apiLabel || 'API 未确认';
+  const labels = { dx11: 'DirectX 11', dx12: 'DirectX 12', mixed: 'API 混合线索', unknown: 'API 待确认', unsupported: '不支持的 API' };
+  return `${labels[resolution.api] || 'API 待确认'}${resolution.source === 'override' ? '（已指定）' : ''}`;
 }
 
 function gameDetail(game) {
   if (!game.installed) {
     const title = game.supported ? '已检测到可用的普通 DLSS 游戏' : '当前不满足基础版安装条件';
     const detail = game.supported
-      ? (payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可以直接一键安装。` : '兼容性已通过；请确认显卡型号并准备对应组件。')
+      ? (payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可以直接一键安装。` : '安装前检查已通过；请确认显卡型号并准备对应组件。')
       : game.supportText;
-    return `<div class="game-detail"><div class="config-block"><h4>${escapeHtml(title)}</h4><p>${escapeHtml(detail)}</p><div class="path-line">${escapeHtml(game.dir)}</div></div></div>`;
+    return `<div class="game-detail">${apiControls(game)}<div class="config-block"><h4>${escapeHtml(title)}</h4><p>${escapeHtml(detail)}</p><div class="control-row"><label>核心版本</label><select class="game-version-select">${versionOptionsMarkup(game.recommendedAddonVersion || (state.payload && state.payload.selectedVersion), false)}</select></div><div class="path-line">${escapeHtml(game.dir)}</div></div></div>`;
   }
   return `<div class="game-detail" data-game-detail="${game.id}">
+    ${apiControls(game)}
     <div class="config-grid">
       <div class="config-block">
         <h4>常用设置</h4>
@@ -254,7 +276,7 @@ function renderGames() {
   $('gameList').innerHTML = rows.map(game => `<article class="game-card${state.expanded === game.id ? ' expanded' : ''}" data-id="${game.id}">
     <div class="game-card-head">
       ${poster(game)}
-      <div class="game-meta"><div class="game-title"><h3>${escapeHtml(game.name)}</h3>${supportBadge(game)}</div><p>${escapeHtml(game.launcher)} · ${escapeHtml(game.chosen ? `${game.chosen.apiLabel} / ${game.chosen.bitness} 位` : game.supportText)}</p></div>
+      <div class="game-meta"><div class="game-title"><h3>${escapeHtml(game.name)}</h3>${supportBadge(game)}</div><p>${escapeHtml(game.launcher)} · ${escapeHtml(game.chosen ? `${gameApiLabel(game.chosen)} / ${game.chosen.bitness} 位` : game.supportText)}</p></div>
       <div class="card-action">${cardAction(game)}<span class="expand-arrow">⌄</span></div>
     </div>
     ${gameDetail(game)}
@@ -299,7 +321,12 @@ function bindGameCards() {
       renderGames();
     };
     const install = card.querySelector('.install-btn');
-    if (install) install.onclick = event => { event.stopPropagation(); runConfirmedAction(allowAntiCheat => window.manager.install(id, { allowAntiCheat }), '安装完成', true, id); };
+    if (install) install.onclick = event => { event.stopPropagation(); const version = card.querySelector('.game-version-select')?.value; runConfirmedAction(allowAntiCheat => window.manager.install(id, { allowAntiCheat, version }), '安装完成', true, id); };
+    const saveApi = card.querySelector('.api-save-btn');
+    if (saveApi) saveApi.onclick = event => {
+      event.stopPropagation();
+      runAction(() => window.manager.setGameApi(id, card.querySelector('.game-api-select').value), 'API 选择已保存，请安装或修复以应用组件路线', true, id);
+    };
     const launch = card.querySelector('.launch-btn');
     if (launch) launch.onclick = event => { event.stopPropagation(); runAction(() => window.manager.launch(id), '游戏已启动', false); };
     const dismiss = card.querySelector('.dismiss-game-btn');
@@ -325,8 +352,6 @@ function bindGameCards() {
       const imported = (state.addons || []).find(item => item.id === version && item.addonOnly);
       runConfirmedAction(async allowAntiCheat => {
         if (imported) return window.manager.upgradeAddon(id, version, { allowAntiCheat });
-        state.settings = unwrap(await window.manager.updateSettings({ addonVersion: version }));
-        refreshSelectedPayload(version);
         return window.manager.repair(id, { allowAntiCheat, version });
       }, `已切换到 ${version}`, true, id);
     };

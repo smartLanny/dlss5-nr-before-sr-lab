@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { PRODUCT, DX11_COMPAT_VERSION } = require('./constants');
-const { isDx11Only } = require('./game-support');
+const { isDx11Only, classifyApi } = require('./game-support');
 const { createStore } = require('./state-store');
 const { createLibraryService } = require('./library-service');
 const { createInstaller } = require('./installer');
@@ -12,16 +12,17 @@ const { readConfig, writeConfig, defaultPatch } = require('./nr-config');
 const { readReShadeHotkey, writeReShadeHotkey } = require('./hotkeys');
 const { readManifest } = require('./manifest');
 const { appError, normalizeError } = require('./errors');
-const { detectGpu } = require('./gpu');
+const { detectGpu: readGpu } = require('./gpu');
 const { createArtService } = require('./art-service');
 const { readOtaPackage } = require('./ota');
 const { createFeedbackCollector } = require('./feedback');
 const { resolveVersion } = require('./version-selection');
 
-function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }) {
+function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', overrides = {} }) {
   const store = createStore(path.join(userData, 'settings.json'));
-  const library = createLibraryService();
-  const installer = createInstaller();
+  const library = overrides.library || createLibraryService();
+  const installer = overrides.installer || createInstaller();
+  const detectGpu = overrides.detectGpu || readGpu;
   const artService = createArtService({ userData });
   const feedback = createFeedbackCollector({ userData, productVersion: version });
   const payloadDir = payloadRoot(fs.existsSync(path.join(resourcesPath || '', 'payload')) ? resourcesPath : appDir);
@@ -32,7 +33,6 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
   // Keep internal IDs stable while presenting public 0.4 releases as Beta0.4.
   const displayVersionLabel = value => typeof value === 'string'
     ? value.replace(/\bbeta(?=0\.4(?:\.|\D|$))/ig, 'Beta')
-      .replace(/Beta0\.4\.5(?:[- ]?fix2|\.2)?/ig, 'Beta0.4.5.2')
     : value;
 
   const pathKey = value => path.resolve(value).toLowerCase();
@@ -57,10 +57,8 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
   }
 
   function selectedVersionForGame(game, requestedVersion = null) {
-    // Pure DX11 games use the unified 0.4.5 compatibility payload even when a
-    // different historical slot is selected globally. That payload also owns
-    // the D3D12 routes, so the public catalog has one 0.4.5 entry rather than a
-    // second experimental DX11 version.
+    // API chooses the deployment route; it does not override an explicit core
+    // selection. The compatibility bundle is only a default recommendation.
     return resolveVersion({
       game,
       requestedVersion,
@@ -71,7 +69,11 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
   }
 
   function selectedPayload(game, requestedVersion = null) {
-    return requirePayload(payloadDir, (hardware = detectGpu()).family, selectedVersionForGame(game, requestedVersion));
+    const version = selectedVersionForGame(game, requestedVersion);
+    if (/^imported-/i.test(version || '')) throw appError('ERR_ADDON_NOT_FOUND', { reason: 'Install a bundled base before applying an imported update.' });
+    const result = requirePayload(payloadDir, (hardware = detectGpu()).family, version);
+    if (requestedVersion && result.version !== requestedVersion) throw appError('ERR_ADDON_NOT_FOUND');
+    return result;
   }
 
   function importedAddon(version) {
@@ -87,7 +89,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
         id: version,
         label: displayVersionLabel(meta.label || version),
         notes: meta.kind === 'ota'
-          ? `标准 OTA 更新包；替换配套 Addon${fs.existsSync(path.join(dir, 'nrchain_nvngx.dll')) ? ' 与 Bridge' : ''}，保留 INI、ReShade、Runtime 和游戏自带 DLSS。${meta.instructions ? ' 包内说明和反馈脚本已保留。' : ''}`
+          ? `OTA 更新包；替换配套核心与 nrchain，DX11 路线使用包内配套 carrier，DX12 路线不部署 carrier。保留 INI、ReShade、Runtime 和游戏自带 DLSS。`
           : '仅替换 Addon；保留当前已安装的 ReShade、Bridge、Runtime 和配置。',
         source: 'imported',
         addonOnly: true,
@@ -99,6 +101,11 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
         bridgeFile: fs.existsSync(path.join(dir, 'nrchain_nvngx.dll'))
           ? path.join(dir, 'nrchain_nvngx.dll')
           : null,
+        carrierFile: meta.carrierName && path.basename(meta.carrierName) === meta.carrierName && fs.existsSync(path.join(dir, meta.carrierName))
+          ? path.join(dir, meta.carrierName) : null,
+        addonSha256: meta.addonSha256 || (meta.kind !== 'ota' ? meta.sha256 : null),
+        bridgeSha256: meta.bridgeSha256 || (meta.otaManifest && meta.otaManifest.bridgeSha256) || null,
+        carrierSha256: meta.carrierSha256 || null,
         importedAt: meta.importedAt || null,
         sourceName: meta.sourceName || path.basename(addonFile)
       };
@@ -144,6 +151,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
     const family = (hardware = detectGpu()).family;
     const version = selectedVersionForGame(game, requestedVersion);
     const imported = importedAddon(version);
+    if (/^imported-/i.test(version || '') && !imported) throw appError('ERR_ADDON_NOT_FOUND');
     if (!imported) {
       const payload = inspectPayload(payloadDir, {
         allowMissingBundle: true,
@@ -168,17 +176,20 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
     });
     const importedAddonHash = sha256(imported.file);
     const importedBridgeHash = imported.bridgeFile ? sha256(imported.bridgeFile) : null;
+    const importedCarrierHash = imported.carrierFile ? sha256(imported.carrierFile) : null;
     const files = (base.files || []).map(row => {
       if (row.kind === 'addon') {
-        return { ...row, file: imported.file, actual: importedAddonHash, expected: importedAddonHash, exists: true, valid: true };
+        return { ...row, file: imported.file, actual: importedAddonHash, expected: imported.addonSha256 || importedAddonHash, exists: true, valid: !imported.addonSha256 || importedAddonHash === imported.addonSha256 };
       }
       if (row.kind === 'bridge' && importedBridgeHash) {
         return { ...row, file: imported.bridgeFile, actual: importedBridgeHash, expected: importedBridgeHash, exists: true, valid: true };
       }
       return { ...row, expected: null, valid: row.exists };
     });
+    if (importedCarrierHash) files.push({ kind: 'carrier', name: path.basename(imported.carrierFile), file: imported.carrierFile,
+      actual: importedCarrierHash, expected: imported.carrierSha256 || importedCarrierHash, exists: true, valid: !imported.carrierSha256 || importedCarrierHash === imported.carrierSha256 });
     return {
-      payload: { ...base, files, selectedVersion: imported.id },
+      payload: { ...base, files, selectedVersion: imported.id, versionInfo: { compatibility: imported.compatibility } },
       payloadVersion: imported.id,
       payloadVersionLabel: imported.label
     };
@@ -249,8 +260,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
     const gameOverrides = { ...state.gameOverrides };
     const name = typeof selection.name === 'string' ? selection.name.trim().slice(0, 160) : '';
     const icon = typeof selection.icon === 'string' && selection.icon.length <= 1024 * 1024 ? selection.icon : null;
-    if (name || icon) gameOverrides[pathKey(root)] = { name, icon };
-    else delete gameOverrides[pathKey(root)];
+    gameOverrides[pathKey(root)] = { ...gameOverrides[pathKey(root)], name, icon };
       await store.write({
         manualGames: [...state.manualGames, root],
         manualExecutables,
@@ -344,6 +354,17 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
       }
       return store.write(patch);
     },
+    setGameApi: async (id, api) => {
+      if (!['auto', 'dx11', 'dx12'].includes(api)) throw appError('ERR_BAD_REQUEST');
+      const game = findGame(id);
+      if (!game.scan || !game.scan.chosen) throw appError('ERR_NO_GAME_EXE');
+      const state = store.read();
+      const key = pathKey(game.dir);
+      await store.write({ gameOverrides: { ...state.gameOverrides,
+        [key]: { ...state.gameOverrides[key], api, apiExecutable: game.scan.chosen.path } } });
+      // An API choice changes the next deployment, never game files by itself.
+      return refresh();
+    },
     listAddonVersions,
     importAddonFile: async file => {
       if (typeof file !== 'string' || !path.isAbsolute(file) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
@@ -359,22 +380,27 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
         await fs.promises.mkdir(dir, { recursive: true });
         await fs.promises.writeFile(path.join(dir, 'nr-before-sr.zh-CN.addon64'), ota.addon);
         if (ota.bridge) await fs.promises.writeFile(path.join(dir, 'nrchain_nvngx.dll'), ota.bridge);
+        if (ota.carrier) await fs.promises.writeFile(path.join(dir, ota.carrierName), ota.carrier);
         await fs.promises.copyFile(file, path.join(dir, 'ota-package.zip'));
         if (ota.instructions) await fs.promises.writeFile(path.join(dir, 'Instructions.txt'), ota.instructions, 'utf8');
         await fs.promises.writeFile(path.join(dir, 'meta.json'), JSON.stringify({
           id,
           kind: 'ota',
-          label: `${ota.manifest.version || 'OTA'}（标准 OTA 更新包）`,
+          label: ota.manifest.display_version || ota.manifest.version || 'OTA',
           sourceName: path.basename(file),
           importedAt: new Date().toISOString(),
           sha256: digest,
-          compatibility: 'dx12',
+          compatibility: ota.compatibility || 'dx12',
+          addonSha256: ota.addonSha256,
+          bridgeSha256: ota.bridgeSha256,
+          carrierName: ota.carrierName || null,
+          carrierSha256: ota.carrierSha256 || null,
           otaManifest: {
-            schema: ota.manifest.schema,
+            schema: ota.manifest.schema || 'nr-compact-compatibility',
             version: ota.manifest.version || null,
-            sourceCommit: ota.manifest.sourceCommit || null,
-            api: ota.manifest.api || null,
-            includesDx11: ota.manifest.includesDx11 === true,
+            sourceCommit: ota.manifest.sourceCommit || ota.manifest.source_commit || null,
+            api: ota.manifest.api || (ota.compatibility === 'dx11' ? 'DX11/D3D12-x64' : null),
+            includesDx11: ota.compatibility === 'dx11',
             bridgeSha256: ota.bridgeSha256
           },
           instructions: Boolean(ota.instructions)
@@ -414,7 +440,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
     },
     install: async (id, options = {}) => {
       const game = findGame(id);
-      const payload = selectedPayload(game);
+      const payload = selectedPayload(game, options && typeof options.version === 'string' ? options.version : null);
       const result = await installer.install({ gameDir: game.dir, payload, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
       return result;
     },
@@ -423,6 +449,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
       const requestedVersion = options && typeof options.version === 'string' ? options.version : null;
       const version = selectedVersionForGame(game, requestedVersion);
       const imported = importedAddon(version);
+      if (/^imported-/i.test(version || '') && !imported) throw appError('ERR_ADDON_NOT_FOUND');
       if (imported) {
         const result = await installer.upgradeAddon({ gameDir: game.dir, addon: imported, version: imported.id, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
         return result;
@@ -446,6 +473,11 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
     launch: async id => {
       const game = findGame(id);
       if (!game.scan || !game.scan.chosen || !game.scan.chosen.path) throw appError('ERR_NO_GAME_EXE');
+      if (game.installed) {
+        const diagnostic = await installer.diagnose({ gameDir: game.dir, scan: game.scan });
+        if (['mixed', 'unknown'].includes(classifyApi(game.scan.chosen))) throw appError('ERR_API_SELECTION_REQUIRED');
+        if (diagnostic.routeMismatch) throw appError('ERR_API_ROUTE_PENDING');
+      }
       const exe = game.scan.chosen.path;
       if (typeof exe !== 'string' || !path.isAbsolute(exe) || path.extname(exe).toLowerCase() !== '.exe') throw appError('ERR_NO_GAME_EXE');
       const { spawn } = require('child_process');
@@ -466,6 +498,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
       const inspected = inspectGamePayload(game);
       const payload = inspected.payload;
       const mapped = Object.fromEntries(payload.files.map(row => [row.kind, row]));
+      mapped.versionInfo = payload.versionInfo || (payload.versions && payload.versions[payload.selectedVersion]);
       return installer.diagnose({
         gameDir: game.dir,
         payload: mapped,
@@ -483,6 +516,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0' }
         const inspected = inspectGamePayload(game);
         payload = inspected.payload;
         const mapped = Object.fromEntries(payload.files.map(row => [row.kind, row]));
+        mapped.versionInfo = payload.versionInfo || (payload.versions && payload.versions[payload.selectedVersion]);
         diagnostic = await installer.diagnose({
           gameDir: game.dir,
           payload: mapped,

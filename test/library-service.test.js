@@ -119,7 +119,7 @@ test('keeps an explicitly selected executable even when heuristics omit it', asy
   }
 });
 
-test('DX11 games stay installable when a remembered DX12 test version is selected', async () => {
+test('static DX11 waits for an EXE-bound API choice and preserves explicit core selection', async () => {
   const root = absRoot('Dx11Example');
   const executable = path.join(root, 'Binaries', 'Win64', 'Dx11Example.exe');
   const scan = {
@@ -140,12 +140,20 @@ test('DX11 games stay installable when a remembered DX12 test version is selecte
     scan,
     library: { discover: () => ({ games: [], roots: [] }), dedupe: rows => rows }
   });
-  const rows = await library.scanAll({
+  const state = {
     scanFolders: [], scanDrives: false, excludedRoots: [], excludedGames: [],
     manualGames: [root], manualExecutables: [], gameOverrides: {}, addonVersion: '0.4.1-r2'
-  });
-  assert.equal(rows[0].supported, true);
-  assert.equal(rows[0].recommendedAddonVersion, '0.4.5-ota');
+  };
+  const rows = await library.scanAll(state);
+  assert.equal(rows[0].supported, false);
+  assert.equal(rows[0].supportCode, 'ERR_API_SELECTION_REQUIRED');
+  state.gameOverrides[root.toLowerCase()] = { api: 'dx11', apiExecutable: executable };
+  const selected = await library.scanAll(state);
+  assert.equal(selected[0].supported, true);
+  assert.equal(selected[0].recommendedAddonVersion, null);
+  assert.equal(selected[0].chosen.apiResolution.api, 'dx11');
+  state.gameOverrides[root.toLowerCase()].apiExecutable = path.join(root, 'Other.exe');
+  assert.equal((await library.scanAll(state))[0].supported, false, 'override never follows a different EXE');
 });
 
 test('a small real game executable is still recommended when the folder and name are strong signals', async () => {

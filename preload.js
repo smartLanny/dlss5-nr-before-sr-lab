@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('manager', Object.freeze({
   repair: (id, options) => invoke('game-repair', id, options),
   upgradeAddon: (id, version, options) => invoke('game-upgrade-addon', id, version, options),
   dismissGame: id => invoke('game-dismiss', id),
+  setGameApi: (id, api) => invoke('game-api-set', id, api),
   toggleD3D12: (id, enabled, options) => invoke('game-toggle-d3d12', id, enabled, options),
   uninstall: (id, removeSettings = false) => invoke('game-uninstall', id, removeSettings),
   diagnose: id => invoke('game-diagnose', id),

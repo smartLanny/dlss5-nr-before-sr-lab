@@ -5,6 +5,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { pathToFileURL } = require('url');
 const { assess, isDx11Only } = require('./game-support');
+const { annotateApi } = require('./api-evidence');
+const { createLaunchContext } = require('./launch-evidence');
 const { DX11_COMPAT_VERSION } = require('./constants');
 const { readManifest } = require('./manifest');
 const { MESSAGES } = require('./errors');
@@ -372,6 +374,7 @@ function createLibraryService(overrides = {}) {
   }
 
   async function scanAll(state) {
+    const launchContext = createLaunchContext();
     const discovered = library.discover(
       state.scanFolders || [],
       state.scanDrives === true,
@@ -430,6 +433,10 @@ function createLibraryService(overrides = {}) {
           scanError: error && error.message ? error.message : 'scan failed'
         };
       }
+      const override = state.gameOverrides && state.gameOverrides[path.resolve(game.dir).toLowerCase()];
+      const apiOverride = override && override.apiExecutable && scan.chosen &&
+        samePath(override.apiExecutable, scan.chosen.path) ? override.api : 'auto';
+      scan = annotateApi(scan, game.dir, { ...launchContext(game), apiOverride });
       // Pure DX11 uses the unified 0.4.5 compatibility payload. A remembered
       // historical selection must not hide an otherwise eligible DX11 game;
       // the actual payload choice is normalized per game in app-service.
@@ -438,7 +445,6 @@ function createLibraryService(overrides = {}) {
       const support = assess(scan, { allowDx11 });
       let manifest = null;
       try { manifest = readManifest(game.dir); } catch {}
-      const override = state.gameOverrides && state.gameOverrides[path.resolve(game.dir).toLowerCase()];
       return {
         id: idFor(game.dir),
         name: (override && override.name) || game.name || scan.gameName || path.basename(game.dir),
@@ -452,14 +458,17 @@ function createLibraryService(overrides = {}) {
           rel: scan.chosen.rel,
           api: scan.chosen.api,
           apiLabel: scan.chosen.apiLabel,
+          apiResolution: scan.chosen.apiResolution,
+          via: scan.chosen.via || null,
           bitness: scan.chosen.bitness
         } : null,
         supported: support.supported,
         supportCode: support.code,
         supportText: support.code ? MESSAGES[support.code] : '支持安装',
         installed: Boolean(manifest),
+        apiOverride: ['dx11', 'dx12'].includes(apiOverride) ? apiOverride : 'auto',
         addonVersion: manifest && manifest.payloadVersion ? manifest.payloadVersion : null,
-        recommendedAddonVersion: !manifest && isDx11Only(scan.chosen) ? DX11_COMPAT_VERSION : null,
+        recommendedAddonVersion: !manifest && !state.addonVersion && isDx11Only(scan.chosen) ? DX11_COMPAT_VERSION : null,
         d3d12Route: Boolean(manifest && manifest.reshadeRoute === 'd3d12'),
         scan
       };

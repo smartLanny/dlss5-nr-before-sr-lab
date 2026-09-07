@@ -113,6 +113,7 @@ function registerIpc() {
   call('game-repair', (id, options) => service.repair(id, options));
   call('game-upgrade-addon', (id, version, options) => service.upgradeAddon(id, version, options));
   call('game-dismiss', id => service.dismissGame(id));
+  call('game-api-set', (id, api) => service.setGameApi(id, api));
   call('game-toggle-d3d12', (id, enabled, options) => service.toggleD3D12(id, enabled === true, options));
   call('game-uninstall', (id, removeSettings) => service.uninstall(id, removeSettings === true));
   call('game-launch', async id => {

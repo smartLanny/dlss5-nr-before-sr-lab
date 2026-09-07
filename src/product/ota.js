@@ -6,9 +6,28 @@ const yauzl = require('yauzl');
 
 const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 128 * 1024 * 1024;
+const MAX_METADATA_BYTES = 1024 * 1024;
+const DX11_VERSION = 'beta0.4.5-dx11-compat';
+const DX11_CORE = 'dlss5-ai渲染超分版-beta0.4.5-dx11-compat-@野生的装机宅-bilibili.addon64';
+const DX11_CARRIER = 'dlss5-native-carrier-045-dx11-compat.addon64';
 
 function sha256Buffer(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function archiveName(value) {
+  const name = String(value || '').replace(/\\/g, '/');
+  const parts = name.split('/');
+  if (!name || name.startsWith('/') || /^[a-z]:/i.test(name) || /[\0-\x1f\x7f]/.test(name) ||
+      parts.some((part, index) => part === '..' || part === '.' || (!part && index !== parts.length - 1))) {
+    throw new Error('unsafe zip path');
+  }
+  return name;
+}
+
+function parseJson(bytes, label) {
+  if (!bytes || bytes.length > MAX_METADATA_BYTES) throw new Error(`${label} missing or too large`);
+  try { return JSON.parse(bytes.toString('utf8')); } catch { throw new Error(`invalid ${label}`); }
 }
 
 function readZipEntries(file) {
@@ -18,6 +37,7 @@ function readZipEntries(file) {
       const entries = new Map();
       let total = 0;
       let settled = false;
+      const names = new Set();
       const fail = reason => {
         if (settled) return;
         settled = true;
@@ -30,10 +50,15 @@ function readZipEntries(file) {
       });
       zip.on('entry', entry => {
         if (settled) return;
-        const name = String(entry.fileName || '').replace(/\\/g, '/');
-        if (!name || name.endsWith('/')) return zip.readEntry();
-        if (name.startsWith('/') || name.split('/').includes('..')) return fail(new Error('unsafe zip path'));
-        if (entry.uncompressedSize > MAX_ENTRY_BYTES || total + entry.uncompressedSize > MAX_TOTAL_BYTES) {
+        let name;
+        try { name = archiveName(entry.fileName); } catch (error) { return fail(error); }
+        const key = (name.endsWith('/') ? name.slice(0, -1) : name).toLowerCase();
+        if (names.has(key)) return fail(new Error(`duplicate zip path: ${name}`));
+        names.add(key);
+        if (name.endsWith('/')) return zip.readEntry();
+        if ((entry.generalPurposeBitFlag & 1) !== 0) return fail(new Error('encrypted zip entry'));
+        if (!Number.isSafeInteger(entry.uncompressedSize) || entry.uncompressedSize < 0 ||
+            entry.uncompressedSize > MAX_ENTRY_BYTES || total + entry.uncompressedSize > MAX_TOTAL_BYTES) {
           return fail(new Error('zip payload too large'));
         }
         zip.openReadStream(entry, (streamError, stream) => {
@@ -52,6 +77,7 @@ function readZipEntries(file) {
           stream.on('end', () => {
             if (settled) return;
             const data = Buffer.concat(chunks);
+            if (data.length !== entry.uncompressedSize) return fail(new Error(`zip entry size mismatch: ${name}`));
             total += data.length;
             entries.set(name, data);
             zip.readEntry();
@@ -63,40 +89,121 @@ function readZipEntries(file) {
   });
 }
 
+function verifyRows(entries, rows, field, metadataName, allowedUnlisted = []) {
+  if (!Array.isArray(rows) || !rows.length) throw new Error('OTA hash list missing');
+  const declared = new Map();
+  for (const row of rows) {
+    if (!row || typeof row[field] !== 'string') throw new Error('invalid OTA file record');
+    const name = archiveName(row[field]);
+    if (name.endsWith('/')) throw new Error(`invalid OTA file record: ${name}`);
+    const key = name.toLowerCase();
+    if (declared.has(key)) throw new Error(`duplicate OTA file record: ${name}`);
+    const expected = typeof row.sha256 === 'string' ? row.sha256.toLowerCase() : '';
+    if (!/^[0-9a-f]{64}$/.test(expected)) throw new Error(`invalid OTA file hash: ${name}`);
+    const data = entries.get(name);
+    if (!data) throw new Error(`OTA file missing: ${name}`);
+    if (Object.prototype.hasOwnProperty.call(row, 'bytes') &&
+        (!Number.isSafeInteger(row.bytes) || row.bytes < 0 || row.bytes !== data.length)) {
+      throw new Error(`OTA file size mismatch: ${name}`);
+    }
+    if (sha256Buffer(data) !== expected) throw new Error(`OTA file hash mismatch: ${name}`);
+    declared.set(key, { row, name, data, sha256: expected });
+  }
+  const allowed = new Set(allowedUnlisted);
+  for (const name of entries.keys()) {
+    if (name === metadataName) continue;
+    if (!declared.has(name.toLowerCase()) && !allowed.has(name)) throw new Error(`unlisted OTA file: ${name}`);
+  }
+  return [...declared.values()];
+}
+
+function exactlyOne(rows, predicate, label) {
+  const matches = rows.filter(predicate);
+  if (matches.length !== 1) throw new Error(`OTA package must contain one ${label}`);
+  return matches[0];
+}
+
+function instructionText(entries, names) {
+  const matches = names.filter(name => entries.has(name));
+  if (matches.length > 1) throw new Error('OTA package contains ambiguous instructions');
+  if (!matches.length) return '';
+  const bytes = entries.get(matches[0]);
+  if (bytes.length > MAX_METADATA_BYTES) throw new Error('OTA instructions too large');
+  return bytes.toString('utf8');
+}
+
+function result(manifest, addon, bridge, carrier, compatibility, instructions) {
+  return {
+    manifest,
+    addonName: addon.name,
+    addon: addon.data,
+    addonSha256: addon.sha256,
+    bridgeName: bridge.name,
+    bridge: bridge.data,
+    bridgeSha256: bridge.sha256,
+    carrierName: carrier ? carrier.name : null,
+    carrier: carrier ? carrier.data : null,
+    carrierSha256: carrier ? carrier.sha256 : null,
+    compatibility,
+    instructions
+  };
+}
+
+function standardPackage(entries) {
+  const manifest = parseJson(entries.get('ota-manifest.json'), 'OTA manifest');
+  if (!manifest || manifest.schema !== 'nr-branch-ota-v1' || !Array.isArray(manifest.files)) {
+    throw new Error('unsupported OTA manifest');
+  }
+  if (manifest.includesDx11 === true || !/^D3D12-x64$/i.test(String(manifest.api || ''))) {
+    throw new Error('this OTA package is not a standard DX12 OTA');
+  }
+  // Beta0.3.8 predates hashing its optional human-readable instructions.
+  // Preserve that published package without extending the exception to any
+  // executable/installable payload.
+  const legacyText = manifest.version === 'Beta0.3.8' ? ['Instructions.txt'] : [];
+  const rows = verifyRows(entries, manifest.files, 'name', 'ota-manifest.json', legacyText);
+  const addonRows = rows.filter(item => /\.addon64$/i.test(item.name));
+  const addon = exactlyOne(addonRows, item => !/^dlss5-native-carrier(?:-|_)/i.test(item.name), 'core addon64');
+  if (addonRows.length !== 1) throw new Error('OTA package contains an unexpected carrier or addon64');
+  const bridge = exactlyOne(rows, item => /^nrchain_nvngx\.dll$/i.test(item.name), 'nrchain_nvngx.dll');
+  const instructions = instructionText(entries, ['Instructions.txt']);
+  return result(manifest, addon, bridge, null, null, instructions);
+}
+
+function dx11Package(entries) {
+  const buildInfo = parseJson(entries.get('build-info.json'), 'build-info.json');
+  const hashes = parseJson(entries.get('SHA256.json'), 'SHA256.json');
+  if (!buildInfo || buildInfo.version !== DX11_VERSION || buildInfo.display_version !== '0.4.5-DX11-兼容增强' ||
+      buildInfo.language !== 'zh-CN' || buildInfo.core_pe_version !== '0.4.5.104' ||
+      typeof buildInfo.carrier_upstream_file_version !== 'string' || !buildInfo.carrier_upstream_file_version ||
+      typeof buildInfo.source_commit !== 'string' || !/^[0-9a-f]{40}$/i.test(buildInfo.source_commit) ||
+      typeof buildInfo.packaging_commit !== 'string' || !/^[0-9a-f]{40}$/i.test(buildInfo.packaging_commit)) {
+    throw new Error('unsupported DX11 OTA metadata');
+  }
+  const rows = verifyRows(entries, hashes, 'file', 'SHA256.json');
+  const addonRows = rows.filter(item => /\.addon64$/i.test(item.name));
+  const carrier = exactlyOne(addonRows, item => item.name.toLowerCase() === DX11_CARRIER, 'matched DX11 carrier');
+  const addon = exactlyOne(addonRows, item => item.name.toLowerCase() === DX11_CORE, 'published DX11 core addon64');
+  if (addonRows.length !== 2) throw new Error('OTA package contains an ambiguous addon64 role');
+  const bridge = exactlyOne(rows, item => /^nrchain_nvngx\.dll$/i.test(item.name), 'nrchain_nvngx.dll');
+  const instructions = instructionText(entries, ['安装说明.txt', 'Instructions.txt']);
+  return result(buildInfo, addon, bridge, carrier, 'dx11', instructions);
+}
+
 async function readOtaPackage(file) {
   if (typeof file !== 'string' || !/\.zip$/i.test(file) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
     throw new Error('invalid OTA package');
   }
   const entries = await readZipEntries(file);
-  const manifestBytes = entries.get('ota-manifest.json');
-  if (!manifestBytes) throw new Error('OTA manifest missing');
-  let manifest;
-  try { manifest = JSON.parse(manifestBytes.toString('utf8')); } catch { throw new Error('invalid OTA manifest'); }
-  if (!manifest || manifest.schema !== 'nr-branch-ota-v1' || !Array.isArray(manifest.files)) {
-    throw new Error('unsupported OTA manifest');
+  const standard = entries.has('ota-manifest.json');
+  const dx11 = entries.has('build-info.json') || entries.has('SHA256.json');
+  if (standard && dx11) throw new Error('ambiguous OTA metadata');
+  if (standard) return standardPackage(entries);
+  if (dx11) {
+    if (!entries.has('build-info.json') || !entries.has('SHA256.json')) throw new Error('DX11 OTA metadata missing');
+    return dx11Package(entries);
   }
-  for (const row of manifest.files) {
-    if (!row || typeof row.name !== 'string' || !entries.has(row.name)) throw new Error(`OTA file missing: ${row && row.name}`);
-    const data = entries.get(row.name);
-    if (Number(row.bytes) !== data.length || String(row.sha256).toLowerCase() !== sha256Buffer(data)) {
-      throw new Error(`OTA file hash mismatch: ${row.name}`);
-    }
-  }
-  const addonRows = manifest.files.filter(row => /\.addon64$/i.test(row.name));
-  const bridgeRow = manifest.files.find(row => /^nrchain_nvngx\.dll$/i.test(row.name));
-  if (addonRows.length !== 1 || !bridgeRow) throw new Error('OTA package must contain one addon64 and nrchain_nvngx.dll');
-  if (manifest.includesDx11 === true || !/^D3D12-x64$/i.test(String(manifest.api || ''))) {
-    throw new Error('this OTA package is not a standard DX12 OTA');
-  }
-  return {
-    manifest,
-    addonName: addonRows[0].name,
-    addon: entries.get(addonRows[0].name),
-    bridgeName: bridgeRow.name,
-    bridge: entries.get(bridgeRow.name),
-    bridgeSha256: String(bridgeRow.sha256).toLowerCase(),
-    instructions: entries.has('Instructions.txt') ? entries.get('Instructions.txt').toString('utf8') : ''
-  };
+  throw new Error('OTA manifest missing');
 }
 
 module.exports = { readOtaPackage, sha256Buffer };

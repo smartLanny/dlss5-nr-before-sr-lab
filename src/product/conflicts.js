@@ -13,6 +13,9 @@ function isProtectedName(name) {
 
 function classifyAddon(name, file) {
   const lower = name.toLowerCase();
+  if (/^(?:dlss5-native-carrier|r3-nr-native-neutral)(?:[-_.].*)?\.addon(?:32|64)?$/i.test(lower)) {
+    return { category: 'native-carrier', reason: '旧版 DX11 Native Carrier' };
+  }
   if (lower === 'renodx-dlss5.addon64') {
     return { category: 'dlss5-tool', reason: '原版 DLSS5 Tool（RHI 中显示为 DLSS5 Tool）' };
   }
@@ -84,41 +87,68 @@ function conflictBackupPath(gameDir, installId, rel, index = 0) {
 
 async function moveConflicts(gameDir, installId, options = {}) {
   const moved = [];
-  for (const conflict of scanConflicts(gameDir, options)) {
-    if (!fs.existsSync(conflict.source)) continue;
-    let destination = conflictBackupPath(gameDir, installId, conflict.rel);
-    let index = 0;
-    while (fs.existsSync(destination)) {
-      index += 1;
-      destination = conflictBackupPath(gameDir, installId, conflict.rel, index);
+  const rename = options.rename || fs.promises.rename;
+  try {
+    for (const conflict of scanConflicts(gameDir, options)) {
+      if (!fs.existsSync(conflict.source)) continue;
+      let destination = conflictBackupPath(gameDir, installId, conflict.rel);
+      let index = 0;
+      while (fs.existsSync(destination)) {
+        index += 1;
+        destination = conflictBackupPath(gameDir, installId, conflict.rel, index);
+      }
+      await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+      if (typeof options.capture === 'function') {
+        await options.capture(conflict.source);
+        await options.capture(destination);
+      }
+      await rename(conflict.source, destination);
+      moved.push({
+        sourceRel: conflict.rel,
+        backupRel: path.relative(gameDir, destination),
+        name: conflict.name,
+        category: conflict.category,
+        reason: conflict.reason,
+        sha256: conflict.sha256
+      });
     }
-    await fs.promises.mkdir(path.dirname(destination), { recursive: true });
-    await fs.promises.rename(conflict.source, destination);
-    moved.push({
-      sourceRel: conflict.rel,
-      backupRel: path.relative(gameDir, destination),
-      name: conflict.name,
-      category: conflict.category,
-      reason: conflict.reason,
-      sha256: conflict.sha256
-    });
+  } catch (error) {
+    // A surrounding file journal owns rollback when capture is supplied. The
+    // standalone helper still restores prior moves before surfacing failure.
+    if (typeof options.capture !== 'function') {
+      try {
+        const rollbackWarnings = await restoreConflicts(gameDir, [...moved].reverse(), { rename });
+        if (rollbackWarnings.length) error.rollbackWarnings = rollbackWarnings;
+      } catch (rollbackError) {
+        error.rollbackError = rollbackError;
+      }
+    }
+    throw error;
   }
   return moved;
 }
 
-async function restoreConflicts(gameDir, rows) {
+async function restoreConflicts(gameDir, rows, options = {}) {
   const warnings = [];
+  const rename = options.rename || fs.promises.rename;
   for (const row of Array.isArray(rows) ? rows : []) {
     if (!row || typeof row.sourceRel !== 'string' || typeof row.backupRel !== 'string') continue;
     const source = path.join(gameDir, row.sourceRel);
     const backup = path.join(gameDir, row.backupRel);
-    if (!fs.existsSync(backup)) continue;
+    if (!fs.existsSync(backup) || (row.sha256 && sha256(backup) !== row.sha256)) {
+      warnings.push({ code: 'ERR_BACKUP_INVALID', rel: row.sourceRel });
+      continue;
+    }
     if (fs.existsSync(source)) {
       warnings.push({ code: 'ERR_FILE_CHANGED', rel: row.sourceRel });
       continue;
     }
     await fs.promises.mkdir(path.dirname(source), { recursive: true });
-    await fs.promises.rename(backup, source);
+    if (typeof options.capture === 'function') {
+      await options.capture(backup);
+      await options.capture(source);
+    }
+    await rename(backup, source);
   }
   return warnings;
 }

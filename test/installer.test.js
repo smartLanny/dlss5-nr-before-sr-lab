@@ -217,6 +217,8 @@ test('unified compatibility install retires an old managed carrier instead of st
     pe: { getBitness: () => 64 }
   });
   await installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  f.scan.chosen.apiLabel = 'DirectX 11';
+  f.scan.chosen.apiResolution = { api: 'dx11', source: 'test', evidence: [] };
 
   const oldCarrier = path.join(f.exeDir, 'dlss5-native-carrier-exp1.addon64');
   fs.writeFileSync(oldCarrier, 'old managed carrier');
