@@ -29,7 +29,9 @@ runtime-load 真实 DLL fixture、RR 边界 50-case、LightingLock 生产
 DLL 探针已证明关闭配置时 device 创建从 1 降为 0。自动 API 激活、Manager
 生命周期和 #153 崩溃根因仍等待维护者选择架构，不在本组合继续实现。
 canonical 包仍含可能触发 #153 的 carrier，因此不是通用 OTA：D3D12 游戏按
-现有手动安装规则不安装 carrier，本地组合包不自动安装、不发布。
+现有手动安装规则不安装 carrier，本地组合包不自动安装、不发布。旧 r3 carrier
+实际由 MSVC `cl /O2 /MT` 构建，本组合 carrier 使用 LLVM-MinGW；ROG1 没有
+可用 `vswhere`/`cl`，同源码工具链 A/B 尚未执行，这是 #153 保留变量。
 
 GitHub hosted CI 仍受账户付款/额度限制，实际 job `steps=[]`；这是 CI 未启动，
 不是绿灯或代码测试失败，也未盲目重跑。各 PR 当前可审查/无合并冲突的状态

@@ -24,11 +24,12 @@ ancestor. The effective order was:
    (`8c2ecbd` integration merge).
 3. PR #156 `7ccbc8fb576ee4389119b9bc561e8015d612758f` — runtime-load 126
    classification (`c6a10e6` integration merge).
-4. PR #155 code/docs through
-   `a8fea9cfd6c27b69c0692581a0aa335f434fb904` — matching published carrier
-   names (`51be8ec`, later documentation merge `0478eeb`).
-5. PR #157 `3b813b861e92dcdba386233315a5daf67158018b` — configuration source-off
-   carrier lifecycle (`55f1954` integration merge).
+4. PR #155 final head `873472b22b66e90dba7acca383df492bfc5901fd` — matching
+   published carrier names and its synchronized staging fixture (`51be8ec`,
+   later documentation/final-head merges `0478eeb` and `ba67f57`).
+5. PR #157 final head `7aa3a55e79cb8f6f70cb407bd3dbdbf88880799e` —
+   configuration source-off carrier lifecycle; code commit `66b30eae315aea7b342a0a91f05b64863714a9a6`
+   (`55f1954` integration merge, later final documentation merge `a29ec8b`).
 6. PR #149 `2ad2b46792f709db3254051f00f04b2297aad81a` — null-guard reason detail,
    including the #154 ancestor (`58f55e3` integration merge).
 7. PR #150 code through `b2566e6c09ba096ac7b92c25828bb0249774cc24` — RR boundary counters
@@ -137,6 +138,12 @@ it under the existing manual-install rules. The package uses the same filenames
 and PE display version as the prior candidate, so only the manifest/source and
 SHA256 values identify this build. The canonical inner manifest was not edited,
 and no new installer was created.
+
+The old working r3 carrier was built with MSVC `cl /O2 /MT`, while this canonical
+carrier uses LLVM-MinGW. No `vswhere`/`cl` installation was found on ROG1, so an
+otherwise identical MSVC-versus-LLVM carrier A/B was not performed. This
+toolchain difference remains a live #153 variable and must not be dismissed as
+equivalent binaries merely because their source lineage is related.
 
 ## Remaining evidence boundary
 
