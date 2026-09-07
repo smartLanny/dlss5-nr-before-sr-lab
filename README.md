@@ -1,8 +1,10 @@
 # DLSS5 NR-Before-SR Lab
 
-当前兼容预发布版 **[beta0.4.5-multiapi-dev3 OTA](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/beta0.4.5-multiapi-dev3)** 已发布。唯一持续开发分支是 `codex/multiapi-045-integration`（PR #133），执行看板是 [Issue #80](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/80)。本地、ChatGPT App和云端新session都从同一份 [CURRENT_STATUS](docs/interop/CURRENT_STATUS.md) 接续。
+当前兼容预发布版 **[beta0.4.5-multiapi-dev3 OTA](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/beta0.4.5-multiapi-dev3)** 已发布。唯一持续开发分支现收敛为 `main`（兼容 PR #133 的真实历史已整合），本轮源码候选为 **dev4：反馈精简与稳定性维护**，旧 dev3 Release 保持原样。执行看板是 [Issue #80](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/80)。本地、ChatGPT App和云端新session都从同一份 [CURRENT_STATUS](docs/interop/CURRENT_STATUS.md) 接续。
 
-- [普通玩家更新说明：改了什么、如何升级、建议操作](docs/interop/RELEASE_DEV3_PLAYER_NOTES.md)
+- [本轮 dev4 反馈与稳定性说明](docs/interop/RELEASE_DEV4_PLAYER_NOTES.md)
+- [分支收敛记录](docs/interop/MAIN_CONSOLIDATION.md)
+- [已发布 dev3 玩家更新说明：改了什么、如何升级、建议操作](docs/interop/RELEASE_DEV3_PLAYER_NOTES.md)
 - [安装/回退与测试矩阵](docs/interop/POST_COMPAT_DEV3.md)
 - [精确源码本地验证和OTA哈希](docs/interop/DEV3_LOCAL_VALIDATION.md)
 - [Windows完整生成/构建/打包入口](docs/interop/VALIDATE_DEV3_WINDOWS.md)
@@ -75,7 +77,7 @@ This code injects into a game process and hooks graphics API entry points. Use i
 
 ## Historical base-core build prerequisites
 
-For the current dev3 combination, use the [canonical Windows instructions](docs/interop/VALIDATE_DEV3_WINDOWS.md). The standalone command below builds the maintenance core and does not generate the compatibility candidate.
+For the current unified combination, use the [canonical Windows instructions](docs/interop/VALIDATE_DEV3_WINDOWS.md). The standalone command below builds the maintenance core and does not generate the compatibility candidate.
 
 The repository does not download or vendor the toolchain or ReShade headers.
 Provide both explicitly:
@@ -101,7 +103,7 @@ their download links are not provided by this repository.
 
 ## Historical beta0.3 packaging
 
-Do not use this historical packager for dev3. Current OTA packaging uses `scripts/package-multi-api-candidate.ps1` after the canonical build.
+Do not use this historical packager for the unified candidate. Current OTA packaging uses `scripts/package-multi-api-candidate.ps1` after the canonical build.
 
 The packaging script uses existing local build output. To create small update
 archives without copying the large runtime DLLs, use:

@@ -2,9 +2,13 @@
 
 更新批次：2026-09-07。此页同时供本地 Codex、ChatGPT App 和云端对话读取。旧对话中的 SHA、旧路线表和“已安排”不作为完成证据。
 
-## 唯一来源
+## 当前主线收敛批次
 
-- 持续兼容集成分支：`codex/multiapi-045-integration`，PR #133，执行看板 #80。
+维护者于2026-09-07明确授权合并最新版本到 `main` 并改善反馈/稳定性。当前开发入口改为 `main`，本轮候选 `beta0.4.5-multiapi-dev4`、PE `0.4.5.104`。dev3的fix2、DX11、RR/缩放后置历史和main独有52份反馈文件均保留。收敛分支清单与本轮验证见 [MAIN_CONSOLIDATION](MAIN_CONSOLIDATION.md)，玩家说明见 [dev4更新](RELEASE_DEV4_PLAYER_NOTES.md)。下面dev3发布/实机证据保留为基线记录，不代表dev4实机通过。
+
+## 已发布dev3基线来源
+
+- 历史兼容集成分支：`codex/multiapi-045-integration`，PR #133，执行看板 #80。
 - 本轮临时集成分支：`codex/045-unified-candidate-20260907`；合入后不作为第二条长期线。
 - 候选：`beta0.4.5-multiapi-dev3`，核心 PE `0.4.5.103`，carrier `dlss5-native-carrier-multiapi-dev3.addon64`。
 - [OTA预发布Release已发布](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/beta0.4.5-multiapi-dev3)，构建/Tag固定源码`b03f474ba5127ab057fbb5e93708c47eb9dbb866`。GitHub两个附件的上传状态、字节和SHA256已回查匹配；中文679998 bytes，英文667589 bytes。
@@ -44,6 +48,6 @@ GitHub Actions目前受账户付款/额度限制，任务未启动；本地执�
 
 ## 下次对话如何接续
 
-先读取远端#133及本页，再核对包manifest和最新Issue回帖。维护者本轮要求交付测试版后等待进一步开发指示；收到新指示时，从已记录缺口接续，不重新恢复已提交文件，不覆盖任何旧agent worktree，不把不存在的`8a0a2d73`当来源。
+先读取远端main、本页和MAIN_CONSOLIDATION，再核对包manifest和最新Issue回帖。维护者本轮要求交付测试版后等待进一步开发指示；收到新指示时，从已记录缺口接续，不重新恢复已提交文件，不覆盖任何旧agent worktree，不把不存在的`8a0a2d73`当来源。
 
 推荐回传：原场景F6、前后置效果、一个F8 TXT；视觉异常方便时F7。已有资料不要求重复提交。

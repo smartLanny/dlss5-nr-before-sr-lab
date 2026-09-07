@@ -1,6 +1,6 @@
 # 统一候选的可重放Windows验证
 
-从PR #133对应的已提交干净源码建立独立worktree。已有worktree、游戏目录和未提交草稿不能用作清理目标。只使用统一入口，直接运行核心build.ps1不会生成兼容carrier接线。
+从当前main候选对应的已提交干净源码建立独立worktree。已有worktree、游戏目录和未提交草稿不能用作清理目标。只使用统一入口，直接运行核心build.ps1不会生成兼容carrier接线。
 
 固定依赖：Bridge `28aed4099b0fe1c207b20b5fee5364c0773c25c2`、ReShade `4a50d1eddace85734871d91792ff214f13f66c01`（含子模块）、DirectXMath `28929ac6f3c1649a7641741b689ebecccb17aa8d`、LLVM-MinGW `20260826-ucrt-x86_64`。依赖目录只读复用；构建器核验其Git身份及干净状态。
 

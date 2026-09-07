@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)][string]$BuildRoot,
     [Parameter(Mandatory=$true)][string]$OutputRoot
 )
@@ -20,7 +20,7 @@ if ($Commit -notmatch '^[0-9a-f]{40}$' -or $Validation.source_commit -ne $Commit
 if ([string]::IsNullOrWhiteSpace($Version)) { throw 'Candidate version is missing.' }
 $RepoCommit = (& git -C $Repo rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $RepoCommit -ne $Commit) { throw 'Package scripts and documentation must use the built source commit.' }
-$DocChanges = @(& git -C $Repo status --porcelain -- docs/interop/POST_COMPAT_DEV3.md docs/interop/RELEASE_DEV3_PLAYER_NOTES.md THIRD_PARTY_NOTICES.txt third_party/minhook/LICENSE.txt tests/post_scaled_work_gpu.cpp.in)
+$DocChanges = @(& git -C $Repo status --porcelain -- docs/interop/POST_COMPAT_DEV4.md docs/interop/RELEASE_DEV4_PLAYER_NOTES.md THIRD_PARTY_NOTICES.txt third_party/minhook/LICENSE.txt tests/post_scaled_work_gpu.cpp.in)
 if ($LASTEXITCODE -ne 0 -or $DocChanges.Count -ne 0) { throw 'Package documentation/licenses or WARP template changed since the built commit.' }
 if (-not $Validation.source_verified -or -not $Validation.compile_verified -or -not $Validation.warp_verified) {
     throw 'Complete source/compile/WARP evidence is required before packaging.'
@@ -95,8 +95,8 @@ try {
         Copy-Item -LiteralPath (Join-Path $Stage 'carrier/LICENSE') -Destination (Join-Path $Package 'LICENSE-carrier.txt')
         Copy-Item -LiteralPath (Join-Path $Repo 'third_party/minhook/LICENSE.txt') -Destination (Join-Path $Package 'LICENSE-minhook.txt')
         Copy-Item -LiteralPath (Join-Path $Repo 'THIRD_PARTY_NOTICES.txt') -Destination $Package
-        Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/POST_COMPAT_DEV3.md') -Destination (Join-Path $Package 'README.md')
-        Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/RELEASE_DEV3_PLAYER_NOTES.md') -Destination (Join-Path $Package 'UPDATE-NOTES.md')
+        Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/POST_COMPAT_DEV4.md') -Destination (Join-Path $Package 'README.md')
+        Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/RELEASE_DEV4_PLAYER_NOTES.md') -Destination (Join-Path $Package 'UPDATE-NOTES.md')
         $Install = @"
 COMPATIBILITY CANDIDATE - NOT A STABLE RELEASE
 Version: $Version

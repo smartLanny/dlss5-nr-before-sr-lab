@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.4.5-multiapi-dev3'
-CARRIER_NAME = 'dlss5-native-carrier-multiapi-dev3.addon64'
+VERSION = 'beta0.4.5-multiapi-dev4'
+CARRIER_NAME = 'dlss5-native-carrier-multiapi-dev4.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
@@ -144,8 +144,8 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     resource_text = rc.read_text(encoding='utf-8')
     if '0.4.5-fix2 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.4.5-fix2 beta', '0.4.5 multiapi dev3 beta')
-                  .replace('VERSION 0,4,5,2', 'VERSION 0,4,5,103'),
+    rc.write_text(resource_text.replace('0.4.5-fix2 beta', '0.4.5 multiapi dev4 beta')
+                  .replace('VERSION 0,4,5,2', 'VERSION 0,4,5,104'),
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:
