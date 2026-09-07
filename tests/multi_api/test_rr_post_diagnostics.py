@@ -23,19 +23,25 @@ class RrPostDiagnosticsTest(unittest.TestCase):
         if not compiler:
             self.skipTest("clang++/g++ unavailable; portable RR test was not run")
         with tempfile.TemporaryDirectory(prefix="nr-rr-diagnostic-") as directory:
-            exe = Path(directory) / ("rr-test.exe" if os.name == "nt" else "rr-test")
             source = ROOT / "tests/multi_api/rr_post_diagnostics_harness.cpp"
-            result = subprocess.run(
-                [compiler, "-std=c++17", "-O0", "-Wall", "-Wextra", "-Werror",
-                 str(source), "-o", str(exe)],
-                capture_output=True, text=True, timeout=60,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            result = subprocess.run(
-                [str(exe)], capture_output=True, text=True, timeout=10,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("PASS 50", result.stdout)
+            for optimization in ("-O0", "-O2"):
+                suffix = ".exe" if os.name == "nt" else ""
+                exe = Path(directory) / ("rr-test-" + optimization[1:] + suffix)
+                command = [compiler, "-std=c++17", optimization, "-Wall", "-Wextra", "-Werror"]
+                # The pinned Windows GNU toolchain is intentionally not installed
+                # into PATH; keep the portable fixture self-contained there.
+                if os.name == "nt":
+                    command.append("-static")
+                result = subprocess.run(
+                    command + [str(source), "-o", str(exe)],
+                    capture_output=True, text=True, timeout=60,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                result = subprocess.run(
+                    [str(exe)], capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("PASS 50", result.stdout)
 
 
 if __name__ == "__main__":
