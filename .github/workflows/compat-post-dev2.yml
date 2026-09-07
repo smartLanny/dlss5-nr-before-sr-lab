@@ -79,30 +79,12 @@ jobs:
       - name: Package separate languages; preserve user INI, do not publish a Release
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $root = 'build/compat-dev2'
-          $stage = "$root/source"
-          $manifest = Get-Content "$stage/source-manifest.json" -Raw -Encoding UTF8 | ConvertFrom-Json
-          New-Item -ItemType Directory -Force build/candidate | Out-Null
-          $addons = @(Get-ChildItem "$stage/core/build/*.addon64")
-          if ($addons.Count -ne 2) { throw 'Expected exactly two language builds' }
-          foreach ($addon in $addons) {
-            $package = Join-Path 'build/packages' $addon.BaseName
-            New-Item -ItemType Directory -Force "$package/defaults" | Out-Null
-            Copy-Item $addon.FullName $package/
-            Copy-Item "$stage/core/build/nrchain_nvngx.dll" $package/
-            Copy-Item "$stage/core/build/nr_before_sr.ini" "$package/defaults/"
-            Copy-Item "$root/$($manifest.integration.carrier_filename)" $package/
-            Copy-Item "$stage/carrier/LICENSE" $package/LICENSE-carrier.txt
-            Copy-Item "$stage/source-manifest.json" $package/
-            Copy-Item "$root/validation.json" $package/
-            Copy-Item THIRD_PARTY_NOTICES.txt $package/
-            Copy-Item docs/interop/POST_COMPAT_DEV2.md $package/README.md
-            Get-ChildItem $package -File -Recurse | Get-FileHash -Algorithm SHA256 | Select-Object @{Name='File';Expression={[IO.Path]::GetRelativePath((Resolve-Path $package).Path,$_.Path)}},Hash | ConvertTo-Json | Set-Content $package/SHA256.json
-            Compress-Archive -Path "$package/*" -DestinationPath "build/candidate/$($addon.BaseName).zip"
-          }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-multi-api-candidate.ps1 -BuildRoot build/compat-dev2 -OutputRoot build/candidate
+          if ($LASTEXITCODE) { throw 'Verified candidate packaging failed' }
       - uses: actions/upload-artifact@v4
         with:
           name: compat-post-dev2-NOT-game-verified
-          path: build/candidate/
+          path: |
+            build/candidate/*.zip
+            build/candidate/packages.json
           if-no-files-found: error

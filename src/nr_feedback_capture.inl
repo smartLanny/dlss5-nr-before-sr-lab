@@ -92,6 +92,11 @@ void FeedbackAppendCommandHistory(FeedbackSession &s) {
             e.reset_serial, e.pipeline_writes, e.creation_method, e.creation_serial, e.creation_tick, e.registered_tick,
             e.genuine_init_event ? 1 : 0, e.initial_pso ? 1 : 0, e.reset_notifications, e.native_resets, e.reset_successes,
             e.captures, e.route, e.dynamic, e.dirty, i, next);
+        FeedbackAppend(s, "commandHistory.%u.blendObserved=%d\n", i, e.blend_observed ? 1 : 0);
+        if (e.blend_observed)
+            FeedbackAppend(s, "commandHistory.%u.blend=%.9g,%.9g,%.9g,%.9g\n",
+                i, e.blend[0], e.blend[1], e.blend[2], e.blend[3]);
+        else FeedbackAppend(s, "commandHistory.%u.blend=unobserved\n", i);
     }
     FeedbackAppend(s, "commandHistory.methodLegend=0:unknown,1:CreateCommandList-initially-open,2:CreateCommandList1-initially-closed\n"
         "commandHistory.warning=ReShade-reset-notification-is-not-proof-of-native-Reset; next-steps-are-hypotheses-not-proven-fixes\ncommandLifetime.coverage=optional observers attempt each implementation once; missing receipts and earlier unobserved calls remain unknown\n");
@@ -122,6 +127,13 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
     const auto evidence = SnapshotCommandStateEvidence();
     FeedbackAppend(s, "%s.commandState.available=%d\n%s.commandState.snapshotReason=%s\n",
         prefix, evidence.available ? 1 : 0, prefix, evidence.available ? "available" : evidence.reason);
+    FeedbackAppend(s, "%s.commandState.blendObserved=%d\n", prefix,
+        evidence.available && evidence.blend_observed ? 1 : 0);
+    if (evidence.available && evidence.blend_observed)
+        FeedbackAppend(s, "%s.commandState.blend=%.9g,%.9g,%.9g,%.9g\n",
+            prefix, evidence.blend[0], evidence.blend[1], evidence.blend[2], evidence.blend[3]);
+    else FeedbackAppend(s, "%s.commandState.blend=%s\n", prefix,
+        evidence.available ? "unobserved" : "unavailable");
     if (evidence.available) {
         FeedbackAppend(s, "%s.commandState.schema=1\n%s.commandState.ageMs=%llu\n"
             "%s.commandState.sequence=%llu\n%s.commandState.token=%llu\n"

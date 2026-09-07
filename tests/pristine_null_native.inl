@@ -56,6 +56,7 @@ int RunPristineNullGate(bool negative) {
     reset();
     Check(CaptureNativeCommandState(list,*snapshot),"default admits freshly guarded pristine null");
     Check(std::strcmp(SnapshotCommandStateEvidence().route,"pristine-null")==0,"actual default route recorded");
+    Check(!SnapshotCommandStateEvidence().blend_observed,"pristine defaults are not observed blend values");
     Check(!CanRestoreNativeCommandState(*snapshot),"raw predicate still rejects null without explicit evidence");
     D3D12_VIEWPORT vp{0,0,2,2,0,1};
     ID3D12GraphicsCommandList_RSSetViewports(list,1,&vp);
@@ -79,6 +80,11 @@ int RunPristineNullGate(bool negative) {
     const float blend[4]={0.25f,0.5f,0.75f,1.0f};
     ID3D12GraphicsCommandList_OMSetBlendFactor(list,blend);
     Check(CaptureNativeCommandState(list,*snapshot),"blend-only game state now admitted");
+    const auto blend_evidence=SnapshotCommandStateEvidence();
+    Check(blend_evidence.blend_observed && memcmp(blend_evidence.blend,blend,sizeof(blend))==0,
+          "carrier snapshot retains all four actual blend values from the captured state");
+    Check(g_command_history.count && g_command_history.entries[0].blend_observed &&
+          memcmp(g_command_history.entries[0].blend,blend,sizeof(blend))==0,"history retains the same blend observation");
     {
         NativeCommandStateScope scope(list);
         Check(scope.active,"blend-only native scope acquired");
@@ -90,7 +96,10 @@ int RunPristineNullGate(bool negative) {
     ID3D12GraphicsCommandList_OMSetBlendFactor(list,nullptr);
     Check(CaptureNativeCommandState(list,*snapshot),"legal NULL blend resets all channels to one");
     for(float v:record->state->dynamic.blend) Check(v==1.0f,"NULL blend follows D3D12 default");
+    Check(SnapshotCommandStateEvidence().blend_observed,"actual NULL blend setter remains an observed write");
     ID3D12GraphicsCommandList_ClearState(list,nullptr);
+    Check(CaptureNativeCommandState(list,*snapshot) && !SnapshotCommandStateEvidence().blend_observed,
+          "ClearState removes prior blend evidence instead of leaking stale values");
     auto saved=g_state_BeginRenderPass.originals[3];
     g_state_BeginRenderPass.originals[3]=reinterpret_cast<void *>(&RenderPassTrampoline);
     StateHookBeginRenderPass<3>(list,0,nullptr,nullptr,D3D12_RENDER_PASS_FLAG_NONE);
