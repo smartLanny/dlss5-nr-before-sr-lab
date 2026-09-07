@@ -59,7 +59,7 @@ class Staging(unittest.TestCase):
             self.assertEqual(manifest['integration']['feedback'],'F8 single TXT; F7 optional paired archive')
             self.assertEqual(manifest['integration']['carrier_filename'],m.CARRIER_NAME)
             self.assertEqual(manifest['integration']['version'],'beta0.5-dev4')
-            self.assertEqual(manifest['integration']['display_version'],'0.4.6-hotfix.1')
+            self.assertEqual(manifest['integration']['display_version'],'0.5-dev4')
             self.assertEqual(manifest['integration']['core_pe_version'],'0.4.6.1')
             self.assertIn('slot.source_srv_format',(root/'core/src/nr_codec_descriptors.inl').read_text(encoding='utf-8'))
             self.assertIn('NrMotionReadFormat',(root/'core/src/nr_codec_descriptors.inl').read_text(encoding='utf-8'))
