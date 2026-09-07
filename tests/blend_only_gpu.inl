@@ -1,6 +1,8 @@
 // Included after Gpu. Synthetic state policy + real production restore + actual WARP pixels.
 // Native-hook observation is covered separately by pristine_null_native.inl.
-void RunBlendOnly(Gpu &gpu, bool null_default, bool inject) {
+struct BlendOnlyPixel { float channels[4]; };
+BlendOnlyPixel RunBlendOnlyCase(Gpu &gpu, bool null_default, bool inject,
+                                 const float *override_values = nullptr) {
     std::setvbuf(stdout,nullptr,_IONBF,0);
     const char shader[] = R"(
 float4 VS(uint id : SV_VertexID) : SV_Position {
@@ -41,7 +43,8 @@ float4 PS() : SV_Target { return float4(1,1,1,1); }
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};UINT64 size=0;
     gpu.device->GetCopyableFootprints(&texture,0,1,0,&footprint,nullptr,nullptr,&size);
     auto result=gpu.Buffer(size,D3D12_HEAP_TYPE_READBACK,D3D12_RESOURCE_STATE_COPY_DEST);
-    const float expected[4]={null_default?1.f:.25f,null_default?1.f:.5f,null_default?1.f:.75f,1.f};
+    float expected[4]={null_default?1.f:.25f,null_default?1.f:.5f,null_default?1.f:.75f,1.f};
+    if (override_values) std::memcpy(expected, override_values, sizeof(expected));
     gpu.list->ClearState(nullptr);
     // Native raw-NULL hook is exercised by pristine_null_native.inl; this
     // synthetic producer uses the same production canonicalizer before WARP.
@@ -51,8 +54,8 @@ float4 PS() : SV_Target { return float4(1,1,1,1); }
     state->null_guard_covered=true;state->null_guard_reset_observed=true;
     state->dynamic.recorded=kDynamicBlend;
     std::memcpy(state->dynamic.blend,expected,sizeof(expected));
-    Require(CanAutoRestoreRasterNull(*state),"Bounded blend-only automatic policy refused verified fixture");
     if (inject) {
+        Require(CanAutoRestoreRasterNull(*state),"Finite blend-only automatic policy refused verified fixture");
         gpu.list->SetPipelineState(gpu.plugin_pipeline.p);
         gpu.list->OMSetBlendFactor(zero);
         RestoreNativeCommandState(gpu.list.p,*state);
@@ -74,7 +77,30 @@ float4 PS() : SV_Target { return float4(1,1,1,1); }
     void *mapped=nullptr;D3D12_RANGE range{0,16};Check(result->Map(0,&range,&mapped),"Map blend-only pixel");
     bool correct=true;const auto *actual=static_cast<const float *>(mapped);
     for(unsigned i=0;i<4;++i)correct=correct && actual[i]==expected[i];
+    BlendOnlyPixel pixel{};
+    std::memcpy(pixel.channels, actual, sizeof(pixel.channels));
     std::printf("Blend-only WARP nullDefault=%d inject=%d actual=(%.3f,%.3f,%.3f,%.3f)\n",null_default,inject,actual[0],actual[1],actual[2],actual[3]);
     result->Unmap(0,nullptr);ReleaseNativeCommandState(*state);
-    Require(correct,"Restored blend-only state produced wrong pixels");
+    // Unit-range cases retain the independent analytic oracle. For finite
+    // out-of-unit factors, compare against an actual uninjected native draw:
+    // do not assume how a device/format performs blend arithmetic or clamping.
+    if (!override_values) Require(correct,"Restored blend-only state produced wrong pixels");
+    return pixel;
+}
+
+void RunBlendOnly(Gpu &gpu, bool null_default, bool inject) {
+    RunBlendOnlyCase(gpu, null_default, inject);
+    if (null_default || !inject) return;
+    const float cases[][4] = {
+        {-0.f, -1.f, -2.f, -3.f}, // #99 dev3 observed state (not game replay).
+        {-0.125f, 0.25f, 1.25f, 2.f},
+        {4.f, -2.f, 0.5f, 1.f},
+    };
+    for (const auto &values : cases) {
+        const auto native = RunBlendOnlyCase(gpu, false, false, values);
+        const auto restored = RunBlendOnlyCase(gpu, false, true, values);
+        Require(std::memcmp(native.channels, restored.channels, sizeof(native.channels)) == 0,
+                "Restored finite blend-only state differs from native pixels");
+    }
+    std::puts("FINITE_BLEND_NATIVE_PIXEL_ORACLE: 3 paired finite out-of-unit cases passed");
 }
