@@ -1,3 +1,6 @@
+// This include precedes nr_settings_ui.inl in the generated translation unit.
+void SettingsTooltip(const char *text);
+
 // Called directly below the mode selector for an effective post route.
 void DrawPostResolutionControl() {
     const bool zh=UseChineseUi();
