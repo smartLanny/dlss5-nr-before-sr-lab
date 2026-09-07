@@ -2404,6 +2404,25 @@ float ModelLumaRatioV2(float2 fullPixelCenter) {
     return clamp(n / p, 1.0 / 256.0, 256.0);
 }
 
+// A sparse lighting tap must not borrow another surface's luminance drift.
+// Keep the same nearest model-grid sample and two loads as ModelLumaRatioV2;
+// return weighted ratio + weight so rejected taps can be renormalized, not
+// replaced with a fictitious unity ratio. This is luma guidance, not a face mask.
+float2 ModelLightingTapV2(float2 fullPixelCenter, float centerProxyLuma) {
+    float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
+        float2(max(Width, 1u), max(Height, 1u)) - 0.5;
+    int2 pxy = int2(round(mapped));
+    float p = dot(LoadProxyLinearV2(pxy), kLuma);
+    float n = dot(LoadNeuralLinearV2(pxy), kLuma);
+    if (!isfinite(p) || !isfinite(n)) return float2(0.0, 0.0);
+    p = max(p, 1.0 / 4096.0);
+    n = max(n, 1.0 / 4096.0);
+    float relativeEdge = abs(p - centerProxyLuma) /
+        max(max(p, centerProxyLuma), 1.0 / 4096.0);
+    float weight = 1.0 - smoothstep(0.10, 0.50, relativeEdge);
+    return float2(weight * clamp(n / p, 1.0 / 256.0, 256.0), weight);
+}
+
 // Only the residual is filtered. Uniform edits and the original image remain intact.
 // No temporal/face-mask claim: this confidence uses same-dispatch model samples only.
 float4 DetailDecisionV2(float2 center, float rawLog, float proxyLuma) {
@@ -2888,20 +2907,21 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
     logRatio = StabilizeDetailLogV2(center, logRatio, proxyLuma);
 
-    // Remove only the low-frequency component of model luminance drift. The
-    // centre plus four cross taps avoids the old 3x3 edge-heavy correction and
-    // keeps this branch completely free when LightingLock is zero.
+    // Remove only the low-frequency component of model luminance drift.
+    // Weight the same four sparse cross taps by proxy-luma continuity so a
+    // different surface cannot leave a rim of uncorrected model darkening.
+    // Keep this branch completely free when LightingLock is zero.
     if (LightingLock > 0.000001) {
         const float radius = 8.0;
-        // The centre ratio is already available. Average four sparse
-        // neighbours in linear-ratio space, then take one logarithm. This
-        // preserves the broad-drift estimate while avoiding five extra
-        // log2 operations and a redundant centre texture pair per pixel.
-        float localRatio = 0.40 * (neuralLuma / proxyLuma);
-        localRatio += 0.15 * ModelLumaRatioV2(center + float2(radius, 0.0));
-        localRatio += 0.15 * ModelLumaRatioV2(center - float2(radius, 0.0));
-        localRatio += 0.15 * ModelLumaRatioV2(center + float2(0.0, radius));
-        localRatio += 0.15 * ModelLumaRatioV2(center - float2(0.0, radius));
+        // The known finite centre anchors the denominator at >= 0.40. Flat
+        // regions retain the previous 0.40/0.15 weights and one-log estimator;
+        // rejecting every neighbour falls back to this pixel's own ratio.
+        float2 local = float2(0.40 * (neuralLuma / proxyLuma), 0.40);
+        local += 0.15 * ModelLightingTapV2(center + float2(radius, 0.0), proxyLuma);
+        local += 0.15 * ModelLightingTapV2(center - float2(radius, 0.0), proxyLuma);
+        local += 0.15 * ModelLightingTapV2(center + float2(0.0, radius), proxyLuma);
+        local += 0.15 * ModelLightingTapV2(center - float2(0.0, radius), proxyLuma);
+        float localRatio = local.x / local.y;
         float localMean = clamp(log2(max(localRatio, 1.0 / 256.0)),
                                 -8.0, 8.0);
         // Protection may only attenuate this pixel's existing edit. A sparse
