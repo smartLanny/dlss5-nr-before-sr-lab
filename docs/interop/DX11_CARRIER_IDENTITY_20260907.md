@@ -31,6 +31,15 @@
 - `python -m unittest discover -s tests/multi_api -p test_candidate_packaging.py -v`：4 项通过。
 - staging 的 `mirror_rect.cpp` 实际输出：`1097 production rectangle/copy/deployment checks passed; no GPU/game claim`，随后 `mirror_rect=PASS`。
 
+### 测试夹具同步
+
+组合构建暴露出 `tests/multi_api/test_integration.py` 的 staging fixture 仍只写入 `045-exp3` 旧字符串；这与 generator 现在要求的三个已发布名不一致。已按组合分支提交 `a2a338012a97f98f9327c141f32e274989602eb1` 正常 cherry-pick（本分支提交 `b19cabf`），fixture 现在与单一当前 `CARRIER_NAME` 合同同步。
+
+- `python -m unittest tests/multi_api/test_integration.py -v`：7 项通过。
+- `python -m unittest tests/native_bridge/test_prepare.py tests/native_bridge/test_045.py tests/multi_api/test_candidate_packaging.py -v`：16 项运行，15 项通过、1 项按环境跳过（固定 carrier patch 需要显式 staged carrier）。
+
+该修复只改测试夹具，不改运行时实现、不重新生成游戏二进制；运行时实现提交仍为 `48908ad96c407151331a2e818ca30ae1d178b230`，真实 staging 原始 `source_commit` 仍为 `4b6f006a7c8e5daee1b9cf5899e4630f4c727f67`。它不构成 NVIDIA Feature18、真实硬件或游戏重编验证。
+
 这些是源码、生成身份、Windows 编译和受控 WARP/函数门禁证据；没有 NVIDIA Feature18、真实硬件、游戏运行或实际 F8 `carrierLog.status=matched-loaded-path` 结果，也没有提交 raw/game logs 或二进制包。因此 source/name 唯一性不能推成游戏中已经匹配成功。
 
 ## 验收
