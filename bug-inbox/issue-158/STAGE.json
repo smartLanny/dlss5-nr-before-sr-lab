@@ -1,0 +1,26 @@
+{
+  "issue": null,
+  "source": "sheet_neice_30n66b",
+  "sheet_url": "https://docs.qq.com/sheet/DY0dwbUVYZEZIU01P?tab=30n66b",
+  "sheet_row": 3,
+  "nickname": "兦",
+  "game": "巫师3",
+  "symptom": "闪烁问题",
+  "build": "beta0.4.5-multiapi-dev3",
+  "gpu": "NVIDIA GeForce RTX 5070",
+  "driver_raw": "61656",
+  "api": 49152,
+  "mode": 2,
+  "bypass": "none/active",
+  "has_f8": true,
+  "f8_file": "260907-witcher3-beta0.4.5-multiapi-dev3-231015919-13952-1.txt",
+  "f8_sha256": "98caebd164231f1284d370bd856d9e0de885a1110dad764ada6b5183760dd1df",
+  "archived_at": "2026-09-08T00:48:03.126446+08:00",
+  "action": "open_new_issue",
+  "status": "ready_for_repo",
+  "not_issues": [
+    40,
+    146
+  ],
+  "note": "NR active in F8; flicker complaint; new issue recommended"
+}
