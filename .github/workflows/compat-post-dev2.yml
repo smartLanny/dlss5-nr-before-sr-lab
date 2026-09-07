@@ -1,0 +1,108 @@
+name: Compatibility dev2 - exact staged RR post and scaled work
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: compat-post-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Actual policies, RR execution, settings and source composition
+        env:
+          CXX: ${{ matrix.compiler }}
+          POST_COMPAT_CORE_SOURCE: src/nr_before_sr.cpp
+          MULTIAPI_CORE_SOURCE: src/nr_before_sr.cpp
+        run: |
+          set -euo pipefail
+          for test in post_policy rr_post_runtime post_settings motion_access; do
+            "$CXX" -std=c++17 -Wall -Wextra -Werror -I. "tests/multi_api/$test.cpp" -o "$RUNNER_TEMP/$test"
+            "$RUNNER_TEMP/$test"
+          done
+          python3 -m unittest discover -s tests/multi_api -v
+      - name: Sanitizers
+        if: matrix.compiler == 'clang++'
+        run: |
+          set -euo pipefail
+          for test in post_policy rr_post_runtime post_settings motion_access; do
+            clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -I. "tests/multi_api/$test.cpp" -o "$RUNNER_TEMP/$test-san"
+            "$RUNNER_TEMP/$test-san"
+          done
+  windows:
+    needs: host
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Fixed build inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git clone --no-checkout https://github.com/NIGos/dlss5-bridge.git external-carrier
+          if ($LASTEXITCODE) { throw 'Carrier clone failed' }
+          git -C external-carrier checkout --detach 28aed4099b0fe1c207b20b5fee5364c0773c25c2
+          if ($LASTEXITCODE) { throw 'Carrier checkout failed' }
+          Invoke-WebRequest 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip' -OutFile llvm.zip
+          Expand-Archive llvm.zip -DestinationPath toolchain
+          $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
+          git clone --no-checkout https://github.com/crosire/reshade.git reshade-source
+          if ($LASTEXITCODE) { throw 'ReShade clone failed' }
+          git -C reshade-source checkout --detach 4a50d1eddace85734871d91792ff214f13f66c01
+          if ($LASTEXITCODE) { throw 'ReShade checkout failed' }
+          git -C reshade-source submodule update --init --recursive --depth 1
+          if ($LASTEXITCODE) { throw 'ReShade dependencies failed' }
+          git clone --no-checkout https://github.com/microsoft/DirectXMath.git directxmath-source
+          if ($LASTEXITCODE) { throw 'DirectXMath clone failed' }
+          git -C directxmath-source checkout --detach 28929ac6f3c1649a7641741b689ebecccb17aa8d
+          if ($LASTEXITCODE) { throw 'DirectXMath checkout failed' }
+          "TOOLCHAIN_ROOT=$toolchain" | Out-File $env:GITHUB_ENV -Append
+      - name: Canonical source, host regressions, WARP and complete bilingual build
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-multi-api-candidate.ps1 -UpstreamRoot external-carrier -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot reshade-source -DirectXMathRoot directxmath-source -OutputRoot build/compat-dev2
+          if ($LASTEXITCODE) { throw 'Exact staged candidate validation failed' }
+      - name: Package separate languages; preserve user INI, do not publish a Release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'build/compat-dev2'
+          $stage = "$root/source"
+          $manifest = Get-Content "$stage/source-manifest.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+          New-Item -ItemType Directory -Force build/candidate | Out-Null
+          $addons = @(Get-ChildItem "$stage/core/build/*.addon64")
+          if ($addons.Count -ne 2) { throw 'Expected exactly two language builds' }
+          foreach ($addon in $addons) {
+            $package = Join-Path 'build/packages' $addon.BaseName
+            New-Item -ItemType Directory -Force "$package/defaults" | Out-Null
+            Copy-Item $addon.FullName $package/
+            Copy-Item "$stage/core/build/nrchain_nvngx.dll" $package/
+            Copy-Item "$stage/core/build/nr_before_sr.ini" "$package/defaults/"
+            Copy-Item "$root/$($manifest.integration.carrier_filename)" $package/
+            Copy-Item "$stage/carrier/LICENSE" $package/LICENSE-carrier.txt
+            Copy-Item "$stage/source-manifest.json" $package/
+            Copy-Item "$root/validation.json" $package/
+            Copy-Item THIRD_PARTY_NOTICES.txt $package/
+            Copy-Item docs/interop/POST_COMPAT_DEV2.md $package/README.md
+            Get-ChildItem $package -File -Recurse | Get-FileHash -Algorithm SHA256 | Select-Object @{Name='File';Expression={[IO.Path]::GetRelativePath((Resolve-Path $package).Path,$_.Path)}},Hash | ConvertTo-Json | Set-Content $package/SHA256.json
+            Compress-Archive -Path "$package/*" -DestinationPath "build/candidate/$($addon.BaseName).zip"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compat-post-dev2-NOT-game-verified
+          path: build/candidate/
+          if-no-files-found: error

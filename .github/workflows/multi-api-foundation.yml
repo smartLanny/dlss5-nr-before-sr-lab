@@ -4,7 +4,7 @@ on:
     branches: [codex/multiapi-045-integration]
   pull_request:
     branches: [release/0.4.5-test, release/0.4, main]
-    paths: ['src/**', 'scripts/**', 'tests/**', '.github/workflows/multi-api-foundation.yml']
+    paths: ['src/**', 'scripts/**', 'tests/**', '.github/workflows/multi-api-foundation.yml', '.github/workflows/compat-post-dev2.yml']
   workflow_dispatch:
   workflow_call:
 permissions:
@@ -30,10 +30,12 @@ jobs:
         env:
           CXX: ${{ matrix.compiler }}
           MULTIAPI_CORE_SOURCE: src/nr_before_sr.cpp
+          POST_COMPAT_CORE_SOURCE: src/nr_before_sr.cpp
         run: |
           set -euo pipefail
           git merge-base --is-ancestor f88adc33d04803982d98336a3d26e7081bb66f9f HEAD
           git merge-base --is-ancestor 2ab31a17388fb9cfe3c6394397df4cb555b7a172 HEAD
+          git merge-base --is-ancestor 145689aee077fa51c54d0b1dba2d79bc38633b2c HEAD
           for test in format_access format_adapter; do
             "$CXX" -std=c++17 -Wall -Wextra -Werror -I. "tests/multi_api/$test.cpp" -o "$RUNNER_TEMP/$test"
             "$RUNNER_TEMP/$test"
@@ -59,83 +61,8 @@ jobs:
           done
   windows:
     needs: portable
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Fixed bridge and compiler inputs
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          git clone --no-checkout https://github.com/NIGos/dlss5-bridge.git external-carrier
-          if ($LASTEXITCODE) { throw 'Carrier clone failed' }
-          git -C external-carrier checkout --detach 28aed4099b0fe1c207b20b5fee5364c0773c25c2
-          if ($LASTEXITCODE) { throw 'Carrier checkout failed' }
-          Invoke-WebRequest 'https://github.com/mstorsjo/llvm-mingw/releases/download/20260826/llvm-mingw-20260826-ucrt-x86_64.zip' -OutFile llvm.zip
-          Expand-Archive llvm.zip -DestinationPath toolchain
-          $toolchain = (Get-ChildItem toolchain -Directory | Select-Object -First 1).FullName
-          git clone --no-checkout https://github.com/crosire/reshade.git reshade-source
-          if ($LASTEXITCODE) { throw 'ReShade clone failed' }
-          git -C reshade-source checkout --detach 4a50d1eddace85734871d91792ff214f13f66c01
-          if ($LASTEXITCODE) { throw 'ReShade checkout failed' }
-          git -C reshade-source submodule update --init --recursive --depth 1
-          if ($LASTEXITCODE) { throw 'ReShade dependencies failed' }
-          "TOOLCHAIN_ROOT=$toolchain" | Out-File $env:GITHUB_ENV -Append
-          "RESHADE_ROOT=$pwd\reshade-source" | Out-File $env:GITHUB_ENV -Append
-          "PINNED_CARRIER_ROOT=$pwd\external-carrier" | Out-File $env:GITHUB_ENV -Append
-          "MULTIAPI_CORE_SOURCE=$pwd\src\nr_before_sr.cpp" | Out-File $env:GITHUB_ENV -Append
-      - name: Full pinned transformations and bilingual core
-        shell: pwsh
-        run: |
-          python -m unittest discover -s tests/multi_api -v
-          if ($LASTEXITCODE) { throw 'Format/integration tests failed' }
-          python -m unittest discover -s tests/native_bridge -p 'test_*.py' -v
-          if ($LASTEXITCODE) { throw 'Carrier transformation tests failed' }
-          python scripts/prepare-multi-api-beta.py --upstream external-carrier --output build/multi-api-beta
-          if ($LASTEXITCODE) { throw 'Exact integrated staging failed' }
-          ./build/multi-api-beta/core/scripts/build.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
-      - name: Windows SDK typed-view pixels and companion
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
-          cl /nologo /W4 /O2 /MT /EHsc /std:c++17 /I. tests\multi_api\format_view_warp.cpp /Fe:format_view_warp.exe
-          if errorlevel 1 exit /b 1
-          format_view_warp.exe
-          if errorlevel 1 exit /b 1
-          cl /nologo /W4 /O2 /MT /EHsc /std:c++17 /I. tests\native_bridge\baseline_warp.cpp /Fe:baseline_warp.exe
-          if errorlevel 1 exit /b 1
-          baseline_warp.exe
-          if errorlevel 1 exit /b 1
-          cd build\multi-api-beta\carrier\src
-          rc /nologo version.rc
-          if errorlevel 1 exit /b 1
-          cl /nologo /W4 /O2 /MT /EHsc /std:c++17 /Ireshade /LD dlss5-bridge.cpp version.res /Fe:dlss5-native-carrier-multiapi-dev1.addon64 /link /DLL user32.lib advapi32.lib bcrypt.lib
-          if errorlevel 1 exit /b 1
-      - name: Separate-language candidates - never publish a Release
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force build/candidate | Out-Null
-          $addons = @(Get-ChildItem build/multi-api-beta/core/build/*.addon64)
-          if ($addons.Count -ne 2) { throw 'Expected two language builds' }
-          foreach ($addon in $addons) {
-            $package = Join-Path 'build/packages' $addon.BaseName
-            New-Item -ItemType Directory -Force "$package/defaults" | Out-Null
-            Copy-Item $addon.FullName $package/
-            Copy-Item build/multi-api-beta/core/build/nrchain_nvngx.dll $package/
-            Copy-Item build/multi-api-beta/core/build/nr_before_sr.ini "$package/defaults/"
-            Copy-Item build/multi-api-beta/carrier/src/dlss5-native-carrier-multiapi-dev1.addon64 $package/
-            Copy-Item build/multi-api-beta/source-manifest.json $package/
-            Copy-Item build/multi-api-beta/carrier/LICENSE $package/LICENSE-carrier.txt
-            Copy-Item docs/interop/MULTI_API_INTEGRATION.md $package/README.md
-            Get-ChildItem $package -File -Recurse | Get-FileHash -Algorithm SHA256 | Select-Object @{Name='File';Expression={[IO.Path]::GetRelativePath((Resolve-Path $package).Path,$_.Path)}},Hash | ConvertTo-Json | Set-Content $package/SHA256.json
-            Compress-Archive -Path "$package/*" -DestinationPath "build/candidate/$($addon.BaseName).zip"
-          }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: multiapi-dev1-compile-candidate-NOT-game-verified
-          path: build/candidate/
-          if-no-files-found: error
+    # One candidate builder/package definition; never ship a dev1-named
+    # carrier next to a core whose deployment handshake expects dev2.
+    uses: ./.github/workflows/compat-post-dev2.yml
+    permissions:
+      contents: read

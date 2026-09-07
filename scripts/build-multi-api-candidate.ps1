@@ -34,12 +34,14 @@ if ($LASTEXITCODE) { throw 'Full source staging failed.' }
 $OldToolchain = $env:DLSS5_LLVM_MINGW_ROOT
 $OldCarrier = $env:PINNED_CARRIER_ROOT
 $OldSource = $env:MULTIAPI_CORE_SOURCE
+$OldPostSource = $env:POST_COMPAT_CORE_SOURCE
 $Checks = New-Object 'System.Collections.Generic.List[string]'
 Push-Location $Root
 try {
     $env:DLSS5_LLVM_MINGW_ROOT = $Toolchain
     $env:PINNED_CARRIER_ROOT = $Upstream
     $env:MULTIAPI_CORE_SOURCE = Join-Path $Root 'src/nr_before_sr.cpp'
+    $env:POST_COMPAT_CORE_SOURCE = Join-Path $Root 'src/nr_before_sr.cpp'
     & python -m unittest discover -s tests/multi_api -v
     if ($LASTEXITCODE) { throw 'Multi-API host/source tests failed.' }
     $Checks.Add('multi_api Python source + actual Windows source-identity compile/run')
@@ -49,7 +51,7 @@ try {
     $TestBuild = Join-Path $Output 'tests'
     New-Item -ItemType Directory -Path $TestBuild | Out-Null
     $Include = @('-DNR_TEST_MULTIAPI=1', "-I$(Join-Path $Stage 'core')", "-I$Root", "-I$(Join-Path $Math 'Inc')")
-    foreach ($Test in @('multi_api/format_access', 'multi_api/format_adapter', 'native_bridge/history', 'native_bridge/forward', 'native_bridge/render_scale', 'native_bridge/mirror_rect', 'native_bridge/ngx_parameter_abi')) {
+    foreach ($Test in @('multi_api/format_access', 'multi_api/format_adapter', 'multi_api/post_policy', 'multi_api/rr_post_runtime', 'multi_api/post_settings', 'multi_api/motion_access', 'native_bridge/history', 'native_bridge/forward', 'native_bridge/render_scale', 'native_bridge/mirror_rect', 'native_bridge/ngx_parameter_abi')) {
         $Exe = Join-Path $TestBuild ((Split-Path -Leaf $Test) + '.exe')
         & $Cxx '-std=c++17' '-Wall' '-Wextra' '-Werror' '-static' @Include (Join-Path $Root "tests/$Test.cpp") '-o' $Exe
         if ($LASTEXITCODE) { throw "Host compile failed: $Test" }
@@ -63,6 +65,12 @@ try {
     & $OldAbi
     if ($LASTEXITCODE -ne 1) { throw 'Historical ABI mismatch was not detected by executable slot oracle.' }
     $Checks.Add('NGX ABI historical-layout negative control rejected at first wrong slot')
+    $ShaderCompiler = Join-Path $TestBuild 'post_shader_compile.exe'
+    & $Cxx '-std=c++17' '-static' '-municode' (Join-Path $Root 'tests/multi_api/post_shader_compile.cpp') '-o' $ShaderCompiler '-ld3dcompiler'
+    if ($LASTEXITCODE) { throw 'Production shader compiler harness failed.' }
+    & python (Join-Path $PSScriptRoot 'validate-post-shaders.py') --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --compiler $ShaderCompiler
+    if ($LASTEXITCODE) { throw 'Actual generated production HLSL failed.' }
+    $Checks.Add('all six actual staged production HLSL compute entries')
     foreach ($Test in @('multi_api/format_view_warp', 'native_bridge/baseline_warp')) {
         $Exe = Join-Path $TestBuild ((Split-Path -Leaf $Test) + '.exe')
         & $Cxx '-std=c++17' '-O2' '-static' @Include (Join-Path $Root "tests/$Test.cpp") '-o' $Exe '-ld3d12' '-ldxgi' '-ld3dcompiler' '-ldxguid' '-lole32'
@@ -71,6 +79,8 @@ try {
         if ($LASTEXITCODE) { throw "WARP execution failed: $Test" }
         $Checks.Add($Test)
     }
+    & (Join-Path $PSScriptRoot 'validate-post-scaled-work-gpu.ps1') -SourceRoot (Join-Path $Stage 'core') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $TestBuild 'post-scaled-work')
+    $Checks.Add('post scaled-work WARP: 48 actual EncodeCS/CombineCS scenarios; FP16 model planes; identity and nonzero test-only neural residual')
     foreach ($Script in @('validate-picture-budget.py', 'validate-command-creation.py', 'validate-reset-notification-gap.py')) {
         & python (Join-Path $PSScriptRoot $Script) --compiler $Cxx
         if ($LASTEXITCODE) { throw "Production regression failed: $Script" }
@@ -80,7 +90,10 @@ try {
     $Checks.Add('staged bilingual core + nrchain compilation and link')
     $CarrierRoot = Join-Path $Stage 'carrier/src'
     $CarrierResource = Join-Path $Output 'carrier-version.o'
-    $Carrier = Join-Path $Output 'dlss5-native-carrier-multiapi-dev1.addon64'
+    $Manifest = Get-Content -LiteralPath (Join-Path $Stage 'source-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $CarrierLeaf = $Manifest.integration.carrier_filename
+    if ([IO.Path]::GetFileName($CarrierLeaf) -ne $CarrierLeaf -or $CarrierLeaf -notmatch '^dlss5-native-carrier-[a-z0-9-]+\.addon64$') { throw 'Invalid staged carrier filename.' }
+    $Carrier = Join-Path $Output $CarrierLeaf
     & $Windres '--codepage=65001' '--input-format=rc' '--output-format=coff' (Join-Path $CarrierRoot 'version.rc') $CarrierResource
     if ($LASTEXITCODE) { throw 'Carrier version resource failed.' }
     & $Cxx '-std=c++17' '-O2' '-fms-extensions' '-shared' '-static' "-I$(Join-Path $Math 'Inc')" "-I$(Join-Path $CarrierRoot 'reshade')" (Join-Path $CarrierRoot 'dlss5-bridge.cpp') $CarrierResource '-o' $Carrier '-luser32' '-ladvapi32' '-lbcrypt' '-lversion' '-ldxgi' '-ld3d11' '-ld3d12' '-ld3dcompiler' '-ldxguid'
@@ -116,4 +129,5 @@ try {
     $env:DLSS5_LLVM_MINGW_ROOT = $OldToolchain
     $env:PINNED_CARRIER_ROOT = $OldCarrier
     $env:MULTIAPI_CORE_SOURCE = $OldSource
+    $env:POST_COMPAT_CORE_SOURCE = $OldPostSource
 }

@@ -14,7 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.4.5-multiapi-dev1'
+VERSION = 'beta0.4.5-multiapi-dev2'
+CARRIER_NAME = 'dlss5-native-carrier-multiapi-dev2.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
@@ -64,19 +65,24 @@ def configure(core: Path):
             raise ValueError(f'Integrated source changed: {path}; review and repin, do not restore old UI')
     m = load('bridge_045_prerequisite', core / 'scripts/prepare-native-bridge-045.py')
     fmt = load('format_patch', core / 'scripts/patch-format-access.py')
+    post = load('post_patch', core / 'scripts/patch-post-compat.py')
     m.EXPERIMENT = m.legacy.EXPERIMENT = VERSION
     m.legacy.UPSTREAM = UPSTREAM
     m.legacy.UPSTREAM_BLOBS = dict(BRIDGE_BLOBS)
     m.legacy.CORE_BLOBS.update(INTEGRATION_CORE_PINS)
     prior_patch = m.patch_core
+    prior_ui = m.legacy.patch_ui
     def patch_core(text: str) -> str:
-        return fmt.patch_core(prior_patch(text))
+        return post.patch_core(fmt.patch_core(prior_patch(text)))
     m.legacy.patch_core = patch_core
+    m.legacy.patch_ui = lambda text: post.patch_ui(prior_ui(text))
     previous_prepare = m.prepare
     def prepare_with_native_abi(core_root: Path, upstream: Path, stage: Path) -> None:
         previous_prepare(core_root, upstream, stage)
         abi = load('native_parameter_abi', core_root / 'scripts/patch-ngx-parameter-abi.py')
         abi.apply(stage)
+        exposure = load('exposure_adapter', core_root / 'scripts/patch-exposure-access.py')
+        exposure.apply(stage)
     m.prepare = prepare_with_native_abi
     return m
 
@@ -96,7 +102,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     if text.count(old) != 1:
         raise ValueError('Companion identity anchor changed')
     names.write_text(text.replace(old,
-        'return Equal(name, L"dlss5-native-carrier-multiapi-dev1.addon64");'),
+        f'return Equal(name, L"{CARRIER_NAME}");'),
         encoding='utf-8', newline='\n')
     deployment = stage / 'core/src/interop/nr_dx11_deployment.inl'
     text = deployment.read_text(encoding='utf-8')
@@ -107,6 +113,19 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     deployment.write_text(text.replace(old,
         'return nr_dx11_deployment::duplicate_carriers.load(std::memory_order_acquire);'),
         encoding='utf-8', newline='\n')
+    post = load('post_finalize', core / 'scripts/patch-post-compat.py')
+    descriptors = stage / 'core/src/nr_codec_descriptors.inl'
+    descriptors.write_text(post.patch_descriptors(descriptors.read_text(encoding='utf-8')),
+                           encoding='utf-8', newline='\n')
+    rc = stage / 'core/src/nr_before_sr.rc'
+    resource_text = rc.read_text(encoding='utf-8')
+    if '0.4.5 DX11 exp3 beta' not in resource_text:
+        raise ValueError('Missing expected inherited PE description')
+    rc.write_text(resource_text.replace('0.4.5 DX11 exp3 beta', '0.4.5 multiapi dev2 beta'),
+                  encoding='utf-8', newline='\n')
+    ini = stage / 'core/config/nr_before_sr.ini'
+    with ini.open('a', encoding='utf-8', newline='\n') as stream:
+        stream.write('\n; NR work after SR/RR, not game render scale.\nRRPostEnabled=1\nPostWorkPercent=100\n')
     mf = stage / 'source-manifest.json'
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
@@ -120,9 +139,15 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'ngx_parameter_abi': 'Microsoft x64 native 17-slot layout; MSVC and Windows-GNU declarations',
         'reset_source_blob': STATE_132, 'feedback': 'F8 single TXT; F7 optional paired archive',
         'format_path': 'typed FP16/FP32 SceneColor read -> existing FP16 codec',
+        'exposure_path': '1x1 mip0 final-scale red channel; typed R16/R32 FLOAT-family view and actual device ShaderLoad; no source UAV requirement',
         'optional_inventory_blocks_on_failure': False,
         'vulkan_native': 'disabled: submit synchronization not implemented',
-        'synthetic_legacy': 'not integrated', 'rr_post': 'not implemented',
+        'synthetic_legacy': 'not integrated',
+        'carrier_filename': CARRIER_NAME,
+        'rr_post': 'Feature13 successful native output, known hardware depth, same NR core; not game verified',
+        'post_work': '50-100 percent Npost/O; 0 disables while retaining precision; invalid requests rejected',
+        'rr_linear_depth': 'not converted; native RR output retained with F8 feedback reason',
+        'jitter': 'resolved post color zero jitter; native guide phase requires runtime validation',
         'fg_control': 'not implemented', 'getdesc_spoof': 'not implemented',
         'mfg_scope': 'deferred by owner; not a gate for this compatibility development round',
         'game_validation': 'owner will test final batch; old BG3 result retained separately',

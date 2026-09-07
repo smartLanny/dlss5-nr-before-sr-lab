@@ -20,6 +20,12 @@ def fixture(core, upstream, root):
     directory.mkdir(parents=True)
     (directory/'nr_deployment_names.h').write_text(NAMES)
     (directory/'nr_dx11_deployment.inl').write_text(DEPLOYMENT)
+    (root/'core/config').mkdir(parents=True)
+    (root/'core/config/nr_before_sr.ini').write_text('[NRBeforeSR]\n')
+    (root/'core/src/nr_before_sr.rc').write_text('0.4.5 DX11 exp3 beta')
+    (root/'core/src/nr_codec_descriptors.inl').write_text(
+        'srv(0,slot.source,slot.source_format);\n'
+        'srv(3,slot.motion_source,slot.motion_source?ID3D12Resource_GetDesc(slot.motion_source).Format:DXGI_FORMAT_R16G16_FLOAT);')
     (root/'source-manifest.json').write_text('{}')
 
 def fake_git(root, *args):
@@ -28,6 +34,12 @@ def fake_git(root, *args):
     raise AssertionError(args)
 
 class Staging(unittest.TestCase):
+    def setUp(self):
+        # Fixture roots contain no scripts; retain the actual post transformer.
+        real_load=m.load
+        loader=patch.object(m,'load',side_effect=lambda name,path: real_load(name,ROOT/'scripts/patch-post-compat.py'))
+        loader.start(); self.addCleanup(loader.stop)
+
     def test_finalize_removes_only_diagnostic_gate(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)/'stage'; fixture(None,None,root)
@@ -35,11 +47,24 @@ class Staging(unittest.TestCase):
             d=(root/'core/src/interop/nr_dx11_deployment.inl').read_text()
             self.assertIn('duplicate_carriers.load',d)
             self.assertNotIn('!nr_dx11_deployment::Read().complete',d)
-            self.assertIn('multiapi-dev1', (root/'core/src/interop/nr_deployment_names.h').read_text())
+            self.assertIn(m.CARRIER_NAME, (root/'core/src/interop/nr_deployment_names.h').read_text())
             manifest=json.loads((root/'source-manifest.json').read_text())
             self.assertEqual(manifest['files'],m.file_hashes(root))
             self.assertEqual(manifest['integration']['parents_in_history'],[m.PR131,m.PR132])
             self.assertEqual(manifest['integration']['feedback'],'F8 single TXT; F7 optional paired archive')
+            self.assertEqual(manifest['integration']['carrier_filename'],m.CARRIER_NAME)
+            self.assertIn('slot.source_srv_format',(root/'core/src/nr_codec_descriptors.inl').read_text())
+            self.assertIn('NrMotionReadFormat',(root/'core/src/nr_codec_descriptors.inl').read_text())
+            self.assertEqual((root/'core/src/nr_before_sr.rc').read_text(),'0.4.5 multiapi dev2 beta')
+            self.assertIn('PostWorkPercent=100',(root/'core/config/nr_before_sr.ini').read_text())
+
+    def test_pe_drift_rejects_final_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/'stage';fixture(None,None,root)
+            (root/'core/src/nr_before_sr.rc').write_text('different version')
+            with self.assertRaisesRegex(ValueError,'PE description'):
+                m.finalize(root,root,'a'*40)
+            self.assertNotIn('integration',json.loads((root/'source-manifest.json').read_text()))
 
     def test_nested_manifest_not_excluded(self):
         with tempfile.TemporaryDirectory() as tmp:
