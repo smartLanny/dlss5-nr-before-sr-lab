@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { createInstaller } = require('../src/product/installer');
 const journal = require('../src/core/file-journal');
 const { sha256 } = require('../src/product/payload');
@@ -105,7 +106,7 @@ test('DX11 deploys the matched carrier and restores the prior carrier on uninsta
   assert.equal(fs.readFileSync(target, 'utf8'), 'prior carrier');
 });
 
-test('DX11 preserves named ReShade disables and PR160 evidence while reporting the carrier blocked', async t => {
+test('DX11 clears exact bare and named carrier exclusions using ReShade section rules', async t => {
   const f = fixture(t, 'dx12');
   const reshadeIni = path.join(f.exeDir, 'ReShade.ini');
   const dx12 = await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
@@ -115,40 +116,85 @@ test('DX11 preserves named ReShade disables and PR160 evidence while reporting t
   f.scan.chosen.apiLabel = 'DirectX 11';
   f.scan.chosen.apiResolution = { api: 'dx11', source: 'manual', evidence: [] };
   const original = Buffer.from(
-    `\uFEFF[ADDON]\r\nDisabledAddons=@core.addon64,@${INSTALLED_NAMES.carrier},用户,,条目\r\n` +
-    `[ADDON]\r\nDisabledAddons=用户命名@${INSTALLED_NAMES.carrier},@keep.addon64\r\n` +
+    `\uFEFF[ADDON] accepted trailing text\r\nDisabledAddons=@core.addon64,@${INSTALLED_NAMES.carrier},用户,,条目\r\n` +
+    `[ADDON]\r\nDisabledAddons=用户命名@${INSTALLED_NAMES.carrier},name-only,@keep.addon64\r\n` +
     `LoadFromDllMain=manual-third-party.addon64\r\n`, 'utf8');
   fs.writeFileSync(reshadeIni, original);
 
-  // Model the files emitted by PR160. Manager must leave this evidence alone;
-  // changing the INI makes that receipt stale, so PR160 restore will refuse
-  // rather than overwrite the later Manager/user edit.
-  const evidenceBase = 'ReShade.ini.carrier-exclusion.20260908T120000Z.1234abcd';
-  const evidenceBackup = path.join(f.exeDir, `${evidenceBase}.bak`);
-  const evidenceReceipt = path.join(f.exeDir, `${evidenceBase}.receipt.json`);
-  fs.writeFileSync(evidenceBackup, 'earlier-pr160-state');
-  const receipt = {
-    schema: 1,
-    ini: 'ReShade.ini',
-    backup: path.basename(evidenceBackup),
-    beforeSha256: sha256(evidenceBackup),
-    afterSha256: sha256(reshadeIni)
-  };
-  fs.writeFileSync(evidenceReceipt, `${JSON.stringify(receipt, null, 2)}\n`);
-  const receiptBytes = fs.readFileSync(evidenceReceipt);
-
   const result = await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
-  assert.equal(result.complete, false, 'a named @filename entry still blocks ReShade pre-load');
-  assert.match(result.components.find(row => row.key === 'carrier').detail, /具名禁用.*手动启用/);
+  assert.equal(result.complete, true);
   const enabledIni = fs.readFileSync(reshadeIni, 'utf8');
-  assert.match(enabledIni, new RegExp(`用户命名@${INSTALLED_NAMES.carrier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.doesNotMatch(enabledIni, /用户命名@/);
+  assert.doesNotMatch(enabledIni, new RegExp(INSTALLED_NAMES.carrier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
   assert.match(enabledIni, /DisabledAddons=@core\.addon64,用户,,条目/);
+  assert.match(enabledIni, /DisabledAddons=name-only,@keep\.addon64/);
   assert.match(enabledIni, /LoadFromDllMain=manual-third-party\.addon64/);
   assert.equal(enabledIni.charCodeAt(0), 0xFEFF, 'UTF-8 BOM is preserved');
   assert.equal(fs.readFileSync(`${reshadeIni}.bak`).equals(original), true, 'Manager keeps its own exact INI backup');
-  assert.equal(fs.readFileSync(evidenceReceipt).equals(receiptBytes), true, 'PR160 receipt remains untouched');
-  assert.equal(fs.readFileSync(evidenceBackup, 'utf8'), 'earlier-pr160-state');
-  assert.notEqual(sha256(reshadeIni), receipt.afterSha256, 'the old receipt cannot blindly restore over the Manager edit');
+});
+
+test('real PR160 receipt refuses restore after Manager changes its applied INI', {
+  skip: !process.env.PR160_CARRIER_TOOL
+}, async t => {
+  const f = fixture(t, 'dx12');
+  const tool = path.resolve(process.env.PR160_CARRIER_TOOL);
+  const python = process.env.PYTHON || 'python';
+  const runTool = args => spawnSync(python, [tool, ...args], {
+    encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+  });
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  const reshadeIni = path.join(f.exeDir, 'ReShade.ini');
+  const addonDir = path.join(f.exeDir, 'addons');
+  fs.mkdirSync(addonDir);
+  fs.copyFileSync(f.payload.carrier.file, path.join(addonDir, INSTALLED_NAMES.carrier));
+  fs.writeFileSync(reshadeIni, '[ADDON] trailing text\r\nAddonPath=addons\r\nDisabledAddons=Custom,,Name,@keep.addon64\r\n');
+  const beforeApply = fs.readFileSync(reshadeIni);
+
+  const appliedRun = runTool(['--ini', reshadeIni, '--api', 'd3d12', '--apply']);
+  assert.equal(appliedRun.status, 0, appliedRun.stderr || appliedRun.stdout);
+  const applied = JSON.parse(appliedRun.stdout);
+  assert.equal(applied.status, 'applied');
+  assert.equal(applied.schema, 1);
+  const receiptFile = path.join(f.exeDir, applied.receipt);
+  const receipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8'));
+  assert.equal(receipt.operation, 'carrier-exclusion');
+  assert.equal(receipt.afterSha256, sha256(reshadeIni));
+  const afterApply = fs.readFileSync(reshadeIni);
+
+  f.scan.chosen.apiLabel = 'DirectX 11';
+  f.scan.chosen.apiResolution = { api: 'dx11', source: 'manual', evidence: [] };
+  const repaired = await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(repaired.complete, true);
+  assert.match(fs.readFileSync(reshadeIni, 'utf8'), /AddonPath=addons/);
+  assert.equal(fs.existsSync(receiptFile), true);
+  assert.equal(fs.existsSync(path.join(f.exeDir, applied.backup)), true);
+
+  const restoreRun = runTool(['--ini', reshadeIni, '--restore', applied.receipt]);
+  assert.equal(restoreRun.status, 2, restoreRun.stderr || restoreRun.stdout);
+  const refused = JSON.parse(restoreRun.stdout);
+  assert.equal(refused.status, 'error');
+  assert.equal(refused.error, 'current-hash-mismatch');
+
+  if (process.env.MANAGER_INTEROP_EVIDENCE_DIR) {
+    const evidenceDir = path.resolve(process.env.MANAGER_INTEROP_EVIDENCE_DIR);
+    fs.mkdirSync(evidenceDir, { recursive: true });
+    fs.writeFileSync(path.join(evidenceDir, '01-before-pr160.ini'), beforeApply);
+    fs.writeFileSync(path.join(evidenceDir, '02-after-pr160.ini'), afterApply);
+    fs.copyFileSync(reshadeIni, path.join(evidenceDir, '03-after-manager-dx11-repair.ini'));
+    fs.copyFileSync(receiptFile, path.join(evidenceDir, path.basename(receiptFile)));
+    fs.copyFileSync(path.join(f.exeDir, applied.backup), path.join(evidenceDir, applied.backup));
+    fs.copyFileSync(`${reshadeIni}.bak`, path.join(evidenceDir, 'ReShade.ini.manager.bak'));
+    fs.writeFileSync(path.join(evidenceDir, 'evidence.json'), `${JSON.stringify({
+      managerBase: '8acf31f9cd6245a32256f28accbb2c0a49bc5386',
+      pr160Tool: tool,
+      addonPath: 'addons',
+      carrier: INSTALLED_NAMES.carrier,
+      beforePr160Sha256: sha256(path.join(evidenceDir, '01-before-pr160.ini')),
+      afterPr160Sha256: sha256(path.join(evidenceDir, '02-after-pr160.ini')),
+      afterManagerSha256: sha256(path.join(evidenceDir, '03-after-manager-dx11-repair.ini')),
+      restoreError: refused.error
+    }, null, 2)}\n`);
+  }
 });
 
 test('repairing a DX11 install on a resolved DX12 route retires carrier but retains nrchain', async t => {

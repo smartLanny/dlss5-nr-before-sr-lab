@@ -52,9 +52,10 @@ Steam 本地启动配置按 appid 有界读取，只展示 API 相关线索；�
 
 DX11 明确部署时仅解除配套 carrier 的 `@精确文件名` 禁用项，遍历重复 `[ADDON]`
 及 `DisabledAddons`，保留其他项和逗号转义；改前保存 `ReShade.ini.bak`（占用时带编号）。
-`显示名@文件名` 同样会触发 ReShade 的预加载过滤，但属于用户具名配置：Manager 保留原文、
-将诊断标为未完成并提示在 ReShade 中手动启用。若 PR #160 已生成 receipt，Manager 不解析或
-恢复该 receipt；后续改写会使其哈希保护拒绝覆盖新配置，原 receipt/backup 证据保持不变。
+明确切换并修复 DX11 时，纯 `@文件名` 和 `显示名@文件名` 都只在首个 `@` 后精确匹配
+本次配套 carrier 才会解除；不带文件名的名称项、其他 add-on 及其他 carrier 保持原样。
+若 PR #160 已生成 receipt，Manager 不解析或恢复该 receipt；后续改写会使其哈希保护拒绝
+覆盖新配置，原 receipt/backup 证据保持不变。
 卸载不盲写整个 ReShade 配置，历史侧备份保留供回退。DX12 通过移出文件避免部署 carrier，
 不修改 `LoadFromDllMain`。另一路 ReShade 预加载排除工作见 PR #160；本安装器不冒充
 已实现自动运行时 API 激活，也不能保护所有手工复制/第三方加载 DLL 的路径。
