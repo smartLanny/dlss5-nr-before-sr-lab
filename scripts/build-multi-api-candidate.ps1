@@ -51,7 +51,7 @@ try {
     $TestBuild = Join-Path $Output 'tests'
     New-Item -ItemType Directory -Path $TestBuild | Out-Null
     $Include = @('-DNR_TEST_MULTIAPI=1', "-I$(Join-Path $Stage 'core')", "-I$Root", "-I$(Join-Path $Math 'Inc')")
-    foreach ($Test in @('multi_api/format_access', 'multi_api/format_adapter', 'multi_api/post_policy', 'multi_api/rr_post_runtime', 'multi_api/post_settings', 'multi_api/motion_access', 'native_bridge/history', 'native_bridge/forward', 'native_bridge/render_scale', 'native_bridge/mirror_rect')) {
+    foreach ($Test in @('multi_api/format_access', 'multi_api/format_adapter', 'multi_api/post_policy', 'multi_api/rr_post_runtime', 'multi_api/post_settings', 'multi_api/motion_access', 'native_bridge/history', 'native_bridge/forward', 'native_bridge/render_scale', 'native_bridge/mirror_rect', 'native_bridge/ngx_parameter_abi')) {
         $Exe = Join-Path $TestBuild ((Split-Path -Leaf $Test) + '.exe')
         & $Cxx '-std=c++17' '-Wall' '-Wextra' '-Werror' '-static' @Include (Join-Path $Root "tests/$Test.cpp") '-o' $Exe
         if ($LASTEXITCODE) { throw "Host compile failed: $Test" }
@@ -59,6 +59,12 @@ try {
         if ($LASTEXITCODE) { throw "Host test failed: $Test" }
         $Checks.Add($Test)
     }
+    $OldAbi = Join-Path $TestBuild 'ngx_parameter_abi-old.exe'
+    & $Cxx '-std=c++17' '-O2' '-static' '-DNR_TEST_OLD_VTABLE=1' @Include (Join-Path $Root 'tests/native_bridge/ngx_parameter_abi.cpp') '-o' $OldAbi
+    if ($LASTEXITCODE) { throw 'Historical ABI negative control failed to compile.' }
+    & $OldAbi
+    if ($LASTEXITCODE -ne 1) { throw 'Historical ABI mismatch was not detected by executable slot oracle.' }
+    $Checks.Add('NGX ABI historical-layout negative control rejected at first wrong slot')
     $ShaderCompiler = Join-Path $TestBuild 'post_shader_compile.exe'
     & $Cxx '-std=c++17' '-static' '-municode' (Join-Path $Root 'tests/multi_api/post_shader_compile.cpp') '-o' $ShaderCompiler '-ld3dcompiler'
     if ($LASTEXITCODE) { throw 'Production shader compiler harness failed.' }
@@ -73,6 +79,8 @@ try {
         if ($LASTEXITCODE) { throw "WARP execution failed: $Test" }
         $Checks.Add($Test)
     }
+    & (Join-Path $PSScriptRoot 'validate-post-scaled-work-gpu.ps1') -SourceRoot (Join-Path $Stage 'core') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $TestBuild 'post-scaled-work')
+    $Checks.Add('post scaled-work WARP: 48 actual EncodeCS/CombineCS scenarios; FP16 model planes; identity and nonzero test-only neural residual')
     foreach ($Script in @('validate-picture-budget.py', 'validate-command-creation.py', 'validate-reset-notification-gap.py')) {
         & python (Join-Path $PSScriptRoot $Script) --compiler $Cxx
         if ($LASTEXITCODE) { throw "Production regression failed: $Script" }

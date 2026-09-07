@@ -1,0 +1,1009 @@
+// Post-SR/RR scaled-work WARP pixel validation.
+// Uses production EncodeCS → deterministic test-only neural path (NOT NVIDIA
+// Feature 18) → production CombineCS. Fixture matches production ownership:
+// source/result follow the profile format; proxy/neural model planes are always
+// owned FP16. Every encode/combine binds via production WriteCodecDescriptorSet.
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <d3d12.h>
+#include <d3d12sdklayers.h>
+#include <d3dcompiler.h>
+#include <dxgi1_4.h>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <limits>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+#include "nr_post_compat.h"
+
+// @PRODUCTION_DESCRIPTOR_CONSTANTS@
+// @PRODUCTION_SHADER@
+// @PRODUCTION_CONSTANTS@
+// @PRODUCTION_MOTION_READ_FORMAT@
+// @PRODUCTION_ALIGN_WORK@
+
+// Adapt production C-helper spelling to this harness's C++ COM interfaces.
+#define ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(h) \
+    (h)->GetCPUDescriptorHandleForHeapStart()
+#define ID3D12Resource_GetDesc(r) (r)->GetDesc()
+#define ID3D12Device_CreateShaderResourceView(d, r, s, h) \
+    (d)->CreateShaderResourceView(r, s, h)
+#define ID3D12Device_CreateUnorderedAccessView(d, r, c, s, h) \
+    (d)->CreateUnorderedAccessView(r, c, s, h)
+struct NrSlot {
+    ID3D12Resource *source = nullptr, *proxy = nullptr, *neural = nullptr,
+                   *motion_source = nullptr;
+    ID3D12Resource *exposure_source = nullptr, *result = nullptr,
+                   *motion_proxy = nullptr, *delta_stats = nullptr;
+    ID3D12DescriptorHeap *snapshot_heap = nullptr;
+    DXGI_FORMAT source_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    DXGI_FORMAT source_srv_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    DXGI_FORMAT result_format = DXGI_FORMAT_UNKNOWN,
+                result_uav_format = DXGI_FORMAT_UNKNOWN;
+};
+struct {
+    UINT descriptor_size = 0;
+} g_codec;
+// @PRODUCTION_DESCRIPTOR_WRITER@
+#undef ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart
+#undef ID3D12Resource_GetDesc
+#undef ID3D12Device_CreateShaderResourceView
+#undef ID3D12Device_CreateUnorderedAccessView
+
+void Require(bool value, const char *message) {
+    if (!value) throw std::runtime_error(message);
+}
+void Check(HRESULT result, const char *message) {
+    if (FAILED(result)) {
+        std::fprintf(stderr, "%s: 0x%08lx\n", message,
+                     static_cast<unsigned long>(result));
+        throw std::runtime_error(message);
+    }
+}
+
+template<class T> struct Com {
+    T *p = nullptr;
+    Com() = default;
+    ~Com() { if (p != nullptr) p->Release(); }
+    Com(const Com &) = delete;
+    Com &operator=(const Com &) = delete;
+    Com(Com &&other) noexcept : p(other.p) { other.p = nullptr; }
+    Com &operator=(Com &&other) noexcept {
+        if (p != nullptr) p->Release();
+        p = other.p;
+        other.p = nullptr;
+        return *this;
+    }
+    T *operator->() const { return p; }
+    void **address() { return reinterpret_cast<void **>(&p); }
+};
+
+struct Float4 { float x, y, z, w; };
+struct Float3 { float x, y, z; };
+static_assert(sizeof(Float4) == 16);
+static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * 4);
+
+constexpr DXGI_FORMAT kModelFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
+constexpr float kLumaR = 0.2126f, kLumaG = 0.7152f, kLumaB = 0.0722f;
+
+struct Texture {
+    Com<ID3D12Resource> resource;
+    Com<ID3D12Resource> upload;
+    Com<ID3D12Resource> readback;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
+    D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COPY_DEST;
+    unsigned width = 0, height = 0;
+    DXGI_FORMAT format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    unsigned bytes_per_pixel = 16;
+};
+
+std::uint16_t FloatToHalf(float value) {
+    const std::uint32_t bits = [&] {
+        std::uint32_t u = 0;
+        std::memcpy(&u, &value, 4);
+        return u;
+    }();
+    const std::uint32_t sign = (bits >> 16) & 0x8000u;
+    const int exp = int((bits >> 23) & 0xffu) - 127 + 15;
+    const std::uint32_t mant = bits & 0x7fffffu;
+    if ((bits & 0x7fffffffu) == 0) return static_cast<std::uint16_t>(sign);
+    if (exp <= 0) {
+        if (exp < -10) return static_cast<std::uint16_t>(sign);
+        const std::uint32_t m = (mant | 0x800000u) >> (1 - exp);
+        return static_cast<std::uint16_t>(sign | ((m + 0x1000u) >> 13));
+    }
+    if (exp >= 31) return static_cast<std::uint16_t>(sign | 0x7c00u);
+    return static_cast<std::uint16_t>(
+        sign | (static_cast<std::uint32_t>(exp) << 10) | ((mant + 0x1000u) >> 13));
+}
+
+float HalfToFloat(std::uint16_t value) {
+    const unsigned e = (value >> 10) & 31u, m = value & 1023u;
+    const float mag = e ? std::ldexp(1.f + m / 1024.f, static_cast<int>(e) - 15)
+                        : std::ldexp(m / 1024.f, -14);
+    return (value & 0x8000u) ? -mag : mag;
+}
+
+float LinearToSrgbChannel(float x) {
+    x = std::clamp(x, 0.f, 1.f);
+    return x <= 0.0031308f ? 12.92f * x
+                           : 1.055f * std::pow(x, 1.f / 2.4f) - 0.055f;
+}
+
+float SrgbToLinearChannel(float x) {
+    x = std::clamp(x, 0.f, 1.f);
+    return x <= 0.04045f ? x / 12.92f
+                         : std::pow((x + 0.055f) / 1.055f, 2.4f);
+}
+
+Float3 LinearToSrgb(Float3 v) {
+    return {LinearToSrgbChannel(v.x), LinearToSrgbChannel(v.y),
+            LinearToSrgbChannel(v.z)};
+}
+
+Float3 SrgbToLinear(Float3 v) {
+    return {SrgbToLinearChannel(v.x), SrgbToLinearChannel(v.y),
+            SrgbToLinearChannel(v.z)};
+}
+
+float DotLuma(Float3 v) {
+    return v.x * kLumaR + v.y * kLumaG + v.z * kLumaB;
+}
+
+struct Gpu {
+    Com<ID3D12Device> device;
+    Com<ID3D12InfoQueue> messages;
+    Com<ID3D12CommandQueue> queue;
+    Com<ID3D12CommandAllocator> allocator;
+    Com<ID3D12GraphicsCommandList> list;
+    Com<ID3D12Fence> fence;
+    Com<ID3D12RootSignature> root;
+    Com<ID3D12PipelineState> encode;
+    Com<ID3D12PipelineState> combine;
+    Com<ID3D12DescriptorHeap> heap;
+    UINT increment = 0;
+    UINT64 submitted = 0;
+    HANDLE completion = nullptr;
+
+    Gpu() {
+        Com<ID3D12Debug> debug;
+        if (SUCCEEDED(D3D12GetDebugInterface(IID_ID3D12Debug, debug.address())))
+            debug->EnableDebugLayer();
+        Com<IDXGIFactory4> factory;
+        Check(CreateDXGIFactory1(IID_IDXGIFactory4, factory.address()), "DXGI factory");
+        Com<IDXGIAdapter1> warp;
+        Check(factory->EnumWarpAdapter(IID_IDXGIAdapter1, warp.address()),
+              "WARP adapter required (no hardware fallback)");
+        Check(D3D12CreateDevice(warp.p, D3D_FEATURE_LEVEL_11_0,
+              IID_ID3D12Device, device.address()), "Create WARP device");
+        std::puts("post-scaled-work GPU adapter: D3D12 WARP (required)");
+        device->QueryInterface(IID_ID3D12InfoQueue, messages.address());
+        D3D12_COMMAND_QUEUE_DESC queue_desc{};
+        queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+        Check(device->CreateCommandQueue(&queue_desc, IID_ID3D12CommandQueue,
+              queue.address()), "Create queue");
+        Check(device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+              IID_ID3D12CommandAllocator, allocator.address()), "Create allocator");
+        Check(device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+              allocator.p, nullptr, IID_ID3D12GraphicsCommandList,
+              list.address()), "Create list");
+        Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_ID3D12Fence,
+              fence.address()), "Create fence");
+        completion = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        Require(completion != nullptr, "Fence event");
+        D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
+        heap_desc.NumDescriptors = kCodecDescriptorCount;
+        heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        Check(device->CreateDescriptorHeap(&heap_desc, IID_ID3D12DescriptorHeap,
+              heap.address()), "Create descriptor heap");
+        increment = device->GetDescriptorHandleIncrementSize(heap_desc.Type);
+        g_codec.descriptor_size = increment;
+
+        D3D12_DESCRIPTOR_RANGE ranges[2]{};
+        ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        ranges[0].NumDescriptors = kCodecSrvCount;
+        ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        ranges[1].NumDescriptors = kCodecUavCount;
+        ranges[1].OffsetInDescriptorsFromTableStart = kCodecSrvCount;
+        D3D12_ROOT_PARAMETER parameters[2]{};
+        parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        parameters[0].DescriptorTable = {2, ranges};
+        parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        parameters[1].Constants = {0, 0, kCodecRootConstantCount};
+        D3D12_ROOT_SIGNATURE_DESC root_desc{};
+        root_desc.NumParameters = 2;
+        root_desc.pParameters = parameters;
+        Com<ID3DBlob> serialized;
+        Check(D3D12SerializeRootSignature(&root_desc, D3D_ROOT_SIGNATURE_VERSION_1,
+              &serialized.p, nullptr), "Serialize root");
+        Check(device->CreateRootSignature(0, serialized->GetBufferPointer(),
+              serialized->GetBufferSize(), IID_ID3D12RootSignature, root.address()),
+              "Create root");
+
+        auto compile = [&](const char *entry, Com<ID3D12PipelineState> &out) {
+            Com<ID3DBlob> shader, errors;
+            const HRESULT result = D3DCompile(
+                kCodecShader, sizeof(kCodecShader) - 1, "production-codec",
+                nullptr, nullptr, entry, "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3,
+                0, &shader.p, &errors.p);
+            if (FAILED(result) && errors.p != nullptr)
+                std::fprintf(stderr, "%s\n",
+                    static_cast<const char *>(errors->GetBufferPointer()));
+            Check(result, entry);
+            D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_desc{};
+            pipeline_desc.pRootSignature = root.p;
+            pipeline_desc.CS = {shader->GetBufferPointer(), shader->GetBufferSize()};
+            Check(device->CreateComputePipelineState(&pipeline_desc,
+                  IID_ID3D12PipelineState, out.address()), entry);
+        };
+        compile("EncodeCS", encode);
+        compile("CombineCS", combine);
+    }
+
+    ~Gpu() { if (completion != nullptr) CloseHandle(completion); }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE Cpu(UINT index) const {
+        auto handle = heap->GetCPUDescriptorHandleForHeapStart();
+        handle.ptr += static_cast<SIZE_T>(index) * increment;
+        return handle;
+    }
+
+    Com<ID3D12Resource> Buffer(UINT64 bytes, D3D12_HEAP_TYPE type,
+                               D3D12_RESOURCE_FLAGS flags,
+                               D3D12_RESOURCE_STATES state) {
+        D3D12_HEAP_PROPERTIES properties{};
+        properties.Type = type;
+        properties.CreationNodeMask = properties.VisibleNodeMask = 1;
+        D3D12_RESOURCE_DESC desc{};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        desc.Width = bytes;
+        desc.Height = desc.DepthOrArraySize = desc.MipLevels = 1;
+        desc.SampleDesc.Count = 1;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        desc.Flags = flags;
+        Com<ID3D12Resource> resource;
+        Check(device->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE,
+              &desc, state, nullptr, IID_ID3D12Resource, resource.address()),
+              "Create buffer");
+        return resource;
+    }
+
+    void Barrier(ID3D12Resource *resource, D3D12_RESOURCE_STATES before,
+                 D3D12_RESOURCE_STATES after) {
+        if (before == after) return;
+        D3D12_RESOURCE_BARRIER barrier{};
+        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrier.Transition = {resource, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                              before, after};
+        list->ResourceBarrier(1, &barrier);
+    }
+
+    void FillUpload(Texture &texture, const std::vector<Float4> &pixels) {
+        void *mapped = nullptr;
+        Check(texture.upload->Map(0, nullptr, &mapped), "Map texture upload");
+        const UINT64 bytes = texture.footprint.Footprint.RowPitch *
+            static_cast<UINT64>(texture.height);
+        std::memset(mapped, 0, static_cast<size_t>(
+            texture.footprint.Offset + bytes));
+        for (unsigned y = 0; y < texture.height; ++y) {
+            auto *row = static_cast<std::uint8_t *>(mapped) +
+                texture.footprint.Offset + y * texture.footprint.Footprint.RowPitch;
+            for (unsigned x = 0; x < texture.width; ++x) {
+                const Float4 &pixel = pixels[y * texture.width + x];
+                if (texture.format == DXGI_FORMAT_R16G16B16A16_FLOAT) {
+                    std::uint16_t halfs[4] = {
+                        FloatToHalf(pixel.x), FloatToHalf(pixel.y),
+                        FloatToHalf(pixel.z), FloatToHalf(pixel.w)};
+                    std::memcpy(row + x * 8, halfs, 8);
+                } else {
+                    std::memcpy(row + x * 16, &pixel, 16);
+                }
+            }
+        }
+        texture.upload->Unmap(0, nullptr);
+    }
+
+    Texture MakeTexture(unsigned width, unsigned height, DXGI_FORMAT format,
+                        const std::vector<Float4> &pixels) {
+        Texture texture;
+        texture.width = width;
+        texture.height = height;
+        texture.format = format;
+        texture.bytes_per_pixel = format == DXGI_FORMAT_R16G16B16A16_FLOAT ? 8u : 16u;
+        D3D12_HEAP_PROPERTIES properties{};
+        properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+        properties.CreationNodeMask = properties.VisibleNodeMask = 1;
+        D3D12_RESOURCE_DESC desc{};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width = width;
+        desc.Height = height;
+        desc.DepthOrArraySize = desc.MipLevels = 1;
+        desc.Format = format;
+        desc.SampleDesc.Count = 1;
+        desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        Check(device->CreateCommittedResource(&properties, D3D12_HEAP_FLAG_NONE,
+              &desc, texture.state, nullptr, IID_ID3D12Resource,
+              texture.resource.address()), "Create texture");
+        UINT64 bytes = 0;
+        device->GetCopyableFootprints(&desc, 0, 1, 0, &texture.footprint,
+                                      nullptr, nullptr, &bytes);
+        texture.upload = Buffer(bytes, D3D12_HEAP_TYPE_UPLOAD,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ);
+        texture.readback = Buffer(bytes, D3D12_HEAP_TYPE_READBACK,
+            D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_COPY_DEST);
+        FillUpload(texture, pixels);
+        D3D12_TEXTURE_COPY_LOCATION destination{};
+        destination.pResource = texture.resource.p;
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_TEXTURE_COPY_LOCATION source{};
+        source.pResource = texture.upload.p;
+        source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        source.PlacedFootprint = texture.footprint;
+        list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+        return texture;
+    }
+
+    void UploadTexture(Texture &texture, const std::vector<Float4> &pixels) {
+        TextureState(texture, D3D12_RESOURCE_STATE_COPY_DEST);
+        FillUpload(texture, pixels);
+        D3D12_TEXTURE_COPY_LOCATION destination{};
+        destination.pResource = texture.resource.p;
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_TEXTURE_COPY_LOCATION source{};
+        source.pResource = texture.upload.p;
+        source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        source.PlacedFootprint = texture.footprint;
+        list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+    }
+
+    void TextureState(Texture &texture, D3D12_RESOURCE_STATES state) {
+        Barrier(texture.resource.p, texture.state, state);
+        texture.state = state;
+    }
+
+    void ReadTexture(Texture &texture) {
+        TextureState(texture, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        D3D12_TEXTURE_COPY_LOCATION destination{};
+        destination.pResource = texture.readback.p;
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        destination.PlacedFootprint = texture.footprint;
+        D3D12_TEXTURE_COPY_LOCATION source{};
+        source.pResource = texture.resource.p;
+        source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+    }
+
+    std::vector<Float4> TexturePixels(Texture &texture) {
+        std::vector<Float4> pixels(texture.width * texture.height);
+        void *mapped = nullptr;
+        Check(texture.readback->Map(0, nullptr, &mapped), "Map result");
+        for (unsigned y = 0; y < texture.height; ++y) {
+            const auto *row = static_cast<const std::uint8_t *>(mapped) +
+                texture.footprint.Offset + y * texture.footprint.Footprint.RowPitch;
+            for (unsigned x = 0; x < texture.width; ++x) {
+                Float4 &pixel = pixels[y * texture.width + x];
+                if (texture.format == DXGI_FORMAT_R16G16B16A16_FLOAT) {
+                    std::uint16_t halfs[4];
+                    std::memcpy(halfs, row + x * 8, 8);
+                    pixel = {HalfToFloat(halfs[0]), HalfToFloat(halfs[1]),
+                             HalfToFloat(halfs[2]), HalfToFloat(halfs[3])};
+                } else {
+                    std::memcpy(&pixel, row + x * 16, 16);
+                }
+            }
+        }
+        const D3D12_RANGE no_write{0, 0};
+        texture.readback->Unmap(0, &no_write);
+        return pixels;
+    }
+
+    void Execute() {
+        Check(list->Close(), "Close command list");
+        ID3D12CommandList *lists[] = {list.p};
+        queue->ExecuteCommandLists(1, lists);
+        Check(queue->Signal(fence.p, ++submitted), "Signal queue");
+        Check(fence->SetEventOnCompletion(submitted, completion), "Fence wait event");
+        Require(WaitForSingleObject(completion, 30000) == WAIT_OBJECT_0,
+                "GPU completion timed out");
+        const HRESULT removed = device->GetDeviceRemovedReason();
+        if (FAILED(removed)) {
+            if (messages.p != nullptr) {
+                for (UINT64 i = 0; i < messages->GetNumStoredMessages(); ++i) {
+                    SIZE_T bytes = 0;
+                    messages->GetMessage(i, nullptr, &bytes);
+                    std::vector<std::uint8_t> storage(bytes);
+                    auto *message = reinterpret_cast<D3D12_MESSAGE *>(storage.data());
+                    messages->GetMessage(i, message, &bytes);
+                    std::fprintf(stderr, "D3D12[%u]: %s\n",
+                        static_cast<unsigned>(message->Severity), message->pDescription);
+                }
+            }
+            std::fprintf(stderr, "D3D12 device removed: 0x%08lx\n",
+                         static_cast<unsigned long>(removed));
+            throw std::runtime_error("D3D12 device removed");
+        }
+        if (messages.p != nullptr) {
+            const UINT64 count = messages->GetNumStoredMessages();
+            for (UINT64 i = 0; i < count; ++i) {
+                SIZE_T bytes = 0;
+                messages->GetMessage(i, nullptr, &bytes);
+                std::vector<std::uint8_t> storage(bytes);
+                auto *message = reinterpret_cast<D3D12_MESSAGE *>(storage.data());
+                Check(messages->GetMessage(i, message, &bytes), "Debug message");
+                if (message->Severity <= D3D12_MESSAGE_SEVERITY_WARNING)
+                    std::fprintf(stderr, "D3D12[%u]: %s\n",
+                        static_cast<unsigned>(message->Severity), message->pDescription);
+                if (message->Severity <= D3D12_MESSAGE_SEVERITY_ERROR)
+                    throw std::runtime_error("D3D12 debug layer error");
+            }
+            messages->ClearStoredMessages();
+        }
+        Check(allocator->Reset(), "Reset allocator");
+        Check(list->Reset(allocator.p, nullptr), "Reset list");
+    }
+};
+
+Float4 HighFrequencyPixel(unsigned x, unsigned y, unsigned seed) {
+    // High-frequency checker with unique alpha so area-filter downscale changes
+    // model RGB (not only alpha) while Combine identity must still restore O.
+    const float checker = ((x + y + seed) & 1u) ? 0.875f : 0.125f;
+    const float ramp = ((x * 17u + y * 29u + seed * 3u) % 64u) / 64.f;
+    return Float4{checker, ramp, 1.f - checker, 0.25f + ((x * 3u + y) % 4u) * 0.1875f};
+}
+
+bool NearlyEqual(float a, float b, float eps) {
+    if (a == b) return true;
+    return std::fabs(a - b) <= eps;
+}
+
+bool PixelEqual(const Float4 &a, const Float4 &b, float eps, const char *where) {
+    const bool ok = NearlyEqual(a.x, b.x, eps) && NearlyEqual(a.y, b.y, eps) &&
+                    NearlyEqual(a.z, b.z, eps) && NearlyEqual(a.w, b.w, eps);
+    if (!ok) {
+        std::fprintf(stderr,
+            "mismatch %s actual=(%.9g,%.9g,%.9g,%.9g) expected=(%.9g,%.9g,%.9g,%.9g)\n",
+            where, a.x, a.y, a.z, a.w, b.x, b.y, b.z, b.w);
+    }
+    return ok;
+}
+
+bool RgbEqual(const Float4 &a, const Float4 &b, float eps) {
+    return NearlyEqual(a.x, b.x, eps) && NearlyEqual(a.y, b.y, eps) &&
+           NearlyEqual(a.z, b.z, eps);
+}
+
+// Independent axis-aligned overlap integral (CPU). Not a copy of the HLSL body;
+// used only to numerically check EncodeCS area-filter output.
+Float4 IndependentOverlapIntegral(const std::vector<Float4> &original,
+                                  unsigned ow, unsigned oh,
+                                  unsigned mx, unsigned my,
+                                  unsigned nw, unsigned nh,
+                                  bool srgb_encoded_filter) {
+    const float lo_x = static_cast<float>(mx) * ow / nw;
+    const float hi_x = static_cast<float>(mx + 1u) * ow / nw;
+    const float lo_y = static_cast<float>(my) * oh / nh;
+    const float hi_y = static_cast<float>(my + 1u) * oh / nh;
+    const int first_x = static_cast<int>(std::floor(lo_x));
+    const int first_y = static_cast<int>(std::floor(lo_y));
+    const int last_x = static_cast<int>(std::ceil(hi_x));
+    const int last_y = static_cast<int>(std::ceil(hi_y));
+    Float4 total{0, 0, 0, 0};
+    float weight = 0.f;
+    for (int y = first_y; y < last_y; ++y) {
+        const float wy = std::max(0.f, std::min(hi_y, static_cast<float>(y + 1)) -
+                                           std::max(lo_y, static_cast<float>(y)));
+        for (int x = first_x; x < last_x; ++x) {
+            const float wx = std::max(0.f, std::min(hi_x, static_cast<float>(x + 1)) -
+                                               std::max(lo_x, static_cast<float>(x)));
+            const float w = wx * wy;
+            if (w <= 0.f) continue;
+            const unsigned sx = static_cast<unsigned>(
+                std::clamp(x, 0, static_cast<int>(ow) - 1));
+            const unsigned sy = static_cast<unsigned>(
+                std::clamp(y, 0, static_cast<int>(oh) - 1));
+            Float4 value = original[sy * ow + sx];
+            if (srgb_encoded_filter) {
+                value.x = SrgbToLinearChannel(value.x);
+                value.y = SrgbToLinearChannel(value.y);
+                value.z = SrgbToLinearChannel(value.z);
+            }
+            total.x += value.x * w;
+            total.y += value.y * w;
+            total.z += value.z * w;
+            total.w += value.w * w;
+            weight += w;
+        }
+    }
+    Require(weight > 0.f, "overlap integral weight");
+    Float4 filtered{total.x / weight, total.y / weight, total.z / weight,
+                    total.w / weight};
+    if (srgb_encoded_filter) {
+        filtered.x = LinearToSrgbChannel(filtered.x);
+        filtered.y = LinearToSrgbChannel(filtered.y);
+        filtered.z = LinearToSrgbChannel(filtered.z);
+    }
+    filtered.w = 1.f; // production LoadPostArea forces opaque model alpha
+    return filtered;
+}
+
+Float4 ExpectedScaledProxy(const std::vector<Float4> &original, unsigned ow,
+                           unsigned oh, unsigned mx, unsigned my, unsigned nw,
+                           unsigned nh, unsigned passthrough) {
+    const bool srgb = (passthrough & 32u) != 0u;
+    const bool linear = (passthrough & 16u) != 0u;
+    Float4 filtered = IndependentOverlapIntegral(
+        original, ow, oh, mx, my, nw, nh, srgb);
+    if (linear) {
+        filtered.x = LinearToSrgbChannel(filtered.x);
+        filtered.y = LinearToSrgbChannel(filtered.y);
+        filtered.z = LinearToSrgbChannel(filtered.z);
+        // EncodeCS keeps LoadPostArea alpha (forced opaque).
+    }
+    return filtered;
+}
+
+Float4 PointSampleProxyGuess(const std::vector<Float4> &original, unsigned ow,
+                             unsigned oh, unsigned mx, unsigned my, unsigned nw,
+                             unsigned nh, unsigned passthrough) {
+    const unsigned ox = std::min(ow - 1u, (mx * ow) / nw);
+    const unsigned oy = std::min(oh - 1u, (my * oh) / nh);
+    Float4 point = original[oy * ow + ox];
+    if ((passthrough & 16u) != 0u) {
+        point.x = LinearToSrgbChannel(point.x);
+        point.y = LinearToSrgbChannel(point.y);
+        point.z = LinearToSrgbChannel(point.z);
+    }
+    return point;
+}
+
+// Independent CombineCS rebuild for simple linear/sRGB SDR (no HDR shoulder).
+Float3 CombineSdrOracle(Float3 stored_original, Float3 stored_proxy,
+                        Float3 stored_neural, unsigned passthrough,
+                        float transfer_strength, float color_strength,
+                        float max_luma_ratio) {
+    const bool linear_sdr = (passthrough & 16u) != 0u;
+    const bool srgb_sdr = (passthrough & 32u) != 0u;
+    Require(linear_sdr || srgb_sdr, "oracle only covers linear/sRGB SDR");
+    Float3 original = srgb_sdr ? SrgbToLinear(stored_original) : stored_original;
+    Float3 proxy = SrgbToLinear(stored_proxy);
+    Float3 neural = SrgbToLinear(stored_neural);
+    Float3 model_delta{neural.x - proxy.x, neural.y - proxy.y, neural.z - proxy.z};
+    if (std::max(std::fabs(model_delta.x),
+                 std::max(std::fabs(model_delta.y), std::fabs(model_delta.z))) <=
+        0.000001f)
+        return stored_original;
+
+    const float normalizer = 1.f;
+    Float3 source{original.x * normalizer, original.y * normalizer,
+                  original.z * normalizer};
+    const float source_luma = DotLuma(source);
+    const float proxy_luma = DotLuma(proxy);
+    const float neural_luma = DotLuma(neural);
+    const float proxy_reference = std::max(proxy_luma, 1.f / 1024.f);
+    const float relative_luma_delta = (neural_luma - proxy_luma) / proxy_reference;
+    const float max_ratio = std::max(max_luma_ratio, 1.f);
+    const float transfer_confidence = [&] {
+        const float t = std::clamp((std::max(source_luma, 0.f) - 1.f / 65536.f) /
+                                       (1.f / 1024.f - 1.f / 65536.f),
+                                   0.f, 1.f);
+        return t * t * (3.f - 2.f * t);
+    }();
+    const float transferred = std::clamp(
+        1.f + relative_luma_delta * transfer_strength, 1.f / max_ratio, max_ratio);
+    const float luma_ratio = 1.f + (transferred - 1.f) * transfer_confidence;
+    Float3 luma_only{source.x * luma_ratio, source.y * luma_ratio,
+                     source.z * luma_ratio};
+    Float3 result = luma_only;
+    if (color_strength > 0.000001f) {
+        Float3 channel_reference{
+            std::max(proxy.x, 1.f / 1024.f), std::max(proxy.y, 1.f / 1024.f),
+            std::max(proxy.z, 1.f / 1024.f)};
+        Float3 relative_channel{
+            (neural.x - proxy.x) / channel_reference.x,
+            (neural.y - proxy.y) / channel_reference.y,
+            (neural.z - proxy.z) / channel_reference.z};
+        auto smooth = [](float v) {
+            const float t = std::clamp((std::max(v, 0.f) - 1.f / 65536.f) /
+                                           (1.f / 1024.f - 1.f / 65536.f),
+                                       0.f, 1.f);
+            return t * t * (3.f - 2.f * t);
+        };
+        Float3 channel_ratio{
+            std::clamp(1.f + relative_channel.x * transfer_strength,
+                       1.f / max_ratio, max_ratio),
+            std::clamp(1.f + relative_channel.y * transfer_strength,
+                       1.f / max_ratio, max_ratio),
+            std::clamp(1.f + relative_channel.z * transfer_strength,
+                       1.f / max_ratio, max_ratio)};
+        const float cx = smooth(proxy.x) * transfer_confidence;
+        const float cy = smooth(proxy.y) * transfer_confidence;
+        const float cz = smooth(proxy.z) * transfer_confidence;
+        channel_ratio.x = 1.f + (channel_ratio.x - 1.f) * cx;
+        channel_ratio.y = 1.f + (channel_ratio.y - 1.f) * cy;
+        channel_ratio.z = 1.f + (channel_ratio.z - 1.f) * cz;
+        Float3 full{
+            std::max(source.x, 0.f) * channel_ratio.x,
+            std::max(source.y, 0.f) * channel_ratio.y,
+            std::max(source.z, 0.f) * channel_ratio.z};
+        const float target_luma = std::max(DotLuma(luma_only), 0.f);
+        const float full_luma = DotLuma(full);
+        if (full_luma > 1.f / 65536.f) {
+            full.x *= target_luma / full_luma;
+            full.y *= target_luma / full_luma;
+            full.z *= target_luma / full_luma;
+        } else {
+            full = luma_only;
+        }
+        const float cs = std::clamp(color_strength, 0.f, 1.f);
+        result = {luma_only.x + (full.x - luma_only.x) * cs,
+                  luma_only.y + (full.y - luma_only.y) * cs,
+                  luma_only.z + (full.z - luma_only.z) * cs};
+    }
+    const float result_luma = DotLuma(result);
+    if (source_luma > 0.f && result_luma > 0.f) {
+        const float bounded = std::clamp(result_luma, source_luma / max_ratio,
+                                         source_luma * max_ratio);
+        const float mix = transfer_confidence;
+        const float scale = bounded / result_luma;
+        result = {result.x + (result.x * scale - result.x) * mix,
+                  result.y + (result.y * scale - result.y) * mix,
+                  result.z + (result.z * scale - result.z) * mix};
+    }
+    Float3 domain{std::clamp(result.x, -65504.f, 65504.f),
+                  std::clamp(result.y, -65504.f, 65504.f),
+                  std::clamp(result.z, -65504.f, 65504.f)};
+    if (srgb_sdr) return LinearToSrgb(domain);
+    return {std::clamp(domain.x, 0.f, 1.f), std::clamp(domain.y, 0.f, 1.f),
+            std::clamp(domain.z, 0.f, 1.f)};
+}
+
+struct CaseProfile {
+    const char *name;
+    DXGI_FORMAT format;
+    unsigned passthrough;
+    float exposure_texture;
+    float pre_exposure;
+    float source_to_canonical;
+    bool use_exposure_srv;
+};
+
+enum class NeuralMode { Identity, Perturb };
+
+void BindProductionDescriptors(Gpu &gpu, Texture &source, Texture &proxy,
+                               Texture &neural, Texture &result,
+                               Texture *exposure) {
+    Require(proxy.format == kModelFormat && neural.format == kModelFormat,
+            "owned model proxy/neural textures must be FP16");
+    NrSlot slot{};
+    slot.source = source.resource.p;
+    slot.proxy = proxy.resource.p;
+    slot.neural = neural.resource.p;
+    slot.motion_source = nullptr;
+    slot.exposure_source = exposure != nullptr ? exposure->resource.p : nullptr;
+    slot.result = result.resource.p;
+    slot.motion_proxy = nullptr;
+    slot.delta_stats = nullptr;
+    slot.source_format = source.format;
+    slot.source_srv_format = source.format;
+    slot.result_format = result.format;
+    slot.result_uav_format = result.format;
+    WriteCodecDescriptorSet(gpu.device.p, slot, gpu.heap.p);
+}
+
+void DeterministicNeuralPerturbation(std::vector<Float4> &neural) {
+    // FP16-friendly nonzero residual; test-only stand-in for Feature 18.
+    for (Float4 &pixel : neural) {
+        pixel.x = std::clamp(pixel.x + 0.046875f, 0.f, 1.f);
+        pixel.y = std::clamp(pixel.y - 0.03125f, 0.f, 1.f);
+        pixel.z = std::clamp(pixel.z + 0.0234375f, 0.f, 1.f);
+    }
+}
+
+float IdentityEps(bool result_fp16) {
+    return result_fp16 ? 0.002f : 0.f;
+}
+
+float ModelPlaneEps() {
+    // Conservative after mandatory FP16 proxy/neural quantization.
+    return 0.02f;
+}
+
+float RebuildEps(bool result_fp16) {
+    return result_fp16 ? 0.03f : 0.025f;
+}
+
+void RunCase(Gpu &gpu, const CaseProfile &profile, unsigned percent,
+             NeuralMode neural_mode) {
+    constexpr unsigned ow = 64, oh = 48;
+    constexpr unsigned dx = 3, dy = 2;
+    Require(dx != 0 && dy != 0, "test must use nonzero destination offsets");
+
+    auto plan = nr_post_compat::Work({ow, oh}, percent);
+    Require(plan.output.w == ow && plan.output.h == oh, "Work() output extent");
+    unsigned nw = plan.work.w, nh = plan.work.h;
+    if (plan.scaled)
+        SelectAlignedWorkExtent(nw, nh, ow, oh, nw, nh);
+    Require(nw > 0 && nh > 0 && nw <= ow && nh <= oh, "Npost extent invalid");
+    if (percent == 100)
+        Require(nw == ow && nh == oh, "100% must be exact O reference");
+
+    const bool result_fp16 = profile.format == DXGI_FORMAT_R16G16B16A16_FLOAT;
+    const bool simple_sdr = (profile.passthrough & 16u) != 0u ||
+                            (profile.passthrough & 32u) != 0u;
+    const Float4 sentinel{-123.f, -45.f, -6.f, -0.5f};
+    std::vector<Float4> original(ow * oh);
+    for (unsigned y = 0; y < oh; ++y)
+        for (unsigned x = 0; x < ow; ++x)
+            original[y * ow + x] = HighFrequencyPixel(x, y, percent);
+
+    const unsigned result_w = ow + dx + 2, result_h = oh + dy + 2;
+    std::vector<Float4> destination(result_w * result_h, sentinel);
+    std::vector<Float4> zero_model(nw * nh, Float4{0, 0, 0, 0});
+
+    auto source = gpu.MakeTexture(ow, oh, profile.format, original);
+    auto proxy = gpu.MakeTexture(nw, nh, kModelFormat, zero_model);
+    auto neural = gpu.MakeTexture(nw, nh, kModelFormat, zero_model);
+    auto result = gpu.MakeTexture(result_w, result_h, profile.format, destination);
+    Texture exposure_tex{};
+    Texture *exposure_ptr = nullptr;
+    if (profile.use_exposure_srv) {
+        exposure_tex = gpu.MakeTexture(1, 1, DXGI_FORMAT_R32G32B32A32_FLOAT,
+            {Float4{profile.exposure_texture, -7.f, 91.f, 0.125f}});
+        exposure_ptr = &exposure_tex;
+        gpu.TextureState(exposure_tex, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    }
+
+    gpu.TextureState(source, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    gpu.TextureState(proxy, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    gpu.TextureState(neural, D3D12_RESOURCE_STATE_COPY_DEST);
+    gpu.TextureState(result, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+    BindProductionDescriptors(gpu, source, proxy, neural, result, exposure_ptr);
+
+    constexpr float kTransfer = 1.f;
+    constexpr float kColor = 0.25f;
+    constexpr float kMaxRatio = 2.f;
+    CodecConstants encode_constants{};
+    encode_constants.width = nw;
+    encode_constants.height = nh;
+    encode_constants.proxy_scale = 1.f;
+    encode_constants.transfer_strength = kTransfer;
+    encode_constants.source_to_canonical = profile.source_to_canonical;
+    encode_constants.color_strength = kColor;
+    encode_constants.max_luma_ratio = kMaxRatio;
+    encode_constants.passthrough = profile.passthrough;
+    encode_constants.pre_exposure = profile.pre_exposure;
+    encode_constants.source_width = ow;
+    encode_constants.source_height = oh;
+    encode_constants.model_width = nw;
+    encode_constants.model_height = nh;
+    encode_constants.proxy_curve = 1u;
+    encode_constants.frame_confidence = 1.f;
+
+    ID3D12DescriptorHeap *heaps[] = {gpu.heap.p};
+    gpu.list->SetDescriptorHeaps(1, heaps);
+    gpu.list->SetComputeRootSignature(gpu.root.p);
+    gpu.list->SetComputeRootDescriptorTable(0, gpu.heap->GetGPUDescriptorHandleForHeapStart());
+    gpu.list->SetComputeRoot32BitConstants(1, kCodecRootConstantCount, &encode_constants, 0);
+    gpu.list->SetPipelineState(gpu.encode.p);
+    gpu.list->Dispatch((nw + 7) / 8, (nh + 7) / 8, 1);
+    gpu.Execute();
+
+    gpu.TextureState(proxy, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    gpu.TextureState(neural, D3D12_RESOURCE_STATE_COPY_DEST);
+    gpu.list->CopyResource(neural.resource.p, proxy.resource.p);
+    gpu.Execute();
+
+    if (neural_mode == NeuralMode::Perturb) {
+        gpu.ReadTexture(proxy);
+        gpu.Execute();
+        auto neural_pixels = gpu.TexturePixels(proxy);
+        DeterministicNeuralPerturbation(neural_pixels);
+        bool changed = false;
+        for (const auto &pixel : neural_pixels) {
+            // Ensure residual is not all-zero after clamp.
+            if (std::fabs(pixel.x) + std::fabs(pixel.y) + std::fabs(pixel.z) > 0.f)
+                changed = true;
+        }
+        Require(changed, "neural perturbation produced empty plane");
+        // Compare against unperturbed proxy for nonzero model delta.
+        const auto proxy_pixels = gpu.TexturePixels(proxy);
+        unsigned delta_count = 0;
+        for (size_t i = 0; i < neural_pixels.size(); ++i) {
+            if (!RgbEqual(neural_pixels[i], proxy_pixels[i], 0.f)) ++delta_count;
+        }
+        Require(delta_count > 0, "neural perturbation must be nonzero vs proxy");
+        gpu.UploadTexture(neural, neural_pixels);
+        gpu.Execute();
+    }
+
+    gpu.TextureState(proxy, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    gpu.TextureState(neural, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    gpu.TextureState(result, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    BindProductionDescriptors(gpu, source, proxy, neural, result, exposure_ptr);
+
+    CodecConstants combine_constants = encode_constants;
+    combine_constants.width = ow;
+    combine_constants.height = oh;
+    combine_constants.destination_base_x = dx;
+    combine_constants.destination_base_y = dy;
+    combine_constants.source_width = ow;
+    combine_constants.source_height = oh;
+    combine_constants.model_width = nw;
+    combine_constants.model_height = nh;
+    gpu.list->SetDescriptorHeaps(1, heaps);
+    gpu.list->SetComputeRootSignature(gpu.root.p);
+    gpu.list->SetComputeRootDescriptorTable(0, gpu.heap->GetGPUDescriptorHandleForHeapStart());
+    gpu.list->SetComputeRoot32BitConstants(1, kCodecRootConstantCount, &combine_constants, 0);
+    gpu.list->SetPipelineState(gpu.combine.p);
+    gpu.list->Dispatch((ow + 7) / 8, (oh + 7) / 8, 1);
+
+    gpu.ReadTexture(result);
+    gpu.ReadTexture(proxy);
+    if (neural_mode == NeuralMode::Perturb && simple_sdr && percent == 100)
+        gpu.ReadTexture(neural);
+    gpu.Execute();
+
+    const auto out = gpu.TexturePixels(result);
+    const auto proxy_pixels = gpu.TexturePixels(proxy);
+    std::vector<Float4> neural_pixels;
+    if (neural_mode == NeuralMode::Perturb && simple_sdr && percent == 100)
+        neural_pixels = gpu.TexturePixels(neural);
+
+    unsigned border_checked = 0, active_checked = 0, rgb_changed = 0;
+    for (unsigned y = 0; y < result_h; ++y) {
+        for (unsigned x = 0; x < result_w; ++x) {
+            const Float4 &actual = out[y * result_w + x];
+            const bool active = x >= dx && x < dx + ow && y >= dy && y < dy + oh;
+            if (!active) {
+                Require(PixelEqual(actual, sentinel, IdentityEps(result_fp16),
+                                   "subrect/native border"),
+                        "Combine wrote outside destination subrect / destroyed border");
+                ++border_checked;
+            } else {
+                const Float4 &expected = original[(y - dy) * ow + (x - dx)];
+                Require(NearlyEqual(actual.w, expected.w, IdentityEps(result_fp16)),
+                        "Combine must rebuild native alpha");
+                if (neural_mode == NeuralMode::Identity) {
+                    Require(PixelEqual(actual, expected, IdentityEps(result_fp16),
+                                       "identity O pixel"),
+                            "Identity Combine did not restore high-frequency O");
+                } else {
+                    if (!RgbEqual(actual, expected, IdentityEps(result_fp16)))
+                        ++rgb_changed;
+                    if (simple_sdr && percent == 100) {
+                        const unsigned ox = x - dx, oy = y - dy;
+                        const Float4 &p = proxy_pixels[oy * ow + ox];
+                        const Float4 &n = neural_pixels[oy * ow + ox];
+                        const Float3 oracle = CombineSdrOracle(
+                            {expected.x, expected.y, expected.z},
+                            {p.x, p.y, p.z}, {n.x, n.y, n.z},
+                            profile.passthrough, kTransfer, kColor, kMaxRatio);
+                        Require(NearlyEqual(actual.x, oracle.x, RebuildEps(result_fp16)) &&
+                                NearlyEqual(actual.y, oracle.y, RebuildEps(result_fp16)) &&
+                                NearlyEqual(actual.z, oracle.z, RebuildEps(result_fp16)),
+                                "simple linear/sRGB Combine rebuild missed CPU oracle");
+                    }
+                }
+                ++active_checked;
+            }
+        }
+    }
+    Require(border_checked > 0 && active_checked == ow * oh,
+            "border/active coverage incomplete");
+    if (neural_mode == NeuralMode::Perturb)
+        Require(rgb_changed > 0,
+                "nonzero neural delta left O RGB unchanged (broken combine?)");
+
+    if ((plan.scaled || nw != ow || nh != oh) && simple_sdr) {
+        unsigned rgb_mismatch_point = 0;
+        for (unsigned y = 0; y < nh; ++y) {
+            for (unsigned x = 0; x < nw; ++x) {
+                const Float4 &proxy_px = proxy_pixels[y * nw + x];
+                const Float4 expected = ExpectedScaledProxy(
+                    original, ow, oh, x, y, nw, nh, profile.passthrough);
+                const Float4 point = PointSampleProxyGuess(
+                    original, ow, oh, x, y, nw, nh, profile.passthrough);
+                if (!RgbEqual(proxy_px, point, ModelPlaneEps()))
+                    ++rgb_mismatch_point;
+                // Alpha alone must not satisfy the filter check: require RGB
+                // match to an independent overlap integral.
+                Require(NearlyEqual(proxy_px.w, 1.f, ModelPlaneEps()),
+                        "scaled EncodeCS model alpha must be opaque");
+                Require(RgbEqual(proxy_px, expected, ModelPlaneEps()),
+                        "scaled EncodeCS RGB missed independent overlap integral");
+            }
+        }
+        Require(rgb_mismatch_point > 0,
+                "scaled EncodeCS RGB matched naive point samples; "
+                "area filter inactive on RGB (alpha-only would pass old check)");
+    } else if (neural_mode == NeuralMode::Identity) {
+        if ((profile.passthrough & 32u) != 0u || (profile.passthrough & 1u) != 0u) {
+            for (unsigned i = 0; i < ow * oh; ++i)
+                Require(PixelEqual(proxy_pixels[i], original[i], ModelPlaneEps(),
+                                   "100% proxy passthrough"),
+                        "100% EncodeCS changed direct O load");
+        } else if ((profile.passthrough & 16u) != 0u) {
+            for (unsigned i = 0; i < ow * oh; ++i) {
+                const Float4 expected{
+                    LinearToSrgbChannel(original[i].x),
+                    LinearToSrgbChannel(original[i].y),
+                    LinearToSrgbChannel(original[i].z), original[i].w};
+                Require(PixelEqual(proxy_pixels[i], expected, ModelPlaneEps(),
+                                   "100% linear→sRGB proxy"),
+                        "100% linear-SDR EncodeCS proxy domain mismatch");
+            }
+        }
+    }
+
+    std::printf(
+        "PASS percent=%u Npost=%ux%u O=%ux%u dest=(%u,%u) profile=%s "
+        "source/result=%s model=FP16 neural=%s WriteCodecDescriptorSet\n",
+        percent, nw, nh, ow, oh, dx, dy, profile.name,
+        result_fp16 ? "R16G16B16A16_FLOAT" : "R32G32B32A32_FLOAT",
+        neural_mode == NeuralMode::Identity
+            ? "identity-proxy-copy"
+            : "deterministic-nonzero-perturbation (NOT NVIDIA)");
+}
+
+int main(int argc, char **argv) {
+    try {
+        Require(kCodecExposureSrvIndex == 4u &&
+                    kCodecResultUavIndex == kCodecSrvCount + 1u,
+                "production descriptor index contract");
+        Gpu gpu;
+        Require(NrMotionReadFormat(DXGI_FORMAT_R16G16_TYPELESS) ==
+                    DXGI_FORMAT_R16G16_FLOAT,
+                "NrMotionReadFormat RG16 typeless mapping");
+        Require(NrMotionReadFormat(DXGI_FORMAT_R16G16B16A16_TYPELESS) ==
+                    DXGI_FORMAT_R16G16B16A16_FLOAT,
+                "NrMotionReadFormat RGBA16 typeless mapping");
+
+        const CaseProfile profiles[] = {
+            {"sdr-fp16-srgb-storage", DXGI_FORMAT_R16G16B16A16_FLOAT, 32u,
+             1.f, 1.f, 1.f, false},
+            {"sdr-fp16-linear-storage", DXGI_FORMAT_R16G16B16A16_FLOAT, 16u,
+             1.f, 1.f, 1.f, false},
+            {"hdr-fp16-exposure-texture", DXGI_FORMAT_R16G16B16A16_FLOAT, 64u,
+             0.5f, 2.f, 0.375f, true},
+            {"hdr-fp16-automatic", DXGI_FORMAT_R16G16B16A16_FLOAT, 0u,
+             1.f, 1.f, 1.f, false},
+            {"sdr-fp32-srgb-storage", DXGI_FORMAT_R32G32B32A32_FLOAT, 32u,
+             1.f, 1.f, 1.f, false},
+            {"hdr-fp32-automatic", DXGI_FORMAT_R32G32B32A32_FLOAT, 0u,
+             1.f, 1.f, 1.f, false},
+        };
+
+        const char *only = nullptr;
+        for (int i = 1; i < argc; ++i) {
+            if (std::strncmp(argv[i], "--only=", 7) == 0) only = argv[i] + 7;
+        }
+
+        unsigned scenarios = 0;
+        for (const auto &profile : profiles) {
+            if (only != nullptr && std::strcmp(profile.name, only) != 0) continue;
+            for (unsigned percent : {50u, 67u, 75u, 100u}) {
+                RunCase(gpu, profile, percent, NeuralMode::Identity);
+                RunCase(gpu, profile, percent, NeuralMode::Perturb);
+                scenarios += 2;
+            }
+        }
+        Require(scenarios > 0, "no scenarios selected");
+        std::printf(
+            "PASS post-scaled-work WARP: %u scenarios "
+            "(production WriteCodecDescriptorSet, FP16 model planes, "
+            "identity + nonzero neural perturbation, area overlap integral)\n",
+            scenarios);
+        return 0;
+    } catch (const std::exception &ex) {
+        std::fprintf(stderr, "FAIL post-scaled-work WARP: %s\n", ex.what());
+        return 1;
+    }
+}
