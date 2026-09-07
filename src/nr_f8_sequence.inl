@@ -50,8 +50,15 @@ wchar_t g_last_zip[1024] = {};
 bool IsActive() { const auto s=g_status.load(); return s==Status::Requested || s==Status::Running; }
 void OpenWindow() { g_window_open.store(true); }
 void Cancel() {
-    g_cancel.store(true);
-    if (g_status.load()==Status::Requested) nr_core_feedback::Cancel();
+    // Serialize against Present/Watchdog so cancellation cannot land between
+    // Present's Requested check and image-session publication.
+    AcquireSRWLockExclusive(&g_control);
+    g_cancel.store(true, std::memory_order_release);
+    if (g_status.load(std::memory_order_acquire)==Status::Requested) {
+        nr_core_feedback::Cancel();
+        g_status.store(Status::Failed, std::memory_order_release);
+    }
+    ReleaseSRWLockExclusive(&g_control);
 }
 bool RequestCore() {
     AcquireSRWLockExclusive(&g_control);

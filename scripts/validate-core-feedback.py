@@ -181,6 +181,22 @@ int main(int argc,char **argv) {
     AcquireSRWLockExclusive(&g_ngx_hook_failure_lock);
     check(!SnapshotNgxHookFailure().available,"hook evidence contention is nonblocking");
     ReleaseSRWLockExclusive(&g_ngx_hook_failure_lock);
+    check(nr_core_feedback::Request(),"pre-Present request accepted");
+    const auto cancelled_before_present=nr_core_feedback::SnapshotPair();
+    nr_core_feedback::Cancel();
+    check(!g_feedback_requested.load() && !nr_core_feedback::Busy() && g_feedback_status==5,
+        "pre-Present cancellation retires pending request without another render callback");
+    check(nr_core_feedback::SnapshotPair().ready && !nr_core_feedback::SnapshotPair().complete &&
+        std::strstr(nr_core_feedback::g_reason,"before a render callback"),
+        "pre-Present cancellation publishes terminal session-bound state");
+    nr_core_feedback::Cancel();
+    check(g_feedback_status==5 && std::strcmp(cancelled_before_present.session,
+        nr_core_feedback::SnapshotPair().session)==0,
+        "repeated cancellation cannot rewrite or revive the retired request");
+    check(nr_core_feedback::Request(),"fresh request accepted after pre-Present cancellation");
+    check(std::strcmp(cancelled_before_present.session,nr_core_feedback::SnapshotPair().session)!=0,
+        "retry after pre-Present cancellation receives a new session identity");
+    nr_core_feedback::Cancel();
     {
         FeedbackSession unobserved;
         FeedbackAppendActivity(unobserved,"sample");

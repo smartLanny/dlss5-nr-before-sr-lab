@@ -64,9 +64,10 @@ BOOL TestPin(DWORD,LPCWSTR,HMODULE *p){*p=GetModuleHandleW(nullptr);return !pin_
 #include "nr_feedback_text.h"
 namespace nr_core_feedback {
 struct PairSnapshot { char session[96]="DLSS5_CORE_fixture"; unsigned config=1; bool ready=true,complete=true; };
+unsigned cancel_calls=0;
 bool Busy(){return false;}
 bool Request(){return true;}
-void Cancel(){}
+void Cancel(){++cancel_calls;}
 PairSnapshot SnapshotPair(){return {};}
 }
 PRODUCTION_SEQUENCE
@@ -77,7 +78,7 @@ using namespace nr_f8;
 unsigned checks=0;
 void Check(bool ok,const char *why){++checks;if(!ok){std::fprintf(stderr,"FAIL: %s\n",why);std::exit(1);}}
 void Drain(){while(!queued.empty()){auto w=queued.front();queued.erase(queued.begin());if(w.fn!=Watchdog)w.fn(w.arg);}}
-void Reset(){Drain();Check(!g_session,"previous session is detached");g_status.store(Status::Idle);g_cancel=false;g_config_hold=false;stage_status=0;rr=false;g_shortfuse_nr_enabled=false;config_calls=0;config={};NormalizeConfig(config);g_config_generation=1;test_clock+=100000;}
+void Reset(){Drain();Check(!g_session,"previous session is detached");g_status.store(Status::Idle);g_cancel=false;g_config_hold=false;stage_status=0;rr=false;g_shortfuse_nr_enabled=false;config_calls=0;nr_core_feedback::cancel_calls=0;config={};NormalizeConfig(config);g_config_generation=1;test_clock+=100000;}
 void Start(reshade::api::effect_runtime &r,Comparison kind=Comparison::Current){Check(RequestWithOptions({kind,false,0,0}),"request accepted");Present(&r);Check(g_session && g_status==Status::Running,"production Present starts session");}
 void Shot(reshade::api::effect_runtime &r){
     std::wstring path=output_root+L"\\shot_"+std::wstring(r.tag.begin(),r.tag.end())+L".png";
@@ -101,7 +102,15 @@ void DeliverFrame(unsigned long long frame,unsigned width=3840,unsigned height=2
 }
 void FinishOff(reshade::api::effect_runtime &r){test_clock+=3100;Present(&r);Shot(r);Present(&r);Drain();}
 void TestDefaultsAndPictures(){
-    Reset();Check(Options{}.comparison==Comparison::Current,"default is current");config.enabled=false;reshade::api::effect_runtime r;Start(r);Check(config_calls==0,"current does not call ApplyConfig");
+    Reset();Check(Options{}.comparison==Comparison::Current,"default is current");config.enabled=false;reshade::api::effect_runtime r;
+    Check(RequestWithOptions({}),"request accepted before Present");Cancel();
+    Check(g_status==Status::Failed && g_cancel.load() && nr_core_feedback::cancel_calls==1 && !g_session,
+        "pre-Present image cancellation retires its core request and reaches a terminal state");
+    Cancel();Check(nr_core_feedback::cancel_calls==1,"repeated cancellation cannot cancel an unrelated core request");
+    Check(RequestWithOptions({}),"request retry accepted after pre-Present cancellation");
+    Present(&r);Check(g_session && g_status==Status::Running,"retry starts one image session");
+    Cancel();Present(&r);Drain();Check(g_status==Status::Partial,"retry can be cancelled and packaged normally");
+    Reset();config.enabled=false;Start(r);Check(config_calls==0,"current does not call ApplyConfig");
     Check(!RequestWithOptions({Comparison::Standard,false,0,0}),"second request rejected");
     test_clock+=3100;Present(&r);reshade::api::effect_runtime wrong;Screenshot(&wrong,"C:\\wrong_DLSS5_F8_1_0.png");Check(!g_session->groups[0].shot_received,"wrong runtime rejected");
     Screenshot(&r,"C:\\wrong_DLSS5_F8_1_00.png");Check(!g_session->groups[0].shot_received,"tag suffix rejected");
