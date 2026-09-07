@@ -27,7 +27,7 @@ REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137)
 INTEGRATION_CORE_PINS = {
     'src/nr_command_state.inl': STATE_CURRENT,
     'src/nr_feedback_capture.inl': '1ea44b68b5da07b018bc93eef13111d2f274601e',
-    'src/nr_settings_ui.inl': '805447d69dcd53709d2fa9fd28b8a4d3f25f4063',
+    'src/nr_settings_ui.inl': 'e18d389d952e9ccb97ba81704b1aed76333f0c2d',
     'src/nr_before_sr.cpp': 'e2c5ff0facc80b84c1bea29df05974f87b910429',
     'src/nr_before_sr.rc': '25985f691b7f3104ba7c696f3da03eae709d4e52',
     'src/nr_color_policy.inl': 'e52bbc78b15647e8947de88afdbccf6ac7591361',

@@ -74,9 +74,23 @@ $compiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang++.exe'
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' $generated `
     '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'Command-state GPU harness compilation failed.' }
+function Invoke-NegativeOracle([string[]]$Arguments = @()) {
+    # PS5 turns redirected native stderr into terminating NativeCommandError
+    # under Stop. Capture the process streams as files before checking the
+    # expected exit status and precise pixel-oracle failure instead.
+    $Stdout = Join-Path $build ($stem + '.stdout.txt')
+    $Stderr = Join-Path $build ($stem + '.stderr.txt')
+    $Options = @{FilePath=$binary; Wait=$true; PassThru=$true; WindowStyle='Hidden';
+        RedirectStandardOutput=$Stdout; RedirectStandardError=$Stderr}
+    if ($Arguments.Count) { $Options.ArgumentList = $Arguments }
+    $Process = Start-Process @Options
+    $Text = [IO.File]::ReadAllText($Stdout) + [IO.File]::ReadAllText($Stderr)
+    return @{Code=$Process.ExitCode; Text=$Text}
+}
 if ($NegativeControl) {
-    $output = & $binary 2>&1
-    $exitCode = $LASTEXITCODE
+    $result = Invoke-NegativeOracle
+    $output = $result.Text
+    $exitCode = $result.Code
     $output | ForEach-Object { Write-Host $_ }
     if ($exitCode -ne 1 -or ($output -join "`n") -notmatch 'Restored compute state produced wrong output') {
         throw 'GPU oracle failed to reject the deliberately corrupted restore.'
@@ -85,8 +99,9 @@ if ($NegativeControl) {
     exit 0
 }
 if ($CpuDescriptorNegativeControl -or $DynamicStateNegativeControl) {
-    $output = & $binary '--known-null-only' 2>&1
-    $exitCode = $LASTEXITCODE
+    $result = Invoke-NegativeOracle @('--known-null-only')
+    $output = $result.Text
+    $exitCode = $result.Code
     $output | ForEach-Object { Write-Host $_ }
     if ($exitCode -ne 1 -or ($output -join "`n") -notmatch 'Restored graphics state produced wrong output') {
         throw 'Known-null GPU oracle failed to reject the corrupted dynamic/CPU descriptor restoration.'
@@ -95,8 +110,9 @@ if ($CpuDescriptorNegativeControl -or $DynamicStateNegativeControl) {
     exit 0
 }
 if ($BlendStateNegativeControl) {
-    $output = & $binary '--blend-only' 2>&1
-    $code = $LASTEXITCODE
+    $result = Invoke-NegativeOracle @('--blend-only')
+    $output = $result.Text
+    $code = $result.Code
     $output | ForEach-Object { Write-Host $_ }
     if ($code -ne 1 -or ($output -join "`n") -notmatch 'Restored blend-only state produced wrong pixels') {
         throw 'Blend pixel oracle did not reject exact deliberately corrupted restore'
@@ -105,8 +121,9 @@ if ($BlendStateNegativeControl) {
     exit 0
 }
 if ($TargetsNegativeControl) {
-    $output=& $binary '--targets-only' 2>&1
-    $code=$LASTEXITCODE
+    $result = Invoke-NegativeOracle @('--targets-only')
+    $output = $result.Text
+    $code = $result.Code
     $output | ForEach-Object { Write-Host $_ }
     if ($code -ne 1 -or ($output -join "`n") -notmatch 'TARGETS_REPLAY_PIXEL_ORACLE') { throw 'Wrong target negative failure' }
     Write-Host 'Negative control passed: recycled target rejected by WARP pixels.'

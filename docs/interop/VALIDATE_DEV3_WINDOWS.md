@@ -20,6 +20,8 @@ if ($LASTEXITCODE) { throw 'Exact-source package verification failed' }
 
 门禁覆盖实际生成源、格式/曝光/运动能力、NGX ABI正负控、设置/采集、RR Release三入口54场景及旧泄漏负控、生成后的颜色默认/模型恢复、F8及carrier日志、原生命令状态/栈/WARP、48场景后置production shader、静态分析和双语/core/bridge/carrier构建。WARP的神经平面为测试替身，不等于NVIDIA模型或游戏通过。
 
+最终staging还执行carrier完成/退役生产函数35项状态断言、真实WARP fence完成/超时和Create/Evaluate硬件异常子进程测试。负向blend像素测试必须以指定错误退出；PowerShell5使用独立进程日志捕获，避免预期stderr被误当脚本自身异常。OTA不附带INI，保留旧配置；包内UPDATE-NOTES.md是玩家更新说明。
+
 旧严格`tests/post_sr_snapshot_gpu.cpp`需要D3D12 Debug Layer。本机缺该组件时返回`0x887a002d`，单独记为未通过，不移除要求、不用其他WARP结果替它背书。实际候选已有独立48场景后置WARP证据，两者范围不同。
 
 托管CI因账户付款/额度问题未启动时，以annotation记录真实失败原因；本地门禁明确标为local，不能把源码测试通过写成GitHub CI或游戏通过。
