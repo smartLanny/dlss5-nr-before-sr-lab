@@ -126,9 +126,17 @@ bool ReadSummary(const wchar_t *source, std::string &text, bool &coverage, ULONG
     nr_feedback_text::Summary summary;
     char bytes[16384];
     std::string line;
-    bool long_line = false, read_ok = true;
-    UINT64 scanned = 0;
+    bool long_line = false, read_ok = true, tail_read_ok = true;
+    bool tail_needed = false, tail_complete = true;
+    UINT64 scanned = 0, tail_scanned = 0;
     const UINT64 target = std::min<UINT64>(size, nr_feedback_text::kScanLimit);
+    const ULONGLONG started = GetTickCount64();
+    const ULONGLONG source_deadline = std::min<ULONGLONG>(deadline,
+        started + nr_feedback_text::kPerSourceScanMs);
+    // Cooperative wall-clock budget: checked between bounded synchronous
+    // 16 KiB reads. Reserve the final slice for the newest 64 KiB tail.
+    const ULONGLONG prefix_deadline = source_deadline > started + nr_feedback_text::kTailReserveMs
+        ? source_deadline - nr_feedback_text::kTailReserveMs : started;
     auto feed = [&](const char *data, DWORD count) {
         for (DWORD i = 0; i < count; ++i) {
             if (data[i] == '\n') { summary.Push(line, long_line); line.clear(); long_line = false; }
@@ -136,26 +144,37 @@ bool ReadSummary(const wchar_t *source, std::string &text, bool &coverage, ULONG
             else long_line = true;
         }
     };
-    while (scanned < target && !g_cancel.load() && GetTickCount64() < deadline) {
+    while (scanned < target && !g_cancel.load() && GetTickCount64() < prefix_deadline) {
         DWORD got = 0;
         const DWORD count = static_cast<DWORD>(std::min<UINT64>(sizeof(bytes), target - scanned));
         if (!ReadFile(input.value, bytes, count, &got, nullptr) || !got) { read_ok = false; break; }
         feed(bytes, got); scanned += got;
     }
-    if (!line.empty() || long_line) summary.Push(line, long_line);
+    const bool prefix_fragment = scanned < size && (!line.empty() || long_line);
+    if (!line.empty() || long_line) summary.Push(line, long_line || scanned < size);
     coverage = read_ok && scanned == size;
     // A capped prefix is NOT a complete search for the first bypass. Record
     // that limitation, and still include the latest bounded tail.
-    if (!coverage && size > scanned && !g_cancel.load() && GetTickCount64() < deadline) {
-        LARGE_INTEGER offset{}; offset.QuadPart = static_cast<LONGLONG>(size > 65536 ? size - 65536 : 0);
+    tail_needed = !coverage && size > scanned;
+    tail_complete = !tail_needed;
+    if (tail_needed && !g_cancel.load() && GetTickCount64() < source_deadline) {
+        LARGE_INTEGER offset{};
+        const UINT64 tail_start = size > nr_feedback_text::kTailScanLimit
+            ? size - nr_feedback_text::kTailScanLimit : 0;
+        offset.QuadPart = static_cast<LONGLONG>(std::max<UINT64>(scanned, tail_start));
         if (SetFilePointerEx(input.value, offset, nullptr, FILE_BEGIN)) {
             summary.tail = {}; line.clear(); long_line = false;
             UINT64 left = size - static_cast<UINT64>(offset.QuadPart);
-            bool skip_fragment = offset.QuadPart != 0;
-            while (left && !g_cancel.load() && GetTickCount64() < deadline) {
+            // At an exactly contiguous newline boundary the first tail line is
+            // complete. Skip only a known prefix continuation or an arbitrary
+            // seek into the newest tail window.
+            bool skip_fragment = static_cast<UINT64>(offset.QuadPart) > scanned || prefix_fragment;
+            while (left && !g_cancel.load() && GetTickCount64() < source_deadline) {
                 DWORD got = 0;
-                if (!ReadFile(input.value, bytes, static_cast<DWORD>(std::min<UINT64>(left, sizeof(bytes))), &got, nullptr) || !got) break;
-                left -= got;
+                if (!ReadFile(input.value, bytes, static_cast<DWORD>(std::min<UINT64>(left, sizeof(bytes))), &got, nullptr) || !got) {
+                    tail_read_ok = false; break;
+                }
+                left -= got; tail_scanned += got;
                 DWORD start = 0;
                 if (skip_fragment) {
                     while (start < got && bytes[start] != '\n') ++start;
@@ -165,15 +184,25 @@ bool ReadSummary(const wchar_t *source, std::string &text, bool &coverage, ULONG
                 feed(bytes + start, got - start);
             }
             if (!line.empty() || long_line) summary.Push(line, long_line);
-        }
+            tail_complete = left == 0;
+        } else tail_read_ok = false;
     }
     // Detect replacement/resizing during the read; never claim a coherent full scan.
     BY_HANDLE_FILE_INFORMATION after{};
-    if (!GetFileInformationByHandle(input.value, &after) ||
+    const bool source_changed = !GetFileInformationByHandle(input.value, &after) ||
         after.nFileSizeHigh != info.nFileSizeHigh || after.nFileSizeLow != info.nFileSizeLow ||
         after.ftLastWriteTime.dwHighDateTime != info.ftLastWriteTime.dwHighDateTime ||
-        after.ftLastWriteTime.dwLowDateTime != info.ftLastWriteTime.dwLowDateTime) coverage = false;
-    text = summary.Text(size, scanned, coverage);
+        after.ftLastWriteTime.dwLowDateTime != info.ftLastWriteTime.dwLowDateTime;
+    if (source_changed) coverage = false;
+    const bool cancelled = g_cancel.load();
+    const ULONGLONG finished = GetTickCount64();
+    const bool time_limited = !coverage && !cancelled &&
+        ((scanned < target && finished >= prefix_deadline) ||
+         (tail_needed && !tail_complete && tail_read_ok && finished >= source_deadline));
+    const char *status = coverage ? "complete" : source_changed ? "source-changed" : cancelled ? "cancelled" :
+        !read_ok || !tail_read_ok ? "read-error" : time_limited ? "time-limit" :
+        scanned == target && target < size ? "byte-limit" : "bounded-incomplete";
+    text = summary.Text(size, scanned, tail_scanned, coverage, status);
     return text.size() <= nr_feedback_text::kSummaryLimit;
 }
 // F7's paired archive retains its existing temporary-file/ZIP contract.
@@ -273,13 +302,14 @@ nr_feedback_report::Output CollectSingleText(const CoreSession &session, bool ca
             continue;
         }
         doc.Append(std::string("\n===== ") + names[i] +
-            (i == 1 ? " / PREVIOUS PROCESS, NOT CURRENT =====\n" : " / CURRENT PROCESS (head/first/tail) =====\n"));
+            (i == 1 ? " / PREVIOUS PROCESS, NOT CURRENT =====\n" : " / CURRENT PROCESS (first distinct/latest/tail) =====\n"));
         if (!coverage) doc.Missing(std::string(names[i]) + ".coverage", "bounded or changing source; first-event completeness not guaranteed", i == 0);
         nr_bundle::Sha256 digest;
         digest.Update(reinterpret_cast<const unsigned char *>(summary.data()), summary.size());
         char hash[65]{}; digest.Finish(hash);
-        doc.Append(std::string("summary.bytes=") + std::to_string(summary.size()) + "\nsummary.sha256=" + hash + "\n");
-        doc.Append(summary);
+        doc.Append(std::string("summary.bytes=") + std::to_string(summary.size()) + "\nsummary.sha256=" + hash +
+            "\nsummary.sha256Scope=bounded sanitized selected evidence\n");
+        if (!doc.Append(summary)) break;
     }
     if (g_cancel.load()) { doc.complete = false; doc.Append("collection.cancelled=1\n"); }
     doc.Finish();

@@ -229,6 +229,7 @@ int main(int argc,char **argv) {
     check(report.find(first.session)!=std::string::npos && report.find("null-pso-policy-disabled")!=std::string::npos,"TXT carries this session and first-error log");
     check(report.find("Private Tester")==std::string::npos && report.find("ABCDEF00")==std::string::npos,"TXT privacy matches sanitized ZIP");
     check(report.find("text.complete=1")!=std::string::npos,"all included core summaries present in TXT");
+    check(report.size()<64*1024 && report.size()<=nr_feedback_single::kTextLimit,"representative F8 TXT stays in tens of KiB and below hard limit");
     std::ifstream txt(std::filesystem::path(nr_core_feedback::g_report_path),std::ios::binary);
     check(std::string((std::istreambuf_iterator<char>(txt)),{})==report,"disk TXT equals clipboard cache");
     txt.close();
@@ -246,6 +247,47 @@ int main(int argc,char **argv) {
     const std::string text((std::istreambuf_iterator<char>(summary)),{});
     check(text.find("null-pso-policy-disabled")!=std::string::npos,"first bypass survives long later success tail");
     check(text.find("Private Tester")==std::string::npos && text.find("ABCDEF00")==std::string::npos,"shared excerpts redact paths and pointers");
+    check(text.size()<=nr_feedback_text::kSummaryLimit && text.find("summary.limitBytes=24576")!=std::string::npos,
+        "per-source summary advertises and obeys 24 KiB bound");
+    check(text.find("latest.repetitionsSuppressed=19999")!=std::string::npos && text.find("count=19999")==std::string::npos,
+        "repetitive feature lines are counted without producing unbounded output");
+    {
+        const auto capped=std::filesystem::path(output_root)/"capped-source.log";
+        std::ofstream out(capped,std::ios::binary);
+        const std::string block(65536,'p');
+        for(unsigned i=0;i<513;++i){out<<"frame="<<i<<" progress count="<<i<<"\n";out.write(block.data(),block.size());out<<"\n";}
+        out<<"NR bypass transition reason=tail-only-critical HRESULT=0x887A0006\n";out.close();
+        std::string bounded;bool full=true;
+        check(nr_core_feedback::ReadSummary(capped.c_str(),bounded,full,GetTickCount64()+3000),"Windows reader summarizes capped source");
+        check(!full && bounded.find("scan.status=byte-limit")!=std::string::npos,"byte-limited source never claims complete scan");
+        check(bounded.find("scan.prefixBytes=33554432")!=std::string::npos && bounded.find("scan.tailBytes=")!=std::string::npos,
+            "Windows reader reports separate prefix and newest-tail coverage");
+        check(bounded.find("reason=tail-only-critical")!=std::string::npos && bounded.find("0x887A0006")!=std::string::npos,
+            "newest tail diagnostic and HRESULT survive capped prefix");
+        check(bounded.size()<=nr_feedback_text::kSummaryLimit,"capped Windows summary obeys 24 KiB bound");
+        std::string timed;bool timed_full=true;
+        check(nr_core_feedback::ReadSummary(capped.c_str(),timed,timed_full,test_clock),"deadline-limited source still emits bounded metadata");
+        check(!timed_full && timed.find("scan.status=time-limit")!=std::string::npos && timed.find("scan.status=read-error")==std::string::npos,
+            "deadline exhaustion is distinct from a Windows read failure");
+        const auto boundary=std::filesystem::path(output_root)/"boundary-source.log";
+        out.open(boundary,std::ios::binary|std::ios::trunc);
+        out.seekp(static_cast<std::streamoff>(nr_feedback_text::kScanLimit-1));out<<"\nNR bypass reason=first-contiguous-tail HRESULT=0x887A0005\n";out.close();
+        bounded.clear();full=true;
+        check(nr_core_feedback::ReadSummary(boundary.c_str(),bounded,full,test_clock+3000),"newline-boundary source summarized");
+        check(!full && bounded.find("reason=first-contiguous-tail")!=std::string::npos,
+            "first complete tail line is retained when prefix ends exactly at newline");
+        const auto partial=std::filesystem::path(output_root)/"partial-boundary-source.log";
+        const std::string partial_reason="NR bypass reason=partial-cut";
+        out.open(partial,std::ios::binary|std::ios::trunc);
+        out.seekp(static_cast<std::streamoff>(nr_feedback_text::kScanLimit-partial_reason.size()-1));
+        out<<"\n"<<partial_reason<<"-continuation\nNR bypass reason=tail-after-partial\n";out.close();
+        bounded.clear();full=true;
+        check(nr_core_feedback::ReadSummary(partial.c_str(),bounded,full,test_clock+3000),"partial-boundary source summarized");
+        check(!full && bounded.find("reason=partial-cut [line truncated]")!=std::string::npos &&
+              bounded.find("partial-cut-continuation")==std::string::npos,
+            "prefix fragment is marked truncated and never joined to skipped continuation");
+        check(bounded.find("reason=tail-after-partial")!=std::string::npos,"complete diagnostic after skipped continuation retained");
+    }
     begin(runtime);check(std::strcmp(first.session,nr_core_feedback::SnapshotPair().session)!=0,"new session ID differs");nr_core_feedback::Cancel();drain();
     check(g_feedback_status==4 && !nr_core_feedback::SnapshotPair().complete,"cancelled core is explicitly partial");save("cancelled-core.zip");
     snapshot_busy=true;begin(runtime);drain();snapshot_busy=false;
