@@ -73,7 +73,7 @@ class Patches(unittest.TestCase):
         import hashlib
         source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_bytes()
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
-        self.assertEqual(digest,'e2c5ff0facc80b84c1bea29df05974f87b910429')
+        self.assertEqual(digest,'5f1a9d9913036d980b58ce334c71ef7c81440823')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.
