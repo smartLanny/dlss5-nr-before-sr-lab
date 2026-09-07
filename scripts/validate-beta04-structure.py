@@ -42,7 +42,7 @@ identity_requirements = {
     "candidate notes": ["beta0.4.5-fix2", "D3D12", "不含 DX11"],
     "feedback collector": ["collector_version = 'beta0.4.3'"],
     "crash collector": ["beta0.4.3-crash-evidence-2"],
-    "config": ["beta0.4.3r3 community maintenance release"],
+    "config": ["0.4 maintenance defaults. Existing explicit user settings are retained. F6 toggles Enabled."],
     "README": ["beta0.4.3"],
     "Chinese install": ["beta0.4.3"],
     "English install": ["beta0.4.3"],
