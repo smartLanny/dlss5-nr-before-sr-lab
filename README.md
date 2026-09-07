@@ -1,6 +1,6 @@
 # DLSS5 NR-Before-SR Lab
 
-当前兼容预发布版 **[beta0.4.5-multiapi-dev3 OTA](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/beta0.4.5-multiapi-dev3)** 已发布。唯一持续开发分支现收敛为 `main`（兼容 PR #133 的真实历史已整合），本轮源码候选为 **0.4.5-DX11-兼容增强：反馈精简与稳定性维护**，旧 dev3 Release 保持原样。执行看板是 [Issue #80](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/80)。本地、ChatGPT App和云端新session都从同一份 [CURRENT_STATUS](docs/interop/CURRENT_STATUS.md) 接续。
+当前版本 **[0.4.5-DX11-兼容增强](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/beta0.4.5-dx11-compat)**：中文精简OTA及配套安装器。唯一持续Addon开发分支为 `main`，fix2/兼容增强/反馈稳定性修复已整合，33个已合入临时远端分支已清理。历史dev3 Release保持原样。本地和云端都从 [CURRENT_STATUS](docs/interop/CURRENT_STATUS.md) 接续。
 
 - [本轮 0.4.5-DX11-兼容增强 反馈与稳定性说明](docs/interop/RELEASE_DEV4_PLAYER_NOTES.md)
 - [分支收敛记录](docs/interop/MAIN_CONSOLIDATION.md)
@@ -12,7 +12,7 @@
 
 本版整合fix2颜色/模型默认操作和UI整理、原生DLSS兼容、合法颜色/运动/曝光视图、符合条件的RR后置、50–100%后置NR工作精度、资源退役/桥接完成修复及F8取证。不是所有游戏Issues都已修复；异环、HDR/运动/长期稳定及其他游戏仍按各自Issue验收。
 
-F6是总开关对比，**F8生成一个命名TXT**，F7仅用于主动补充图像。NR处理精度不是游戏真实渲染比例。OTA中英文二选一，使用同包核心、nrchain和carrier，保留旧INI；包不含替换INI、NVIDIA模型/运行库、ReShade或游戏文件。
+F6是总开关对比，**F8生成一个命名TXT**，F7仅用于主动补充图像。NR处理精度不是游戏真实渲染比例。当前OTA只交付中文核心，使用同包核心、nrchain和carrier，保留旧INI；包不含替换INI、NVIDIA模型/运行库、ReShade或游戏文件。
 
 This experimental ReShade project supports two orders around native DLSS SR: Mode 2 runs NR before native SR, while Mode 1 processes the resolved output after SR. The compatibility candidate also includes eligible native D3D12 RR post-NR and a DX11 carrier for games that already have DLSS. Post-NR working resolution is independent of the complete output. Feeder, native Vulkan and Legacy APIs are not delivered in this OTA.
 

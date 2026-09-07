@@ -46,3 +46,22 @@ PR138原头ff6dade通过真实普通合并保留祖先；本轮只保留一个PR
 关联任务已关闭七个重复入口#137/#131/#117/#114/#112/#111/#92；它们不是通过关闭PR就宣称原base合并或游戏问题已修。永久整理记录：https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/80#issuecomment-5568772224 。主线整合完成后#133/#138均以main真实祖先为依据收口。
 
 本轮还保留main后来新增e32cc3f的35份BUG归档。私有仓库审计：622 tracked文件检查时，有4份历史反馈ZIP，全部原已在远端main/兼容线；本轮没有新增二进制/模型/运行库到Git。仓库可见性仍为private，不做public-source导出。
+
+## 已执行交付与收口
+
+main于8769456完成实际远端合并，之后的本页提交仅补充交付结果。33个已包含临时远端分支通过精确SHA租约的原子删除清理，逐项回查不存在；82→49。完整SHA及恢复依据见BRANCH_RETIREMENT_20260907.json，所有提交仍在main祖先中，本地旧worktree/未提交文件不动。默认fetch改为标准全heads映射，避免删除旧命名分支后后续fetch失败。
+
+[0.4.5-DX11-兼容增强已发布](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/beta0.4.5-dx11-compat)，预发布、非latest。Tag实际指向二进制源码dccb5b3；唯一中文精简OTA上传状态、669621字节和服务端SHA256已核对一致。GitHub附件使用ASCII名称、中文显示标签，包内仍是中文核心。
+
+main@8769456线上run34109054671已核实：三个job均0steps（其中构建依赖跳过），check annotation明确账户付款/额度阻止启动。没有把它写为代码测试失败或CI通过，也没有重复重跑。完整本地门禁仍是上文记录。
+
+Manager配套在既有product/xiaofeng-manager-foundation分支直接快进至7e2d16e，没有新建长期远端分支或把整个Manager复制进Addon根目录。0.4.5-ota内部选择直接替换为公开同名新版，DX11不再静默落到旧0.4.2槽。旧0.2/0.3.3.5仍可选择；全局默认/已有版本锁保持原行为。安装保留INI、正确退役旧carrier，管理中的carrier不再误报冲突。载荷准备脚本先检查四个最终文件哈希，校验路径范围/重解析点，再执行隔离载荷替换。
+
+Manager应用源码dfa0a2e，后续交付脚本/文档/辅助脚本提交至7e2d16e；本体版本0.4.5与内置Addon的公开名称分别记录。54项测试、UI契约、固定vendor和32项展开payload校验通过。父任务独立从实际portable解出新版payload与app.asar，四组件SHA及34个应用源码文件逐字节匹配。两种EXE内嵌FileVersion/ProductVersion均为0.4.5。
+
+- 安装版：313681452字节，SHA256 `bc4bb56f6b464cf76066c9192d5e7248e9cfd00aba9649bcda58c046c10e2f26`。
+- 免安装版：313344423字节，SHA256 `de69d61b3a3b7ff61bc71e0bed7fceece894ac60877cc021ec2e21c63c641942`。
+
+本地安装器与交付收据在同级deliveries/DLSS5-Manager-0.4.5-DX11-compat-20260907。本机winCodeSign缓存解压缺符号链接权限，使用signAndEditExecutable=false完成未签名构建；NSIS/portable包装仍有0.4.5版本和管理员执行级别，应用保留自行提权。未做真实游戏安装，不以归档/主机测试替代实机。
+
+PR#133/#138也已关闭并回帖指main，累计9个重复入口收口；剩余7个开放PR保留独立研究/游戏兼容/Manager评审。未关闭未经游戏验证的问题。

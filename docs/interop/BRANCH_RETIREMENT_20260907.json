@@ -1,0 +1,141 @@
+{
+  "verifiedMainAtDeletion": "87694569cfaa12e0107452df49ad98d84c66edc1",
+  "remoteHeadCountBefore": 82,
+  "remoteHeadCountAfter": 49,
+  "deleted": [
+    {
+      "branch": "chore/canonical-feedback-integrity",
+      "commit": "bff1adcaa142b900f1e273e8536276f0a52a78c3"
+    },
+    {
+      "branch": "chore/mainline-normalization-prep",
+      "commit": "63f873df64a62825f535e451a4b28241939cf9b4"
+    },
+    {
+      "branch": "codex/043-feedback-and-triage",
+      "commit": "f648c5bfcef14b552b2d38e8f45c533462e4cf40"
+    },
+    {
+      "branch": "codex/043-feedback-integrity",
+      "commit": "690d934de162254436e6b2baf521f28ba5b5b87c"
+    },
+    {
+      "branch": "codex/043r2-compat-feedback-ux",
+      "commit": "1e2d2c1d2d80126d04f021bde0c36138dcee3f21"
+    },
+    {
+      "branch": "codex/043r2-release-finalize",
+      "commit": "e2bccd4bd6fd864ad56ce2bd0bbe86dec4100cb9"
+    },
+    {
+      "branch": "codex/043r3-release-finalize",
+      "commit": "f6d2f60ad7ab205ebf714b90f39da70f0c2ca1a7"
+    },
+    {
+      "branch": "codex/045-colour-defaults-20260907",
+      "commit": "7aa6500ee79deca0689ec85faf2bbb8301d181b7"
+    },
+    {
+      "branch": "codex/045-unified-candidate-20260907",
+      "commit": "c03e3aba3bd45a8d315669c6c1d7764bb24f3350"
+    },
+    {
+      "branch": "codex/beta0.3-stabilization",
+      "commit": "58482c811521df9dec7b1d705c5c1f65083035a9"
+    },
+    {
+      "branch": "codex/beta0.3.1-startup-stability",
+      "commit": "2f5f261f9d001fbdd2465ad72b0fa824f503c062"
+    },
+    {
+      "branch": "codex/beta0.3.2-diagnostics",
+      "commit": "3cb94091663c7e13280d0aa3844299365223df0a"
+    },
+    {
+      "branch": "codex/beta0.3.2-screenshot-runtime",
+      "commit": "4aea4942f4a9093b750fa93b041fd93c1a26da1d"
+    },
+    {
+      "branch": "codex/beta0.3.3-tuning-r8",
+      "commit": "973d22d1f47c24500c7dd69293977396d980c7fa"
+    },
+    {
+      "branch": "codex/beta0.4-perfect-chain",
+      "commit": "507992b96067379690949197cfeb290b08298cc6"
+    },
+    {
+      "branch": "codex/beta0.4.1",
+      "commit": "acdda0febbbf1d90b45fc19e774f6c3378a3438b"
+    },
+    {
+      "branch": "codex/beta0.4.2",
+      "commit": "7913503b1a23185a077bef6d7c79e5086ac32277"
+    },
+    {
+      "branch": "codex/beta0.4.2-bug-sweep",
+      "commit": "2886c0e9a949a08ba81924c4bed06b1f80d213a1"
+    },
+    {
+      "branch": "codex/compat-dev2-import-20260907",
+      "commit": "c433b83c63d2bcb85e2410541c7db6cf947b6d39"
+    },
+    {
+      "branch": "codex/compat-fg-ui-sweep",
+      "commit": "b33d3a1b77f1b8f1921c503756c09ad663eed88b"
+    },
+    {
+      "branch": "codex/dx11-045-compat",
+      "commit": "f88adc33d04803982d98336a3d26e7081bb66f9f"
+    },
+    {
+      "branch": "codex/mc0-build-20260907",
+      "commit": "3dbac3338c4e92fc76cad98070f8fae016218abb"
+    },
+    {
+      "branch": "codex/multiapi-045-integration",
+      "commit": "c03e3aba3bd45a8d315669c6c1d7764bb24f3350"
+    },
+    {
+      "branch": "cursor/beta045-fix2-ota-a201",
+      "commit": "202a1fcf79af951666ad7ddad610bdd37dbd6add"
+    },
+    {
+      "branch": "fix/044-d3d12-compat-test1",
+      "commit": "1a8490a2c76d93b0c5e4cc50b8d4f178df55eb83"
+    },
+    {
+      "branch": "fix/045-complete-post-nr-and-controls",
+      "commit": "5616db62f0228e32fd78ce3d0247cb3523708624"
+    },
+    {
+      "branch": "fix/045-flicker-input-targets",
+      "commit": "e5ce12109da0a81fa099c027172b0fee8336888e"
+    },
+    {
+      "branch": "fix/045-picture-budget-primary-ui",
+      "commit": "9c6848d334e06963a88aad9089e4eaa7d9d38798"
+    },
+    {
+      "branch": "fix/f8-single-txt-reset-evidence",
+      "commit": "145689aee077fa51c54d0b1dba2d79bc38633b2c"
+    },
+    {
+      "branch": "fix/nr-retirement-return-errors",
+      "commit": "453aa5fae3ecacc9f48c74020392d049a3aa16e5"
+    },
+    {
+      "branch": "fix/public-strength-cap-four",
+      "commit": "2f070400b19595774bf3fa6b4d46ea2e6c64adf3"
+    },
+    {
+      "branch": "fix/restore-recommended-picture",
+      "commit": "7cf62b5c3b9c8ab15b37820641933cb304402bd9"
+    },
+    {
+      "branch": "release/beta0.4.3-finalize",
+      "commit": "25407ed2c19dc443178f7a6f96b7615a2cf469a8"
+    }
+  ],
+  "skipped": [],
+  "localWorktreesAndUncommittedWorkPreserved": true
+}
