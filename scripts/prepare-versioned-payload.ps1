@@ -51,6 +51,7 @@ $reviewed = @(
 foreach ($entry in $reviewed) { Assert-ReviewedFile $entry[0] $entry[1] $entry[2] }
 
 $payloadScope = if ($PayloadRoot) { Split-Path -Parent $payload } else { $payloadParent }
+$payloadScope = Assert-PlainDirectory $payloadScope (Split-Path -Parent $payloadScope)
 $payload = Assert-PlainDirectory $payload $payloadScope
 $versions = Assert-PlainDirectory (Join-Path $payload 'versions') $payload
 $fixed = Assert-PlainDirectory (Join-Path $payload 'fixed') $payload
