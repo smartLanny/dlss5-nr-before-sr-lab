@@ -46,23 +46,47 @@ producer include path; Vulkan/GL/D3D11 frame implementations are unchanged.
 | Real-source transforms | 2 tests passed | Core and pinned Feeder; repeat rejection; legacy frame preservation |
 | WARP transport control | Passed | **Test-only deterministic copy, not Feature18/NR evidence** |
 | Feeder `build.bat` | Failed before compile | MSVC C++ toolset absent |
-| Feeder LLVM syntax fallback | Failed at include | Pinned checkout lacks `nvsdk_ngx.h` / NGX SDK |
+| Full Feeder LLVM compilation, after official SDK fetch | Passed | Real producer TU, MinHook and Windows version resource |
+| Full Feeder LLVM link | Failed | Official NGX static library requires missing MSVC C++ runtime import libraries |
 
-No dummy SDK headers, fabricated NR result or hidden fallback were used to turn
-the final two failures into a pass. The development DLL is not a player artifact.
+The first LLVM attempt lacked `nvsdk_ngx.h`. A read-only search found no installed
+SDK, so actual build dependencies were then fetched from official repositories:
+[NVIDIA DLSS](https://github.com/NVIDIA/DLSS/tree/a291cc7d2cc642a51566f3dfd5376f635cd1b284)
+at `a291cc7d2cc642a51566f3dfd5376f635cd1b284`, and
+[Khronos Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers/tree/ee2ec5fd83dafce291024683b50dc89219333076)
+at `ee2ec5fd83dafce291024683b50dc89219333076`. Their source pins and NGX file hashes
+are recorded in `FEEDER_BUILD_DEPENDENCIES.json`; no runtime/model DLLs were fetched.
+
+Two standard C++ `GetProcAddress` pointer casts were required in the staged
+upstream hook header. Full source compilation then passed. The remaining link
+failure is substantive: the official library declares `_MSC_VER=1900` and
+`RuntimeLibrary=MD_DynamicRelease`, requests `msvcprt`/`OLDNAMES`, and contains
+references to `__CxxFrameHandler3`, `_CxxThrowException`, `_Init_thread_*`, and
+MSVC-decorated `std::_Xbad_alloc`/`std::_Xlength_error`. The current LLVM-MinGW
+toolchain does not supply the required MSVC C++ import library. No empty library,
+fake header, renamed runtime or exception shim was substituted to force a pass.
+The development consumer DLL is not a player artifact.
+
+`scripts/build-feeder-recovery-llvm.ps1` reproduces the actual full producer
+compile/link with a prepared stage, the existing toolchain and a new output
+directory. It fails on a link error and retains both compile and link logs.
 
 Evidence is saved under
 `C:/Users/pc1/Documents/ChatGPT/DLSS5/evidence/feeder-recovery-20260907/`:
 `core-compile-final.log`, `core-exports.log`, `external_provider.log`,
 `external_provider_client.log`, `transform-tests.log`,
 `warp-transport-only.log`, `feeder-msvc-build.log`, and
-`feeder-clang-syntax.log`. `original-draft/` holds 12 original source/test files,
+`feeder-clang-syntax.log`, `ngx-msvc-abi-symbols.log`, `ngx-msvc-directives.log`,
+and `full-llvm-attempt/compile.log` / `full-llvm-attempt/link.log`.
+`original-draft/` holds 12 original source/test files,
 their SHA-256 manifest and the tracked draft diff.
 
 ## Required before inclusion
 
-1. Complete the pinned Feeder build with its actual NGX SDK and MSVC toolchain;
-   compile/link the producer, not only the consumer and header tests.
+1. Complete the pinned Feeder link with the matching MSVC toolchain/runtime
+   libraries, or separately establish a supported SDK/compiler combination.
+   Actual official SDK headers and the full LLVM-produced object now exist;
+   the final producer binary still does not.
 2. Exercise the real producer -> shared Feature18 -> same-frame copy-home route
    on NVIDIA hardware. The test copy does not answer visual correctness,
    temporal warmup or whether all command-state hooks are ready in a game.

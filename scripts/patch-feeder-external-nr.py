@@ -330,6 +330,21 @@ def stage_feeder(feeder_root: Path, output: Path, producer_headers: Path) -> dic
     (output / FEED_CPP).write_text(patched, encoding='utf-8', newline='\n')
     build = output / 'build.bat'
     build.write_text(build.read_text(encoding='utf-8').replace('/Iexternal\\reshade', '/Inr_lab_interop /Iexternal\\reshade'), encoding='utf-8')
+    # Standard C++ requires an explicit conversion from FARPROC to void*.
+    # Preserve the upstream Vulkan hook behavior while allowing LLVM to compile
+    # the full TU; this does not add Vulkan provider support.
+    hook = output / 'src/feed_vk_hook.h'
+    hook_text = hook.read_text(encoding='utf-8')
+    for old, new in (
+        ('void *target = GetProcAddress(lib, "vkCreateDevice");',
+         'void *target = reinterpret_cast<void *>(GetProcAddress(lib, "vkCreateDevice"));'),
+        ('if (void *ptarget = GetProcAddress(lib, "vkQueuePresentKHR"))',
+         'if (void *ptarget = reinterpret_cast<void *>(GetProcAddress(lib, "vkQueuePresentKHR")))'),
+    ):
+        if hook_text.count(old) != 1:
+            raise ValueError('Feeder GetProcAddress portability anchor changed')
+        hook_text = hook_text.replace(old, new, 1)
+    hook.write_text(hook_text, encoding='utf-8', newline='\n')
     interop = output / 'nr_lab_interop'
     interop.mkdir(exist_ok=True)
     for name in (
@@ -348,6 +363,7 @@ def stage_feeder(feeder_root: Path, output: Path, producer_headers: Path) -> dic
         'patched_file': FEED_CPP,
         'producer_headers': sorted(p.name for p in interop.glob('*.h')),
         'feed_cpp_sha256': hashlib.sha256(patched.encode('utf-8')).hexdigest(),
+        'feed_vk_hook_sha256': hashlib.sha256(hook_text.encode('utf-8')).hexdigest(),
         'external_nr': 'FeedFrame12 provider-only: skip private NGX Init/Create/'
                        'Evaluate; SubmitFrameV1; starter EndCommands trains affinity; '
                        'no second NR on decline',
