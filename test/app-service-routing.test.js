@@ -132,7 +132,7 @@ test('independent carrier choice disables only the carrier and requires explicit
   assert.equal((await f.service.boot()).games[0].components.dx11Carrier, false);
   await assert.rejects(f.service.repair(id, { version: DX11_COMPAT_VERSION }), { code: 'ERR_CARRIER_NOT_SELECTED' });
   await f.service.setGameCarrier(id, true);
-  assert.equal(fs.existsSync(carrier), false, 'checking is a deployment choice, not an implicit file install');
+  assert.equal(fs.existsSync(carrier), true, 'applying auto uses the existing repair transaction');
   await f.service.repair(id, { version: DX11_COMPAT_VERSION });
   assert.equal(fs.existsSync(carrier), true);
   await f.service.setGameApi(id, 'dx12');
@@ -198,7 +198,8 @@ test('imported compatibility OTA follows the selected API without mixing package
   assert.equal(boot.games[0].addonVersion, imported.id);
 
   await f.service.setGameApi(id, 'dx12');
-  await assert.rejects(f.service.launch(id), { code: 'ERR_API_ROUTE_PENDING' });
+  assert.equal(fs.existsSync(carrierFile), false, 'saving DX12 immediately retires the managed carrier');
+  assert.equal((await f.service.diagnose(id)).routeMismatch, false);
   await f.service.repair(id, { version: imported.id });
   assert.equal(fs.existsSync(carrierFile), false, 'DX12 repair retires the managed carrier');
   assert.equal(fs.readFileSync(addonFile, 'utf8'), 'dx11-core');
@@ -232,4 +233,46 @@ test('imported compatibility OTA follows the selected API without mixing package
   assert.equal(fs.existsSync(carrierFile), false, 'failed validation cannot change the game carrier');
   assert.equal(imported.label, '0.4.5-DX11-兼容增强');
   assert.equal(persisted.label, '0.4.5-DX11-兼容增强');
+});
+
+
+test('failed DX12 transition restores API preference and leaves the changed carrier intact', async t => {
+  const f = makeService(t);
+  await f.service.addManualGame(f.gameDir);
+  const id = (await f.service.boot()).games[0].id;
+  await f.service.setGameApi(id, 'dx11');
+  await f.service.install(id, { version: DX11_COMPAT_VERSION });
+  const carrier = path.join(path.dirname(f.exe), DX11_COMPAT_CARRIER);
+  fs.writeFileSync(carrier, 'user edit');
+  await assert.rejects(f.service.setGameApi(id, 'dx12'), { code: 'ERR_FILE_CHANGED' });
+  assert.equal((await f.service.boot()).games[0].apiOverride, 'dx11');
+  assert.equal(fs.readFileSync(carrier, 'utf8'), 'user edit');
+});
+
+test('enabling auto with a broken package rolls back the saved off preference', async t => {
+  const f = makeService(t);
+  await f.service.addManualGame(f.gameDir);
+  const id = (await f.service.boot()).games[0].id;
+  await f.service.setGameApi(id, 'dx11');
+  await f.service.install(id, { version: DX11_COMPAT_VERSION });
+  await f.service.setGameCarrier(id, false);
+  const dir = path.dirname(f.exe), core = fs.readFileSync(path.join(dir, PAYLOAD_FILES.addon));
+  fs.writeFileSync(path.join(f.payloadDir, 'versions', DX11_COMPAT_VERSION, DX11_COMPAT_CARRIER), 'tampered');
+  await assert.rejects(f.service.setGameCarrier(id, true), { code: 'ERR_PAYLOAD_HASH' });
+  assert.equal((await f.service.boot()).games[0].components.dx11Carrier, false);
+  assert.equal(fs.existsSync(path.join(dir, DX11_COMPAT_CARRIER)), false);
+  assert.deepEqual(fs.readFileSync(path.join(dir, PAYLOAD_FILES.addon)), core);
+});
+
+test('DX12 retirement preserves manual-off across a later DX11 selection', async t => {
+  const f = makeService(t);
+  await f.service.addManualGame(f.gameDir);
+  const id = (await f.service.boot()).games[0].id;
+  await f.service.setGameApi(id, 'dx11');
+  await f.service.install(id, { version: DX11_COMPAT_VERSION });
+  await f.service.setGameCarrier(id, false);
+  await f.service.setGameApi(id, 'dx12');
+  await f.service.setGameApi(id, 'dx11');
+  assert.equal((await f.service.boot()).games[0].components.dx11Carrier, false);
+  assert.equal((await f.service.diagnose(id)).complete, false);
 });

@@ -10,6 +10,14 @@ const MAX_METADATA_BYTES = 1024 * 1024;
 const DX11_VERSION = 'beta0.4.5-dx11-compat';
 const DX11_CORE = 'dlss5-ai渲染超分版-beta0.4.5-dx11-compat-@野生的装机宅-bilibili.addon64';
 const DX11_CARRIER = 'dlss5-native-carrier-045-dx11-compat.addon64';
+const RELEASE_046_VERSION = 'beta0.4.6';
+const RELEASE_046_CORE = 'dlss5-ai渲染超分版-beta0.4.6-@野生的装机宅-bilibili.addon64';
+const RELEASE_046_SOURCE = '9087a9efbc7bb53a3c79e7766a174534f49c412c';
+const RELEASE_046_HASHES = Object.freeze({
+  addon: 'b68f2709a131c9ce0513b6366dbcc2e7d551bef5bcd41934075407378a48c090',
+  carrier: '8268ba3a9d7614ca0e0efad22f7c477780547224dfd0847a1d67188fc05f13c0',
+  bridge: '46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb'
+});
 
 function sha256Buffer(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
@@ -173,8 +181,20 @@ function standardPackage(entries) {
 function dx11Package(entries) {
   const buildInfo = parseJson(entries.get('build-info.json'), 'build-info.json');
   const hashes = parseJson(entries.get('SHA256.json'), 'SHA256.json');
-  if (!buildInfo || buildInfo.version !== DX11_VERSION || buildInfo.display_version !== '0.4.5-DX11-兼容增强' ||
-      buildInfo.language !== 'zh-CN' || buildInfo.core_pe_version !== '0.4.5.104' ||
+  const legacy045 = buildInfo && buildInfo.version === DX11_VERSION &&
+    buildInfo.display_version === '0.4.5-DX11-兼容增强' && buildInfo.core_pe_version === '0.4.5.104';
+  const release046 = buildInfo && buildInfo.version === RELEASE_046_VERSION &&
+    buildInfo.display_version === '0.4.6' && buildInfo.core_pe_version === '0.4.6.0' &&
+    buildInfo.core_file_version === '0.4.6 beta' &&
+    buildInfo.carrier_upstream_file_version === '1.4.12.0' &&
+    buildInfo.source_commit === RELEASE_046_SOURCE && buildInfo.packaging_commit === RELEASE_046_SOURCE &&
+    buildInfo.bridge_upstream_commit === '28aed4099b0fe1c207b20b5fee5364c0773c25c2' &&
+    buildInfo.source_manifest_sha256 === '7bb174529eb077e5b3e619c06e53209e778c3a3795dffc8d8a02ef31f84cfb71' &&
+    buildInfo.validation_sha256 === '394bcb44a8f5c921508d8103cb9c597f28c61003731f16bb62b083114e931daa' &&
+    buildInfo.local_windows_verified === true && buildInfo.local_warp_verified === true &&
+    buildInfo.game_runtime_verified === false && buildInfo.stable_release === false;
+  if (!buildInfo || (!legacy045 && !release046) ||
+      buildInfo.language !== 'zh-CN' ||
       typeof buildInfo.carrier_upstream_file_version !== 'string' || !buildInfo.carrier_upstream_file_version ||
       typeof buildInfo.source_commit !== 'string' || !/^[0-9a-f]{40}$/i.test(buildInfo.source_commit) ||
       typeof buildInfo.packaging_commit !== 'string' || !/^[0-9a-f]{40}$/i.test(buildInfo.packaging_commit)) {
@@ -183,9 +203,14 @@ function dx11Package(entries) {
   const rows = verifyRows(entries, hashes, 'file', 'SHA256.json');
   const addonRows = rows.filter(item => /\.addon64$/i.test(item.name));
   const carrier = exactlyOne(addonRows, item => item.name.toLowerCase() === DX11_CARRIER, 'matched DX11 carrier');
-  const addon = exactlyOne(addonRows, item => item.name.toLowerCase() === DX11_CORE, 'published DX11 core addon64');
+  const coreName = release046 ? RELEASE_046_CORE : DX11_CORE;
+  const addon = exactlyOne(addonRows, item => item.name.toLowerCase() === coreName, 'published core addon64');
   if (addonRows.length !== 2) throw new Error('OTA package contains an ambiguous addon64 role');
   const bridge = exactlyOne(rows, item => /^nrchain_nvngx\.dll$/i.test(item.name), 'nrchain_nvngx.dll');
+  if (release046 && (addon.sha256 !== RELEASE_046_HASHES.addon ||
+      carrier.sha256 !== RELEASE_046_HASHES.carrier || bridge.sha256 !== RELEASE_046_HASHES.bridge)) {
+    throw new Error('0.4.6 OTA component identity mismatch');
+  }
   const instructions = instructionText(entries, ['安装说明.txt', 'Instructions.txt']);
   return result(buildInfo, addon, bridge, carrier, 'dx11', instructions);
 }

@@ -439,7 +439,7 @@ function createInstaller(overrides = {}) {
         label: { addon: 'NR→SR 插件', bridge: 'NR Bridge', carrier: 'DX11 Native Carrier', runtime: 'AI Runtime', config: '配置文件' }[kind],
         ok: routeOk && (kind === 'config' || !expectedHash || actual === expectedHash),
         detail: kind === 'carrier' && carrierOffByChoice && !exists
-          ? 'DX11 carrier 已按用户选择关闭；核心与 nrchain 保留，DX11 兼容路线未启用'
+          ? '桥接已关闭，该 NR 路线不可用；核心与 nrchain 保留，请在游戏/启动器中自行切换 API'
           : kind === 'carrier' && !carrierRequired && exists
           ? 'DX12 路线不应部署 DX11 Carrier，点击修复移出并备份'
           : (kind === 'carrier' && carrierDisabled
@@ -578,7 +578,7 @@ function createInstaller(overrides = {}) {
     });
   }
 
-  async function disableCarrier({ gameDir, scan: suppliedScan, allowAntiCheat = false }) {
+  async function disableCarrier({ gameDir, scan: suppliedScan, allowAntiCheat = false, manual = true }) {
     const scan = suppliedScan || await scanModule.scanGame(gameDir);
     if (!scan || !scan.chosen || !scan.chosen.path) throw appError('ERR_NO_GAME_EXE');
     if (!canWrite(path.dirname(scan.chosen.path))) throw appError('ERR_NO_WRITE_ACCESS');
@@ -594,7 +594,9 @@ function createInstaller(overrides = {}) {
         capture: target => journal.capture(gameDir, target)
       });
       manifest.conflicts = [...(manifest.conflicts || []), ...moved];
-      manifest.carrierDisabledByUser = true;
+      if (manual) manifest.carrierDisabledByUser = true;
+      if (classifyApi(scan.chosen) === 'dx12') manifest.deploymentApi = 'dx12';
+      manifest.updatedAt = new Date().toISOString();
       await saveManifest(gameDir, manifest);
       return diagnose({ gameDir, scan });
     });

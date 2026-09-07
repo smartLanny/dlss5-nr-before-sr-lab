@@ -224,18 +224,36 @@ function cardAction(game) {
   return `<button class="button" disabled>无法安装</button>${dismiss}`;
 }
 
+const CARRIER_TOOLTIP = '当前仅支持 DX11；需要完整配套的兼容核心、nrchain 与 DX11 carrier。关闭后 NR 路线不可用。此选项不修改游戏启动 API，需要自行在游戏或启动器中切换。DX12、API 未确认或 Vulkan 不部署 DX11 carrier。';
+
+function carrierControl(game) {
+  if (!game.chosen) return '';
+  const resolution = game.chosen.apiResolution || {};
+  const selectable = resolution.api === 'dx11';
+  const enabled = selectable && (game.components ? game.components.dx11Carrier === true : true);
+  const title = escapeHtml(CARRIER_TOOLTIP);
+  return `<span class="carrier-option" title="${title}"><label class="check-line"><input class="carrier-component-check" type="checkbox" aria-label="兼容桥接（自动）"${enabled ? ' checked' : ''}${selectable ? '' : ' disabled'}>兼容桥接（自动）</label><button class="button subtle carrier-save-btn" type="button" title="${escapeHtml(selectable ? '应用兼容桥接选择' : '当前路线不部署 DX11 carrier')}"${selectable ? '' : ' disabled'}>应用桥接</button></span>`;
+}
+
 function apiControls(game) {
   if (!game.chosen) return '';
   const resolution = game.chosen.apiResolution || {};
   const labels = { dx11: 'DirectX 11', dx12: 'DirectX 12', mixed: '多条 API 线索，待选择', unknown: 'API 未确认', unsupported: '当前路线不支持' };
   const selected = game.apiOverride || 'auto';
-  const carrierEnabled = game.components ? game.components.dx11Carrier === true : resolution.api === 'dx11';
   const options = [['auto', '自动（综合证据）'], ['dx11', 'DirectX 11'], ['dx12', 'DirectX 12']]
     .map(([id, label]) => `<option value="${id}"${id === selected ? ' selected' : ''}>${label}</option>`).join('');
-  const deployment = resolution.api === 'dx11' ? '需要兼容核心、配套 nrchain 和 DX11 carrier。'
-    : resolution.api === 'dx12' ? '安装所选核心和 nrchain，移出并备份旧 DX11 carrier。'
-    : '请按游戏启动设置确认 API，再安装或修复。';
-  return `<div class="config-block"><h4>游戏 API 与部署</h4><div class="control-row"><label>实际启动 API</label><select class="game-api-select">${options}</select><button class="button subtle api-save-btn">保存 API</button></div><p>${escapeHtml(labels[resolution.api] || 'API 未确认')} · ${escapeHtml(deployment)}</p><p class="config-note">保存 API 后，点击安装、修复或应用版本才会调整路线。此选择不修改游戏的启动参数。</p><div class="control-row"><label><input class="carrier-component-check" type="checkbox"${carrierEnabled ? ' checked' : ''}${resolution.api !== 'dx11' ? ' disabled' : ''}> DX11 carrier</label><span>独立配套组件</span><button class="button subtle carrier-save-btn">应用组件选择</button></div><p class="config-note">取消勾选并应用，会移出并备份已安装的 carrier，保留核心与 nrchain。重新勾选后请点击安装或修复；DX11 未勾选时兼容路线不启用，DX12 无需此组件。</p><p class="config-note">${escapeHtml((resolution.evidence || []).join('；'))}</p></div>`;
+  const deployment = resolution.api === 'dx11' ? 'DX11 需要所选核心的完整配套 nrchain 与 DX11 carrier；兼容桥接关闭时该 NR 路线不可用。'
+    : resolution.api === 'dx12' ? 'DX12 不使用 DX11 carrier；保存 API 时移出旧桥接，核心与 nrchain 保留。'
+    : 'API 未确认或为 Vulkan 时不部署 DX11 carrier；请在游戏或启动器中确认实际启动 API。';
+  return `<div class="config-block"><h4>游戏 API 与部署</h4><div class="control-row"><label>实际启动 API</label><select class="game-api-select">${options}</select><button class="button subtle api-save-btn">保存 API</button></div><p>${escapeHtml(labels[resolution.api] || 'API 未确认')} · ${escapeHtml(deployment)}</p><p class="config-note">这里保存管理器的 API 路线，不会修改游戏启动 API；实际启动 API 需自行在游戏或启动器中切换。DX12 保存后会移出 DX11 桥接，其余配套在安装或修复时应用。</p><p class="config-note">${escapeHtml((resolution.evidence || []).join('；'))}</p></div>`;
+}
+
+function addonVersionRow(game, applyVersion = false) {
+  const selected = game.installed ? (game.addonVersion || game.recommendedAddonVersion || (state.payload && state.payload.selectedVersion))
+    : (game.recommendedAddonVersion || (state.payload && state.payload.selectedVersion));
+  const options = versionOptionsMarkup(selected, Boolean(game.installed));
+  const apply = applyVersion ? '<button class="button subtle version-apply-btn">应用版本</button>' : '';
+  return `<div class="control-row addon-version-row"><label>${game.installed ? 'Addon 版本' : '核心版本'}</label><div class="addon-version-control"><select class="game-version-select">${options}</select>${carrierControl(game)}</div>${apply}</div>`;
 }
 
 function gameApiLabel(chosen) {
@@ -252,14 +270,14 @@ function gameDetail(game) {
     const detail = game.supported
       ? (payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可以直接一键安装。` : '安装前检查已通过；请确认显卡型号并准备对应组件。')
       : game.supportText;
-    return `<div class="game-detail">${apiControls(game)}<div class="config-block"><h4>${escapeHtml(title)}</h4><p>${escapeHtml(detail)}</p><div class="control-row"><label>核心版本</label><select class="game-version-select">${versionOptionsMarkup(game.recommendedAddonVersion || (state.payload && state.payload.selectedVersion), false)}</select></div><div class="path-line">${escapeHtml(game.dir)}</div></div></div>`;
+    return `<div class="game-detail">${apiControls(game)}<div class="config-block"><h4>${escapeHtml(title)}</h4><p>${escapeHtml(detail)}</p>${addonVersionRow(game)}<div class="path-line">${escapeHtml(game.dir)}</div></div></div>`;
   }
   return `<div class="game-detail" data-game-detail="${game.id}">
     ${apiControls(game)}
     <div class="config-grid">
       <div class="config-block">
         <h4>常用设置</h4>
-        <div class="control-row"><label>Addon 版本</label><select class="game-version-select">${versionOptionsMarkup(game.addonVersion || game.recommendedAddonVersion || (state.payload && state.payload.selectedVersion))}</select><button class="button subtle version-apply-btn">应用版本</button></div>
+        ${addonVersionRow(game, true)}
         <div class="control-row"><label>风格</label><div class="segmented style-segment"><button data-value="0">默认</button><button data-value="1">自然</button><button data-value="2">电影</button></div><span></span></div>
         <div class="control-row"><label>人脸保护</label><span></span><input class="switch nr-mask" type="checkbox"></div>
         <div class="control-row"><label>NR 颜色跟随</label><div class="range-wrap"><input class="nr-color-strength" type="range" min="0" max="1" step="0.01"><span class="value-pill nr-color-value">0.75</span></div><span></span></div>
@@ -329,14 +347,21 @@ function bindGameCards() {
     const saveApi = card.querySelector('.api-save-btn');
     if (saveApi) saveApi.onclick = event => {
       event.stopPropagation();
-      runAction(() => window.manager.setGameApi(id, card.querySelector('.game-api-select').value), 'API 选择已保存，请安装或修复以应用组件路线', true, id);
+      const api = card.querySelector('.game-api-select').value;
+      const success = api === 'dx12'
+        ? 'API 路线已保存；DX12 已移出桥接，其他组件请通过安装或修复应用'
+        : 'API 路线已保存；其他组件请通过安装或修复应用';
+      runConfirmedAction(allowAntiCheat => window.manager.setGameApi(id, api, { allowAntiCheat }), success, true, id);
     };
     const saveCarrier = card.querySelector('.carrier-save-btn');
     if (saveCarrier) saveCarrier.onclick = event => {
       event.stopPropagation();
       const enabled = card.querySelector('.carrier-component-check').checked;
+      const installed = state.games.some(game => game.id === id && game.installed);
       runConfirmedAction(allowAntiCheat => window.manager.setGameCarrier(id, enabled, { allowAntiCheat }),
-        enabled ? 'carrier 已勾选，请安装或修复以应用配套组件' : 'carrier 已关闭；核心与 nrchain 保留', true, id);
+        enabled
+          ? (installed ? '兼容桥接选择已应用；请查看安装状态确认组件是否可用' : '兼容桥接已设为自动；安装时应用完整配套')
+          : '兼容桥接已关闭；核心与 nrchain 保留，NR 路线不可用', true, id);
     };
     const launch = card.querySelector('.launch-btn');
     if (launch) launch.onclick = event => { event.stopPropagation(); runAction(() => window.manager.launch(id), '游戏已启动', false); };
@@ -709,6 +734,7 @@ async function boot() {
     renderVersionSelector();
     $('scanDrivesToggle').checked = state.settings.scanDrives;
     $('bilibiliBtn').classList.toggle('hidden', !state.product.bilibiliUrl);
+    $('qqBtn').textContent = state.product.qqGroup ? `QQ群二群：${state.product.qqGroup}` : '加入交流群';
     $('qqBtn').classList.toggle('hidden', !state.product.qqGroup);
     $('updateBtn').classList.toggle('hidden', !state.product.releaseUrl);
     const gpu = state.hardware;

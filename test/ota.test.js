@@ -7,6 +7,33 @@ const path = require('path');
 const { readOtaPackage, sha256Buffer } = require('../src/product/ota');
 const { CORE, CARRIER, BRIDGE, zip, tempZip, standardFixture, dx11Fixture } = require('./helpers/ota-fixture');
 
+const CORE_046 = 'DLSS5-AI渲染超分版-beta0.4.6-@野生的装机宅-Bilibili.addon64';
+
+function release046Fixture(options = {}) {
+  const source = '9087a9efbc7bb53a3c79e7766a174534f49c412c';
+  const buildInfo = Buffer.from(JSON.stringify({
+    display_version: '0.4.6', version: options.version || 'beta0.4.6',
+    source_commit: source, packaging_commit: source, language: 'zh-CN',
+    core_pe_version: '0.4.6.0', core_file_version: '0.4.6 beta',
+    carrier_upstream_file_version: '1.4.12.0',
+    bridge_upstream_commit: '28aed4099b0fe1c207b20b5fee5364c0773c25c2',
+    source_manifest_sha256: '7bb174529eb077e5b3e619c06e53209e778c3a3795dffc8d8a02ef31f84cfb71',
+    validation_sha256: '394bcb44a8f5c921508d8103cb9c597f28c61003731f16bb62b083114e931daa',
+    local_windows_verified: true, local_warp_verified: true,
+    game_runtime_verified: false, stable_release: false
+  }));
+  const payload = new Map([
+    ['build-info.json', buildInfo],
+    [options.carrierName || CARRIER, Buffer.from('self-consistent-but-unpublished-carrier')],
+    [CORE_046, Buffer.from('self-consistent-but-unpublished-core')],
+    [BRIDGE, Buffer.from('self-consistent-but-unpublished-bridge')]
+  ]);
+  const hashes = [...payload].map(([file, data]) => ({ file, sha256: sha256Buffer(data) }));
+  return [...payload].map(([name, data]) => ({ name, data })).concat({
+    name: 'SHA256.json', data: JSON.stringify(hashes)
+  });
+}
+
 test('keeps the historical nr-branch-ota-v1 DX12 contract', async () => {
   const file = zip(tempZip(), standardFixture());
   const ota = await readOtaPackage(file);
@@ -57,6 +84,38 @@ test('reads the locally verified published Chinese compatibility ZIP', { skip: !
   assert.equal(ota.carrierName, CARRIER);
   assert.equal(ota.carrierSha256, 'f825ccc47c2bdf3e365606ba44760371f74ac0ec0fabbc0565ae98864fca05ce');
   assert.equal(ota.bridgeSha256, '46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb');
+});
+
+const release046Package = path.resolve(__dirname, '..', '..', 'beta046-ota-20260908',
+  'DLSS5-AI渲染超分版-0.4.6-@野生的装机宅-Bilibili-OTA.zip');
+test('reads the verified 0.4.6 Chinese OTA as one exact core, carrier and nrchain set',
+  { skip: !fs.existsSync(release046Package) }, async () => {
+    const ota = await readOtaPackage(release046Package);
+    assert.equal(ota.manifest.version, 'beta0.4.6');
+    assert.equal(ota.manifest.source_commit, '9087a9efbc7bb53a3c79e7766a174534f49c412c');
+    assert.equal(ota.manifest.game_runtime_verified, false);
+    assert.equal(ota.compatibility, 'dx11');
+    assert.equal(ota.addonName, 'DLSS5-AI渲染超分版-beta0.4.6-@野生的装机宅-Bilibili.addon64');
+    assert.equal(ota.addonSha256, 'b68f2709a131c9ce0513b6366dbcc2e7d551bef5bcd41934075407378a48c090');
+    assert.equal(ota.carrierName, CARRIER);
+    assert.equal(ota.carrierSha256, '8268ba3a9d7614ca0e0efad22f7c477780547224dfd0847a1d67188fc05f13c0');
+    assert.equal(ota.bridgeName, BRIDGE);
+    assert.equal(ota.bridgeSha256, '46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb');
+    assert.match(ota.instructions, /D3D12.*carrier/s);
+  });
+
+test('does not widen the 0.4.6 profile to self-declared binaries, carriers or future versions', async t => {
+  await t.test('self-consistent unpublished component hashes', async () => {
+    await assert.rejects(readOtaPackage(zip(tempZip(), release046Fixture())), /component identity mismatch/);
+  });
+  await t.test('arbitrary carrier filename', async () => {
+    await assert.rejects(readOtaPackage(zip(tempZip(), release046Fixture({ carrierName: 'other-carrier.addon64' }))),
+      /matched DX11 carrier/);
+  });
+  await t.test('unknown future version', async () => {
+    await assert.rejects(readOtaPackage(zip(tempZip(), release046Fixture({ version: 'beta0.4.7' }))),
+      /unsupported DX11 OTA metadata/);
+  });
 });
 
 test('rejects tampered hashes and declared sizes', async t => {

@@ -84,7 +84,7 @@
         <div class="panel addon-intro">
           <div>
             <h3>插件版本管理</h3>
-            <p>内置版本用于完整安装。0.4.5-DX11-兼容增强会成套安装中文核心、匹配的 nrchain 和 DX11 carrier，同时保留现有 INI、ReShade、Runtime 与游戏自带 DLSS；不要叠加旧核心或旧 carrier。导入普通 OTA 或单独 .addon64 仍用于退出游戏后的版本对比。</p>
+            <p>内置最新中文核心为 0.4.6。DX12 使用所选核心与 nrchain；DX11 需要勾选独立的“兼容桥接”并使用完整配套组件。更新保留现有 INI、ReShade 与游戏自带 DLSS；旧版本可用于回退。导入中文 OTA 可同时核验配套组件，单独 .addon64 不包含桥接。</p>
           </div>
           <div class="addon-drop" id="addonDropZone">把标准 OTA .zip 或 .addon64 拖到这里</div>
           <div class="config-actions addon-actions"><button class="button primary" id="importAddonBtn">选择 OTA / addon 文件</button></div>
@@ -92,7 +92,7 @@
         <div class="panel addon-guide">
           <div class="addon-guide-head">
             <div><h3>0.1～0.4 版本怎么理解？</h3><p>给第一次接触 NR→SR 的用户：数字越大不代表一定更快或更好，主要是处理链路在逐步改进。0.5 目前还没有发布。</p></div>
-            <span class="addon-guide-tip">先用默认稳定版</span>
+            <span class="addon-guide-tip">默认使用 0.4.6</span>
           </div>
           <div class="addon-guide-grid">
             <article class="addon-guide-card"><span class="addon-guide-version">0.1</span><h4>先增强，再交给游戏超分</h4><p>游戏以 1440p 渲染 → NR 增强 → 游戏自己的 DLSS SR → 4K。</p><small>NR 处理 1440p；放大到 4K 仍由游戏原生 DLSS SR 负责。</small><b>第一次证明“先 AI 增强，再超分”可以跑。</b></article>
@@ -100,7 +100,7 @@
             <article class="addon-guide-card"><span class="addon-guide-version">0.3</span><h4>让 NR→SR 更稳定</h4><p>仍是“NR → 游戏原生 SR”，但迁移 NR 效果的过程更稳。</p><small>NR 处理 1440p；最终放大到 4K 由游戏原生 SR 负责。</small><b>NR→SR 开始真正工程化、稳定化。</b></article>
             <article class="addon-guide-card featured"><span class="addon-guide-version">Beta0.4</span><h4>NR 可以单独用更低分辨率</h4><p>游戏保留 1440p → 额外缩一份 1080p 给 NR → AI 修改贴回 1440p → 游戏原生 SR → 4K。</p><small>NR 实际处理 1080p，和游戏自己的渲染分辨率解耦。</small><b>核心飞跃：降低 NR 成本，同时保留游戏原生超分。</b></article>
           </div>
-          <p class="addon-guide-footer">简单选择建议：历史游戏仍可选择保留的旧版本；新版统一选择 <strong>0.4.5-DX11-兼容增强</strong>。它支持已有原生或模组 DLSS 的 DX11-x64 游戏，也保留 D3D12 SR/RR 路线；不支持无 DLSS 游戏、Feeder、Vulkan、DX9/DX10/OpenGL 或 x86 Legacy。</p>
+          <p class="addon-guide-footer">简单选择建议：历史游戏仍可选择保留的旧版本；新版选择 <strong>0.4.6</strong>。它支持已有原生或模组 DLSS 的 DX11-x64 游戏，也保留 D3D12 SR/RR 路线；不支持无 DLSS 游戏、Feeder、Vulkan、DX9/DX10/OpenGL 或 x86 Legacy。</p>
         </div>
         <div class="panel">
           <div class="addon-list-head"><h3>可用版本</h3><span class="muted" id="addonListHint"></span></div>

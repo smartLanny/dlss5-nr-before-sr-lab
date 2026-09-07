@@ -7,7 +7,7 @@ const { isDx11Only, classifyApi } = require('./game-support');
 const { createStore } = require('./state-store');
 const { createLibraryService } = require('./library-service');
 const { createInstaller } = require('./installer');
-const { payloadRoot, inspectPayload, requirePayload, sha256 } = require('./payload');
+const { payloadRoot, readBundle, inspectPayload, requirePayload, sha256 } = require('./payload');
 const { readConfig, writeConfig, defaultPatch } = require('./nr-config');
 const { readReShadeHotkey, writeReShadeHotkey } = require('./hotkeys');
 const { readManifest } = require('./manifest');
@@ -56,6 +56,14 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     return store.read().addonVersion || undefined;
   }
 
+  function recommendedCompatVersion() {
+    try {
+      const bundle = readBundle(payloadDir);
+      if (bundle.versions && bundle.versions[bundle.defaultVersion]?.compatibility === 'dx11') return bundle.defaultVersion;
+    } catch {}
+    return DX11_COMPAT_VERSION;
+  }
+
   function selectedVersionForGame(game, requestedVersion = null) {
     // API chooses the deployment route; it does not override an explicit core
     // selection. The compatibility bundle is only a default recommendation.
@@ -63,7 +71,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       game,
       requestedVersion,
       globalVersion: selectedVersion(),
-      dx11Version: DX11_COMPAT_VERSION,
+      dx11Version: recommendedCompatVersion(),
       dx11Only: Boolean(game && game.scan && isDx11Only(game.scan.chosen))
     });
   }
@@ -195,10 +203,24 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     };
   }
 
+  async function repairGame(game, options = {}) {
+      const requestedVersion = options && typeof options.version === 'string' ? options.version : null;
+      const version = selectedVersionForGame(game, requestedVersion);
+      const imported = importedAddon(version);
+      if (/^imported-/i.test(version || '') && !imported) throw appError('ERR_ADDON_NOT_FOUND');
+      if (imported) {
+        const result = await installer.upgradeAddon({ gameDir: game.dir, addon: imported, version: imported.id, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
+        return result;
+      }
+      const payload = selectedPayload(game, requestedVersion);
+      const result = await installer.repair({ gameDir: game.dir, payload, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
+      return result;
+  }
+
   function publicGame(game) {
     if (!game) return null;
     const { scan, ...safe } = game;
-    return safe;
+    return { ...safe, recommendedAddonVersion: safe.recommendedAddonVersion ? recommendedCompatVersion() : null };
   }
 
   function findGame(id) {
@@ -354,7 +376,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       }
       return store.write(patch);
     },
-    setGameApi: async (id, api) => {
+    setGameApi: async (id, api, options = {}) => {
       if (!['auto', 'dx11', 'dx12'].includes(api)) throw appError('ERR_BAD_REQUEST');
       const game = findGame(id);
       if (!game.scan || !game.scan.chosen) throw appError('ERR_NO_GAME_EXE');
@@ -362,8 +384,25 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       const key = pathKey(game.dir);
       await store.write({ gameOverrides: { ...state.gameOverrides,
         [key]: { ...state.gameOverrides[key], api, apiExecutable: game.scan.chosen.path } } });
-      // An API choice changes the next deployment, never game files by itself.
-      return refresh();
+      try {
+        // DX12 never needs the DX11 carrier. Retire it using the same journal
+        // operation as manual-off; this does not alter game launch arguments.
+        if (api === 'dx12' && readManifest(game.dir)) {
+          const scan = { ...game.scan, chosen: { ...game.scan.chosen,
+            apiResolution: { api: 'dx12', source: 'override', evidence: [] } },
+            componentSelection: { dx11Carrier: false } };
+          await installer.disableCarrier({ gameDir: game.dir, scan, manual: false,
+            allowAntiCheat: options && options.allowAntiCheat === true });
+        }
+      } catch (error) {
+        const current = store.read(), previous = state.gameOverrides[key] || {};
+        try { await store.write({ gameOverrides: { ...current.gameOverrides,
+          [key]: { ...current.gameOverrides[key], api: previous.api || 'auto',
+            apiExecutable: previous.apiExecutable || null } } }); }
+        catch { error.details = { ...error.details, preferenceRollbackFailed: true }; }
+        throw error;
+      }
+      return refreshCollection(games);
     },
     setGameCarrier: async (id, enabled, options = {}) => {
       if (typeof enabled !== 'boolean') throw appError('ERR_BAD_REQUEST');
@@ -377,8 +416,12 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       await store.write({ gameOverrides: { ...state.gameOverrides,
         [key]: { ...previous, carrierEnabled: enabled, carrierExecutable: game.scan.chosen.path } } });
       try {
-        if (!enabled && installed) await installer.disableCarrier({ gameDir: game.dir, scan: game.scan,
-          allowAntiCheat: options && options.allowAntiCheat === true });
+        if (installed) {
+          if (!enabled) await installer.disableCarrier({ gameDir: game.dir, scan: game.scan,
+            allowAntiCheat: options && options.allowAntiCheat === true });
+          else await repairGame({ ...game, scan: { ...game.scan,
+            componentSelection: { dx11Carrier: true } } }, options);
+        }
       } catch (error) {
         // A refused file operation must not leave the UI claiming the active
         // carrier was disabled. Restore just this preference, preserving peers.
@@ -389,7 +432,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
         catch { error.details = { ...error.details, preferenceRollbackFailed: true }; }
         throw error;
       }
-      return refresh();
+      return refreshCollection(games);
     },
     listAddonVersions,
     importAddonFile: async file => {
@@ -470,20 +513,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       const result = await installer.install({ gameDir: game.dir, payload, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
       return result;
     },
-    repair: async (id, options = {}) => {
-      const game = findGame(id);
-      const requestedVersion = options && typeof options.version === 'string' ? options.version : null;
-      const version = selectedVersionForGame(game, requestedVersion);
-      const imported = importedAddon(version);
-      if (/^imported-/i.test(version || '') && !imported) throw appError('ERR_ADDON_NOT_FOUND');
-      if (imported) {
-        const result = await installer.upgradeAddon({ gameDir: game.dir, addon: imported, version: imported.id, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
-        return result;
-      }
-      const payload = selectedPayload(game, requestedVersion);
-      const result = await installer.repair({ gameDir: game.dir, payload, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
-      return result;
-    },
+    repair: async (id, options = {}) => repairGame(findGame(id), options),
     upgradeAddon: async (id, version, options = {}) => {
       const game = findGame(id);
       const imported = importedAddon(version);
