@@ -52,8 +52,10 @@ Steam 本地启动配置按 appid 有界读取，只展示 API 相关线索；�
 
 DX11 明确部署时仅解除配套 carrier 的 `@精确文件名` 禁用项，遍历重复 `[ADDON]`
 及 `DisabledAddons`，保留其他项和逗号转义；改前保存 `ReShade.ini.bak`（占用时带编号）。
-明确切换并修复 DX11 时，纯 `@文件名` 和 `显示名@文件名` 都只在首个 `@` 后精确匹配
-本次配套 carrier 才会解除；不带文件名的名称项、其他 add-on 及其他 carrier 保持原样。
+明确切换并修复 DX11 时，`显示名@文件名` 只在首个 `@` 后严格匹配本次配套 carrier
+才会解除；纯 `@文件名` 另保留旧版大小写不敏感清理，以兼容 Manager 已处理过的配置。
+不带文件名的名称项、其他 add-on 及其他 carrier 保持原样。Manager 当前仍部署到 EXE 目录；
+自定义 `AddonPath` 下的布局没有在本轮扩展或验收。
 若 PR #160 已生成 receipt，Manager 不解析或恢复该 receipt；后续改写会使其哈希保护拒绝
 覆盖新配置，原 receipt/backup 证据保持不变。
 卸载不盲写整个 ReShade 配置，历史侧备份保留供回退。DX12 通过移出文件避免部署 carrier，

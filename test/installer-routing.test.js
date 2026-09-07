@@ -144,10 +144,8 @@ test('real PR160 receipt refuses restore after Manager changes its applied INI',
   });
   await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   const reshadeIni = path.join(f.exeDir, 'ReShade.ini');
-  const addonDir = path.join(f.exeDir, 'addons');
-  fs.mkdirSync(addonDir);
-  fs.copyFileSync(f.payload.carrier.file, path.join(addonDir, INSTALLED_NAMES.carrier));
-  fs.writeFileSync(reshadeIni, '[ADDON] trailing text\r\nAddonPath=addons\r\nDisabledAddons=Custom,,Name,@keep.addon64\r\n');
+  fs.copyFileSync(f.payload.carrier.file, path.join(f.exeDir, INSTALLED_NAMES.carrier));
+  fs.writeFileSync(reshadeIni, '[ADDON] trailing text\r\nAddonPath=.\r\nDisabledAddons=Custom,,Name,@keep.addon64\r\n');
   const beforeApply = fs.readFileSync(reshadeIni);
 
   const appliedRun = runTool(['--ini', reshadeIni, '--api', 'd3d12', '--apply']);
@@ -165,7 +163,7 @@ test('real PR160 receipt refuses restore after Manager changes its applied INI',
   f.scan.chosen.apiResolution = { api: 'dx11', source: 'manual', evidence: [] };
   const repaired = await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   assert.equal(repaired.complete, true);
-  assert.match(fs.readFileSync(reshadeIni, 'utf8'), /AddonPath=addons/);
+  assert.match(fs.readFileSync(reshadeIni, 'utf8'), /AddonPath=\./);
   assert.equal(fs.existsSync(receiptFile), true);
   assert.equal(fs.existsSync(path.join(f.exeDir, applied.backup)), true);
 
@@ -187,7 +185,7 @@ test('real PR160 receipt refuses restore after Manager changes its applied INI',
     fs.writeFileSync(path.join(evidenceDir, 'evidence.json'), `${JSON.stringify({
       managerBase: '8acf31f9cd6245a32256f28accbb2c0a49bc5386',
       pr160Tool: tool,
-      addonPath: 'addons',
+      addonPath: '.',
       carrier: INSTALLED_NAMES.carrier,
       beforePr160Sha256: sha256(path.join(evidenceDir, '01-before-pr160.ini')),
       afterPr160Sha256: sha256(path.join(evidenceDir, '02-after-pr160.ini')),
