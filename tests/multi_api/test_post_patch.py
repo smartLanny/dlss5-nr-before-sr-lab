@@ -123,7 +123,30 @@ NgxResult ProcessEvaluate() {
     if (ShouldGuardFeature1ForRayReconstruction()) return original();
 }
 '''
+# Diagnostic UI anchors come from the real core, not a parallel mock panel.
+_production_core=(ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
+_diagnostic_start,_diagnostic_end=m.block(_production_core,'void DrawTechnicalDiagnostics(')
+FIXTURE += _production_core[_diagnostic_start:_diagnostic_end]
 class SourcePatch(unittest.TestCase):
+    def test_actual_diagnostics_uses_observed_scope_not_rr_ownership_as_activity(self):
+        source=_production_core[_diagnostic_start:_diagnostic_end]
+        out=m.patch_diagnostics(source)
+        self.assertNotIn('Perfect chain:',out)
+        self.assertNotIn('Feature 13 pass-through',out)
+        self.assertNotIn('Safety bypass remains until explicit Release',out)
+        self.assertNotIn('else if (rr_protected',out)
+        self.assertIn('scoped_mode == 1 ? ui(',out)
+        self.assertIn('scoped_success, scoped_recorded, scoped_submitted',out)
+        self.assertIn('Last successful NR dimensions; may precede current mode/settings',out)
+        self.assertIn('Recording/submission is not proof of GPU completion',out)
+        # A requested setting is never sufficient evidence of the displayed path.
+        shown=out[out.index('"Historical NR raster:'):out.index('    if (generic_renodx_conflict) {',out.index('"Historical NR raster:'))]
+        self.assertNotIn('next.mode',shown)
+        self.assertNotIn('nr_post_settings::Read()',shown)
+        self.assertEqual(out.count('bypass_reason == BypassReason::RayReconstructionGuard'),
+                         source.count('bypass_reason == BypassReason::RayReconstructionGuard')+1)
+        with self.assertRaises(ValueError):m.patch_diagnostics(out)
+
     def test_minimal_composition(self):
         out=m.patch_core(FIXTURE)
         self.assertIn('ProcessRrPost(original,command_list,handle,params,callback,feature)',out)
