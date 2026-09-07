@@ -63,7 +63,7 @@ class Staging(unittest.TestCase):
             self.assertEqual(manifest['integration']['core_pe_version'],'0.5.0.4')
             self.assertIn('slot.source_srv_format',(root/'core/src/nr_codec_descriptors.inl').read_text(encoding='utf-8'))
             self.assertIn('NrMotionReadFormat',(root/'core/src/nr_codec_descriptors.inl').read_text(encoding='utf-8'))
-            self.assertEqual((root/'core/src/nr_before_sr.rc').read_text(encoding='utf-8'),'0.4.6 hotfix.1 beta\nFILEVERSION 0,4,6,1')
+            self.assertEqual((root/'core/src/nr_before_sr.rc').read_text(encoding='utf-8'),'0.5.0 dev4 beta\nFILEVERSION 0,5,0,4')
             self.assertIn('PostWorkPercent=100',(root/'core/config/nr_before_sr.ini').read_text(encoding='utf-8'))
             self.assertEqual((root/'core/src/nr_feedback_capture.inl').read_text(encoding='utf-8').count('#include "interop/nr_post_feedback.inl"'),1)
 

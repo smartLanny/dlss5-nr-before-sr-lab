@@ -9,6 +9,7 @@ struct NrSlot {
     ID3D12Resource *exposure_source=nullptr,*result=nullptr,*motion_proxy=nullptr,*delta_stats=nullptr;
     ID3D12DescriptorHeap *snapshot_heap=nullptr;
     DXGI_FORMAT source_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    DXGI_FORMAT source_srv_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
     DXGI_FORMAT result_format=DXGI_FORMAT_UNKNOWN,result_uav_format=DXGI_FORMAT_UNKNOWN;
 };
 struct {UINT descriptor_size=0;} g_codec;
