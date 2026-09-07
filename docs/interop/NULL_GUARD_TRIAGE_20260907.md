@@ -1,6 +1,6 @@
 # P0/P1 guarded-null follow-up (2026-09-07)
 
-Base: `main@7d17c10d8abf0b6342b0bcf4ff0e4a1e164647d3`.
+Base: `main@db0577c565d0a81a6f5c010b35698e078adf1205`.
 The former multiapi-045 integration history, including dev3 `b03f474`, is already
 an ancestor. This is a temporary branch targeting main, not a new release line.
 
@@ -13,28 +13,25 @@ an ancestor. This is a temporary branch targeting main, not a new release line.
   prove current post/RR success. This capture does not demonstrate a currently
   selected pre-NR failure, and zero live RR handles alone does not prove that
   RR never ran.
-- The dev3 raw TXT is identified in that comment, but its advertised 20260907
-  directory is absent from the checked main tree. The ROG connector could not
-  be reached. Only the published dev3 summary was read; do not imply a full
-  raw-TXT or GPU replay. The older #99 test1 successful window is a different
-  build/session and is not a dev3 acceptance result.
+- The archived dev3 raw TXT was later read on ROG during #154 validation. Its
+  same sample records `blend=-0,-1,-2,-3`, `dynamic=0x8`, fresh Reset, covered
+  guard, no taint and no PSO. The older #99 test1 successful window remains a
+  different build/session and is not a dev3 acceptance result.
 - P1 #64 / #38: the checked-in `bug-inbox/issue-64/20260907-*` and
   `bug-inbox/issue-38/20260907-*` fix1 verdicts/capture metadata identify
   pre successes followed by post-SR rejection with `dynamic=0x8`, a real Reset,
   covered guard, no taint, and no vertex/stream masks. The #64 native blend
-  components were not present in that older capture schema. #38's small pre
-  visual delta is a separate observation, not proof of working post NR.
+  components were absent from the older fix1 capture schema; the newer #64
+  dx11-compat F8 records the same finite `-0,-1,-2,-3` factors. #38's small pre
+  visual delta remains separate and does not prove working post NR.
 
 ## Ranked, falsifiable hypotheses
 
-1. An observed blend component fails the existing bounded replay policy. The
-   auto-raster path already admits the blend bit; adding that bit again cannot
-   fix this. A ready, covered, untainted `dynamic=0x8` sample should report either
-   `null-guard-blend-nonfinite` or `null-guard-blend-out-of-range` when the native
-   four values violate that policy. Read the existing dev3 F8 `blendObserved`
-   and `blend` fields first; `requested.blend` is the NR strength, not those
-   four D3D12 values. No particular rejected value is established by the
-   available older capture.
+1. The observed finite `-0,-1,-2,-3` factors failed the former `[0,1]` project
+   policy even though `OMSetBlendFactor` accepts finite floats. #154 removes
+   that false bound, preserves the values bit-for-bit and retains a specific
+   `null-guard-blend-nonfinite` rejection for NaN/Inf. `requested.blend` is the
+   NR strength and is unrelated to these four D3D12 values.
 2. Another raster/descriptor invariant is missing in an actual post-SR sample.
    This should produce the corresponding viewport, scissor, owned-descriptor
    or generic guard reason, rather than the two blend-specific reasons.
@@ -50,14 +47,14 @@ admission predicate and its failure detail. `CanAutoRestoreRasterNull` retains
 its boolean interface; Capture publishes the detail only after higher-priority
 hook coverage, unknown-state, taint and fresh-Reset checks have been applied.
 
-New rejection details distinguish nonfinite/out-of-range blend, invalid
+New rejection details distinguish nonfinite blend, invalid
 viewport/scissor and missing owned RTV/DSV copies. The existing F8 command-state
 reason and rate-limited log expose them without adding a second snapshot or
 inventing default values. The user-visible safe bypass and feedback path remain.
 
-**No admission is widened.** In particular the `[0,1]` blend bound is retained
-as this project's current conservative policy, not newly asserted as a D3D12
-API validity rule. No clamping of application state, fabricated Reset, dropped
+The blend admission now accepts every finite float and still rejects NaN/Inf.
+Values are replayed unchanged; there is no clamping of application state,
+fabricated Reset, dropped
 state restore, extra submission, RR input replacement or resource-lifetime
 change is introduced. This is a diagnostic fix, not a claimed game-unlock fix.
 

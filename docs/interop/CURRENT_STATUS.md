@@ -2,6 +2,8 @@
 
 更新批次：2026-09-07。此页同时供本地 Codex、ChatGPT App 和云端对话读取。旧对话中的 SHA、旧路线表和“已安排”不作为完成证据。
 
+以下已发布批次与历史验证是基线；本轮尚未合入、尚未打包的修改及实际验证边界见下方“2026-09-07 定点接续”。不要把基线 Windows/游戏结果套到新 PR。
+
 ## 当前主线收敛批次
 
 维护者于2026-09-07明确授权合并最新版本到 `main` 并改善反馈/稳定性。当前开发入口改为 `main`，本轮候选 `0.4.5-DX11-兼容增强`、PE `0.4.5.104`。dev3的fix2、DX11、RR/缩放后置历史和main独有52份反馈文件均保留。收敛分支清单与本轮验证见 [MAIN_CONSOLIDATION](MAIN_CONSOLIDATION.md)，玩家说明见 [0.4.5-DX11-兼容增强更新](RELEASE_DEV4_PLAYER_NOTES.md)。核心源码固定dccb5b3，完整Windows/WARP已通过，精简中文OTA由c7c133e打包，实际PE0.4.5.104；完整哈希/日志见MAIN_CONSOLIDATION。下面dev3发布/实机证据保留为基线记录，不代表新包实机通过。
@@ -50,8 +52,33 @@ Feeder/provider-only旧草稿已恢复并硬化，独立分支`codex/045-feeder-
 
 GitHub Actions目前受账户付款/额度限制，任务未启动；本地执行对应源码/Windows/Shader/WARP/反馈/打包门禁，明确记录为本地。WARP的神经输入采用确定性测试替身，仅验证生产GPU处理与回填，不等于NVIDIA Feature18或游戏运行。
 
+## 2026-09-07 定点接续（未合入main）
+
+入口仍是本页与 #80。接续基线 `origin/main@db0577c565d0a81a6f5c010b35698e078adf1205`，已含 #64 发布后 dx11-compat 原 F8。维护者权重是 **#99+#15、#153、#64+#38（#154）、#152（#156）、#39（#151）**；#149+#150 已有诊断，#155 仅文件名；#121/#148/#139/#140 有余力再看。未扫全 0.4，#141–#147/#127/异环混线 #53/#97/#100/#101 不并入本轮验收。
+
+### 已完成的实际补丁：PR #154
+
+沿用 `cursor/nullguard-finite-blend-e1c3`，保留原提交 `7eed541c` 与最新 main 的祖先。**代码/测试提交 `23f9bba67e7a3ccadbbaa9624d513779828e4617`**；后续仅文档变动不能冒充新的二进制来源。接续分支 `fix/priority-finite-blend-windows-20260907` 为同组代码保留，不另开重复 PR。
+
+- #99 树海 multiapi-dev3 原 TXT 已通过 ROG 读取，#64 NeroEggs 已发布 dx11-compat 原 F8 已通过 GitHub 读取：两份独立样本都出现 `blend=-0,-1,-2,-3`、`dynamic=0x8`、covered/freshReset、无 taint/PSO，却被 null-guard 旁路；不再拿 #101 代替本单证据。#38 旧 fix1 没有四值，仍是同族假设，不能转用其它游戏的实测结论。
+- 已保留有限 blend 原值准入/回放，NaN/Inf 拒绝；补齐生成器 STATE_CURRENT 锁定到实际生产 blob `47598e4068e1ba37327f22a309b17d6b2f0279e2`，未删除 source/dirty/祖先门禁。扩展全部通道/极值/位保持回归与三组成对 WARP 像素测试。
+- Linux生产准入测试已有GCC/Clang O0/O2每组172项及旧规则/Inf/Reset/taint负控。本次ROG对真实HEAD `4521edf8aa9ddb6b20077d7f0debc789669c0779` 完成Windows转发38/准入172、native66/默认null718/栈197、24场景WARP及新增3组有限blend成对像素、坏blend负控；完整staging/双语核心/nrchain/carrier编译、48场景scaled-work WARP和相关全量门禁均通过。精确产物哈希与命令见 [NULL_GUARD_BLEND_FINITE_20260907](NULL_GUARD_BLEND_FINITE_20260907.md)。
+- #99 RR 累计 attempts=4191/recordings=0 同时 recentAttempt=0、attemptAgeMs=39203；不能把当前 mode=1 快照当活跃 RR 终态。#15 全链路与 #150 边界计数仍独立验收。启动 installing/native-hooks-unavailable 不当最终失败。
+
+### Windows / CI 边界
+
+ROG连接阻断已解除；本次直接在Windows完成上述验证，原product和其他worktrees保持原样。源码manifest与validation均固定 `4521edf8aa9ddb6b20077d7f0debc789669c0779`，后续文档HEAD不是新的二进制来源。Windows compile与WARP通过；NVIDIA Feature18、真实游戏和长期测试仍未执行。没有发布新Release。
+
+代码23f9bba对应 [CI run34136127356](https://github.com/smartLanny/dlss5-nr-before-sr-lab/actions/runs/34136127356) 的实际annotation现已读取，确认付款/额度导致任务未启动，steps=[]。本地通过不标成GitHub CI通过，未盲目重跑。
+
+### 其余优先项保留
+
+#153 已核对固定上游 `NIGos/dlss5-bridge@28aed409` 的 DllMain/StartWatchingForNgx：尚未按实际呈现 API 判断时就进入 loader 选路、NGX 通知/Hook 注册及进程级异常过滤器等启动逻辑。下一步需要将轻量注册与有副作用的激活分离，处理辅助 device、晚载入/早期 Create、多 ReShade 与卸载生命周期；这只是可确认的源码缺口，不是崩溃根因或已实现修复。详见 #153 本轮回帖。#155 的配套身份匹配不能代替它。
+
+#152 的 loader 候选仍在 #156；#39 黑线候选仍在 #151，不混 fix1 颜色正例。本次另由独立Windows任务验证这两组，以其PR实际回帖为准。游戏Issues保持open；#154的Windows/WARP阻断已收口，可进入合并审核。main、已发布Tag/Release/附件均未改。
+
 ## 下次对话如何接续
 
-先读取远端main、本页和MAIN_CONSOLIDATION，再核对包manifest和最新Issue回帖。维护者本轮要求交付测试版后等待进一步开发指示；收到新指示时，从已记录缺口接续，不重新恢复已提交文件，不覆盖任何旧agent worktree，不把不存在的`8a0a2d73`当来源。
+先读取最新远端 main、本页和 #80 最新回帖，再核对 PR #154 真实 HEAD 与包 manifest。本次已完成#154的Windows native/GPU正负控制和完整staging/build，不重复实现或把旧阻断当现状；下一步使用真正包含修复的新候选做 #64/#38 前→后、#99 普通 SR 与 RR 的同 scope 成功/录制/提交与 F6 对照。**旧 A 包、旧 dev3、已发布 dx11-compat 只能提供基线，不能验证新增代码。**
 
-推荐回传：原场景F6、前后置效果、一个F8 TXT；视觉异常方便时F7。已有资料不要求重复提交。
+继续按上方权重推进，不重新恢复已提交文件、不覆盖任何旧 agent worktree、不把不存在的 `8a0a2d73` 当来源。持续旁路必须说明原生链路保留，并指引新候选的 F8 单 TXT 上传 BUG；已有旧资料不重复索要。视觉异常方便时使用 F7 对照。

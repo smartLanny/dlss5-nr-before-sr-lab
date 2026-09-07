@@ -28,8 +28,10 @@ class NullGuardReasons(unittest.TestCase):
     def test_production_admission_and_capture_reason(self):
         source = (ROOT / "src/nr_command_state.inl").read_text(encoding="utf-8-sig")
         model = ""
+        if "bool CommandStateBlendFactorAdmissible(" in source:
+            model += definition(source, "bool CommandStateBlendFactorAdmissible(") + "\n"
         if "const char *RasterNullRejectionReason(" in source:
-            model += definition(source, "const char *RasterNullRejectionReason(")
+            model += definition(source, "const char *RasterNullRejectionReason(") + "\n"
         model += definition(source, "bool CanAutoRestoreRasterNull(")
         capture = definition(source, "bool CaptureNativeCommandState(")
         reason = re.search(r"unavailable_reason = !meta_covered .*?;", capture, re.S)
@@ -85,12 +87,18 @@ int main() {
         s.dynamic.blend[2]=c; s.dynamic.blend[3]=d;
         Check(CanAutoRestoreRasterNull(s),"valid blend remains admissible");
     }
-    const float invalid[]={-0.01f,1.01f,std::numeric_limits<float>::quiet_NaN(),
+    const float finite[]={-3.f,-0.01f,1.01f,2.f,std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::lowest(),std::numeric_limits<float>::denorm_min()};
+    for(unsigned component=0;component<4;++component) for(float value:finite) {
+        s=NativeCommandState{}; s.dynamic.blend[component]=value;
+        Check(CanAutoRestoreRasterNull(s),"every finite blend remains admissible");
+    }
+    const float invalid[]={std::numeric_limits<float>::quiet_NaN(),
         std::numeric_limits<float>::infinity(),-std::numeric_limits<float>::infinity()};
-    for(unsigned component=0;component<4;++component) for(unsigned kind=0;kind<5;++kind) {
+    for(unsigned component=0;component<4;++component) for(unsigned kind=0;kind<3;++kind) {
         s=NativeCommandState{}; s.dynamic.blend[component]=invalid[kind];
-        Check(!CanAutoRestoreRasterNull(s),"invalid blend remains rejected");
-        const char *expected=kind<2?"null-guard-blend-out-of-range":"null-guard-blend-nonfinite";
+        Check(!CanAutoRestoreRasterNull(s),"nonfinite blend remains rejected");
+        const char *expected="null-guard-blend-nonfinite";
         const char *actual=CaptureReason(&record);
         if(std::strcmp(actual,expected)!=0)
             std::printf("component=%u kind=%u expected=%s actual=%s\n",component,kind,expected,actual);
@@ -102,12 +110,12 @@ int main() {
     s=NativeCommandState{}; s.null_guard_reset_observed=false;
     Check(!CanAutoRestoreRasterNull(s) && std::strcmp(CaptureReason(&record),"null-guard-awaiting-reset")==0,
           "fresh native reset is still required");
-    s=NativeCommandState{}; s.dynamic.blend[0]=2; record.hooks_ready=false;
+    s=NativeCommandState{}; s.dynamic.blend[0]=std::numeric_limits<float>::infinity(); record.hooks_ready=false;
     Check(std::strcmp(CaptureReason(&record),"native-hooks-unavailable")==0,
           "installation stage outranks uninterpretable payload; not terminal blend failure");
     record.hooks_ready=true;
-    Check(std::strcmp(CaptureReason(&record),"null-guard-blend-out-of-range")==0,
-          "later ready sample publishes current failure instead of sticking to startup");
+    Check(std::strcmp(CaptureReason(&record),"null-guard-blend-nonfinite")==0,
+          "later ready sample publishes current nonfinite failure instead of sticking to startup");
     Check(std::strcmp(CaptureReason(&record,false),"meta-command-coverage")==0,"meta coverage retains precedence");
     s=NativeCommandState{}; s.dynamic.recorded|=1;
     Check(!CanAutoRestoreRasterNull(s),"unsupported topology stays rejected");
