@@ -108,11 +108,16 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
     const auto load = SnapshotRuntimeLoadEvidence();
     FeedbackAppend(s, "%s.runtime.available=%d\n%s.runtime.stage=%s\n%s.runtime.ageMs=%llu\n"
         "%s.runtime.bridgeLoaded=%d\n%s.runtime.bridgeWin32=%lu\n%s.runtime.signedLoaded=%d\n%s.runtime.signedWin32=%lu\n"
-        "%s.runtime.coreLoaded=%d\n%s.runtime.coreWin32=%lu\n%s.runtime.missingExportMask=0x%X\n%s.runtime.initResult=0x%X\n",
+        "%s.runtime.coreLoaded=%d\n%s.runtime.coreWin32=%lu\n%s.runtime.missingExportMask=0x%X\n%s.runtime.initResult=0x%X\n"
+        "%s.runtime.bridgePresent=%d\n%s.runtime.signedPresent=%d\n%s.runtime.corePresent=%d\n"
+        "%s.runtime.bridgeClass=%s\n%s.runtime.signedClass=%s\n%s.runtime.coreClass=%s\n%s.runtime.search=%s\n",
         prefix, load.available ? 1 : 0, prefix, load.stage,
         prefix, load.available ? GetTickCount64() - load.sampled_at : 0,
         prefix, load.loaded[0] ? 1 : 0, prefix, load.errors[0], prefix, load.loaded[1] ? 1 : 0, prefix, load.errors[1],
-        prefix, load.loaded[2] ? 1 : 0, prefix, load.errors[2], prefix, load.missing_exports, prefix, load.init_result);
+        prefix, load.loaded[2] ? 1 : 0, prefix, load.errors[2], prefix, load.missing_exports, prefix, load.init_result,
+        prefix, load.present[0] ? 1 : 0, prefix, load.present[1] ? 1 : 0, prefix, load.present[2] ? 1 : 0,
+        prefix, RuntimeLoadClassName(load.classes[0]), prefix, RuntimeLoadClassName(load.classes[1]),
+        prefix, RuntimeLoadClassName(load.classes[2]), prefix, load.search);
     FeedbackAppend(s, "%s.scope.config=%u\n%s.scope.epoch=%llu\n%s.scope.featureGeneration=%llu\n%s.scope.mode=%d\n"
         "%s.scope.nrSuccess=%llu\n%s.scope.transferSubmitted=%llu\n%s.queue.admitted=%llu\n%s.queue.unknownBypasses=%llu\n"
         "%s.queue.predictionBypasses=%llu\n%s.queue.actualMismatches=%llu\n%s.queue.markerFailures=%llu\n"
