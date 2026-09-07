@@ -1,6 +1,6 @@
-# Manager 0.4.5-hotfix.2：API 与组件部署
+# Manager 0.4.5-hotfix.3：API 与组件部署
 
-安装器界面/产品版本为 `0.4.5-hotfix.2`，Windows 文件版本为 `0.4.5.2`。
+安装器界面/产品版本为 `0.4.5-hotfix.3`，Windows 文件版本为 `0.4.5.3`。
 内置插件仍为 **0.4.5-DX11-兼容增强**，核心 PE `0.4.5.104`，固定核心源码
 `dccb5b398ccc540723f84a6ef789dd70dbda5cd3`。本次不重新编译核心或 carrier。
 
@@ -91,3 +91,9 @@ sanitized native oracle JSON 的 SHA-256 为
 `b188ccb7b844e5572bb480084a285f95908e506c32e1eb3e4393a1beba019fb5`。
 该 oracle 不包含原始日志、私有路径、二进制或游戏运行结论；完整 ReShade runtime 和
 游戏仍未验收。
+
+发布整合在独立 worktree 核对 PR #161 的完整 HEAD
+`5c5dfe0d2941089bb448adea63af5313db3ea880`，保留其提交历史。
+父任务启用固定 PR160 实际 CLI 后独立重跑 **122/122**（零跳过）及 UI 契约通过；
+真实 apply → repair → restore 的最后一步按预期返回 `current-hash-mismatch`。
+hotfix.3 只更新安装器；此前 hotfix.2 与已发布核心/OTA 保留原字节。
