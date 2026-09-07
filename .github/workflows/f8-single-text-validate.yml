@@ -1,7 +1,7 @@
 name: Single TXT and native Reset evidence
 on:
   pull_request:
-    branches: [release/0.4.5-test, release/0.4]
+    branches: [main, release/0.4.5-test, release/0.4]
 permissions:
   contents: read
 jobs:

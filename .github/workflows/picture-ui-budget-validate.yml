@@ -1,7 +1,7 @@
 name: Picture colour budget and primary controls
 on:
   pull_request:
-    branches: [fix/f8-single-txt-reset-evidence, release/0.4.5-test]
+    branches: [main, fix/f8-single-txt-reset-evidence, release/0.4.5-test]
 permissions:
   contents: read
 jobs:

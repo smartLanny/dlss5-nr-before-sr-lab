@@ -1,9 +1,9 @@
 name: Validate and publish 0.4.5 fix1
 on:
   pull_request:
-    branches: [release/0.4.5-test]
+    branches: [main, release/0.4.5-test]
   push:
-    branches: [fix/045-flicker-input-targets]
+    branches: [main, fix/045-flicker-input-targets]
 permissions:
   contents: read
 jobs:
