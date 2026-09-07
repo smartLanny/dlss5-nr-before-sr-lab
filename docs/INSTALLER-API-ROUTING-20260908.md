@@ -72,3 +72,22 @@ DX11 明确部署时仅解除配套 carrier 的 `@精确文件名` 禁用项，�
 测试覆盖真实服务/API设置/文件journal、DX12→DX11→DX12部署及OTA链、版本锁、
 重新打开设置、导入源篡改、原始备份损坏、移动/写入失败、卸载提交失败、INI处理。
 成品还需独立解包核对源码、完整载荷与版本身份；这些验证不等同游戏运行通过。
+
+### 本轮 Windows / ReShade 互操作证据
+
+在固定 PR160 工具启用时，Windows 单元门禁为 **122/122**，UI 合同检查为
+**63 个 HTML id / 59 个 renderer 引用**。真实 PR160 `apply` → Manager DX11
+repair → PR160 restore 流程通过，最后一步按设计拒绝已被 Manager 改写的配置，错误为
+`current-hash-mismatch`；这证明 receipt 哈希保护仍有效。
+
+另以固定 ReShade `4a50d1eddace85734871d91792ff214f13f66c01` 的 INI parser/filter
+和 Windows preload sentinel 做了 **9/9** 个 native loader case：精确裸 `@文件名`、
+`显示名@文件名` 的 carrier 禁用在修复前阻止加载、修复后允许加载；重复 `[ADDON]`、
+section/key 大小写、文件名尾空格按 ReShade 语义保留；无关 `@keep` 自身仍被禁用。
+名称-only 项的 sentinel 仅验证 preload 不阻止，不能证明完整 ReShade 注册，Manager
+继续报告 `complete=false` 并提示手动启用。
+
+sanitized native oracle JSON 的 SHA-256 为
+`b188ccb7b844e5572bb480084a285f95908e506c32e1eb3e4393a1beba019fb5`。
+该 oracle 不包含原始日志、私有路径、二进制或游戏运行结论；完整 ReShade runtime 和
+游戏仍未验收。
