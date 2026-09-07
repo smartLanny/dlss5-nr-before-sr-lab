@@ -1,0 +1,21 @@
+{
+  "issue": 64,
+  "source": "sheet_neice_30n66b",
+  "sheet_url": "https://docs.qq.com/sheet/DY0dwbUVYZEZIU01P?tab=30n66b",
+  "sheet_row": 2,
+  "nickname": "neroeggs",
+  "qq": "290587187",
+  "game": "艾尔登法环+erss",
+  "symptom": "后置NR不生效",
+  "build": "beta0.4.5-dx11-compat",
+  "gpu": "NVIDIA GeForce RTX 5080",
+  "driver_raw": "61656",
+  "api": 49152,
+  "has_f8": true,
+  "f8_file": "260907-eldenring-beta0.4.5-dx11-compat-215209913-30612-1.txt",
+  "f8_sha256": "9518c98926efd7fd8f5f0db910f7ee5da3120a7746a188b51a8bd6d9d76957b1",
+  "image": "sheet-image-7a7842c854c12b25.png",
+  "archived_at": "2026-09-07T22:23:00+08:00",
+  "action": "comment_on_existing_issue",
+  "status": "ready_for_repo_comment"
+}
