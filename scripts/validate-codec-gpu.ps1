@@ -15,9 +15,9 @@ if (!$shader.Success -or !$constants.Success -or !$descriptors.Success) {
     throw 'Production codec extraction markers changed; update the GPU harness.'
 }
 $harness = $harness.Replace('// @PRODUCTION_SHADER@', $shader.Value)
-$boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_strength_gpu.inl') -Raw
+$boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_strength_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
-$layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw
+$layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
 $harness = $harness.Replace('// @PRODUCTION_CONSTANTS@', $constants.Value)
 $harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_CONSTANTS@', $descriptors.Value)

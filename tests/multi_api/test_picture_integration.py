@@ -23,7 +23,7 @@ class PictureIntegration(unittest.TestCase):
         return m.INTEGRATION_CORE_PINS[args[1].removeprefix('HEAD:')].encode()
 
     def test_all_three_ancestors_required(self):
-        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137))
+        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd'))
         for missing in m.REQUIRED_ANCESTORS:
             with self.subTest(missing=missing), patch.object(m, 'is_ancestor', side_effect=lambda r, c: c != missing), patch.object(m, 'load') as load:
                 with self.assertRaisesRegex(ValueError, 'Missing integration ancestor'):
@@ -59,8 +59,8 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_color_policy.inl', 'src/nr_color_amplification.h', 'src/nr_precision_ui.h', 'scripts/build.ps1',
             'src/interop/nr_ngx_parameter_abi.h', 'src/nr_before_sr.cpp', 'src/nr_before_sr.rc', 'src/nr_feedback_capture.inl', 'src/nr_feedback_core.inl',
             'src/nr_feedback_text.h', 'src/nr_feedback_single_text.h', 'src/nr_f8_sequence.inl', 'src/nr_runtime_load_evidence.inl'})
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'ddd24e8524d99f58520cbbebbe339613dbba0a9f')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'eed50de022be7f0a2c78c43c2a16032ee4254218')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'a3ba1f85da395602c83039b1542cc04db4ca9207')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '5d37cfddf4b9eb375672f49eac62b28c2ed572b3')
 
 if __name__ == '__main__': unittest.main()

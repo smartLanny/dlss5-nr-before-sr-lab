@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$Clean,
     [string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT,
     [string]$ReShadeSourceRoot = $env:DLSS5_RESHADE_ROOT

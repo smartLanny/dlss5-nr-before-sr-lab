@@ -38,7 +38,7 @@ def main():
 #include <limits>
 static float min(float a,float b){return std::min(a,b);}
 static float max(float a,float b){return std::max(a,b);}
-static float abs(float a){return std::abs(a);}
+using std::abs;
 static float clamp(float v,float lo,float hi){return std::clamp(v,lo,hi);}
 static float saturate(float v){return std::clamp(v,0.f,1.f);}
 unsigned checks=0;
