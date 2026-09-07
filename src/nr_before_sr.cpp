@@ -1874,21 +1874,63 @@ bool EnsureNrApi(ID3D12Device *device) {
 
     RuntimeLoadEvidence evidence;
     evidence.stage = "load-modules";
-    g_nr_api.bridge_module = LoadLibraryExW(
-        bridge_path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+    const DWORD kRestrictedLoad = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32;
+    auto load_restricted = [&](const wchar_t *path, HMODULE *module, DWORD *error) {
+        *module = LoadLibraryExW(path, nullptr, kRestrictedLoad);
+        *error = RuntimeLoadError(*module != nullptr);
+        return *module != nullptr;
+    };
+    auto regular_file = [](const wchar_t *path) {
+        if (path == nullptr || *path == L'\0') return false;
+        const DWORD attr = GetFileAttributesW(path);
+        return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) == 0;
+    };
+    evidence.present[0] = regular_file(bridge_path);
+    evidence.present[1] = regular_file(signed_path);
+    load_restricted(bridge_path, &g_nr_api.bridge_module, &evidence.errors[0]);
     evidence.loaded[0] = g_nr_api.bridge_module != nullptr;
-    evidence.errors[0] = RuntimeLoadError(evidence.loaded[0]);
-    g_nr_api.signed_module = LoadLibraryExW(
-        signed_path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+    load_restricted(signed_path, &g_nr_api.signed_module, &evidence.errors[1]);
     evidence.loaded[1] = g_nr_api.signed_module != nullptr;
-    evidence.errors[1] = RuntimeLoadError(evidence.loaded[1]);
+    wchar_t exe_directory[MAX_PATH] = {};
+    if (GetModuleFileNameW(nullptr, exe_directory, MAX_PATH) != 0) {
+        wchar_t *slash = wcsrchr(exe_directory, L'\\');
+        if (slash != nullptr) *(slash + 1) = L'\0';
+        else exe_directory[0] = L'\0';
+    } else exe_directory[0] = L'\0';
+    // Addon-dir miss only. A present-but-126 file is a dependency failure;
+    // do not replace it with a different sibling from the game directory.
+    if (exe_directory[0] && _wcsicmp(directory, exe_directory) != 0) {
+        wchar_t exe_bridge[MAX_PATH] = {};
+        wchar_t exe_signed[MAX_PATH] = {};
+        swprintf_s(exe_bridge, L"%lsnrchain_nvngx.dll", exe_directory);
+        swprintf_s(exe_signed, L"%lsnvngx_dlssnr.dll", exe_directory);
+        if (!evidence.loaded[0] && !evidence.present[0] && regular_file(exe_bridge) &&
+            load_restricted(exe_bridge, &g_nr_api.bridge_module, &evidence.errors[0])) {
+            evidence.loaded[0] = true;
+            evidence.present[0] = true;
+            evidence.search = "exe-directory";
+        }
+        if (!evidence.loaded[1] && !evidence.present[1] && regular_file(exe_signed) &&
+            load_restricted(exe_signed, &g_nr_api.signed_module, &evidence.errors[1])) {
+            evidence.loaded[1] = true;
+            evidence.present[1] = true;
+            evidence.search = "exe-directory";
+        }
+    }
     HMODULE core = GetModuleHandleW(L"_nvngx.dll");
     evidence.loaded[2] = core != nullptr;
+    evidence.present[2] = evidence.loaded[2];
     evidence.errors[2] = RuntimeLoadError(evidence.loaded[2]);
+    for (unsigned i = 0; i < 3; ++i)
+        evidence.classes[i] = RuntimeClassifyLoad(evidence.present[i], evidence.loaded[i], evidence.errors[i]);
     if (g_nr_api.bridge_module == nullptr || g_nr_api.signed_module == nullptr || core == nullptr) {
-        Log("NR runtime load failed: bridgeLoaded=%d bridgeWin32=%lu signedLoaded=%d signedWin32=%lu coreLoaded=%d coreWin32=%lu; restart after repairing the installation.",
-            evidence.loaded[0] ? 1 : 0, evidence.errors[0], evidence.loaded[1] ? 1 : 0,
-            evidence.errors[1], evidence.loaded[2] ? 1 : 0, evidence.errors[2]);
+        Log("NR runtime load failed: bridgeLoaded=%d bridgePresent=%d bridgeClass=%s bridgeWin32=%lu "
+            "signedLoaded=%d signedPresent=%d signedClass=%s signedWin32=%lu coreLoaded=%d coreWin32=%lu "
+            "search=%s; restart after repairing the installation.",
+            evidence.loaded[0] ? 1 : 0, evidence.present[0] ? 1 : 0, RuntimeLoadClassName(evidence.classes[0]),
+            evidence.errors[0], evidence.loaded[1] ? 1 : 0, evidence.present[1] ? 1 : 0,
+            RuntimeLoadClassName(evidence.classes[1]), evidence.errors[1],
+            evidence.loaded[2] ? 1 : 0, evidence.errors[2], evidence.search);
         g_nr_api.failed = true;
         RecordRuntimeLoadEvidence(evidence);
         SetBypassReason(BypassReason::RuntimeUnavailable);

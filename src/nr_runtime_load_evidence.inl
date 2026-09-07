@@ -3,12 +3,30 @@
 struct RuntimeLoadEvidence {
     bool available = false;
     bool loaded[3] = {};
+    bool present[3] = {};
     DWORD errors[3] = {};
+    unsigned classes[3] = {};
     unsigned missing_exports = 0;
     unsigned init_result = 0;
     const char *stage = "not-attempted";
+    const char *search = "addon-directory";
     ULONGLONG sampled_at = 0;
 };
+unsigned RuntimeClassifyLoad(bool present, bool loaded, unsigned error) {
+    if (loaded) return 1;
+    if (!present) return 2;
+    if (error == 126) return 3;
+    return 4;
+}
+const char *RuntimeLoadClassName(unsigned cls) {
+    switch (cls) {
+    case 1: return "loaded";
+    case 2: return "file-absent";
+    case 3: return "dependency-missing";
+    case 4: return "other-failure";
+    default: return "not-attempted";
+    }
+}
 SRWLOCK g_runtime_load_evidence_lock = SRWLOCK_INIT;
 RuntimeLoadEvidence g_runtime_load_evidence;
 void RecordRuntimeLoadEvidence(RuntimeLoadEvidence value) {
