@@ -110,5 +110,44 @@ PE 0.4.6.0，配套 carrier 代码与 045 文件名保持兼容。首份 F8 自�
 
 ## 验证记录
 
-最终源码、Windows 编译、WARP、UI fixture、包哈希与游戏验收分开记录。
-CI 因付款/额度未启动，不重跑、不记通过。最终构建记录由冻结后验证补入。
+实际完整构建源码 **`9087a9efbc7bb53a3c79e7766a174534f49c412c`**，
+src tree `558534dd9c768458942f89523c2ec7a8da103a85`。后续文档提交不是新的
+二进制来源。102 个 staged 文件逐一哈希核对，39 项统一本地门禁通过，包含
+中英文核心、nrchain、carrier 编译，三项 LLVM analyzer 零诊断、实际 RR
+admission/dispatcher/Win32 SRW gate、后置 50/75/100% 光照保护 WARP、F7
+512 ROI shader/ring/fence/stream/ZIP、颜色许可、状态恢复与有限 blend 正负控制。
+
+| 证据 | SHA256 |
+|---|---|
+| source-manifest.json | `7bb174529eb077e5b3e619c06e53209e778c3a3795dffc8d8a02ef31f84cfb71` |
+| validation.json | `394bcb44a8f5c921508d8103cb9c597f28c61003731f16bb62b083114e931daa` |
+| 完整本地日志 | `6a0b8d100bc4a587f6d57f207feffab62c3f068efa156cfec6f8e072fc34d5e6` |
+| 中文核心，1,374,720 bytes | `b68f2709a131c9ce0513b6366dbcc2e7d551bef5bcd41934075407378a48c090` |
+| 英文核心，1,350,656 bytes | `2abb78990d42c7ff2af926c5502de7c0c3a203f2027b0b8605d414a22e19fefd` |
+| nrchain，8,192 bytes | `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb` |
+| carrier，809,984 bytes | `8268ba3a9d7614ca0e0efad22f7c477780547224dfd0847a1d67188fc05f13c0` |
+| 中文 OTA，688,999 bytes、7 文件 | `6f633f141a7ba80e2a2d87f440cc9cf1da36233c27b95d73f20445e7f13d9117` |
+
+实际核心 PE 为 **0.4.6.0**。carrier staged 源文件逐一比较与 a2 无变化，
+上述为重新编译的二进制身份，不冒用旧 DLL 哈希。中文 OTA ZIP CRC 及内部
+6 个 SHA256 条目已独立核对；不覆盖 INI、不含 NVIDIA 模型或运行库。
+
+真实生成 UI 另用固定 ReShade ImGui 和 D3D11 WARP 离屏验证：中文 760px、
+22px 字体的 RR 画质页、实验页和反馈/F7 菜单均已截图核对。后置仅光照保护
+可编辑、F8 单按钮位于反馈页顶部。fixture 明示非游戏，数据为测试输入。
+
+先前失败批次保留：Windows 暂存目录短暂拒绝 rename，现有无覆盖发布加了
+仅 WinError 5/32/33 的有限重试；旧 UI 静态锚点及 tooltip 前置声明已修正。
+旧 legacy feedback collector 脚本仍有先前未更新的 RequestCore/参数 stub，
+其额外尝试未编译通过，不计通过；本批实际 F8/F7 通过当前生产 collector 门禁。
+仓库中四份既有 tracked bug-inbox ZIP 保留，新增提交未加入二进制或原始证据。
+
+CI 因付款/额度未启动，不重跑、不记通过。`compile_verified=true`、
+`warp_verified=true`、`game_runtime_verified=false`、
+`nvidia_feature18_verified=false`。#124/#162 的新候选游戏验收仍为待 ROG；
+#153 carrier 崩溃架构问题仍独立，不因本批通过自动关闭。
+
+合并顺序沿用 #149 → #150 → #151 → #156 → #155 → #157 → #160，再合本批；
+#154 已去重关闭。合并后用全新 main SHA 重建，生成器保留实际 core/UI/policy
+blob 锁，不恢复单 PR 旧 pin。已备妥核验此 src tree 的本地重建入口；仅完成
+语法检查，未把未发生的 main 合并或合并后验证写成已完成。
