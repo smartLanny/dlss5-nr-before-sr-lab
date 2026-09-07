@@ -16,6 +16,7 @@
 |---|---|---|
 | DllMain 的 loader 选择、异常 filter、NGX 通知/Hook | 新旧均有；HookNewNgxModules 的核心选取逻辑没有增量 | 缺 API 准入是继承问题，不能独自解释“换新版才崩” |
 | NGX Init / Create / Evaluate 与 D3D12 device 的 SEH | 新 completion patch 移除了旧捕获后返回 marker/E_FAIL 的转换 | 真实新增差异；某个原先被捕获的硬件异常可能变成退出，但没有游戏异常栈证明这个假设 |
+| carrier 编译器 | 旧 r3 的固定 workflow 用 MSVC `cl /O2 /MT /EHsc`；新完整构建器用 LLVM-MinGW clang++23.1 `-O2 -fms-extensions -shared -static` | 新旧实物并非只差源代码。NGX参数的17槽ABI已有显式适配/门禁，但CRT、异常展开或生成代码仍是未排除变量；没有证据证明编译器导致崩溃 |
 | 提交/退役 | 新版等待真实 progress fence，500ms 帧完成窗口；超时 quarantine 保留依赖；旧版有 CPU Signal 和超时后释放 | 可影响停顿、性能、失败处置；不能为消除卡顿恢复假完成或提前释放 |
 | DX11 合同 | 新版 shape=1、独立 subrect、Create flags 与 native-history | 影响镜像合同；尚无证据把初始崩溃锁定于其中一项 |
 | device/session | ForwardEvaluate 的 `g_probe_done` 与单例 `g_bridge` 只初始化一次；ctx4、shared fence、镜像资源属于首次 device | 没有按新 ctx/device 身份完整重建的合同；属于重建/多设备风险，未在本轮游戏中复现 |
@@ -56,5 +57,7 @@ source=off 修正后，DLL 仍被映射，现有 startup Hook 仍存在；不能
 不能直接改成“等第一次 Present 再安装 Hook”：可能漏掉此前的 NGX Create/flags，造成 DX11首次启用假阴性。也不能在任意 D3D11 init_device 就启动，因为辅助设备并不代表游戏呈现链。单例 device 退役与异常隔离若必须重做，应单独列入C并重新确认范围。
 
 loader callback 当前仍做枚举/版本读取/日志/Hook，和 Microsoft 对 [LdrDllNotification](https://learn.microsoft.com/en-us/windows/win32/devnotes/ldrdllnotification) 回调不得调用其他模块函数的限制不一致；[DllMain 最佳实践](https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-best-practices) 也要求尽量推迟初始化。这是可确认的设计边界，不是本轮游戏 crash 已证实的栈因果。
+
+编译器身份来自 [r3 source0f714b3 的固定workflow](https://github.com/smartLanny/dlss5-nr-before-sr-lab/blob/0f714b32597e395d0684567ed9296dc1d2a1f35c/.github/workflows/native-bridge-r3.yml) 的“MSVC carrier”步骤与本轮 validation/build脚本；旧包的core使用LLVM，不能据此误认旧carrier也用LLVM。本机未找到VS C++工具链（vswhere与cl均不可用），因此本轮没有做同一新carrier源码的MSVC/LLVM实物A/B，也未安装全局工具链。后续B应保留这个独立变量，优先用同源双工具链和同场景异常栈区分，不能只回退SEH便宣布根因。
 
 #153 保持 open。#155 只验配套身份；#154 有限 blend、#149/#150现有诊断、#156 loader、#151 LightingLock 独立收口，不以本研究代验。
