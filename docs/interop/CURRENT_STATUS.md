@@ -4,6 +4,38 @@
 
 以下已发布批次与历史验证是基线；本轮尚未合入、尚未打包的修改及实际验证边界见下方“2026-09-07 定点接续”。不要把基线 Windows/游戏结果套到新 PR。
 
+## 2026-09-07 优先修复组合验证入口
+
+当前可复现入口是临时分支 `codex/priority-validation-stack-20260907`，
+基于 `origin/main@db0577c565d0a81a6f5c010b35698e078adf1205`，正常合并并保留
+PR #154、#151、#156、#155、#157、#149、#150 的祖先。**main、Tag、Release
+均未改变。** 精确合并顺序、冲突处理、命令、manifest、产物和日志哈希见
+[PRIORITY_VALIDATION_STACK_20260907](PRIORITY_VALIDATION_STACK_20260907.md)。
+
+完整 Windows canonical build 与本地 package 固定来源
+`a2a338012a97f98f9327c141f32e274989602eb1`。生产 core Git blob 为
+`52a2782b29e8a9f43cec2c03cf69ec01143cd6d8`，command-state blob 为
+`f0f13b0a8ac243f01cdf0f93a517440ac65f1394`。生成器与测试身份门禁已重新
+固定到组合源码，没有删除 dirty/祖先/source 检查。
+
+组合源码实际通过新增 focused 回归、完整 staging、6 个生产 HLSL 入口、
+runtime-load 真实 DLL fixture、RR 边界 50-case、LightingLock 生产
+`CombineV2CS` WARP、finite blend 原生/恢复 WARP、48 场景后置 WARP、
+静态分析、双语 core/nrchain/carrier 编译与 canonical package。这里的 WARP
+神经输入是确定性测试替身；`game_runtime_verified=false`，NVIDIA Feature18、
+鸣潮黑线、#99/#15 RR、#64/#38 后置以及 DX11 游戏均未由此验收。
+
+#157 只提供配置关闭时不启动 carrier 监听/Hook 的最小 source-off 路径；真实
+DLL 探针已证明关闭配置时 device 创建从 1 降为 0。自动 API 激活、Manager
+生命周期和 #153 崩溃根因仍等待维护者选择架构，不在本组合继续实现。
+canonical 包仍含可能触发 #153 的 carrier，因此不是通用 OTA：D3D12 游戏按
+现有手动安装规则不安装 carrier，本地组合包不自动安装、不发布。
+
+GitHub hosted CI 仍受账户付款/额度限制，实际 job `steps=[]`；这是 CI 未启动，
+不是绿灯或代码测试失败，也未盲目重跑。各 PR 当前可审查/无合并冲突的状态
+不能替代 main rules；账户 plan 对 rules API 返回 403，因此不声称特定保护规则
+已经放行。
+
 ## 当前主线收敛批次
 
 维护者于2026-09-07明确授权合并最新版本到 `main` 并改善反馈/稳定性。当前开发入口改为 `main`，本轮候选 `0.4.5-DX11-兼容增强`、PE `0.4.5.104`。dev3的fix2、DX11、RR/缩放后置历史和main独有52份反馈文件均保留。收敛分支清单与本轮验证见 [MAIN_CONSOLIDATION](MAIN_CONSOLIDATION.md)，玩家说明见 [0.4.5-DX11-兼容增强更新](RELEASE_DEV4_PLAYER_NOTES.md)。核心源码固定dccb5b3，完整Windows/WARP已通过，精简中文OTA由c7c133e打包，实际PE0.4.5.104；完整哈希/日志见MAIN_CONSOLIDATION。下面dev3发布/实机证据保留为基线记录，不代表新包实机通过。
@@ -79,6 +111,16 @@ ROG连接阻断已解除；本次直接在Windows完成上述验证，原product
 
 ## 下次对话如何接续
 
-先读取最新远端 main、本页和 #80 最新回帖，再核对 PR #154 真实 HEAD 与包 manifest。本次已完成#154的Windows native/GPU正负控制和完整staging/build，不重复实现或把旧阻断当现状；下一步使用真正包含修复的新候选做 #64/#38 前→后、#99 普通 SR 与 RR 的同 scope 成功/录制/提交与 F6 对照。**旧 A 包、旧 dev3、已发布 dx11-compat 只能提供基线，不能验证新增代码。**
+先读取最新远端 main、本页、组合验证报告和 #80 最新回帖，再核对临时分支
+真实 HEAD、包内 `source-manifest.json` / `validation.json` 与外层 handoff。
+构建来源固定 `a2a338012a97f98f9327c141f32e274989602eb1`；后续只合入的 PR 文档与
+本交接文档不是新的二进制来源。不要因文件名和 PE 显示版本相同而把已发布
+dx11-compat 包当成该组合。
 
-继续按上方权重推进，不重新恢复已提交文件、不覆盖任何旧 agent worktree、不把不存在的 `8a0a2d73` 当来源。持续旁路必须说明原生链路保留，并指引新候选的 F8 单 TXT 上传 BUG；已有旧资料不重复索要。视觉异常方便时使用 F7 对照。
+下一步由维护者决定 #153 的激活架构；未授权前不进入自动 API 激活或 Manager
+实现。若只做游戏验收，D3D12 不安装 carrier；分别复测 #64/#38 前→后、#99
+普通 SR 与 RR、#39 LightingLock/HDR，并记录同 scope 成功/录制/提交、F6 与
+F8。持续旁路必须保留原生链路并提示反馈。#148 的 plain045 表单与 exp1/feed-only
+附件、#139/#140 的 exp1/null-PSO 或 Feeder+DFC 证据保持分桶，不用于关闭本批
+Issue；#121 不继续旧版本 bisect。不要覆盖旧 worktree，不自动 merge main、安装
+游戏、发布 Tag/Release 或替换已发布附件。
