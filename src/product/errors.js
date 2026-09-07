@@ -47,10 +47,18 @@ function normalizeError(error) {
   };
   const code = codeMap[incoming.code] ||
     (typeof incoming.code === 'string' && MESSAGES[incoming.code] ? incoming.code : 'ERR_INTERNAL');
+  const details = incoming.details || incoming.params || {};
+  let message = MESSAGES[code] || incoming.message || MESSAGES.ERR_INTERNAL;
+  if (code === 'ERR_GAME_RUNNING' && Array.isArray(details.processes)) {
+    const names = [...new Set(details.processes.map(row => row && row.name)
+      .filter(name => typeof name === 'string' && name.trim())
+      .map(name => name.replace(/[\r\n\t]/g, ' ').slice(0, 100)))];
+    if (names.length) message += ` 检测到：${names.slice(0, 3).join('、')}${names.length > 3 ? '等进程' : ''}。`;
+  }
   return {
     code,
-    message: MESSAGES[code] || incoming.message || MESSAGES.ERR_INTERNAL,
-    details: incoming.details || incoming.params || {}
+    message,
+    details
   };
 }
 

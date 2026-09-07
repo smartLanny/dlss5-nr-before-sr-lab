@@ -116,8 +116,12 @@ function payloadReadyForHardware() {
 
 function refreshSelectedPayload(version) {
   if (!state.payload || !state.payload.versions) return;
-  const selectedVersion = version || state.payload.selectedVersion;
-  const item = state.payload.versions[selectedVersion];
+  const versions = state.payload.versions;
+  // Saved selections can outlive a bundled version after an upgrade. Keep the
+  // backend's verified fallback instead of treating an absent key as bad files.
+  const selectedVersion = [version, state.payload.selectedVersion, ...Object.keys(versions)]
+    .find(id => Object.prototype.hasOwnProperty.call(versions, id));
+  const item = versions[selectedVersion];
   const family = state.hardware && state.hardware.family;
   const variant = item && family && item.variants && item.variants[family];
   state.payload.selectedVersion = item ? selectedVersion : state.payload.selectedVersion;
@@ -128,6 +132,24 @@ function refreshSelectedPayload(version) {
   state.payload.invalid = variant ? variant.invalid : [];
 }
 
+function renderPayloadNotice(removedSelection = false) {
+  const notice = $('payloadNotice');
+  if (!notice) return;
+  const payload = state.payload;
+  let message = '';
+  if (!state.hardware || !['RTX40', 'RTX50'].includes(state.hardware.family)) {
+    message = '未能确认可自动匹配的显卡，请在“设置”中检查显卡识别结果。';
+  } else if (!payloadReadyForHardware()) {
+    const problems = [...((payload && payload.missing) || []), ...((payload && payload.invalid) || [])];
+    message = `安装组件缺失或校验未通过${problems.length ? `：${problems.join('、')}` : ''}。请重新下载完整的一键安装包；若仍有问题，请在“修复”页保存反馈日志。`;
+  } else if (removedSelection) {
+    const item = payload.versions[payload.selectedVersion];
+    message = `上次选择的版本已不在此安装包中，当前使用 ${item.label || payload.selectedVersion}。可在“插件版本”中重新选择。`;
+  }
+  notice.textContent = message;
+  notice.classList.toggle('hidden', !message);
+}
+
 function renderVersionSelector() {
   const select = $('addonVersionSelect');
   if (!select) return;
@@ -135,17 +157,21 @@ function renderVersionSelector() {
   if (!versions || !Object.keys(versions).length) {
     select.innerHTML = '<option value="">随安装组件</option>';
     select.disabled = true;
+    renderPayloadNotice();
     return;
   }
-  const selected = state.settings.addonVersion || state.payload.selectedVersion || Object.keys(versions)[0];
+  const saved = state.settings.addonVersion;
+  const removedSelection = Boolean(saved && !Object.prototype.hasOwnProperty.call(versions, saved));
+  refreshSelectedPayload(saved);
+  const selected = state.payload.selectedVersion;
   select.innerHTML = Object.entries(versions).map(([id, item]) => `<option value="${escapeHtml(id)}">${escapeHtml(item.label || id)}</option>`).join('');
   select.value = selected;
-  refreshSelectedPayload(selected);
   const item = versions[selected];
   $('addonVersionNote').textContent = item && item.notes
     ? `${item.notes} 切换后点击游戏卡片里的“修复”即可对比。`
     : '安装和修复会使用这里选择的版本；切换后点击游戏卡片里的“修复”即可对比。';
   select.disabled = false;
+  renderPayloadNotice(removedSelection);
 }
 
 function versionOptionsMarkup(selected = state.payload && state.payload.selectedVersion) {
@@ -654,11 +680,6 @@ async function boot() {
       ? `已识别 ${hardwareLabel()}，安装时会自动选择对应版本。`
       : '未能确认 RTX 20 / 30 / 40 / 50 系列显卡，安装器不会误用不匹配组件。';
     $('hardwareNotice').classList.remove('hidden');
-    if (!state.payload.ready) {
-      const problems = [...(state.payload.missing || []), ...(state.payload.invalid || [])];
-      $('payloadNotice').textContent = `当前开发版安装组件未准备完成${problems.length ? `：${problems.join('、')}` : ''}。仍可扫描和查看兼容性；安装前请按 payload/nr-before-sr/README.md 生成 bundle.json。`;
-      $('payloadNotice').classList.remove('hidden');
-    }
     renderGames();
     renderAddonVersions();
     setTimeout(enrichMissingArtwork, 80);
