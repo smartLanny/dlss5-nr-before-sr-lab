@@ -17,6 +17,24 @@ void SettingsTooltip(const char *text) {
     }
 }
 
+// Stack labels above controls so narrow overlays keep the whole slider usable.
+// Hidden widget IDs remain stable when the display language changes.
+void SettingsField(const char *label) {
+    ImGui::TextUnformatted(label);
+    ImGui::SetNextItemWidth(-1.0f);
+}
+
+void SettingsSection(const char *title) {
+    ImGui::Spacing();
+    ImGui::SeparatorText(title);
+}
+
+void SettingsNote(const char *text) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("%s", text);
+    ImGui::PopStyleColor();
+}
+
 void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
     const bool use_chinese_ui = UseChineseUi();
     const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
@@ -26,8 +44,9 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
         color_policy_snapshot.status = NrColorPolicyStatus::Pending;
     const bool current_color_policy =
         color_policy_snapshot.status == NrColorPolicyStatus::Current;
+    SettingsField(ui("Colour enhancement", "色彩强化"));
     const bool color_follow_changed = ImGui::SliderFloat(
-        ui("Colour enhancement", "色彩强化"),
+        "##nr-colour-enhancement",
         &next.color_strength, 0.0f, 1.0f, "%.2f");
     SettingsTooltip(ui("0 keeps the game's hue; 1 follows bounded NR chroma. New installations request 1.0. The saved request may differ from the effective coefficient. Editing a nonzero value explicitly permits unverified HDR colour with a warning; zero restores luminance only. This does not override resource or exposure safety. Recorded values describe settings, not measured picture strength.",
         "0 保留游戏色相；1 跟随有界 NR 色彩。新装默认请求 1.0。保存请求与实际合成系数可能不同。手动调到非零即允许尝试未验证 HDR 色彩，可能偏色；拉回 0 恢复仅明暗，不绕过资源或曝光安全检查。记录值是参数设置，不代表测得的画面变化强度。"));
@@ -119,6 +138,10 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     ChainConfig next = has_pending ? pending : current.config;
     bool changed = false;
+    // Local styling follows ReShade's palette and never changes another panel.
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+        ImVec2(ImGui::GetStyle().ItemSpacing.x, 7.0f));
     ImGui::SeparatorText(ui("DLSS 5 AI Rendering", "DLSS 5 AI 渲染"));
     ImGui::TextDisabled("%s | %s", kAddonVersion,
                         use_chinese_ui ? kAddonAuthor : kAddonAuthorAscii);
@@ -214,6 +237,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     const bool collecting = nr_f8::IsActive();
     if (collecting) ImGui::BeginDisabled();
 #endif
+    SettingsSection(ui("Quick settings", "快速设置"));
     apply_discrete_edit = ImGui::Checkbox(ui("Enable (F6)", "启用（F6）"), &next.enabled);
     changed |= apply_discrete_edit;
     if (ImGui::Button(ui("Restore recommended picture settings", "一键恢复推荐画质"))) {
@@ -223,8 +247,12 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsTooltip(ui(
         "Restores Before SR, strength amplification 1.2, model strength 1.0, colour request 1.0 and the shipped picture defaults. Exits diagnostic identity and disables unverified HDR colour/peak experiments. Keeps Enable (F6), depth/jitter/R8 game contracts and feedback preferences. Uses the normal save/history rules; runtime safety faults are not cleared.",
         "恢复前置 NR、强度放大 1.2、模型强度 1.0、颜色请求 1.0 等随包推荐画质；退出诊断原图，关闭未验证 HDR 调色与高光实验。保留 F6 总开关、深度/Jitter/R8 游戏兼容设置和反馈偏好；按正常规则保存及更新历史，不清除运行时安全故障。"));
+    SettingsSection(ui("Processing", "处理方式"));
+    SettingsNote(ui("Choose when NR runs, then set its working resolution.",
+        "先选择 NR 的处理顺序，再调整处理精度。"));
     int mode = next.mode == 2 ? 0 : 1;
-    if (ImGui::Combo(ui("Processing mode", "处理模式"), &mode,
+    SettingsField(ui("Processing mode", "处理模式"));
+    if (ImGui::Combo("##nr-processing-mode", &mode,
             ui("Before SR: NR -> SR\0After SR: SR -> NR\0",
                "前置 NR → SR\0后置 SR → NR\0"))) {
         next.mode = mode == 0 ? 2 : 1; changed = true;
@@ -242,7 +270,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         g_last_dlss_output_width.load(), g_last_dlss_output_height.load());
     static bool precision_rejected = false;
     if (!before_sr) ImGui::BeginDisabled();
-    if (ImGui::SliderFloat(ui("NR processing precision (%)", "NR 处理精度（%）"),
+    SettingsField(ui("NR processing precision (%)", "NR 处理精度（%）"));
+    if (ImGui::SliderFloat("##nr-processing-precision",
             &precision, 0.0f, 100.0f, "%.1f%%")) {
         const auto request = nr_precision_ui::Resolve(precision, before_sr);
         precision_rejected = !request.accepted;
@@ -276,12 +305,17 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         "该精度暂不支持，原设置未更改。请选择 50–100%，或用 0 关闭 NR。"));
 #endif
     int style = static_cast<int>(next.style);
-    if (ImGui::Combo(ui("Style", "风格"), &style,
+    SettingsSection(ui("Model details", "模型细节"));
+    SettingsNote(ui("These controls tune the model. Final effect amplification is in Advanced picture controls.",
+        "以下调整模型本身；最终效果的放大程度在“高级画质”中设置。"));
+    SettingsField(ui("Style", "风格"));
+    if (ImGui::Combo("##nr-model-style", &style,
             ui("Default\0Natural\0Cinematic\0", "默认\0自然\0电影\0"))) {
         next.style = static_cast<unsigned>(style); changed = true;
     }
 
-        changed |= ImGui::SliderFloat(ui("Model strength", "模型强度"), &next.intensity, 0.f, 2.f, "%.2f");
+        SettingsField(ui("Model strength", "模型强度"));
+        changed |= ImGui::SliderFloat("##nr-model-strength", &next.intensity, 0.f, 2.f, "%.2f");
         SettingsTooltip(ui("This tunes the model itself, not the final effect multiplier. Saturation can limit the visible change.",
             "这项调整模型内部行为，不等于强度放大。默认 1.0，保留已有值；模型参数提交后需要重建/预热，短暂原图不是人脸识别成功的证明。"));
         if (next.intensity != 1.0f) {
@@ -293,9 +327,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 apply_discrete_edit = true;
             }
         }
-        changed |= ImGui::SliderFloat(ui("Local tone", "局部影调"), &next.local_tone, 0.f, 2.f, "%.2f");
+        SettingsField(ui("Local tone", "局部影调"));
+        changed |= ImGui::SliderFloat("##nr-local-tone", &next.local_tone, 0.f, 2.f, "%.2f");
         SettingsTooltip(ui("Changes local contrast inside the NR model. It is separate from final blend strength.", "调整 NR 模型内部的局部明暗对比，与最终混合强度不同。"));
-        changed |= ImGui::SliderFloat(ui("Local structure", "局部结构"), &next.local_structure, 0.f, 2.f, "%.2f");
+        SettingsField(ui("Local structure", "局部结构"));
+        changed |= ImGui::SliderFloat("##nr-local-structure", &next.local_structure, 0.f, 2.f, "%.2f");
         SettingsTooltip(ui("Adjusts the model local structure parameter; stronger values can amplify unstable fine detail.", "调整模型内部局部结构参数；过高也可能放大不稳定细节。"));
         if (ImGui::Checkbox(ui("Face mask", "人脸遮罩"), &next.auto_mask)) {
             if (next.auto_mask && next.skin_structure < 0.f)
@@ -304,19 +340,21 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         }
         SettingsTooltip(ui("Requests the model automatic face-mask parameter, not a mask generated by this plugin. Its effect depends on the model and input. Off sends skin strength -1 to follow Local structure; the last independent value is retained for re-enabling.", "请求模型内置的自动人脸遮罩，并非插件额外生成人脸识别图；效果取决于模型和输入。关闭时向模型发送皮肤强度 -1，跟随局部结构；上次独立设置会保留，重新开启时恢复。"));
         if (next.auto_mask) {
-            changed |= ImGui::SliderFloat(ui("Skin detail strength", "皮肤细节强度"), &next.skin_structure, 0.f, 2.f, "%.2f");
+            SettingsField(ui("Skin detail strength", "皮肤细节强度"));
+            changed |= ImGui::SliderFloat("##nr-skin-detail", &next.skin_structure, 0.f, 2.f, "%.2f");
             SettingsTooltip(ui("Independent skin structure request while Face mask is enabled. Legacy negative values start at 0; existing nonnegative values are retained. This is not guaranteed face detection or a measured picture-strength value.", "仅在人脸遮罩开启时请求独立皮肤结构强度。旧版负值从 0 开始，已有非负值保留；这不保证人脸识别成功，数值也不代表测得的画面效果强度。"));
         } else {
-            ImGui::TextDisabled("%s", ui("Enable Face mask to adjust skin detail; currently follows Local structure.", "开启人脸遮罩后可调整皮肤细节；当前跟随局部结构。"));
+            SettingsNote(ui("Enable Face mask to adjust skin detail; currently follows Local structure.", "开启人脸遮罩后可调整皮肤细节；当前跟随局部结构。"));
         }
         changed |= ImGui::Checkbox(ui("UI correction", "UI 结构保护"), &next.ui_correction);
-        ImGui::TextDisabled("%s", ui("New installations: UI protection on; your saved choice is retained.", "新装默认开启：优先保护 UI；保留你已保存的选择。"));
+        SettingsNote(ui("New installations: UI protection on; your saved choice is retained.", "新装默认开启：优先保护 UI；保留你已保存的选择。"));
         SettingsTooltip(ui("Requests the model UI-correction parameter with its unsigned type. This plugin does not supply a separate HUD mask here; preservation of text or HUD is not guaranteed. New installations enable it; existing explicit settings are kept.", "按无符号类型请求模型内置 UI 结构保护。本插件在此没有额外提供 HUD 遮罩，不保证字幕或界面完全不变；新装默认开启，保留已有明确设置。"));
         // END PRIMARY MODEL CONTROLS
 
     if (next.identity_use_original && ImGui::Button(ui("Show NR picture (leave diagnostic identity)", "显示 NR 效果（退出诊断原图）"))) {
         next.identity_use_original = false; changed = true;
     }
+    ImGui::Spacing();
     if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {
 #if NR_HAS_DETAIL_STABILITY
     constexpr float maximum_strength = 4.0f;
@@ -324,7 +362,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     constexpr float maximum_strength = 2.0f;
 #endif
     float effect_strength = ActiveTransferStrength(next);
-    if (ImGui::SliderFloat(ui("Strength amplification", "强度放大"),
+    SettingsField(ui("Strength amplification", "强度放大"));
+    if (ImGui::SliderFloat("##nr-strength-amplification",
             &effect_strength, 0.0f, maximum_strength, "%.2f")) {
         next.transfer_strength = next.post_transfer_strength = effect_strength; changed = true;
     }
@@ -439,4 +478,5 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImGui::TextWrapped("%s", ui(
             "Settings changed elsewhere. The stale edit was discarded; adjust again using the current values.",
             "设置已被快捷键、配置重载或采集恢复更新；旧编辑未覆盖新值，请在当前值上重新调整。"));
+    ImGui::PopStyleVar(2);
 }
