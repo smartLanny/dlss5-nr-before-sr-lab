@@ -11,8 +11,18 @@
 namespace nr_feedback_text {
 constexpr std::uint64_t kCoreZipLimit = 8ull * 1024 * 1024;
 constexpr std::uint64_t kScanLimit = 32ull * 1024 * 1024;
+constexpr std::uint64_t kTailScanLimit = 64ull * 1024;
+constexpr std::uint64_t kPerSourceScanMs = 400;
+constexpr std::uint64_t kTailReserveMs = 100;
 constexpr std::size_t kLineLimit = 4096;
-constexpr std::size_t kSummaryLimit = 256 * 1024;
+constexpr std::size_t kSummaryLimit = 24 * 1024;
+constexpr std::size_t kHeadLimit = 4 * 1024;
+constexpr std::size_t kFirstLimit = 6 * 1024;
+constexpr std::size_t kFirstEventLimit = 1024;
+constexpr std::size_t kRecentLimit = 6 * 1024;
+constexpr std::size_t kTailLimit = 6 * 1024;
+static_assert(kHeadLimit + kFirstLimit + kRecentLimit + kTailLimit + 2048 <= kSummaryLimit,
+    "summary section budgets must leave room for truthful coverage metadata");
 inline unsigned CoreHotkey(unsigned key) {
     // F6 owns master enable, F7 owns image capture. Never bind both actions.
     return key >= 112 && key <= 123 && key != 117 && key != 118 ? key : 119;
@@ -76,63 +86,169 @@ inline std::string Sanitize(std::string_view input) {
     }
     return line;
 }
-struct Window {
-    std::deque<std::string> lines;
-    std::size_t bytes = 0;
-    void Push(std::string line, std::size_t limit) {
-        line += '\n';
-        if (line.size() > limit) return;
-        while (bytes + line.size() > limit) { bytes -= lines.front().size(); lines.pop_front(); }
-        bytes += line.size(); lines.push_back(std::move(line));
+inline bool DiagnosticLine(const std::string &lower) {
+    return lower.find("bypass") != std::string::npos || lower.find("reason=") != std::string::npos ||
+        lower.find("error") != std::string::npos || lower.find("fail") != std::string::npos ||
+        lower.find("[native-carrier]") != std::string::npos || lower.find("[native-contract]") != std::string::npos ||
+        lower.find("hook") != std::string::npos || lower.find("feature") != std::string::npos ||
+        lower.find("colordiag") != std::string::npos || lower.find("transition") != std::string::npos ||
+        lower.find("another reshade instance") != std::string::npos ||
+        lower.find("device_removed") != std::string::npos || lower.find("device_hung") != std::string::npos ||
+        lower.find("device removed") != std::string::npos || lower.find("device hung") != std::string::npos ||
+        lower.find("unavailable") != std::string::npos || lower.find("unsupported") != std::string::npos ||
+        lower.find("timeout") != std::string::npos || lower.find("rejected") != std::string::npos;
+}
+inline std::string RepeatKey(const std::string &line) {
+    auto lower = Lower(line);
+    const auto bar = lower.find(" | ");
+    if (bar != std::string::npos && bar < 48 &&
+        std::any_of(lower.begin(), lower.begin() + bar, [](char c) { return std::isdigit(static_cast<unsigned char>(c)); }))
+        lower.replace(0, bar, "[time]");
+    else if (lower.size() > 20 && std::isdigit(static_cast<unsigned char>(lower[0])) &&
+             lower[4] == '-' && lower[7] == '-' && (lower[10] == 't' || lower[10] == ' ')) {
+        const auto timestamp_end = lower.find(' ');
+        if (timestamp_end != std::string::npos && timestamp_end <= 32) lower.replace(0, timestamp_end, "[time]");
     }
-    std::string Text() const { std::string out; out.reserve(bytes); for (const auto &s : lines) out += s; return out; }
+    const bool volatile_counter = lower.find("frame=") != std::string::npos ||
+        lower.find("frame ") != std::string::npos || lower.find("count=") != std::string::npos ||
+        lower.find("counter") != std::string::npos || lower.find("elapsed") != std::string::npos ||
+        lower.find("sample=") != std::string::npos || lower.find("progress") != std::string::npos ||
+        lower.find("evaluate success") != std::string::npos;
+    const bool stateful_failure = lower.find("reason=") != std::string::npos ||
+        lower.find("bypass") != std::string::npos || lower.find("error") != std::string::npos ||
+        lower.find("fail") != std::string::npos || lower.find("device") != std::string::npos;
+    if (!volatile_counter || stateful_failure) return lower;
+    for (const char *field : {"frame=", "frame ", "count=", "counter=", "elapsed=", "sample="}) {
+        std::size_t search = 0;
+        while ((search = lower.find(field, search)) != std::string::npos) {
+            const auto begin = search + std::char_traits<char>::length(field);
+            auto end = begin;
+            while (end < lower.size() && std::isdigit(static_cast<unsigned char>(lower[end]))) ++end;
+            if (end > begin && (end == lower.size() || lower[end] == ' ' || lower[end] == ',' ||
+                                lower[end] == ';' || lower[end] == '\t' || lower[end] == 'm')) {
+                lower.replace(begin, end - begin, "#"); search = begin + 1;
+            } else search = begin;
+        }
+    }
+    return lower;
+}
+inline std::string DiagnosticKey(const std::string &lower) {
+    auto p = lower.find("reason=");
+    if (p != std::string::npos) {
+        const auto end = lower.find_first_of(" ,;\t", p + 7);
+        return lower.substr(p, end == std::string::npos ? end : end - p);
+    }
+    std::string kind;
+    if (lower.find("bypass transition") != std::string::npos || lower.find("transition") != std::string::npos)
+        kind = "transition:";
+    else if (lower.find("another reshade instance") != std::string::npos) kind = "duplicate-reshade:";
+    else if (lower.find("device_removed") != std::string::npos || lower.find("device_hung") != std::string::npos ||
+             lower.find("device removed") != std::string::npos || lower.find("device hung") != std::string::npos)
+        kind = "device-failure:";
+    else if (lower.find("[native-carrier]") != std::string::npos) kind = "native-carrier:";
+    else if (lower.find("[native-contract]") != std::string::npos) kind = "native-contract:";
+    else if (lower.find("fail") != std::string::npos || lower.find("error") != std::string::npos ||
+             lower.find("unavailable") != std::string::npos || lower.find("unsupported") != std::string::npos ||
+             lower.find("timeout") != std::string::npos || lower.find("rejected") != std::string::npos)
+        kind = "failure:";
+    else if (lower.find("feature 18 create") != std::string::npos) return "feature18-create";
+    else return {};
+    std::string shape = RepeatKey(lower);
+    if (shape.size() > 192) shape.resize(192);
+    return kind + shape;
+}
+struct Window {
+    struct Entry { std::string text, key; std::uint64_t repeats = 0; };
+    std::deque<Entry> lines;
+    std::size_t bytes = 0;
+    std::uint64_t omitted = 0, repetitions = 0;
+    bool retains_oldest = false;
+    static std::size_t Cost(const std::string &line) { return line.size() + 96; }
+    void Push(std::string line, std::size_t limit, bool retain_oldest = false) {
+        retains_oldest = retain_oldest;
+        auto key = RepeatKey(line);
+        if (!lines.empty() && lines.back().key == key) {
+            ++lines.back().repeats; ++repetitions;
+            if (!retain_oldest) {
+                const auto old_cost = Cost(lines.back().text), new_cost = Cost(line);
+                while (bytes - old_cost + new_cost > limit && lines.size() > 1) {
+                    omitted += 1 + lines.front().repeats;
+                    bytes -= Cost(lines.front().text); lines.pop_front();
+                }
+                if (bytes - old_cost + new_cost <= limit) {
+                    bytes = bytes - old_cost + new_cost;
+                    lines.back().text = std::move(line);
+                }
+            }
+            return;
+        }
+        const auto cost = Cost(line);
+        if (cost > limit) { ++omitted; return; }
+        if (retain_oldest && bytes + cost > limit) { ++omitted; return; }
+        while (bytes + cost > limit && !lines.empty()) {
+            omitted += 1 + lines.front().repeats;
+            bytes -= Cost(lines.front().text); lines.pop_front();
+        }
+        bytes += cost; lines.push_back({std::move(line), std::move(key), 0});
+    }
+    std::string Text() const {
+        std::string out; out.reserve(bytes);
+        for (const auto &entry : lines) {
+            out += entry.text; out += '\n';
+            if (entry.repeats) out += "[repetition.suppressed=" + std::to_string(entry.repeats) +
+                "; representative=" + (retains_oldest ? "first" : "latest") + "-equivalent-line]\n";
+        }
+        return out;
+    }
 };
 struct Summary {
-    std::string head, first;
+    Window head;
+    std::string first;
     Window recent, tail;
     std::vector<std::string> first_keys;
-    std::uint64_t lines = 0, long_lines = 0;
+    std::uint64_t lines = 0, long_lines = 0, first_omitted = 0, first_truncated = 0;
     void Push(std::string_view raw, bool truncated = false) {
         ++lines; long_lines += truncated;
         auto line = Sanitize(raw);
         if (truncated) line += " [line truncated]";
-        if (head.size() + line.size() + 1 <= 32768) head += line + '\n';
-        tail.Push(line, 65536);
+        head.Push(line, kHeadLimit, true);
+        tail.Push(line, kTailLimit);
         const auto lower = Lower(line);
-        const bool important = lower.find("bypass") != std::string::npos || lower.find("error") != std::string::npos ||
-            lower.find("[native-carrier]") != std::string::npos || lower.find("[native-contract]") != std::string::npos ||
-            lower.find("fail") != std::string::npos || lower.find("hook") != std::string::npos ||
-            lower.find("feature") != std::string::npos || lower.find("colordiag") != std::string::npos ||
-            lower.find("another reshade instance") != std::string::npos ||
-            lower.find("device_removed") != std::string::npos || lower.find("device_hung") != std::string::npos ||
-            lower.find("device removed") != std::string::npos || lower.find("device hung") != std::string::npos;
-        if (!important) return;
-        recent.Push(line, 65536);
-        // Retain the FIRST occurrence of each bypass reason even when the
-        // latest tail is dominated by thousands of later successful frames.
-        auto p = lower.find("reason=");
-        std::string key;
-        if (p != std::string::npos) {
-            const auto end = lower.find_first_of(" ,;\t", p + 7);
-            key = lower.substr(p, end == std::string::npos ? end : end - p);
-        } else if (lower.find("bypass transition") != std::string::npos) key = "first-bypass-transition";
-        else if (lower.find("another reshade instance") != std::string::npos) key = "first-duplicate-reshade";
-        else if (lower.find("device_removed") != std::string::npos || lower.find("device_hung") != std::string::npos ||
-                 lower.find("device removed") != std::string::npos || lower.find("device hung") != std::string::npos) key = "first-device-failure";
-        else if (lower.find("fail") != std::string::npos || lower.find("error") != std::string::npos) key = "first-error";
-        else if (lower.find("feature 18 create") != std::string::npos) key = "first-feature18-create";
-        if (!key.empty() && first_keys.size() < 32 && first.size() + line.size() + 1 <= 65536 &&
-            std::find(first_keys.begin(), first_keys.end(), key) == first_keys.end()) {
-            first_keys.push_back(key); first += line + '\n';
+        if (!DiagnosticLine(lower)) return;
+        recent.Push(line, kRecentLimit);
+        auto key = DiagnosticKey(lower);
+        if (key.empty() || std::find(first_keys.begin(), first_keys.end(), key) != first_keys.end()) return;
+        std::string excerpt = line;
+        constexpr std::string_view marker = " [first-event excerpt truncated]";
+        if (excerpt.size() > kFirstEventLimit) {
+            excerpt.resize(kFirstEventLimit - marker.size()); excerpt += marker; ++first_truncated;
         }
+        if (first_keys.size() >= 32 || first.size() + excerpt.size() + 1 > kFirstLimit) { ++first_omitted; return; }
+        first_keys.push_back(std::move(key)); first += excerpt + '\n';
+    }
+    std::string Text(std::uint64_t source_bytes, std::uint64_t prefix_scanned,
+                     std::uint64_t tail_scanned, bool complete, const char *status) const {
+        return "format=DLSS5-LogSummary-v1\nsource.bytes=" + std::to_string(source_bytes) +
+            "\nsummary.limitBytes=" + std::to_string(kSummaryLimit) +
+            "\nscan.bytes=" + std::to_string(prefix_scanned + tail_scanned) +
+            "\nscan.prefixBytes=" + std::to_string(prefix_scanned) +
+            "\nscan.tailBytes=" + std::to_string(tail_scanned) +
+            "\nscan.status=" + (status ? status : "unknown") + "\nscan.complete=" + (complete ? "1" : "0") +
+            "\nlines.scanned=" + std::to_string(lines) + "\nlines.truncated=" + std::to_string(long_lines) +
+            "\nhead.linesOmitted=" + std::to_string(head.omitted) +
+            "\nhead.repetitionsSuppressed=" + std::to_string(head.repetitions) +
+            "\nfirst.eventsOmitted=" + std::to_string(first_omitted) +
+            "\nfirst.eventsTruncated=" + std::to_string(first_truncated) +
+            "\nlatest.linesOmitted=" + std::to_string(recent.omitted) +
+            "\nlatest.repetitionsSuppressed=" + std::to_string(recent.repetitions) +
+            "\ntail.linesOmitted=" + std::to_string(tail.omitted) +
+            "\ntail.repetitionsSuppressed=" + std::to_string(tail.repetitions) +
+            "\nprivacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only\n"
+            "\n[head]\n" + head.Text() + "\n[first distinct diagnostics]\n" + first +
+            "\n[latest diagnostic transitions]\n" + recent.Text() + "\n[tail]\n" + tail.Text();
     }
     std::string Text(std::uint64_t source_bytes, std::uint64_t scanned, bool complete) const {
-        return "format=DLSS5-LogSummary-v1\nsource.bytes=" + std::to_string(source_bytes) +
-            "\nscan.bytes=" + std::to_string(scanned) + "\nscan.complete=" + (complete ? "1" : "0") +
-            "\nlines.scanned=" + std::to_string(lines) + "\nlines.truncated=" + std::to_string(long_lines) +
-            "\nprivacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only\n"
-            "\n[head]\n" + head + "\n[first events]\n" + first +
-            "\n[recent important]\n" + recent.Text() + "\n[tail]\n" + tail.Text();
+        return Text(source_bytes, scanned, 0, complete, complete ? "complete" : "bounded-incomplete");
     }
 };
 } // namespace nr_feedback_text
