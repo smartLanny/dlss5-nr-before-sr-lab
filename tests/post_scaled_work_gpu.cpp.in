@@ -21,6 +21,12 @@
 #include <vector>
 
 #include "nr_post_compat.h"
+#if defined(__has_include)
+#if __has_include("../nr_color_amplification.h")
+#include "../nr_color_amplification.h"
+#define NR_GPU_HAS_COLOR_AMPLIFICATION 1
+#endif
+#endif
 
 // @PRODUCTION_DESCRIPTOR_CONSTANTS@
 // @PRODUCTION_SHADER@
@@ -961,7 +967,8 @@ Float4 RunLightingCase(Gpu &gpu, const std::vector<Float4> &proxy_pixels,
                        unsigned model_height = 32,
                        float detail_stability = 0.f,
                        unsigned sample_x = 15, unsigned sample_y = 16,
-                       bool use_v2 = true, unsigned passthrough_flags = 1u) {
+                       bool use_v2 = true, unsigned passthrough_flags = 1u,
+                       float color_strength = 0.f) {
     constexpr unsigned width = 32, height = 32;
     Require(proxy_pixels.size() == model_width * model_height &&
                 neural_pixels.size() == model_width * model_height,
@@ -986,7 +993,7 @@ Float4 RunLightingCase(Gpu &gpu, const std::vector<Float4> &proxy_pixels,
     constants.proxy_scale = 1.f;
     constants.transfer_strength = 1.f;
     constants.source_to_canonical = 1.f;
-    constants.color_strength = 0.f;
+    constants.color_strength = color_strength;
     constants.max_luma_ratio = 4.f;
     constants.passthrough = passthrough_flags; // direct bounded-linear model/source domain
     constants.pre_exposure = 1.f;
@@ -1012,6 +1019,105 @@ Float4 RunLightingCase(Gpu &gpu, const std::vector<Float4> &proxy_pixels,
     gpu.ReadTexture(result);
     gpu.Execute();
     return gpu.TexturePixels(result)[sample_y * width + sample_x];
+}
+
+float OutputLuma(const Float4 &pixel) {
+    return DotLuma({pixel.x, pixel.y, pixel.z});
+}
+
+float OutputChromaSpan(const Float4 &pixel) {
+    const float high = std::max(pixel.x, std::max(pixel.y, pixel.z));
+    const float low = std::min(pixel.x, std::min(pixel.y, pixel.z));
+    return high - low;
+}
+
+float OutputRgbDistance(const Float4 &a, const Float4 &b) {
+    return std::max(std::fabs(a.x - b.x),
+                    std::max(std::fabs(a.y - b.y), std::fabs(a.z - b.z)));
+}
+
+void RunColorStrengthChecks(Gpu &gpu) {
+    // Uniform model planes isolate the colour-follow control from lighting,
+    // edge and surface selection.  The neural plane changes chroma while its
+    // luma remains equal to the proxy (0.4 within FP16 quantisation).
+    const Float4 chroma_proxy_pixel{0.40f, 0.40f, 0.40f, 1.f};
+    const Float4 chroma_neural_pixel{0.60f, 0.35f, 0.30625f, 1.f};
+    const Float4 luma_proxy_pixel{0.40f, 0.40f, 0.40f, 1.f};
+    const Float4 luma_neural_pixel{0.32f, 0.32f, 0.32f, 1.f};
+    for (const bool use_v2 : {false, true}) {
+        const char *route = use_v2 ? "NR-SR/CombineV2CS" : "SR-NR/CombineCS";
+        for (const unsigned percent : {50u, 100u}) {
+            const unsigned model_width = percent == 50u ? 16u : 32u;
+            const unsigned model_height = model_width;
+            const unsigned sample = percent == 50u ? 7u : 15u;
+            const auto chroma_proxy = std::vector<Float4>(
+                model_width * model_height, chroma_proxy_pixel);
+            const auto chroma_neural = std::vector<Float4>(
+                model_width * model_height, chroma_neural_pixel);
+            const Float4 c0 = RunLightingCase(
+                gpu, chroma_proxy, chroma_neural, 0.f, model_width,
+                model_height, 0.f, sample, sample, use_v2, 1u, 0.f);
+            const Float4 c05 = RunLightingCase(
+                gpu, chroma_proxy, chroma_neural, 0.f, model_width,
+                model_height, 0.f, sample, sample, use_v2, 1u, 0.5f);
+            const Float4 c1 = RunLightingCase(
+                gpu, chroma_proxy, chroma_neural, 0.f, model_width,
+                model_height, 0.f, sample, sample, use_v2, 1u, 1.f);
+            const float s0 = OutputChromaSpan(c0);
+            const float s05 = OutputChromaSpan(c05);
+            const float s1 = OutputChromaSpan(c1);
+            const float l0 = OutputLuma(c0);
+            const float l05 = OutputLuma(c05);
+            const float l1 = OutputLuma(c1);
+            Require(s0 < 0.01f && s05 > s0 + 0.01f && s1 > s05 + 0.01f,
+                    "ColorStrength endpoints did not monotonically follow chroma");
+            Require(std::fabs(l05 - l0) < 0.01f && std::fabs(l1 - l0) < 0.01f,
+                    "ColorStrength changed luminance of a chroma-only residual");
+            std::printf(
+                "COLOR-STRENGTH route=%s grid=%u%% chromaSpan=%.7f,%.7f,%.7f "
+                "luma=%.7f,%.7f,%.7f delta05=%.7f delta1=%.7f\n",
+                route, percent, s0, s05, s1, l0, l05, l1,
+                OutputRgbDistance(c05, c0), OutputRgbDistance(c1, c0));
+
+            const auto luma_proxy = std::vector<Float4>(
+                model_width * model_height, luma_proxy_pixel);
+            const auto luma_neural = std::vector<Float4>(
+                model_width * model_height, luma_neural_pixel);
+            const Float4 n0 = RunLightingCase(
+                gpu, luma_proxy, luma_neural, 0.f, model_width,
+                model_height, 0.f, sample, sample, use_v2, 1u, 0.f);
+            const Float4 n05 = RunLightingCase(
+                gpu, luma_proxy, luma_neural, 0.f, model_width,
+                model_height, 0.f, sample, sample, use_v2, 1u, 0.5f);
+            const Float4 n1 = RunLightingCase(
+                gpu, luma_proxy, luma_neural, 0.f, model_width,
+                model_height, 0.f, sample, sample, use_v2, 1u, 1.f);
+            Require(OutputChromaSpan(n0) < 0.005f &&
+                        OutputRgbDistance(n05, n0) < 0.005f &&
+                        OutputRgbDistance(n1, n0) < 0.005f,
+                    "luminance-only residual changed with ColorStrength");
+            std::printf(
+                "COLOR-LUMA-ONLY route=%s grid=%u%% chromaSpan=%.7f,%.7f,%.7f "
+                "rgbDelta=%.7f,%.7f\n",
+                route, percent, OutputChromaSpan(n0), OutputChromaSpan(n05),
+                OutputChromaSpan(n1), OutputRgbDistance(n05, n0),
+                OutputRgbDistance(n1, n0));
+        }
+    }
+#if defined(NR_GPU_HAS_COLOR_AMPLIFICATION)
+    // This is the committed policy helper used by DispatchCodec.  The default
+    // 1.2 transfer amplification limits a requested colour strength of 1.0
+    // to 1/1.2 before constants reach the shader.
+    const auto budget = nr_color_amplification::Resolve(1.f, 1.2f);
+    Require(NearlyEqual(budget.coefficient, 1.f / 1.2f, 0.000001f) &&
+                budget.limited && NearlyEqual(budget.amplification, 1.2f,
+                                              0.000001f),
+            "default >1 colour amplification budget changed");
+    std::printf("COLOR-BUDGET amplification=%.7f coefficient=%.7f\n",
+                budget.amplification, budget.coefficient);
+#else
+    std::puts("COLOR-BUDGET helper unavailable in this extraction");
+#endif
 }
 
 void RunLightingEdgeCases(Gpu &gpu) {
@@ -1125,6 +1231,7 @@ void RunLightingEdgeCases(Gpu &gpu) {
         gpu, flat_proxy, flat_proxy, 1.f, 32, 32, 0.f, 15, 16, false);
     Require(post_identity.x > 0.499f && post_identity.x < 0.501f,
             "post LightingLock invented an edit for identity model output");
+    RunColorStrengthChecks(gpu);
     std::puts("PASS production CombineV2CS WARP: LightingLock edges and reduced-grid detail bounds");
     std::puts("PASS production CombineCS WARP: post LightingLock 0/0.2/1, legacy flag, identity and luma edge at 50/75/100%");
 }

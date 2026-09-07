@@ -26,6 +26,7 @@ class UiRefreshContract(unittest.TestCase):
         self.assertNotIn("Use RR -> NR when Ray Reconstruction is active", self.post)
 
     def test_feedback_is_one_button_and_leaves_clipboard_to_present(self):
+        self.assertNotIn("NR_HAS_F8_SEQUENCE", self.ui)
         self.assertIn("DrawSimpleFeedbackControls();", self.ui)
         self.assertNotIn("nr_f8::DrawControls();", self.ui)
         self.assertEqual(self.ui.count("nr_f8::RequestCore();"), 1)
@@ -38,7 +39,8 @@ class UiRefreshContract(unittest.TestCase):
         self.assertNotIn("TakeReportPathForClipboard", self.ui)
         self.assertNotIn("SetClipboardText", self.ui)
         for removed in ("Copy full TXT report", "Copy report summary", "Copy TXT path",
-                        "Shortcut", "Comparison and region options"):
+                        "Shortcut", "Comparison and region options",
+                        "Single-TXT feedback is unavailable"):
             self.assertNotIn(removed, self.ui)
 
     def test_f7_submenu_uses_fixed_backend_contracts(self):
@@ -54,12 +56,38 @@ class UiRefreshContract(unittest.TestCase):
     def test_layout_keeps_only_developer_options_collapsible(self):
         self.assertIn('kSettingsOverlayName[] = "装机宅DLSS 5"', self.ui)
         self.assertIn('"交流群（二群）：392308850"', self.ui)
-        self.assertIn('BeginTabItem(ui("Experimental###nr-experimental"', self.ui)
         self.assertIn('CollapsingHeader(ui("Developer options", "开发者选项"))', self.ui)
+        self.assertNotIn('"Experimental###nr-experimental"', self.ui)
         self.assertNotIn('CollapsingHeader(ui("Advanced picture controls"', self.ui)
         self.assertIn('SettingsSection(ui("Advanced picture controls"', self.ui)
         self.assertIn("ImGui::SameLine();", self.ui)
         self.assertIn("GetTextLineHeightWithSpacing() * 4.25f", self.ui)
+
+    def test_feedback_and_diagnostics_are_one_complete_tab(self):
+        marker = '"Feedback and diagnostics###nr-feedback-diagnostics"'
+        self.assertEqual(self.ui.count(marker), 1)
+        combined = self.ui[self.ui.index(marker):self.ui.index("ImGui::EndTabBar()")]
+        self.assertIn("DrawSimpleFeedbackControls();", combined)
+        self.assertIn("DrawSimpleImageCaptureControls();", combined)
+        self.assertIn("DrawTechnicalDiagnostics(runtime)", combined)
+        self.assertIn("nr_f8::TakeSettingsFeedbackPageRequest()", self.ui)
+        self.assertIn("ImGuiTabItemFlags_SetSelected", self.ui)
+        self.assertIn("nullptr, feedback_tab_flags", combined)
+        begin_tabs = self.ui.index('ImGui::BeginTabBar("nr-main-tabs")')
+        take_request = self.ui.index("nr_f8::TakeSettingsFeedbackPageRequest()")
+        picture = self.ui.index('"Picture###nr-picture"', begin_tabs)
+        self.assertLess(begin_tabs, take_request)
+        self.assertLess(take_request, picture)
+        self.assertNotIn('"Diagnostics###nr-diagnostics"', self.ui)
+        self.assertEqual(self.ui.count("nr_f8::RequestCore();"), 1)
+
+    def test_labels_separate_overall_effect_from_tone_follow(self):
+        self.assertIn('ui("Overall NR effect", "NR 效果倍率")', self.ui)
+        self.assertIn('ui("NR tone follow", "NR 色调跟随")', self.ui)
+        self.assertIn("including visible brightness and detail", self.ui)
+        self.assertIn("only hue and saturation", self.ui)
+        self.assertIn("If the model changes only luminance, this may have little effect.", self.ui)
+        self.assertIn("Applies after releasing the slider.", self.ui)
 
     def test_game_render_query_stays_experimental_and_rr_safe(self):
         self.assertIn("IsRayReconstructionRouteObserved()", self.render)

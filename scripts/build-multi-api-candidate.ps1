@@ -111,7 +111,7 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-rr-retirement.py') --compiler $Cxx --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --negative-control
     if ($LASTEXITCODE) { throw 'RR historical leak control failed.' }
     $Checks.Add('actual staged RR Release hooks: 54 scenarios and historical leak negative control')
-    foreach ($Script in @('validate-picture-budget.py', 'validate-color-policy.py', 'validate-command-creation.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py', 'validate-f8-controller.py', 'validate-recommended-picture.py')) {
+    foreach ($Script in @('validate-picture-budget.py', 'validate-color-policy.py', 'validate-command-creation.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py', 'validate-feedback-hotkeys.py', 'validate-f8-controller.py', 'validate-recommended-picture.py')) {
         & python (Join-Path $PSScriptRoot $Script) --compiler $Cxx
         if ($LASTEXITCODE) { throw "Production regression failed: $Script" }
         $Checks.Add($Script)

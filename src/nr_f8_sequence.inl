@@ -45,7 +45,11 @@ struct Session {
 #include "nr_f8_stream.inl"
 SRWLOCK g_lock = SRWLOCK_INIT, g_control = SRWLOCK_INIT;
 std::atomic<Status> g_status{Status::Idle};
-std::atomic<bool> g_config_hold{false}, g_cancel{false}, g_window_open{false};
+std::atomic<bool> g_config_hold{false}, g_cancel{false};
+// Hotkeys can arrive while the settings overlay is closed. Keep this request
+// until DrawSettings consumes it; capture progress itself remains independent
+// of whether any ImGui page is visible.
+std::atomic<bool> g_settings_feedback_page_requested{false};
 std::atomic<unsigned long long> g_present{0};
 std::atomic<unsigned> g_hotkey{VK_F8};
 Session *g_session = nullptr;
@@ -54,7 +58,14 @@ unsigned long long g_next_session = 0;
 wchar_t g_last_zip[1024] = {};
 
 bool IsActive() { const auto s=g_status.load(); return s==Status::Requested || s==Status::Running; }
-void OpenWindow() { g_window_open.store(true); }
+void RequestSettingsFeedbackPage() {
+    g_settings_feedback_page_requested.store(true, std::memory_order_release);
+}
+bool TakeSettingsFeedbackPageRequest() {
+    return g_settings_feedback_page_requested.exchange(
+        false, std::memory_order_acq_rel);
+}
+void OpenWindow() { RequestSettingsFeedbackPage(); }
 void Cancel() {
     // Serialize against Present/Watchdog so cancellation cannot land between
     // Present's Requested check and image-session publication.
@@ -566,11 +577,5 @@ void DrawControls() {
         char path[4096]={};AcquireSRWLockShared(&g_lock);WideToUtf8(g_last_zip,path,sizeof(path));ReleaseSRWLockShared(&g_lock);
         if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(use_chinese_ui?"复制图像包路径":"Copy image path"))ImGui::SetClipboardText(path);}
     }
-}
-void DrawOverlay(reshade::api::effect_runtime *) {
-    if(!g_window_open.load() && !IsActive() && g_status.load()!=Status::Packaging && !nr_core_feedback::Busy())return;
-    const bool use_chinese_ui=UseChineseUi();
-    bool open=true;if(ImGui::Begin(use_chinese_ui?"DLSS5 反馈采集###dlss5-feedback-window":"DLSS5 feedback capture###dlss5-feedback-window",&open,ImGuiWindowFlags_AlwaysAutoResize))DrawControls();ImGui::End();
-    if(!open){g_window_open.store(false);if(IsActive())Cancel();}
 }
 } // namespace nr_f8

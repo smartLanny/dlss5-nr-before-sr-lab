@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.4.6'
-DISPLAY_VERSION = '0.4.6'
+VERSION = 'beta0.4.6-hotfix.1'
+DISPLAY_VERSION = '0.4.6-hotfix.1'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -29,12 +29,12 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_core.inl': 'd0d3c4c09b2755ba7b7e89fb0fad9a124e996c48',
     'src/nr_feedback_text.h': '2eb84a38dca9c72243bc2a4a0aa84007ec75097f',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
-    'src/nr_f8_sequence.inl': '7445b9320b0d39a97a05b6ad6ae98f501a596ccf',
+    'src/nr_f8_sequence.inl': 'd6a017063570787a04b67562a5a67ed91d723921',
     'src/nr_command_state.inl': STATE_CURRENT,
     'src/nr_feedback_capture.inl': '99328d273b964509e344bfdbcd7bbc85f230619b',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': '39b7a5e924018b9e494ab4d6b8e87d914d8b2cc7',
-    'src/nr_before_sr.cpp': 'f57be98d83d7851762217cf678493ad6165934e5',
+    'src/nr_settings_ui.inl': 'ddd24e8524d99f58520cbbebbe339613dbba0a9f',
+    'src/nr_before_sr.cpp': '9917b285a5e5c0810a7771451c43ce642be28f95',
     'src/nr_before_sr.rc': '25985f691b7f3104ba7c696f3da03eae709d4e52',
     'src/nr_color_policy.inl': '486c656eaf54af6c1d5b93bed3ce0f7bce9e1b60',
     'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',
@@ -152,8 +152,8 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     resource_text = rc.read_text(encoding='utf-8')
     if '0.4.5-fix2 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.4.5-fix2 beta', '0.4.6 beta')
-                  .replace('VERSION 0,4,5,2', 'VERSION 0,4,6,0'),
+    rc.write_text(resource_text.replace('0.4.5-fix2 beta', '0.4.6 hotfix.1 beta')
+                  .replace('VERSION 0,4,5,2', 'VERSION 0,4,6,1'),
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:
@@ -162,7 +162,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.4.6.0',
+        'core_pe_version': '0.4.6.1',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),

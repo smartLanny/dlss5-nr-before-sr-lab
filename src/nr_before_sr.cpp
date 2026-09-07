@@ -860,8 +860,8 @@ struct ChainConfig {
     // 1.0 follows the model, 2.0 compounds the model ratio twice, 4.0 is
     // deliberately strong, and 8.0 is an extreme diagnostic ceiling. HDR,
     // finite-value and user-selected maximum-ratio guards remain authoritative.
-    float transfer_strength = 1.2f;
-    float post_transfer_strength = 1.2f;
+    float transfer_strength = 1.0f;
+    float post_transfer_strength = 1.0f;
     // Independent Feature 18 working raster for Mode 2. 0 reference,
     // 1 quality, 2 balanced, 3 performance, 4 ultra, 5 custom.
     int work_mode = 1;
@@ -1214,7 +1214,7 @@ float ReadConfiguredTransferStrength(int configured_mode) {
     const float selected = version >= 1 || configured_mode != 1 ? pre : post;
     const float alternate = version >= 1 || configured_mode != 1 ? post : pre;
     const float strength = std::isfinite(selected) ? selected :
-        (std::isfinite(alternate) ? alternate : 1.2f);
+        (std::isfinite(alternate) ? alternate : 1.0f);
     if (version < 1) {
         // Publish the independent marker only after both compatible fields
         // are saved. Failure keeps the requested value for this process.
@@ -11479,7 +11479,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnReShadePresent);
         reshade::register_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
         reshade::register_overlay(kSettingsOverlayName, DrawSettings);
-        reshade::register_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
         Log("Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot "
             "hotkey (API %u).",
             static_cast<unsigned int>(RESHADE_API_VERSION));
@@ -11491,7 +11490,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             reshade::unregister_event<reshade::addon_event::init_device>(
                 OnCommandStateInitDevice);
             reshade::unregister_overlay(kSettingsOverlayName, DrawSettings);
-            reshade::unregister_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
             reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
@@ -11514,7 +11512,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::unregister_event<reshade::addon_event::init_device>(
             OnCommandStateInitDevice);
         reshade::unregister_overlay(kSettingsOverlayName, DrawSettings);
-        reshade::unregister_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
         reshade::unregister_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
         reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);

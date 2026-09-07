@@ -201,6 +201,9 @@ class SourcePatch(unittest.TestCase):
         self.assertIn('"##nr-processing-precision", &precision, 50.0f, 100.0f',out)
         self.assertIn('IsRayReconstructionRouteObserved()',out)
         self.assertIn('DrawSimpleFeedbackControls();',out)
+        self.assertIn('"Feedback and diagnostics###nr-feedback-diagnostics"',out)
+        self.assertNotIn('"Experimental###nr-experimental"',out)
+        self.assertNotIn('"Diagnostics###nr-diagnostics"',out)
         self.assertNotIn('nr_f8::DrawControls();',out)
         for label in ('Model strength','Local tone','Local structure','Advanced picture controls'):
             self.assertEqual(out.count('"'+label+'"'),source.count('"'+label+'"'))

@@ -63,8 +63,9 @@ def patch_ui(text: str) -> str:
             '        DrawRenderControl();\n'
             + refreshed)
     return once(text,
-        '    if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {',
-        '    DrawRenderControl();\n    if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {')
+        '    if (ImGui::CollapsingHeader(ui("Developer options", "开发者选项"))) {',
+        '    if (ImGui::CollapsingHeader(ui("Developer options", "开发者选项"))) {\n'
+        '        DrawRenderControl();')
 
 def patch_bridge(text: str) -> str:
     text = old_bridge(text)

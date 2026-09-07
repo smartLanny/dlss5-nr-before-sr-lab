@@ -63,10 +63,10 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
     const bool current_color_policy =
         color_policy_snapshot.status == NrColorPolicyStatus::Current;
     const bool color_follow_changed = SettingsSliderFloat(
-        ui("Colour enhancement (NR follow)", "色彩强化（NR 跟随）"), "##nr-colour-enhancement",
+        ui("NR tone follow", "NR 色调跟随"), "##nr-colour-enhancement",
         &next.color_strength, 0.0f, 1.0f, "%.2f");
-    SettingsTooltip(ui("0 keeps the game's hue; 1 follows bounded NR chroma. New installations request 1.0. The saved request may differ from the effective coefficient. Editing a nonzero value explicitly permits unverified HDR colour with a warning; zero restores luminance only. This does not override resource or exposure safety. Recorded values describe settings, not measured picture strength.",
-        "0 保留游戏色相；1 跟随有界 NR 色彩。新装默认请求 1.0。保存请求与实际合成系数可能不同。手动调到非零即允许尝试未验证 HDR 色彩，可能偏色；拉回 0 恢复仅明暗，不绕过资源或曝光安全检查。记录值是参数设置，不代表测得的画面变化强度。"));
+    SettingsTooltip(ui("Controls only NR hue and saturation follow, not brightness, detail or the overall mix. If the model changes only luminance, this may have little effect. Applies after releasing the slider. 0 keeps the game tone; a nonzero value permits unverified HDR colour with the existing safety warning.",
+        "只控制 NR 色相与饱和度跟随，不改变亮度、细节或整体效果倍率。模型只改变明暗时，此项变化可能很小；松开滑块后应用。0 保留游戏色调；非零值会按现有安全规则允许未验证 HDR 色彩并显示警告。"));
     if (color_follow_changed) next.allow_unverified_hdr_color = next.color_strength > 0.0f;
     changed |= color_follow_changed;
     if (color_follow_changed &&
@@ -129,7 +129,6 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
 #endif
 }
 
-#if defined(NR_HAS_F8_SEQUENCE)
 void DrawSimpleFeedbackControls() {
     const bool zh = UseChineseUi();
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
@@ -225,7 +224,6 @@ void DrawSimpleImageCaptureControls() {
         ImGui::TextDisabled("%s", ui("Image capture did not complete.", "图像采集未完成。"));
     }
 }
-#endif
 
 // The two maintained editions share the same small home screen. Technical
 // readouts remain available without putting implementation knobs on the home.
@@ -353,15 +351,14 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
 
     ImGui::EndChild();
     bool apply_discrete_edit = false;
-#if defined(NR_HAS_F8_SEQUENCE)
     const bool collecting = nr_f8::IsActive();
-#endif
 
     if (ImGui::BeginTabBar("nr-main-tabs")) {
+    const ImGuiTabItemFlags feedback_tab_flags =
+        nr_f8::TakeSettingsFeedbackPageRequest()
+            ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
     if (ImGui::BeginTabItem(ui("Picture###nr-picture", "画质###nr-picture"))) {
-#if defined(NR_HAS_F8_SEQUENCE)
     if (collecting) ImGui::BeginDisabled();
-#endif
     SettingsSection(ui("Quick settings", "快速设置"));
     apply_discrete_edit = ImGui::Checkbox(ui("Enable (F6)", "启用（F6）"), &next.enabled);
     changed |= apply_discrete_edit;
@@ -370,8 +367,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         changed = true;
     }
     SettingsTooltip(ui(
-        "Restores Before SR, strength amplification 1.2, model strength 1.0, colour request 1.0 and the shipped picture defaults. Exits diagnostic identity and disables unverified HDR colour/peak experiments. Keeps Enable (F6), depth/jitter/R8 game contracts and feedback preferences. Uses the normal save/history rules; runtime safety faults are not cleared.",
-        "恢复前置 NR、强度放大 1.2、模型强度 1.0、颜色请求 1.0 等随包推荐画质；退出诊断原图，关闭未验证 HDR 调色与高光实验。保留 F6 总开关、深度/Jitter/R8 游戏兼容设置和反馈偏好；按正常规则保存及更新历史，不清除运行时安全故障。"));
+        "Restores Before SR, overall NR effect 1.0, model strength 1.0, colour request 1.0 and the shipped picture defaults. Exits diagnostic identity and disables unverified HDR colour/peak experiments. Keeps Enable (F6), depth/jitter/R8 game contracts and feedback preferences. Uses the normal save/history rules; runtime safety faults are not cleared.",
+        "恢复前置 NR、NR 效果倍率 1.0、模型强度 1.0、颜色请求 1.0 等随包推荐画质；退出诊断原图，关闭未验证 HDR 调色与高光实验。保留 F6 总开关、深度/Jitter/R8 游戏兼容设置和反馈偏好；按正常规则保存及更新历史，不清除运行时安全故障。"));
     SettingsSection(ui("Processing", "处理方式"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
     const auto rr_last_attempt = nr_post_settings::last_rr_tick.load(std::memory_order_acquire);
@@ -444,8 +441,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
 
         changed |= SettingsSliderFloat(ui("Model strength", "模型强度"),
             "##nr-model-strength", &next.intensity, 0.f, 2.f, "%.2f");
-        SettingsTooltip(ui("This tunes the model itself, not the final effect multiplier. Saturation can limit the visible change.",
-            "这项调整模型内部行为，不等于强度放大。默认 1.0，保留已有值；模型参数提交后需要重建/预热，短暂原图不是人脸识别成功的证明。"));
+        SettingsTooltip(ui("This tunes the model itself, not the overall NR effect. Saturation can limit the visible change.",
+            "这项调整模型内部行为，不等于 NR 效果倍率。默认 1.0，保留已有值；模型参数提交后需要重建/预热，短暂原图不是人脸识别成功的证明。"));
         if (next.intensity != 1.0f) {
             ImGui::TextDisabled("%s", ui("Model default is 1.0; the value above is your saved setting.",
                 "模型默认是 1.0；上方显示的是已保存的设置。"));
@@ -466,7 +463,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 next.skin_structure = 0.f;
             changed = true;
         }
-        SettingsTooltip(ui("Requests the model automatic face-mask parameter, not a mask generated by this plugin. Its effect depends on the model and input. Off sends skin strength -1 to follow Local structure; the last independent value is retained for re-enabling.", "请求模型内置的自动人脸遮罩，并非插件额外生成人脸识别图；效果取决于模型和输入。关闭时向模型发送皮肤强度 -1，跟随局部结构；上次独立设置会保留，重新开启时恢复。"));
+        SettingsTooltip(ui("Requests the model's built-in face/skin structure control, not a final-composition face exemption or a mask generated by this plugin. Its effect depends on the model and input. Off sends skin strength -1 to follow Local structure; the last independent value is retained for re-enabling.", "请求模型内置的人脸/皮肤结构控制，不是最终合成的人脸豁免，也不是插件额外生成人脸识别图；效果取决于模型和输入。关闭时向模型发送皮肤强度 -1，跟随局部结构；上次独立设置会保留，重新开启时恢复。"));
         if (next.auto_mask) {
             changed |= SettingsSliderFloat(ui("Skin detail strength", "皮肤细节强度"),
                 "##nr-skin-detail", &next.skin_structure, 0.f, 2.f, "%.2f");
@@ -488,13 +485,13 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     constexpr float maximum_strength = 2.0f;
 #endif
     float effect_strength = ActiveTransferStrength(next);
-    if (SettingsSliderFloat(ui("Strength amplification", "强度放大"),
+    if (SettingsSliderFloat(ui("Overall NR effect", "NR 效果倍率"),
             "##nr-strength-amplification", &effect_strength,
             0.0f, maximum_strength, "%.2f")) {
         next.transfer_strength = next.post_transfer_strength = effect_strength; changed = true;
     }
-    SettingsTooltip(ui("Final NR blend strength. 0 keeps native SR; 1.0 is the unscaled effect. New installations start at 1.2. Existing settings, including 0, are retained. The public range is 0-4; older requests above 4 are clamped. Higher values can amplify low-resolution noise. Mandatory colour budgeting limits extra chroma amplification above 1x; this is not the model's internal strength.",
-        "控制最终 NR 混合强度。0 保留原生 SR，1.0 是不额外放大的效果；新装默认 1.2。已有设置（包括 0）会保留。范围为 0–4，旧配置超过 4 会限制到 4。较高数值仍可能放大低分辨率噪点。超过 1 倍自动限制额外颜色放大，不改变模型强度；这不保证消除模型自身色偏。"));
+    SettingsTooltip(ui("Controls the overall final NR mix, including visible brightness and detail. 0 keeps native SR; 1 is the base effect. NR tone follow separately controls only hue and saturation.",
+        "控制最终 NR 整体混合，包括可见的明暗与细节。0 保留原生 SR，1 为基础效果；“NR 色调跟随”只单独控制色相与饱和度。"));
 
 #if NR_HAS_DETAIL_STABILITY
         if (!before_sr) ImGui::BeginDisabled();
@@ -528,15 +525,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             next.proxy_curve = static_cast<unsigned>(curve); changed = true;
         }
 #endif
-#if defined(NR_HAS_F8_SEQUENCE)
-    if (collecting) ImGui::EndDisabled();
-#endif
-        ImGui::EndTabItem();
-    }
-    if (ImGui::BeginTabItem(ui("Experimental###nr-experimental", "实验###nr-experimental"))) {
-#if defined(NR_HAS_F8_SEQUENCE)
-        if (collecting) ImGui::BeginDisabled();
-#endif
+        if (ImGui::CollapsingHeader(ui("Developer options", "开发者选项"))) {
         SettingsSection(ui("Observed game render scale", "游戏真实渲染比例"));
         const unsigned render_width = g_last_dlss_input_width.load(std::memory_order_relaxed);
         const unsigned render_height = g_last_dlss_input_height.load(std::memory_order_relaxed);
@@ -557,7 +546,6 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "Read-only observation. Change the game's actual render scale in its DLSS quality settings; NR working scale is independent.",
             "这是只读观测。游戏真实渲染比例由游戏内 DLSS 质量档位调整，与 NR 工作比例相互独立。"));
 
-        if (ImGui::CollapsingHeader(ui("Developer options", "开发者选项"))) {
             int jitter = static_cast<int>(next.jitter_mode);
             if (ImGui::Combo(ui("NR jitter input", "NR jitter 输入"), &jitter,
                     ui("Do not forward\0Forward verified game pixel coordinates\0", "不传递\0传递已验证的游戏像素坐标\0"))) {
@@ -592,23 +580,15 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 next.warmup_after_create = static_cast<unsigned>(warmup); changed = true;
             }
         }
-#if defined(NR_HAS_F8_SEQUENCE)
         if (collecting) ImGui::EndDisabled();
-#endif
         ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem(ui("Feedback###nr-feedback", "反馈与报告###nr-feedback"))) {
-#if defined(NR_HAS_F8_SEQUENCE)
+    if (ImGui::BeginTabItem(ui("Feedback and diagnostics###nr-feedback-diagnostics", "反馈与诊断###nr-feedback-diagnostics"),
+            nullptr, feedback_tab_flags)) {
         DrawSimpleFeedbackControls();
         SettingsSection(ui("Image evidence", "图像证据"));
         DrawSimpleImageCaptureControls();
-#else
-        ImGui::TextDisabled("%s", ui("Single-TXT feedback is unavailable in this build.",
-            "此构建未启用单 TXT 反馈。"));
-#endif
-        ImGui::EndTabItem();
-    }
-    if (ImGui::BeginTabItem(ui("Diagnostics###nr-diagnostics", "诊断###nr-diagnostics"))) {
+        SettingsSection(ui("Runtime observations", "运行诊断"));
         ImGui::PushID("technical"); DrawTechnicalDiagnostics(runtime); ImGui::PopID();
         ImGui::EndTabItem();
     }

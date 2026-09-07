@@ -41,8 +41,12 @@ class Source045(unittest.TestCase):
         self.assertIn("RestoreRecommendedPictureSettings", result)
         self.assertIn("maximum_strength = 4.0f", result)
         self.assertNotIn("Switch the game to Direct3D 12", result)
-        self.assertLess(result.index('"Experimental###nr-experimental"'), result.index("DrawRenderControl();"))
-        self.assertLess(result.index("DrawRenderControl();"), result.index('"Developer options"'))
+        developer = result.index('"Developer options", "开发者选项"')
+        observed = result.index('"Observed game render scale", "游戏真实渲染比例"')
+        self.assertLess(developer, result.index("DrawRenderControl();"))
+        self.assertLess(result.index("DrawRenderControl();"), observed)
+        self.assertNotIn('"Experimental###nr-experimental"', result)
+        self.assertIn("nr_f8::TakeSettingsFeedbackPageRequest()", result)
         self.assertNotIn("D3D12 game render scale is read-only here", result)
 
     def test_build_and_protected_state(self):
