@@ -503,6 +503,8 @@ struct CommandStateEvidence {
     bool guard_requested = false, guard_covered = false, fresh_reset = false, tainted = false;
     bool meta_known = false, has_pipeline = false, has_ray_pipeline = false, null_baseline = false;
     bool roots[2] = {}, heaps[2] = {};
+    bool blend_observed = false;
+    float blend[4] = {}; // Valid only when blend_observed; never inferred from defaults.
     const char *reason = "no-carrier-sample";
     const char *baseline = "unobserved";
     const char *route = "native-bypass";
@@ -1398,6 +1400,9 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
             evidence.guard_covered = state.null_guard_covered; evidence.fresh_reset = state.null_guard_reset_observed;
             evidence.tainted = state.null_guard_tainted;
             evidence.dynamic = state.dynamic.recorded;
+            evidence.blend_observed = (state.dynamic.recorded & kDynamicBlend) != 0;
+            if (evidence.blend_observed)
+                std::memcpy(evidence.blend, state.dynamic.blend, sizeof(evidence.blend));
             evidence.vertex_mask = state.dynamic.vertex_mask; evidence.stream_mask = state.dynamic.stream_mask;
             evidence.has_pipeline = state.pipeline != nullptr; evidence.has_ray_pipeline = state.raytracing_pipeline != nullptr;
             for (unsigned stage = 0; stage < 2; ++stage) {

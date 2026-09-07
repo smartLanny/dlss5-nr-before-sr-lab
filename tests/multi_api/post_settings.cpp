@@ -4,6 +4,8 @@
 #include <cwchar>
 #include <cstdio>
 #include <cstdlib>
+#include <cstdarg>
+#include <string>
 #include "src/interop/nr_post_compat.h"
 using ULONGLONG=unsigned long long;
 std::atomic<unsigned> g_config_generation{1},g_history_generation{1};
@@ -33,6 +35,17 @@ void EnterCriticalSection(int*){
  ++locks;
  if(hold_on_lock)nr_f8::g_config_hold=true;
  if(revision_on_lock)nr_post_settings::revision.fetch_add(1);
+}
+struct FeedbackSession { std::string text; };
+void FeedbackAppend(FeedbackSession& session,const char* format,...) {
+ char text[4096];va_list args;va_start(args,format);
+ const int n=std::vsnprintf(text,sizeof(text),format,args);va_end(args);
+ if(n<0 || static_cast<unsigned>(n)>=sizeof(text))std::abort();
+ session.text.append(text,static_cast<unsigned>(n));
+}
+void EmitPostFeedback(FeedbackSession& s) {
+ const char* prefix="capture";
+#include "src/interop/nr_post_feedback.inl"
 }
 static unsigned checks=0;
 #define CHECK(x) do {++checks;if(!(x)){std::fprintf(stderr,"FAIL %d %s\n",__LINE__,#x);std::exit(1);}}while(0)
@@ -72,5 +85,17 @@ int main(){
  pct_ini=49;tick+=1000;Poll();CHECK(g_config.enabled&&Read().percent==75&&request_rejected);
  nr_f8::g_config_hold=true;CHECK(!Request({true,0}));CHECK(g_config.enabled);
  nr_f8::g_config_hold=false;
+ rr_attempts=2;rr_recorded=1;rr_native_failures=0;last_rr_tick=tick;last_rr_stage=2;
+ FeedbackSession current;EmitPostFeedback(current);
+ CHECK(current.text.find("capture.post.request.percent=75\n")!=std::string::npos);
+ CHECK(current.text.find("capture.post.requestRejected=1\n")!=std::string::npos);
+ CHECK(current.text.find("capture.post.rejectedPercent=49\n")!=std::string::npos);
+ CHECK(current.text.find("capture.post.rr.nrRecordings=1\n")!=std::string::npos);
+ CHECK(current.text.find("capture.post.rr.recentAttempt=1\n")!=std::string::npos);
+ CHECK(current.text.find("not GPU completion")!=std::string::npos);
+ tick+=3001;FeedbackSession historical;EmitPostFeedback(historical);
+ CHECK(historical.text.find("capture.post.rr.recentAttempt=0\n")!=std::string::npos);
+ last_rr_tick=0;FeedbackSession unavailable;EmitPostFeedback(unavailable);
+ CHECK(unavailable.text.find("capture.post.rr.attemptAgeMs=-1\n")!=std::string::npos);
  std::printf("%u actual setting/hold/persistence/revision checks passed (CPU seam)\n",checks);
 }

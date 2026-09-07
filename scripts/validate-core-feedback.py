@@ -168,6 +168,22 @@ int main(int argc,char **argv) {
     AcquireSRWLockExclusive(&g_ngx_hook_failure_lock);
     check(!SnapshotNgxHookFailure().available,"hook evidence contention is nonblocking");
     ReleaseSRWLockExclusive(&g_ngx_hook_failure_lock);
+    {
+        FeedbackSession unobserved;
+        FeedbackAppendActivity(unobserved,"sample");
+        check(std::strstr(unobserved.report,"sample.commandState.blend=unobserved\n"),"unobserved blend never masquerades as four zeroes");
+        g_command_state_evidence.blend_observed=true;
+        const float blend[4]={0.25f,0.5f,0.75f,1.0f};
+        std::memcpy(g_command_state_evidence.blend,blend,sizeof(blend));
+        FeedbackSession measured;
+        FeedbackAppendActivity(measured,"sample");
+        check(std::strstr(measured.report,"sample.commandState.blend=0.25,0.5,0.75,1\n"),"all four sampled blend values reach TXT formatting");
+        AcquireSRWLockExclusive(&g_command_state_lock);
+        FeedbackSession unavailable;
+        FeedbackAppendActivity(unavailable,"sample");
+        ReleaseSRWLockExclusive(&g_command_state_lock);
+        check(std::strstr(unavailable.report,"sample.commandState.blend=unavailable\n"),"busy snapshot does not expose historical blend as current");
+    }
     begin(runtime);check(nr_core_feedback::Busy(),"worker owned by current session");
     const auto first=nr_core_feedback::SnapshotPair();check(!nr_core_feedback::Request(),"no overlapping core jobs");
     drain(); // no second Present, no NR frame, no image or GPU stage functions even exist in this harness
@@ -311,6 +327,8 @@ def main():
         for key in ('start.commandState.schema=1', 'end.commandState.token=42',
                     'end.commandState.reason=null-guard-awaiting-reset',
                     'end.commandState.guardCovered=1', 'end.commandState.freshReset=0',
+                    'start.commandState.blend=0.25,0.5,0.75,1',
+                    'end.commandState.blend=0.25,0.5,0.75,1',
                     'end.ngxHookFailure.entry=existing-short-hotpatch'):
             assert key in metadata, key
     print('Actual Windows core ZIPs independently verified (complete / cancelled / snapshot busy).')
