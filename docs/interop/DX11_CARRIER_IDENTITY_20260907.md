@@ -2,9 +2,11 @@
 
 基于 `origin/main@ba71b45`。**这不是 BG3 闪退修复。** 云端未编 Windows OTA，未读到 issue-153 大包（仅 ROG）。
 
-## 闪退
+## 闪退（候选假设，不是根因结论）
 
-`multiapi-dev3` carrier 闪退、`r3-exp2` 可进。dev3 完成补丁去掉 NGX/创建设备的访问异常转换；硬件故障会传播而不是变成普通错误。没有转储就不能把 SEH 加回去，也不把 r3-exp2 标成当前配套。
+`multiapi-dev3` carrier 闪退、`r3-exp2` 可进。源码对照确认 dev3 完成补丁去掉了 NGX/创建设备的访问异常转换；这使“未限定的 NGX hook 触发硬件 fault 后由异常外逸导致进程退出”成为可证伪候选，但没有转储、异常模块和调用位置，不能把它写成已定位根因，也不能据此恢复 SEH。
+
+启动路径本身是旧版继承行为：两版都会在 `DllMain` 中调用 `PreferWorkingNgxLoader`、注册 `StartWatchingForNgx`，并由 `HookNewNgxModules` 扫描可见 NGX 导出；新 carrier 的无 device/present export-hook 实验已证实这条副作用。该事实不能单独证明具体游戏的硬件 fault 位置，也不把 `r3-exp2` 标成当前配套。
 
 ## 本 PR 实际改的
 
