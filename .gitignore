@@ -59,6 +59,11 @@ UserSettings*.json
 /test-output/
 /test-captures/
 nr-stage-captures/
+/payload/
+/vendor/
+/node_modules/
+/.demo-user-data-*/
+/.tmp-*/
 
 # Editors and operating systems
 .vs/
