@@ -118,7 +118,8 @@ F6对比开关，F8生成单TXT反馈；视觉问题可另按F7。新组合仍�
 "@
         [IO.File]::WriteAllText((Join-Path $Package '安装说明.txt'), $Install, (New-Object Text.UTF8Encoding($false)))
         $BuildInfo = [ordered]@{display_version=$DisplayVersion; version=$Version; source_commit=$Commit; packaging_commit=$RepoCommit;
-            language='zh-CN'; core_pe_version='0.4.5.104'; bridge_upstream_commit=$Manifest.integration.bridge_commit;
+            language='zh-CN'; core_pe_version=('{0}.{1}.{2}.{3}' -f $Addon.VersionInfo.FileMajorPart, $Addon.VersionInfo.FileMinorPart, $Addon.VersionInfo.FileBuildPart, $Addon.VersionInfo.FilePrivatePart);
+            core_file_version=$Addon.VersionInfo.FileVersion; carrier_upstream_file_version=(Get-Item -LiteralPath (Join-Path $Build $CarrierLeaf)).VersionInfo.FileVersion; bridge_upstream_commit=$Manifest.integration.bridge_commit;
             source_manifest_sha256=(Get-FileHash -LiteralPath (Join-Path $Stage 'source-manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant();
             validation_sha256=(Get-FileHash -LiteralPath (Join-Path $Build 'validation.json') -Algorithm SHA256).Hash.ToLowerInvariant();
             local_windows_verified=$true; local_warp_verified=$true; game_runtime_verified=$false; stable_release=$false}
