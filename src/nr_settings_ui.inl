@@ -5,7 +5,7 @@
 // A named overlay is an independent ReShade-owned window. nullptr registers
 // inside the add-on settings area, where long panels can displace other add-ons.
 // Keep the name identical across languages, versions and both cleanup paths.
-constexpr char kSettingsOverlayName[] = "DLSS5 NR Before SR";
+constexpr char kSettingsOverlayName[] = "装机宅DLSS 5";
 
 void SettingsTooltip(const char *text) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
@@ -257,10 +257,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
         ImVec2(ImGui::GetStyle().ItemSpacing.x, 7.0f));
-    ImGui::SeparatorText(ui("DLSS 5 AI Rendering", "DLSS 5 AI 渲染"));
+    ImGui::SeparatorText(ui("Zhuangjizhai DLSS 5", "装机宅DLSS 5"));
     ImGui::TextDisabled("%s | %s", kAddonVersion,
                         use_chinese_ui ? kAddonAuthor : kAddonAuthorAscii);
     ImGui::TextDisabled("%s", kOfficialReleaseUrl);
+    ImGui::TextDisabled("%s", ui("QQ group 2: 392308850", "交流群（二群）：392308850"));
     if (kChineseUi && !use_chinese_ui)
         ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
     // Keep controls stationary while live status text changes (#121).

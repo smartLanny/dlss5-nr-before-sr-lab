@@ -52,6 +52,8 @@ class UiRefreshContract(unittest.TestCase):
         self.assertNotIn("nr_f8::Comparison::Jitter", self.ui)
 
     def test_layout_keeps_only_developer_options_collapsible(self):
+        self.assertIn('kSettingsOverlayName[] = "装机宅DLSS 5"', self.ui)
+        self.assertIn('"交流群（二群）：392308850"', self.ui)
         self.assertIn('BeginTabItem(ui("Experimental###nr-experimental"', self.ui)
         self.assertIn('CollapsingHeader(ui("Developer options", "开发者选项"))', self.ui)
         self.assertNotIn('CollapsingHeader(ui("Advanced picture controls"', self.ui)
