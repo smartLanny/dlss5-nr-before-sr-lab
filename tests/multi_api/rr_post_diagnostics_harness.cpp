@@ -25,6 +25,7 @@ std::atomic<ULONGLONG> g_config_generation{0}, g_history_generation{0};
 std::atomic<int> g_last_carrier_feature{0};
 std::atomic<bool> g_rr_guard_was_active{false}, g_feature_tracking_uncertain{false}, g_lifecycle_tracking_uncertain{false};
 std::atomic<ULONGLONG> g_rr_passthrough_evaluations{0}, g_carrier_evaluations{0}, g_pipeline_eligible_carriers{0};
+std::atomic<ULONGLONG> g_all_evaluations{0}, g_rr_guarded_sr_evaluations{0};
 namespace nr_f8 { std::atomic<bool> g_config_hold{false}; }
 
 enum class Fault {
@@ -141,7 +142,7 @@ int main() {
         {Fault::UncertainAfter,"lifecycle changed",0,0,0,0,1,0,0,1,1,1,0,1,1},
         {Fault::OtherOwnerAfter,"owner changed",0,0,0,0,1,0,0,1,1,1,0,1,1},
         {Fault::BeforeAndNative,"before reject plus native failure",1,0,0,0,0,0,1,0,1,0,0,0,1},
-        {Fault::RrDisabled,"RR disabled",0,0,0,0,0,0,0,0,0,0,0,0,0},
+        {Fault::RrDisabled,"legacy RR disable bit cannot disable automatic route",0,0,0,0,0,1,0,0,2,1,1,2,1},
         {Fault::MasterDisabled,"master disabled",0,0,0,0,0,0,0,0,0,0,0,0,0},
         {Fault::LockBusy,"chain busy",0,0,0,0,0,0,0,0,0,0,0,0,0},
         {Fault::OwnershipBusy,"ownership busy",0,0,0,0,0,0,0,0,0,0,0,0,0},

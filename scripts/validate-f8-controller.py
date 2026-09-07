@@ -76,7 +76,7 @@ if args.gpu:
     harness=harness[:start]+harness[end:]
     start=harness.index("int main(")
     harness=harness[:start]+(root/"tests/f8_gpu_integration.inl").read_text(encoding="utf-8")+"\n"+harness[start:]
-    harness=harness.replace("TestDefaultsAndPictures();TestContinuous(3840,2160);TestContinuous(3840,2400);TestPartialAndRestore();TestFailuresAndLateDelivery();TestBudgetAndLegacyFailure();","TestGpuPipeline();")
+    harness=harness.replace("TestDefaultsAndPictures();TestContinuous(3840,2160);TestContinuous(3840,2400);TestShareMatrix();TestCurrentRrRoute();TestPartialAndRestore();TestFailuresAndLateDelivery();TestBudgetAndLegacyFailure();","TestGpuPipeline();")
 out = root / ("test-output/f8-gpu-v4" if args.gpu else "test-output/f8-controller-v4")
 out.mkdir(parents=True, exist_ok=True)
 cpp, exe = out / "controller.cpp", out / "controller.exe"

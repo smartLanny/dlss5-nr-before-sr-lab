@@ -54,6 +54,9 @@ try {
     & python -m unittest discover -s tests/native_bridge -p 'test_*.py' -v
     if ($LASTEXITCODE) { throw 'Native bridge transformations failed.' }
     $Checks.Add('native_bridge Python exact-source transformations')
+    & python -m unittest tests.test_ui_refresh tests.test_report_clipboard tests.test_f8_parser -v
+    if ($LASTEXITCODE) { throw 'UI, clipboard or F7 parser regression failed.' }
+    $Checks.Add('settings UI contract, production clipboard ownership/retry, 512 ROI sparse F7 parser')
     $Checks.Add('carrier completion: staged production state machine, WARP fence, real access-violation propagation')
     $TestBuild = Join-Path $Output 'tests'
     New-Item -ItemType Directory -Path $TestBuild | Out-Null
@@ -113,6 +116,9 @@ try {
         if ($LASTEXITCODE) { throw "Production regression failed: $Script" }
         $Checks.Add($Script)
     }
+    & python (Join-Path $PSScriptRoot 'validate-f8-controller.py') --gpu --compiler $Cxx
+    if ($LASTEXITCODE) { throw '512 ROI production F7 GPU/stream validation failed.' }
+    $Checks.Add('F7 512 ROI production shader/ring/fence/stream/ZIP WARP: 3 ROI frames plus overview')
     & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain
     $Checks.Add('native command state, observed blend history, 64KiB worker and stack gate')
     & (Join-Path $PSScriptRoot 'validate-command-state-gpu.ps1') -ToolchainRoot $Toolchain

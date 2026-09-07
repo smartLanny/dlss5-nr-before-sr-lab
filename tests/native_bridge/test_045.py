@@ -41,7 +41,9 @@ class Source045(unittest.TestCase):
         self.assertIn("RestoreRecommendedPictureSettings", result)
         self.assertIn("maximum_strength = 4.0f", result)
         self.assertNotIn("Switch the game to Direct3D 12", result)
-        self.assertLess(result.index("const bool collecting = nr_f8::IsActive()"), result.index("DrawRenderControl();"))
+        self.assertLess(result.index('"Experimental###nr-experimental"'), result.index("DrawRenderControl();"))
+        self.assertLess(result.index("DrawRenderControl();"), result.index('"Developer options"'))
+        self.assertNotIn("D3D12 game render scale is read-only here", result)
 
     def test_build_and_protected_state(self):
         build = (ROOT / "scripts/build.ps1").read_text(encoding="utf-8")

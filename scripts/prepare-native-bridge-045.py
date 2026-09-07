@@ -57,6 +57,11 @@ def patch_ui(text: str) -> str:
         '    if (nr_present_api_status::IsD3d11PresentRuntime(runtime))\n',
         '    else if (!current.config.enabled || ActiveTransferStrength(current.config) <= 0.000001f)',
         '    if (nr_present_api_status::IsD3d11PresentRuntime(runtime)) {\n        DrawDx11DeploymentStatus();\n    }\n')
+    refreshed = '        SettingsSection(ui("Observed game render scale", "游戏真实渲染比例"));'
+    if refreshed in text:
+        return once(text, refreshed,
+            '        DrawRenderControl();\n'
+            + refreshed)
     return once(text,
         '    if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {',
         '    DrawRenderControl();\n    if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {')

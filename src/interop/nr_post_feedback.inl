@@ -28,6 +28,12 @@
         prefix, attempted != 0 && now >= attempted ? static_cast<long long>(now - attempted) : -1LL,
         prefix);
     FeedbackAppend(s,
+        "%s.post.evaluateEntries=%llu\n%s.post.rr.srGuarded=%llu\n"
+        "%s.post.entryNote=existing counters after early bypass; SR guarded by a live RR owner does not increment carrier/post attempts\n",
+        prefix, g_all_evaluations.load(std::memory_order_acquire),
+        prefix, g_rr_guarded_sr_evaluations.load(std::memory_order_acquire),
+        prefix);
+    FeedbackAppend(s,
         "%s.post.rr.beforeStateRejected=%llu\n%s.post.rr.prepareDeclined=%llu\n"
         "%s.post.rr.afterStateRejected=%llu\n%s.post.rr.finishDeclined=%llu\n"
         "%s.post.rr.finishGateRejected=%llu\n"

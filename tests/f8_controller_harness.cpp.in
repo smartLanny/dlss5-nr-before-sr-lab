@@ -40,6 +40,12 @@ void FeedbackAppend(FeedbackSession &s,const char *format,...){va_list a;va_star
 void FeedbackAppendActivity(FeedbackSession &s,const char *p){FeedbackAppend(s,"%s.mockRuntime=1\n",p);}
 std::atomic<unsigned> g_config_generation{1};std::atomic<bool> g_shortfuse_nr_enabled{false};
 bool OtherNrOwnerActive(){return g_shortfuse_nr_enabled.load();}
+namespace nr_post_settings {
+struct Options { bool rr=true; unsigned percent=100; };
+Options current{};unsigned capture_calls=0;
+Options Read(){return current;}
+bool RequestForCapture(Options value){if(value.percent<50 || value.percent>100)return false;current=value;++capture_calls;++g_config_generation;return true;}
+}
 ChainConfig config={};unsigned config_calls=0,stage_status=0,dir_count=0;bool rr=false,pin_fail=false,queue_fail=false;
 ULONGLONG test_clock=100000;
 std::wstring output_root;wchar_t g_log_path[1024]={},g_ini_path[1024]={},g_reshade_ini_path[1024]={};
@@ -78,7 +84,7 @@ using namespace nr_f8;
 unsigned checks=0;
 void Check(bool ok,const char *why){++checks;if(!ok){std::fprintf(stderr,"FAIL: %s\n",why);std::exit(1);}}
 void Drain(){while(!queued.empty()){auto w=queued.front();queued.erase(queued.begin());if(w.fn!=Watchdog)w.fn(w.arg);}}
-void Reset(){Drain();Check(!g_session,"previous session is detached");g_status.store(Status::Idle);g_cancel=false;g_config_hold=false;stage_status=0;rr=false;g_shortfuse_nr_enabled=false;config_calls=0;nr_core_feedback::cancel_calls=0;config={};NormalizeConfig(config);g_config_generation=1;test_clock+=100000;}
+void Reset(){Drain();Check(!g_session,"previous session is detached");g_status.store(Status::Idle);g_cancel=false;g_config_hold=false;stage_status=0;rr=false;g_shortfuse_nr_enabled=false;config_calls=0;nr_post_settings::capture_calls=0;nr_post_settings::current={true,100};nr_core_feedback::cancel_calls=0;config={};NormalizeConfig(config);g_config_generation=1;test_clock+=100000;}
 void Start(reshade::api::effect_runtime &r,Comparison kind=Comparison::Current){Check(RequestWithOptions({kind,false,0,0}),"request accepted");Present(&r);Check(g_session && g_status==Status::Running,"production Present starts session");}
 void Shot(reshade::api::effect_runtime &r){
     std::wstring path=output_root+L"\\shot_"+std::wstring(r.tag.begin(),r.tag.end())+L".png";
@@ -92,7 +98,7 @@ void Shot(reshade::api::effect_runtime &r){
 }
 NrStageCaptureInfo Info(unsigned long long frame,unsigned width,unsigned height){NrStageCaptureInfo n={};n.identity.frame_id=frame;n.identity.instance_id=7;n.identity.config_generation=g_config_generation;n.identity.since_reset=64;n.identity.warmed_up=true;n.identity.evaluation=frame;n.identity.tuning.intensity=config.intensity;n.feature_generation=8;n.mode=config.mode;n.source_width=n.model_width=width;n.source_height=n.model_height=height;n.codec_flags=513;n.source_format=n.result_format=10;return n;}
 void DeliverFrame(unsigned long long frame,unsigned width=3840,unsigned height=2160,bool map_fail=false){
-    auto n=Info(frame,width,height);NrCaptureParams p={};p.game_jitter_valid=true;p.game_jitter_x=.25f;p.game_jitter_y=-.25f;p.reset_known=true;FrameTicket t={};
+    auto n=Info(frame,width,height);if(g_session)n.mode=g_session->groups[g_session->group].expected_mode;NrCaptureParams p={};p.game_jitter_valid=true;p.game_jitter_x=.25f;p.game_jitter_y=-.25f;p.reset_known=true;FrameTicket t={};
     Check(ReserveFrame(n,p,t),"production frame reservation");
     const UINT64 bytes=static_cast<UINT64>(n.width)*n.height*80+16;Check(nr_f8_budget::ReservePair(bytes),"readback budget reserved");
     auto *resource=new ID3D12Resource;resource->map_fail=map_fail;resource->values.resize(static_cast<size_t>(bytes/4),.25f);
@@ -111,7 +117,7 @@ void TestDefaultsAndPictures(){
     Present(&r);Check(g_session && g_status==Status::Running,"retry starts one image session");
     Cancel();Present(&r);Drain();Check(g_status==Status::Partial,"retry can be cancelled and packaged normally");
     Reset();config.enabled=false;Start(r);Check(config_calls==0,"current does not call ApplyConfig");
-    Check(!RequestWithOptions({Comparison::Standard,false,0,0}),"second request rejected");
+    Check(!RequestWithOptions({Comparison::ShareMatrix,false,0,0}),"second request rejected");
     test_clock+=3100;Present(&r);reshade::api::effect_runtime wrong;Screenshot(&wrong,"C:\\wrong_DLSS5_F8_1_0.png");Check(!g_session->groups[0].shot_received,"wrong runtime rejected");
     Screenshot(&r,"C:\\wrong_DLSS5_F8_1_00.png");Check(!g_session->groups[0].shot_received,"tag suffix rejected");
     Screenshot(&r,"C:\\wrong_DLSS5_F8_1_0.decoy.png");Check(!g_session->groups[0].shot_received,"tag before extra stem text rejected");
@@ -122,30 +128,83 @@ void TestDefaultsAndPictures(){
 }
 void TestContinuous(unsigned width,unsigned height){
     Reset();config.enabled=true;config.mode=1;reshade::api::effect_runtime r;Start(r);test_clock+=3100;
-    for(unsigned i=0;i<16;++i)DeliverFrame(100+i,width,height);
+    for(unsigned i=0;i<kCurrentRoiFrames;++i)DeliverFrame(100+i,width,height);
     DeliverFrame(999,width,height);Check(g_session->groups[0].frames[16].info.stride>1,"overview separate sampled grid");
     Present(&r);Shot(r);Present(&r);Drain();
-    Check(g_status==Status::Complete && config_calls==0,"complete 16-frame plus overview ZIP");
+    Check(g_status==Status::Complete && config_calls==0,"complete three-frame 512 ROI plus overview ZIP");
     Check(!nr_f8_budget::gpu_bytes && !nr_f8_budget::cpu_bytes,"budget drained after worker");
     std::printf("ZIP %u x %u: ",width,height);char z[4096];WideToUtf8(g_last_zip,z,sizeof(z));std::puts(z);
     if(width==3840 && height==2160){std::wstring dest=output_root+L"\\feedback.zip";Check(CopyFileW(g_last_zip,dest.c_str(),TRUE)!=FALSE,"publish parser fixture");}
 }
+void CompleteMatrixGroup(reshade::api::effect_runtime &r,unsigned expected_group,bool pixels=true){
+    Check(g_session&&g_session->group==expected_group,"expected matrix group active");
+    test_clock+=3100;
+    if(pixels){DeliverFrame(1000+expected_group*10,64,64);DeliverFrame(1001+expected_group*10,64,64);}
+    Present(&r);Shot(r);Present(&r);
+}
+void TestShareMatrix(){
+    Reset();config.enabled=true;config.mode=1;config.transfer_strength=config.post_transfer_strength=.7f;
+    const auto original=config;reshade::api::effect_runtime r;Start(r,Comparison::ShareMatrix);
+    Check(g_session->group_count==7&&g_session->groups[0].roi_target==2,"share matrix owns seven bounded two-ROI groups");
+    CompleteMatrixGroup(r,0,false);
+    for(unsigned group=1;group<7;++group){
+        const auto &g=g_session->groups[group];
+        Check(g.requested.enabled&&g.requested.mode==(group<=3?2:1),"matrix route order");
+        const unsigned expected=group==1||group==4?50u:group==2||group==5?75u:100u;
+        const unsigned expected_post=group<=3?100u:expected;
+        Check(g.requested_post_percent==expected_post&&g.actual_post_percent==expected_post,"matrix post percentage applied only to post route");
+        Check(std::fabs(ActiveTransferStrength(g.requested)-.7f)<.001f,"matrix preserves the user's effect strength");
+        if(group<=3)Check(g.requested.work_mode==5&&std::fabs(g.requested.custom_work_scale-expected/100.f)<.001f,
+            "pre-SR matrix changes only its working resolution tier");
+        CompleteMatrixGroup(r,group);
+    }
+    Drain();
+    Check(g_status==Status::Complete&&SameConfig(config,original)&&nr_post_settings::current.percent==100,
+        "complete matrix restores chain and post settings");
+
+    Reset();config.enabled=true;config.mode=1;const auto rr_original=config;rr=true;Start(r,Comparison::ShareMatrix);
+    CompleteMatrixGroup(r,0,false);
+    for(unsigned group=1;group<=3;++group){
+        Check(g_session->groups[group].partial&&g_session->groups[group].sealed&&
+              std::strstr(g_session->groups[group].reason,"Ray Reconstruction"),
+              "RR skips every pre-SR group before changing settings");
+        Check(SameConfig(config,GroupConfig(rr_original,Comparison::ShareMatrix,0)),"RR pre-SR skip retains native baseline");
+        CompleteMatrixGroup(r,group,false);
+    }
+    for(unsigned group=4;group<7;++group)CompleteMatrixGroup(r,group);
+    Drain();
+    Check(g_status==Status::Partial&&SameConfig(config,rr_original)&&nr_post_settings::current.percent==100,
+        "RR matrix keeps native/post groups, records skips and restores settings");
+}
+void TestCurrentRrRoute(){
+    Reset();config.enabled=true;config.mode=2;const auto original=config;rr=true;reshade::api::effect_runtime r;Start(r);
+    Check(g_session->groups[0].expected_mode==1&&g_session->groups[0].rr_at_start&&config_calls==0,
+        "current RR capture expects post mode without changing saved Mode2");
+    test_clock+=3100;for(unsigned i=0;i<kCurrentRoiFrames;++i)DeliverFrame(200+i,64,64);DeliverFrame(900,64,64);
+    Check(g_session->groups[0].frames[0].info.mode==1,"RR current capture records actual post mode");
+    Present(&r);Shot(r);Present(&r);Drain();
+    Check(g_status==Status::Complete&&SameConfig(config,original),"current RR capture completes and preserves the user's mode");
+
+    Reset();config.enabled=true;config.mode=2;Start(r);test_clock+=3100;DeliverFrame(300,64,64);rr=true;
+    Present(&r);Shot(r);Present(&r);Drain();
+    Check(g_status==Status::Partial&&SameConfig(config,original),"mid-capture RR route change is partial and restores settings");
+}
 void TestPartialAndRestore(){
-    Reset();config.enabled=true;config.mode=1;config.transfer_strength=config.post_transfer_strength=.7f;const auto original=config;reshade::api::effect_runtime r;Start(r,Comparison::Standard);
+    Reset();config.enabled=true;config.mode=1;config.transfer_strength=config.post_transfer_strength=.7f;const auto original=config;reshade::api::effect_runtime r;Start(r,Comparison::ShareMatrix);
     Check(config_calls==1 && !config.enabled,"explicit comparison switches chain");Cancel();Present(&r);Drain();Check(SameConfig(config,original) && config_calls==2 && !g_config_hold && g_status==Status::Partial,"cancel restores exact settings and creates partial ZIP");
     Reset();config.enabled=true;Start(r);test_clock+=3100;DeliverFrame(100);auto gap=Info(102,3840,2160);FrameTicket t;Check(!ReserveFrame(gap,{},t) && g_session->groups[0].partial,"gap seals partial sequence");
     Present(&r);Shot(r);Present(&r);Drain();Check(g_status==Status::Partial,"gap retained in partial ZIP");
     Reset();config.enabled=true;Start(r);test_clock+=3100;DeliverFrame(100,3840,2160,true);Present(&r);Shot(r);Present(&r);Drain();Check(g_status==Status::Partial,"map failure partial");
     Reset();config.enabled=true;Start(r);rr=true;test_clock+=3100;Present(&r);Shot(r);Present(&r);Drain();Check(g_status==Status::Partial,"RR still collects screenshot and logs");
-    Reset();config.enabled=true;Start(r,Comparison::Standard);test_clock+=30001;AcquireSRWLockExclusive(&g_control);Tick(nullptr);ReleaseSRWLockExclusive(&g_control);Drain();Check(g_status==Status::Partial && !g_config_hold,"watchdog timeout restores without Present");
+    Reset();config.enabled=true;Start(r,Comparison::ShareMatrix);test_clock+=30001;AcquireSRWLockExclusive(&g_control);Tick(nullptr);ReleaseSRWLockExclusive(&g_control);Drain();Check(g_status==Status::Partial && !g_config_hold,"watchdog timeout restores without Present");
 }
 void TestFailuresAndLateDelivery(){
     reshade::api::effect_runtime runtime;
     Reset();config.enabled=true;config.transfer_strength=config.post_transfer_strength=0;Start(runtime);test_clock+=3100;Present(&runtime);Shot(runtime);
     Check(g_session->groups[0].shot_received && g_session->groups[0].count==0,"enabled zero-strength still gets display evidence");test_clock+=30001;Present(&runtime);Drain();Check(g_status==Status::Partial,"zero NR records retain screenshot in partial ZIP");
-    Reset();config.enabled=true;const auto original=config;Check(RequestWithOptions({Comparison::Standard,false,0,0}),"queue-failure request");queue_fail=true;Present(&runtime);Drain();
+    Reset();config.enabled=true;const auto original=config;Check(RequestWithOptions({Comparison::ShareMatrix,false,0,0}),"queue-failure request");queue_fail=true;Present(&runtime);Drain();
     Check(g_status==Status::Partial && SameConfig(config,original) && !g_config_hold,"watchdog queue failure restores comparison and packages partial");
-    Reset();config.enabled=true;Start(runtime,Comparison::Standard);Cancel();queue_fail=true;Present(&runtime);Drain();Check(g_status==Status::Failed && !g_config_hold && !g_last_zip[0],"packager queue failure releases configuration hold with no stale ZIP");
+    Reset();config.enabled=true;Start(runtime,Comparison::ShareMatrix);Cancel();queue_fail=true;Present(&runtime);Drain();Check(g_status==Status::Failed && !g_config_hold && !g_last_zip[0],"packager queue failure releases configuration hold with no stale ZIP");
     Reset();config.enabled=true;Start(runtime);test_clock+=3100;auto info=Info(100,256,256);FrameTicket old;
     Check(ReserveFrame(info,{},old),"reserve outstanding readback");const UINT64 bytes=256ull*256*80+16;
     auto *resource=new ID3D12Resource;resource->values.resize(bytes/4,.25f);Check(nr_f8_budget::ReservePair(bytes),"queued readback budget");nr_f8_budget::gpu_bytes.fetch_sub(bytes);
@@ -169,6 +228,6 @@ void TestBudgetAndLegacyFailure(){
 }
 int main(int argc,char **argv){Check(argc==2,"output argument");wchar_t wide[1024]={};MultiByteToWideChar(CP_UTF8,0,argv[1],-1,wide,1024);output_root=wide;output_root+=L"\\run-"+std::to_wstring(GetCurrentProcessId());Check(CreateDirectoryW(output_root.c_str(),nullptr)!=FALSE,"unique fixture directory");
     const std::wstring log=output_root+L"\\fixture.log";wcscpy_s(g_log_path,log.c_str());wcscpy_s(g_ini_path,log.c_str());wcscpy_s(g_reshade_ini_path,log.c_str());FILE *f=nullptr;_wfopen_s(&f,log.c_str(),L"wb");std::fputs("fixture-only=true\n",f);std::fclose(f);
-    TestDefaultsAndPictures();TestContinuous(3840,2160);TestContinuous(3840,2400);TestPartialAndRestore();TestFailuresAndLateDelivery();TestBudgetAndLegacyFailure();
+    TestDefaultsAndPictures();TestContinuous(3840,2160);TestContinuous(3840,2400);TestShareMatrix();TestCurrentRrRoute();TestPartialAndRestore();TestFailuresAndLateDelivery();TestBudgetAndLegacyFailure();
     std::printf("PASS production F8 controller/stream/ZIP: %u checks\n",checks);return 0;
 }

@@ -26,6 +26,9 @@ std::shared_ptr<const std::string> g_full_report; // g_feedback_lock
 wchar_t g_report_path[1024] = {};
 DWORD g_report_error = ERROR_SUCCESS;
 bool g_report_complete = false;
+enum class ReportClipboardStatus : unsigned { Idle, Pending, Copied, Failed };
+std::atomic<ReportClipboardStatus> g_report_clipboard_status{ReportClipboardStatus::Idle};
+bool g_report_path_copy_claimed = false; // g_feedback_lock
 PairSnapshot g_pair{}; // g_feedback_lock
 char g_reason[160] = {}; // g_feedback_lock
 char g_submission[nr_feedback_ticket::kCapacity] = {}; // same session, g_feedback_lock
@@ -49,7 +52,9 @@ bool Request(bool archive_requested = false) {
     if (Busy()) { ReleaseSRWLockExclusive(&g_feedback_lock); return false; }
     g_pair = {};
     g_pair.archive_requested = archive_requested;
-    g_full_report.reset(); g_report_path[0] = 0; g_report_error = ERROR_SUCCESS; g_report_complete = false;
+    g_full_report.reset(); g_report_path[0] = 0; g_report_error = ERROR_SUCCESS;
+    g_report_complete = false; g_report_path_copy_claimed = false;
+    g_report_clipboard_status.store(ReportClipboardStatus::Idle,std::memory_order_release);
     // No allocation or exception is possible while holding the publication lock.
     std::snprintf(g_pair.session, sizeof(g_pair.session), "DLSS5_CORE_%lu_%llu_%llu",
         GetCurrentProcessId(), GetTickCount64(), ++g_serial);
@@ -92,6 +97,9 @@ void Publish(const nr_bundle::Result &result, bool complete, const char *reason,
     g_report_error = text ? text->error : ERROR_SUCCESS;
     g_report_complete = text && text->text && text->complete;
     if (text && text->text) nr_bundle::CopyPath(g_report_path, text->path.c_str());
+    g_report_path_copy_claimed = false;
+    g_report_clipboard_status.store(text && text->text && g_report_path[0]
+        ? ReportClipboardStatus::Pending : ReportClipboardStatus::Idle,std::memory_order_release);
     nr_bundle::CopyPath(g_feedback_last_zip, result.zip_path);
     nr_bundle::CopyText(g_reason, sizeof(g_reason), reason);
     nr_bundle::CopyText(g_submission, sizeof(g_submission), submission);
@@ -102,6 +110,30 @@ void Publish(const nr_bundle::Result &result, bool complete, const char *reason,
         (!text || !text->text ? 5u : text->complete ? 3u : 4u);
     g_feedback_status.store(status, std::memory_order_release);
     ReleaseSRWLockExclusive(&g_feedback_lock);
+}
+bool TakeReportPathForClipboard(wchar_t (&path)[1024]) {
+    path[0] = 0;
+    AcquireSRWLockExclusive(&g_feedback_lock);
+    const bool ready = g_report_clipboard_status.load(std::memory_order_acquire)==ReportClipboardStatus::Pending &&
+        !g_report_path_copy_claimed && g_report_path[0];
+    if (ready) {
+        nr_bundle::CopyPath(path, g_report_path);
+        g_report_path_copy_claimed = true;
+    }
+    ReleaseSRWLockExclusive(&g_feedback_lock);
+    return ready;
+}
+void SetReportClipboardResult(const wchar_t *path,bool copied) {
+    AcquireSRWLockExclusive(&g_feedback_lock);
+    if(path && g_report_path_copy_claimed &&
+       g_report_clipboard_status.load(std::memory_order_acquire)==ReportClipboardStatus::Pending &&
+       std::wcscmp(path,g_report_path)==0)
+        g_report_clipboard_status.store(copied?ReportClipboardStatus::Copied:
+            ReportClipboardStatus::Failed,std::memory_order_release);
+    ReleaseSRWLockExclusive(&g_feedback_lock);
+}
+ReportClipboardStatus GetReportClipboardStatus() {
+    return g_report_clipboard_status.load(std::memory_order_acquire);
 }
 struct Handle {
     HANDLE value = INVALID_HANDLE_VALUE;

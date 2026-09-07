@@ -10446,6 +10446,50 @@ bool FormatScreenshotPostfix(char *postfix, std::size_t capacity,
 // writer. The add-on only supplies a compact, filesystem-safe diagnostic
 // postfix. F7 separately queues the existing asynchronous stage request;
 // neither hotkey enters a Feature 18 command-list/lifetime transaction.
+// A report is already saved before this runs. Transfer only its Unicode path;
+// Windows owns the movable allocation after a successful SetClipboardData.
+bool CopyReportPathToClipboard(HWND owner, const wchar_t *path) {
+    if (path == nullptr || path[0] == 0) return false;
+    const std::size_t length = std::wcslen(path);
+    if (length >= 1024) return false;
+    const std::size_t bytes = (length + 1) * sizeof(wchar_t);
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (memory == nullptr) return false;
+    void *data = GlobalLock(memory);
+    if (data == nullptr) { GlobalFree(memory); return false; }
+    std::memcpy(data, path, bytes);
+    GlobalUnlock(memory);
+    if (!OpenClipboard(owner)) { GlobalFree(memory); return false; }
+    const bool copied = EmptyClipboard() &&
+        SetClipboardData(CF_UNICODETEXT, memory) != nullptr;
+    CloseClipboard();
+    if (!copied) GlobalFree(memory);
+    return copied;
+}
+
+// Called under screenshot_hotkey_lock. Clipboard contention is retried across
+// Presents, without sleeping or blocking a render callback waiting for access.
+void PollReportPathClipboard(HWND owner, ULONGLONG now_ms) {
+    static wchar_t pending_path[1024] = {};
+    static ULONGLONG deadline_ms = 0, next_attempt_ms = 0;
+    wchar_t ready_path[1024] = {};
+    if (nr_core_feedback::TakeReportPathForClipboard(ready_path)) {
+        std::memcpy(pending_path, ready_path, sizeof(pending_path));
+        deadline_ms = now_ms + 1500;
+        next_attempt_ms = now_ms;
+    }
+    if (nr_core_feedback::GetReportClipboardStatus() !=
+        nr_core_feedback::ReportClipboardStatus::Pending) pending_path[0] = 0;
+    if (!pending_path[0] || now_ms < next_attempt_ms) return;
+    const bool copied = CopyReportPathToClipboard(owner, pending_path);
+    if (copied || now_ms >= deadline_ms) {
+        nr_core_feedback::SetReportClipboardResult(pending_path, copied);
+        pending_path[0] = 0;
+    } else {
+        next_attempt_ms = now_ms + 100;
+    }
+}
+
 void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     if (runtime == nullptr) return;
 
@@ -10499,6 +10543,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     // queue the bounded core worker. The image coordinator waits for its pair.
     nr_core_feedback::Present(runtime);
     nr_f8::Present(runtime);
+    PollReportPathClipboard(static_cast<HWND>(runtime->get_hwnd()), now_ms);
 
     if (screenshot_pressed && now_ms - last_screenshot_ms >= 350) {
         last_screenshot_ms = now_ms;
@@ -11339,31 +11384,8 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
             sample_identity.instance_id, sample_identity.frame_id,
             sample_identity.config_generation);
     }
-    nr_f8::DrawControls();
-    const unsigned int capture_status = StageCaptureStatus();
-    if (capture_status == 0) {
-        if (ImGui::Button(ui("Capture NR stages once", "采集一次 NR 各阶段")))
-            RequestStageCapture();
-        const int capture_result = g_stage_capture_last_result.load(std::memory_order_relaxed);
-        if (capture_result != 0)
-            ImGui::TextDisabled("%s", capture_result > 0
-                ? ui("Stages saved beside the log. See metadata before comparing.",
-                     "阶段图已保存在日志旁，请结合元数据对照。")
-                : ui("Capture could not be saved. Check the log; rendering continues.",
-                     "采集未能保存，请查看日志；渲染继续。"));
-    } else {
-        ImGui::TextDisabled("%s", capture_status == 3
-            ? ui("Saving stage capture...", "正在保存阶段图……")
-            : ui("Waiting for a stable NR frame and GPU completion...",
-                 "等待稳定的 NR 帧及 GPU 完成……"));
-    }
-    ImGui::TextWrapped("%s", ui(
-        "Optional diagnosis: samples original, proxy, NR and composition once. "
-        "F7 requests stages; '-' saves the displayed image separately. "
-        "NR -> SR stages stop before native SR. These captures are not the same frame.",
-        "可选诊断：单次采集原图、代理图、NR 输出和合成结果。"
-        "F7 请求阶段图；“-”独立截取显示画面。NR→SR 的阶段图止于原生 SR 之前，"
-        "两者不是同一帧。"));
+    // Feedback generation and image comparison live in the Feedback tab.
+    // Diagnostics only presents observations, avoiding duplicate actions.
 }
 
 #include "nr_settings_ui.inl"

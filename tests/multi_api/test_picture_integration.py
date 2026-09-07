@@ -59,7 +59,7 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_color_policy.inl', 'src/nr_color_amplification.h', 'src/nr_precision_ui.h', 'scripts/build.ps1',
             'src/interop/nr_ngx_parameter_abi.h', 'src/nr_before_sr.cpp', 'src/nr_before_sr.rc', 'src/nr_feedback_capture.inl', 'src/nr_feedback_core.inl',
             'src/nr_feedback_text.h', 'src/nr_feedback_single_text.h', 'src/nr_f8_sequence.inl', 'src/nr_runtime_load_evidence.inl'})
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'cfaaf23c3b793fb79d3808bc9faf5aecfaa3d0ae')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '8aee10a6cf9ef52d5e8e334bf5b520dbc7c03959')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
         self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'a3ba1f85da395602c83039b1542cc04db4ca9207')
 
