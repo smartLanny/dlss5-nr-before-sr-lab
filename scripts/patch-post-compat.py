@@ -248,6 +248,25 @@ def patch_core(text: str) -> str:
     return edit(text,'NgxResult ProcessEvaluate(',process)
 
 def patch_ui(text: str) -> str:
+    # Preserve #134's actual main-panel model controls and front precision
+    # logic. Replace only its unimplemented post placeholder, in place.
+    text=once(text,'    const bool before_sr = next.mode == 2;',
+        '    const bool before_sr = next.mode == 2;\n'
+        '    const bool effective_post = !before_sr ||\n'
+        '        (g_live_rr_handles.load(std::memory_order_acquire)!=0 && nr_post_settings::Read().rr);\n'
+        '    if (effective_post) {\n'
+        '        DrawPostResolutionControl();\n'
+        '    } else {')
+    text=once(text,'    if (!before_sr) ImGui::BeginDisabled();\n','')
+    text=once(text,'''    if (!before_sr) {
+        ImGui::EndDisabled();
+        ImGui::TextWrapped("%s", ui(
+            "Post-SR still uses the full SR output. Reduced post-SR precision is not implemented in this build; the disabled value is your saved pre-SR request, not an applied post-SR scale.",
+            "后置仍使用完整 SR 输出。本版尚未实现低精度后置；灰色数值仅为保存的前置偏好，不代表后置实际比例。"));
+    } else {''','    {')
+    text=once(text,'#endif\n    int style = static_cast<int>(next.style);',
+        '    } // requested front precision is kept separately from effective post precision\n'
+        '#endif\n    int style = static_cast<int>(next.style);')
     return once(text,'    if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {',
         '    DrawPostCompatibility();\n    if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {')
 

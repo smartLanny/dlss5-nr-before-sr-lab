@@ -15,7 +15,7 @@ spec.loader.exec_module(m)
 class PictureIntegration(unittest.TestCase):
     def library(self):
         return SimpleNamespace(patch_core=lambda text: 'bridge:' + text,
-            legacy=SimpleNamespace(CORE_BLOBS={'unrelated': 'preserved'}))
+            legacy=SimpleNamespace(CORE_BLOBS={'unrelated': 'preserved'}, patch_ui=lambda text: 'ui:' + text))
 
     def fake_git(self, root, *args):
         self.assertEqual(args[0], 'rev-parse')
@@ -33,12 +33,14 @@ class PictureIntegration(unittest.TestCase):
         library = self.library()
         library.legacy.CORE_BLOBS['src/nr_settings_ui.inl'] = 'old-ui'
         fmt = SimpleNamespace(patch_core=lambda text: 'format:' + text)
-        with patch.object(m, 'is_ancestor', return_value=True), patch.object(m, 'git', side_effect=self.fake_git), patch.object(m, 'load', side_effect=[library, fmt]):
+        post = SimpleNamespace(patch_core=lambda text: 'post:' + text, patch_ui=lambda text: 'post-ui:' + text)
+        with patch.object(m, 'is_ancestor', return_value=True), patch.object(m, 'git', side_effect=self.fake_git), patch.object(m, 'load', side_effect=[library, fmt, post]):
             result = m.configure(ROOT)
         for path, digest in m.INTEGRATION_CORE_PINS.items():
             self.assertEqual(result.legacy.CORE_BLOBS[path], digest)
         self.assertEqual(result.legacy.CORE_BLOBS['unrelated'], 'preserved')
-        self.assertEqual(result.legacy.patch_core('core'), 'format:bridge:core')
+        self.assertEqual(result.legacy.patch_core('core'), 'post:format:bridge:core')
+        self.assertEqual(result.legacy.patch_ui('panel'), 'post-ui:ui:panel')
         self.assertEqual(result.legacy.UPSTREAM, m.UPSTREAM)
 
     def test_each_changed_dependency_requires_review(self):

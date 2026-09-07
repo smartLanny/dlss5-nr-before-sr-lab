@@ -1,4 +1,4 @@
-name: Compatibility dev2 - RR post and scaled work
+name: Compatibility dev2 - exact staged RR post and scaled work
 on:
   push:
     branches: [codex/multiapi-045-integration]
@@ -24,17 +24,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Actual policies, RR execution and settings
+      - name: Actual policies, RR execution, settings and source composition
         env:
           CXX: ${{ matrix.compiler }}
           POST_COMPAT_CORE_SOURCE: src/nr_before_sr.cpp
+          MULTIAPI_CORE_SOURCE: src/nr_before_sr.cpp
         run: |
           set -euo pipefail
           for test in post_policy rr_post_runtime post_settings motion_access; do
             "$CXX" -std=c++17 -Wall -Wextra -Werror -I. "tests/multi_api/$test.cpp" -o "$RUNNER_TEMP/$test"
             "$RUNNER_TEMP/$test"
           done
-          python3 -m unittest discover -s tests/multi_api -p 'test_post*.py' -v
+          python3 -m unittest discover -s tests/multi_api -v
       - name: Sanitizers
         if: matrix.compiler == 'clang++'
         run: |
@@ -69,44 +70,37 @@ jobs:
           if ($LASTEXITCODE) { throw 'ReShade checkout failed' }
           git -C reshade-source submodule update --init --recursive --depth 1
           if ($LASTEXITCODE) { throw 'ReShade dependencies failed' }
+          git clone --no-checkout https://github.com/microsoft/DirectXMath.git directxmath-source
+          if ($LASTEXITCODE) { throw 'DirectXMath clone failed' }
+          git -C directxmath-source checkout --detach 28929ac6f3c1649a7641741b689ebecccb17aa8d
+          if ($LASTEXITCODE) { throw 'DirectXMath checkout failed' }
           "TOOLCHAIN_ROOT=$toolchain" | Out-File $env:GITHUB_ENV -Append
-          "RESHADE_ROOT=$pwd\reshade-source" | Out-File $env:GITHUB_ENV -Append
-      - name: Stage integrated dev2 and compile both cores
+      - name: Canonical source, host regressions, WARP and complete bilingual build
         shell: pwsh
         run: |
-          python scripts/prepare-compat-dev2.py --upstream external-carrier --output build/compat-dev2
-          if ($LASTEXITCODE) { throw 'Integrated source generation failed' }
-          ./build/compat-dev2/core/scripts/build.ps1 -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot $env:RESHADE_ROOT
-          if ($LASTEXITCODE) { throw 'Bilingual core compile failed' }
-      - name: All actual staged HLSL entries and companion
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\VC\Auxiliary\Build\vcvars64.bat"
-          cl /nologo /W4 /O2 /MT /EHsc /std:c++17 tests\multi_api\post_shader_compile.cpp /Fe:post_shader_compile.exe
-          if errorlevel 1 exit /b 1
-          python scripts\validate-post-shaders.py --source build\compat-dev2\core\src\nr_before_sr.cpp --compiler post_shader_compile.exe
-          if errorlevel 1 exit /b 1
-          cd build\compat-dev2\carrier\src
-          rc /nologo version.rc
-          if errorlevel 1 exit /b 1
-          cl /nologo /W4 /O2 /MT /EHsc /std:c++17 /Ireshade /LD dlss5-bridge.cpp version.res /Fe:dlss5-native-carrier-multiapi-dev2.addon64 /link /DLL user32.lib advapi32.lib bcrypt.lib
-          if errorlevel 1 exit /b 1
-      - name: Package separate languages, never publish or overwrite defaults
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-multi-api-candidate.ps1 -UpstreamRoot external-carrier -ToolchainRoot $env:TOOLCHAIN_ROOT -ReShadeSourceRoot reshade-source -DirectXMathRoot directxmath-source -OutputRoot build/compat-dev2
+          if ($LASTEXITCODE) { throw 'Exact staged candidate validation failed' }
+      - name: Package separate languages; preserve user INI, do not publish a Release
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $root = 'build/compat-dev2'
+          $stage = "$root/source"
+          $manifest = Get-Content "$stage/source-manifest.json" -Raw -Encoding UTF8 | ConvertFrom-Json
           New-Item -ItemType Directory -Force build/candidate | Out-Null
-          $addons = @(Get-ChildItem build/compat-dev2/core/build/*.addon64)
+          $addons = @(Get-ChildItem "$stage/core/build/*.addon64")
           if ($addons.Count -ne 2) { throw 'Expected exactly two language builds' }
           foreach ($addon in $addons) {
             $package = Join-Path 'build/packages' $addon.BaseName
             New-Item -ItemType Directory -Force "$package/defaults" | Out-Null
             Copy-Item $addon.FullName $package/
-            Copy-Item build/compat-dev2/core/build/nrchain_nvngx.dll $package/
-            Copy-Item build/compat-dev2/core/build/nr_before_sr.ini "$package/defaults/"
-            Copy-Item build/compat-dev2/carrier/src/dlss5-native-carrier-multiapi-dev2.addon64 $package/
-            Copy-Item build/compat-dev2/carrier/LICENSE $package/LICENSE-carrier.txt
-            Copy-Item build/compat-dev2/source-manifest.json $package/
+            Copy-Item "$stage/core/build/nrchain_nvngx.dll" $package/
+            Copy-Item "$stage/core/build/nr_before_sr.ini" "$package/defaults/"
+            Copy-Item "$root/$($manifest.integration.carrier_filename)" $package/
+            Copy-Item "$stage/carrier/LICENSE" $package/LICENSE-carrier.txt
+            Copy-Item "$stage/source-manifest.json" $package/
+            Copy-Item "$root/validation.json" $package/
+            Copy-Item THIRD_PARTY_NOTICES.txt $package/
             Copy-Item docs/interop/POST_COMPAT_DEV2.md $package/README.md
             Get-ChildItem $package -File -Recurse | Get-FileHash -Algorithm SHA256 | Select-Object @{Name='File';Expression={[IO.Path]::GetRelativePath((Resolve-Path $package).Path,$_.Path)}},Hash | ConvertTo-Json | Set-Content $package/SHA256.json
             Compress-Archive -Path "$package/*" -DestinationPath "build/candidate/$($addon.BaseName).zip"
@@ -116,5 +110,3 @@ jobs:
           name: compat-post-dev2-NOT-game-verified
           path: build/candidate/
           if-no-files-found: error
-# Existing dev1/#132 checks are intentionally retained. This workflow does not
-# claim to execute NVIDIA NR or replace full game/GPU acceptance.

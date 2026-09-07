@@ -1,3 +1,37 @@
+// Called directly below the mode selector for an effective post route.
+void DrawPostResolutionControl() {
+    const bool zh=UseChineseUi();
+    auto ui=[zh](const char* en,const char* cn){return zh?cn:en;};
+    auto options=nr_post_settings::Read();
+    static int edit=100;
+    static unsigned last_observed=0;
+    if(last_observed!=options.percent) {
+        edit=static_cast<int>(options.percent); last_observed=options.percent;
+    }
+    const bool held=nr_f8::g_config_hold.load(std::memory_order_acquire);
+    if(held) ImGui::BeginDisabled();
+    ImGui::SliderInt(ui("Post NR precision (% of output)","后置 NR 处理精度（输出尺寸 %）"),
+        &edit,0,100,"%d%%");
+    if(ImGui::IsItemDeactivatedAfterEdit()) {
+        options.percent=static_cast<unsigned>(edit);
+        nr_post_settings::Request(options);
+        edit=static_cast<int>(nr_post_settings::Read().percent);
+    }
+    for(int percent : {100,75,67,50}) {
+        char label[24]{}; snprintf(label,sizeof(label),"%d%%##post-nr",percent);
+        if(ImGui::Button(label)) { options.percent=percent; nr_post_settings::Request(options); }
+        if(percent!=50) ImGui::SameLine();
+    }
+    if(held) ImGui::EndDisabled();
+    ImGui::TextWrapped("%s",ui(
+        "Npost/O controls NR cost after SR/RR, not game rendering R. 100% is full output; 50-99% rebuilds only matched neural edits over the original output. 0 switches NR off and retains precision. 1-49% is rejected. Nonzero edits never enable F6.",
+        "Npost/O 只调节 SR/RR 后的 NR 成本，不改变游戏渲染 R。100% 为完整输出，50–99% 仅把匹配的模型改动回填原图。0 关闭 NR 并保留精度；1–49% 明确拒绝，非零编辑不会开启 F6。"));
+    if(nr_post_settings::request_rejected.load(std::memory_order_acquire))
+        ImGui::TextWrapped(ui("Unsupported request %u%%: previous precision retained, not clamped. F8 TXT for BUG feedback.",
+            "不支持 %u%% 请求：保留原精度，不暗中改为其他比例。异常时请 F8 收集 TXT 上传 BUG。"),
+            nr_post_settings::rejected_percent.load(std::memory_order_acquire));
+}
+
 void DrawPostCompatibility() {
     const bool zh=UseChineseUi();
     auto ui=[zh](const char* en,const char* cn){return zh?cn:en;};
@@ -6,21 +40,9 @@ void DrawPostCompatibility() {
     if(ImGui::Checkbox(ui("Use RR -> NR when Ray Reconstruction is active",
                           "检测到光线重建时使用 RR → NR"), &options.rr))
         nr_post_settings::Request(options);
-    static int edit=100;
-    static unsigned last_observed=0;
-    if(last_observed!=options.percent) {edit=static_cast<int>(options.percent);last_observed=options.percent;}
-    ImGui::SliderInt(ui("Post NR resolution (% of output)","后置 NR 分辨率（输出尺寸百分比）"),&edit,50,100,"%d%%");
-    if(ImGui::IsItemDeactivatedAfterEdit()) {
-        options.percent=static_cast<unsigned>(edit); nr_post_settings::Request(options);
-    }
-    for(int percent : {100,75,67,50}) {
-        char label[24]{}; snprintf(label,sizeof(label),"%d%%##post-nr",percent);
-        if(ImGui::Button(label)) { options.percent=percent; nr_post_settings::Request(options); }
-        if(percent!=50) ImGui::SameLine();
-    }
     ImGui::TextWrapped("%s",ui(
-        "This changes NR cost after SR/RR, not the game's render resolution. Your requested front/post mode is retained. The 100% path is the reference; smaller work rasters reconstruct only the matched model change over the original output.",
-        "这里调节 SR/RR 之后的 NR 成本，不是游戏原生渲染分辨率。你原来请求的前置/后置模式保留；100% 为基准，小工作图仅把匹配的模型改动重建到原始输出。"));
+        "Your requested front/post mode is retained. Precision for the effective route is below Processing mode, not a second independent NR instance.",
+        "保留你请求的前置/后置模式；有效路线的精度位于处理模式下方，不会额外运行第二套 NR。"));
     if(g_live_rr_handles.load(std::memory_order_acquire)!=0) {
         ImGui::TextWrapped("%s", options.rr ? ui(
             "RR detected: RR -> NR requested. Recorded work is not proof of GPU completion or a visible change; compare current submissions and pictures.",

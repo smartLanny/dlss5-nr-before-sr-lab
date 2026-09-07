@@ -19,8 +19,12 @@ inline bool IsPost(int feature, int requested_mode, bool rr_enabled) noexcept {
 }
 struct Extent { std::uint32_t w=0, h=0; };
 struct Plan { Extent output, work; float scale=1.0f; bool scaled=false; };
+inline bool SupportedPercent(std::uint32_t value) noexcept {
+    return value >= 50u && value <= 100u;
+}
+// Zero is a control request handled by settings, never a model allocation.
 inline std::uint32_t Percent(std::uint32_t value) noexcept {
-    return std::clamp(value, 50u, 100u);
+    return SupportedPercent(value) ? value : 0u;
 }
 // Caller may apply the core's existing model alignment after this function.
 // 100% is an exact reference, including odd active dimensions.
@@ -29,7 +33,7 @@ inline Plan Work(Extent output, std::uint32_t percent) noexcept {
     if (!output.w || !output.h || output.w>32768 || output.h>32768) {
         p.work={}; return p;
     }
-    percent=Percent(percent);
+    if (!SupportedPercent(percent)) { p.work={}; return p; }
     if (percent==100) return p;
     p.work.w=std::max(1u,static_cast<unsigned>((std::uint64_t(output.w)*percent+50)/100));
     p.work.h=std::max(1u,static_cast<unsigned>((std::uint64_t(output.h)*percent+50)/100));

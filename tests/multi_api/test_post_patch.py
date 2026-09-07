@@ -159,9 +159,23 @@ class SourcePatch(unittest.TestCase):
         self.assertIn('No recent RR-post attempt',ui)
     def test_settings_do_not_enable_before_reading_ini(self):
         s=(ROOT/'src/interop/nr_post_settings.inl').read_text()
-        self.assertIn('std::atomic<bool> ready{false}',s)
+        self.assertIn('ready{false}',s)
+        self.assertIn('compare_exchange_strong(next_tick',s)
+        self.assertNotIn('std::clamp',s)
         self.assertIn('observed_revision==revision.load',s)
         self.assertIn('nr_f8::g_config_hold',s)
+    def test_actual_panel_keeps_pr134_controls_and_replaces_post_placeholder(self):
+        source=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8')
+        out=m.patch_ui(source)
+        self.assertEqual(out.count('DrawPostResolutionControl();'),1)
+        self.assertLess(out.index('DrawPostResolutionControl();'),out.index('int style ='))
+        self.assertNotIn('Reduced post-SR precision is not implemented',out)
+        self.assertIn('next.enabled = false; // F6 can re-enable the previous precision.',out)
+        self.assertIn('nr_precision_ui::Resolve(precision, before_sr)',out)
+        for label in ('Model strength','Local tone','Local structure','Advanced picture controls'):
+            self.assertEqual(out.count('"'+label+'"'),source.count('"'+label+'"'))
+        with self.assertRaises(ValueError):m.patch_ui(out)
+
     @unittest.skipUnless(os.environ.get('POST_COMPAT_CORE_SOURCE'),'requires actual complete core; minimal fixture is not full integration')
     def test_actual_core(self):
         source=Path(os.environ['POST_COMPAT_CORE_SOURCE']).read_text(encoding='utf-8')

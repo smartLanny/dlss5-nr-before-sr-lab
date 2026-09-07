@@ -18,6 +18,10 @@ int main(){
   CHECK(p.work.w<=w&&p.work.h<=h);
   if(pc==100) CHECK(p.work.w==w&&p.work.h==h&&!p.scaled);
  }
+ for(unsigned invalid:{0u,1u,49u,101u,1000u,0xffffffffu}) {
+  CHECK(!SupportedPercent(invalid));CHECK(Percent(invalid)==0);
+  const auto p=Work({1920,1080},invalid);CHECK(p.work.w==0&&p.work.h==0);
+ }
  auto m=Motion({1280,720},{3840,2160},{1920,1080},false,-1280,-720);
  CHECK(m.valid&&m.source.w==3840&&m.bound.w==1920&&m.resample);
  CHECK(m.scale_x==-1920&&m.scale_y==-1080);
