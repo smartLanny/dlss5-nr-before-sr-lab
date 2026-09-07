@@ -57,6 +57,10 @@ try {
     $Checks.Add('carrier completion: staged production state machine, WARP fence, real access-violation propagation')
     $TestBuild = Join-Path $Output 'tests'
     New-Item -ItemType Directory -Path $TestBuild | Out-Null
+    & (Join-Path $PSScriptRoot 'validate-runtime-load-windows.ps1') -ToolchainRoot $Toolchain `
+        -SourceRoot (Join-Path $Stage 'core') -FixtureRoot $Root `
+        -OutputRoot (Join-Path $TestBuild 'runtime-load-windows')
+    $Checks.Add('runtime load Windows fixture: file-absent vs dependency-missing under restricted LoadLibraryExW')
     $Include = @('-DNR_TEST_MULTIAPI=1', "-I$(Join-Path $Stage 'core')", "-I$Root", "-I$(Join-Path $Math 'Inc')")
     foreach ($Test in @('multi_api/format_access', 'multi_api/format_adapter', 'multi_api/post_policy', 'multi_api/rr_post_runtime', 'multi_api/post_settings', 'multi_api/motion_access', 'multi_api/exposure_access', 'native_bridge/history', 'native_bridge/forward', 'native_bridge/render_scale', 'native_bridge/mirror_rect', 'native_bridge/ngx_parameter_abi')) {
         $Exe = Join-Path $TestBuild ((Split-Path -Leaf $Test) + '.exe')

@@ -1,5 +1,6 @@
 """Host extraction of RuntimeClassifyLoad. No Windows LoadLibrary or game claim."""
 from __future__ import annotations
+import os
 import subprocess
 import tempfile
 import unittest
@@ -49,9 +50,10 @@ int main() {{
 '''
         with tempfile.TemporaryDirectory(prefix='nr152-') as td:
             src = Path(td) / 'class.cpp'
-            exe = Path(td) / 'class'
+            exe = Path(td) / ('class.exe' if os.name == 'nt' else 'class')
+            compiler = os.environ.get('CXX', 'g++')
             src.write_text(code, encoding='utf-8')
-            subprocess.run(['g++', '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror',
+            subprocess.run([compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror',
                             str(src), '-o', str(exe)], check=True)
             subprocess.run([str(exe)], check=True)
 

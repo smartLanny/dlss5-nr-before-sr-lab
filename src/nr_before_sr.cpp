@@ -1874,22 +1874,11 @@ bool EnsureNrApi(ID3D12Device *device) {
 
     RuntimeLoadEvidence evidence;
     evidence.stage = "load-modules";
-    const DWORD kRestrictedLoad = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32;
-    auto load_restricted = [&](const wchar_t *path, HMODULE *module, DWORD *error) {
-        *module = LoadLibraryExW(path, nullptr, kRestrictedLoad);
-        *error = RuntimeLoadError(*module != nullptr);
-        return *module != nullptr;
-    };
-    auto regular_file = [](const wchar_t *path) {
-        if (path == nullptr || *path == L'\0') return false;
-        const DWORD attr = GetFileAttributesW(path);
-        return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) == 0;
-    };
-    evidence.present[0] = regular_file(bridge_path);
-    evidence.present[1] = regular_file(signed_path);
-    load_restricted(bridge_path, &g_nr_api.bridge_module, &evidence.errors[0]);
+    evidence.present[0] = RuntimeRegularFile(bridge_path);
+    evidence.present[1] = RuntimeRegularFile(signed_path);
+    RuntimeLoadRestricted(bridge_path, &g_nr_api.bridge_module, &evidence.errors[0]);
     evidence.loaded[0] = g_nr_api.bridge_module != nullptr;
-    load_restricted(signed_path, &g_nr_api.signed_module, &evidence.errors[1]);
+    RuntimeLoadRestricted(signed_path, &g_nr_api.signed_module, &evidence.errors[1]);
     evidence.loaded[1] = g_nr_api.signed_module != nullptr;
     wchar_t exe_directory[MAX_PATH] = {};
     if (GetModuleFileNameW(nullptr, exe_directory, MAX_PATH) != 0) {
@@ -1904,14 +1893,14 @@ bool EnsureNrApi(ID3D12Device *device) {
         wchar_t exe_signed[MAX_PATH] = {};
         swprintf_s(exe_bridge, L"%lsnrchain_nvngx.dll", exe_directory);
         swprintf_s(exe_signed, L"%lsnvngx_dlssnr.dll", exe_directory);
-        if (!evidence.loaded[0] && !evidence.present[0] && regular_file(exe_bridge) &&
-            load_restricted(exe_bridge, &g_nr_api.bridge_module, &evidence.errors[0])) {
+        if (!evidence.loaded[0] && !evidence.present[0] && RuntimeRegularFile(exe_bridge) &&
+            RuntimeLoadRestricted(exe_bridge, &g_nr_api.bridge_module, &evidence.errors[0])) {
             evidence.loaded[0] = true;
             evidence.present[0] = true;
             evidence.search = "exe-directory";
         }
-        if (!evidence.loaded[1] && !evidence.present[1] && regular_file(exe_signed) &&
-            load_restricted(exe_signed, &g_nr_api.signed_module, &evidence.errors[1])) {
+        if (!evidence.loaded[1] && !evidence.present[1] && RuntimeRegularFile(exe_signed) &&
+            RuntimeLoadRestricted(exe_signed, &g_nr_api.signed_module, &evidence.errors[1])) {
             evidence.loaded[1] = true;
             evidence.present[1] = true;
             evidence.search = "exe-directory";
