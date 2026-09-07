@@ -65,3 +65,5 @@ Manager应用源码dfa0a2e，后续交付脚本/文档/辅助脚本提交至7e2d
 本地安装器与交付收据在同级deliveries/DLSS5-Manager-0.4.5-DX11-compat-20260907。本机winCodeSign缓存解压缺符号链接权限，使用signAndEditExecutable=false完成未签名构建；NSIS/portable包装仍有0.4.5版本和管理员执行级别，应用保留自行提权。未做真实游戏安装，不以归档/主机测试替代实机。
 
 PR#133/#138也已关闭并回帖指main，累计9个重复入口收口；剩余7个开放PR保留独立研究/游戏兼容/Manager评审。未关闭未经游戏验证的问题。
+
+最终发布回查：同一Release已正式包含且仅包含中文精简OTA、Setup和portable三个附件；服务端uploaded状态、三个字节数和SHA256均与本地独立核验匹配。记录保存在build/published-release-verification.json。Main检出为原项目同级nr-main-unify并跟踪origin/main，原product及旧worktrees保持不动。

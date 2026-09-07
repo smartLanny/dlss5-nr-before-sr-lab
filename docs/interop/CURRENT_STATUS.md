@@ -8,6 +8,8 @@
 
 当前[中文精简OTA及配套安装器发布页](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/beta0.4.5-dx11-compat)。OTA仅7文件、单中文核心；机器源码/打包/PE身份与哈希见MAIN_CONSOLIDATION。main已实际整合，33个临时远端分支已安全清理；0.5/Feeder/Manager独立未完成工作仍保留。Manager既有分支已推进7e2d16e，0.4.5条目已替换为本包。
 
+本机 `main` 检出位于原项目同级 `nr-main-unify`，已跟踪 `origin/main`；原product工作区及旧worktrees/未提交文件保留原样。后续从此main或最新origin/main建立短期工作分支，不在冻结旧检出继续积累修复。
+
 ## 已发布dev3基线来源
 
 - 历史兼容集成分支：`codex/multiapi-045-integration`，PR #133，执行看板 #80。
