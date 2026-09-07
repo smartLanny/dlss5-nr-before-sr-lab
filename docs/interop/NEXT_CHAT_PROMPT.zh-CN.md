@@ -1,3 +1,5 @@
+> 当前状态以 [CURRENT_STATUS.md](CURRENT_STATUS.md) 和 PR #133 最新 HEAD 为准。以下为历史设计/实施记录；不要根据旧未勾选项重复开发。本批交付测试候选后等待维护者进一步指示。
+
 @GitHub 请继续维护 smartLanny/dlss5-nr-before-sr-lab 的最大兼容性支线，直接开发、测试并提交，不要再只做调研、规划、文档或占位接口。
 
 唯一持续集成分支：codex/multiapi-045-integration；集成PR：#133；目标仍为0.4.5维护线release/0.4.5-test；执行看板#80。开始先在线读取最新main、目标维护分支、#133 HEAD、open PR/Issues及相关近期commit，不能拿旧聊天SHA当最新。读取分支内docs/interop/MAX_COMPAT_CONTINUATION.md，并以其有序队列推进。

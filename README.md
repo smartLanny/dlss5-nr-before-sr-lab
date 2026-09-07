@@ -1,3 +1,5 @@
+> 本地/云端统一交接：[`docs/interop/CURRENT_STATUS.md`](docs/interop/CURRENT_STATUS.md)。兼容候选仅供维护者测试，验证与待办以该入口为准。
+
 # DLSS5 NR-Before-SR Lab
 
 Experimental, source-only ReShade D3D12 add-on for studying two neural-rendering

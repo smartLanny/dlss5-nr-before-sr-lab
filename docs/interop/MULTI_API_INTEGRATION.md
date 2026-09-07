@@ -1,3 +1,5 @@
+> 当前状态以 [CURRENT_STATUS.md](CURRENT_STATUS.md) 和 PR #133 最新 HEAD 为准。以下为历史设计/实施记录；不要根据旧未勾选项重复开发。本批交付测试候选后等待维护者进一步指示。
+
 # 0.4.5 Multi-API integration candidate
 
 ## 当前入口

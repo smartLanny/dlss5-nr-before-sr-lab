@@ -15,7 +15,9 @@ def definition(text, marker):
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--compiler',default=os.environ.get('CXX','g++'))
-    a=ap.parse_args();root=Path(__file__).resolve().parents[1]
+    ap.add_argument('--root',type=Path,default=Path(__file__).resolve().parents[1],
+                    help='Actual source tree, including a generated candidate core')
+    a=ap.parse_args();root=a.root.resolve()
     source=(root/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
     ui=(root/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
     restore=(root/'src/nr_recommended_picture.inl').read_text(encoding='utf-8-sig')
