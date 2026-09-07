@@ -57,9 +57,12 @@ class Staging(unittest.TestCase):
             self.assertEqual(manifest['integration']['parents_in_history'],[m.PR131,m.PR132])
             self.assertEqual(manifest['integration']['feedback'],'F8 single TXT; F7 optional paired archive')
             self.assertEqual(manifest['integration']['carrier_filename'],m.CARRIER_NAME)
+            self.assertEqual(manifest['integration']['version'],'beta0.4.6')
+            self.assertEqual(manifest['integration']['display_version'],'0.4.6')
+            self.assertEqual(manifest['integration']['core_pe_version'],'0.4.6.0')
             self.assertIn('slot.source_srv_format',(root/'core/src/nr_codec_descriptors.inl').read_text(encoding='utf-8'))
             self.assertIn('NrMotionReadFormat',(root/'core/src/nr_codec_descriptors.inl').read_text(encoding='utf-8'))
-            self.assertEqual((root/'core/src/nr_before_sr.rc').read_text(encoding='utf-8'),'0.4.5 DX11 compatibility beta\nFILEVERSION 0,4,5,104')
+            self.assertEqual((root/'core/src/nr_before_sr.rc').read_text(encoding='utf-8'),'0.4.6 beta\nFILEVERSION 0,4,6,0')
             self.assertIn('PostWorkPercent=100',(root/'core/config/nr_before_sr.ini').read_text(encoding='utf-8'))
             self.assertEqual((root/'core/src/nr_feedback_capture.inl').read_text(encoding='utf-8').count('#include "interop/nr_post_feedback.inl"'),1)
 

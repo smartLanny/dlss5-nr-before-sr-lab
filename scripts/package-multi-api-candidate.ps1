@@ -110,7 +110,7 @@ try {
         $Install = @"
 $DisplayVersion
 
-退出游戏，备份现用核心与配套DLL。将本包中文核心、nrchain_nvngx.dll和${CarrierLeaf}一起放到原ReShade addon目录，替换旧0.4.5组件。移走旧同类核心/carrier，保留nr_before_sr.ini及其他无关MOD。
+退出游戏，备份现用核心与配套DLL。将本包中文核心、nrchain_nvngx.dll和${CarrierLeaf}一起放到原ReShade addon目录，替换旧版组件。移走旧同类核心/carrier，保留nr_before_sr.ini及其他无关MOD。
 兼容范围：已有原生/模组DLSS输入的DX11 carrier路线，以及D3D12 SR前/后置和符合条件的RR后置。不是所有无DLSS的DX11游戏都支持；不含Feeder、原生Vulkan/Legacy支持。
 F6对比开关，F8生成单TXT反馈；视觉问题可另按F7。新组合仍需逐游戏测试，Windows/WARP通过不等于所有游戏通过。
 回退：退出游戏，移走本包三个组件，放回备份。包不含替换INI、ReShade、NVIDIA运行库/模型或游戏文件。
