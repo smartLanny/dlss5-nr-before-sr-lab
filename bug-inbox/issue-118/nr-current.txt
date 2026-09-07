@@ -1,0 +1,69 @@
+18:07:26.633  DLSS 5 AI Rendering Perfect Chain beta0.4.2-native-bridge-exp1 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=DLSS5-AI渲染超分版-beta0.4.2-native-bridge-exp1-@野生的装机宅-Bilibili.addon64 | build_id=beta0.4.2-native-bridge-exp1 | sourceCommit=9282e6ba771e369dac93166c02ff10a2173f35d0 sourceDirty=1
+18:07:26.635  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+18:07:26.635  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+18:07:26.635  Config: enabled=1 mode=2 identity=0 preTransfer=1.200 postTransfer=1.200 colorFollowRequested=0.750 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=0 uiCorrection=1 r8OutputEncoding=0 perfEpoch=20 jitterMode=1 feature18Evals=0
+18:07:26.636  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+18:07:34.191  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+18:07:34.192  [module] pinned hook owner name=D3D12 command state address=00007FFF85F28DC0 module=00007FFF85D50000 until process exit.
+18:07:34.766  Found SR NGX module: E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\reshade-shaders\nvngx_dlss.dll
+18:07:34.766  [module] pinned hook owner name=nvngx_dlss.dll address=00007FFF06F50000 module=00007FFF06F50000 until process exit.
+18:07:34.767  [module] pinned hook owner name=_nvngx.dll address=00007FFFBB0D0000 module=00007FFFBB0D0000 until process exit.
+18:07:34.767  [module] pinned hook owner name=D3D12_CreateFeature address=00007FFF06F7C8B0 module=00007FFF06F50000 until process exit.
+18:07:34.767  MH_CreateHook D3D12_CreateFeature                    target=00007FFF06F7C8B0 status=0 (MH_OK)
+18:07:34.767  [module] pinned hook owner name=D3D12_EvaluateFeature address=00007FFF06F7CA20 module=00007FFF06F50000 until process exit.
+18:07:34.768  MH_CreateHook D3D12_EvaluateFeature                  target=00007FFF06F7CA20 status=0 (MH_OK)
+18:07:34.768  [module] pinned hook owner name=D3D12_ReleaseFeature address=00007FFF06F7CD00 module=00007FFF06F50000 until process exit.
+18:07:34.768  MH_CreateHook D3D12_ReleaseFeature                   target=00007FFF06F7CD00 status=0 (MH_OK)
+18:07:34.768  [module] pinned hook owner name=core CreateFeature address=00007FFFBB138540 module=00007FFFBB0D0000 until process exit.
+18:07:34.769  MH_CreateHook core CreateFeature                     target=00007FFFBB138540 status=0 (MH_OK)
+18:07:34.769  [module] pinned hook owner name=core EvaluateFeature address=00007FFFBB138740 module=00007FFFBB0D0000 until process exit.
+18:07:34.769  MH_CreateHook core EvaluateFeature                   target=00007FFFBB138740 status=0 (MH_OK)
+18:07:34.769  [module] pinned hook owner name=core ReleaseFeature address=00007FFFBB138640 module=00007FFFBB0D0000 until process exit.
+18:07:34.770  MH_CreateHook core ReleaseFeature                    target=00007FFFBB138640 status=0 (MH_OK)
+18:07:34.813  MH_EnableHook all status=0
+18:07:34.813  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+18:07:34.814  [module] initial scan complete: sr=00007FFF06F50000 core=00007FFFBB0D0000 dlssd=0000000000000000.
+18:07:34.814  NGX observer/AI-upscaling hooks active.
+18:07:36.321  [module] lazy rescan #1 core=00007FFFBB0D0000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+18:07:36.323  [perf] reset stage=C-NR-transfer epoch=20 transfer=1.200; warming 180 frames
+18:07:36.674  [artifact-identity] sourceCommit=9282e6ba771e369dac93166c02ff10a2173f35d0 sourceDirty=1 status=verified addonPath=E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\reshade-shaders\DLSS5-AI渲染超分版-beta0.4.2-native-bridge-exp1-@野生的装机宅-Bilibili.addon64 addonSha256=d2ab2f3eb3af784877855fe9c52d3436734edd1c9d9c7adb771256db5c50fba6 measurement=loaded-path-file-once-worker.
+18:07:43.566  [module] late module discovered name=nvngx_dlssd.dll handle=00007FFF5EE30000 path=E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Engine\Plugins\Runtime\Nvidia\DLSS\Binaries\ThirdParty\Win64\nvngx_dlssd.dll
+18:07:43.566  [module] pinned hook owner name=nvngx_dlssd.dll address=00007FFF5EE30000 module=00007FFF5EE30000 until process exit.
+18:07:43.566  [module] pinned hook owner name=late DLSSD ReleaseFeature address=00007FFF5EE6C740 module=00007FFF5EE30000 until process exit.
+18:07:43.567  MH_CreateHook late DLSSD ReleaseFeature              target=00007FFF5EE6C740 status=0 (MH_OK)
+18:07:43.567  [module] MH_QueueEnableHook late DLSSD ReleaseFeature  target=00007FFF5EE6C740 status=0
+18:07:43.567  [module] pinned hook owner name=late DLSSD CreateFeature address=00007FFF5EE6C1D0 module=00007FFF5EE30000 until process exit.
+18:07:43.568  MH_CreateHook late DLSSD CreateFeature               target=00007FFF5EE6C1D0 status=0 (MH_OK)
+18:07:43.568  [module] MH_QueueEnableHook late DLSSD CreateFeature   target=00007FFF5EE6C1D0 status=0
+18:07:43.568  [module] pinned hook owner name=late DLSSD EvaluateFeature address=00007FFF5EE6C340 module=00007FFF5EE30000 until process exit.
+18:07:43.569  MH_CreateHook late DLSSD EvaluateFeature             target=00007FFF5EE6C340 status=0 (MH_OK)
+18:07:43.569  [module] MH_QueueEnableHook late DLSSD EvaluateFeature target=00007FFF5EE6C340 status=0
+18:07:43.610  [module] MH_ApplyQueued late NGX lifecycle status=0
+18:07:43.610  [module] late DLSSD coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+18:07:43.611  [module] startup-deferred RR-capable module entry points were fully hooked before the first observed Feature 1 Create/Evaluate; startup continues without a permanent ownership bypass.
+18:07:43.611  [module] lazy rescan #2 core=00007FFFBB0D0000 coreLifecycle=1 dlssd=00007FFF5EE30000 dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+18:07:44.565  [module] lazy rescan #3 core=00007FFFBB0D0000 coreLifecycle=1 dlssd=00007FFF5EE30000 dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+18:08:13.588  [perf] stage=C-NR-transfer epoch=20 transfer=1.200 samples=600 avgFPS=36.451 avgMs=27.4344 p95Ms=39.4747 p99Ms=154.6348 onePercentLowFPS=3.065
+18:08:30.176  [perf] stage=C-NR-transfer epoch=20 transfer=1.200 samples=600 avgFPS=36.221 avgMs=27.6080 p95Ms=55.3449 p99Ms=147.6152 onePercentLowFPS=3.539
+18:08:48.423  [perf] stage=C-NR-transfer epoch=20 transfer=1.200 samples=600 avgFPS=36.829 avgMs=27.1529 p95Ms=41.7253 p99Ms=173.5989 onePercentLowFPS=3.673
+18:08:48.734  [module] lazy rescan #60 core=00007FFFBB0D0000 coreLifecycle=1 dlssd=00007FFF5EE30000 dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+18:08:49.814  [state] bypass transition #1: waiting-feature1 -> master-disabled.
+18:08:49.825  Config updated from ReShade simplified settings: enabled=0 nrBeforeSr=1 transfer=1.200 colorFollowRequested=0.750 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=21 feature18Evals=0
+18:08:49.835  [perf] reset stage=A-SR-only epoch=21 transfer=1.200; warming 180 frames
+18:08:50.792  [state] bypass transition #2: master-disabled -> waiting-feature1.
+18:08:50.802  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.200 colorFollowRequested=0.750 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=22 feature18Evals=0
+18:08:50.813  [perf] reset stage=C-NR-transfer epoch=22 transfer=1.200; warming 180 frames
+18:09:08.204  [perf] stage=C-NR-transfer epoch=22 transfer=1.200 samples=600 avgFPS=44.769 avgMs=22.3370 p95Ms=25.6964 p99Ms=31.2970 onePercentLowFPS=23.930
+18:09:21.573  [perf] stage=C-NR-transfer epoch=22 transfer=1.200 samples=600 avgFPS=44.952 avgMs=22.2458 p95Ms=26.4811 p99Ms=29.0952 onePercentLowFPS=30.177
+18:09:28.051  Stage capture requested: next eligible warmed-up NR composition; one outstanding request, sampled raw stages, no native-SR output read. NR is recreated before capture, waits at least 64 successful evaluations since Reset, then retires to drain exact-fence resources. This settling interval does not prove temporal convergence.
+18:09:28.052  [stage-capture] F7 request=accepted; next eligible warmed-up NR composition. '-' screenshots are separate, NOT same-frame evidence.
+18:09:34.932  [perf] stage=C-NR-transfer epoch=22 transfer=1.200 samples=600 avgFPS=44.984 avgMs=22.2299 p95Ms=26.2041 p99Ms=28.1097 onePercentLowFPS=33.355
+18:09:48.315  [perf] stage=C-NR-transfer epoch=22 transfer=1.200 samples=600 avgFPS=44.891 avgMs=22.2762 p95Ms=26.9335 p99Ms=31.6176 onePercentLowFPS=26.499
+18:09:48.825  [module] lazy rescan #120 core=00007FFFBB0D0000 coreLifecycle=1 dlssd=00007FFF5EE30000 dlssdLifecycle=1 observerGap=0 startupCovered=1 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=2 nullEvals=0 carrierEvals=0 observerFault=none.
+18:09:55.559  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.200 colorFollowRequested=0.750 intensity=1.000 style=1 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=23 feature18Evals=0
+18:09:55.571  [perf] reset stage=C-NR-transfer epoch=23 transfer=1.200; warming 180 frames
+18:09:57.315  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.200 colorFollowRequested=0.750 intensity=1.000 style=2 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=24 feature18Evals=0
+18:09:57.326  [perf] reset stage=C-NR-transfer epoch=24 transfer=1.200; warming 180 frames
+18:09:59.094  Config updated from ReShade simplified settings: enabled=1 nrBeforeSr=1 transfer=1.200 colorFollowRequested=0.750 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 jitterMode=1 paperWhiteScale=1.000 peakShoulderRequested=0 epoch=25 feature18Evals=0
+18:09:59.104  [perf] reset stage=C-NR-transfer epoch=25 transfer=1.200; warming 180 frames
+18:10:00.750  [feedback] one-click session requested; current settings retained, 3 display images, exact-fence stages, bounded 30-second wait.

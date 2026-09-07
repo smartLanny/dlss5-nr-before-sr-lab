@@ -1,0 +1,109 @@
+format=DLSS5-LogSummary-v1
+source.bytes=5403
+scan.bytes=5403
+scan.complete=1
+lines.scanned=36
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+22:38:58.767  DLSS 5 AI Rendering Perfect Chain beta0.4.5 attached | author=@?????????????????? Bilibili | official_release=http[local-path] | language=zh-CN | file=nr-before-sr.zh-CN.addon64 | build_id=beta0.4.5 | sourceCommit=d403388158b189103f76bb0a6a3d1a404782e02b sourceDirty=0
+22:38:58.771  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+22:38:58.771  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+22:38:58.771  Config: enabled=1 mode=2 identity=0 preTransfer=1.200 postTransfer=1.200 colorFollowRequested=0.750 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=2 uiCorrection=1 r8OutputEncoding=0 perfEpoch=2 jitterMode=1 feature18Evals=0
+22:38:58.773  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+22:38:58.773  Found SR NGX module: [local-path]
+22:38:58.774  [module] pinned hook owner name=nvngx_dlss.dll address=[address] module=[address] until process exit.
+22:38:58.774  [module] pinned hook owner name=_nvngx.dll address=[address] module=[address] until process exit.
+22:38:58.774  [module] pinned hook owner name=D3D12_CreateFeature address=[address] module=[address] until process exit.
+22:38:58.774  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0 (MH_OK)
+22:38:58.775  [module] pinned hook owner name=D3D12_EvaluateFeature address=[address] module=[address] until process exit.
+22:38:58.775  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0 (MH_OK)
+22:38:58.775  [module] pinned hook owner name=D3D12_ReleaseFeature address=[address] module=[address] until process exit.
+22:38:58.775  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0 (MH_OK)
+22:38:58.775  [module] pinned hook owner name=core CreateFeature address=[address] module=[address] until process exit.
+22:38:58.776  MH_CreateHook core CreateFeature                     target=[address] status=0 (MH_OK)
+22:38:58.776  [module] pinned hook owner name=core EvaluateFeature address=[address] module=[address] until process exit.
+22:38:58.776  MH_CreateHook core EvaluateFeature                   target=[address] status=0 (MH_OK)
+22:38:58.776  [module] pinned hook owner name=core ReleaseFeature address=[address] module=[address] until process exit.
+22:38:58.777  MH_CreateHook core ReleaseFeature                    target=[address] status=0 (MH_OK)
+22:38:58.812  MH_EnableHook all status=0
+22:38:58.813  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+22:38:58.813  [module] initial scan complete: sr=[address] core=[address] dlssd=[address].
+22:38:58.813  NGX observer/AI-upscaling hooks active.
+22:39:00.055  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+22:39:00.055  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+22:39:02.128  [module] lazy rescan #1 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+22:39:02.132  [perf] reset stage=C-NR-transfer epoch=2 transfer=1.200; warming 180 frames
+22:39:02.171  [artifact-identity] sourceCommit=d403388158b189103f76bb0a6a3d1a404782e02b sourceDirty=0 status=verified addonPath=[local-path]
+22:39:03.124  [module] lazy rescan #2 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+22:39:04.123  [module] lazy rescan #3 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+22:39:07.982  [perf] stage=C-NR-transfer epoch=2 transfer=1.200 samples=600 avgFPS=428.331 avgMs=2.3346 p95Ms=4.1521 p99Ms=4.6456 onePercentLowFPS=69.357
+22:39:13.408  [perf] stage=C-NR-transfer epoch=2 transfer=1.200 samples=600 avgFPS=397.486 avgMs=2.5158 p95Ms=3.8870 p99Ms=4.9903 onePercentLowFPS=123.125
+22:39:20.179  [perf] stage=C-NR-transfer epoch=2 transfer=1.200 samples=600 avgFPS=235.264 avgMs=4.2505 p95Ms=4.8969 p99Ms=6.6968 onePercentLowFPS=55.587
+22:39:25.182  [perf] stage=C-NR-transfer epoch=2 transfer=1.200 samples=600 avgFPS=240.035 avgMs=4.1661 p95Ms=4.6931 p99Ms=5.6129 onePercentLowFPS=151.027
+22:39:30.186  [perf] stage=C-NR-transfer epoch=2 transfer=1.200 samples=600 avgFPS=239.988 avgMs=4.1669 p95Ms=4.3296 p99Ms=4.4545 onePercentLowFPS=179.404
+
+[first events]
+
+[recent important]
+22:38:58.771  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+22:38:58.771  Config: enabled=1 mode=2 identity=0 preTransfer=1.200 postTransfer=1.200 colorFollowRequested=0.750 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=2 uiCorrection=1 r8OutputEncoding=0 perfEpoch=2 jitterMode=1 feature18Evals=0
+22:38:58.774  [module] pinned hook owner name=nvngx_dlss.dll address=[address] module=[address] until process exit.
+22:38:58.774  [module] pinned hook owner name=_nvngx.dll address=[address] module=[address] until process exit.
+22:38:58.774  [module] pinned hook owner name=D3D12_CreateFeature address=[address] module=[address] until process exit.
+22:38:58.774  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0 (MH_OK)
+22:38:58.775  [module] pinned hook owner name=D3D12_EvaluateFeature address=[address] module=[address] until process exit.
+22:38:58.775  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0 (MH_OK)
+22:38:58.775  [module] pinned hook owner name=D3D12_ReleaseFeature address=[address] module=[address] until process exit.
+22:38:58.775  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0 (MH_OK)
+22:38:58.775  [module] pinned hook owner name=core CreateFeature address=[address] module=[address] until process exit.
+22:38:58.776  MH_CreateHook core CreateFeature                     target=[address] status=0 (MH_OK)
+22:38:58.776  [module] pinned hook owner name=core EvaluateFeature address=[address] module=[address] until process exit.
+22:38:58.776  MH_CreateHook core EvaluateFeature                   target=[address] status=0 (MH_OK)
+22:38:58.776  [module] pinned hook owner name=core ReleaseFeature address=[address] module=[address] until process exit.
+22:38:58.777  MH_CreateHook core ReleaseFeature                    target=[address] status=0 (MH_OK)
+22:38:58.812  MH_EnableHook all status=0
+22:38:58.813  NGX observer/AI-upscaling hooks active.
+22:39:00.055  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+22:39:02.128  [module] lazy rescan #1 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+22:39:03.124  [module] lazy rescan #2 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+22:39:04.123  [module] lazy rescan #3 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+
+[tail]
+22:38:58.767  DLSS 5 AI Rendering Perfect Chain beta0.4.5 attached | author=@?????????????????? Bilibili | official_release=http[local-path] | language=zh-CN | file=nr-before-sr.zh-CN.addon64 | build_id=beta0.4.5 | sourceCommit=d403388158b189103f76bb0a6a3d1a404782e02b sourceDirty=0
+22:38:58.771  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+22:38:58.771  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+22:38:58.771  Config: enabled=1 mode=2 identity=0 preTransfer=1.200 postTransfer=1.200 colorFollowRequested=0.750 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=2 uiCorrection=1 r8OutputEncoding=0 perfEpoch=2 jitterMode=1 feature18Evals=0
+22:38:58.773  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+22:38:58.773  Found SR NGX module: [local-path]
+22:38:58.774  [module] pinned hook owner name=nvngx_dlss.dll address=[address] module=[address] until process exit.
+22:38:58.774  [module] pinned hook owner name=_nvngx.dll address=[address] module=[address] until process exit.
+22:38:58.774  [module] pinned hook owner name=D3D12_CreateFeature address=[address] module=[address] until process exit.
+22:38:58.774  MH_CreateHook D3D12_CreateFeature                    target=[address] status=0 (MH_OK)
+22:38:58.775  [module] pinned hook owner name=D3D12_EvaluateFeature address=[address] module=[address] until process exit.
+22:38:58.775  MH_CreateHook D3D12_EvaluateFeature                  target=[address] status=0 (MH_OK)
+22:38:58.775  [module] pinned hook owner name=D3D12_ReleaseFeature address=[address] module=[address] until process exit.
+22:38:58.775  MH_CreateHook D3D12_ReleaseFeature                   target=[address] status=0 (MH_OK)
+22:38:58.775  [module] pinned hook owner name=core CreateFeature address=[address] module=[address] until process exit.
+22:38:58.776  MH_CreateHook core CreateFeature                     target=[address] status=0 (MH_OK)
+22:38:58.776  [module] pinned hook owner name=core EvaluateFeature address=[address] module=[address] until process exit.
+22:38:58.776  MH_CreateHook core EvaluateFeature                   target=[address] status=0 (MH_OK)
+22:38:58.776  [module] pinned hook owner name=core ReleaseFeature address=[address] module=[address] until process exit.
+22:38:58.777  MH_CreateHook core ReleaseFeature                    target=[address] status=0 (MH_OK)
+22:38:58.812  MH_EnableHook all status=0
+22:38:58.813  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+22:38:58.813  [module] initial scan complete: sr=[address] core=[address] dlssd=[address].
+22:38:58.813  NGX observer/AI-upscaling hooks active.
+22:39:00.055  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+22:39:00.055  [module] pinned hook owner name=D3D12 command state address=[address] module=[address] until process exit.
+22:39:02.128  [module] lazy rescan #1 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+22:39:02.132  [perf] reset stage=C-NR-transfer epoch=2 transfer=1.200; warming 180 frames
+22:39:02.171  [artifact-identity] sourceCommit=d403388158b189103f76bb0a6a3d1a404782e02b sourceDirty=0 status=verified addonPath=[local-path]
+22:39:03.124  [module] lazy rescan #2 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+22:39:04.123  [module] lazy rescan #3 core=[address] coreLifecycle=1 dlssd=[address] dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+22:39:07.982  [perf] stage=C-NR-transfer epoch=2 transfer=1.200 samples=600 avgFPS=428.331 avgMs=2.3346 p95Ms=4.1521 p99Ms=4.6456 onePercentLowFPS=69.357
+22:39:13.408  [perf] stage=C-NR-transfer epoch=2 transfer=1.200 samples=600 avgFPS=397.486 avgMs=2.5158 p95Ms=3.8870 p99Ms=4.9903 onePercentLowFPS=123.125
+22:39:20.179  [perf] stage=C-NR-transfer epoch=2 transfer=1.200 samples=600 avgFPS=235.264 avgMs=4.2505 p95Ms=4.8969 p99Ms=6.6968 onePercentLowFPS=55.587
+22:39:25.182  [perf] stage=C-NR-transfer epoch=2 transfer=1.200 samples=600 avgFPS=240.035 avgMs=4.1661 p95Ms=4.6931 p99Ms=5.6129 onePercentLowFPS=151.027
+22:39:30.186  [perf] stage=C-NR-transfer epoch=2 transfer=1.200 samples=600 avgFPS=239.988 avgMs=4.1669 p95Ms=4.3296 p99Ms=4.4545 onePercentLowFPS=179.404

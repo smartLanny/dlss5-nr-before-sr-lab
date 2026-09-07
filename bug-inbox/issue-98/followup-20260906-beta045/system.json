@@ -1,0 +1,38 @@
+{
+    "os_version":  "Microsoft Windows NT 10.0.26200.0",
+    "process_64_bit":  true,
+    "powershell_version":  "5.1.26100.9168",
+    "gpu_status":  "collected",
+    "gpus":  [
+                 {
+                     "name":  "Todesk Virtual Display Adapter",
+                     "driver_version":  "16.44.2.509",
+                     "driver_date":  "04/24/2023 08:00:00",
+                     "device_id":  "ROOT\\DISPLAY\\0001"
+                 },
+                 {
+                     "name":  "OrayIddDriver Device",
+                     "driver_version":  "17.50.19.949",
+                     "driver_date":  "06/11/2025 08:00:00",
+                     "device_id":  "ROOT\\DISPLAY\\0002"
+                 },
+                 {
+                     "name":  "NVIDIA GeForce RTX 5070 Ti",
+                     "driver_version":  "32.0.16.1664",
+                     "driver_date":  "08/24/2026 08:00:00",
+                     "device_id":  "PCI\\VEN_10DE\u0026DEV_2C05\u0026SUBSYS_53151462\u0026REV_A1\\8719E2F8C92DB04800"
+                 },
+                 {
+                     "name":  "GameViewer Virtual Display Adapter",
+                     "driver_version":  "17.13.25.697",
+                     "driver_date":  "05/16/2024 08:00:00",
+                     "device_id":  "ROOT\\DISPLAY\\0000"
+                 },
+                 {
+                     "name":  "MuMu Virtual Display Adapter",
+                     "driver_version":  "20.36.41.498",
+                     "driver_date":  "03/12/2026 08:00:00",
+                     "device_id":  "ROOT\\DISPLAY\\0004"
+                 }
+             ]
+}

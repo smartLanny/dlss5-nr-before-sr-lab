@@ -1,0 +1,545 @@
+18:07:22:753 [75608] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\ReShade.asi' into 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Client-Win64-Shipping.exe' (0x8499FE8C) ...
+18:07:22:753 [75608] | INFO  | Registering hooks for 'user32.dll' ...
+18:07:22:753 [75608] | INFO  | > Libraries loaded.
+18:07:22:754 [75608] | INFO  | > Found 21 match(es). Installing ...
+18:07:22:793 [75608] | INFO  | Registering hooks for 'C:\Windows\system32\dinput.dll' ...
+18:07:22:793 [75608] | INFO  | > Delayed.
+18:07:22:794 [75608] | INFO  | Registering hooks for 'C:\Windows\system32\dinput8.dll' ...
+18:07:22:794 [75608] | INFO  | > Delayed.
+18:07:22:794 [75608] | INFO  | Registering hooks for 'C:\Windows\system32\d2d1.dll' ...
+18:07:22:794 [75608] | INFO  | > Delayed.
+18:07:22:794 [75608] | INFO  | Registering hooks for 'C:\Windows\system32\d3d9.dll' ...
+18:07:22:794 [75608] | INFO  | > Libraries loaded.
+18:07:22:794 [75608] | INFO  | > Found 11 match(es). Installing ...
+18:07:22:837 [75608] | INFO  | Registering hooks for 'C:\Windows\system32\d3d10.dll' ...
+18:07:22:838 [75608] | INFO  | > Delayed.
+18:07:22:838 [75608] | INFO  | Registering hooks for 'C:\Windows\system32\d3d10_1.dll' ...
+18:07:22:838 [75608] | INFO  | > Delayed.
+18:07:22:838 [75608] | INFO  | Registering hooks for 'C:\Windows\system32\d3d11.dll' ...
+18:07:22:838 [75608] | INFO  | > Libraries loaded.
+18:07:22:838 [75608] | INFO  | > Found 3 match(es). Installing ...
+18:07:22:877 [75608] | INFO  | Registering hooks for 'C:\Windows\system32\d3d12.dll' ...
+18:07:22:877 [75608] | INFO  | > Delayed.
+18:07:22:877 [75608] | INFO  | Registering hooks for 'C:\Windows\system32\dxgi.dll' ...
+18:07:22:877 [75608] | INFO  | > Delayed.
+18:07:22:878 [75608] | INFO  | Registering hooks for 'C:\Windows\system32\opengl32.dll' ...
+18:07:22:878 [75608] | INFO  | > Libraries loaded.
+18:07:22:878 [75608] | INFO  | > Found 360 match(es). Installing ...
+18:07:22:920 [75608] | INFO  | Registering hooks for 'openvr_api.dll' ...
+18:07:22:920 [75608] | INFO  | > Delayed.
+18:07:22:920 [75608] | INFO  | Initialized.
+18:07:22:920 [75608] | INFO  | Loading add-on module "E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\renodx-dlssfix.addon64" ...
+18:07:22:920 [75608] | ERROR | Failed to load add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\renodx-dlssfix.addon64' with error code 126!
+18:07:22:920 [75608] | INFO  | Loading add-on module "E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\renodx-dlss_v20260904.addon64" ...
+18:07:22:927 [75608] | INFO  | Registered add-on "RenoDX DLSS" v0.0.0.0 using ReShade API version 18.
+18:07:22:937 [75608] | INFO  | [RenoDX DLSS] PipelineLayoutUtil attached.
+18:07:22:938 [75608] | INFO  | [RenoDX DLSS] State attached.
+18:07:22:938 [75608] | INFO  | [RenoDX DLSS] utils::dlss::nvngx attached.
+18:07:22:939 [75608] | WARN  | [RenoDX DLSS] NVNGX parameter module is not loaded yet: nvngx.dll
+18:07:22:941 [75608] | INFO  | [RenoDX DLSS] ResourceUtil attached.
+18:07:22:941 [75608] | INFO  | [RenoDX DLSS] utils::device_proxy attached.
+18:07:22:941 [75608] | INFO  | [RenoDX DLSS] utils::device_upgrade attached.
+18:07:22:942 [75608] | INFO  | [RenoDX DLSS] utils::dlss::streamline attached.
+18:07:22:942 [75608] | WARN  | [RenoDX DLSS] Streamline interposer not found: sl.interposer.dll
+18:07:22:942 [75608] | WARN  | [RenoDX DLSS] mods::streamline hook owner is active, but one or more requested hook groups are incomplete.
+18:07:22:942 [75608] | INFO  | [RenoDX DLSS] mods::streamline attached.
+18:07:22:974 [75608] | INFO  | [RenoDX DLSS] utils::dlss::nvngx loaded-module hooks active 3/4 for C:\Windows\system32\DriverStore\FileRepository\nv_dispi.inf_amd64_436833bbb0f00476\_nvngx.dll (slot 0).
+18:07:22:974 [75608] | INFO  | [RenoDX DLSS] [RenoDX] DLSS-NR direct: using force-loaded NVIDIA parameter provider C:\Windows\system32\DriverStore\FileRepository\nv_dispi.inf_amd64_436833bbb0f00476\_nvngx.dll
+18:07:22:978 [75608] | INFO  | [RenoDX DLSS] ADDON.LoadFromDllMain is configured; the Streamline API generation is not detected yet.
+18:07:22:978 [75608] | INFO  | [RenoDX DLSS] Pinned addon module to avoid unload.
+18:07:22:978 [75608] | INFO  | [RenoDX DLSS] RenoDX DLSS attached; ReShade logical unload will be ignored.
+18:07:26:227 [76132] | INFO  | Redirecting RegisterClassW(lpWndClass = 0000000000F7E810 { "UnrealWindow", style = 0x8 }) ...
+18:07:26:227 [76132] | INFO  | > Adding 'CS_OWNDC' window class style flag to "UnrealWindow".
+18:07:26:231 [76132] | INFO  | Installing delayed hooks for 'C:\Windows\system32\d2d1.dll' (Just loaded via LoadLibrary('C:\Windows\SYSTEM32\d2d1.dll')) ...
+18:07:26:232 [76132] | INFO  | > Found 2 match(es). Installing ...
+18:07:26:366 [76132] | INFO  | Installing delayed hooks for 'C:\Windows\system32\dxgi.dll' (Just loaded via LoadLibrary('C:\Windows\system32\dxgi.dll')) ...
+18:07:26:366 [76132] | INFO  | > Found 5 match(es). Installing ...
+18:07:26:403 [76132] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-253C83D1B387}, ppFactory = 0000000000F7E538) ...
+18:07:26:494 [76132] | INFO  | Redirecting D3D11CreateDevice(pAdapter = 0000000048708950, DriverType = 0, Software = 0000000000000000, Flags = 0x21, pFeatureLevels = 0000000000F7E42C, FeatureLevels = 1, SDKVersion = 7, ppDevice = 0000000000F7E430, pFeatureLevel = 0000000000F7E4C8, ppImmediateContext = 0000000000F7E438) ...
+18:07:26:494 [76132] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+18:07:26:494 [76132] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = 0000000048708950, DriverType = 0, Software = 0000000000000000, Flags = 0x21, pFeatureLevels = 0000000000F7E42C, FeatureLevels = 1, SDKVersion = 7, pSwapChainDesc = 0000000000000000, ppSwapChain = 0000000000000000, ppDevice = 0000000000F7E430, pFeatureLevel = 0000000000F7E4C8, ppImmediateContext = 0000000000F7E438) ...
+18:07:26:494 [76132] | INFO  | Loading externally registered add-on "RenoDX DLSS" ...
+18:07:26:494 [76132] | INFO  | Searching for add-ons (*.addon, *.addon64) in 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\' ...
+18:07:26:494 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\DLSS5-AI渲染超分版-beta0.4.2-native-bridge-exp1-@野生的装机宅-Bilibili.addon64' ...
+18:07:26:598 [76132] | INFO  | Installing delayed hooks for 'C:\Windows\system32\d3d12.dll' (Just loaded via LoadLibrary('C:\Windows\SYSTEM32\d3d12.dll')) ...
+18:07:26:598 [76132] | INFO  | > Found 8 match(es). Installing ...
+18:07:26:612 [62148] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 00000000564DE8C8) ...
+18:07:26:612 [62148] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 00000000564DE8C8) ...
+18:07:26:612 [62148] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 00000000564DE8C8) ...
+18:07:26:613 [62148] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 00000000564DE8C8) ...
+18:07:26:613 [62148] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 00000000564DE8C8) ...
+18:07:26:636 [76132] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.2 (Chinese UI) | Bilibili UID 941799" v0.4.2.0 using ReShade API version 18.
+18:07:26:637 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\obs_capture.addon64' ...
+18:07:26:644 [76132] | INFO  | Registered add-on "OBS Capture" v0.0.0.0 using ReShade API version 18.
+18:07:26:649 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\relimiter.addon64' ...
+18:07:26:659 [76132] | INFO  | Registered add-on "ReLimiter" v3.3.5.0 using ReShade API version 18.
+18:07:26:868 [76132] | WARN  | [ReLimiter] PollGSyncState: Display_Resolver has no Display_ID (DispRes_IsResolved=0, count=1)
+18:07:27:042 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\ReShade64-AdjustDepth-By-seri14.addon64' ...
+18:07:27:044 [76132] | INFO  | Registered add-on "Adjust Depth" v16.2.1.0 using ReShade API version 10.
+18:07:27:044 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\ReshadeEffectShaderToggler.addon64' ...
+18:07:27:046 [76132] | INFO  | Registered add-on "Reshade Effect Shader Toggler" v1.3.23.633 using ReShade API version 14.
+18:07:27:046 [76132] | INFO  | [Reshade Effect Shader Toggler] Loading config file from "E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\reshade-shaders\ReshadeEffectShaderToggler.ini"
+18:07:27:047 [76132] | INFO  | [Reshade Effect Shader Toggler] No resource shim initialized
+18:07:27:193 [75820] | WARN  | [ReLimiter] DLSS DRS: profile=base SR=-(0x0) RR=-(0x0) FG=-(0x0) MFG_Factor=0 MFG_Mode=0 MFG_TargetFPS=0x0 GSync(global=0 req=0 state=0 -> Active)
+18:07:28:199 [76132] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {50C83A1C-E072-4C48-87B0-3630FA36A6D0}, ppFactory = 00007FFF86FA8B68) ...
+18:07:28:569 [76132] | INFO  | Using feature level b000.
+18:07:28:571 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS init_device begin: device=0x48dafc88, native=1219038464, api=45056
+18:07:28:581 [76132] | INFO  | [RenoDX DLSS] [RenoDX] DLSS-NR direct: attached snippet E:\Games\ASI_WuWa\Nvidia_SDK\DLSS\v310.8\nvngx_dlssnr.dll
+18:07:28:581 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS init_device end.
+18:07:28:582 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS destroy_device begin: device=0x48dafc88
+18:07:28:582 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS destroy_device end.
+18:07:28:582 [76132] | INFO  | Unloading add-on "RenoDX DLSS" ...
+18:07:28:582 [76132] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.2 (Chinese UI) | Bilibili UID 941799" ...
+18:07:28:582 [76132] | WARN  | Add-on "DLSS 5 NR Perfect Chain beta0.4.2 (Chinese UI) | Bilibili UID 941799" was not unregistered!
+18:07:28:582 [76132] | INFO  | Unloading add-on "OBS Capture" ...
+18:07:28:582 [76132] | INFO  | Unregistered add-on "OBS Capture".
+18:07:28:582 [76132] | INFO  | Unloading add-on "ReLimiter" ...
+18:07:29:113 [76132] | INFO  | Unregistered add-on "ReLimiter".
+18:07:29:113 [76132] | INFO  | Unloading add-on "Adjust Depth" ...
+18:07:29:113 [76132] | INFO  | Unregistered add-on "Adjust Depth".
+18:07:29:113 [76132] | INFO  | Unloading add-on "Reshade Effect Shader Toggler" ...
+18:07:29:113 [76132] | INFO  | Unregistered add-on "Reshade Effect Shader Toggler".
+18:07:29:114 [76132] | WARN  | Reference count for ID3D11Device0 object 0000000048DAFC80 (0000000048A90D00) is inconsistent (2).
+18:07:29:114 [76132] | INFO  | Redirecting D3D11CreateDevice(pAdapter = 0000000066620C00, DriverType = 0, Software = 0000000000000000, Flags = 0x21, pFeatureLevels = 0000000000F7E42C, FeatureLevels = 1, SDKVersion = 7, ppDevice = 0000000000F7E430, pFeatureLevel = 0000000000F7E4C8, ppImmediateContext = 0000000000F7E438) ...
+18:07:29:114 [76132] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+18:07:29:114 [76132] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = 0000000066620C00, DriverType = 0, Software = 0000000000000000, Flags = 0x21, pFeatureLevels = 0000000000F7E42C, FeatureLevels = 1, SDKVersion = 7, pSwapChainDesc = 0000000000000000, ppSwapChain = 0000000000000000, ppDevice = 0000000000F7E430, pFeatureLevel = 0000000000F7E4C8, ppImmediateContext = 0000000000F7E438) ...
+18:07:29:114 [76132] | INFO  | Loading externally registered add-on "RenoDX DLSS" ...
+18:07:29:114 [76132] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.2 (Chinese UI) | Bilibili UID 941799" ...
+18:07:29:114 [76132] | INFO  | Searching for add-ons (*.addon, *.addon64) in 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\' ...
+18:07:29:114 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\obs_capture.addon64' ...
+18:07:29:115 [76132] | INFO  | Registered add-on "OBS Capture" v0.0.0.0 using ReShade API version 18.
+18:07:29:115 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\relimiter.addon64' ...
+18:07:29:116 [76132] | INFO  | Registered add-on "ReLimiter" v3.3.5.0 using ReShade API version 18.
+18:07:29:292 [76132] | WARN  | [ReLimiter] PollGSyncState: Display_Resolver has no Display_ID (DispRes_IsResolved=0, count=2)
+18:07:29:455 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\ReShade64-AdjustDepth-By-seri14.addon64' ...
+18:07:29:456 [76132] | INFO  | Registered add-on "Adjust Depth" v16.2.1.0 using ReShade API version 10.
+18:07:29:456 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\ReshadeEffectShaderToggler.addon64' ...
+18:07:29:457 [76132] | INFO  | Registered add-on "Reshade Effect Shader Toggler" v1.3.23.633 using ReShade API version 14.
+18:07:29:457 [76132] | INFO  | [Reshade Effect Shader Toggler] Loading config file from "E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\reshade-shaders\ReshadeEffectShaderToggler.ini"
+18:07:29:458 [76132] | INFO  | [Reshade Effect Shader Toggler] No resource shim initialized
+18:07:29:460 [76132] | INFO  | Using feature level b000.
+18:07:29:460 [76132] | WARN  | Skipping device because it uses the Microsoft Basic Render Driver.
+18:07:29:460 [76132] | INFO  | Unloading add-on "RenoDX DLSS" ...
+18:07:29:460 [76132] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.2 (Chinese UI) | Bilibili UID 941799" ...
+18:07:29:460 [76132] | INFO  | Unloading add-on "OBS Capture" ...
+18:07:29:461 [76132] | INFO  | Unregistered add-on "OBS Capture".
+18:07:29:461 [76132] | INFO  | Unloading add-on "ReLimiter" ...
+18:07:29:999 [76132] | INFO  | Unregistered add-on "ReLimiter".
+18:07:29:999 [76132] | INFO  | Unloading add-on "Adjust Depth" ...
+18:07:30:000 [76132] | INFO  | Unregistered add-on "Adjust Depth".
+18:07:30:000 [76132] | INFO  | Unloading add-on "Reshade Effect Shader Toggler" ...
+18:07:30:000 [76132] | INFO  | Unregistered add-on "Reshade Effect Shader Toggler".
+18:07:30:001 [76132] | INFO  | Redirecting D3D11CreateDevice(pAdapter = 000000004903B420, DriverType = 0, Software = 0000000000000000, Flags = 0x21, pFeatureLevels = 0000000000F7E42C, FeatureLevels = 1, SDKVersion = 7, ppDevice = 0000000000F7E430, pFeatureLevel = 0000000000F7E4C8, ppImmediateContext = 0000000000F7E438) ...
+18:07:30:001 [76132] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+18:07:30:002 [76132] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = 000000004903B420, DriverType = 0, Software = 0000000000000000, Flags = 0x21, pFeatureLevels = 0000000000F7E42C, FeatureLevels = 1, SDKVersion = 7, pSwapChainDesc = 0000000000000000, ppSwapChain = 0000000000000000, ppDevice = 0000000000F7E430, pFeatureLevel = 0000000000F7E4C8, ppImmediateContext = 0000000000F7E438) ...
+18:07:30:002 [76132] | INFO  | Loading externally registered add-on "RenoDX DLSS" ...
+18:07:30:002 [76132] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.2 (Chinese UI) | Bilibili UID 941799" ...
+18:07:30:002 [76132] | INFO  | Searching for add-ons (*.addon, *.addon64) in 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\' ...
+18:07:30:003 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\obs_capture.addon64' ...
+18:07:30:004 [76132] | INFO  | Registered add-on "OBS Capture" v0.0.0.0 using ReShade API version 18.
+18:07:30:004 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\relimiter.addon64' ...
+18:07:30:004 [76132] | INFO  | Registered add-on "ReLimiter" v3.3.5.0 using ReShade API version 18.
+18:07:30:150 [76132] | WARN  | [ReLimiter] PollGSyncState: Display_Resolver has no Display_ID (DispRes_IsResolved=0, count=3)
+18:07:30:284 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\ReShade64-AdjustDepth-By-seri14.addon64' ...
+18:07:30:285 [76132] | INFO  | Registered add-on "Adjust Depth" v16.2.1.0 using ReShade API version 10.
+18:07:30:285 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\ReshadeEffectShaderToggler.addon64' ...
+18:07:30:286 [76132] | INFO  | Registered add-on "Reshade Effect Shader Toggler" v1.3.23.633 using ReShade API version 14.
+18:07:30:286 [76132] | INFO  | [Reshade Effect Shader Toggler] Loading config file from "E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\reshade-shaders\ReshadeEffectShaderToggler.ini"
+18:07:30:287 [76132] | INFO  | [Reshade Effect Shader Toggler] No resource shim initialized
+18:07:30:301 [76132] | INFO  | Using feature level b000.
+18:07:30:303 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS init_device begin: device=0x48dac008, native=1226252416, api=45056
+18:07:30:304 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS init_device end.
+18:07:30:305 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS destroy_device begin: device=0x48dac008
+18:07:30:305 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS destroy_device end.
+18:07:30:305 [76132] | INFO  | Unloading add-on "RenoDX DLSS" ...
+18:07:30:305 [76132] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.2 (Chinese UI) | Bilibili UID 941799" ...
+18:07:30:305 [76132] | INFO  | Unloading add-on "OBS Capture" ...
+18:07:30:305 [76132] | INFO  | Unregistered add-on "OBS Capture".
+18:07:30:305 [76132] | INFO  | Unloading add-on "ReLimiter" ...
+18:07:30:705 [76132] | INFO  | Unregistered add-on "ReLimiter".
+18:07:30:705 [76132] | INFO  | Unloading add-on "Adjust Depth" ...
+18:07:30:706 [76132] | INFO  | Unregistered add-on "Adjust Depth".
+18:07:30:706 [76132] | INFO  | Unloading add-on "Reshade Effect Shader Toggler" ...
+18:07:30:706 [76132] | INFO  | Unregistered add-on "Reshade Effect Shader Toggler".
+18:07:30:707 [76132] | WARN  | Reference count for ID3D11Device0 object 0000000048DAC000 (0000000049172080) is inconsistent (2).
+18:07:30:707 [76132] | INFO  | Redirecting D3D11CreateDevice(pAdapter = 000000000AB5E420, DriverType = 0, Software = 0000000000000000, Flags = 0x21, pFeatureLevels = 0000000000F7E42C, FeatureLevels = 1, SDKVersion = 7, ppDevice = 0000000000F7E430, pFeatureLevel = 0000000000F7E4C8, ppImmediateContext = 0000000000F7E438) ...
+18:07:30:707 [76132] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+18:07:30:707 [76132] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = 000000000AB5E420, DriverType = 0, Software = 0000000000000000, Flags = 0x21, pFeatureLevels = 0000000000F7E42C, FeatureLevels = 1, SDKVersion = 7, pSwapChainDesc = 0000000000000000, ppSwapChain = 0000000000000000, ppDevice = 0000000000F7E430, pFeatureLevel = 0000000000F7E4C8, ppImmediateContext = 0000000000F7E438) ...
+18:07:30:707 [76132] | INFO  | Loading externally registered add-on "RenoDX DLSS" ...
+18:07:30:708 [76132] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.2 (Chinese UI) | Bilibili UID 941799" ...
+18:07:30:708 [76132] | INFO  | Searching for add-ons (*.addon, *.addon64) in 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\' ...
+18:07:30:708 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\obs_capture.addon64' ...
+18:07:30:719 [76132] | INFO  | Registered add-on "OBS Capture" v0.0.0.0 using ReShade API version 18.
+18:07:30:719 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\relimiter.addon64' ...
+18:07:30:719 [76132] | INFO  | Registered add-on "ReLimiter" v3.3.5.0 using ReShade API version 18.
+18:07:30:995 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\ReShade64-AdjustDepth-By-seri14.addon64' ...
+18:07:30:996 [76132] | INFO  | Registered add-on "Adjust Depth" v16.2.1.0 using ReShade API version 10.
+18:07:30:996 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\ReshadeEffectShaderToggler.addon64' ...
+18:07:30:997 [76132] | INFO  | Registered add-on "Reshade Effect Shader Toggler" v1.3.23.633 using ReShade API version 14.
+18:07:30:997 [76132] | INFO  | [Reshade Effect Shader Toggler] Loading config file from "E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\reshade-shaders\ReshadeEffectShaderToggler.ini"
+18:07:30:998 [76132] | INFO  | [Reshade Effect Shader Toggler] No resource shim initialized
+18:07:31:013 [76132] | INFO  | Using feature level b000.
+18:07:31:014 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS init_device begin: device=0x48dabbe8, native=4603405072, api=45056
+18:07:31:016 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS init_device end.
+18:07:31:017 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS destroy_device begin: device=0x48dabbe8
+18:07:31:017 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS destroy_device end.
+18:07:31:017 [76132] | INFO  | Unloading add-on "RenoDX DLSS" ...
+18:07:31:017 [76132] | INFO  | Unloading add-on "DLSS 5 NR Perfect Chain beta0.4.2 (Chinese UI) | Bilibili UID 941799" ...
+18:07:31:017 [76132] | INFO  | Unloading add-on "OBS Capture" ...
+18:07:31:017 [76132] | INFO  | Unregistered add-on "OBS Capture".
+18:07:31:017 [76132] | INFO  | Unloading add-on "ReLimiter" ...
+18:07:31:517 [76132] | INFO  | Unregistered add-on "ReLimiter".
+18:07:31:518 [76132] | INFO  | Unloading add-on "Adjust Depth" ...
+18:07:31:518 [76132] | INFO  | Unregistered add-on "Adjust Depth".
+18:07:31:518 [76132] | INFO  | Unloading add-on "Reshade Effect Shader Toggler" ...
+18:07:31:518 [76132] | INFO  | Unregistered add-on "Reshade Effect Shader Toggler".
+18:07:31:518 [76132] | WARN  | Reference count for ID3D11Device0 object 0000000048DABBE0 (0000000112626310) is inconsistent (2).
+18:07:31:518 [76132] | WARN  | Reference count for IDXGIFactory6 object 000000004898CF40 (0000000048756E40) is inconsistent (4).
+18:07:31:519 [76132] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-253C83D1B387}, ppFactory = 0000000000F7E850) ...
+18:07:32:042 [76132] | INFO  | Redirecting D3D11CreateDevice(pAdapter = 000000000A9CCED0, DriverType = 0, Software = 0000000000000000, Flags = 0x20, pFeatureLevels = 0000000028DF3250, FeatureLevels = 1, SDKVersion = 7, ppDevice = 0000000028DF0260, pFeatureLevel = 0000000000F7C680, ppImmediateContext = 0000000028DF0248) ...
+18:07:32:042 [76132] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+18:07:32:042 [76132] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = 000000000A9CCED0, DriverType = 0, Software = 0000000000000000, Flags = 0x20, pFeatureLevels = 0000000028DF3250, FeatureLevels = 1, SDKVersion = 7, pSwapChainDesc = 0000000000000000, ppSwapChain = 0000000000000000, ppDevice = 0000000028DF0260, pFeatureLevel = 0000000000F7C680, ppImmediateContext = 0000000028DF0248) ...
+18:07:32:043 [76132] | INFO  | Loading externally registered add-on "RenoDX DLSS" ...
+18:07:32:043 [76132] | INFO  | Loading externally registered add-on "DLSS 5 NR Perfect Chain beta0.4.2 (Chinese UI) | Bilibili UID 941799" ...
+18:07:32:043 [76132] | INFO  | Searching for add-ons (*.addon, *.addon64) in 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\' ...
+18:07:32:043 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\obs_capture.addon64' ...
+18:07:32:044 [76132] | INFO  | Registered add-on "OBS Capture" v0.0.0.0 using ReShade API version 18.
+18:07:32:044 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\relimiter.addon64' ...
+18:07:32:044 [76132] | INFO  | Registered add-on "ReLimiter" v3.3.5.0 using ReShade API version 18.
+18:07:32:188 [76132] | WARN  | [ReLimiter] PollGSyncState: Display_Resolver has no Display_ID (DispRes_IsResolved=0, count=5)
+18:07:32:317 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\ReShade64-AdjustDepth-By-seri14.addon64' ...
+18:07:32:318 [76132] | INFO  | Registered add-on "Adjust Depth" v16.2.1.0 using ReShade API version 10.
+18:07:32:318 [76132] | INFO  | Loading add-on from 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\reshade-shaders\ReshadeEffectShaderToggler.addon64' ...
+18:07:32:319 [76132] | INFO  | Registered add-on "Reshade Effect Shader Toggler" v1.3.23.633 using ReShade API version 14.
+18:07:32:319 [76132] | INFO  | [Reshade Effect Shader Toggler] Loading config file from "E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\reshade-shaders\ReshadeEffectShaderToggler.ini"
+18:07:32:320 [76132] | INFO  | [Reshade Effect Shader Toggler] No resource shim initialized
+18:07:32:334 [76132] | INFO  | Using feature level b000.
+18:07:32:336 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS init_device begin: device=0x48dae318, native=4603394352, api=45056
+18:07:32:338 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS init_device end.
+18:07:32:463 [76132] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForHwnd(this = 000000006698E530, pDevice = 00000001129C73C8, hWnd = 0000000000250AFE, pDesc = 0000000000F7D520, pFullscreenDesc = 0000000000F7D508, pRestrictToOutput = 0000000000000000, ppSwapChain = ) ...
+18:07:32:463 [76132] | INFO  | > Dumping swap chain description:
+18:07:32:464 [76132] | INFO  |   +-----------------------------------------+-----------------------------------------+
+18:07:32:464 [76132] | INFO  |   | Parameter                               | Value                                   |
+18:07:32:464 [76132] | INFO  |   +-----------------------------------------+-----------------------------------------+
+18:07:32:464 [76132] | INFO  |   | Width                                   | 3440                                    |
+18:07:32:464 [76132] | INFO  |   | Height                                  | 1440                                    |
+18:07:32:464 [76132] | INFO  |   | RefreshRate                             | 0                   0                   |
+18:07:32:464 [76132] | INFO  |   | Format                                  | DXGI_FORMAT_R10G10B10A2_UNORM           |
+18:07:32:464 [76132] | INFO  |   | Stereo                                  | FALSE                                   |
+18:07:32:464 [76132] | INFO  |   | ScanlineOrdering                        | 0                                       |
+18:07:32:465 [76132] | INFO  |   | Scaling                                 | 0                                       |
+18:07:32:465 [76132] | INFO  |   | SampleCount                             | 1                                       |
+18:07:32:465 [76132] | INFO  |   | SampleQuality                           | 0                                       |
+18:07:32:465 [76132] | INFO  |   | BufferUsage                             | 0x30                                    |
+18:07:32:465 [76132] | INFO  |   | BufferCount                             | 2                                       |
+18:07:32:465 [76132] | INFO  |   | Windowed                                | TRUE                                    |
+18:07:32:465 [76132] | INFO  |   | SwapEffect                              | 4                                       |
+18:07:32:465 [76132] | INFO  |   | AlphaMode                               | 0                                       |
+18:07:32:465 [76132] | INFO  |   | Flags                                   | 0x802                                   |
+18:07:32:465 [76132] | INFO  |   +-----------------------------------------+-----------------------------------------+
+18:07:32:493 [76132] | INFO  | Redirecting RegisterClassExA(lpWndClassEx = 0000000000F7D020 { "InvisibleWindowClassNvPresent", style = 0 }) ...
+18:07:32:636 [76132] | INFO  | Running on NVIDIA GeForce RTX 4070 SUPER Driver 616.64.
+18:07:33:175 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS init_swapchain begin: swapchain=0x1377890e0, native=5225916544, device=0x48dae318, api=45056, resize=false
+18:07:33:175 [76132] | INFO  | [RenoDX DLSS] RenoDX DLSS init_swapchain end: color_space=1
+18:07:33:188 [76132] | WARN  | [ReLimiter] DispRes: resolved Display_ID=2147881094, triggering VRR refresh + G-Sync poll
+18:07:33:208 [76132] | WARN  | [ReLimiter] VRR poll: enabled=0 possible=1 requested=0 displayInVRR=1 -> gsync=active (displayId=2147881094)
+18:07:33:208 [76132] | WARN  | [ReLimiter] G-Sync state changed: active
+18:07:33:210 [76132] | INFO  | Recreated runtime environment on runtime 0000000137654750 ('E:\Games\ASI_WuWa\scripts\ReShade.ini').
+18:07:34:128 [75460] | INFO  | [RenoDX DLSS] utils::device_proxy creating device-only D3D12 proxy after first D3D11 present
+18:07:34:128 [75460] | INFO  | Redirecting D3D12CreateDevice(pAdapter = 0000000066C4CDF0, MinimumFeatureLevel = b000, riid = {189819F1-1DB6-4B57-BE54-1821339B85F7}, ppDevice = 00007FFFC2C290C8) ...
+18:07:34:141 [75460] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-21CA39E5168A}, ppFactory = 000000011EF8E800) ...
+18:07:34:189 [75460] | INFO  | [RenoDX DLSS] RenoDX DLSS init_device begin: device=0x13731a038, native=64595188064, api=49152
+18:07:34:191 [75460] | INFO  | [RenoDX DLSS] RenoDX DLSS init_device end.
+18:07:34:229 [75460] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = 000000013731A030, pDesc = 000000011EF8F2C0, riid = {0EC870A6-5D7E-4C22-8CFC-5BAAE07616ED}, ppCommandQueue = 00007FFFC2C290F8) ...
+18:07:34:229 [75460] | INFO  | > Dumping command queue description:
+18:07:34:229 [75460] | INFO  |   +-----------------------------------------+-----------------------------------------+
+18:07:34:229 [75460] | INFO  |   | Parameter                               | Value                                   |
+18:07:34:230 [75460] | INFO  |   +-----------------------------------------+-----------------------------------------+
+18:07:34:230 [75460] | INFO  |   | Type                                    | 0                                       |
+18:07:34:230 [75460] | INFO  |   | Priority                                | 0                                       |
+18:07:34:230 [75460] | INFO  |   | Flags                                   | 0                                       |
+18:07:34:230 [75460] | INFO  |   | NodeMask                                | 0                                       |
+18:07:34:230 [75460] | INFO  |   +-----------------------------------------+-----------------------------------------+
+18:07:34:250 [75460] | INFO  | [RenoDX DLSS] utils::device_proxy captured D3D12 composition queue=0x0000000f09d1df38, native=0x0000000f0a2c4bd0
+18:07:34:250 [75460] | INFO  | [RenoDX DLSS] utils::device_proxy created device-only proxy without output presentation
+18:07:34:252 [75460] | INFO  | [RenoDX DLSS] utils::device_proxy created shared D3D11/D3D12 GPU fence
+18:07:34:768 [75460] | INFO  | [RenoDX DLSS] utils::dlss::nvngx loaded-module hooks active 3/4 for E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\reshade-shaders\nvngx_dlss.dll (slot 1).
+18:07:35:671 [75460] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 000000011EF8DDD0) ...
+18:07:35:903 [75460] | INFO  | [RenoDX DLSS] [RenoDX] DLSS-NR direct: backend-owned NVIDIA NGX core initialization succeeded for the D3D12 device
+18:07:36:033 [75460] | INFO  | [RenoDX DLSS] [RenoDX] DLSS-NR direct: Init_Ext succeeded for device 0xf0a2c5960
+18:07:36:034 [75460] | INFO  | [RenoDX DLSS] [RenoDX] DLSS-NR direct: created private output 1: resource=0xf0aae8020 size=3440x1440 format=24 flags=0x4
+18:07:36:308 [75460] | INFO  | [RenoDX DLSS] [RenoDX] DLSS-NR direct: CreateFeature(Reserved18) succeeded: handle=0xf1bec5a90 size=3440x1440 performance=6 preset=1
+18:07:36:311 [75460] | INFO  | [RenoDX DLSS] [RenoDX] DLSS-NR direct: EvaluateFeature succeeded: evaluation=1 options_revision=2 result=0x00000001
+18:07:36:312 [75460] | INFO  | [RenoDX DLSS] RenoDX DLSS-NR source evaluation completed: source=3 application_frame=0 size=3440x1440 replace_source=true return_output=false.
+18:07:36:321 [75460] | INFO  | [RenoDX DLSS] RenoDX DLSS first present: queue=0xa812d58, native=4605469712, swapchain=0x1377890e0, api=45056
+18:07:36:578 [75460] | WARN  | [ReLimiter] DXGIStatsSource: presenting swapchain changed to 00000001377D2880 (stats deferred)
+18:07:36:590 [75460] | WARN  | [ReLimiter] DispRes: resolved Display_ID=2147881094, triggering VRR refresh + G-Sync poll
+18:07:36:609 [75460] | WARN  | [ReLimiter] on_present: captured presenting swapchain 00000001377D2880 (hwnd=0000000000250AFE, api=2, ptr_changed=1, api_changed=1)
+18:07:36:651 [75460] | WARN  | [ReLimiter] Stats resolution failed: no source responds to GetFrameStatistics
+18:07:36:652 [75460] | WARN  | [ReLimiter] Degraded: T0-Full -> T2b-Invalid
+18:07:36:680 [74504] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\FXShaders\FlexibleCA.fx' in 0.026000 s.
+18:07:36:697 [74520] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\OtisFX\MagicBorder.fx' in 0.042000 s.
+18:07:36:709 [74508] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\GShade\MeshEdges.fx' in 0.055000 s.
+18:07:36:710 [74556] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\ASCII.fx' in 0.056000 s.
+18:07:36:718 [74520] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\OtisFX\MultiLUT.fx' in 0.020000 s.
+18:07:36:736 [74532] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\qUINT\qUINT_sharp.fx' in 0.080000 s.
+18:07:36:818 [74500] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\CShade\cFXAA.fx' in 0.164000 s.
+18:07:36:841 [74500] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\Daltonize.fx' in 0.023000 s.
+18:07:36:854 [74528] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\qUINT\qUINT_bloom.fx' in 0.199000 s.
+18:07:36:881 [74508] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\GShade\Pirate_Depth_GI.fx' in 0.172000 s.
+18:07:36:890 [74520] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\OtisFX\PandaFX.fx' in 0.172000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2CA602C0(74,15-43): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2CA602C0(76,15-43): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2CA602C0(78,15-43): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2CA602C0(59,15-31): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F1BDA5DE0(102,17-66): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F1BDA5DE0(104,17-72): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F1BDA5DE0(106,17-71): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F1BDA5DE0(160,16-93): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+
+18:07:36:918 [74500] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\Deband.fx' in 0.076000 s.
+18:07:36:949 [74532] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\qUINT\qUINT_ssr.fx' in 0.213000 s.
+18:07:36:977 [74508] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\GShade\ReflectiveBumpMapping.fx' in 0.095000 s.
+18:07:37:011 [74508] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\GShade\Spotlight.fx' in 0.034000 s with warnings:
+warning: V__sColor: texture does not support sRGB sampling (back buffer format is not RGBA8)
+
+18:07:37:012 [74496] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\AstrayFX\Smart_Sharp.fx' in 0.358000 s.
+18:07:37:020 [74520] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\PD80\PD80_02_Bloom.fx' in 0.129000 s with warnings:
+warning: V__pd80_hqbloom__samplerLinColor: texture does not support sRGB sampling (back buffer format is not RGBA8)
+
+18:07:37:021 [74504] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\FXShaders\Unsharp.fx' in 0.340000 s.
+18:07:37:041 [74504] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\green-screen-depth-master\GreenScreenDepth.fx' in 0.018000 s.
+18:07:37:055 [74508] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\GShade\TinyPlanet.fx' in 0.043000 s.
+18:07:37:068 [74556] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\AstrayFX\BloomingHDR.fx' in 0.357000 s.
+18:07:37:127 [74520] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\PD80\PD80_04_BlacknWhite.fx' in 0.105000 s.
+18:07:37:169 [74520] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\PD80\PD80_04_Color_Balance.fx' in 0.041000 s.
+18:07:37:195 [74512] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\MartysMods_CLARITY.fx' in 0.541000 s.
+18:07:37:227 [74496] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\AstrayFX\Temporal_AA.fx' in 0.215000 s.
+18:07:37:262 [74496] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\AstrayFX\Trails.fx' in 0.034000 s.
+18:07:37:312 [74528] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\qUINT\qUINT_clarity.fx' in 0.455000 s.
+18:07:37:326 [74504] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\GShade\ArtisticVignette.fx' in 0.284000 s.
+18:07:37:333 [74556] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\AstrayFX\Clarity.fx' in 0.264000 s.
+18:07:37:342 [74504] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\GShade\ChromaticAberration.fx' in 0.016000 s.
+18:07:37:352 [74528] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\qUINT\qUINT_deband.fx' in 0.039000 s.
+18:07:37:380 [74504] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\GShade\LevelsPlus.fx' in 0.037000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2C78B900(124,17-40): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+
+18:07:37:384 [74556] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\AstrayFX\Depth_Cues.fx' in 0.050000 s.
+18:07:37:398 [74532] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\qUINT_rtgi.fx' in 0.448000 s.
+18:07:37:413 [74524] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\PD80\PD80_04_Color_Gradients.fx' in 0.758000 s.
+18:07:37:512 [74508] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\HQAA.fx' in 0.456000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2B71D000(346,2): warning X4000: use of potentially uninitialized variable (F__HQAATAAGenerateBufferJitterPS)
+
+18:07:37:541 [74508] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\LUT.fx' in 0.028000 s.
+18:07:37:558 [74524] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\PD80\PD80_04_Contrast_Brightness_Saturation.fx' in 0.144000 s.
+18:07:37:590 [74556] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\AstrayFX\DLAA_Plus.fx' in 0.206000 s.
+18:07:37:645 [74528] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\qUINT\qUINT_dof.fx' in 0.293000 s.
+18:07:37:662 [74532] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\SMAA.fx' in 0.264000 s with warnings:
+warning: V__colorLinearSampler: texture does not support sRGB sampling (back buffer format is not RGBA8)
+
+18:07:37:713 [74524] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\PD80\PD80_04_Selective_Color.fx' in 0.155000 s.
+18:07:37:755 [74524] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\PD80\PD80_06_Chromatic_Aberration.fx' in 0.041000 s.
+18:07:37:877 [74524] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\PD80\PD80_06_Depth_Slicer.fx' in 0.121000 s.
+18:07:37:882 [74528] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\qUINT\qUINT_lightroom.fx' in 0.236000 s.
+18:07:37:950 [74524] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\potatoFX\pColors.fx' in 0.072000 s.
+18:07:37:978 [74556] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\AstrayFX\Flair.fx' in 0.387000 s.
+18:07:38:154 [74532] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\SSRT.fx' in 0.491000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F1F2A0780(331,13-21): warning X3578: Output value 'outNormal' is not completely initialized
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2C1E9780(176,21-82): warning X3570: gradient instruction used in a loop with varying iteration, attempting to unroll the loop
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F33A7B020(105,16-81): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F33A7B020(462,3): warning X4000: use of potentially uninitialized variable (outColor)
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F33A7B020(463,2): warning X4000: use of potentially uninitialized variable (outColor)
+
+18:07:38:157 [74524] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\Quark_Local_Contrast.fx' in 0.207000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F33C086C0(245,17-82): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F33C086C0(253,16-39): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+
+18:07:38:168 [74532] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\__Addon_ScreenshotDepth_Seri14.addonfx' in 0.013000 s.
+18:07:38:260 [74496] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\Barbatos_SSRj.fx' in 0.998000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2C36D060(270,13-21): warning X3578: Output value 'outNormal' is not completely initialized
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2C36F5A0(141,13-21): warning X3578: Output value 'outNormal' is not completely initialized
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F1F7DDDE0(58,13-21): warning X3578: Output value 'outNormal' is not completely initialized
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2C808680(187,13-21): warning X3578: Output value 'outNormal' is not completely initialized
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F335950C0(415,16-35): warning X3556: integer modulus may be much slower, try using uints if possible.
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F335950C0(416,16-34): warning X3556: integer modulus may be much slower, try using uints if possible.
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F335950C0(358,2): warning X4000: use of potentially uninitialized variable (F__Barbatos_SSR203__GetGlossySample)
+
+18:07:38:271 [74516] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\OtisFX\CinematicDOF.fx' in 1.616000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2C7DD580(388,3): warning X4000: use of potentially uninitialized variable (fragment)
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2C7DD560(379,3): warning X4000: use of potentially uninitialized variable (fragment)
+
+18:07:38:288 [74516] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\OtisFX\DepthDarkness.fx' in 0.017000 s.
+18:07:38:337 [74516] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\OtisFX\DepthHaze.fx' in 0.048000 s.
+18:07:38:337 [74496] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\BIAA.fx' in 0.076000 s.
+18:07:38:353 [74496] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\Border.fx' in 0.015000 s.
+18:07:38:409 [74516] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\OtisFX\DirectionalDepthBlur.fx' in 0.071000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F1CF550C0(63,13-20): warning X3578: Output value 'fragment' is not completely initialized
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F1F2B17A0(111,2): warning X4000: use of potentially uninitialized variable (fragment)
+
+18:07:38:433 [74516] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\OtisFX\Emphasize.fx' in 0.023000 s.
+18:07:38:446 [74516] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\OtisFX\GoldenRatio.fx' in 0.012000 s.
+18:07:38:486 [74516] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\OtisFX\Heightfog.fx' in 0.040000 s.
+18:07:38:530 [74496] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\CorgiFX\StageDepthPlus.fx' in 0.176000 s.
+18:07:38:586 [74556] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\AstrayFX\GloomAO.fx' in 0.607000 s.
+18:07:38:711 [74528] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\qUINT\qUINT_motionvectors.fx' in 0.828000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F0A6F2240(122,13): warning X3578: Output value 'o' is not completely initialized
+
+18:07:38:842 [74528] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\qUINT\qUINT_mxao.fx' in 0.130000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F0A6E91E0(106,13-17): warning X3578: Output value 'color' is not completely initialized
+
+18:07:41:085 [74512] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\MartysMods_LAUNCHPAD.fx' in 3.889000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F337AE0A0(118,15-34): warning X3556: integer modulus may be much slower, try using uints if possible.
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2CEE8F80(118,15-34): warning X3556: integer modulus may be much slower, try using uints if possible.
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2CEE8F80(118,15-34): warning X3556: integer modulus may be much slower, try using uints if possible.
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2CEE8F80(118,15-34): warning X3556: integer modulus may be much slower, try using uints if possible.
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2CEE8F80(118,15-34): warning X3556: integer modulus may be much slower, try using uints if possible.
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2CEE8F80(118,15-34): warning X3556: integer modulus may be much slower, try using uints if possible.
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2CEE8F80(118,15-34): warning X3556: integer modulus may be much slower, try using uints if possible.
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F336AF040(118,15-34): warning X3556: integer modulus may be much slower, try using uints if possible.
+
+18:07:41:340 [74500] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\Depth3D\SuperDepth3D.fx' in 4.421000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F1F7CA040(438,18-33): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F336AF040(466,18-33): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F336AF040(399,18-33): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2B9BDF40(457,18-33): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2B81B020(441,18-33): warning X3571: pow(f, e) will not work for negative f, use abs(f) or conditionally handle negative values if you expect them
+
+18:07:41:362 [74512] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\MartysMods_MXAO.fx' in 0.276000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F1F41DA40(415,2): warning X4000: use of potentially uninitialized variable (F__MXAOFused)
+
+18:07:41:391 [74500] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\Depth3DAddon.fx' in 0.050000 s.
+18:07:41:422 [74500] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\DisplayDepth.fx' in 0.030000 s.
+18:07:41:610 [74512] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\MartysMods_SMAA.fx' in 0.247000 s.
+18:07:41:675 [74512] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\NeoSSAO.fx' in 0.064000 s with warnings:
+E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\NeoSSAO.fx(252, 8): warning X5000: 'offset': global variables are considered 'uniform' by default
+E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\NeoSSAO.fx(310, 8): warning X5000: 'factorBrightness': global variables are considered 'uniform' by default
+
+18:07:41:698 [74512] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\NFAA.fx' in 0.023000 s.
+18:07:41:724 [74512] | INFO  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\OtisFX\AdaptiveFog.fx' in 0.025000 s.
+18:07:41:780 [74500] | WARN  | Successfully compiled 'E:\Games\ASI_WuWa\scripts\reshade-shaders\Shaders\DOF.fx' in 0.358000 s with warnings:
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F2C8483C0(269,17-36): warning X3556: integer divides may be much slower, try using uints if possible.
+E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\Shader@0x0000000F1BE6A480(261,16-49): warning X3556: integer modulus may be much slower, try using uints if possible.
+
+18:07:42:024 [76132] | INFO  | [RenoDX DLSS] utils::dlss::nvngx loaded-module hooks active 3/4 for E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Engine\Plugins\Runtime\Nvidia\DLSS\Binaries\ThirdParty\Win64\nvngx_dlss.dll (slot 2).
+18:07:42:194 [76132] | INFO  | [RenoDX DLSS] utils::dlss::nvngx loaded-module hooks active 3/4 for E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Engine\Plugins\Runtime\Nvidia\DLSS\Binaries\ThirdParty\Win64\nvngx_dlssd.dll (slot 3).
+18:07:43:613 [75460] | WARN  | [ReLimiter] Stats resolution failed: no source responds to GetFrameStatistics
+18:07:43:613 [75460] | WARN  | [ReLimiter] DIAG[1]: predicted=7083.8, fg_div=1.0, ceiling=8333.9, deadline=0, now=345973279190
+18:07:43:643 [75460] | WARN  | [ReLimiter] DIAG[2]: predicted=7083.8, fg_div=1.6, ceiling=8333.9, deadline=345973279190, now=345973576965
+18:07:43:712 [75460] | WARN  | [ReLimiter] DIAG[3]: predicted=7083.8, fg_div=2.0, ceiling=8333.9, deadline=345973576965, now=345974266623
+18:07:43:712 [75460] | WARN  | [ReLimiter] STALL: frame=4 actual_ft=68978us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:43:743 [75460] | WARN  | [ReLimiter] DIAG[4]: predicted=7083.8, fg_div=2.0, ceiling=8333.9, deadline=345974266623, now=345974578505
+18:07:43:759 [75460] | WARN  | [ReLimiter] DIAG[5]: predicted=7083.8, fg_div=2.0, ceiling=8333.9, deadline=345974578505, now=345974743564
+18:07:44:338 [75460] | WARN  | [ReLimiter] Stats resolution failed: no source responds to GetFrameStatistics
+18:07:45:004 [75460] | WARN  | [ReLimiter] Stats resolution failed: suppressing further warnings
+18:07:50:586 [75460] | WARN  | [ReLimiter] STALL: frame=304 actual_ft=203880us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:51:613 [75460] | WARN  | [ReLimiter] STALL: frame=305 actual_ft=1027378us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:51:665 [75460] | WARN  | [ReLimiter] STALL: frame=306 actual_ft=51952us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:51:728 [75460] | WARN  | [ReLimiter] STALL: frame=307 actual_ft=62244us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:51:779 [75460] | WARN  | [ReLimiter] STALL: frame=308 actual_ft=51654us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:55:357 [75460] | WARN  | [ReLimiter] STALL: frame=437 actual_ft=724680us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:55:583 [75460] | WARN  | [ReLimiter] STALL: frame=444 actual_ft=69215us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:56:306 [75460] | WARN  | [ReLimiter] STALL: frame=463 actual_ft=322759us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:56:938 [75460] | WARN  | [ReLimiter] STALL: frame=485 actual_ft=139118us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:57:572 [75460] | WARN  | [ReLimiter] STALL: frame=507 actual_ft=134827us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:58:170 [75460] | WARN  | [ReLimiter] STALL: frame=532 actual_ft=63774us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:58:717 [75460] | WARN  | [ReLimiter] STALL: frame=553 actual_ft=101817us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:58:918 [75460] | WARN  | [ReLimiter] STALL: frame=556 actual_ft=151695us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:07:59:581 [75460] | WARN  | [ReLimiter] STALL: frame=581 actual_ft=129817us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:00:120 [75460] | WARN  | [ReLimiter] STALL: frame=603 actual_ft=62274us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:00:269 [61888] | INFO  | Redirecting RegisterClassW(lpWndClass = 0000001062E2FE80 { "Perfdisk PNP Window", style = 0 }) ...
+18:08:00:484 [75460] | WARN  | [ReLimiter] STALL: frame=604 actual_ft=364207us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:00:862 [75460] | WARN  | [ReLimiter] STALL: frame=606 actual_ft=345905us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:01:083 [76648] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 00000010622AF3C0) ...
+18:08:01:312 [75460] | WARN  | [ReLimiter] STALL: frame=607 actual_ft=450746us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:02:206 [75460] | WARN  | [ReLimiter] STALL: frame=608 actual_ft=893973us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:03:030 [75460] | WARN  | [ReLimiter] STALL: frame=609 actual_ft=824189us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:03:825 [75460] | WARN  | [ReLimiter] STALL: frame=610 actual_ft=794155us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:03:915 [75460] | WARN  | [ReLimiter] STALL: frame=612 actual_ft=68638us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:03:999 [75460] | WARN  | [ReLimiter] STALL: frame=613 actual_ft=83674us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:04:083 [75460] | WARN  | [ReLimiter] STALL: frame=614 actual_ft=84297us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:09:298 [75460] | WARN  | [ReLimiter] STALL: frame=616 actual_ft=5192846us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:09:415 [75460] | WARN  | [ReLimiter] STALL: frame=617 actual_ft=116526us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:09:512 [75460] | WARN  | [ReLimiter] Miss ratio HIGH (0.67): predicted=50039.3, effective=22222.2
+18:08:09:512 [75460] | WARN  | [ReLimiter] STALL: frame=618 actual_ft=97432us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:09:822 [75460] | WARN  | [ReLimiter] Miss ratio LOW (0.28): predicted=20059.6, effective=22222.2
+18:08:10:742 [75460] | WARN  | [ReLimiter] STALL: frame=663 actual_ft=237039us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:10:812 [75460] | WARN  | [ReLimiter] STALL: frame=664 actual_ft=70195us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:18:936 [75460] | WARN  | [ReLimiter] STALL: frame=1023 actual_ft=104468us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:19:195 [75460] | WARN  | [ReLimiter] STALL: frame=1029 actual_ft=134695us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:19:288 [75460] | WARN  | [ReLimiter] STALL: frame=1030 actual_ft=93006us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:19:356 [75460] | WARN  | [ReLimiter] STALL: frame=1031 actual_ft=67966us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:19:654 [75460] | WARN  | [ReLimiter] STALL: frame=1036 actual_ft=192953us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:19:715 [75460] | WARN  | [ReLimiter] STALL: frame=1037 actual_ft=60801us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:19:804 [75460] | WARN  | [ReLimiter] STALL: frame=1039 actual_ft=59410us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:19:953 [75460] | WARN  | [ReLimiter] STALL: frame=1043 actual_ft=83126us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:20:141 [75460] | WARN  | [ReLimiter] Miss ratio HIGH (0.66): predicted=41806.5, effective=22222.2
+18:08:20:466 [75460] | WARN  | [ReLimiter] Miss ratio LOW (0.28): predicted=19858.4, effective=22222.2
+18:08:22:576 [75460] | WARN  | [ReLimiter] STALL: frame=1141 actual_ft=346469us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:22:892 [75460] | WARN  | [ReLimiter] STALL: frame=1152 actual_ft=71397us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:22:969 [75460] | WARN  | [ReLimiter] STALL: frame=1153 actual_ft=76920us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:22:970 [65652] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 000000001AA9B510) ...
+18:08:23:052 [75460] | WARN  | [ReLimiter] STALL: frame=1155 actual_ft=60199us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:23:107 [75460] | WARN  | [ReLimiter] STALL: frame=1156 actual_ft=54989us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:23:216 [75460] | WARN  | [ReLimiter] STALL: frame=1158 actual_ft=87297us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:23:521 [75460] | WARN  | [ReLimiter] STALL: frame=1164 actual_ft=191914us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:23:572 [75460] | WARN  | [ReLimiter] STALL: frame=1165 actual_ft=51015us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:24:041 [75460] | WARN  | [ReLimiter] STALL: frame=1184 actual_ft=68352us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:24:604 [75460] | WARN  | [ReLimiter] STALL: frame=1194 actual_ft=340735us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:24:870 [75460] | WARN  | [ReLimiter] STALL: frame=1195 actual_ft=266299us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:25:240 [75460] | WARN  | [ReLimiter] STALL: frame=1207 actual_ft=111402us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:25:675 [75460] | WARN  | [ReLimiter] STALL: frame=1225 actual_ft=58309us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:27:803 [75460] | WARN  | [ReLimiter] STALL: frame=1317 actual_ft=53142us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:27:945 [75460] | WARN  | [ReLimiter] STALL: frame=1322 actual_ft=53554us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:28:393 [75460] | WARN  | [ReLimiter] STALL: frame=1328 actual_ft=326857us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:28:505 [75460] | WARN  | [ReLimiter] STALL: frame=1331 actual_ft=64960us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:28:599 [75460] | WARN  | [ReLimiter] STALL: frame=1332 actual_ft=93997us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:28:758 [75460] | WARN  | [ReLimiter] STALL: frame=1335 actual_ft=77541us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:28:834 [75460] | WARN  | [ReLimiter] STALL: frame=1337 actual_ft=54061us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:28:981 [75460] | WARN  | [ReLimiter] STALL: frame=1341 actual_ft=67430us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:29:476 [75460] | WARN  | [ReLimiter] STALL: frame=1359 actual_ft=92511us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:29:933 [75460] | WARN  | [ReLimiter] STALL: frame=1378 actual_ft=55985us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:30:278 [75460] | WARN  | [ReLimiter] STALL: frame=1390 actual_ft=64301us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:30:338 [75460] | WARN  | [ReLimiter] STALL: frame=1391 actual_ft=59843us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:30:417 [75460] | WARN  | [ReLimiter] STALL: frame=1393 actual_ft=56954us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:30:435 [65652] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 000000001AA9B510) ...
+18:08:30:489 [75460] | WARN  | [ReLimiter] STALL: frame=1395 actual_ft=50079us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:30:598 [75460] | WARN  | [ReLimiter] STALL: frame=1397 actual_ft=86613us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:30:698 [75460] | WARN  | [ReLimiter] STALL: frame=1399 actual_ft=73532us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:31:580 [75460] | WARN  | [ReLimiter] STALL: frame=1427 actual_ft=218326us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:31:665 [75460] | WARN  | [ReLimiter] STALL: frame=1428 actual_ft=85031us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:31:826 [75460] | WARN  | [ReLimiter] STALL: frame=1433 actual_ft=72992us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:31:948 [65652] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 000000001AA9F5B8) ...
+18:08:32:095 [75460] | WARN  | [ReLimiter] STALL: frame=1440 actual_ft=121693us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:32:191 [65652] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 000000001AA9EB00) ...
+18:08:32:421 [75460] | WARN  | [ReLimiter] STALL: frame=1444 actual_ft=250073us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:32:489 [75460] | WARN  | [ReLimiter] STALL: frame=1445 actual_ft=67974us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:32:933 [75460] | WARN  | [ReLimiter] STALL: frame=1446 actual_ft=444229us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:33:088 [75460] | WARN  | [ReLimiter] STALL: frame=1447 actual_ft=154211us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:33:250 [75460] | WARN  | [ReLimiter] STALL: frame=1448 actual_ft=162167us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:33:542 [75460] | WARN  | [ReLimiter] STALL: frame=1450 actual_ft=246758us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:34:575 [75460] | WARN  | [ReLimiter] STALL: frame=1451 actual_ft=1033191us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:34:828 [75460] | WARN  | [ReLimiter] Miss ratio HIGH (0.67): predicted=54642.2, effective=22222.2
+18:08:34:828 [75460] | WARN  | [ReLimiter] STALL: frame=1452 actual_ft=252694us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:35:713 [75460] | WARN  | [ReLimiter] STALL: frame=1453 actual_ft=884856us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:35:766 [75460] | WARN  | [ReLimiter] STALL: frame=1454 actual_ft=52629us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:35:898 [75460] | WARN  | [ReLimiter] STALL: frame=1455 actual_ft=132045us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:36:071 [75460] | WARN  | [ReLimiter] STALL: frame=1456 actual_ft=173598us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:36:315 [75460] | WARN  | [ReLimiter] STALL: frame=1458 actual_ft=221446us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:36:771 [75460] | WARN  | [ReLimiter] Miss ratio LOW (0.29): predicted=24075.7, effective=22222.2
+18:08:38:380 [75460] | WARN  | [ReLimiter] STALL: frame=1542 actual_ft=83705us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:08:38:453 [75460] | WARN  | [ReLimiter] STALL: frame=1543 actual_ft=72833us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:09:02:831 [75460] | WARN  | [ReLimiter] STALL: frame=2636 actual_ft=53254us driver_sleep=0us own_sleep=0us deadline_drift=0us
+18:09:54:622 [73856] | INFO  | Redirecting D3D11CreateDevice(pAdapter = 0000000000000000, DriverType = 1, Software = 0000000000000000, Flags = 0, pFeatureLevels = 0000000000000000, FeatureLevels = 0, SDKVersion = 7, ppDevice = 000000000CC0EE28, pFeatureLevel = 0000000000000000, ppImmediateContext = 000000000CC0EE78) ...
+18:09:54:622 [73856] | INFO  | > Passing on to D3D11CreateDeviceAndSwapChain:
+18:09:54:622 [73856] | INFO  | Redirecting D3D11CreateDeviceAndSwapChain(pAdapter = 0000000000000000, DriverType = 1, Software = 0000000000000000, Flags = 0, pFeatureLevels = 0000000000000000, FeatureLevels = 0, SDKVersion = 7, pSwapChainDesc = 0000000000000000, ppSwapChain = 0000000000000000, ppDevice = 000000000CC0EE28, pFeatureLevel = 0000000000000000, ppImmediateContext = 000000000CC0EE78) ...
+18:09:54:623 [73856] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {7B7166EC-21C7-44AE-B21A-C9AE321AE369}, ppFactory = 000000000CC0E418) ...
+18:09:54:643 [73856] | INFO  | Using feature level b000.
+18:09:54:646 [73856] | INFO  | [RenoDX DLSS] RenoDX DLSS init_device begin: device=0x11bc4cc228, native=76181684192, api=45056
+18:09:54:646 [73856] | INFO  | [RenoDX DLSS] RenoDX DLSS init_device end.
+18:09:54:762 [73856] | INFO  | [RenoDX DLSS] RenoDX DLSS destroy_device begin: device=0x11bc4cc228
+18:09:54:762 [73856] | INFO  | [RenoDX DLSS] RenoDX DLSS destroy_device end.
+18:09:54:762 [73856] | WARN  | Reference count for ID3D11Device0 object 00000011BC4CC220 (00000011BCC83FE0) is inconsistent (9).
+18:09:54:763 [73856] | WARN  | Reference count for IDXGIAdapter0 object 00000011911B6930 (000000119CCB9910) is inconsistent (3).
+18:10:00:750 [75460] | INFO  | Saving screenshot to 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\Client-Win64-Shipping 2026-09-06 18-10-00_0 DLSS5_FB_73340_34734296_0.jpg'.
+18:10:02:754 [75460] | INFO  | Saving screenshot to 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\Client-Win64-Shipping 2026-09-06 18-10-02_0 DLSS5_FB_73340_34734296_1.jpg'.
+18:10:04:761 [75460] | INFO  | Saving screenshot to 'E:\WeGameApps\rail_apps\Wuthering Waves(2002137)\Client\Binaries\Win64\scripts\.\Client-Win64-Shipping 2026-09-06 18-10-04_0 DLSS5_FB_73340_34734296_2.jpg'.
