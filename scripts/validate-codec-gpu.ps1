@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -41,6 +41,12 @@ $boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_stren
 $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
 $layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
+if (![string]::IsNullOrWhiteSpace($ComparisonOutput)) {
+    if ($NegativeControl -or $LayerNegativeControl -or $BaselineSource) { throw 'Run composition export independently from negative/baseline controls.' }
+    $comparisonTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/composition_contract_gpu.inl') -Raw -Encoding UTF8
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $comparisonTests)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 3 && std::strcmp(argv[1], "--composition-contract") == 0) { ExportCompositionContract(gpu, argv[2]); return 0; }')
+}
 $harness = $harness.Replace('// @PRODUCTION_CONSTANTS@', $constants.Value)
 $harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_CONSTANTS@', $descriptors.Value)
 $writer = Get-Content -LiteralPath (Join-Path $SourceRoot 'src\nr_codec_descriptors.inl') -Raw -Encoding UTF8
@@ -78,7 +84,12 @@ $compiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang++.exe'
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' $generated `
     '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'GPU codec harness compilation failed.' }
-if ($LayerNegativeControl) {
+if (![string]::IsNullOrWhiteSpace($ComparisonOutput)) {
+    & $binary '--composition-contract' ([IO.Path]::GetFullPath($ComparisonOutput))
+    if ($LASTEXITCODE -ne 0) { throw 'Production pre/post composition export failed.' }
+    & python (Join-Path $projectRoot 'scripts/validate-composition-contract.py') --capture $ComparisonOutput --source (Join-Path $SourceRoot 'src/nr_before_sr.cpp')
+    if ($LASTEXITCODE -ne 0) { throw 'Independent raw-plane/contract validation failed.' }
+} elseif ($LayerNegativeControl) {
     $negative = & $binary --layer-negative-control 2>&1
     if ($LASTEXITCODE -ne 1 -or ($negative -join "`n") -notmatch 'LAYER_DIRECTION_ORACLE') {
         throw 'Layer negative control must reject the precise unattenuated bright edit.'

@@ -28,7 +28,7 @@ class GeneralHarness(unittest.TestCase):
     def test_source_inputs_use_explicit_utf8(self):
         script = (ROOT/'scripts/validate-codec-gpu.ps1').read_text(encoding='utf-8-sig')
         readers = [line for line in script.splitlines() if 'Get-Content ' in line]
-        self.assertEqual(len(readers),8)
+        self.assertEqual(len(readers),9)
         self.assertTrue(all('-Encoding UTF8' in line for line in readers))
         self.assertNotIn('C:\\Users\\', script)
 

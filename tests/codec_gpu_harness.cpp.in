@@ -348,6 +348,7 @@ struct Gpu {
 
 struct RunResult {
     std::vector<Float4> output;
+    std::vector<Float4> original, proxy, neural;
     std::vector<std::uint32_t> capture;
 };
 
@@ -364,7 +365,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
               UINT requested_stride, UINT flags, int variant,
               bool v2 = false, UINT requested_model_width = 0,
               UINT requested_model_height = 0,
-              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f, Float4 layers = {1.f,1.f,1.f,1.f}) {
+              const ExposureCase &exposure_case = {}, float detail_stability = 0.0f, CaptureRoi roi = {}, float requested_strength = -1.0f, Float4 layers = {1.f,1.f,1.f,1.f}, bool read_model_planes = false) {
     constexpr UINT sx = 3, sy = 2, dx = 2, dy = 1;
     const UINT model_width = requested_model_width != 0
         ? requested_model_width : width;
@@ -485,8 +486,18 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
                 D3D12_RESOURCE_STATE_COPY_SOURCE);
     gpu.list->CopyBufferRegion(capture_readback.p, 0, capture.p, 0, allocation_bytes);
     gpu.ReadTexture(output_texture);
+    if (read_model_planes) {
+        gpu.ReadTexture(source_texture);
+        gpu.ReadTexture(proxy_texture);
+        gpu.ReadTexture(neural_texture);
+    }
     gpu.Execute();
     RunResult result;
+    if (read_model_planes) {
+        result.original = gpu.TexturePixels(source_texture);
+        result.proxy = gpu.TexturePixels(proxy_texture);
+        result.neural = gpu.TexturePixels(neural_texture);
+    }
     result.output = gpu.TexturePixels(output_texture);
     Check(capture_readback->Map(0, nullptr, &mapped), "Map capture values");
     result.capture.resize(allocation_bytes / 4);
@@ -614,10 +625,12 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
 
 // @V3_BOOST_TESTS@
 // @LAYER_TESTS@
+// @COMPOSITION_CONTRACT_TESTS@
 
 int main(int argc, char **argv) {
     try {
         Gpu gpu;
+        // @COMPOSITION_CONTRACT_ENTRY@
 // @MAINTENANCE_COMPARISON@
         const bool negative_control = argc == 2 && std::strcmp(argv[1], "--negative-control") == 0;
         const bool layer_negative = argc == 2 && std::strcmp(argv[1], "--layer-negative-control") == 0;
