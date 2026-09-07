@@ -18,6 +18,9 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
     FeedbackObserveEvaluate(params,feature,carrier);
     ScopedRrOwnershipGate ownership(true,false,true);
     if(!ownership.acquired() || ownership.is_nested()) {
+        if(!ownership.acquired() &&
+           g_rr_ownership_gate_owner.load(std::memory_order_acquire)==1)
+            LatchConcurrentRrOwnershipChange("Feature 13 Evaluate");
         ownership.Release();
         SetBypassReason(BypassReason::Feature1TransactionBusy);
         return original(command_list,handle,params,callback);

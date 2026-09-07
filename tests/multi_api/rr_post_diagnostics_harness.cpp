@@ -26,6 +26,8 @@ std::atomic<int> g_last_carrier_feature{0};
 std::atomic<bool> g_rr_guard_was_active{false}, g_feature_tracking_uncertain{false}, g_lifecycle_tracking_uncertain{false};
 std::atomic<ULONGLONG> g_rr_passthrough_evaluations{0}, g_carrier_evaluations{0}, g_pipeline_eligible_carriers{0};
 std::atomic<ULONGLONG> g_all_evaluations{0}, g_rr_guarded_sr_evaluations{0};
+std::atomic<int> g_rr_ownership_gate_owner{0};
+void LatchConcurrentRrOwnershipChange(const char*) { g_feature_tracking_uncertain=true; }
 namespace nr_f8 { std::atomic<bool> g_config_hold{false}; }
 
 enum class Fault {

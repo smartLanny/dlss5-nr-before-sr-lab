@@ -54,9 +54,9 @@ try {
     & python -m unittest discover -s tests/native_bridge -p 'test_*.py' -v
     if ($LASTEXITCODE) { throw 'Native bridge transformations failed.' }
     $Checks.Add('native_bridge Python exact-source transformations')
-    & python -m unittest tests.test_ui_refresh tests.test_report_clipboard tests.test_f8_parser -v
+    & python -m unittest tests.test_ui_refresh tests.test_report_clipboard tests.test_f8_parser tests.test_rr_route_recovery -v
     if ($LASTEXITCODE) { throw 'UI, clipboard or F7 parser regression failed.' }
-    $Checks.Add('settings UI contract, production clipboard ownership/retry, 512 ROI sparse F7 parser')
+    $Checks.Add('settings UI, clipboard ownership/retry, 512 ROI parser, actual RR recovery admission/dispatch/Win32 gate')
     $Checks.Add('carrier completion: staged production state machine, WARP fence, real access-violation propagation')
     $TestBuild = Join-Path $Output 'tests'
     New-Item -ItemType Directory -Path $TestBuild | Out-Null
@@ -111,7 +111,7 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-rr-retirement.py') --compiler $Cxx --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --negative-control
     if ($LASTEXITCODE) { throw 'RR historical leak control failed.' }
     $Checks.Add('actual staged RR Release hooks: 54 scenarios and historical leak negative control')
-    foreach ($Script in @('validate-picture-budget.py', 'validate-command-creation.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py', 'validate-f8-controller.py', 'validate-recommended-picture.py')) {
+    foreach ($Script in @('validate-picture-budget.py', 'validate-color-policy.py', 'validate-command-creation.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py', 'validate-f8-controller.py', 'validate-recommended-picture.py')) {
         & python (Join-Path $PSScriptRoot $Script) --compiler $Cxx
         if ($LASTEXITCODE) { throw "Production regression failed: $Script" }
         $Checks.Add($Script)

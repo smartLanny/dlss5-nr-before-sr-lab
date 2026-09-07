@@ -325,7 +325,7 @@ DWORD WINAPI PackageWorker(void *opaque) {
             std::fprintf(file,"DLSS5 %s 本地采集 / local capture\n完整采集=%d；原设置恢复=%d；不自动上传。\n默认仅采当前状态，不启用NR也不切换模式。只有用户选择对比时临时切换。\n\n",kBuildIdentity,complete,s->restored);
             for(unsigned i=0;i<s->group_count;++i){const auto &g=s->groups[i];unsigned valid=0;for(unsigned f=0;f<g.count;++f)valid+=g.frames[f].valid;
                 std::fprintf(file,"Group %u: requestedMode=%d expectedCaptureMode=%d rrAtStart=%d enabled=%d requestedStrength=%.4g actualStrength=%.4g requestedPostPercent=%u actualPostPercent=%u ROI=%u/%u roiSide=%u overview=%d screenshotPresent=%llu complete=%d reason=%s\n",i,g.requested.mode,g.expected_mode,g.rr_at_start,g.requested.enabled,ActiveTransferStrength(g.requested),ActiveTransferStrength(g.actual),g.requested_post_percent,g.actual_post_percent,valid,g.roi_target,kRoiSide,g.overview_reserved&&g.frames[kFrames].valid,g.shot_present,Complete(g),g.reason);}
-            std::fprintf(file,"\n分块格式 F8CHK004：头中的roiTarget记录本组目标（当前采集3帧，分享矩阵2帧）；ROI索引从0连续，16仅供当前采集的独立概览。原图/代理/NR/合成/保护五平面是同一次Combine dispatch的512原像素ROI；曝光尾部写入每条JSON。代理/NR按合成时工作网格映射采样。缺失帧保留元数据而不是拼接。\n截图是之后的独立Present，各组也是顺序采集；它们不是同一帧最终SR证据。采集期间需保持场景与镜头。原生最终SR纹理、MV/Depth像素未取得，不能验证时域重投影。\n保护数据RGBA=权重、原因位、原始log残差、空间保护后log残差；原因1低采样/2细碎不一致/4近黑/8极端比值/16关闭/32输入无效/64零强度/128历史抑制/256无残差/512后置不可用。这是空间保护，不是人脸/HUD识别，也不证明运动保护。\n每帧JSON含完整请求/实际参数、codecFlags、曝光有效性、jitter、MV比例与实际模型tuning；请在相同颜色域分析，不独立归一化或用均值替代画质。部分包请检查manifest缺失原因。\n");
+            std::fprintf(file,"\n分块格式 F8CHK004：头中的roiTarget记录本组目标（当前采集3帧，分享矩阵2帧）；ROI索引从0连续，16仅供当前采集的独立概览。原图/代理/NR/合成/保护五平面是同一次Combine dispatch的512原像素ROI；曝光尾部写入每条JSON。代理/NR按合成时工作网格映射采样。缺失帧保留元数据而不是拼接。\n截图是之后的独立Present，各组也是顺序采集；它们不是同一帧最终SR证据。采集期间需保持场景与镜头。原生最终SR纹理、MV/Depth像素未取得，不能验证时域重投影。\n保护数据RGBA=权重、原因位、原始log残差、空间保护后log残差；原因1低采样/2细碎不一致/4近黑/8极端比值/16关闭/32输入无效/64零强度/128历史抑制/256无残差/512后置细节/边缘空间权重不可用（lightingLock按独立亮度保护生效）。这是空间保护，不是人脸/HUD识别，也不证明运动保护。\n每帧JSON含完整请求/实际参数、codecFlags、曝光有效性、jitter、MV比例与实际模型tuning；请在相同颜色域分析，不独立归一化或用均值替代画质。部分包请检查manifest缺失原因。\n");
             const bool ok=std::ferror(file)==0;std::fclose(file);
             if(ok){nr_bundle::AddFile(*job,path,"capture-analysis.txt",nr_bundle::FileKind::Copy,true);
                 nr_bundle::AddFile(*job,path,"分析说明.txt",nr_bundle::FileKind::Copy,true);}
@@ -364,7 +364,7 @@ void StartGroup(Session &s) {
     const unsigned index=s.group;
     const ChainConfig requested=GroupConfig(s.original,s.options.comparison,index);
     const bool rr_pre_skip=s.options.comparison!=Comparison::Current && requested.enabled && requested.mode==2 &&
-        ShouldGuardFeature1ForRayReconstruction();
+        IsRayReconstructionRouteObserved();
     const unsigned requested_post=GroupPostPercent(s.options.comparison,index,s.post_original.percent);
     const bool group_uses_post=GroupUsesPostOptions(s.options.comparison,index);
     const bool post_applied=rr_pre_skip || !requested.enabled || !group_uses_post ||
@@ -376,7 +376,7 @@ void StartGroup(Session &s) {
     AcquireSRWLockExclusive(&g_lock);
     Group &g=s.groups[index];g.requested=requested;g.actual=actual;g.generation=g_config_generation.load();
     g.requested_post_percent=requested_post;g.actual_post_percent=actual_post.percent;
-    g.rr_at_start=ShouldGuardFeature1ForRayReconstruction();
+    g.rr_at_start=IsRayReconstructionRouteObserved();
     g.expected_mode=s.options.comparison==Comparison::Current && g.rr_at_start?1:requested.mode;
     g.roi_target=s.options.comparison==Comparison::Current?kCurrentRoiFrames:kMatrixRoiFrames;
     g.overview_target=s.options.comparison==Comparison::Current;
@@ -410,7 +410,7 @@ void Tick(reshade::api::effect_runtime *runtime) {
             Break(g,g_cancel.load()?"cancelled":age>=30000?"group timeout; missing pixels retained as partial":"Ray Reconstruction owns the rendering path");
             s->partial=true;finish=true;
         } else {
-            const bool rr_now=ShouldGuardFeature1ForRayReconstruction();
+            const bool rr_now=IsRayReconstructionRouteObserved();
             if(s->options.comparison==Comparison::Current && rr_now!=g.rr_at_start)
                 Break(g,"RR route changed during current-state capture; mixed-route pixels were not combined");
             else if(g.requested.enabled && ((s->options.comparison!=Comparison::Current && g.requested.mode==2 && rr_now) || OtherNrOwnerActive()))

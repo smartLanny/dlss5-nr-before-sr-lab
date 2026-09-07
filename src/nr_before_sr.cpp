@@ -533,10 +533,9 @@ std::atomic<unsigned int> g_feature1_create_in_progress{0};
 // Failed/null attempts are logged separately and must not create a false
 // permanent observer gap during HDR or DLSS contract rebuilds.
 std::atomic<unsigned long long> g_feature1_successful_creates{0};
-// A live Feature 13 handle is treated as authoritative RR ownership. There is
-// no public frame token that can prove a retained handle is dormant without a
-// race, so ordinary Feature 1 processing resumes only after the game releases
-// every RR handle (or after a process restart).
+// Lifecycle inventory only. Engines can retain an inactive Feature 13 handle
+// after switching back to Feature 1; a cached handle does not own every later
+// SR evaluation. Actual calls and the transaction gate determine routing.
 std::atomic<unsigned int> g_live_rr_handles{0};
 // Close the small window between entering a Feature 13 Create call and
 // publishing its returned handle in g_features. Feature 1 must not be modified
@@ -930,6 +929,11 @@ std::atomic<int> g_last_carrier_feature{-1};
 std::atomic<unsigned long long> g_rr_passthrough_evaluations{0};
 std::atomic<unsigned long long> g_rr_guarded_sr_evaluations{0};
 std::atomic<bool> g_rr_guard_was_active{false};
+bool IsRayReconstructionRouteObserved() {
+    return g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
+        (g_last_carrier_feature.load(std::memory_order_acquire) == 13 &&
+         g_live_rr_handles.load(std::memory_order_acquire) != 0);
+}
 std::atomic<bool> g_unverified_exposure_texture_bypass{false};
 std::atomic<unsigned long long> g_exposure_texture_bypasses{0};
 std::atomic<bool> g_pre_sr_runtime_rejected{false};
@@ -1731,8 +1735,7 @@ void ObserveFrameCadence() {
     const PerfSignature current = {
         perf_config.enabled,
         OtherNrOwnerActive(),
-        g_live_rr_handles.load(std::memory_order_relaxed) != 0 ||
-            g_rr_create_in_progress.load(std::memory_order_relaxed) != 0,
+        IsRayReconstructionRouteObserved(),
         perf_config.mode, perf_config.identity_use_original,
         ActiveTransferStrength(perf_config), perf_config.perf_epoch};
     if (!g_frame_meter.signature_valid ||
@@ -2479,7 +2482,13 @@ float4 DetailDecisionV2(float2 center, float rawLog, float proxyLuma) {
     float detailWeight = 1.0 - saturate(DetailStability)*risk;
     uint reasons = (lowSampling > 0.0 ? 1u : 0u) | (incoherent > 0.0 ? 2u : 0u) |
         (dark > 0.0 ? 4u : 0u) | (extreme > 0.0 ? 8u : 0u);
-    return float4(detailWeight,float(reasons),rawLog,mean+(rawLog-mean)*detailWeight);
+    // Spatial stabilization may attenuate this pixel's model edit, but it must
+    // not borrow a stronger or opposite-sign edit from the sparse neighbours.
+    // At reduced work resolution that otherwise expands a dark model patch
+    // into an only-mildly-changed full-resolution face pixel.
+    float stabilized = mean + (rawLog - mean) * detailWeight;
+    stabilized = clamp(stabilized, min(rawLog, 0.0), max(rawLog, 0.0));
+    return float4(detailWeight,float(reasons),rawLog,stabilized);
 }
 
 float StabilizeDetailLogV2(float2 center, float rawLog, float proxyLuma) {
@@ -2745,40 +2754,6 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         return;
     }
 
-    // Render-resolution NR can introduce a broad luminance bias that the
-    // following SR pass then magnifies. When requested, estimate that slow
-    // component from a sparse 9-tap neighbourhood and remove it from the
-    // neural result. Fine structure remains in the neural-minus-proxy delta,
-    // while the game's own HDR illumination remains the low-frequency base.
-    if ((Passthrough & 2u) != 0u) {
-        float proxyMean = 0.0;
-        float neuralMean = 0.0;
-        int2 center = int2(tid.xy);
-        int2 upper = int2(Width - 1u, Height - 1u);
-        [unroll]
-        for (int oy = -1; oy <= 1; ++oy) {
-            [unroll]
-            for (int ox = -1; ox <= 1; ++ox) {
-                int2 sampleCoord = clamp(
-                    center + int2(ox, oy) * 4, int2(0, 0), upper);
-                float3 proxySample =
-                    ProxyColor.Load(int3(sampleCoord, 0)).rgb;
-                float3 neuralSample =
-                    NeuralColor.Load(int3(sampleCoord, 0)).rgb;
-                if (!modelEncodedInput) {
-                    proxySample = SRGBToLinear(proxySample);
-                    neuralSample = SRGBToLinear(neuralSample);
-                }
-                proxyMean += dot(proxySample, kLuma);
-                neuralMean += dot(neuralSample, kLuma);
-            }
-        }
-        if (proxyMean > 0.0001 && neuralMean > 0.0001) {
-            neural *= clamp(proxyMean / neuralMean, 0.5, 2.0);
-            modelDelta = neural - proxy;
-        }
-    }
-
     float normalizer = (modelEncodedInput || linearSdrStorage ||
                         srgbSdrStorage || pqEncodedHdr) ? 1.0
         : max(ProxyScale * ResolveSourceToCanonical(), 0.000001);
@@ -2786,6 +2761,33 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float sourceLuma = dot(source, kLuma);
     float proxyLuma = dot(proxy, kLuma);
     float neuralLuma = dot(neural, kLuma);
+    // Post-SR/RR receives the same paired proxy/neural model contract as the
+    // pre-SR path. Attenuate only its broad luminance residual with the shared
+    // model-grid estimator; retain the legacy colour transfer below. The
+    // mapped helper remains valid when post NR uses a smaller work raster.
+    // Preserve the historical binary flag for standalone callers. Production
+    // post routing supplies the scalar; when present it takes precedence so
+    // the legacy bit cannot turn a partial lock into a full lock.
+    float lightingAmount = LightingLock > 0.000001
+        ? saturate(LightingLock) : ((Passthrough & 2u) != 0u ? 1.0 : 0.0);
+    if (lightingAmount > 0.000001) {
+        float safeProxyLuma = max(proxyLuma, 1.0 / 4096.0);
+        float safeNeuralLuma = max(neuralLuma, 1.0 / 4096.0);
+        float logRatio = clamp(log2(safeNeuralLuma / safeProxyLuma), -8.0, 8.0);
+        const float radius = 8.0;
+        float2 center = float2(tid.xy) + 0.5;
+        float2 local = float2(0.40 * (safeNeuralLuma / safeProxyLuma), 0.40);
+        local += 0.15 * ModelLightingTapV2(center + float2(radius, 0.0), safeProxyLuma);
+        local += 0.15 * ModelLightingTapV2(center - float2(radius, 0.0), safeProxyLuma);
+        local += 0.15 * ModelLightingTapV2(center + float2(0.0, radius), safeProxyLuma);
+        local += 0.15 * ModelLightingTapV2(center - float2(0.0, radius), safeProxyLuma);
+        float localMean = clamp(log2(max(local.x / local.y, 1.0 / 256.0)),
+                                -8.0, 8.0);
+        float protectedLog = clamp(logRatio - localMean,
+                                   min(logRatio, 0.0), max(logRatio, 0.0));
+        logRatio = lerp(logRatio, protectedLog, lightingAmount);
+        neuralLuma = proxyLuma * exp2(logRatio);
+    }
     // The proxy may be compressed by the highlight shoulder and proportional
     // peak normalization, so an absolute proxy delta is not in source-HDR
     // units. Transfer the neural residual as a *relative* change around the
@@ -5999,10 +6001,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT,
         IsUnityExposureContract(color_contract), g_config.color_strength,
         g_config.preserve_lighting);
-    if (v2_combine) {
-        color_policy.requested_preserve_lighting = g_config.lighting_lock > 0.000001f;
-        color_policy.effective_preserve_lighting = color_policy.requested_preserve_lighting;
-    }
+    if (any_combine)
+        ApplyLightingLockPolicy(color_policy, g_config.mode, g_config.lighting_lock);
     ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,
         g_config.color_strength);
     const unsigned int base_codec_flags = source_flags |
@@ -6030,7 +6030,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         f8_info.proxy_scale=g_config.proxy_scale;f8_info.transfer_strength=ActiveTransferStrength(g_config);
         f8_info.max_luma_ratio=g_config.max_luma_ratio;f8_info.work_mode=g_config.work_mode;
         f8_info.work_linear_scale=static_cast<float>(f8_info.model_width)/std::max(width,1u);
-        f8_info.lighting_lock=v2_combine?g_config.lighting_lock:(g_config.preserve_lighting?1.f:0.f);
+        f8_info.lighting_lock=any_combine?g_config.lighting_lock:0.f;
         f8_info.detail_stability=v2_combine?g_config.detail_stability:0.f;f8_info.motion_requested=g_config.motion_stability;
         f8_info.edge_guard=v2_combine?g_config.edge_guard:0.f;f8_info.proxy_curve=g_config.proxy_curve;
         f8_info.frame_confidence=std::clamp(frame_confidence,0.f,1.f);
@@ -6151,7 +6151,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         f8_armed ? f8_info.stride : capture_stages ? slot.stage_capture.info.stride : 0u,
         resolved_source_width, resolved_source_height,
         resolved_model_width, resolved_model_height,
-        v2_combine ? g_config.lighting_lock : 0.0f,
+        any_combine ? g_config.lighting_lock : 0.0f,
         v2_combine ? g_config.edge_guard : 0.0f,
         g_config.proxy_curve, std::clamp(frame_confidence, 0.0f, 1.0f),
         v2_combine ? g_config.detail_stability : 0.0f,
@@ -8802,7 +8802,7 @@ NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
 
 bool ShouldGuardFeature1ForRayReconstruction() {
     return g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
-           g_live_rr_handles.load(std::memory_order_acquire) != 0;
+           g_rr_ownership_gate_owner.load(std::memory_order_acquire) == 2;
 }
 
 NgxResult ProcessEvaluate(EvaluateFeatureFn original,
@@ -8858,9 +8858,10 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
 
-    // A live Feature 13 handle is authoritative ownership. A count/time based
-    // "dormant" guess races engines that call Feature 1 before Feature 13 and
-    // can produce a double-NR frame, so only an explicit Release resumes work.
+    // This is a classified outermost Feature 1 call. Cached RR handles remain
+    // registered for lifetime tracking, but do not block the game's selected
+    // SR route. Nested vendor forwarding is already handled by DispatchEvaluate;
+    // actual RR work/transitions still exclude modifications via the gate.
     const unsigned int live_rr_handles =
         g_live_rr_handles.load(std::memory_order_acquire);
     if (ShouldGuardFeature1ForRayReconstruction()) {
@@ -8870,8 +8871,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         const unsigned long long guarded = ++g_rr_guarded_sr_evaluations;
         if (guarded <= 3 || (guarded % 600) == 0) {
             Log("SuperSampling evaluate #%llu passed through unmodified "
-                "because %u live Ray Reconstruction handle(s) own the "
-                "viewport conservatively.", guarded, live_rr_handles);
+                "during an active Ray Reconstruction transaction/create "
+                "(cached RR handles=%u).", guarded, live_rr_handles);
         }
         return original(command_list, handle, params, callback);
     }
@@ -8969,8 +8970,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
     if (g_rr_guard_was_active.exchange(false, std::memory_order_relaxed)) {
-        // Explicit RR ownership ended. Any Feature 18 history from before RR is
-        // stale, so reset on the first resumed ordinary-SR frame.
+        // The game selected an ordinary SR evaluation again. Reset its prior
+        // NR history once, even when an inactive RR handle remains cached.
         g_config_generation.fetch_add(1, std::memory_order_relaxed);
         g_history_generation.fetch_add(1, std::memory_order_relaxed);
         Log("Ray Reconstruction activity ended; ordinary SR processing resumed "

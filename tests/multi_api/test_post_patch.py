@@ -183,7 +183,7 @@ class SourcePatch(unittest.TestCase):
         self.assertIn('SliderInt("##post-nr-working-scale",&edit,50,100',ui)
         self.assertNotIn('for(int percent',ui)
         self.assertNotIn('Use RR -> NR when Ray Reconstruction is active',ui)
-        self.assertIn('ShouldGuardFeature1ForRayReconstruction()',ui)
+        self.assertIn('IsRayReconstructionRouteObserved()',ui)
         self.assertNotIn('g_config.mode =',ui)
         self.assertIn('No recent RR-post attempt',ui)
     def test_settings_do_not_enable_before_reading_ini(self):
@@ -199,7 +199,7 @@ class SourcePatch(unittest.TestCase):
         self.assertEqual(out,source)
         self.assertNotIn('Reduced post-SR precision is not implemented',out)
         self.assertIn('"##nr-processing-precision", &precision, 50.0f, 100.0f',out)
-        self.assertIn('ShouldGuardFeature1ForRayReconstruction()',out)
+        self.assertIn('IsRayReconstructionRouteObserved()',out)
         self.assertIn('DrawSimpleFeedbackControls();',out)
         self.assertNotIn('nr_f8::DrawControls();',out)
         for label in ('Model strength','Local tone','Local structure','Advanced picture controls'):

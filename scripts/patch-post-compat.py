@@ -308,7 +308,7 @@ def patch_ui(text: str) -> str:
     # The refreshed base UI already owns the effective-route slider and RR
     # protection presentation. Keep generation idempotent instead of layering
     # the historical post placeholder transform over those controls.
-    refreshed = '    const bool rr_guarded = ShouldGuardFeature1ForRayReconstruction();'
+    refreshed = '    const bool rr_guarded = IsRayReconstructionRouteObserved();'
     if refreshed in text:
         for required in (
                 '"##nr-processing-precision", &precision, 50.0f, 100.0f',

@@ -48,7 +48,7 @@ void FeedbackAppend(FeedbackSession &s, const char *format, ...) {
 const char *FeedbackStageBlockReason(const ChainConfig &config) {
     if (!config.enabled) return "NR disabled; current-chain screenshots and logs collected without enabling NR";
     if (ShouldGuardFeature1ForRayReconstruction())
-        return "Ray Reconstruction owns the path; disable RR in game to capture NR stages (restart if its handle remains live)";
+        return "An active Ray Reconstruction transaction/create currently excludes legacy stage capture; cached handles alone do not block NR";
     if (OtherNrOwnerActive())
         return g_generic_renodx_conflict.load(std::memory_order_acquire)
             ? "renodx-dlss5.addon64 is also loaded; remove it and restart before capturing this addon's NR stages"

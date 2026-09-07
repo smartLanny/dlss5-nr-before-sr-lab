@@ -19,7 +19,7 @@ class UiRefreshContract(unittest.TestCase):
         self.assertNotIn("100,75,67,50", self.post)
 
     def test_rr_protection_forces_effective_post_without_a_toggle(self):
-        self.assertIn("ShouldGuardFeature1ForRayReconstruction()", self.ui)
+        self.assertIn("IsRayReconstructionRouteObserved()", self.ui)
         self.assertIn("rr_recent", self.ui)
         self.assertIn("光线重建生效，强制后置 NR", self.ui)
         self.assertIn("正在等待新的 RR 评估", self.post)
@@ -62,12 +62,26 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn("GetTextLineHeightWithSpacing() * 4.25f", self.ui)
 
     def test_game_render_query_stays_experimental_and_rr_safe(self):
-        self.assertIn("ShouldGuardFeature1ForRayReconstruction()", self.render)
+        self.assertIn("IsRayReconstructionRouteObserved()", self.render)
         self.assertIn('SliderInt("##game-render-scale", &edit, 50, 100', self.render)
         self.assertIn("Request on next engine query", self.render)
         self.assertIn("Game-owned on next query", self.render)
         self.assertIn("only on a later engine query", self.render)
         self.assertNotIn("IsD3d11PresentRuntime", self.render)
+
+    def test_post_route_enables_only_original_lighting_protection(self):
+        detail = self.ui.index('"##nr-detail-stability"')
+        lighting = self.ui.index('"##nr-lighting-lock"')
+        edge = self.ui.index('"##nr-edge-guard"')
+        self.assertLess(detail, lighting)
+        self.assertLess(lighting, edge)
+        self.assertIn("if (!before_sr) ImGui::EndDisabled();",
+                      self.ui[detail:lighting])
+        self.assertIn("if (!before_sr) ImGui::BeginDisabled();",
+                      self.ui[lighting:edge])
+        self.assertIn("including native post-SR and RR-forced post-SR",
+                      self.ui)
+        self.assertIn("not guaranteed face detection", self.ui)
 
 
 if __name__ == "__main__":

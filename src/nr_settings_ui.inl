@@ -373,7 +373,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         "Restores Before SR, strength amplification 1.2, model strength 1.0, colour request 1.0 and the shipped picture defaults. Exits diagnostic identity and disables unverified HDR colour/peak experiments. Keeps Enable (F6), depth/jitter/R8 game contracts and feedback preferences. Uses the normal save/history rules; runtime safety faults are not cleared.",
         "恢复前置 NR、强度放大 1.2、模型强度 1.0、颜色请求 1.0 等随包推荐画质；退出诊断原图，关闭未验证 HDR 调色与高光实验。保留 F6 总开关、深度/Jitter/R8 游戏兼容设置和反馈偏好；按正常规则保存及更新历史，不清除运行时安全故障。"));
     SettingsSection(ui("Processing", "处理方式"));
-    const bool rr_guarded = ShouldGuardFeature1ForRayReconstruction();
+    const bool rr_guarded = IsRayReconstructionRouteObserved();
     const auto rr_last_attempt = nr_post_settings::last_rr_tick.load(std::memory_order_acquire);
     const auto rr_now = GetTickCount64();
     const bool rr_recent = rr_last_attempt != 0 && rr_now >= rr_last_attempt &&
@@ -500,13 +500,19 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         if (!before_sr) ImGui::BeginDisabled();
         changed |= SettingsSliderFloat(ui("Detail stability", "细节稳定保护"),
             "##nr-detail-stability", &next.detail_stability, 0.f, 1.f, "%.2f");
+        if (!before_sr) ImGui::EndDisabled();
+        SettingsTooltip(ui("Available only before SR; same-frame depth history is not established for motion protection.",
+            "仅在前置模式可用；尚未建立可靠的同帧深度历史，因此没有运动保护。"));
         changed |= SettingsSliderFloat(ui("Original lighting protection", "原始光照保护"),
             "##nr-lighting-lock", &next.lighting_lock, 0.f, 1.f, "%.2f");
+        SettingsTooltip(ui("Applies to the actual composition route, including native post-SR and RR-forced post-SR. 0 disables it; 1 broadly preserves original lighting. This is local lighting matching, not guaranteed face detection.",
+            "作用于实际合成路线，包括原生后置与 RR 强制后置。0 为关闭，1 为广泛保留原始光照；这是局部光照匹配，不保证人脸识别。"));
+        if (!before_sr) ImGui::BeginDisabled();
         changed |= SettingsSliderFloat(ui("Edge protection", "边缘保护"),
             "##nr-edge-guard", &next.edge_guard, 0.f, 1.f, "%.2f");
         if (!before_sr) ImGui::EndDisabled();
-        SettingsTooltip(ui("These spatial protections are available only before SR. Motion protection is unavailable because same-frame depth history is not established.",
-            "这些空间保护仅在前置模式可用。尚未建立可靠的同帧深度历史，因此没有运动保护。"));
+        SettingsTooltip(ui("Available only before SR; it reduces transfer across strong local edges.",
+            "仅在前置模式可用；用于减少强局部边缘两侧的效果串扰。"));
 #endif
         ImGui::SeparatorText(ui("Colour and HDR", "色彩与 HDR"));
         DrawColorControls(next, has_pending, changed);

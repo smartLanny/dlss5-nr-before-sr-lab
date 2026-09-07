@@ -54,7 +54,7 @@ constexpr const char *kSourceCommit="fixture";constexpr bool kSourceDirty=true;
 struct ModuleIdentity { const char *sha256="fixture-unavailable", *status="fixture"; };
 const ModuleIdentity &EnsureRuntimeIdentityOnWorker(){static ModuleIdentity value;return value;}
 unsigned StageCaptureStatus(){return stage_status;}
-bool ShouldGuardFeature1ForRayReconstruction(){return rr;}
+bool IsRayReconstructionRouteObserved(){return rr;}
 bool ApplyConfig(ChainConfig c,const char *,bool persist){if(persist)std::abort();++config_calls;if(SameConfig(c,config))return false;config=c;++g_config_generation;return true;}
 ChainConfig SnapshotConfig(){return config;}
 bool FeedbackCreateDirectory(wchar_t (&p)[1024]){swprintf_s(p,L"%ls\\session-%u",output_root.c_str(),++dir_count);return CreateDirectoryW(p,nullptr)!=FALSE;}

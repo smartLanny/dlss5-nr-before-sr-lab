@@ -34,7 +34,7 @@ void DrawPostCompatibility() {
     const bool zh=UseChineseUi();
     auto ui=[zh](const char* en,const char* cn){return zh?cn:en;};
     ImGui::SeparatorText(ui("Post-SR / RR compatibility", "SR / RR 后置兼容"));
-    if(ShouldGuardFeature1ForRayReconstruction()) {
+    if(IsRayReconstructionRouteObserved()) {
         const auto at=nr_post_settings::last_rr_tick.load(std::memory_order_acquire);
         const auto now=GetTickCount64();
         const bool recent=at && now>=at && now-at<=2000;

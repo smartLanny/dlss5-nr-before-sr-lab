@@ -51,8 +51,7 @@ bool CanApply() {
         !g_module_observer_gap_detected.load(std::memory_order_acquire) &&
         !g_feature_tracking_uncertain.load(std::memory_order_acquire) &&
         !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) &&
-        g_live_rr_handles.load(std::memory_order_acquire) == 0 &&
-        !g_rr_guard_was_active.load(std::memory_order_acquire) &&
+        !IsRayReconstructionRouteObserved() &&
         !g_shortfuse_nr_enabled.load(std::memory_order_acquire) &&
         !g_generic_renodx_conflict.load(std::memory_order_acquire) &&
         !nr_f8::IsActive() && SnapshotConfig().enabled;
@@ -209,7 +208,7 @@ void DrawRenderControl() {
     const auto ui = [zh](const char* en,const char* cn){return zh ? cn : en;};
     ImGui::SeparatorText(ui("Game render resolution (experimental)","游戏渲染分辨率（实验）"));
     static int edit = 67;
-    const bool rr_guarded = ShouldGuardFeature1ForRayReconstruction();
+    const bool rr_guarded = IsRayReconstructionRouteObserved();
     if (rr_guarded) ImGui::BeginDisabled();
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(ui("Game render scale","游戏渲染比例"));
