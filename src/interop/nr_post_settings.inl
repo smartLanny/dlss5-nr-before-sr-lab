@@ -7,6 +7,12 @@ std::atomic<unsigned long long> revision{0};
 std::atomic<bool> ready{false}, persistence_failed{false}, request_rejected{false};
 std::atomic<unsigned> rejected_percent{0};
 std::atomic<unsigned long long> rr_attempts{0}, rr_recorded{0}, rr_native_failures{0};
+// Lifetime boundary observations, not mutually exclusive frame outcomes.
+// Compare start/end deltas from one process; native failure can also follow
+// a before-state rejection. None of these counters changes NR admission.
+std::atomic<unsigned long long> rr_before_state_rejected{0}, rr_prepare_declined{0};
+std::atomic<unsigned long long> rr_after_state_rejected{0}, rr_finish_declined{0};
+std::atomic<unsigned long long> rr_finish_gate_rejected{0};
 std::atomic<unsigned long long> last_rr_tick{0};
 std::atomic<int> last_rr_stage{0}; // 0 untouched, 1 prepared, 2 recorded, 3 native failed, 4 not applied
 std::atomic<ULONGLONG> next_poll{0};

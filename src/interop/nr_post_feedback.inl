@@ -27,4 +27,15 @@
         prefix, recent ? 1 : 0,
         prefix, attempted != 0 && now >= attempted ? static_cast<long long>(now - attempted) : -1LL,
         prefix);
+    FeedbackAppend(s,
+        "%s.post.rr.beforeStateRejected=%llu\n%s.post.rr.prepareDeclined=%llu\n"
+        "%s.post.rr.afterStateRejected=%llu\n%s.post.rr.finishDeclined=%llu\n"
+        "%s.post.rr.finishGateRejected=%llu\n"
+        "%s.post.rr.boundaryNote=lifetime sampled counters; compare same-process start/end deltas; not disjoint outcomes or GPU completion; commandState is a separate latest sample\n",
+        prefix, nr_post_settings::rr_before_state_rejected.load(std::memory_order_acquire),
+        prefix, nr_post_settings::rr_prepare_declined.load(std::memory_order_acquire),
+        prefix, nr_post_settings::rr_after_state_rejected.load(std::memory_order_acquire),
+        prefix, nr_post_settings::rr_finish_declined.load(std::memory_order_acquire),
+        prefix, nr_post_settings::rr_finish_gate_rejected.load(std::memory_order_acquire),
+        prefix);
 }

@@ -19,6 +19,8 @@ namespace nr_post_settings{
  struct Options{bool rr=true;}; Options options;
  Options Read(){return options;}
  std::atomic<unsigned long long> rr_attempts{0},rr_recorded{0},rr_native_failures{0},last_rr_tick{0};
+ std::atomic<unsigned long long> rr_before_state_rejected{0},rr_prepare_declined{0};
+ std::atomic<unsigned long long> rr_after_state_rejected{0},rr_finish_declined{0},rr_finish_gate_rejected{0};
  std::atomic<int> last_rr_stage{0};
 }
 enum class BypassReason{RayReconstructionGuard,Feature1TransactionBusy};
@@ -77,6 +79,9 @@ void Reset(){
  current={&handle,13,7};result=1;g_config={};g_config.mode=2;
  g_feature_tracking_uncertain=false;g_lifecycle_tracking_uncertain=false;
  nr_post_settings::options={};nr_post_settings::rr_recorded=0;
+ nr_post_settings::rr_before_state_rejected=0;nr_post_settings::rr_prepare_declined=0;
+ nr_post_settings::rr_after_state_rejected=0;nr_post_settings::rr_finish_declined=0;
+ nr_post_settings::rr_finish_gate_rejected=0;
 }
 void Run(){
  const auto feature=current;
