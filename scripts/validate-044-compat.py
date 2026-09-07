@@ -104,6 +104,7 @@ int main() {
 
 
 def raster(source: str) -> str:
+    helper = definition(source, 'bool CommandStateBlendFactorAdmissible(')
     actual = definition(source, 'bool CanAutoRestoreRasterNull(')
     return COMMON + r'''
 using UINT=unsigned;using UINT64=unsigned long long;
@@ -116,6 +117,7 @@ struct NativeCommandState {
  void *pipeline=nullptr,*raytracing_pipeline=nullptr,*rtv_cache=nullptr,*dsv_cache=nullptr;UINT unknown_domains=0;
  struct {UINT target_count=0;bool contiguous_targets=false,has_depth_target=false;struct Handle{unsigned long long ptr=0;}targets[8],depth_target;UINT64 recorded=kDynamicViewport|kDynamicScissor;UINT vertex_mask=0,stream_mask=0,viewport_count=1,scissor_count=1;Viewport viewports[16];Rect scissors[16];float blend[4]={1,1,1,1};} dynamic;
 };
+HELPER
 ACTUAL
 int main() {
  NativeCommandState s;s.dynamic.viewports[0]={0,0,1920,1080,0,1};s.dynamic.scissors[0]={1,2,1919,1079};
@@ -139,8 +141,13 @@ int main() {
  {auto t=s;t.dynamic.scissors[0].right=-1;check(!CanAutoRestoreRasterNull(t),"inverted scissor rejected");}
  {auto t=s;t.dynamic.recorded=0;check(!CanAutoRestoreRasterNull(t),"pristine route remains distinct");}
  {auto t=s;t.dynamic.recorded=kDynamicBlend;check(CanAutoRestoreRasterNull(t),"blend-only reset subset admitted");}
- for(float bad:{-1.f,1.01f,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}) {
-   auto t=s;t.dynamic.recorded=kDynamicBlend;t.dynamic.blend[2]=bad;check(!CanAutoRestoreRasterNull(t),"unbounded or nonfinite blend rejected");
+ for(float ok:{-0.f,-1.f,-2.f,-3.f,1.01f,2.f}) {
+   auto t=s;t.dynamic.recorded=kDynamicBlend;t.dynamic.blend[2]=ok;
+   check(CanAutoRestoreRasterNull(t),"finite out-of-unit blend admitted");
+ }
+ for(float bad:{std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity(),
+                -std::numeric_limits<float>::infinity()}) {
+   auto t=s;t.dynamic.recorded=kDynamicBlend;t.dynamic.blend[2]=bad;check(!CanAutoRestoreRasterNull(t),"nonfinite blend rejected");
  }
  {auto t=s;t.dynamic.recorded=0x46;check(CanAutoRestoreRasterNull(t),"empty target set restores");
   t.dynamic.target_count=1;check(!CanAutoRestoreRasterNull(t),"raw RTV rejected");
@@ -152,7 +159,7 @@ int main() {
   t.dynamic.target_count=8;t.dynamic.contiguous_targets=false;check(!CanAutoRestoreRasterNull(t),"cache contiguous"); }
  return finish("actual bounded null-raster policy");
 }
-'''.replace('ACTUAL',actual)
+'''.replace('HELPER', helper).replace('ACTUAL', actual)
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)

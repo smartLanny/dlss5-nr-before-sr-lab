@@ -50,6 +50,15 @@ Feeder/provider-only旧草稿已恢复并硬化，独立分支`codex/045-feeder-
 
 GitHub Actions目前受账户付款/额度限制，任务未启动；本地执行对应源码/Windows/Shader/WARP/反馈/打包门禁，明确记录为本地。WARP的神经输入采用确定性测试替身，仅验证生产GPU处理与回填，不等于NVIDIA Feature18或游戏运行。
 
+## 2026-09-07 定点审查（本轮）
+
+入口仍是本页与 #80。基线 `origin/main@ba71b45`（7d17c10 + #101 inbox）。未扫全 0.4，未并 #141–#147 / #127 / 异环混线验收。
+
+- P0-1 #99+#15：旧 inbox 是 0.4.4-test1 前置成功；树海 multiapi-dev3 原 TXT 不在本树。诊断 PR #149+#150 已开，待 ROG 用 A 包复测。
+- P1-1 #64+#38：后置 `dynamic=0x8`；main 已允许 blend 位，剩余 [0,1] 策略误拦有限越界值。对照 #101 F8 `blend=-0,-1,-2,-3`。本轮最小修正见 [NULL_GUARD_BLEND_FINITE_20260907](NULL_GUARD_BLEND_FINITE_20260907.md)。#123 leisure 仍欠当前包 F8。
+- P1-3 #39：候选在 PR #151，待 ROG 用 B 包；勿混 fix1 颜色正例。
+- 版本桶分开：multiapi-dev3 ≠ fix1 ≠ plain 0.4.5 ≠ DX11-carrier。云端不编 Windows OTA。
+
 ## 下次对话如何接续
 
 先读取远端main、本页和MAIN_CONSOLIDATION，再核对包manifest和最新Issue回帖。维护者本轮要求交付测试版后等待进一步开发指示；收到新指示时，从已记录缺口接续，不重新恢复已提交文件，不覆盖任何旧agent worktree，不把不存在的`8a0a2d73`当来源。
