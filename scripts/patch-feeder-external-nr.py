@@ -440,6 +440,10 @@ def stage_feeder(feeder_root: Path, output: Path, producer_headers: Path) -> dic
         'git_verified': True,
         'patched_file': FEED_CPP,
         'producer_headers': sorted(p.name for p in interop.glob('*.h')),
+        'producer_header_sha256': {
+            p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(interop.glob('*.h'))
+        },
         'feed_cpp_sha256': hashlib.sha256(patched.encode('utf-8')).hexdigest(),
         'feed_vk_hook_sha256': hashlib.sha256(hook_text.encode('utf-8')).hexdigest(),
         'external_nr': 'FeedFrame12 provider-only: skip private NGX Init/Create/'
