@@ -72,6 +72,10 @@ change is introduced. This is a diagnostic fix, not a claimed game-unlock fix.
   unavailability; the test does not alter the production install sequence.
 - `python3 -m unittest discover -s tests -p test_core_feedback.py -v`: 32 pass.
 - `python3 -m unittest discover -s tests -p test_feedback_report.py -v`: 15 pass.
+- `python3 scripts/validate-044-compat.py --compiler clang++`: 38 forwarding
+  checks and 82 bounded-raster checks pass, plus the sticky-registration/UI
+  integration assertions. Its extractor now includes the new production
+  reason helper instead of compiling only the dependent boolean wrapper.
 - `git diff --check`: pass.
 
 These are source/host-predicate and feedback tests. No Windows addon compile,
