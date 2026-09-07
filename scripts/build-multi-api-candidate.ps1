@@ -66,6 +66,14 @@ try {
         if ($LASTEXITCODE) { throw "Host test failed: $Test" }
         $Checks.Add($Test)
     }
+    foreach ($PolicyTest in @('feedback_text_test', 'single_text_policy_test')) {
+        $PolicyExe = Join-Path $TestBuild ($PolicyTest + '.exe')
+        & $Cxx '-std=c++20' '-Wall' '-Wextra' '-Werror' '-static' "-I$(Join-Path $Stage 'core/src')" (Join-Path $Root "tests/$PolicyTest.cpp") '-o' $PolicyExe
+        if ($LASTEXITCODE) { throw "Feedback policy compile failed: $PolicyTest" }
+        & $PolicyExe
+        if ($LASTEXITCODE) { throw "Feedback policy regression failed: $PolicyTest" }
+        $Checks.Add("staged feedback policy: $PolicyTest")
+    }
     $OldAbi = Join-Path $TestBuild 'ngx_parameter_abi-old.exe'
     & $Cxx '-std=c++17' '-O2' '-static' '-DNR_TEST_OLD_VTABLE=1' @Include (Join-Path $Root 'tests/native_bridge/ngx_parameter_abi.cpp') '-o' $OldAbi
     if ($LASTEXITCODE) { throw 'Historical ABI negative control failed to compile.' }
