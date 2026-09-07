@@ -874,7 +874,7 @@ struct ChainConfig {
     unsigned int proxy_curve = 1; // 0 legacy, 1 hybrid, 2 reversible
     bool allow_unverified_hdr_color = false;
     bool suppress_reset_frame = true;
-    float color_strength = 0.5f;
+    float color_strength = 1.0f;
     float max_luma_ratio = 2.0f;
     bool preserve_lighting = false;
     float proxy_scale = 1.0f;
@@ -1373,7 +1373,7 @@ void ReloadConfig(bool force = false) {
         L"NRBeforeSR", L"AllowUnverifiedHdrColor", 0, g_ini_path) != 0;
     next.suppress_reset_frame = GetPrivateProfileIntW(
         L"NRBeforeSR", L"SuppressResetFrame", 1, g_ini_path) != 0;
-    next.color_strength = ReadIniFloat(L"ColorStrength", 0.75f);
+    next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);
     next.max_luma_ratio = ReadIniFloat(L"MaxLumaRatio", 4.0f);
     next.preserve_lighting = GetPrivateProfileIntW(
         L"NRBeforeSR", L"PreserveLighting", 0, g_ini_path) != 0;

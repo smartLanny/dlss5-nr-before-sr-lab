@@ -68,7 +68,7 @@ def main():
  expected_fields=set(FIELDS)|PRESERVED
  assert declared==expected_fields,f'Unclassified fields: {declared^expected_fields}'
  if a.negative_control:
-  marker='next.color_strength = 0.75f;';assert helper.count(marker)==1
+  marker='next.color_strength = 1.0f;';assert helper.count(marker)==1
   helper=helper.replace(marker,'next.color_strength = 0.5f;',1)
  dirty=[];checks=[]
  for field,key in FIELDS.items():
