@@ -12,4 +12,6 @@ main是唯一持续开发入口。历史源SHA及处理计划见BRANCH_SNAPSHOT_
 
 本轮候选beta0.4.5-multiapi-dev4，核心PE 0.4.5.104，carrier使用独立dev4文件名。dev3 Release/Tag b03f474保持原字节。dev3游戏测试仅作为基线，dev4不继承实机通过结论。构建/打包使用干净固定提交，自动证据为source-manifest.json、validation.json和SHA256.json。
 
-本轮反馈变化和最终实际验证结果会在合并前补全。GitHub CI和本地门禁分开报告；不因源码合并关闭仍未验收的游戏Issue。
+稳定性修复c8fc8f9：采集请求在首次Present前取消时原来可能永远保持Busy；现在原子撤销未领取请求并公布失败状态。图像采集取消与Present/Watchdog共用控制锁，防止取消落在检查请求与公布session之间。独立真实Windows核心采集136检查和图像控制211检查通过；最终组合仍须完整构建验证。
+
+反馈精简和最终组合验证结果会在合并前补全。GitHub CI和本地门禁分开报告；不因源码合并关闭仍未验收的游戏Issue。
