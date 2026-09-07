@@ -72,7 +72,7 @@ compile/link with a prepared stage, the existing toolchain and a new output
 directory. It fails on a link error and retains both compile and link logs.
 
 Evidence is saved under
-`C:/Users/pc1/Documents/ChatGPT/DLSS5/evidence/feeder-recovery-20260907/`:
+the private `feeder-recovery-20260907` evidence archive:
 `core-compile-final.log`, `core-exports.log`, `external_provider.log`,
 `external_provider_client.log`, `transform-tests.log`,
 `warp-transport-only.log`, `feeder-msvc-build.log`, and

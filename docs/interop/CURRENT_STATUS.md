@@ -1,5 +1,16 @@
 # 统一开发与测试交接入口
 
+## 2026-09-08 Feeder provider 独立开发补片（不进入玩家包）
+
+分支 `codex/provider-transport-20260908` 从最新 main 接全量 #166 热修后，
+恢复既有 Feeder 两提交；没有新增 Opti 依赖。现有 VS2022 已完成固定 Feeder
+完整链接，旧“缺 MSVC/链接失败”不再是当前阻断。新增 Signal/Drain/同帧
+完成保护与 F8 provenance/recorded 状态；生产函数故障13断言、完成控制/WARP
+22、原准入46/Windows客户端23通过。原生热修40项统一门禁也通过。
+完整 consumer/F8 核心实际编译源码 `07c219c`；producer 实际构建 `48598dc`。
+NVIDIA Feature18 与无DLSS游戏尚未验收，不宣布新游戏支持、不覆盖 Release。
+[实现、精确证据和剩余宿主接入](FEEDER_COMPLETION_20260908.md)。
+
 ## 2026-09-08 0.4.6 发布后界面补正（当前接续）
 
 接续 PR #166，修复未定义 `NR_HAS_F8_SEQUENCE` 使主设置页 F8/F7 控件在实际
