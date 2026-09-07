@@ -110,6 +110,8 @@ try {
         $Install = @"
 $DisplayVersion
 
+0.5研究候选：保留高强度保护、单次NR分层和推荐/快照；不是稳定OTA。先关闭高强度保护与分层，与0.4.6-hotfix.1固定同场景对照，再逐项打开。
+
 退出游戏，备份现用组件，保留nr_before_sr.ini及其他无关MOD。建议通过配套Manager按本次游戏API安装或修复。
 D3D12：只安装本包中文核心与nrchain_nvngx.dll；不安装carrier，已有同类carrier应备份移出。
 DX11已有DLSS兼容路线：安装中文核心、nrchain_nvngx.dll及${CarrierLeaf}。关闭桥接后，这条NR路线不可用；不会替你改变游戏启动API。
@@ -117,7 +119,7 @@ Vulkan或API不明确：不要把DX11 carrier当作对应支持，请先确认�
 兼容范围：已有原生/模组DLSS输入的DX11 carrier路线，以及D3D12 SR前/后置和符合条件的RR后置。不是所有无DLSS的DX11游戏都支持；不含Feeder、原生Vulkan/Legacy支持。
 F6对比开关。F8生成单个TXT并自动复制文件路径，上传该文件即可。F7提供512像素采样和前后置分辨率对比矩阵；各组顺序采集，请保持镜头不动。新组合仍需逐游戏测试，Windows/WARP通过不等于所有游戏通过。
 回退：退出游戏，移走本包三个组件，放回备份。包不含替换INI、ReShade、NVIDIA运行库/模型或游戏文件。
-实际组件身份和哈希见build-info.json、SHA256.json；本批验证保留在源码仓库docs/interop/UI_RR_FEEDBACK_REFRESH_20260908.md。
+实际组件身份和哈希见build-info.json、SHA256.json；本批验证保留在源码仓库docs/interop/RESEARCH_050_CATCHUP_20260908.md。
 "@
         [IO.File]::WriteAllText((Join-Path $Package '安装说明.txt'), $Install, (New-Object Text.UTF8Encoding($false)))
         $BuildInfo = [ordered]@{display_version=$DisplayVersion; version=$Version; source_commit=$Commit; packaging_commit=$RepoCommit;
