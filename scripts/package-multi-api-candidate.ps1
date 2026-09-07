@@ -24,9 +24,18 @@ if ($Commit -notmatch '^[0-9a-f]{40}$' -or $Validation.source_commit -ne $Commit
 }
 if ([string]::IsNullOrWhiteSpace($Version)) { throw 'Candidate version is missing.' }
 $RepoCommit = (& git -C $Repo rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or $RepoCommit -ne $Commit) { throw 'Package scripts and documentation must use the built source commit.' }
-$DocChanges = @(& git -C $Repo status --porcelain -- docs/interop/POST_COMPAT_DEV4.md docs/interop/RELEASE_DEV4_PLAYER_NOTES.md THIRD_PARTY_NOTICES.txt third_party/minhook/LICENSE.txt tests/post_scaled_work_gpu.cpp.in)
-if ($LASTEXITCODE -ne 0 -or $DocChanges.Count -ne 0) { throw 'Package documentation/licenses or WARP template changed since the built commit.' }
+if ($LASTEXITCODE) { throw 'Cannot resolve packaging source identity.' }
+& git -C $Repo merge-base --is-ancestor $Commit $RepoCommit
+if ($LASTEXITCODE) { throw 'Built source must be an ancestor of the packaging source.' }
+$Changes = @(& git -C $Repo diff --name-only $Commit $RepoCommit)
+if ($LASTEXITCODE) { throw 'Cannot verify source changes since build.' }
+foreach ($Changed in $Changes) {
+    if ($Changed -notmatch '^(docs/|\.github/|AGENTS\.md$|README\.md$|\.gitignore$|scripts/package-multi-api-candidate\.ps1$|tests/multi_api/test_candidate_packaging\.py$)') {
+        throw "Binary/build inputs changed since validated source; rebuild required: $Changed"
+    }
+}
+$Dirty = @(& git -C $Repo status --porcelain --untracked-files=no)
+if ($LASTEXITCODE -or $Dirty.Count) { throw 'Packaging source must be committed and clean.' }
 if (-not $Validation.source_verified -or -not $Validation.compile_verified -or -not $Validation.warp_verified) {
     throw 'Complete source/compile/WARP evidence is required before packaging.'
 }
@@ -80,44 +89,40 @@ Assert-Hash (Join-Path $Stage 'core/src/nr_before_sr.cpp') ([string]$PostResult.
 Assert-Hash (Join-Path $Build 'tests/post-scaled-work/post_scaled_work_gpu.cpp') ([string]$PostResult.generated_harness_sha256)
 Assert-Hash (Join-Path $Repo 'tests/post_scaled_work_gpu.cpp.in') ([string]$PostResult.template_sha256)
 Assert-Hash $PostLog ([string]$PostResult.stdout_sha256)
+$ChineseAddons = @($Addons | Where-Object { -not $_.Name.EndsWith('.en.addon64', [StringComparison]::OrdinalIgnoreCase) })
+if ($ChineseAddons.Count -ne 1) { throw 'Exactly one verified Chinese core must be selected for delivery.' }
 $Parent = Split-Path -Parent $Output
 [IO.Directory]::CreateDirectory($Parent) | Out-Null
 $Temporary = Join-Path $Parent ('.nr-candidate-' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($Temporary) | Out-Null
 try {
     $Packages = New-Object 'System.Collections.Generic.List[object]'
-    foreach ($Addon in $Addons) {
+    foreach ($Addon in $ChineseAddons) {
         $Package = Join-Path $Temporary $Addon.BaseName
-        New-Item -ItemType Directory -Path (Join-Path $Package 'validation') -Force | Out-Null
+        New-Item -ItemType Directory -Path $Package | Out-Null
         Copy-Item -LiteralPath $Addon.FullName -Destination $Package
         Copy-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll') -Destination $Package
         Copy-Item -LiteralPath (Join-Path $Build $CarrierLeaf) -Destination $Package
-        Copy-Item -LiteralPath (Join-Path $Stage 'source-manifest.json') -Destination $Package
-        Copy-Item -LiteralPath (Join-Path $Build 'validation.json') -Destination $Package
-        Copy-Item -LiteralPath $PostLog -Destination (Join-Path $Package 'validation/post-scaled-work-stdout.txt')
-        Copy-Item -LiteralPath $PostResultPath -Destination (Join-Path $Package 'validation/post-scaled-work-result.json')
-        Copy-Item -LiteralPath (Join-Path $Build 'tests/post-scaled-work/stderr.txt') -Destination (Join-Path $Package 'validation/post-scaled-work-stderr.txt')
-        Copy-Item -LiteralPath (Join-Path $Stage 'carrier/LICENSE') -Destination (Join-Path $Package 'LICENSE-carrier.txt')
-        Copy-Item -LiteralPath (Join-Path $Repo 'third_party/minhook/LICENSE.txt') -Destination (Join-Path $Package 'LICENSE-minhook.txt')
-        Copy-Item -LiteralPath (Join-Path $Repo 'THIRD_PARTY_NOTICES.txt') -Destination $Package
-        Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/POST_COMPAT_DEV4.md') -Destination (Join-Path $Package 'README.md')
-        Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/RELEASE_DEV4_PLAYER_NOTES.md') -Destination (Join-Path $Package 'UPDATE-NOTES.md')
+        $Licenses = "Carrier license`r`n==============`r`n" + [IO.File]::ReadAllText((Join-Path $Stage 'carrier/LICENSE')) +
+            "`r`nMinHook license`r`n===============`r`n" + [IO.File]::ReadAllText((Join-Path $Repo 'third_party/minhook/LICENSE.txt')) +
+            "`r`nThird-party notices`r`n===================`r`n" + [IO.File]::ReadAllText((Join-Path $Repo 'THIRD_PARTY_NOTICES.txt'))
+        [IO.File]::WriteAllText((Join-Path $Package 'LICENSES.txt'), $Licenses, (New-Object Text.UTF8Encoding($false)))
         $Install = @"
-COMPATIBILITY CANDIDATE - NOT A STABLE RELEASE
-Version: $DisplayVersion
-Build identity: $Version
-Exact source: $Commit
-Install only ONE language core and its matching $CarrierLeaf companion.
-Do not stack generic Feeder/RenoDX NR owners or an older lab carrier.
-Keep your existing nr_before_sr.ini. This OTA does not contain a replacement INI.
-This package does not install ReShade or NVIDIA/NGX/model/game binaries.
-F8 still creates one named TXT for BUG feedback; use F7 separately for pictures.
-The distribution ZIP is not the F8 feedback format.
-WARP uses a deterministic test-only neural residual, not NVIDIA Feature18.
-Read validation.json for actual verification. This is not proof of game compatibility.
-No game files, tags or Releases were modified by the packager.
+$DisplayVersion
+
+退出游戏，备份现用核心与配套DLL。将本包中文核心、nrchain_nvngx.dll和$CarrierLeaf一起放到原ReShade addon目录，替换旧0.4.5组件。移走旧同类核心/carrier，保留nr_before_sr.ini及其他无关MOD。
+兼容范围：已有原生/模组DLSS输入的DX11 carrier路线，以及D3D12 SR前/后置和符合条件的RR后置。不是所有无DLSS的DX11游戏都支持；不含Feeder、原生Vulkan/Legacy支持。
+F6对比开关，F8生成单TXT反馈；视觉问题可另按F7。新组合仍需逐游戏测试，Windows/WARP通过不等于所有游戏通过。
+回退：退出游戏，移走本包三个组件，放回备份。包不含替换INI、ReShade、NVIDIA运行库/模型或游戏文件。
+实际组件身份和哈希见build-info.json、SHA256.json；完整验证保留在源码仓库docs/interop/MAIN_CONSOLIDATION.md。
 "@
-        [IO.File]::WriteAllText((Join-Path $Package 'INSTALL-CANDIDATE.txt'), $Install, (New-Object Text.UTF8Encoding($false)))
+        [IO.File]::WriteAllText((Join-Path $Package '安装说明.txt'), $Install, (New-Object Text.UTF8Encoding($false)))
+        $BuildInfo = [ordered]@{display_version=$DisplayVersion; version=$Version; source_commit=$Commit; packaging_commit=$RepoCommit;
+            language='zh-CN'; core_pe_version='0.4.5.104'; bridge_upstream_commit=$Manifest.integration.bridge_commit;
+            source_manifest_sha256=(Get-FileHash -LiteralPath (Join-Path $Stage 'source-manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant();
+            validation_sha256=(Get-FileHash -LiteralPath (Join-Path $Build 'validation.json') -Algorithm SHA256).Hash.ToLowerInvariant();
+            local_windows_verified=$true; local_warp_verified=$true; game_runtime_verified=$false; stable_release=$false}
+        [IO.File]::WriteAllText((Join-Path $Package 'build-info.json'), ($BuildInfo | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
         $Hashes = @(Get-ChildItem -LiteralPath $Package -File -Recurse | Sort-Object FullName | ForEach-Object {
             [ordered]@{file=$_.FullName.Substring($Package.Length + 1).Replace('\','/'); sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
         })
@@ -127,7 +132,7 @@ No game files, tags or Releases were modified by the packager.
         Compress-Archive -Path (Join-Path $Package '*') -DestinationPath $Zip
         $Packages.Add([ordered]@{file=$ZipLeaf; sha256=(Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToLowerInvariant()})
     }
-    $Index = [ordered]@{source_commit=$Commit; version=$Version; display_version=$DisplayVersion; stable_release=$false; nvidia_feature18_verified=$Validation.nvidia_feature18_verified; game_runtime_verified=$Validation.game_runtime_verified; packages=@($Packages.ToArray())}
+    $Index = [ordered]@{source_commit=$Commit; packaging_commit=$RepoCommit; version=$Version; display_version=$DisplayVersion; language='zh-CN'; stable_release=$false; nvidia_feature18_verified=$Validation.nvidia_feature18_verified; game_runtime_verified=$Validation.game_runtime_verified; packages=@($Packages.ToArray())}
     [IO.File]::WriteAllText((Join-Path $Temporary 'packages.json'), ($Index | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
     [IO.Directory]::Move($Temporary, $Output)
     Write-Host "Packaged exact-source language candidates without touching games or existing INI: $Output"

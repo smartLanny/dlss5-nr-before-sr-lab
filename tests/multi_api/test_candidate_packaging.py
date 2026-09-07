@@ -41,12 +41,12 @@ class Packaging(unittest.TestCase):
         files = {p.relative_to(self.stage).as_posix(): digest(p) for p in self.stage.rglob('*') if p.is_file()}
         shutil.copyfile(self.stage/'core/config/nr_before_sr.ini', self.core/'nr_before_sr.ini')
         carrier = 'dlss5-native-carrier-fixture.addon64'
-        binaries = [self.core/'core-zh.addon64', self.core/'core-en.addon64',
+        binaries = [self.core/'core-zh.addon64', self.core/'core.en.addon64',
                     self.core/'nrchain_nvngx.dll', self.build/carrier]
         for path in binaries:
             path.write_text('synthetic packaging fixture, not executable')
         self.manifest = {'source_commit': self.commit, 'files': files,
-                         'integration': {'source_commit': self.commit, 'version': 'synthetic-fixture', 'carrier_filename': carrier}}
+                         'integration': {'source_commit': self.commit, 'version': 'synthetic-fixture', 'carrier_filename': carrier, 'bridge_commit': 'b'*40}}
         self.validation = {'source_commit': self.commit, 'source_verified': True, 'compile_verified': True,
                            'warp_verified': True, 'nvidia_feature18_verified': False, 'game_runtime_verified': False,
                            'checks': ['post scaled-work WARP: synthetic fixture'],
@@ -76,7 +76,7 @@ class Packaging(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
         index = json.loads((self.root/'output/packages.json').read_text(encoding='utf-8-sig'))
         self.assertEqual(index['version'], 'synthetic-fixture')
-        self.assertEqual(len(index['packages']), 2)
+        self.assertEqual(len(index['packages']), 1)
         for entry in index['packages']:
             package = self.root/'output'/entry['file']
             self.assertEqual(digest(package), entry['sha256'])
@@ -84,7 +84,12 @@ class Packaging(unittest.TestCase):
                 names = archive.namelist()
                 self.assertFalse(any(n.lower().endswith('.ini') for n in names))
                 self.assertNotIn('nr_before_sr.ini', names)
-                self.assertIn('validation/post-scaled-work-result.json', names)
+                self.assertEqual(len(names), 7)
+                self.assertIn('LICENSES.txt', names)
+                self.assertIn('安装说明.txt', names)
+                self.assertIn('build-info.json', names)
+                self.assertNotIn('source-manifest.json', names)
+                self.assertFalse(any(n.startswith('validation/') or n.endswith('.en.addon64') for n in names))
                 self.assertEqual(len([n for n in names if n.endswith('.addon64')]), 2)
 
     def test_public_chinese_label_is_carried_by_zip_and_manifest(self):
@@ -98,10 +103,10 @@ class Packaging(unittest.TestCase):
             self.assertIn('0.4.5-DX11-兼容增强', entry['file'])
             with zipfile.ZipFile(self.root/'output'/entry['file']) as archive:
                 self.assertIsNone(archive.testzip())
-                self.assertIn('0.4.5-DX11-兼容增强', archive.read('INSTALL-CANDIDATE.txt').decode('utf-8-sig'))
+                self.assertIn('0.4.5-DX11-兼容增强', archive.read('安装说明.txt').decode('utf-8-sig'))
 
     def test_tampered_evidence_never_publishes_package(self):
-        for relative in ('source/core/src/nr_before_sr.cpp', 'source/core/build/core-en.addon64',
+        for relative in ('source/core/src/nr_before_sr.cpp', 'source/core/build/core.en.addon64',
                          'source/core/build/nr_before_sr.ini', 'tests/post-scaled-work/stdout.txt',
                          'tests/post-scaled-work/post_scaled_work_gpu.cpp'):
             with self.subTest(relative=relative):
