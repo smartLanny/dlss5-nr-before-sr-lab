@@ -105,6 +105,52 @@ test('DX11 deploys the matched carrier and restores the prior carrier on uninsta
   assert.equal(fs.readFileSync(target, 'utf8'), 'prior carrier');
 });
 
+test('DX11 preserves named ReShade disables and PR160 evidence while reporting the carrier blocked', async t => {
+  const f = fixture(t, 'dx12');
+  const reshadeIni = path.join(f.exeDir, 'ReShade.ini');
+  const dx12 = await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(dx12.complete, true);
+  assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.bridge)), true);
+  assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.carrier)), false);
+  f.scan.chosen.apiLabel = 'DirectX 11';
+  f.scan.chosen.apiResolution = { api: 'dx11', source: 'manual', evidence: [] };
+  const original = Buffer.from(
+    `\uFEFF[ADDON]\r\nDisabledAddons=@core.addon64,@${INSTALLED_NAMES.carrier},用户,,条目\r\n` +
+    `[ADDON]\r\nDisabledAddons=用户命名@${INSTALLED_NAMES.carrier},@keep.addon64\r\n` +
+    `LoadFromDllMain=manual-third-party.addon64\r\n`, 'utf8');
+  fs.writeFileSync(reshadeIni, original);
+
+  // Model the files emitted by PR160. Manager must leave this evidence alone;
+  // changing the INI makes that receipt stale, so PR160 restore will refuse
+  // rather than overwrite the later Manager/user edit.
+  const evidenceBase = 'ReShade.ini.carrier-exclusion.20260908T120000Z.1234abcd';
+  const evidenceBackup = path.join(f.exeDir, `${evidenceBase}.bak`);
+  const evidenceReceipt = path.join(f.exeDir, `${evidenceBase}.receipt.json`);
+  fs.writeFileSync(evidenceBackup, 'earlier-pr160-state');
+  const receipt = {
+    schema: 1,
+    ini: 'ReShade.ini',
+    backup: path.basename(evidenceBackup),
+    beforeSha256: sha256(evidenceBackup),
+    afterSha256: sha256(reshadeIni)
+  };
+  fs.writeFileSync(evidenceReceipt, `${JSON.stringify(receipt, null, 2)}\n`);
+  const receiptBytes = fs.readFileSync(evidenceReceipt);
+
+  const result = await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(result.complete, false, 'a named @filename entry still blocks ReShade pre-load');
+  assert.match(result.components.find(row => row.key === 'carrier').detail, /具名禁用.*手动启用/);
+  const enabledIni = fs.readFileSync(reshadeIni, 'utf8');
+  assert.match(enabledIni, new RegExp(`用户命名@${INSTALLED_NAMES.carrier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(enabledIni, /DisabledAddons=@core\.addon64,用户,,条目/);
+  assert.match(enabledIni, /LoadFromDllMain=manual-third-party\.addon64/);
+  assert.equal(enabledIni.charCodeAt(0), 0xFEFF, 'UTF-8 BOM is preserved');
+  assert.equal(fs.readFileSync(`${reshadeIni}.bak`).equals(original), true, 'Manager keeps its own exact INI backup');
+  assert.equal(fs.readFileSync(evidenceReceipt).equals(receiptBytes), true, 'PR160 receipt remains untouched');
+  assert.equal(fs.readFileSync(evidenceBackup, 'utf8'), 'earlier-pr160-state');
+  assert.notEqual(sha256(reshadeIni), receipt.afterSha256, 'the old receipt cannot blindly restore over the Manager edit');
+});
+
 test('repairing a DX11 install on a resolved DX12 route retires carrier but retains nrchain', async t => {
   const f = fixture(t, 'dx11');
   await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });

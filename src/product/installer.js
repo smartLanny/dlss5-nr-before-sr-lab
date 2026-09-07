@@ -189,9 +189,11 @@ function createInstaller(overrides = {}) {
   }
 
   function editCarrierDisabled(text, remove = false) {
-    const carrierToken = `@${path.basename(INSTALLED_NAMES.carrier)}`.toLowerCase();
+    const carrierFile = path.basename(INSTALLED_NAMES.carrier);
+    const carrierToken = `@${carrierFile}`.toLowerCase();
     let section = '';
     let found = false;
+    let named = false;
     let changed = false;
     const lines = String(text || '').split('\n').map(line => {
       const header = line.match(/^\s*\[([^\]]+)\]\s*\r?$/);
@@ -202,14 +204,25 @@ function createInstaller(overrides = {}) {
       const items = splitDisabledAddons(match[2]);
       let lineChanged = false;
       const kept = items.filter(item => {
-        if (item.trim().toLowerCase() !== carrierToken) return true;
-        found = true;
-        if (remove) { changed = true; lineChanged = true; }
-        return !remove;
+        const value = item.trim();
+        if (value.toLowerCase() === carrierToken) {
+          found = true;
+          if (remove) { changed = true; lineChanged = true; }
+          return !remove;
+        }
+        // ReShade compares the filename after the first '@' byte-for-byte.
+        // A named entry therefore still disables this file, but belongs to
+        // the user and must not be rewritten as though Manager created it.
+        const at = value.indexOf('@');
+        if (at >= 0 && value.slice(at + 1) === carrierFile) {
+          found = true;
+          named = true;
+        }
+        return true;
       });
       return lineChanged ? `${match[1]}${kept.join(',')}${match[3]}` : line;
     });
-    return { found, changed, text: lines.join('\n') };
+    return { found, named, changed, text: lines.join('\n') };
   }
 
   async function enableCarrier(gameDir, exeDir) {
@@ -361,8 +374,10 @@ function createInstaller(overrides = {}) {
     const components = [];
     const expected = payload || {};
     const reshadeIni = path.join(exeDir, 'ReShade.ini');
-    const carrierDisabled = carrierRequired && fs.existsSync(reshadeIni) &&
-      editCarrierDisabled(fs.readFileSync(reshadeIni, 'utf8')).found;
+    const carrierDisabledState = carrierRequired && fs.existsSync(reshadeIni)
+      ? editCarrierDisabled(fs.readFileSync(reshadeIni, 'utf8'))
+      : { found: false, named: false };
+    const carrierDisabled = carrierDisabledState.found;
 
     const reshade = scan && scan.chosen ? scanModule.inspectReShade(exeDir) : { installed: false, addonSupport: false };
     components.push({
@@ -408,7 +423,9 @@ function createInstaller(overrides = {}) {
         detail: kind === 'carrier' && !carrierRequired && exists
           ? 'DX12 路线不应部署 DX11 Carrier，点击修复移出并备份'
           : (kind === 'carrier' && carrierDisabled
-            ? 'DX11 Carrier 已在 ReShade.ini 中禁用，点击修复重新启用'
+            ? (carrierDisabledState.named
+              ? 'DX11 Carrier 已被 ReShade.ini 具名禁用；为保留用户配置，请在 ReShade 中手动启用'
+              : 'DX11 Carrier 已在 ReShade.ini 中禁用，点击修复重新启用')
             : (!exists && routeOk === false ? '文件缺失' : (kind !== 'config' && expectedHash && actual !== expectedHash ? '版本或校验不一致' : null)))
       });
     }
