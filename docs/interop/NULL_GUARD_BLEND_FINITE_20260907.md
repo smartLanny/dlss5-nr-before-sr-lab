@@ -54,3 +54,18 @@ PR可作为有限blend准入修正进入合并审核，游戏Issues仍open。它
 ## 仍需游戏验收
 
 新候选需分别复测 #64/#38 前→后、#99 普通 SR 与 RR；记录同 scope/config/epoch 的成功、录制、提交以及实际 F6 画面。持续旁路时明确提示保留原生链路、用 F8 单 TXT 上传 BUG；已有旧资料不重复索要。#153 carrier 崩溃、#152/#156 loader、#39/#151 黑线独立继续，不借本单验收关闭。
+
+## 与 #149 原因诊断合并
+
+#149 通过普通 merge 保留本 PR 全部祖先，并将原因诊断与有限 blend
+准入统一到生产 blob `f0f13b0a8ac243f01cdf0f93a517440ac65f1394`。
+`RasterNullRejectionReason` 只为 NaN/Inf 返回
+`null-guard-blend-nonfinite`；有限值不再产生旧的 out-of-range 理由。
+生成器 `STATE_CURRENT` 同步到该 blob。
+
+合并源码 `fa658f5b986498354c6b6097f94a5172f03d5976` 在 Windows 重跑原因
+693项、compat 38/172项、native 66项与198函数栈门禁、24场景 WARP、
+三组成对有限 blend 像素及坏 blend 负控，并通过35项完整候选门禁、
+双语 core/nrchain/carrier 编译。其 `validation.json` SHA256 为
+`7659d120a2951012342ec784138a0dd2913a246a7543d675cebe0af4071dc27f`。
+NVIDIA Feature18与游戏仍未验证。

@@ -34,7 +34,7 @@ an ancestor. This is a temporary branch targeting main, not a new release line.
    NR strength and is unrelated to these four D3D12 values.
 2. Another raster/descriptor invariant is missing in an actual post-SR sample.
    This should produce the corresponding viewport, scissor, owned-descriptor
-   or generic guard reason, rather than the two blend-specific reasons.
+   or generic guard reason, rather than the nonfinite blend reason.
 3. Samples from different lists, modes or lifecycle phases were mixed. Compare
    the same-token/reset-serial tail, capture scope, provider and current mode;
    one startup `installing=1` / `native-hooks-unavailable` is not a terminal
@@ -53,33 +53,38 @@ reason and rate-limited log expose them without adding a second snapshot or
 inventing default values. The user-visible safe bypass and feedback path remain.
 
 The blend admission now accepts every finite float and still rejects NaN/Inf.
-Values are replayed unchanged; there is no clamping of application state,
-fabricated Reset, dropped
-state restore, extra submission, RR input replacement or resource-lifetime
-change is introduced. This is a diagnostic fix, not a claimed game-unlock fix.
+Values are replayed unchanged. No application state is clamped; no Reset is
+fabricated; state restoration, submission, RR inputs and resource lifetimes
+remain unchanged. This is not a claimed game-unlock fix.
 
-## Verification performed on the isolated Mac workspace
+## Integrated Windows verification
 
-- `python3 -m unittest discover -s tests -p test_null_guard_reasons.py -v`
+- Integrated source `fa658f5b986498354c6b6097f94a5172f03d5976`
+  preserves all #154 and #149 ancestors. Its final command-state blob is
+  `f0f13b0a8ac243f01cdf0f93a517440ac65f1394`, also pinned by the candidate
+  generator.
+- `python -m unittest discover -s tests -p test_null_guard_reasons.py -v`
   extracts the actual production predicate and Capture reason expression into
-  a host C++ harness. Before the patch: 681 checks, 21 diagnostic failures.
-  After: 681 checks, zero failures. Valid blends remain admitted; invalid
-  blends, unknown/tainted states, missing Reset, descriptors and unsupported
-  bindings remain rejected. A later ready sample supersedes startup hook
-  unavailability; the test does not alter the production install sequence.
-- `python3 -m unittest discover -s tests -p test_core_feedback.py -v`: 32 pass.
-- `python3 -m unittest discover -s tests -p test_feedback_report.py -v`: 15 pass.
-- `python3 scripts/validate-044-compat.py --compiler clang++`: 38 forwarding
-  checks and 82 bounded-raster checks pass, plus the sticky-registration/UI
-  integration assertions. Its extractor now includes the new production
-  reason helper instead of compiling only the dependent boolean wrapper.
-- `git diff --check`: pass.
+  a Windows C++ harness: 693 checks pass. Finite out-of-unit values are admitted
+  unchanged; NaN/Inf and all other existing guards remain rejected with the
+  same Capture priority.
+- Core feedback 32 tests and feedback report 15 tests pass.
+- `validate-044-compat.py`: 38 forwarding and 172 production null-raster checks
+  pass, including sticky-registration/UI integration.
+- Native command-state: 66 checks, 64 KiB worker and 198-function stack gate;
+  its default-null suite reports 718 checks and 73 GPU checks.
+- WARP: 24 command-state scenarios, three paired native/restored finite blend
+  pixel cases, and the intentionally wrong blend negative control pass.
+- The exact-source candidate builder reports 35 gates, complete staging,
+  static analysis, bilingual core/nrchain/carrier compile and all included WARP
+  suites passing. `validation.json` SHA256 is
+  `7659d120a2951012342ec784138a0dd2913a246a7543d675cebe0af4071dc27f`.
 
-These are source/host-predicate and feedback tests. No Windows addon compile,
-package, new WARP run, NVIDIA execution or game acceptance was performed.
-Hosted CI is reported separately on the PR; an unstarted job is not a pass.
+These are local Windows compile and WARP results. NVIDIA Feature18 and game
+acceptance were not performed. Hosted CI is reported separately on the PR; an
+unstarted job is not a pass.
 
-## ROG acceptance
+## Remaining game acceptance
 
 First read the already archived dev3 F8 files for #99; do not ask the player to
 upload them again. Preserve build/source/addon identity and inspect same-sample
