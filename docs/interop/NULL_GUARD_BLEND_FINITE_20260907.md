@@ -26,19 +26,31 @@ Hook、unknown domain、fresh Reset、taint、PSO、viewport/scissor、RTV/DSV �
 - Python 语法检查通过；生成器的修改经反向替换确认仅改变上述一个状态源 pin。重建的输入测试脚本与生成器先核对 Git blob，避免转录漂移。
 - Windows WARP fixture 已增加 3 组成对 native draw / production restore 像素对照，不假设越界 blend 的算术结果；原单位区间解析 oracle、NULL 默认值及已有错误 blend 负控制保留。`Gpu::Submit` 原有 fence 完成等待与 allocator/list Reset 不变。
 
-**ROG 边界**：本次在 Windows 建立隔离 worktree、读取反馈、编辑 WARP fixture 成功；运行验证命令时工具返回 `FORBIDDEN: This conversation does not support developer MCPs`，重新发现后执行及读取仍被拒。不是 C++ 编译报错，也不能据此认定本机服务掉线。未取得本次 Windows 编译、WARP、NVIDIA、游戏结果；未生成新 OTA。原 product、其他 worktrees 和未提交文件保留。
+## ROG Windows 实测收口（2026-09-07 15:25 UTC）
 
-## Windows 接续与验收（尚未执行）
+本次直接在 ROG Windows 执行，构建源码 **4521edf8aa9ddb6b20077d7f0debc789669c0779**；生产状态 blob 仍为 `47598e4068e1ba37327f22a309b17d6b2f0279e2`。没有重写有限 blend 修复。后续文档提交不改变二进制来源。
 
-先 fetch 并检查 PR #154 最新真实 HEAD，使用隔离工作树；确认 `HEAD:src/nr_command_state.inl` 与上述 pin 一致。ROG 上此前只写了 fixture、尚未切到修复提交的旧隔离目录，不能直接拿它构建候选。
+- `python scripts/validate-044-compat.py --compiler <fixed-clang++>`：转发38项、生产null-raster172项，全部通过。
+- `scripts/validate-command-state-native.ps1 -ToolchainRoot <fixed-toolchain>`：66项、64 KiB工作线程和197函数栈门禁通过；同脚本的默认null路径718项、73次GPU检查通过。
+- `scripts/validate-command-state-gpu.ps1 -ToolchainRoot <fixed-toolchain>`：24场景通过；另新增3组成对有限越界blend像素对照通过。`-0,-1,-2,-3` 的原生draw与生产Restore结果相同；不是根据文档猜测clamp行为。
+- 同脚本 `-BlendStateNegativeControl`：故意回放错误blend，子进程以1退出且像素oracle明确拒绝；验证脚本返回0，负控有效。
+- `scripts/build-multi-api-candidate.ps1`：沿用 [固定依赖与完整命令](VALIDATE_DEV3_WINDOWS.md)，全量staging/源身份检查、生产shader、48场景scaled-work WARP、RR退役54场景及负控、carrier完成状态机/WARP/硬件异常子进程、双语core/nrchain静态分析零诊断和全部DLL编译链接通过。编译有既有unused/novtable等警告；不冒称零警告。
 
-```powershell
-python scripts/validate-044-compat.py --compiler "$env:DLSS5_LLVM_MINGW_ROOT/bin/x86_64-w64-mingw32-clang++.exe"
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-command-state-native.ps1 -ToolchainRoot $env:DLSS5_LLVM_MINGW_ROOT
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:DLSS5_LLVM_MINGW_ROOT
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-command-state-gpu.ps1 -ToolchainRoot $env:DLSS5_LLVM_MINGW_ROOT -BlendStateNegativeControl
-```
+本地证据位于隔离worktree的 `build/pr154-candidate/source/source-manifest.json`、`build/pr154-candidate/validation.json` 和 `build/pr154-build-local.txt`；定点日志为 `build/pr154-{compat,native,warp,warp-negative}-local.txt`。原始日志和二进制不加入源码仓库。
 
-随后用固定上游完整 staging / addon 构建并核对 source-manifest，候选身份应与已发布包区分。**旧 A 包、旧 dev3 或 dx11-compat 原包只能提供基线，不能验证本次新增修复。**
+| 实际构建产物 | SHA256 |
+|---|---|
+| `DLSS5-AI-Rendering-Upscaling-beta0.4.5-dx11-compat-@野生的装机宅-Bilibili.en.addon64` | `e4a25219c979664081d1546a95b355cfccdb5e90384a134a01aabde4c9119144` |
+| `DLSS5-AI渲染超分版-beta0.4.5-dx11-compat-@野生的装机宅-Bilibili.addon64` | `a75719b5c87a0fe5e81865891e33f72f6dcf84db5511e4aee7c798caf2bfd7c1` |
+| `nrchain_nvngx.dll` | `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb` |
+| `dlss5-native-carrier-045-dx11-compat.addon64` | `9e0b9dc3fa05c4fc4b2249ccaf095715f989297a6149074e5cf9deaaff086e06` |
+
+**验证层级**：Windows compile、production WARP已通过；NVIDIA Feature18和游戏runtime未执行。WARP神经平面是确定性测试替身。独立严格snapshot harness要求的D3D12 Debug Layer仍不由这些结果代验。
+
+**CI**：已直接取得run34136127356 / check101787403579的annotation：账户近期付款失败或spending limit限制，任务未启动（steps=[]）。不是源码测试失败，不计为CI通过；未重跑。后续HEAD检查须独立读取。
+
+PR可作为有限blend准入修正进入合并审核，游戏Issues仍open。它不验证 #153 carrier崩溃，也不将 #99历史RR累计计数变成当前成功证据。用于游戏复测时以本次manifest与哈希识别新候选，既有相同显示版本/文件名不能区分源码；已发布包不能替代本次产物。
+
+## 仍需游戏验收
 
 新候选需分别复测 #64/#38 前→后、#99 普通 SR 与 RR；记录同 scope/config/epoch 的成功、录制、提交以及实际 F6 画面。持续旁路时明确提示保留原生链路、用 F8 单 TXT 上传 BUG；已有旧资料不重复索要。#153 carrier 崩溃、#152/#156 loader、#39/#151 黑线独立继续，不借本单验收关闭。
