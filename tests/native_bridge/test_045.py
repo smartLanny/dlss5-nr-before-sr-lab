@@ -2,6 +2,7 @@ import importlib.util
 import os
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("bridge_045", ROOT / "scripts/prepare-native-bridge-045.py")
@@ -9,6 +10,13 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
 class Source045(unittest.TestCase):
+    def setUp(self):
+        # The canonical integration explicitly adapts the historical library
+        # to reviewed fix2 source; retain its old standalone pins unchanged.
+        version = patch.object(m, 'VERSION', 'beta0.4.5-fix2')
+        version.start()
+        self.addCleanup(version.stop)
+
     def test_unique_block_boundaries(self):
         self.assertEqual(m.between("aSTARTxSTOPb", "START", "STOP", "Y"), "aYSTOPb")
         for text in ("none", "STARTSTARTSTOP", "STOPSTART"):
