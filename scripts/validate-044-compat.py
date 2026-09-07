@@ -104,8 +104,11 @@ int main() {
 
 
 def raster(source: str) -> str:
+    # The boolean wrapper delegates to the same production reason predicate;
+    # extract that dependency too, rather than replacing it with a test stub.
     helper = definition(source, 'bool CommandStateBlendFactorAdmissible(')
-    actual = definition(source, 'bool CanAutoRestoreRasterNull(')
+    actual = definition(source, 'const char *RasterNullRejectionReason(') + '\n'
+    actual += definition(source, 'bool CanAutoRestoreRasterNull(')
     return COMMON + r'''
 using UINT=unsigned;using UINT64=unsigned long long;
 constexpr float D3D12_VIEWPORT_BOUNDS_MIN=-32768.f,D3D12_VIEWPORT_BOUNDS_MAX=32767.f;
