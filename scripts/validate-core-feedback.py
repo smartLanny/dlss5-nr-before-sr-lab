@@ -330,8 +330,13 @@ def main():
     text = HARNESS
     for key, value in values.items():
         text = text.replace('\n'+key+'\n', '\n'+value+'\n')
-    out = ROOT/'test-output/core-feedback'
-    out.mkdir(parents=True, exist_ok=True)
+    # Production writes use CREATE_NEW. Preserve prior fixture evidence and
+    # isolate each invocation so repeat validation never reuses old reports.
+    import tempfile
+    base = ROOT/'test-output/core-feedback'
+    base.mkdir(parents=True, exist_ok=True)
+    out = Path(tempfile.mkdtemp(prefix='run-', dir=base))
+    print(f'Core feedback validation output: {out}', flush=True)
     cpp, exe = out/'core.cpp', out/'core.exe'
     cpp.write_text(text, encoding='utf-8')
     subprocess.run([args.compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function',
