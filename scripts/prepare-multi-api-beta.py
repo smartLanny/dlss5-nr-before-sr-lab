@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.4.5-multiapi-dev2'
-CARRIER_NAME = 'dlss5-native-carrier-multiapi-dev2.addon64'
+VERSION = 'beta0.4.5-multiapi-dev3'
+CARRIER_NAME = 'dlss5-native-carrier-multiapi-dev3.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
@@ -24,11 +24,13 @@ STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134)
 INTEGRATION_CORE_PINS = {
     'src/nr_command_state.inl': STATE_132,
-    'src/nr_settings_ui.inl': '085742e4e02bd434bb491ce23a9a1df3f370b2ec',
+    'src/nr_settings_ui.inl': '805447d69dcd53709d2fa9fd28b8a4d3f25f4063',
+    'src/nr_before_sr.cpp': 'e2c5ff0facc80b84c1bea29df05974f87b910429',
+    'src/nr_before_sr.rc': '25985f691b7f3104ba7c696f3da03eae709d4e52',
     'src/nr_color_policy.inl': 'e52bbc78b15647e8947de88afdbccf6ac7591361',
     'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': 'd5426edca3eefd52e88786bb7892284e2bf5f2d5',
+    'scripts/build.ps1': 'a3ba1f85da395602c83039b1542cc04db4ca9207',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
 }
 BRIDGE_BLOBS = {
@@ -67,6 +69,7 @@ def configure(core: Path):
     fmt = load('format_patch', core / 'scripts/patch-format-access.py')
     post = load('post_patch', core / 'scripts/patch-post-compat.py')
     m.EXPERIMENT = m.legacy.EXPERIMENT = VERSION
+    m.VERSION = 'beta0.4.5-fix2'
     m.legacy.UPSTREAM = UPSTREAM
     m.legacy.UPSTREAM_BLOBS = dict(BRIDGE_BLOBS)
     m.legacy.CORE_BLOBS.update(INTEGRATION_CORE_PINS)
@@ -119,9 +122,10 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.4.5 DX11 exp3 beta' not in resource_text:
+    if '0.4.5-fix2 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.4.5 DX11 exp3 beta', '0.4.5 multiapi dev2 beta'),
+    rc.write_text(resource_text.replace('0.4.5-fix2 beta', '0.4.5 multiapi dev3 beta')
+                  .replace('VERSION 0,4,5,2', 'VERSION 0,4,5,103'),
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:
