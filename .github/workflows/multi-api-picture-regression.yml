@@ -1,10 +1,6 @@
 name: Multi-API - preserve integrated picture policy in generated source
 on:
-  push:
-    branches: [codex/multiapi-045-integration]
-  pull_request:
-    branches: [release/0.4.5-test, release/0.4]
-    paths: ['src/**', 'scripts/**', 'tests/**', '.github/workflows/multi-api-picture-regression.yml']
+  workflow_call:
   workflow_dispatch:
 permissions:
   contents: read
