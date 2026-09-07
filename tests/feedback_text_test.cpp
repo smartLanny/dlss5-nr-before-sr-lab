@@ -106,6 +106,9 @@ int main() {
     check(RepeatKey("00:00:01 | status=7 blend=0.25") == RepeatKey("00:00:02 | status=7 blend=0.25") &&
           RepeatKey("00:00:01 | status=7 blend=0.25") != RepeatKey("00:00:02 | status=8 blend=0.25"),
         "timestamp-only repetition collapses while numeric state transitions remain distinct");
+    check(RepeatKey("status=7 | frame=1") != RepeatKey("status=8 | frame=2") &&
+          RepeatKey("error 7: detail | frame=1") != RepeatKey("error 8: detail | frame=2"),
+        "numeric diagnostic prefix is not mistaken for a timestamp");
     Window annotation_bound;
     annotation_bound.Push("frame=1 count=1", 512);
     annotation_bound.Push("frame=2 count=2", 512);

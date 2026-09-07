@@ -1,8 +1,8 @@
 # 下次本地或云端任务的接续入口
 
-维护者于2026-09-07授权将最新0.4.5 fix2/dev3兼容实现收敛到main，并精简F8和修复稳定性问题。本轮候选dev4，main是唯一持续开发入口；不要继续往旧release或兼容分支独立积累修复。
+维护者于2026-09-07授权将最新0.4.5 fix2/dev3兼容实现收敛到main，并精简F8和修复稳定性问题。本轮候选0.4.5-DX11-兼容增强，main是唯一持续开发入口；不要继续往旧release或兼容分支独立积累修复。
 
-先读取远端main、docs/interop/CURRENT_STATUS.md与MAIN_CONSOLIDATION.md。核对source-manifest.json和validation.json的精确源码身份；历史dev3测试、最新文档HEAD与dev4实机验收分别记录，不能互相替代。dev3已发布Tag b03f474ba5127ab057fbb5e93708c47eb9dbb866不覆盖。
+先读取远端main、docs/interop/CURRENT_STATUS.md与MAIN_CONSOLIDATION.md。核对source-manifest.json和validation.json的精确源码身份；历史dev3测试、最新文档HEAD与0.4.5-DX11-兼容增强实机验收分别记录，不能互相替代。dev3已发布Tag b03f474ba5127ab057fbb5e93708c47eb9dbb866不覆盖。
 
 保护所有原worktree和未提交文件，从origin/main建立短期工作分支。已整合维护分支由收敛记录列出；0.5、Feeder、Manager等未完成独立实验不按版本号盲目合并。Feeder的恢复分支codex/045-feeder-recovery已有真实源码，未验收完整同帧游戏链，不重新恢复旧草稿。
 

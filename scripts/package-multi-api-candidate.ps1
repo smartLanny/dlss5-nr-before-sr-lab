@@ -14,6 +14,11 @@ $Manifest = Get-Content -LiteralPath (Join-Path $Stage 'source-manifest.json') -
 $Validation = Get-Content -LiteralPath (Join-Path $Build 'validation.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $Commit = [string]$Manifest.source_commit
 $Version = [string]$Manifest.integration.version
+$DisplayProperty = $Manifest.integration.PSObject.Properties['display_version']
+$DisplayVersion = if ($null -ne $DisplayProperty) { [string]$DisplayProperty.Value } else { $Version }
+if ([string]::IsNullOrWhiteSpace($DisplayVersion) -or $DisplayVersion.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
+    throw 'Invalid public candidate name.'
+}
 if ($Commit -notmatch '^[0-9a-f]{40}$' -or $Validation.source_commit -ne $Commit -or $Manifest.integration.source_commit -ne $Commit) {
     throw 'Build evidence and exact staged source identity disagree.'
 }
@@ -99,7 +104,8 @@ try {
         Copy-Item -LiteralPath (Join-Path $Repo 'docs/interop/RELEASE_DEV4_PLAYER_NOTES.md') -Destination (Join-Path $Package 'UPDATE-NOTES.md')
         $Install = @"
 COMPATIBILITY CANDIDATE - NOT A STABLE RELEASE
-Version: $Version
+Version: $DisplayVersion
+Build identity: $Version
 Exact source: $Commit
 Install only ONE language core and its matching $CarrierLeaf companion.
 Do not stack generic Feeder/RenoDX NR owners or an older lab carrier.
@@ -116,12 +122,12 @@ No game files, tags or Releases were modified by the packager.
             [ordered]@{file=$_.FullName.Substring($Package.Length + 1).Replace('\','/'); sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
         })
         [IO.File]::WriteAllText((Join-Path $Package 'SHA256.json'), ($Hashes | ConvertTo-Json -Depth 4), (New-Object Text.UTF8Encoding($false)))
-        $ZipLeaf = $Addon.BaseName + '-OTA.zip'
+        $ZipLeaf = $Addon.BaseName.Replace($Version, $DisplayVersion) + '-OTA.zip'
         $Zip = Join-Path $Temporary $ZipLeaf
         Compress-Archive -Path (Join-Path $Package '*') -DestinationPath $Zip
         $Packages.Add([ordered]@{file=$ZipLeaf; sha256=(Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash.ToLowerInvariant()})
     }
-    $Index = [ordered]@{source_commit=$Commit; version=$Version; stable_release=$false; nvidia_feature18_verified=$Validation.nvidia_feature18_verified; game_runtime_verified=$Validation.game_runtime_verified; packages=@($Packages.ToArray())}
+    $Index = [ordered]@{source_commit=$Commit; version=$Version; display_version=$DisplayVersion; stable_release=$false; nvidia_feature18_verified=$Validation.nvidia_feature18_verified; game_runtime_verified=$Validation.game_runtime_verified; packages=@($Packages.ToArray())}
     [IO.File]::WriteAllText((Join-Path $Temporary 'packages.json'), ($Index | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
     [IO.Directory]::Move($Temporary, $Output)
     Write-Host "Packaged exact-source language candidates without touching games or existing INI: $Output"

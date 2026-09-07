@@ -14,8 +14,9 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.4.5-multiapi-dev4'
-CARRIER_NAME = 'dlss5-native-carrier-multiapi-dev4.addon64'
+VERSION = 'beta0.4.5-dx11-compat'
+DISPLAY_VERSION = '0.4.5-DX11-兼容增强'
+CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
@@ -25,6 +26,10 @@ STATE_CURRENT = 'ca61df92bb2d8c689648b12a35e7e1835d294748'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137)
 INTEGRATION_CORE_PINS = {
+    'src/nr_feedback_core.inl': 'a14c75fb3ecf96f4d1e59a5aadda9d181dfae879',
+    'src/nr_feedback_text.h': '2eb84a38dca9c72243bc2a4a0aa84007ec75097f',
+    'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
+    'src/nr_f8_sequence.inl': '08b9da7342466382e95904b0ca585ce93c92ee43',
     'src/nr_command_state.inl': STATE_CURRENT,
     'src/nr_feedback_capture.inl': '1ea44b68b5da07b018bc93eef13111d2f274601e',
     'src/nr_settings_ui.inl': 'e18d389d952e9ccb97ba81704b1aed76333f0c2d',
@@ -144,7 +149,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     resource_text = rc.read_text(encoding='utf-8')
     if '0.4.5-fix2 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.4.5-fix2 beta', '0.4.5 multiapi dev4 beta')
+    rc.write_text(resource_text.replace('0.4.5-fix2 beta', '0.4.5 DX11 compatibility beta')
                   .replace('VERSION 0,4,5,2', 'VERSION 0,4,5,104'),
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
@@ -153,7 +158,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     mf = stage / 'source-manifest.json'
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
-        'version': VERSION, 'source_commit': source,
+        'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),

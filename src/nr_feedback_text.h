@@ -101,8 +101,12 @@ inline bool DiagnosticLine(const std::string &lower) {
 inline std::string RepeatKey(const std::string &line) {
     auto lower = Lower(line);
     const auto bar = lower.find(" | ");
-    if (bar != std::string::npos && bar < 48 &&
-        std::any_of(lower.begin(), lower.begin() + bar, [](char c) { return std::isdigit(static_cast<unsigned char>(c)); }))
+    if (bar != std::string::npos && bar < 48 && lower.find(':') < bar &&
+        std::any_of(lower.begin(), lower.begin() + bar, [](char c) { return std::isdigit(static_cast<unsigned char>(c)); }) &&
+        std::all_of(lower.begin(), lower.begin() + bar, [](char c) {
+            return std::isdigit(static_cast<unsigned char>(c)) || c == ':' || c == '.' || c == '-' ||
+                c == '/' || c == '[' || c == ']' || c == ' ' || c == 't' || c == 'z';
+        }))
         lower.replace(0, bar, "[time]");
     else if (lower.size() > 20 && std::isdigit(static_cast<unsigned char>(lower[0])) &&
              lower[4] == '-' && lower[7] == '-' && (lower[10] == 't' || lower[10] == ' ')) {

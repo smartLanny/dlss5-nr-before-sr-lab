@@ -1,8 +1,8 @@
 # DLSS5 NR-Before-SR Lab
 
-当前兼容预发布版 **[beta0.4.5-multiapi-dev3 OTA](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/beta0.4.5-multiapi-dev3)** 已发布。唯一持续开发分支现收敛为 `main`（兼容 PR #133 的真实历史已整合），本轮源码候选为 **dev4：反馈精简与稳定性维护**，旧 dev3 Release 保持原样。执行看板是 [Issue #80](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/80)。本地、ChatGPT App和云端新session都从同一份 [CURRENT_STATUS](docs/interop/CURRENT_STATUS.md) 接续。
+当前兼容预发布版 **[beta0.4.5-multiapi-dev3 OTA](https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases/tag/beta0.4.5-multiapi-dev3)** 已发布。唯一持续开发分支现收敛为 `main`（兼容 PR #133 的真实历史已整合），本轮源码候选为 **0.4.5-DX11-兼容增强：反馈精简与稳定性维护**，旧 dev3 Release 保持原样。执行看板是 [Issue #80](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/80)。本地、ChatGPT App和云端新session都从同一份 [CURRENT_STATUS](docs/interop/CURRENT_STATUS.md) 接续。
 
-- [本轮 dev4 反馈与稳定性说明](docs/interop/RELEASE_DEV4_PLAYER_NOTES.md)
+- [本轮 0.4.5-DX11-兼容增强 反馈与稳定性说明](docs/interop/RELEASE_DEV4_PLAYER_NOTES.md)
 - [分支收敛记录](docs/interop/MAIN_CONSOLIDATION.md)
 - [已发布 dev3 玩家更新说明：改了什么、如何升级、建议操作](docs/interop/RELEASE_DEV3_PLAYER_NOTES.md)
 - [安装/回退与测试矩阵](docs/interop/POST_COMPAT_DEV3.md)

@@ -183,7 +183,7 @@ bool ReadSummary(const wchar_t *source, std::string &text, bool &coverage, ULONG
                 }
                 feed(bytes + start, got - start);
             }
-            if (!line.empty() || long_line) summary.Push(line, long_line);
+            if (!line.empty() || long_line) summary.Push(line, long_line || left != 0);
             tail_complete = left == 0;
         } else tail_read_ok = false;
     }

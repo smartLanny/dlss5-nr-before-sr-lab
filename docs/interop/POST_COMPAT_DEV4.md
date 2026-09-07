@@ -1,10 +1,10 @@
-# beta0.4.5-multiapi-dev4 统一测试版
+# 0.4.5-DX11-兼容增强 统一测试版
 
 这是合并颜色/UI fix、D3D12/DX11兼容增强、RR后置及低分后置的实验候选。不是稳定版，不包含ReShade、NVIDIA运行库/模型或游戏文件。精确源码、验证范围和文件哈希见随包manifest、validation.json、SHA256.json。
 
 ## 安装和回退
 
-退出游戏，先备份现用同类addon、配套nrchain_nvngx.dll和INI。解压中文或英文包之一，将该包的一种语言核心、同源nrchain_nvngx.dll和同名dev4 carrier放到现有ReShade加载addon的位置。不要同时留旧lab核心/carrier，也不要叠加Feeder或通用RenoDX NR所有者；与本项目无关的MOD保持原样。
+退出游戏，先备份现用同类addon、配套nrchain_nvngx.dll和INI。解压中文或英文包之一，将该包的一种语言核心、同源nrchain_nvngx.dll和同名0.4.5-DX11-兼容增强 carrier放到现有ReShade加载addon的位置。不要同时留旧lab核心/carrier，也不要叠加Feeder或通用RenoDX NR所有者；与本项目无关的MOD保持原样。
 
 保留原来的nr_before_sr.ini。本OTA不附带替换INI，已有设置不会因解压而被覆盖。要撤销以前保存的模型强度2，用主界面“仅恢复模型强度1.0”；一键推荐会同时恢复其他画质项。
 

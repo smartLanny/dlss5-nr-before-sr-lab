@@ -4,7 +4,7 @@
 
 ## 当前主线收敛批次
 
-维护者于2026-09-07明确授权合并最新版本到 `main` 并改善反馈/稳定性。当前开发入口改为 `main`，本轮候选 `beta0.4.5-multiapi-dev4`、PE `0.4.5.104`。dev3的fix2、DX11、RR/缩放后置历史和main独有52份反馈文件均保留。收敛分支清单与本轮验证见 [MAIN_CONSOLIDATION](MAIN_CONSOLIDATION.md)，玩家说明见 [dev4更新](RELEASE_DEV4_PLAYER_NOTES.md)。下面dev3发布/实机证据保留为基线记录，不代表dev4实机通过。
+维护者于2026-09-07明确授权合并最新版本到 `main` 并改善反馈/稳定性。当前开发入口改为 `main`，本轮候选 `0.4.5-DX11-兼容增强`、PE `0.4.5.104`。dev3的fix2、DX11、RR/缩放后置历史和main独有52份反馈文件均保留。收敛分支清单与本轮验证见 [MAIN_CONSOLIDATION](MAIN_CONSOLIDATION.md)，玩家说明见 [0.4.5-DX11-兼容增强更新](RELEASE_DEV4_PLAYER_NOTES.md)。下面dev3发布/实机证据保留为基线记录，不代表0.4.5-DX11-兼容增强实机通过。
 
 ## 已发布dev3基线来源
 
