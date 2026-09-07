@@ -20,15 +20,15 @@ concurrency:
 
 jobs:
   maintenance:
-    if: contains(fromJSON('["main","release/0.4","codex/beta0.4.2"]'), github.base_ref)
+    if: contains(fromJSON('["release/0.4","codex/beta0.4.2"]'), github.base_ref)
     uses: ./.github/workflows/beta042-validate.yml
 
   feedback:
-    if: contains(fromJSON('["main","release/0.4","next/0.5"]'), github.base_ref)
+    if: contains(fromJSON('["release/0.4","next/0.5"]'), github.base_ref)
     uses: ./.github/workflows/feedback-integrity.yml
 
-  fix045:
-    if: github.base_ref == 'release/0.4.5-test'
+  baseline-and-release-contracts:
+    if: contains(fromJSON('["main","release/0.4.5-test"]'), github.base_ref)
     uses: ./.github/workflows/followup-validate.yml
 
   compatibility:
@@ -36,11 +36,11 @@ jobs:
     uses: ./.github/workflows/compat-continuation.yml
 
   exposure:
-    if: contains(fromJSON('["codex/multiapi-045-integration","release/0.4.5-test"]'), github.base_ref)
+    if: contains(fromJSON('["main","codex/multiapi-045-integration","release/0.4.5-test"]'), github.base_ref)
     uses: ./.github/workflows/exposure-access.yml
 
   single-text:
-    if: contains(fromJSON('["release/0.4","release/0.4.5-test"]'), github.base_ref)
+    if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
     uses: ./.github/workflows/f8-single-text-validate.yml
 
   multi-api:
@@ -48,11 +48,11 @@ jobs:
     uses: ./.github/workflows/multi-api-foundation.yml
 
   generated-picture:
-    if: contains(fromJSON('["release/0.4","release/0.4.5-test"]'), github.base_ref)
+    if: contains(fromJSON('["main","release/0.4","release/0.4.5-test"]'), github.base_ref)
     uses: ./.github/workflows/multi-api-picture-regression.yml
 
   picture-controls:
-    if: contains(fromJSON('["fix/f8-single-txt-reset-evidence","release/0.4.5-test"]'), github.base_ref)
+    if: contains(fromJSON('["main","fix/f8-single-txt-reset-evidence","release/0.4.5-test"]'), github.base_ref)
     uses: ./.github/workflows/picture-ui-budget-validate.yml
 
   recommended-picture:
