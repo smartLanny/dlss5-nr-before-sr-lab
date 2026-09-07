@@ -40,7 +40,7 @@ def function(text: str, signature: str) -> str:
     raise ValueError(f'Unterminated production function: {signature}')
 
 
-def extract(source: str, descriptors: str, motion: str, template: str) -> str:
+def extract(source: str, descriptors: str, motion: str, template: str, exposure: str | None = None) -> str:
     # Normalise line endings, not source tokens or formulas.
     source = source.replace('\r\n', '\n')
     if 'float4 LoadPostArea' not in source or 'const bool scaled = ModelWidth != Width' not in source:
@@ -60,6 +60,10 @@ def extract(source: str, descriptors: str, motion: str, template: str) -> str:
             r'constexpr unsigned int kDiagnosticStatsUintCount = \d+;', 'stats UAV extent') +
             '\n' + descriptors,
     }
+    if 'NrExposureReadFormat' in descriptors:
+        if exposure is None:
+            raise ValueError('Missing actual exposure view helper for staged descriptor writer')
+        parts['DESCRIPTOR_WRITER'] = function(exposure, 'DXGI_FORMAT NrExposureReadFormat(') + '\n' + parts['DESCRIPTOR_WRITER']
     result = template
     for name, value in parts.items():
         marker = '// @PRODUCTION_' + name + '@'
@@ -80,10 +84,12 @@ def main() -> None:
     root = args.source_root.resolve() / 'src'
     inputs = [root / 'nr_before_sr.cpp', root / 'nr_codec_descriptors.inl',
               root / 'interop/nr_motion_access_d3d12.inl', args.template.resolve()]
+    exposure_path = root / 'interop/nr_exposure_access_d3d12.inl'
     output = args.output.resolve()
-    if output in [p.resolve() for p in inputs]:
+    if output in [p.resolve() for p in inputs + [exposure_path]]:
         raise ValueError('Output must not replace a production input or the harness template')
-    result = extract(*(p.read_text(encoding='utf-8-sig') for p in inputs))
+    exposure = exposure_path.read_text(encoding='utf-8-sig') if exposure_path.is_file() else None
+    result = extract(*(p.read_text(encoding='utf-8-sig') for p in inputs), exposure=exposure)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(result, encoding='utf-8', newline='\n')
 

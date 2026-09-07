@@ -81,6 +81,8 @@ def configure(core: Path):
         previous_prepare(core_root, upstream, stage)
         abi = load('native_parameter_abi', core_root / 'scripts/patch-ngx-parameter-abi.py')
         abi.apply(stage)
+        exposure = load('exposure_adapter', core_root / 'scripts/patch-exposure-access.py')
+        exposure.apply(stage)
     m.prepare = prepare_with_native_abi
     return m
 
@@ -137,6 +139,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'ngx_parameter_abi': 'Microsoft x64 native 17-slot layout; MSVC and Windows-GNU declarations',
         'reset_source_blob': STATE_132, 'feedback': 'F8 single TXT; F7 optional paired archive',
         'format_path': 'typed FP16/FP32 SceneColor read -> existing FP16 codec',
+        'exposure_path': '1x1 mip0 final-scale red channel; typed R16/R32 FLOAT-family view and actual device ShaderLoad; no source UAV requirement',
         'optional_inventory_blocks_on_failure': False,
         'vulkan_native': 'disabled: submit synchronization not implemented',
         'synthetic_legacy': 'not integrated',
