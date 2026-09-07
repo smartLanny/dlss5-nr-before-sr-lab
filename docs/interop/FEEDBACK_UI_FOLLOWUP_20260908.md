@@ -1,4 +1,4 @@
-# 0.4.6 反馈界面与效果默认值补正
+# 0.4.6-hotfix.1 反馈界面与效果默认值补正
 
 本批接续 PR #166 和已发布的 `9087a9e`，不重新实现 RR 恢复、F8/F7 后端或
 Manager 兼容桥接。原发布包仍保留，本文件区分新候选与原发布结果。
@@ -69,6 +69,43 @@ Manager 兼容桥接。原发布包仍保留，本文件区分新候选与原发
 
 ## 验证身份
 
-最终新源码、统一 Windows 构建、无补充宏的实际 UI 绘制与候选包身份在本批
-冻结后记录。原 0.4.6 的 39 项门禁不自动套用到本补丁。CI 付款/额度阻止启动，
-不重跑、不计通过；新候选游戏画面仍待 ROG。
+实际构建源码 `35ef9a826642e0eabcecd46d012167dd52b98105`，版本
+`beta0.4.6-hotfix.1`、Core PE `0.4.6.1`。原 0.4.6 的 39 项门禁没有套用到
+本补丁：本次重新执行统一构建，40 项本地门禁通过。102 个生成文件逐项 SHA256
+回查，版本、源码和包内证据一致；CI 付款/额度阻止启动，不重跑、不计通过。
+
+复现命令使用既有固定依赖与全新的输出目录：
+
+```powershell
+$env:PYTHONUTF8='1'
+./scripts/build-multi-api-candidate.ps1 -UpstreamRoot <pinned-bridge> -ToolchainRoot <llvm-mingw> -ReShadeSourceRoot <pinned-reshade> -DirectXMathRoot <pinned-math> -OutputRoot <new-build-root>
+./scripts/package-multi-api-candidate.ps1 -BuildRoot <new-build-root> -OutputRoot <new-package-root>
+```
+
+| 产物 | SHA256 |
+| --- | --- |
+| source-manifest.json | `bf69c537c4c20b75b68940463d4990742f95d17ddffbdd5a7bbe19688c51f90d` |
+| validation.json | `62dfd5ac613c3d14575d3f9a6de4e13a7fe9f929608baba8fd133d80e0224da2` |
+| 私有完整构建日志 | `729c347e3ae88dd934adddd3b9c4790a207e4779dd598ceae1d01af72bd97e31` |
+| 中文核心，1,368,064 bytes | `0727be26ceddcf60354535cee7c12a3138eef3075d7f90110b3693508fb633a5` |
+| 英文核心，1,345,536 bytes | `7b2c0afd2641300f7ca56de729731201cb73ab12862b9115add13c679aaf2fa2` |
+| nrchain | `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb` |
+| carrier（源码无新增崩溃修复） | `4656d9aac382a6f9b5c8488669aa5365283f03b5b94b2267f1c7f9b53927dc86` |
+| 中文 OTA，7 文件、685,762 bytes | `bd0ebd2f94041a7fee73aa4d77f48c914b833a0eec9f05b12e41419281e5dc77` |
+
+门禁包含生产 Present 的 F8/F7 分发与跨帧页面请求、核心反馈 155 检查、F7 控制器
+313 检查、512 ROI GPU/stream/ZIP、剪贴板与解析器、真实 RR 状态恢复及生产
+HLSL WARP。新装/显式旧配置迁移 79 检查、推荐恢复 336 检查及错误默认负控另行
+通过。中英文 Release 的实际 DLL 均含主页面 F8/F7 控件，独立 F8 Capture、
+嵌套反馈窗口和“此构建未启用”替代页字符串均已不存在。ZIP CRC 与 7 文件中的
+哈希清单独立回查通过。没有借删除 F8/F7 实现精简。
+
+最终 stage 的 UI 原始 SHA256 为
+`397fc4e0340670fcd24f0baa3900b638585d59aa16c2558f7caed0dcf2b9f5ef`。
+无补充功能宏的实际 ImGui WARP fixture 验证两个 tab、热键一次选页、F8/F7 可见
+和开发者区；运行值是明确的 host stub，不能替代游戏。新候选没有安装进游戏，
+NVIDIA Feature18 和 ROG 画面尚未验收，尤其不能宣称人脸独立倍率已实现。
+
+发布保护：这是独立 hotfix 候选，本核心任务未覆盖 `beta0.4.6` release/tag，
+也未自动合并 main。可合并的范围是界面入口修复、默认值与已有验证；#162 的
+真实人脸分割/最终区域独立控制仍需单独方案和游戏验收。
