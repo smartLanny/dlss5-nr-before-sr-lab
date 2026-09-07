@@ -20,6 +20,7 @@
 
 // @PRODUCTION_DESCRIPTOR_CONSTANTS@
 // @PRODUCTION_SHADER@
+// @MAINTENANCE_SHADER@
 // @PRODUCTION_CONSTANTS@
 
 void Require(bool value, const char *message) {
@@ -78,7 +79,7 @@ struct Gpu {
     UINT64 submitted = 0;
     HANDLE completion = nullptr;
 
-    Gpu() {
+    Gpu(const char *shader_source = kCodecShader) {
         Com<ID3D12Debug> debug;
         if (SUCCEEDED(D3D12GetDebugInterface(IID_ID3D12Debug, debug.address())))
             debug->EnableDebugLayer();
@@ -130,7 +131,7 @@ struct Gpu {
         increment = device->GetDescriptorHandleIncrementSize(heap_desc.Type);
 
         Com<ID3DBlob> shader, errors;
-        result = D3DCompile(kCodecShader, sizeof(kCodecShader) - 1,
+        result = D3DCompile(shader_source, std::strlen(shader_source),
             "production-codec", nullptr, nullptr, "CombineCS", "cs_5_0",
             D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &shader.p, &errors.p);
         if (FAILED(result) && errors.p != nullptr)
@@ -178,7 +179,7 @@ struct Gpu {
               IID_ID3D12PipelineState, pipeline.address()), "Create compute pipeline");
 
         Com<ID3DBlob> v2_shader, v2_errors;
-        result = D3DCompile(kCodecShader, sizeof(kCodecShader) - 1,
+        result = D3DCompile(shader_source, std::strlen(shader_source),
             "production-codec-v2", nullptr, nullptr, "CombineV2CS", "cs_5_0",
             D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &v2_shader.p, &v2_errors.p);
         if (FAILED(result) && v2_errors.p != nullptr)
@@ -617,6 +618,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
 int main(int argc, char **argv) {
     try {
         Gpu gpu;
+// @MAINTENANCE_COMPARISON@
         const bool negative_control = argc == 2 && std::strcmp(argv[1], "--negative-control") == 0;
         const bool layer_negative = argc == 2 && std::strcmp(argv[1], "--layer-negative-control") == 0;
         Require(argc == 1 || negative_control || layer_negative, "Unknown codec harness argument");

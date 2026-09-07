@@ -13,7 +13,7 @@ class Source045(unittest.TestCase):
     def setUp(self):
         # The canonical integration explicitly adapts the historical library
         # to reviewed fix2 source; retain its old standalone pins unchanged.
-        version = patch.object(m, 'VERSION', 'beta0.4.5-fix2')
+        version = patch.object(m, 'VERSION', 'beta0.5-dev4')
         version.start()
         self.addCleanup(version.stop)
 

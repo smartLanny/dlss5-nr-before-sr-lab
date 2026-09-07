@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -16,6 +16,27 @@ if (!$shader.Success -or !$constants.Success -or !$descriptors.Success) {
     throw 'Production codec extraction markers changed; update the GPU harness.'
 }
 $harness = $harness.Replace('// @PRODUCTION_SHADER@', $shader.Value)
+if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
+    $baseline = Get-Content -LiteralPath $BaselineSource -Raw -Encoding UTF8
+    $baselineShader = [regex]::Match($baseline, 'const char kCodecShader\[\] = R"HLSL\([\s\S]*?\)HLSL";')
+    if (!$baselineShader.Success -or !$baseline.Contains('ModelLightingTapV2')) { throw 'Expected actual maintenance shader with edge-aware LightingLock.' }
+    $harness = $harness.Replace('// @MAINTENANCE_SHADER@', $baselineShader.Value.Replace('kCodecShader', 'kMaintenanceShader'))
+    $comparison = @'
+        Gpu baseline(kMaintenanceShader);
+        unsigned comparison_count = 0;
+        for (bool before : {false,true}) for (UINT flags : {0u,1u,16u,32u,64u,128u,192u})
+        for (float strength : {0.f,.5f,1.f,1.2f,2.f,4.f}) for (int variant : {0,1,3,6,7,8}) {
+            const auto old = Run(baseline,13,13,0,1,flags,variant,before,7,5,{},.6f,{},strength);
+            const auto now = Run(gpu,13,13,0,1,flags,variant,before,7,5,{},.6f,{},strength);
+            Require(old.output.size()==now.output.size(), "MAINTENANCE_NEUTRAL_SIZE");
+            Require(std::memcmp(old.output.data(),now.output.data(),old.output.size()*sizeof(Float4))==0,
+                "MAINTENANCE_NEUTRAL_PIXELS");
+            ++comparison_count;
+        }
+        std::printf("Actual maintenance vs 0.5 disabled protection/layers: %u byte-identical WARP outputs.\n",comparison_count);
+'@
+    $harness = $harness.Replace('// @MAINTENANCE_COMPARISON@', $comparison)
+}
 $boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_strength_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
 $layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw -Encoding UTF8
