@@ -437,14 +437,21 @@ function createLibraryService(overrides = {}) {
       const apiOverride = override && override.apiExecutable && scan.chosen &&
         samePath(override.apiExecutable, scan.chosen.path) ? override.api : 'auto';
       scan = annotateApi(scan, game.dir, { ...launchContext(game), apiOverride });
+      let manifest = null;
+      try { manifest = readManifest(game.dir); } catch {}
+      const carrierOverride = override && override.carrierExecutable && scan.chosen &&
+        samePath(override.carrierExecutable, scan.chosen.path) && typeof override.carrierEnabled === 'boolean'
+        ? override.carrierEnabled : null;
+      const sameInstalledExe = manifest && scan.chosen && samePath(path.resolve(game.dir, manifest.game.exe), scan.chosen.path);
+      const carrierEnabled = isDx11Only(scan.chosen) && (carrierOverride !== null
+        ? carrierOverride : !(sameInstalledExe && manifest.carrierDisabledByUser === true));
+      scan.componentSelection = { dx11Carrier: carrierEnabled };
       // Pure DX11 uses the unified 0.4.5 compatibility payload. A remembered
       // historical selection must not hide an otherwise eligible DX11 game;
       // the actual payload choice is normalized per game in app-service.
       const allowDx11 = isDx11Only(scan.chosen) ||
         !state.addonVersion || state.addonVersion === DX11_COMPAT_VERSION;
       const support = assess(scan, { allowDx11 });
-      let manifest = null;
-      try { manifest = readManifest(game.dir); } catch {}
       return {
         id: idFor(game.dir),
         name: (override && override.name) || game.name || scan.gameName || path.basename(game.dir),
@@ -467,6 +474,7 @@ function createLibraryService(overrides = {}) {
         supportText: support.code ? MESSAGES[support.code] : '支持安装',
         installed: Boolean(manifest),
         apiOverride: ['dx11', 'dx12'].includes(apiOverride) ? apiOverride : 'auto',
+        components: { dx11Carrier: carrierEnabled },
         addonVersion: manifest && manifest.payloadVersion ? manifest.payloadVersion : null,
         recommendedAddonVersion: !manifest && !state.addonVersion && isDx11Only(scan.chosen) ? DX11_COMPAT_VERSION : null,
         d3d12Route: Boolean(manifest && manifest.reshadeRoute === 'd3d12'),

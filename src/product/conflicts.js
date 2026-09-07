@@ -69,6 +69,7 @@ function scanConflicts(gameDir, options = {}) {
     if (excluded.has(path.normalize(rel).toLowerCase())) return [];
     const classification = classifyAddon(name, file);
     if (!classification) return [];
+    if (Array.isArray(options.categories) && !options.categories.includes(classification.category)) return [];
     return [{
       source: file,
       rel,

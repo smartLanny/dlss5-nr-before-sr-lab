@@ -365,6 +365,32 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       // An API choice changes the next deployment, never game files by itself.
       return refresh();
     },
+    setGameCarrier: async (id, enabled, options = {}) => {
+      if (typeof enabled !== 'boolean') throw appError('ERR_BAD_REQUEST');
+      const game = findGame(id);
+      if (!game.scan || !game.scan.chosen) throw appError('ERR_NO_GAME_EXE');
+      if (enabled && !isDx11Only(game.scan.chosen)) throw appError('ERR_UNSUPPORTED_API', { reason: 'carrier-only-for-dx11' });
+      const installed = readManifest(game.dir);
+      const state = store.read();
+      const key = pathKey(game.dir);
+      const previous = state.gameOverrides[key] || {};
+      await store.write({ gameOverrides: { ...state.gameOverrides,
+        [key]: { ...previous, carrierEnabled: enabled, carrierExecutable: game.scan.chosen.path } } });
+      try {
+        if (!enabled && installed) await installer.disableCarrier({ gameDir: game.dir, scan: game.scan,
+          allowAntiCheat: options && options.allowAntiCheat === true });
+      } catch (error) {
+        // A refused file operation must not leave the UI claiming the active
+        // carrier was disabled. Restore just this preference, preserving peers.
+        const current = store.read();
+        try { await store.write({ gameOverrides: { ...current.gameOverrides,
+          [key]: { ...current.gameOverrides[key], carrierEnabled: previous.carrierEnabled ?? null,
+            carrierExecutable: previous.carrierExecutable ?? null } } }); }
+        catch { error.details = { ...error.details, preferenceRollbackFailed: true }; }
+        throw error;
+      }
+      return refresh();
+    },
     listAddonVersions,
     importAddonFile: async file => {
       if (typeof file !== 'string' || !path.isAbsolute(file) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {

@@ -92,6 +92,8 @@ function setBusy(value) {
 function supportBadge(game) {
   if (game.installed) return '<span class="badge good">已安装</span>';
   if (game.supported) return '<span class="badge good">支持安装</span>';
+  if (game.supportCode === 'ERR_API_SELECTION_REQUIRED') return '<span class="badge">API 待确认</span>';
+  if (game.supportCode === 'ERR_CARRIER_NOT_SELECTED') return '<span class="badge">兼容组件已关闭</span>';
   return '<span class="badge bad">暂不支持</span>';
 }
 
@@ -227,12 +229,13 @@ function apiControls(game) {
   const resolution = game.chosen.apiResolution || {};
   const labels = { dx11: 'DirectX 11', dx12: 'DirectX 12', mixed: '多条 API 线索，待选择', unknown: 'API 未确认', unsupported: '当前路线不支持' };
   const selected = game.apiOverride || 'auto';
+  const carrierEnabled = game.components ? game.components.dx11Carrier === true : resolution.api === 'dx11';
   const options = [['auto', '自动（综合证据）'], ['dx11', 'DirectX 11'], ['dx12', 'DirectX 12']]
     .map(([id, label]) => `<option value="${id}"${id === selected ? ' selected' : ''}>${label}</option>`).join('');
   const deployment = resolution.api === 'dx11' ? '需要兼容核心、配套 nrchain 和 DX11 carrier。'
     : resolution.api === 'dx12' ? '安装所选核心和 nrchain，移出并备份旧 DX11 carrier。'
     : '请按游戏启动设置确认 API，再安装或修复。';
-  return `<div class="config-block"><h4>游戏 API 与部署</h4><div class="control-row"><label>实际启动 API</label><select class="game-api-select">${options}</select><button class="button subtle api-save-btn">保存 API</button></div><p>${escapeHtml(labels[resolution.api] || 'API 未确认')} · ${escapeHtml(deployment)}</p><p class="config-note">保存选择后，点击安装、修复或应用版本才会调整组件。此选择不修改游戏的启动参数。</p><p class="config-note">${escapeHtml((resolution.evidence || []).join('；'))}</p></div>`;
+  return `<div class="config-block"><h4>游戏 API 与部署</h4><div class="control-row"><label>实际启动 API</label><select class="game-api-select">${options}</select><button class="button subtle api-save-btn">保存 API</button></div><p>${escapeHtml(labels[resolution.api] || 'API 未确认')} · ${escapeHtml(deployment)}</p><p class="config-note">保存 API 后，点击安装、修复或应用版本才会调整路线。此选择不修改游戏的启动参数。</p><div class="control-row"><label><input class="carrier-component-check" type="checkbox"${carrierEnabled ? ' checked' : ''}${resolution.api !== 'dx11' ? ' disabled' : ''}> DX11 carrier</label><span>独立配套组件</span><button class="button subtle carrier-save-btn">应用组件选择</button></div><p class="config-note">取消勾选并应用，会移出并备份已安装的 carrier，保留核心与 nrchain。重新勾选后请点击安装或修复；DX11 未勾选时兼容路线不启用，DX12 无需此组件。</p><p class="config-note">${escapeHtml((resolution.evidence || []).join('；'))}</p></div>`;
 }
 
 function gameApiLabel(chosen) {
@@ -244,7 +247,8 @@ function gameApiLabel(chosen) {
 
 function gameDetail(game) {
   if (!game.installed) {
-    const title = game.supported ? '已检测到可用的普通 DLSS 游戏' : '当前不满足基础版安装条件';
+    const title = game.supported ? '已检测到可用的普通 DLSS 游戏'
+      : game.supportCode === 'ERR_API_SELECTION_REQUIRED' ? '请确认游戏实际启动 API' : '当前不满足基础版安装条件';
     const detail = game.supported
       ? (payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可以直接一键安装。` : '安装前检查已通过；请确认显卡型号并准备对应组件。')
       : game.supportText;
@@ -326,6 +330,13 @@ function bindGameCards() {
     if (saveApi) saveApi.onclick = event => {
       event.stopPropagation();
       runAction(() => window.manager.setGameApi(id, card.querySelector('.game-api-select').value), 'API 选择已保存，请安装或修复以应用组件路线', true, id);
+    };
+    const saveCarrier = card.querySelector('.carrier-save-btn');
+    if (saveCarrier) saveCarrier.onclick = event => {
+      event.stopPropagation();
+      const enabled = card.querySelector('.carrier-component-check').checked;
+      runConfirmedAction(allowAntiCheat => window.manager.setGameCarrier(id, enabled, { allowAntiCheat }),
+        enabled ? 'carrier 已勾选，请安装或修复以应用配套组件' : 'carrier 已关闭；核心与 nrchain 保留', true, id);
     };
     const launch = card.querySelector('.launch-btn');
     if (launch) launch.onclick = event => { event.stopPropagation(); runAction(() => window.manager.launch(id), '游戏已启动', false); };

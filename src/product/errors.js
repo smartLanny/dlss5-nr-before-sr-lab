@@ -7,6 +7,7 @@ const MESSAGES = Object.freeze({
   ERR_UNSUPPORTED_API: '所选组件不支持这条图形路线。DirectX 11 需要包含配套 carrier 的兼容包；其他图形 API 暂不支持。',
   ERR_API_SELECTION_REQUIRED: '图形 API 证据不足或存在多条路线，请展开游戏卡片，按游戏的实际启动设置选择 DirectX 11 或 DirectX 12。',
   ERR_API_ROUTE_PENDING: '游戏 API 选择与已部署组件不一致，请先点击修复或应用版本，再启动游戏。',
+  ERR_CARRIER_NOT_SELECTED: 'DX11 carrier 未勾选，DX11 兼容路线未启用。若要安装或修复该路线，请勾选 carrier 并使用完整配套组件。',
   ERR_UNSUPPORTED_BITNESS: '当前基础版只支持 64 位游戏。',
   ERR_NO_DLSS: '没有检测到游戏自带的普通 DLSS 超分组件。',
   ERR_EMULATOR_UNSUPPORTED: '当前基础版暂不自动安装到模拟器。',

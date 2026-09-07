@@ -243,8 +243,16 @@ function createInstaller(overrides = {}) {
     await fs.promises.writeFile(file, edited.text, 'utf8');
   }
 
+  function applySavedComponentChoice(gameDir, scan) {
+    if (!scan || scan.componentSelection) return scan;
+    const manifest = readManifest(gameDir);
+    if (!manifest || manifest.carrierDisabledByUser !== true || !scan.chosen ||
+        path.resolve(gameDir, manifest.game.exe).toLowerCase() !== path.resolve(scan.chosen.path).toLowerCase()) return scan;
+    return { ...scan, componentSelection: { dx11Carrier: false } };
+  }
+
   async function install({ gameDir, payload, scan: suppliedScan, allowAntiCheat = false }) {
-    const scan = suppliedScan || await scanModule.scanGame(gameDir);
+    const scan = applySavedComponentChoice(gameDir, suppliedScan || await scanModule.scanGame(gameDir));
     verifyTarget(scan, payload);
     const exePath = scan.chosen.path;
     const exeDir = path.dirname(exePath);
@@ -279,6 +287,7 @@ function createInstaller(overrides = {}) {
         manifest.payloadVersion = payload.version || null;
         manifest.hardwareFamily = payload.hardwareFamily || null;
         manifest.deploymentApi = classifyApi(scan.chosen);
+        manifest.carrierDisabledByUser = carrierRequired ? false : manifest.carrierDisabledByUser === true;
 
         if (!reshade.installed) {
           await writeManaged(gameDir, manifest, payload.reshade.file,
@@ -375,6 +384,7 @@ function createInstaller(overrides = {}) {
     });
     const exeDir = scan && scan.chosen ? path.dirname(scan.chosen.path) : gameDir;
     const carrierRequired = isDx11Only(scan && scan.chosen);
+    const carrierOffByChoice = carrierRequired && manifest && manifest.carrierDisabledByUser === true;
     const selectedApi = classifyApi(scan && scan.chosen);
     const deploymentApi = manifest && (manifest.deploymentApi ||
       (manifest.files.some(row => row.kind === 'carrier') ? 'dx11' : 'dx12'));
@@ -428,7 +438,9 @@ function createInstaller(overrides = {}) {
         key: kind,
         label: { addon: 'NR→SR 插件', bridge: 'NR Bridge', carrier: 'DX11 Native Carrier', runtime: 'AI Runtime', config: '配置文件' }[kind],
         ok: routeOk && (kind === 'config' || !expectedHash || actual === expectedHash),
-        detail: kind === 'carrier' && !carrierRequired && exists
+        detail: kind === 'carrier' && carrierOffByChoice && !exists
+          ? 'DX11 carrier 已按用户选择关闭；核心与 nrchain 保留，DX11 兼容路线未启用'
+          : kind === 'carrier' && !carrierRequired && exists
           ? 'DX12 路线不应部署 DX11 Carrier，点击修复移出并备份'
           : (kind === 'carrier' && carrierDisabled
             ? (carrierDisabledState.nameOnly
@@ -502,7 +514,7 @@ function createInstaller(overrides = {}) {
   async function upgradeAddon({ gameDir, addon, version, scan: suppliedScan, allowAntiCheat = false }) {
     const manifest = readManifest(gameDir);
     if (!manifest) throw appError('ERR_NOT_INSTALLED');
-    const scan = suppliedScan || await scanModule.scanGame(gameDir);
+    const scan = applySavedComponentChoice(gameDir, suppliedScan || await scanModule.scanGame(gameDir));
     const allowDx11 = addon.compatibility === 'dx11' ||
       (!addon.compatibility && manifest.payloadVersion === DX11_COMPAT_VERSION);
     const support = assess(scan, { allowDx11 });
@@ -540,6 +552,7 @@ function createInstaller(overrides = {}) {
         }
         manifest.payloadVersion = version || addon.id || null;
         manifest.deploymentApi = classifyApi(scan.chosen);
+        manifest.carrierDisabledByUser = carrierRequired ? false : manifest.carrierDisabledByUser === true;
         manifest.updatedAt = new Date().toISOString();
         await saveManifest(gameDir, manifest);
         const expected = {
@@ -562,6 +575,28 @@ function createInstaller(overrides = {}) {
       } catch (error) {
         throw error;
       }
+    });
+  }
+
+  async function disableCarrier({ gameDir, scan: suppliedScan, allowAntiCheat = false }) {
+    const scan = suppliedScan || await scanModule.scanGame(gameDir);
+    if (!scan || !scan.chosen || !scan.chosen.path) throw appError('ERR_NO_GAME_EXE');
+    if (!canWrite(path.dirname(scan.chosen.path))) throw appError('ERR_NO_WRITE_ACCESS');
+    if (guards.antiCheatPresent(gameDir) && allowAntiCheat !== true) throw appError('ERR_ANTI_CHEAT_CONFIRM', { operation: 'disable-carrier' });
+    await guards.assertGameClosed(gameDir, scan.chosen.path);
+    return journal.transaction(gameDir, async () => {
+      const manifest = readManifest(gameDir);
+      if (!manifest) throw appError('ERR_NOT_INSTALLED');
+      await retireManagedCarriers(gameDir, manifest);
+      const moved = await moveConflicts(gameDir, manifest.installId, {
+        categories: ['native-carrier'],
+        exclude: manifest.files.map(row => row.rel),
+        capture: target => journal.capture(gameDir, target)
+      });
+      manifest.conflicts = [...(manifest.conflicts || []), ...moved];
+      manifest.carrierDisabledByUser = true;
+      await saveManifest(gameDir, manifest);
+      return diagnose({ gameDir, scan });
     });
   }
 
@@ -643,7 +678,7 @@ function createInstaller(overrides = {}) {
     });
   }
 
-  return { install, repair, upgradeAddon, toggleD3D12, uninstall, diagnose, isAddonReShade };
+  return { install, repair, upgradeAddon, toggleD3D12, disableCarrier, uninstall, diagnose, isAddonReShade };
 }
 
 module.exports = { createInstaller };

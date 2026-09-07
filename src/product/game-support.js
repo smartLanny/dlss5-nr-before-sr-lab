@@ -39,6 +39,9 @@ function assess(scan, options = {}) {
   if (!scan.primaryDlss || !/^nvngx_dlss\.dll$/i.test(scan.primaryDlss.name || '')) {
     return { supported: false, code: 'ERR_NO_DLSS' };
   }
+  if (isDx11Only(scan.chosen) && scan.componentSelection && scan.componentSelection.dx11Carrier === false) {
+    return { supported: false, code: 'ERR_CARRIER_NOT_SELECTED' };
+  }
   return { supported: true, code: null };
 }
 

@@ -56,8 +56,11 @@ function normalizeGameOverrides(value) {
     const api = ['dx11', 'dx12'].includes(row.api) ? row.api : 'auto';
     const apiExecutable = typeof row.apiExecutable === 'string' && path.isAbsolute(row.apiExecutable)
       ? path.resolve(row.apiExecutable) : null;
-    if (!name && !icon && (api === 'auto' || !apiExecutable)) continue;
-    out[dir] = { name, icon, api, apiExecutable };
+    const carrierExecutable = typeof row.carrierExecutable === 'string' && path.isAbsolute(row.carrierExecutable)
+      ? path.resolve(row.carrierExecutable) : null;
+    const carrierEnabled = typeof row.carrierEnabled === 'boolean' && carrierExecutable ? row.carrierEnabled : null;
+    if (!name && !icon && (api === 'auto' || !apiExecutable) && carrierEnabled === null) continue;
+    out[dir] = { name, icon, api, apiExecutable, carrierEnabled, carrierExecutable };
   }
   return out;
 }
