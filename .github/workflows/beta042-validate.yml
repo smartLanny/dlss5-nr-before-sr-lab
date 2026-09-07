@@ -166,18 +166,18 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $addons = @(Get-ChildItem build -Filter '*beta0.4.5-fix1*.addon64')
+          $addons = @(Get-ChildItem build -Filter '*beta0.4.5-fix2*.addon64')
           if ($addons.Count -ne 2) { throw 'Expected two 0.4.5 language addons' }
           foreach ($addon in $addons) {
             $v = $addon.VersionInfo
-            if ($v.FileMajorPart -ne 0 -or $v.FileMinorPart -ne 4 -or $v.FileBuildPart -ne 5 -or $v.FilePrivatePart -ne 1) { throw 'Wrong numeric PE version' }
-            if ($v.FileVersion -ne '0.4.5-fix1 beta' -or $v.ProductVersion -ne '0.4.5-fix1 beta') { throw 'Wrong textual PE version' }
+            if ($v.FileMajorPart -ne 0 -or $v.FileMinorPart -ne 4 -or $v.FileBuildPart -ne 5 -or $v.FilePrivatePart -ne 2) { throw 'Wrong numeric PE version' }
+            if ($v.FileVersion -ne '0.4.5-fix2 beta' -or $v.ProductVersion -ne '0.4.5-fix2 beta') { throw 'Wrong textual PE version' }
           }
           python scripts/package-045.py
           if ($LASTEXITCODE -ne 0) { throw 'OTA verification failed' }
       - uses: actions/upload-artifact@v4
         with:
-          name: beta045-fix1-ota
+          name: beta045-fix2-ota
           path: ota/*.zip
           if-no-files-found: error
       - name: Assemble and verify clean test package
@@ -195,7 +195,7 @@ jobs:
             "branch=$env:GITHUB_REF_NAME"
             "commit=$env:GITHUB_SHA"
             "workflowRun=$env:GITHUB_RUN_ID"
-            "build=beta0.4.5-fix1"
+            "build=beta0.4.5-fix2"
             "channel=d3d12-branch-test-only"
           ) | Set-Content -Encoding utf8NoBOM dist/BUILD-PROVENANCE.txt
           Get-ChildItem dist -File | Where-Object Name -ne 'SHA256SUMS.txt' |
@@ -216,6 +216,6 @@ jobs:
           Get-Content -Encoding utf8 dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: beta045-fix1-candidate
+          name: beta045-fix2-candidate
           path: dist/
           if-no-files-found: error

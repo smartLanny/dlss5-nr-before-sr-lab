@@ -27,10 +27,10 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
     const bool current_color_policy =
         color_policy_snapshot.status == NrColorPolicyStatus::Current;
     const bool color_follow_changed = ImGui::SliderFloat(
-        ui("NR Color Follow", "NR 颜色跟随强度"),
+        ui("Colour enhancement", "色彩强化"),
         &next.color_strength, 0.0f, 1.0f, "%.2f");
-    SettingsTooltip(ui("0 keeps the game's hue; 1 follows bounded NR chroma. New installations request 0.75. Editing a nonzero value explicitly permits unverified HDR colour with a warning; zero restores luminance only. This does not override resource or exposure safety. Recorded values describe settings, not measured picture strength.",
-        "0 保留游戏色相；1 跟随有界 NR 色彩。新装默认请求 0.75。手动调到非零即允许尝试未验证 HDR 色彩，可能偏色；拉回 0 恢复仅明暗，不绕过资源或曝光安全检查。记录值是参数设置，不代表测得的画面变化强度。"));
+    SettingsTooltip(ui("0 keeps the game's hue; 1 follows bounded NR chroma. New installations request 1.0. The saved request may differ from the effective coefficient. Editing a nonzero value explicitly permits unverified HDR colour with a warning; zero restores luminance only. This does not override resource or exposure safety. Recorded values describe settings, not measured picture strength.",
+        "0 保留游戏色相；1 跟随有界 NR 色彩。新装默认请求 1.0。保存请求与实际合成系数可能不同。手动调到非零即允许尝试未验证 HDR 色彩，可能偏色；拉回 0 恢复仅明暗，不绕过资源或曝光安全检查。记录值是参数设置，不代表测得的画面变化强度。"));
     if (color_follow_changed) next.allow_unverified_hdr_color = next.color_strength > 0.0f;
     changed |= color_follow_changed;
     if (color_follow_changed &&
@@ -221,8 +221,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         changed = true;
     }
     SettingsTooltip(ui(
-        "Restores Before SR, strength 1.2, colour request 0.75 and the shipped picture defaults. Exits diagnostic identity and disables unverified HDR colour/peak experiments. Keeps Enable (F6), depth/jitter/R8 game contracts and feedback preferences. Uses the normal save/history rules; runtime safety faults are not cleared.",
-        "恢复前置 NR、强度 1.2、颜色请求 0.75 等随包推荐画质；退出诊断原图，关闭未验证 HDR 调色与高光实验。保留 F6 总开关、深度/Jitter/R8 游戏兼容设置和反馈偏好；按正常规则保存及更新历史，不清除运行时安全故障。"));
+        "Restores Before SR, strength amplification 1.2, model strength 1.0, colour request 1.0 and the shipped picture defaults. Exits diagnostic identity and disables unverified HDR colour/peak experiments. Keeps Enable (F6), depth/jitter/R8 game contracts and feedback preferences. Uses the normal save/history rules; runtime safety faults are not cleared.",
+        "恢复前置 NR、强度放大 1.2、模型强度 1.0、颜色请求 1.0 等随包推荐画质；退出诊断原图，关闭未验证 HDR 调色与高光实验。保留 F6 总开关、深度/Jitter/R8 游戏兼容设置和反馈偏好；按正常规则保存及更新历史，不清除运行时安全故障。"));
     int mode = next.mode == 2 ? 0 : 1;
     if (ImGui::Combo(ui("Processing mode", "处理模式"), &mode,
             ui("Before SR: NR -> SR\0After SR: SR -> NR\0",
@@ -284,6 +284,15 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         changed |= ImGui::SliderFloat(ui("Model strength", "模型强度"), &next.intensity, 0.f, 2.f, "%.2f");
         SettingsTooltip(ui("This tunes the model itself, not the final effect multiplier. Saturation can limit the visible change.",
             "这项调整模型内部行为，不等于强度放大。默认 1.0，保留已有值；模型参数提交后需要重建/预热，短暂原图不是人脸识别成功的证明。"));
+        if (next.intensity != 1.0f) {
+            ImGui::TextDisabled("%s", ui("Model default is 1.0; the value above is your saved setting.",
+                "模型默认是 1.0；上方显示的是已保存的设置。"));
+            if (ImGui::Button(ui("Restore model strength 1.0 only###nr-model-default", "仅恢复模型强度 1.0###nr-model-default"))) {
+                next.intensity = 1.0f;
+                changed = true;
+                apply_discrete_edit = true;
+            }
+        }
         changed |= ImGui::SliderFloat(ui("Local tone", "局部影调"), &next.local_tone, 0.f, 2.f, "%.2f");
         SettingsTooltip(ui("Changes local contrast inside the NR model. It is separate from final blend strength.", "调整 NR 模型内部的局部明暗对比，与最终混合强度不同。"));
         changed |= ImGui::SliderFloat(ui("Local structure", "局部结构"), &next.local_structure, 0.f, 2.f, "%.2f");
@@ -338,8 +347,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImGui::TextWrapped("%s", ui("Detail stability defaults off and limits inconsistent fine NR changes. Available only before SR. Motion protection is unavailable: same-frame depth history has not been established.",
             "细节稳定保护默认关闭，只限制细碎 NR 变化，仅前置模式可用。运动保护不可用：尚未建立可靠的同帧深度历史。"));
 #endif
-    }
-    if (ImGui::CollapsingHeader(ui("HDR and colour", "HDR 与颜色"))) {
+        ImGui::SeparatorText(ui("Colour and HDR", "色彩与 HDR"));
         DrawColorControls(next, has_pending, changed);
         ImGui::TextWrapped("%s", ui("Unknown HDR uses luminance-only unless you explicitly try colour above. Storage, exposure and ownership safety still apply in both modes.",
             "未知 HDR 默认只修改明暗；上方手动试色是明确例外。两种模式仍保留存储、曝光与所有权安全检查。"));

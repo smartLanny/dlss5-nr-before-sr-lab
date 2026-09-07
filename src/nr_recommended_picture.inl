@@ -1,7 +1,7 @@
 // Picture preferences only. Keep the user's master switch and game-specific
 // depth/jitter/R8 contracts. Never clear runtime fault/quarantine latches here.
 // Defaults intentionally match config/nr_before_sr.ini, not ChainConfig{}:
-// the aggregate retains legacy colour, luminance and UI-correction defaults.
+// the aggregate retains legacy luminance and UI-correction defaults.
 void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.mode = 2;
     next.identity_use_original = false;
@@ -16,7 +16,7 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.proxy_curve = 1;
     next.allow_unverified_hdr_color = false;
     next.suppress_reset_frame = true;
-    next.color_strength = 0.75f;
+    next.color_strength = 1.0f;
     next.max_luma_ratio = 4.0f;
     next.preserve_lighting = false;
     next.proxy_scale = 1.0f;
