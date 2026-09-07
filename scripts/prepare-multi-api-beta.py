@@ -119,7 +119,9 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         encoding='utf-8', newline='\n')
     names = stage / 'core/src/interop/nr_deployment_names.h'
     text = names.read_text(encoding='utf-8')
-    old = 'return Equal(name, L"dlss5-native-carrier-045-exp3.addon64");'
+    old = ('return Equal(name, L"dlss5-native-carrier-045-exp3.addon64") ||\n'
+           '        Equal(name, L"dlss5-native-carrier-multiapi-dev3.addon64") ||\n'
+           '        Equal(name, L"dlss5-native-carrier-045-dx11-compat.addon64");')
     if text.count(old) != 1:
         raise ValueError('Companion identity anchor changed')
     names.write_text(text.replace(old,

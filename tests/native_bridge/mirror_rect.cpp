@@ -111,6 +111,8 @@ int main() {
 #else
     CHECK(!MatchingCarrier(L"dlss5-native-carrier-multiapi-dev2.addon64"));
     CHECK(MatchingCarrier(L"dlss5-native-carrier-045-exp3.addon64"));
+    CHECK(MatchingCarrier(L"dlss5-native-carrier-multiapi-dev3.addon64"));
+    CHECK(MatchingCarrier(L"dlss5-native-carrier-045-dx11-compat.addon64"));
     CHECK(!MatchingCarrier(L"dlss5-native-carrier-multiapi-dev1.addon64"));
 #endif
     CHECK(!MatchingCarrier(L"dlss5-native-carrier-r3-exp2.addon64"));
