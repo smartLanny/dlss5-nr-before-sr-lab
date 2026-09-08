@@ -239,11 +239,12 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
     static ChainConfig pending = {};
     static bool has_pending = false;
+    static bool pending_picture_reset = false;
     static unsigned pending_generation = 0;
     static bool edit_conflict = false;
     const auto current = SnapshotOverlayConfig();
     if (has_pending && pending_generation != current.generation) {
-        has_pending = false; edit_conflict = true;
+        has_pending = false; pending_picture_reset = false; edit_conflict = true;
     }
     ChainConfig next = has_pending ? pending : current.config;
     bool changed = false;
@@ -347,13 +348,15 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsSection(ui("Quick settings", "快速设置"));
     apply_discrete_edit = ImGui::Checkbox(ui("Enable (F6)", "启用（F6）"), &next.enabled);
     changed |= apply_discrete_edit;
-    if (ImGui::Button(ui("Restore recommended picture settings", "一键恢复推荐画质"))) {
+    if (ImGui::Button(ui("Restore default picture settings", "一键恢复默认画质"))) {
         RestoreRecommendedPictureSettings(next);
         changed = true;
+        pending_picture_reset = true;
+        apply_discrete_edit = true;
     }
     SettingsTooltip(ui(
-        "Restores Before SR, overall NR effect 1.0, model strength 1.0, colour request 1.0 and the established recommendation. Exits diagnostic identity and disables experimental input, EditField, composition, HDR-colour and peak paths. Keeps Enable (F6), depth/jitter/R8 game contracts and feedback preferences. Uses the normal save/history rules; runtime safety faults are not cleared.",
-        "恢复前置 NR、NR 效果倍率 1.0、模型强度 1.0、颜色请求 1.0 等既有推荐画质；退出诊断原图，关闭实验输入核、EditField、合成、HDR 调色与高光路径。保留 F6 总开关、深度/Jitter/R8 游戏兼容设置和反馈偏好；按正常规则保存及更新历史，不清除运行时安全故障。"));
+        "Restores NR before SR, 100% NR rendering for both routes, model strength 1.2, extra enhancement 1.0 and colour protection on. Keeps the F6 switch and game compatibility settings. Other picture experiments return to their recommended defaults.",
+        "恢复前置 NR、前后置 NR 渲染比例 100%、模型强度 1.2、额外增强 1.0，并开启色彩保护。保留 F6 总开关和游戏兼容设置；其他画质实验选项恢复推荐值。"));
     SettingsSection(ui("Processing", "处理方式"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
     int mode = rr_guarded ? 1 : (next.mode == 2 ? 0 : 1);
@@ -446,13 +449,13 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
 
         changed |= SettingsSliderFloat(ui("Model strength", "模型强度"),
             "##nr-model-strength", &next.intensity, 0.f, 2.f, "%.2f");
-        SettingsTooltip(ui("This tunes the model itself, not the overall NR effect. Saturation can limit the visible change.",
-            "控制 AI 生成画面时的处理力度，默认 1.0。调高可能改变更多细节，也可能更不自然。它与最终效果倍率不同；调整后模型会短暂重新加载。"));
-        if (next.intensity != 1.0f) {
-            ImGui::TextDisabled("%s", ui("Model default is 1.0; the value above is your saved setting.",
-                "模型默认是 1.0；上方显示的是已保存的设置。"));
-            if (ImGui::Button(ui("Restore model strength 1.0 only###nr-model-default", "仅恢复模型强度 1.0###nr-model-default"))) {
-                next.intensity = 1.0f;
+        SettingsTooltip(ui("Tunes the model itself; recommended 1.2. Extra enhancement controls the final mix separately. Higher values may look less natural.",
+            "控制 AI 生成画面时的处理力度，推荐 1.2。调高可能改变更多细节，也可能更不自然。它与“额外增强”不同；调整后模型会短暂重新加载。"));
+        if (next.intensity != 1.2f) {
+            ImGui::TextDisabled("%s", ui("Recommended model strength is 1.2; your saved value is shown above.",
+                "推荐模型强度为 1.2；上方显示的是已保存的设置。"));
+            if (ImGui::Button(ui("Restore model strength 1.2 only###nr-model-default", "仅恢复模型强度 1.2###nr-model-default"))) {
+                next.intensity = 1.2f;
                 changed = true;
                 apply_discrete_edit = true;
             }
@@ -490,7 +493,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     constexpr float maximum_strength = 2.0f;
 #endif
     float effect_strength = ActiveTransferStrength(next);
-    if (SettingsSliderFloat(ui("Overall NR effect", "NR 效果倍率"),
+    if (SettingsSliderFloat(ui("Extra enhancement", "额外增强"),
             "##nr-strength-amplification", &effect_strength,
             0.0f, maximum_strength, "%.2f")) {
         next.transfer_strength = next.post_transfer_strength = effect_strength; changed = true;
@@ -526,6 +529,9 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         SettingsTooltip(ui("Limits how far the AI result can brighten or darken the original. Higher values allow larger changes; they do not add detail by themselves.", "限制 AI 相对原画面最多能提亮或压暗多少。调高会允许更大的明暗变化，但不会凭空增加细节。"));
         if (ImGui::CollapsingHeader(ui("Developer options", "开发者选项"))) {
         SettingsNote(ui("Experimental controls; existing saved values are retained.", "以下为实验调节，通常保持默认即可；收起菜单不会改变已保存的设置。"));
+    changed |= ImGui::Checkbox(ui("Colour protection (default on)", "色彩保护（默认开启）"), &next.color_protection);
+    SettingsTooltip(ui("Limits extra colour amplification when Extra enhancement exceeds 1, helping avoid overly strong colours. Recommended on. Turning it off only removes this colour limit; HDR and invalid-value protections remain.",
+        "当“额外增强”超过 1 时，限制颜色被过度放大，减少颜色过浓的情况。建议保持开启；关闭仅取消这项限制，其他 HDR 和异常数值保护仍然有效。"));
     changed |= ImGui::Checkbox(ui("Independent luma / chroma composition (experimental)",
         "分开控制 AI 明暗与颜色（实验）"), &next.independent_chroma_composition);
     SettingsTooltip(ui("Uses the shared candidate before or after SR. Nonzero final strength controls luminance; Colour follow independently controls chroma with a common colour budget. Zero final strength still bypasses all edits. Off restores the original route. HDR colour permission is unchanged; no extra model call. GPU cost and game quality await validation.",
@@ -659,8 +665,10 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         has_pending = true; edit_conflict = false;
     }
     if (has_pending && (apply_discrete_edit || !ImGui::IsAnyItemActive())) {
-        const auto result = ApplyOverlayConfig(pending, pending_generation);
-        if (result != OverlayApplyResult::Busy) has_pending = false;
+        const auto result = pending_picture_reset
+            ? ApplyPictureReset(pending, pending_generation)
+            : ApplyOverlayConfig(pending, pending_generation);
+        if (result != OverlayApplyResult::Busy) { has_pending = false; pending_picture_reset = false; }
         if (result == OverlayApplyResult::Conflict) edit_conflict = true;
     }
     if (edit_conflict)

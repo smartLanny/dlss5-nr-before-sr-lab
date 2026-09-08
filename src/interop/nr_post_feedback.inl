@@ -2,6 +2,7 @@
 // Keep one named TXT and the established bounded FeedbackAppend writer.
 {
     const auto post = nr_post_settings::Read();
+    FeedbackAppend(s,"%s.settings.colorProtection=%d\n",prefix,g_config.color_protection?1:0);
     FeedbackAppend(s,"%s.compat.requestedMode=%d\n%s.compat.effectiveMode=%d\n%s.compat.preInputFallback.recent=%d\n%s.compat.preInputFallback.reason=%d\n%s.compat.preInputFallback.attempts=%llu\n%s.compat.preInputFallback.recorded=%llu\n%s.compat.note=Evaluate only; post admission remains required; recording is not GPU completion; no Present NR provider\n",
         prefix,g_config.mode,prefix,EffectivePictureMode(g_config.mode),
         prefix,IsCompatibilityPostObserved()?1:0,prefix,g_compat_fallback_reason.load(),

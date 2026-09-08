@@ -17,7 +17,8 @@ FIELDS = {
  'work_mode':'WorkMode', 'custom_work_scale':'CustomWorkScale',
  'lighting_lock':'LightingLock', 'edge_guard':'EdgeGuard',
  'detail_stability':'DetailStability', 'motion_stability':'MotionStability',
- 'high_strength_protection':'HighStrengthProtection', 'layered_enhancement':'LayeredEnhancement',
+ 'high_strength_protection':'HighStrengthProtection', 'color_protection':'ColorProtection',
+ 'layered_enhancement':'LayeredEnhancement',
  'independent_chroma_composition':'IndependentChromaComposition',
  'low_grid_edit_field':'LowGridEditField', 'catmull_edit_restore':'CatmullRomEditRestore',
  'low_grid_color_edit_field':'LowGridColorEditField', 'nr_input_filter':'NRInputFilter',
@@ -33,7 +34,13 @@ FIELDS = {
  'auto_mask':'AutoMask', 'style':'Style', 'ui_correction':'UICorrection',
 }
 PRESERVED={'enabled','depth_mode','r8_output_encoding','jitter_mode','perf_epoch'}
-RECOMMENDED_OVERRIDES={'work_mode':'1','custom_work_scale':'0.75'}
+# These are deliberate recommendation contracts, independent of an accidentally
+# stale shipped INI.  The reset is the exact N=R/default work path, with the
+# current model recommendation and the protection gate enabled.
+RECOMMENDED_OVERRIDES={
+ 'work_mode':'0', 'custom_work_scale':'1.0', 'intensity':'1.2',
+ 'color_protection':'1',
+}
 IDENTIFIER=r'[a-z_][a-z0-9_]*'
 
 def definition(text,marker):

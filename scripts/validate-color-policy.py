@@ -28,6 +28,8 @@ if "    nr_f8_gpu::ArmResult" in dispatch:
     dispatch = dispatch[:dispatch.index("    nr_f8_gpu::ArmResult")] + tail[:tail.index("    if (capture_stages) {")]
 else:
     dispatch = dispatch[:dispatch.index("    if (capture_stages) {")]
+if "g_config.color_protection" not in dispatch:
+    raise AssertionError("production dispatch does not pass ColorProtection to the colour budget")
 ui_source = (root / "src/nr_settings_ui.inl").read_text(encoding="utf-8")
 ui_function = definition(ui_source, "void DrawColorControls(")
 ui_block = ui_function[ui_function.index("{") + 1:ui_function.rindex("}")]
@@ -47,7 +49,7 @@ CODEC_ENUM
 struct Config {
     bool enabled=true, identity_use_original=false, preserve_lighting=false;
     bool experimental_peak_shoulder=false, allow_unverified_hdr_color=false;
-    bool high_strength_protection=true, layered_enhancement=false;
+    bool high_strength_protection=true, color_protection=true, layered_enhancement=false;
     bool low_grid_edit_field=false, catmull_edit_restore=false;
     float lighting_lock=0;
     int mode=2;
@@ -169,7 +171,36 @@ int main() {
     }
     auto unknown=ResolveNrColorPolicy(0,true,CodecColorMode::Automatic,true,true,1,true);
     check(!unknown.color_allowed && unknown.color_reason==NrColorReason::Unknown,
-          "absent mode is not a supported live contract");
+           "absent mode is not a supported live contract");
+    // Exercise the actual dispatch seam with the new persisted protection
+    // switch.  At 2x, protection bounds a unit colour request to 0.5; turning
+    // the option off preserves that request.  An unknown HDR contract remains
+    // denied in either mode.
+    ColorContract supported{};
+    g_config={}; g_config.mode=2; g_config.transfer_strength=2;
+    g_config.color_strength=1; g_config.color_protection=true;
+    Slot protected_slot{};
+    DispatchPolicy(protected_slot,g_codec.combine,supported,false,
+                   CodecColorMode::LinearSdr,true);
+    check(std::abs(protected_slot.diagnostic_color_strength-.5f)<1e-6f,
+          "dispatch colour protection bounds extra enhancement");
+    g_config.color_protection=false;
+    Slot unprotected_slot{};
+    DispatchPolicy(unprotected_slot,g_codec.combine,supported,false,
+                   CodecColorMode::LinearSdr,true);
+    check(std::abs(unprotected_slot.diagnostic_color_strength-1.f)<1e-6f,
+          "dispatch colour protection off preserves requested colour");
+    for (bool protection : {false,true}) {
+        g_config.mode=2; g_config.transfer_strength=2;
+        g_config.color_strength=1; g_config.color_protection=protection;
+        Slot unknown_slot{};
+        DispatchPolicy(unknown_slot,g_codec.combine,supported,true,
+                       CodecColorMode::Automatic,true);
+        check(unknown_slot.diagnostic_color_strength==0 &&
+              !unknown_slot.diagnostic_color_policy.color_allowed &&
+              unknown_slot.diagnostic_color_policy.color_reason==NrColorReason::UnverifiedHdr,
+              "unknown HDR remains denied with either colour protection setting");
+    }
     auto post_lighting=ResolveNrColorPolicy(1,true,CodecColorMode::Automatic,false,false,1,true);
     const auto blocked_color_reason=post_lighting.color_reason;
     const auto blocked_color_strength=post_lighting.effective_color_strength;

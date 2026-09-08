@@ -1,6 +1,27 @@
 // This include precedes nr_settings_ui.inl in the generated translation unit.
 void SettingsTooltip(const char *text);
 
+// Explicit picture reset commits front preferences and post precision under
+// the same lock. A capture starting meanwhile cannot snapshot half a reset:
+// its SnapshotConfig waits for this lock. ApplyOverlayConfig checks both the
+// captured generation and the hold before any mutation; no request occurs on
+// Busy/Conflict. Ordinary edits keep their independent post preference.
+OverlayApplyResult ApplyPictureReset(ChainConfig next, unsigned expected_generation) {
+    EnterCriticalSection(&g_chain_cs);
+    const auto result=ApplyOverlayConfig(next,expected_generation);
+    if (result==OverlayApplyResult::Applied) {
+        nr_post_settings::revision.fetch_add(1,std::memory_order_release);
+        nr_post_settings::ApplyLocked({nr_post_settings::RrPostAutomatic(),100});
+        nr_post_settings::ready.store(true,std::memory_order_release);
+        nr_post_settings::request_rejected.store(false,std::memory_order_release);
+        const bool rr_saved=WriteIniInt(L"RRPostEnabled",1);
+        const bool scale_saved=WriteIniInt(L"PostWorkPercent",100);
+        nr_post_settings::persistence_failed.store(!rr_saved||!scale_saved,std::memory_order_release);
+    }
+    LeaveCriticalSection(&g_chain_cs);
+    return result;
+}
+
 void DrawGenericCompatibilityStatus() {
     const auto snapshot=SnapshotColorPolicy();
     const bool recorded=snapshot.status==NrColorPolicyStatus::Current && snapshot.mode==1;
