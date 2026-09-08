@@ -60,6 +60,8 @@ void SettingsNote(const char *text) {
     ImGui::PopStyleColor();
 }
 
+#include "nr_light_style_ui.inl"
+
 void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
     const bool use_chinese_ui = UseChineseUi();
     const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
@@ -75,6 +77,7 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
     SettingsTooltip(ui("Controls only NR hue and saturation follow, not brightness, detail or the overall mix. If the model changes only luminance, this may have little effect. Applies after releasing the slider. 0 keeps the game colour. Experimental HDR permission is a separate developer option.",
         "决定画面采用多少 AI 生成的颜色。0 保留游戏原色，1 使用允许范围内的完整 AI 色彩；它不增加细节，也不单独调整明暗。AI 没有明显改变颜色时，对比也会很小。松开滑块后生效。"));
     changed |= color_follow_changed;
+    if (color_follow_changed) nr_light_style::MarkCustom(next);
     if (color_follow_changed &&
         color_policy_snapshot.status != NrColorPolicyStatus::Bypassed)
         color_policy_snapshot.status = NrColorPolicyStatus::Pending;
@@ -247,11 +250,14 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     static ChainConfig pending = {};
     static bool has_pending = false;
     static bool pending_picture_reset = false;
+    static bool pending_light_undo = false;
+    static nr_light_style::UndoState light_undo;
     static unsigned pending_generation = 0;
     static bool edit_conflict = false;
     const auto current = SnapshotOverlayConfig();
+    light_undo.Observe(current.generation);
     if (has_pending && pending_generation != current.generation) {
-        has_pending = false; pending_picture_reset = false; edit_conflict = true;
+        has_pending = false; pending_picture_reset = false; pending_light_undo = false; edit_conflict = true;
     }
     ChainConfig next = has_pending ? pending : current.config;
     bool changed = false;
@@ -424,6 +430,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "INI 工作比例请求无效，已保留上一有效精度；1–49% 尚不可用，不会暗中提高到 50%。"));
     }
 #endif
+    DrawLightStyleControls(next,before_sr,current.generation,light_undo,
+        has_pending,pending_light_undo,changed,apply_discrete_edit);
     SettingsSection(ui("Model details", "模型细节"));
     SettingsField(ui("Style", "风格"));
     const char *style_labels[] = {ui("Default###style-option", "默认###style-option"),
@@ -670,10 +678,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         has_pending = true; edit_conflict = false;
     }
     if (has_pending && (apply_discrete_edit || !ImGui::IsAnyItemActive())) {
-        const auto result = pending_picture_reset
-            ? ApplyPictureReset(pending, pending_generation)
-            : ApplyOverlayConfig(pending, pending_generation);
-        if (result != OverlayApplyResult::Busy) { has_pending = false; pending_picture_reset = false; }
+        const auto result = ApplyLightStyleOverlay(pending,pending_generation,
+            pending_picture_reset,pending_light_undo,light_undo);
+        if (result != OverlayApplyResult::Busy) {
+            has_pending = false; pending_picture_reset = false; pending_light_undo = false;
+        }
         if (result == OverlayApplyResult::Conflict) edit_conflict = true;
     }
     if (edit_conflict)

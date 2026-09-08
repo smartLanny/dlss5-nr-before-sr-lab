@@ -43,6 +43,7 @@ PREAMBLE = r'''
 #include <iterator>
 #include <random>
 #include <string>
+#include "nr_light_style.h"
 int checks = 0, failures = 0;
 void check(bool ok, const char *label) {
     ++checks;
@@ -79,7 +80,7 @@ class BugSweepTests(unittest.TestCase):
             flags = ["-std=c++20", "-O0"]
             if os.name == "nt":
                 flags.append("-static")  # Do not depend on toolchain DLLs in the temp directory.
-            built = subprocess.run([compiler, *flags, str(cpp), "-o", str(exe)],
+            built = subprocess.run([compiler, *flags, "-I", str(source_path.parent), str(cpp), "-o", str(exe)],
                                    capture_output=True, text=True)
             self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
             ran = subprocess.run([str(exe)], capture_output=True, text=True)
