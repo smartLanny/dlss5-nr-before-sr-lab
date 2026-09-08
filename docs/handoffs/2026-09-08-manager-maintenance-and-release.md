@@ -1,5 +1,22 @@
 # 现用 xiaofeng 管理器维护与待发布交接
 
+## 最终界面选择与本机交付（dev.5）
+
+用户在看到 dev.4 后明确选择：**API 和核心版本回到顶部公共区域，皮肤结构保护直接显示，只保留「画面设置 / 超分补帧」两页签；安装状态与画面设置同页**。已按该选择实现并更新现用安装，当前 Manager 为 **0.4.6-hotfix.7-dev.5**，下面 dev.4 的三页签描述为已替代历史。核心/桥接发布门槛和公开发布等待不变。
+
+顶部 API/核心在两个页签均可访问。自动项及卡片显示「DX11 桥接（自动）」/「DX12（自动）」；可以指定 DX12，自动检测结果保留在自动项里，不覆盖手动选择。保存仍通过已有 EXE 绑定的路线服务，DX11 配套桥接、DX12 不部署 carrier/保留共用 nrchain 的规则不变。皮肤开关和保护强度无需展开；超分补帧页签保留延迟加载、草稿和独立保存/恢复。
+
+最终完整 **292 passed / 0 failed / 0 skipped**，UI 合同 71/67。包内实际 ASAR 的 1280×900 和 900×620 交互通过，新增两页签循环、顶部公共控件、皮肤常显、DX11 自动/手动 DX12 独立展示回归；900×780 布局已检查。仍使用隔离 IPC/GPU 数据，未宣称游戏兼容性通过。完整 Setup/portable、external unpacked、实际载荷/FG/NVAPI 和管理员权限检查通过。Setup 本机更新返回 0，已安装 EXE/ASAR 摘要匹配并重新启动。`build/installed-before-dev5` 留有前版 ASAR/摘要，dev.4 完整 Setup 仍可回退。
+
+| 当前成品（`dist`） | SHA256 |
+| --- | --- |
+| `win-unpacked/resources/app.asar` | `2681419b612a7e91f8108271c3f5e1f5f7e33b5beb2d954b0114817ea7f98740` |
+| `win-unpacked/DLSS 5 AI 超分管理器.exe` | `05cf23572a278965019ae393d547e9267862452fbe0c5a9e17ccf58dc0cc53de` |
+| `DLSS5-Manager-Setup-0.4.6-hotfix.7-dev.5.exe` | `384b2b729acb2a8e12b613f384f6856bcf92569999f3346d01f5d6660c0e959d` |
+| `DLSS5-Manager-0.4.6-hotfix.7-dev.5-portable.exe` | `a9abe47b49bb13f87dd0952b9d14b9110fa044903ebccdb6530d92718fa91f0c` |
+
+Core 仍是 0.4.6-hotfix.1 Beta，0.3.3.5 稳定基线不变；bundle.json 与此前安装版匹配。A 任务仍在推进真实游戏问题，未有新正式运行时验收交付，#194 仍为前述源码交付。没有把新 carrier 混入本候选，也没有公开上传此本地 UI 候选。
+
 ## 当前交付：整套工作区界面与本机更新（dev.4）
 
 当前为 **Manager 0.4.6-hotfix.7-dev.4**，沿用 #195；以下 dev.3 / dev.2 及“尚未替换 hotfix.6”的描述均为历史记录。本次用户明确授权调整整个现用界面，已在独立维护 worktree 实现、构建完整 Setup/portable，并通过 Setup 更新到 `C:/Users/pc1/AppData/Local/Programs/xiaofeng-dlss5-manager`，重新启动成功。冻结测试 UI 未修改。没有公开上传本候选；等待兼容性支线后再发布的要求仍有效。

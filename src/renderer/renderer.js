@@ -270,16 +270,17 @@ function apiControls(game) {
   const resolution = game.chosen.apiResolution || {};
   const detected = detectedApiResolution(game.chosen);
   const selected = game.apiOverride || 'auto';
-  const options = [['auto', `${API_LABELS[detected.api] || 'API 待确认'}（自动）`],
+  const detectedLabel = detected.api === 'dx11' ? 'DX11 桥接' : detected.api === 'dx12' ? 'DX12' : API_LABELS[detected.api] || 'API 待确认';
+  const options = [['auto', `${detectedLabel}（自动）`],
     ['dx9', 'DirectX 9（暂不支持 NR）'], ['dx10', 'DirectX 10（暂不支持 NR）'],
-    ['dx11', 'DirectX 11（自动兼容桥接）'], ['dx12', 'DirectX 12（无需兼容桥接）'],
+    ['dx11', 'DX11 桥接'], ['dx12', 'DX12（无需桥接）'],
     ['vulkan', 'Vulkan（暂不支持 NR）'], ['opengl', 'OpenGL（暂不支持 NR）']]
     .map(([id, label]) => `<option value="${id}"${id === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
   const deployment = resolution.api === 'dx11' ? '兼容桥接随 DirectX 11 自动部署。'
     : resolution.api === 'dx12' ? 'DirectX 12 无需兼容桥接。'
       : ['dx9', 'dx10', 'vulkan', 'opengl', 'unsupported'].includes(resolution.api) ? '当前 API 暂不支持 NR，不部署兼容桥接。' : 'API 待确认，暂不部署兼容桥接。';
   const evidence = (detected.evidence || []).join('；');
-  return `<div class="config-block api-config-block"><h4>游戏图形 API</h4><div class="control-row"><label>API 选择</label><select class="game-api-select" aria-label="游戏图形 API">${options}</select><button class="button subtle api-save-btn">保存</button></div><p class="api-route-status">${escapeHtml(API_LABELS[resolution.api] || 'API 待确认')} · ${escapeHtml(deployment)}</p><details class="api-help"><summary>API 与桥接说明</summary><p>自动项展示检测结果；手动选择只记录当前 EXE 的安装路线，不会更换游戏程序或修改启动器参数。只有 DX11 自动配置完整兼容桥接；其他 API 不部署该桥接。已有安装会在保存 API 时同步，未安装游戏在安装时应用。</p>${evidence ? `<p>检测线索：${escapeHtml(evidence)}</p>` : ''}</details></div>`;
+  return `<div class="config-block api-config-block"><h4>游戏图形 API</h4><div class="control-row"><select class="game-api-select" aria-label="游戏图形 API">${options}</select><button class="button subtle api-save-btn">保存 API</button></div><p class="api-route-status">${escapeHtml(deployment)}</p><details class="api-help"><summary>检测与桥接说明</summary><p>自动项展示检测结果；可手动改为实际使用的 API，桥接随选择自动处理。选择绑定当前 EXE 保存，重新扫描不会覆盖；不会替你修改游戏启动参数。已有安装在保存 API 时同步，未安装游戏在安装时应用。</p>${evidence ? `<p>检测线索：${escapeHtml(evidence)}</p>` : ''}</details></div>`;
 }
 
 function addonVersionRow(game, applyVersion = false) {
@@ -290,13 +291,14 @@ function addonVersionRow(game, applyVersion = false) {
   const installed = game.installed && game.addonVersion;
   const replacement = installed ? catalogReplacement(installed) : null;
   const installedNote = installed ? `<p class="config-note installed-version-note">已安装：${escapeHtml(coreVersionLabel(installed))}${replacement ? `；可更新为 ${escapeHtml(coreVersionLabel(replacement))}。点击“应用版本”或“修复”后才会更换核心。` : '。下拉框用于选择要应用的版本。'}</p>` : '';
-  return `<div class="control-row addon-version-row"><label>${installed ? '应用核心版本' : '核心版本'}</label><select class="game-version-select">${options}</select>${apply || '<span></span>'}</div>${installedNote}`;
+  return `<div class="control-row addon-version-row"><label>${installed ? '应用核心版本' : '核心版本'}</label><select class="game-version-select" aria-label="核心版本">${options}</select>${apply || '<span></span>'}</div>${installedNote}`;
 }
 
 function gameApiLabel(chosen) {
   const resolution = chosen && chosen.apiResolution;
   if (!resolution) return chosen && chosen.apiLabel || 'API 未确认';
-  return `${API_LABELS[resolution.api] || 'API 待确认'}${resolution.source === 'override' ? '（已指定）' : ''}`;
+  const label = resolution.api === 'dx11' ? 'DX11 桥接' : resolution.api === 'dx12' ? 'DX12' : API_LABELS[resolution.api] || 'API 待确认';
+  return `${label}${resolution.source === 'override' ? '（已指定）' : ['dx11', 'dx12'].includes(resolution.api) ? '（自动）' : ''}`;
 }
 
 function detailKey(game) {
@@ -305,41 +307,40 @@ function detailKey(game) {
 
 function gameDetail(game) {
   const key = detailKey(game);
-  const active = state.detailTabs.get(key) || (game.installed ? 'enhance' : 'diagnostics');
+  const active = state.detailTabs.get(key) === 'graphics' ? 'graphics' : 'enhance';
   const title = game.supported ? '安装条件已确认'
     : game.supportCode === 'ERR_API_SELECTION_REQUIRED' ? '请先确认游戏图形 API' : '安装前需要处理';
   const installDetail = game.supported
     ? (payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可使用上方“一键安装”。` : '请到“组件管理”选择完整安装组件，再返回安装。')
     : game.supportText || '请先选择游戏实际运行的 EXE。';
+  const installationStatus = game.installed ? `<div class="config-block component-block"><div class="config-title"><div><h4>安装状态</h4><p class="section-caption">文件与安装记录</p></div><span class="component-summary" role="status">检查中</span></div><div class="component-body">正在检查…</div><div class="diagnostic-actions"><button class="button primary repair-inline-btn">一键修复</button><button class="button subtle feedback-inline-btn">保存反馈</button><button class="button danger uninstall-inline-btn">卸载插件</button></div><details class="advanced-settings route-advanced"><summary>高级加载入口</summary><div class="compat-actions"><button class="button subtle d3d12-btn">${game.d3d12Route ? '恢复 DXGI 入口' : '使用 D3D12 入口'}</button><span>仅在 DX12 游戏存在加载入口冲突时调整；保留原始文件和恢复记录。</span></div></details></div>` : '';
   const nr = game.installed ? `<div class="enhancement-layout">
     <div class="config-block enhancement-controls">
-      <div class="config-title"><div><h4>画面增强</h4><p class="section-caption">调整后自动保存到这个游戏</p></div><span class="save-state" role="status">正在读取…</span></div>
+      <div class="config-title"><div><h4>画面设置</h4><p class="section-caption">调整后自动保存到这个游戏</p></div><span class="save-state" role="status">正在读取…</span></div>
       <div class="control-row"><label>风格</label><div class="segmented style-segment"><button data-value="0">默认</button><button data-value="1">自然</button><button data-value="2">电影</button></div><span></span></div>
       <div class="control-row"><label title="模型内部强度，默认 1.00，范围 0–2。">模型强度</label><div class="range-wrap"><input class="nr-model-strength" aria-label="NR 模型强度" type="range" min="0" max="2" step="0.01"><span class="value-pill nr-model-value">1.00</span></div><span></span></div>
       <div class="control-row"><label title="对应核心 NR 效果倍率，默认 1.00，范围 0–4。">额外强度</label><div class="range-wrap"><input class="nr-effect-strength" aria-label="NR 额外强度" type="range" min="0" max="4" step="0.01"><span class="value-pill nr-effect-value">1.00</span></div><span></span></div>
       <p class="config-note">模型强度影响内部处理；额外强度控制最终混合。默认均为 1.00。</p>
-      <details class="advanced-settings skin-settings"><summary>皮肤结构保护 <span class="skin-summary">读取中</span></summary>
-        <div class="control-row"><label title="模型内部的皮肤结构控制，不是独立人脸遮罩。">皮肤结构保护</label><span></span><input class="switch nr-mask" aria-label="皮肤结构保护" type="checkbox"></div>
+      <div class="skin-settings">
+        <div class="control-row"><label title="模型内部的皮肤结构控制，不是独立人脸遮罩。">皮肤结构保护</label><span class="skin-summary">读取中</span><input class="switch nr-mask" aria-label="皮肤结构保护" type="checkbox"></div>
         <div class="control-row skin-strength-row"><label>保护强度</label><div class="range-wrap"><input class="nr-skin-strength" aria-label="皮肤结构强度" type="range" min="-1" max="2" step="0.01"><span class="value-pill nr-skin-value">关闭</span></div><span></span></div>
         <p class="config-note">对应模型内部控制，不等于独立人脸遮罩。NR 工作分辨率与色调跟随在游戏内 ReShade 面板调整。</p>
-      </details>
+      </div>
       <div class="config-actions"><button class="button subtle default-btn">恢复 NR 默认</button></div>
     </div>
-    <aside class="config-block enhancement-guide"><h4>在游戏中确认效果</h4><p class="config-note">设置保存后，用 F6 对比增强前后的画面。菜单与实际效果以游戏内表现为准。</p>
+    <aside class="enhancement-sidebar">${installationStatus}<div class="config-block enhancement-guide"><h4>快捷操作</h4><p class="config-note">用 F6 对比增强前后的画面，实际效果以游戏内表现为准。</p>
       <div class="shortcut-block"><div class="shortcut-row"><label>NR 效果切换</label><button class="button subtle nr-hotkey-btn" disabled>F6 开关</button></div><div class="shortcut-row"><label>ReShade 菜单</label><button class="button subtle reshade-hotkey-btn">Home</button></div><p class="config-note">修改菜单快捷键后，下次启动游戏生效。</p></div>
-      <button class="button subtle launch-jump-btn" type="button">调整超分与帧生成</button>
-    </aside>
-  </div>` : `<div class="config-block detail-empty"><h4>先为这个游戏安装 NR 核心</h4><p class="config-note">安装完成后，可在这里调整风格和增强强度。</p><button class="button" data-select-detail="diagnostics">查看安装条件</button></div>`;
-  const graphics = game.chosen ? '<section class="launch-settings-host" aria-label="SR 与 FG 启动设置"><p class="config-note">正在读取 SR / FG 设置…</p></section>'
-    : '<div class="config-block detail-empty"><h4>请先确认游戏 EXE</h4><p class="config-note">选择实际运行程序后，才能读取此游戏的 SR 与 FG 设置。</p></div>';
-  const diagnostic = `<div class="route-layout">${apiControls(game)}<div class="config-block core-selection"><h4>${game.installed ? '游戏核心版本' : title}</h4>${!game.installed ? `<p class="config-note">${escapeHtml(installDetail)}</p>` : ''}${addonVersionRow(game, Boolean(game.installed))}<p class="config-note">版本只应用到这个游戏。安装前会核对所需文件，遇到外部改动会保留现场。</p></div></div>
-    ${game.installed ? `<div class="config-block component-block"><div class="config-title"><div><h4>安装检查</h4><p class="section-caption">文件与安装记录，不代表游戏运行验证</p></div><span class="component-summary" role="status">检查中</span></div><div class="component-body">正在检查…</div><div class="diagnostic-actions"><button class="button primary repair-inline-btn">检查并修复</button><button class="button subtle feedback-inline-btn">保存反馈</button><button class="button danger uninstall-inline-btn">卸载插件</button></div></div>
-    <details class="config-block advanced-settings route-advanced"><summary>高级加载入口</summary><div class="compat-actions"><button class="button subtle d3d12-btn">${game.d3d12Route ? '恢复 DXGI 入口' : '使用 D3D12 入口'}</button><span>仅在 DX12 游戏存在加载入口冲突时调整；保留原始文件和恢复记录。</span></div></details>` : ''}`;
-  const tabs = [['enhance', '画面增强'], ['graphics', 'SR 与 FG'], ['diagnostics', '安装诊断']];
+      <button class="button subtle launch-jump-btn" type="button">调整超分补帧</button>
+    </div></aside>
+  </div>` : `<div class="config-block detail-empty"><h4>${title}</h4><p class="config-note">${escapeHtml(installDetail)}</p><p class="config-note">安装完成后，可在这里调整风格和增强强度。</p></div>`;
+  const graphics = game.chosen ? '<section class="launch-settings-host" aria-label="超分补帧启动设置"><p class="config-note">正在读取超分补帧设置…</p></section>'
+    : '<div class="config-block detail-empty"><h4>请先确认游戏 EXE</h4><p class="config-note">选择实际运行程序后，才能读取此游戏的超分补帧设置。</p></div>';
+  const route = `<div class="route-layout game-route-controls">${apiControls(game)}<div class="config-block core-selection"><h4>核心版本</h4>${addonVersionRow(game, Boolean(game.installed))}${!game.installed ? '<p class="config-note">安装时使用这个核心；0.4 系列仍为 Beta，0.3 为稳定基线。</p>' : ''}</div></div>`;
+  const tabs = [['enhance', '画面设置'], ['graphics', '超分补帧']];
   return `<div class="game-detail" data-game-detail="${escapeHtml(game.id)}" data-detail-key="${escapeHtml(key)}">
-    <div class="game-identity"><span>${escapeHtml(gameApiLabel(game.chosen))}</span><span>${game.installed ? `核心 ${escapeHtml(coreVersionLabel(game.addonVersion || '未知'))}` : '尚未安装 NR'}</span><span>${game.chosen?.apiResolution?.api === 'dx11' ? 'DX11 配套桥接' : game.chosen?.apiResolution?.api === 'dx12' ? 'DX12 直接路线' : '路线待确认'}</span></div>
+    ${route}
     <div class="detail-tabs" role="tablist" aria-label="游戏设置分类">${tabs.map(([id, label]) => `<button id="detail-${encodeURIComponent(game.id)}-${id}-tab" type="button" data-detail-tab="${id}" aria-controls="detail-${encodeURIComponent(game.id)}-${id}-panel" aria-selected="${id === active}" tabindex="${id === active ? 0 : -1}">${label}</button>`).join('')}</div>
-    ${[['enhance', nr], ['graphics', graphics], ['diagnostics', diagnostic]].map(([id, content]) => `<section id="detail-${encodeURIComponent(game.id)}-${id}-panel" data-detail-panel="${id}" aria-labelledby="detail-${encodeURIComponent(game.id)}-${id}-tab"${id !== active ? ' hidden' : ''}>${content}</section>`).join('')}
+    ${[['enhance', nr], ['graphics', graphics]].map(([id, content]) => `<section id="detail-${encodeURIComponent(game.id)}-${id}-panel" data-detail-panel="${id}" aria-labelledby="detail-${encodeURIComponent(game.id)}-${id}-tab"${id !== active ? ' hidden' : ''}>${content}</section>`).join('')}
     <div class="detail-footer"><span class="path-line" title="${escapeHtml(game.chosen?.path || game.dir)}">${escapeHtml(game.chosen?.path || game.dir)}</span><button class="button subtle open-folder-btn">打开目录</button></div>
   </div>`;
 }
@@ -414,17 +415,15 @@ function bindGameCards() {
     const id = card.dataset.id;
     const detail = card.querySelector('.game-detail');
     if (detail && !detail.detailTabController && window.GameDetailTabs) {
-      const game = state.games.find(row => row.id === id);
       const mountGraphics = () => {
         const host = detail.querySelector('.launch-settings-host');
         if (host && window.launchSettingsUi && !host.launchSettingsController) window.launchSettingsUi.mount(host, id);
       };
       detail.detailTabController = window.GameDetailTabs.mount(detail, {
-        initial: state.detailTabs.get(detail.dataset.detailKey) || (game?.installed ? 'enhance' : 'diagnostics'),
+        initial: state.detailTabs.get(detail.dataset.detailKey) === 'graphics' ? 'graphics' : 'enhance',
         onSelect: tab => { state.detailTabs.set(detail.dataset.detailKey, tab); if (tab === 'graphics') mountGraphics(); }
       });
       if (detail.detailTabController.active() === 'graphics') mountGraphics();
-      detail.querySelectorAll('[data-select-detail]').forEach(button => { button.onclick = () => detail.detailTabController.select(button.dataset.selectDetail, { focus: true }); });
     }
     card.querySelector('.game-card-head').onclick = event => {
       if (event.target.closest('.install-btn') || event.target.closest('.launch-btn') || event.target.closest('.dismiss-game-btn')) return;

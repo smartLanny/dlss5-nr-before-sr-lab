@@ -29,11 +29,12 @@ test('automatic API label retains detection while a manual override controls the
     detectedApiResolution: { api: 'dx12', source: 'imports', evidence: ['d3d12.dll'] },
     apiResolution: { api: 'dx11', source: 'override' } } };
   let html = vm.runInContext('apiControls(game)', context);
-  assert.match(html, /value="auto">DirectX 12（自动）/);
+  assert.match(html, /value="auto">DX12（自动）/);
   assert.match(html, /value="dx11" selected/);
   assert.match(html, /兼容桥接随 DirectX 11 自动部署/);
   assert.match(html, /检测线索：d3d12\.dll/);
-  assert.match(html, /不会更换游戏程序或修改启动器参数/);
+  assert.match(html, /不会替你修改游戏启动参数/);
+  assert.match(html, /选择绑定当前 EXE 保存，重新扫描不会覆盖/);
   assert.match(html, /<details class="api-help">/); assert.doesNotMatch(html, /<details[^>]*open/);
   assert.doesNotMatch(html, /carrier-component-check/);
   context.game.chosen.detectedApiResolution = { api: 'unknown', source: 'none', evidence: [] };
@@ -42,6 +43,14 @@ test('automatic API label retains detection while a manual override controls the
   assert.match(html, /value="dx11" selected/);
   delete context.game.chosen.detectedApiResolution; delete context.game.chosen.detectedApi;
   assert.match(vm.runInContext('apiControls(game)', context), /value="auto">API 待确认（自动）/);
+  context.game = { apiOverride: 'dx12', chosen: { detectedApiResolution: { api: 'dx11' }, apiResolution: { api: 'dx12', source: 'override' } } };
+  html = vm.runInContext('apiControls(game)', context);
+  assert.match(html, /value="auto">DX11 桥接（自动）/);
+  assert.match(html, /value="dx12" selected/);
+  assert.match(html, /DirectX 12 无需兼容桥接/);
+  assert.equal(vm.runInContext('gameApiLabel(game.chosen)', context), 'DX12（已指定）');
+  context.game.chosen.apiResolution = { api: 'dx11', source: 'imports' };
+  assert.equal(vm.runInContext('gameApiLabel(game.chosen)', context), 'DX11 桥接（自动）');
 });
 
 test('manual API choices retain their names and unsupported NR routes do not offer a bridge switch', () => {

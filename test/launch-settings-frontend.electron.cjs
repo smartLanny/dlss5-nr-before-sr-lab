@@ -74,17 +74,35 @@ async function smoke() {
   const mock = window.__launchMock;
   function assert(condition, description) { if (!condition) throw new Error(description); checks.push(description); }
   const waitUntil = async predicate => { const deadline = Date.now() + 5000; while (!predicate()) { if (Date.now() > deadline) throw new Error('Timed out waiting for renderer'); await new Promise(resolve => setTimeout(resolve, 10)); } };
+  const visible = node => Boolean(node && node.getClientRects().length && getComputedStyle(node).visibility !== 'hidden');
   await waitUntil(() => document.querySelector('.game-card-head'));
+  const apiFixture = document.createElement('div');
+  for (const [api, label] of [['dx11', 'DX11 桥接（自动）'], ['dx12', 'DX12（自动）'], ['unknown', 'API 待确认（自动）']]) {
+    apiFixture.innerHTML = apiControls({ apiOverride: 'auto', chosen: { detectedApi: api, detectedApiResolution: { api, source: 'fixture', evidence: [] }, apiResolution: { api, source: 'fixture' } } });
+    const select = apiFixture.querySelector('.game-api-select');
+    assert(select.value === 'auto' && select.querySelector('option[value="auto"]').textContent === label, `${api} automatic option displays the detected route precisely`);
+    if (api === 'dx11') {
+      select.value = 'dx12';
+      assert(select.value === 'dx12' && select.selectedOptions[0].value !== 'auto', 'Manual DX12 can be selected independently of the detected DX11 automatic option');
+    }
+  }
+  apiFixture.innerHTML = apiControls({ apiOverride: 'dx12', chosen: { detectedApi: 'dx11', detectedApiResolution: { api: 'dx11', source: 'fixture', evidence: [] }, apiResolution: { api: 'dx12', source: 'override' } } });
+  assert(apiFixture.querySelector('.game-api-select').value === 'dx12' && apiFixture.querySelector('option[value="auto"]').textContent === 'DX11 桥接（自动）', 'Rerender retains manual DX12 while the automatic option continues to report detected DX11');
   assert(!document.querySelector('.launch-settings-host'), 'Collapsed cards do not build hidden SR/FG forms');
   document.querySelector('[data-id="ui-fixture-3"] .game-card-head').click();
   const pendingDetail = document.querySelector('[data-id="ui-fixture-3"] .game-detail');
-  assert(pendingDetail.detailTabController.active() === 'diagnostics' && pendingDetail.querySelector('.game-api-select') && !pendingDetail.querySelector('.nr-mask'), 'An uninstalled unknown-API game starts at actionable installation diagnostics');
+  assert(pendingDetail.detailTabController.active() === 'enhance' && !pendingDetail.querySelector('[data-detail-panel="enhance"]').hidden && visible(pendingDetail.querySelector('.game-api-select')) && !pendingDetail.querySelector('.nr-mask'), 'An uninstalled unknown-API game starts on enhancement with its API choice available above the tabs');
   document.querySelector('[data-id="ui-fixture-3"] .game-card-head').click();
   document.querySelector('.game-card-head').click();
   const detail = document.querySelector('.game-detail'), tabs = detail.detailTabController;
   const host = document.querySelector('.launch-settings-host');
   assert(tabs.active() === 'enhance' && !host.launchSettingsController, 'An installed game starts on enhancement without probing hidden SR/FG settings');
+  assert(detail.querySelectorAll('[data-detail-tab]').length === 2 && !detail.querySelector('[data-detail-tab="diagnostics"]'), 'Game details offer only enhancement and graphics tabs');
+  const apiSelect = detail.querySelector('.game-api-select'), coreSelect = detail.querySelector('.game-version-select');
+  assert(!apiSelect.closest('[data-detail-panel]') && !coreSelect.closest('[data-detail-panel]') && visible(apiSelect) && visible(coreSelect), 'API and core controls live outside tab panels and are visible on enhancement');
+  assert(detail.querySelector('.skin-settings').tagName === 'DIV' && !detail.querySelector('.nr-mask').closest('details') && visible(detail.querySelector('.nr-mask')) && visible(detail.querySelector('.nr-skin-strength')), 'Skin protection and strength are visible without expanding an advanced section');
   detail.querySelector('[data-detail-tab="graphics"]').click();
+  assert(visible(apiSelect) && visible(coreSelect), 'The same public API and core controls remain visible on graphics');
   await host.launchSettingsController.ready;
   const controller = host.launchSettingsController;
   const panel = domain => host.querySelector(`[data-ls-domain="${domain}"]`);
@@ -247,9 +265,15 @@ async function smoke() {
   const beforeTabWrites = mock.calls.filter(row => ['save', 'apply', 'write-nr'].includes(row[0])).length;
   const graphicsTab = detail.querySelector('[data-detail-tab="graphics"]'); graphicsTab.focus();
   graphicsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-  assert(tabs.active() === 'diagnostics' && detail.querySelector('[data-detail-panel="graphics"]').hidden && detail.querySelector('[data-detail-panel="graphics"]').inert, 'Arrow navigation selects diagnostics and removes hidden controls from keyboard interaction');
+  assert(tabs.active() === 'enhance' && detail.querySelector('[data-detail-panel="graphics"]').hidden && detail.querySelector('[data-detail-panel="graphics"]').inert, 'Right arrow wraps from graphics to enhancement and removes hidden controls from keyboard interaction');
+  assert(visible(apiSelect) && visible(coreSelect), 'Public API and core controls remain visible after keyboard tab navigation');
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  assert(tabs.active() === 'graphics' && detail.querySelector('[data-detail-panel="enhance"]').hidden && detail.querySelector('[data-detail-panel="enhance"]').inert, 'Left arrow wraps from enhancement to graphics across exactly two tabs');
   document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
   assert(tabs.active() === 'enhance', 'Home reaches the first detail tab');
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+  assert(tabs.active() === 'graphics', 'End reaches graphics as the last of two detail tabs');
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
   assert(tabs.select('invalid') === false && tabs.active() === 'enhance', 'Invalid tab selection is refused');
   detail.querySelector('.launch-jump-btn').click();
   assert(tabs.active() === 'graphics' && host.launchSettingsController === controller && field('sr', 'renderPercent').value === '75' && field('fg', 'targetFps').value === '144', 'Returning to graphics preserves both unsaved drafts and the existing controller');
@@ -314,7 +338,7 @@ app.whenReady().then(async () => {
         const view=document.querySelector('.view.active');view.scrollTop+=host.getBoundingClientRect().top-view.getBoundingClientRect().top-12;
       })()`);
     }
-    if (process.env.SRFG_UI_STATE === 'bridge') await win.webContents.executeJavaScript("(()=>{const row=document.querySelector('.api-config-block'),detail=row.closest('.game-detail'),view=row.closest('.view');detail.detailTabController.select('diagnostics');view.scrollTop+=row.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()");
+    if (process.env.SRFG_UI_STATE === 'bridge') await win.webContents.executeJavaScript("(()=>{const row=document.querySelector('.api-config-block'),detail=row.closest('.game-detail'),view=row.closest('.view');detail.detailTabController.select('enhance');view.scrollTop+=row.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()");
     if (process.env.SRFG_UI_STATE === 'runtime-missing') await win.webContents.executeJavaScript(`(async()=>{const mock=window.__launchMock,host=document.querySelector('.launch-settings-host');mock.data.fgComponents={route:'compatibility',ready:false,canPrepare:false,missing:[],blockers:['缺少 VC++ x64 运行库：vcruntime140.dll、msvcp140.dll。请安装或修复微软运行库后重新检查。'],runtime:{status:'missing',ready:false}};await host.launchSettingsController.refresh(false);const view=document.querySelector('.view.active');view.scrollTop+=host.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()`);
     win.webContents.invalidate();
     await new Promise(resolve => setTimeout(resolve, 150));

@@ -33,6 +33,13 @@ button, input, select { -webkit-app-region: no-drag; }
 .detail-tabs button[aria-selected="true"] { color: var(--green); border-bottom-color: var(--green); }
 .detail-tabs button:hover { color: var(--text); }
 .enhancement-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(230px, 1fr); gap: 16px; align-items: start; }
+.enhancement-sidebar { display: grid; gap: 16px; min-width: 0; }
+.enhancement-sidebar .component-block { margin-top: 0; }
+.enhancement-sidebar .diag-row { grid-template-columns: 14px minmax(90px, 1fr) minmax(0, 1fr); gap: 8px; font-size: 12px; }
+.enhancement-sidebar .diagnostic-actions .button { padding: 9px 12px; font-size: 12px; }
+.enhancement-sidebar .route-advanced { padding: 13px 0 0; }
+.skin-settings { margin-top: 16px; border-top: 1px solid var(--line); }
+.skin-summary { text-align: right; font-size: 12px; color: var(--muted); }
 .config-block { padding: 19px; }
 .config-title { margin-bottom: 18px; }
 .config-block h4 { font-size: 15px; }
@@ -59,6 +66,12 @@ button, input, select { -webkit-app-region: no-drag; }
 .detail-empty { padding: 30px; text-align: center; }
 .detail-empty .button { margin-top: 18px; }
 .route-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
+.game-route-controls { padding-top: 18px; margin-bottom: 6px; }
+.game-route-controls .config-block { padding: 16px 19px; }
+.game-route-controls .control-row { margin-top: 9px; border-bottom: 0; min-height: 46px; }
+.game-route-controls .addon-version-row > label { display: none; }
+.game-route-controls .config-note, .game-route-controls .api-route-status { font-size: 12px; line-height: 1.6; margin: 10px 0 0; }
+.game-route-controls .api-help { margin-top: 10px; font-size: 11px; }
 .route-layout .api-config-block { margin-bottom: 0; }
 .route-layout .control-row { grid-template-columns: 1fr auto; }
 .route-layout .control-row > label { grid-column: 1 / -1; padding-top: 8px; }

@@ -1,7 +1,7 @@
 'use strict';
 
 (() => {
-  const TAB_NAMES = ['enhance', 'graphics', 'diagnostics'];
+  const TAB_NAMES = ['enhance', 'graphics'];
 
   function noopTabs() {
     return {
