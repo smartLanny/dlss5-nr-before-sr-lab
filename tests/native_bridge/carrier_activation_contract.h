@@ -35,16 +35,17 @@ public:
         needs_rescan_.store(true, std::memory_order_release);
     }
 
-    template <typename IsCurrentlyLoaded, typename Visit>
-    void Drain(IsCurrentlyLoaded is_loaded, Visit visit) noexcept {
+    template <typename IsCurrentGeneration, typename Visit>
+    void Drain(IsCurrentGeneration is_current_generation, Visit visit) noexcept {
         for (auto &slot : events_) {
             std::uint8_t ready = 2;
             if (!slot.state.compare_exchange_strong(ready, 1, std::memory_order_acquire))
                 continue;
             const ModuleEvent event = slot.event;
-            // Loader bases can be reused. The safe caller must validate the
-            // current module snapshot instead of acting on a stale load event.
-            if (event.loaded && is_loaded(event.base)) visit(event);
+            // An address-only loaded test is insufficient: A may unload and B
+            // may reuse its base. Validate this event's generation/identity
+            // against the safe caller's current module snapshot.
+            if (event.loaded && is_current_generation(event)) visit(event);
             slot.event = {};
             slot.state.store(0, std::memory_order_release);
         }
@@ -109,11 +110,12 @@ public:
     }
 
     template <typename NativeCreate>
-    std::uint32_t ObserveCreate(std::uintptr_t device, std::uintptr_t handle,
-                                std::uint32_t flags, NativeCreate native) noexcept {
+    std::uint32_t ObserveCreate(std::uintptr_t device, std::uint32_t flags,
+                                NativeCreate native) noexcept {
         // Observation never substitutes for NGX: native Create is called once,
-        // and only its successful result is eligible for later bridge admission.
-        const std::uint32_t result = native();
+        // and the handle is read from its real output only after it succeeds.
+        std::uintptr_t handle = 0;
+        const std::uint32_t result = native(handle);
         if (result != 1 || !observer_armed_ || !IsCandidate(device) || handle == 0)
             return result;
         for (auto &record : creates_)

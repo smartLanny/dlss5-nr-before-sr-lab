@@ -20,7 +20,9 @@ swapchain 不会激活另一 device 的 handle。D3D12、Vulkan 和未收到 D3D
 
 loader callback 最终只能向固定容量 ledger 写入 base、load/unload 和单调 epoch。
 满时置 `needs_rescan`；安全回调依据当前模块快照做全扫描。卸载或基址复用后，旧
-load 事件不得触发 Hook。扫描、`GetProcAddress`、日志、Hook 安装/移除和资源释放
+load 事件不得触发 Hook。验证器必须接收完整事件并核对当前加载 generation/模块
+身份；仅查询“该 base 现在有模块”会把 A 的旧事件误用于复用同地址的 B。扫描、
+`GetProcAddress`、日志、Hook 安装/移除和资源释放
 都留在 loader lock 外。
 
 ## 无法同时满足的合同
@@ -38,3 +40,9 @@ loader callback 若保持轻量，就不能在该窗口内同步补 Hook。因�
 并发、正在执行的 Create/Release 与 destroy 竞态、真实 carrier FreeLibrary 恢复、
 多 swapchain 计数或 device/NGX/shared-resource 的完整退役。它不是游戏、NVIDIA NGX、
 GPU 或崩溃修复验证。
+
+初始原型提交 `4f056bbc37cf27167226fd4a693b4753afd5db29` 有两个覆盖缺口：它只把
+base 传给 `is_loaded`，无法区分相同 base 的加载 generation；它还在调用原生 Create
+前由测试传入预设 handle。后续修正加入 A 卸载、B 同址重载的反例，并让真实测试 DLL
+通过 Create 的 out 参数写回 handle，观察层仅在成功返回后读取并记录。初始提交不能
+作为这两项合同的通过证据。

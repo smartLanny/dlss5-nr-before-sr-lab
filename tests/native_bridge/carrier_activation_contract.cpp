@@ -23,7 +23,9 @@ int main(int argc, char **argv) {
     a.InitDevice(Api::d3d11, auxiliary);
     a.InitDevice(Api::d3d11, game);
     CHECK(a.ObserverArmed());
-    CHECK(a.ObserveCreate(game, early, 37, [&] { ++native_calls; return 1u; }) == 1);
+    CHECK(a.ObserveCreate(game, 37, [&](std::uintptr_t &out) {
+        ++native_calls; out = early; return 1u;
+    }) == 1);
     CHECK(native_calls == 1 && a.PrivateD3d12Creates() == 0);
     CHECK(!a.AllowsBridge(early));
 
@@ -41,6 +43,10 @@ int main(int argc, char **argv) {
     // A Create missed before the observation hook existed has no record. The
     // confirmed swapchain cannot manufacture its handle or flags.
     CHECK(!a.AllowsBridge(missed));
+    CHECK(a.ObserveCreate(game, 41, [&](std::uintptr_t &out) {
+        ++native_calls; out = missed; return 0xBAD00001u;
+    }) == 0xBAD00001u);
+    CHECK(!a.AllowsBridge(missed));
     a.ObserveRelease(early);
     CHECK(!a.AllowsBridge(early));
     a.DestroySwapchain(game);
@@ -48,33 +54,48 @@ int main(int argc, char **argv) {
 
     LoaderLedger ledger;
     ledger.Record(0x1000, true);
-    ledger.Record(0x2000, true);
     ledger.Record(0x1000, false);
+    ledger.Record(0x1000, true); // a different module reused the same base
+    ledger.Record(0x2000, true);
     unsigned visits = 0;
-    std::uintptr_t visited_base = 0;
-    ledger.Drain([](std::uintptr_t base) { return base == 0x2000; },
-                 [&](const ModuleEvent &event) { ++visits; visited_base = event.base; });
-    CHECK(visits == 1 && visited_base == 0x2000); // stale/unloaded 0x1000 is never acted on
+    std::uint64_t visited_epoch_sum = 0;
+    ledger.Drain([](const ModuleEvent &event) {
+                     // The snapshot identifies generation 3 at reused base,
+                     // rather than accepting old generation 1 by address.
+                     return (event.base == 0x1000 && event.epoch == 3) ||
+                            (event.base == 0x2000 && event.epoch == 4);
+                 },
+                 [&](const ModuleEvent &event) { ++visits; visited_epoch_sum += event.epoch; });
+    CHECK(visits == 2 && visited_epoch_sum == 7);
     for (unsigned i = 0; i != LoaderLedger::capacity + 1; ++i)
         ledger.Record(0x3000 + i, true);
     CHECK(ledger.NeedsRescan());
     ledger.BeginFullRescan();
-    CHECK(!ledger.NeedsRescan() && ledger.Epoch() == 8);
+    CHECK(!ledger.NeedsRescan() && ledger.Epoch() == 9);
 
 #ifdef _WIN32
     if (argc == 2) {
         HMODULE stub = LoadLibraryA(argv[1]);
         CHECK(stub != nullptr);
-        using Create = unsigned (__cdecl *)(void *, void *, void *);
+        using Create = unsigned (__cdecl *)(void *, int, void *, void **);
         using Count = unsigned (__cdecl *)();
         auto create = reinterpret_cast<Create>(GetProcAddress(stub, "NVSDK_NGX_D3D11_CreateFeature"));
         auto count = reinterpret_cast<Count>(GetProcAddress(stub, "NativeCreateCount"));
         CHECK(create != nullptr && count != nullptr && count() == 0);
         Activation real_dll_boundary;
         real_dll_boundary.InitDevice(Api::d3d11, game);
-        const auto result = real_dll_boundary.ObserveCreate(game, early, 9,
-            [&] { return create(nullptr, nullptr, nullptr); });
-        CHECK(result == 1 && count() == 1);
+        std::uintptr_t actual_handle = 0;
+        const auto result = real_dll_boundary.ObserveCreate(game, 9,
+            [&](std::uintptr_t &out) {
+                void *native_out = nullptr;
+                const auto value = create(nullptr, 1, nullptr, &native_out);
+                out = reinterpret_cast<std::uintptr_t>(native_out);
+                actual_handle = out;
+                return value;
+            });
+        CHECK(result == 1 && count() == 1 && actual_handle != early && actual_handle != 0);
+        real_dll_boundary.InitSwapchain(Api::d3d11, game);
+        CHECK(real_dll_boundary.AllowsBridge(actual_handle));
         CHECK(real_dll_boundary.PrivateD3d12Creates() == 0);
         FreeLibrary(stub);
     }
