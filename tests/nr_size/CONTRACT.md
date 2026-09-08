@@ -1,6 +1,6 @@
 # #82 exact-size consumer preparation
 
-Only prepared/compiled: **no executable launch or GPU run** in this slice.
+Preparation was followed by one parent-reviewed fixed hardware batch; see results below.
 The four allowed dimensions, in order, are 320x184 (control), 320x176, 256x144,
 160x88. No other dimensions or product percentage range are admitted. This is
 one Feature 18, one parameter object, one frame, Reset=1, one process per case.
@@ -63,3 +63,34 @@ Prepared artifact SHA256 locks (private binaries/logs, not committed):
 | generated fixed_size_gpu.cpp | `5e32087b4e279beba92413fbe0cce846390bfee03bc4fbef4ed5a5f8391c5389` |
 | fixed_size_gpu.exe | `21c0ade929ec0fc4c25a40fca162887625a64135da4b387669b3938b10db10fe` |
 | build.log | `0f460a5d37f974a91b1dd6619b496c81dc7b75a5a6b7a1eb95d8e91d54f52801` |
+
+## Single authorized hardware batch, 2026-09-08
+
+Frozen host source `0fb7064f9569f9687c5152413aab205551f804a6` and the executable
+above ran exactly once per case, in the documented order. All four processes
+exited 0 without timeout; Create/Evaluate/Release and parameter lifecycle returned
+0x1, final completed fence=5 for each. No retries or omitted cases. GPU was released
+before the independent CPU check. This admits only these exact four dimensions
+in this synthetic SDR/reset fixture; the model's general minimum remains unknown.
+
+The standalone CPU verifier decoded actual binary16 with Python `struct('<e')`,
+recomputed all 16 raw-plane SHA256 receipts, checked exact byte sizes, confirmed
+input-after equals input, and confirmed all four source planes are identical.
+Every plane is finite. All four output alpha ranges are exactly [1,1].
+
+| N | Output components, all finite | Output SHA256 |
+| --- | --- | --- |
+| 320x184 | 235520 | `6a1a4eb63fa7fc02952b1dfbbccd514e1fd91bfae67a2c7aab19389521e3d530` |
+| 320x176 | 225280 | `e63253ab35f4b7eb7d1c07e0351125a4cc7f82194fad399f094680cb13cbb676` |
+| 256x144 | 147456 | `79d2bbb3c3c4f07dbe63b14f7c7635dd47c58a981d55c147fe92ffb2b4f8df74` |
+| 160x88 | 56320 | `4e0b2ca97b7b3f11b3be388676354f073d54d58fda5e1e80f7adf819aafce85f` |
+
+Actual loaded factory/NR/bridge module paths were captured per process. SHA256:
+factory `1496cd88ff70d1a8f9bd83fdb4d9d6dc58709a963a68f6b73bba7c7b607c6188`,
+NR `6eb209e764f39872625debd6abaf45e2bb6322f6f270f781f70c059ae30b3927`,
+bridge `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb`.
+Available bootstrap SR DLL was `be6e434a94ca32499515eb62ca0e6c274526055d568d0426e4c652dcdfb6ee6e`.
+Pre/post executable and runtime locks matched. Complete stdout/stderr/process
+receipts, raw planes and CPU report remain private. CPU report SHA256:
+`7cf878fe76e8f083b3c60e9313d148d19030020fb5dfe66ebf7de831cf5cd55f`.
+The verifier itself performs no GPU calls. No quality or 1–49% product claim is made.
