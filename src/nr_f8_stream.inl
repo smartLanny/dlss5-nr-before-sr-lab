@@ -25,7 +25,11 @@ void ConfigJson(JsonBuffer &b,const char *key,const ChainConfig &c) {
     b.Float("skin",c.skin_structure);b.Float("localTone",c.local_tone);b.Float("localStructure",c.local_structure);
     b.Float("proxyScale",c.proxy_scale);b.Float("customWorkScale",c.custom_work_scale);
     b.Float("maxLumaRatio",c.max_luma_ratio);b.Float("lightingLock",c.lighting_lock);
-    b.Float("edgeGuard",c.edge_guard);b.Float("detailStability",c.detail_stability);b.Append("}");
+    b.Float("edgeGuard",c.edge_guard);b.Float("detailStability",c.detail_stability);
+    b.Append(",\"highStrengthProtection\":%d",c.high_strength_protection);
+    b.Append(",\"layeredEnhancement\":%d",c.layered_enhancement);
+    b.Float("layerTone",c.layer_tone);b.Float("layerStructure",c.layer_structure);
+    b.Float("layerBright",c.layer_bright);b.Float("layerShadow",c.layer_shadow);b.Append("}");
 }
 JsonBuffer FrameJson(const NrStageCaptureInfo &n,const NrCaptureParams &p,
                      const ChainConfig &requested,const ChainConfig &actual) {
@@ -44,6 +48,11 @@ JsonBuffer FrameJson(const NrStageCaptureInfo &n,const NrCaptureParams &p,
     b.Float("workLinearScale",n.work_linear_scale);b.Float("lightingLock",n.lighting_lock);
     b.Float("edgeGuard",n.edge_guard);b.Float("frameConfidence",n.frame_confidence);
     b.Float("detailStability",n.detail_stability);
+    // Flag is captured per dispatch; it is not proof every pixel exceeded 1x.
+    b.Append(",\"highStrengthProtectionFlag\":%d",(n.codec_flags & 1024u) != 0u);
+    b.Append(",\"layeredEffective\":%d",(n.codec_flags & 2048u) != 0u);
+    b.Float("layerTone",n.layer_tone);b.Float("layerStructure",n.layer_structure);
+    b.Float("layerBright",n.layer_bright);b.Float("layerShadow",n.layer_shadow);
     b.Append(",\"appliedTuning\":{\"style\":%u,\"autoMask\":%d,\"uiCorrection\":%d",n.identity.tuning.style,n.identity.tuning.auto_mask,n.identity.tuning.ui_correction);
     b.Float("intensity",n.identity.tuning.intensity);b.Float("skin",n.identity.tuning.skin_structure);
     b.Float("localTone",n.identity.tuning.local_tone);b.Float("localStructure",n.identity.tuning.local_structure);b.Append("}");
@@ -84,10 +93,11 @@ bool CopyRecord(HANDLE output,const wchar_t *path) {
 bool WriteChunk(const wchar_t *path,const Session &s,unsigned group,unsigned chunk) {
     if(group>=s.group_count || chunk>4)return false;
     const Group &g=s.groups[group];const unsigned begin=chunk*4;
-    const unsigned count=begin<g.count?std::min(chunk==4?1u:4u,g.count-begin):0;
+    const unsigned count=chunk==4?(g.overview_reserved?1u:0u):
+        (begin<g.count?std::min(4u,g.count-begin):0u);
     HANDLE h=CreateFileW(path,GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
     if(h==INVALID_HANDLE_VALUE)return false;
-    bool ok=WriteBytes(h,"F8CHK004",8) && U32(h,4) && U32(h,group) && U32(h,chunk) && U32(h,count) && U32(h,16) && U32(h,5);
+    bool ok=WriteBytes(h,"F8CHK004",8) && U32(h,4) && U32(h,group) && U32(h,chunk) && U32(h,count) && U32(h,g.roi_target) && U32(h,5);
     for(unsigned i=begin;ok && i<begin+count;++i) {
         const auto &f=g.frames[i];
         ok=f.valid?CopyRecord(h,f.spool):WriteRecord(h,{s.id,group,i},f.info,f.params,g.requested,g.actual,nullptr,0,false);

@@ -213,7 +213,10 @@ int main(int argc,char **argv) {
         ReleaseSRWLockExclusive(&g_command_state_lock);
         check(std::strstr(unavailable.report,"sample.commandState.blend=unavailable\n"),"busy snapshot does not expose historical blend as current");
     }
+    g_config.high_strength_protection=false;g_config.layered_enhancement=true;
+    g_config.layer_tone=.5f;g_config.layer_structure=1.5f;g_config.layer_bright=.75f;g_config.layer_shadow=1.25f;
     begin(runtime);check(nr_core_feedback::Busy(),"worker owned by current session");
+    g_config.layer_bright=2.f; // Worker must serialize the earlier coherent snapshot.
     const auto first=nr_core_feedback::SnapshotPair();check(!nr_core_feedback::Request(),"no overlapping core jobs");
     drain(); // no second Present, no NR frame, no image or GPU stage functions even exist in this harness
     check(g_feedback_status==3 && !nr_core_feedback::Busy(),"zero-NR core completes independently");
@@ -225,11 +228,30 @@ int main(int argc,char **argv) {
     check(std::strstr(nr_core_feedback::g_submission,"end.ngxHookFailure.entry=existing-short-hotpatch"),"actual ticket includes historical hook shape");
     save("valid-core.zip");
     check(nr_core_feedback::g_full_report && nr_core_feedback::g_report_path[0],"standalone TXT and cached content published");
+    wchar_t copied_path[1024]{};
+    check(nr_core_feedback::TakeReportPathForClipboard(copied_path) &&
+          std::filesystem::path(copied_path)==std::filesystem::path(nr_core_feedback::g_report_path),
+          "successful atomic TXT publication exposes exactly its path for automatic clipboard copy");
+    wchar_t claimed_path[1024]{};wcscpy_s(claimed_path,copied_path);
+    check(!nr_core_feedback::TakeReportPathForClipboard(copied_path) &&
+          nr_core_feedback::GetReportClipboardStatus()==nr_core_feedback::ReportClipboardStatus::Pending,
+          "automatic TXT path is claimed once while copier result remains pending");
+    nr_core_feedback::SetReportClipboardResult(L"C:\\stale-report.txt",true);
+    check(nr_core_feedback::GetReportClipboardStatus()==nr_core_feedback::ReportClipboardStatus::Pending,
+          "stale clipboard completion cannot mark a newer TXT copied");
+    nr_core_feedback::SetReportClipboardResult(claimed_path,true);
+    check(nr_core_feedback::GetReportClipboardStatus()==nr_core_feedback::ReportClipboardStatus::Copied,
+          "UI may claim copied only after the platform copier reports success");
     const auto &report=*nr_core_feedback::g_full_report;
     check(report.find(first.session)!=std::string::npos && report.find("null-pso-policy-disabled")!=std::string::npos,"TXT carries this session and first-error log");
     check(report.find("Private Tester")==std::string::npos && report.find("ABCDEF00")==std::string::npos,"TXT privacy matches sanitized ZIP");
     check(report.find("text.complete=1")!=std::string::npos,"all included core summaries present in TXT");
     check(report.size()<64*1024 && report.size()<=nr_feedback_single::kTextLimit,"representative F8 TXT stays in tens of KiB and below hard limit");
+    check(report.find("requested.highStrengthProtection=0\n")!=std::string::npos &&
+          report.find("requested.layeredEnhancement=1\n")!=std::string::npos &&
+          report.find("requested.layerBright=0.75\n")!=std::string::npos &&
+          report.find("requested.layerShadow=1.25\n")!=std::string::npos,
+          "TXT carries frozen 0.5 picture settings, not current globals");
     std::ifstream txt(std::filesystem::path(nr_core_feedback::g_report_path),std::ios::binary);
     check(std::string((std::istreambuf_iterator<char>(txt)),{})==report,"disk TXT equals clipboard cache");
     txt.close();
@@ -425,7 +447,9 @@ def main():
                     'end.commandState.guardCovered=1', 'end.commandState.freshReset=0',
                     'start.commandState.blend=0.25,0.5,0.75,1',
                     'end.commandState.blend=0.25,0.5,0.75,1',
-                    'end.ngxHookFailure.entry=existing-short-hotpatch'):
+                    'end.ngxHookFailure.entry=existing-short-hotpatch',
+                    'requested.highStrengthProtection=0', 'requested.layeredEnhancement=1',
+                    'requested.layerBright=0.75', 'requested.layerShadow=1.25'):
             assert key in metadata, key
     print('Actual Windows core ZIPs independently verified (complete / cancelled / snapshot busy).')
 

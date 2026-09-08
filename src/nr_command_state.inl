@@ -300,29 +300,39 @@ bool CanAutoRestorePristineNull(const NativeCommandState &state) {
         state.dynamic.stream_mask == 0;
 }
 
-// A separate, bounded subset: only viewport/scissor arrays changed after a
-// fully observed successful Reset. No handles, descriptors, predication,
-// vertex/stream-output buffers, queries, opaque commands or unknown domains
-// are admitted by this path. Full dynamic replay is still experimental.
+// A separate, bounded subset after a fully observed successful Reset:
+// viewport/scissor arrays, blend factors and privately copied RTV/DSV slots.
+// No predication, vertex/stream-output buffers, queries, opaque commands or
+// unknown domains are admitted. Full dynamic replay stays experimental.
 const FLOAT *CommandStateBlendFactorValues(const FLOAT values[4]) {
     static constexpr FLOAT defaults[4] = {1.0f, 1.0f, 1.0f, 1.0f};
     return values != nullptr ? values : defaults;
 }
 
-bool CanAutoRestoreRasterNull(const NativeCommandState &state) {
+// D3D12 OMSetBlendFactor accepts any finite float. The old [0,1] gate was a
+// conservative policy, not an API rule, and rejected measured post-Reset lists
+// whose only extra dynamic bit was blend (0x8) with finite out-of-unit values.
+bool CommandStateBlendFactorAdmissible(float value) {
+    return value == value && value <= 3.402823466e+38f && value >= -3.402823466e+38f;
+}
+
+// nullptr means admitted. Keep the admission predicate and the diagnostic in
+// one function so Capture reports the same guard that controls restoration.
+const char *RasterNullRejectionReason(const NativeCommandState &state) {
     const auto &d = state.dynamic;
     if (!state.known || !state.null_pipeline_baseline || state.pipeline ||
         state.raytracing_pipeline || !state.null_guard_covered ||
         !state.null_guard_reset_observed || state.null_guard_tainted ||
         state.unknown_domains != 0 || d.vertex_mask != 0 || d.stream_mask != 0 ||
         d.recorded == 0 || (d.recorded & ~(kDynamicViewport | kDynamicScissor | kDynamicBlend | kDynamicTargets)) != 0 ||
-        d.viewport_count > 16 || d.scissor_count > 16) return false;
+        d.viewport_count > 16 || d.scissor_count > 16) return "null-guard-graphics-state-used";
     // Raw application CPU handles may be recycled; only privately copied
     // contiguous RTV and independently owned DSV descriptors may be restored.
     if ((d.recorded & kDynamicTargets) &&
         (d.target_count > 8 ||
          (d.target_count && (!state.rtv_cache || !d.contiguous_targets || !d.targets[0].ptr)) ||
-         (d.has_depth_target && (!state.dsv_cache || !d.depth_target.ptr)))) return false;
+         (d.has_depth_target && (!state.dsv_cache || !d.depth_target.ptr))))
+        return "null-guard-unowned-target-descriptors";
     for (UINT i = 0; i < d.viewport_count; ++i) {
         const auto &v = d.viewports[i];
         // Ordered bounded comparisons also reject NaN and infinities.
@@ -334,16 +344,20 @@ bool CanAutoRestoreRasterNull(const NativeCommandState &state) {
               v.Width <= D3D12_VIEWPORT_BOUNDS_MAX - v.TopLeftX &&
               v.Height <= D3D12_VIEWPORT_BOUNDS_MAX - v.TopLeftY &&
               v.MinDepth >= 0 && v.MaxDepth <= 1 && v.MinDepth <= v.MaxDepth))
-            return false;
+            return "null-guard-invalid-viewport";
     }
     for (UINT i = 0; i < d.scissor_count; ++i) {
         const auto &r = d.scissors[i];
-        if (r.left > r.right || r.top > r.bottom) return false;
+        if (r.left > r.right || r.top > r.bottom) return "null-guard-invalid-scissor";
     }
     if ((state.dynamic.recorded & kDynamicBlend) != 0)
         for (float value : state.dynamic.blend)
-            if (!(value >= 0.0f && value <= 1.0f)) return false;
-    return true;
+            if (!CommandStateBlendFactorAdmissible(value))
+                return "null-guard-blend-nonfinite";
+    return nullptr;
+}
+bool CanAutoRestoreRasterNull(const NativeCommandState &state) {
+    return RasterNullRejectionReason(state) == nullptr;
 }
 
 bool CanRestoreNativeCommandState(const NativeCommandState &state,
@@ -1386,7 +1400,8 @@ bool CaptureNativeCommandState(ID3D12GraphicsCommandList *command_list, NativeCo
             (record->state->dynamic.recorded & (kDynamicDepthBias | kDynamicStripCut)) && !record->state->pipeline ? "dynamic-raster-without-PSO" :
             record->state->null_pipeline_baseline && !experimental && !pristine && !raster ?
                 (record->state->null_guard_tainted ? "null-guard-recording-tainted" :
-                 !record->state->null_guard_reset_observed ? "null-guard-awaiting-reset" : "null-guard-graphics-state-used") : "pipeline-unbound";
+                 !record->state->null_guard_reset_observed ? "null-guard-awaiting-reset" :
+                 RasterNullRejectionReason(*record->state)) : "pipeline-unbound";
         evidence.registered = true; evidence.hooks_ready = record->hooks_ready;
         evidence.guard_requested = record->null_guard_requested;
         evidence.meta_known = record->meta_contract.known;

@@ -1,0 +1,28 @@
+// Compile with the pinned ReShade ini_file.cpp; the filter below is extracted
+// verbatim from its addon_manager.cpp, not a second implementation of the rule.
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <algorithm>
+#include <cstdio>
+#include "ini_file.hpp"
+std::filesystem::path g_reshade_dll_path, g_reshade_base_path, g_target_executable_path;
+struct addon_info { std::string name, file; HMODULE handle = nullptr; bool external = false; };
+int wmain(int argc, wchar_t **argv) {
+    if (argc != 3) return 2;
+    const std::filesystem::path ini = argv[1], path = argv[2];
+    reshade::ini_file config(ini);
+    std::vector<std::string> disabled_addons;
+    config.get("ADDON", "DisabledAddons", disabled_addons);
+    std::vector<addon_info> addon_loaded_info;
+    int loaded = 0;
+    for (int once = 0; once < 1; ++once) {
+// @PINNED_PRELOAD_FILTER@
+        const HMODULE module = LoadLibraryExW(path.c_str(), nullptr,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        if (!module) { std::printf("load failed: %lu\n", GetLastError()); return 3; }
+        ++loaded;
+        FreeLibrary(module);
+    }
+    std::printf("loaded=%d excluded=%zu\n", loaded, addon_loaded_info.size());
+    return 0;
+}

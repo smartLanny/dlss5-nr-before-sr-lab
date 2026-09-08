@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the merged 0.4.5 compatibility candidate without changing the checkout.
+"""Stage the merged 0.4.6 compatibility candidate without changing the checkout.
 
 Requires #131, #132 and the completed #134 merge. Generated-source availability
 is not game verification. MFG work is deferred for the current owner test batch.
@@ -14,31 +14,33 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.4.5-dx11-compat'
-DISPLAY_VERSION = '0.4.5-DX11-兼容增强'
+VERSION = 'beta0.5-dev6'
+DISPLAY_VERSION = '0.5-dev6'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
 PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
-STATE_CURRENT = 'ca61df92bb2d8c689648b12a35e7e1835d294748'
+STATE_CURRENT = 'f0f13b0a8ac243f01cdf0f93a517440ac65f1394'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
-REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137)
+REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd')
 INTEGRATION_CORE_PINS = {
-    'src/nr_feedback_core.inl': 'a14c75fb3ecf96f4d1e59a5aadda9d181dfae879',
+    'src/nr_codec_descriptors.inl': '08da1a1bc4ee0eb2337d2c9b12463622ed387c09',
+    'src/nr_feedback_core.inl': '2e2b54d62c09befdd3ba76cdc75f087225d38d5d',
     'src/nr_feedback_text.h': '2eb84a38dca9c72243bc2a4a0aa84007ec75097f',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
-    'src/nr_f8_sequence.inl': '08b9da7342466382e95904b0ca585ce93c92ee43',
+    'src/nr_f8_sequence.inl': 'd6a017063570787a04b67562a5a67ed91d723921',
     'src/nr_command_state.inl': STATE_CURRENT,
-    'src/nr_feedback_capture.inl': '1ea44b68b5da07b018bc93eef13111d2f274601e',
-    'src/nr_settings_ui.inl': 'e18d389d952e9ccb97ba81704b1aed76333f0c2d',
-    'src/nr_before_sr.cpp': 'e2c5ff0facc80b84c1bea29df05974f87b910429',
-    'src/nr_before_sr.rc': '25985f691b7f3104ba7c696f3da03eae709d4e52',
-    'src/nr_color_policy.inl': 'e52bbc78b15647e8947de88afdbccf6ac7591361',
+    'src/nr_feedback_capture.inl': '99328d273b964509e344bfdbcd7bbc85f230619b',
+    'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
+    'src/nr_settings_ui.inl': 'bcb100172473d07dbf21ba44edad90ff167757bf',
+    'src/nr_before_sr.cpp': '7c4cd0a224742185794e4056b1d255d7fe32e50f',
+    'src/nr_before_sr.rc': '2782b22353ad8edf3ff53ebc9d28d4cd41514c29',
+    'src/nr_color_policy.inl': '486c656eaf54af6c1d5b93bed3ce0f7bce9e1b60',
     'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': 'a3ba1f85da395602c83039b1542cc04db4ca9207',
+    'scripts/build.ps1': '85c27b6256cc7ffd125ab5ecef4697277fde43cb',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
 }
 BRIDGE_BLOBS = {
@@ -77,7 +79,7 @@ def configure(core: Path):
     fmt = load('format_patch', core / 'scripts/patch-format-access.py')
     post = load('post_patch', core / 'scripts/patch-post-compat.py')
     m.EXPERIMENT = m.legacy.EXPERIMENT = VERSION
-    m.VERSION = 'beta0.4.5-fix2'
+    m.VERSION = 'beta0.5-dev6'
     m.legacy.UPSTREAM = UPSTREAM
     m.legacy.UPSTREAM_BLOBS = dict(BRIDGE_BLOBS)
     m.legacy.CORE_BLOBS.update(INTEGRATION_CORE_PINS)
@@ -119,7 +121,9 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         encoding='utf-8', newline='\n')
     names = stage / 'core/src/interop/nr_deployment_names.h'
     text = names.read_text(encoding='utf-8')
-    old = 'return Equal(name, L"dlss5-native-carrier-045-exp3.addon64");'
+    old = ('return Equal(name, L"dlss5-native-carrier-045-exp3.addon64") ||\n'
+           '        Equal(name, L"dlss5-native-carrier-multiapi-dev3.addon64") ||\n'
+           '        Equal(name, L"dlss5-native-carrier-045-dx11-compat.addon64");')
     if text.count(old) != 1:
         raise ValueError('Companion identity anchor changed')
     names.write_text(text.replace(old,
@@ -147,10 +151,9 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.4.5-fix2 beta' not in resource_text:
+    if '0.5.0 dev6 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.4.5-fix2 beta', '0.4.5 DX11 compatibility beta')
-                  .replace('VERSION 0,4,5,2', 'VERSION 0,4,5,104'),
+    rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:
@@ -159,6 +162,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
+        'core_pe_version': '0.5.0.6',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),
@@ -210,7 +214,7 @@ def prepare(core: Path, upstream: Path, output: Path) -> None:
             raise ValueError('Source changed during generation')
         if output.exists():
             raise ValueError('Output appeared during generation')
-        stage.rename(output)
+        m.legacy.publish_stage(stage, output)
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)

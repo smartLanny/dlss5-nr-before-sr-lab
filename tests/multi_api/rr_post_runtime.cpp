@@ -19,12 +19,17 @@ namespace nr_post_settings{
  struct Options{bool rr=true;}; Options options;
  Options Read(){return options;}
  std::atomic<unsigned long long> rr_attempts{0},rr_recorded{0},rr_native_failures{0},last_rr_tick{0};
+ std::atomic<unsigned long long> rr_before_state_rejected{0},rr_prepare_declined{0};
+ std::atomic<unsigned long long> rr_after_state_rejected{0},rr_finish_declined{0},rr_finish_gate_rejected{0};
  std::atomic<int> last_rr_stage{0};
 }
 enum class BypassReason{RayReconstructionGuard,Feature1TransactionBusy};
 void SetBypassReason(BypassReason){}
 unsigned long long GetTickCount64(){return 10;}
 bool owner=false,gate=true,nested=false,chain=true,prepare_ok=true,finish_ok=true,before_ok=true,after_ok=true;
+std::atomic<int> g_rr_ownership_gate_owner{0};
+unsigned concurrent_aborts=0;
+void LatchConcurrentRrOwnershipChange(const char*) { ++concurrent_aborts;g_feature_tracking_uncertain=true; }
 int g_chain_cs=0,chain_depth=0,gate_depth=0,native_calls=0,finishes=0,prepares=0,quarantines=0,scopes=0,restores=0,stage=0;
 bool change_generation=false,change_identity=false,change_uncertain=false,finish_uncertain=false;
 NgxResult result=1;FeatureRecord current;
@@ -76,7 +81,11 @@ void Reset(){
  native_calls=finishes=prepares=quarantines=scopes=restores=stage=chain_depth=gate_depth=0;
  current={&handle,13,7};result=1;g_config={};g_config.mode=2;
  g_feature_tracking_uncertain=false;g_lifecycle_tracking_uncertain=false;
+ g_rr_ownership_gate_owner=0;concurrent_aborts=0;
  nr_post_settings::options={};nr_post_settings::rr_recorded=0;
+ nr_post_settings::rr_before_state_rejected=0;nr_post_settings::rr_prepare_declined=0;
+ nr_post_settings::rr_after_state_rejected=0;nr_post_settings::rr_finish_declined=0;
+ nr_post_settings::rr_finish_gate_rejected=0;
 }
 void Run(){
  const auto feature=current;
@@ -94,6 +103,10 @@ int main(){
  Reset();before_ok=false;Run();CHECK(prepares==0&&finishes==0);
  Reset();after_ok=false;Run();CHECK(prepares==1&&finishes==0);
  Reset();gate=false;Run();CHECK(prepares==0&&finishes==0);
+ Reset();gate=false;g_rr_ownership_gate_owner=1;Run();
+ CHECK(prepares==0&&finishes==0&&concurrent_aborts==1&&g_feature_tracking_uncertain);
+ Reset();gate=false;g_rr_ownership_gate_owner=2;Run();
+ CHECK(prepares==0&&finishes==0&&concurrent_aborts==0&&!g_feature_tracking_uncertain);
  Reset();nested=true;Run();CHECK(prepares==0&&finishes==0);
  Reset();chain=false;Run();CHECK(prepares==0&&finishes==0);
  Reset();owner=true;Run();CHECK(prepares==0&&finishes==0);

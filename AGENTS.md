@@ -1,5 +1,7 @@
 # Shared local and cloud handoff
 
+For this 0.5 research successor (#168), the sole research target is `next/0.5`. Temporary research PRs target it and must not feed algorithms into `main` or stable 0.4. Maintenance-only instructions below describe that separate line. Read the current 0.5 section first.
+
 Read `docs/interop/CURRENT_STATUS.md` first for the current candidate, supported routes, validation boundaries, and owner handoff state. The sole continuing development branch is `main`. The former compatibility integration branch (PR #133) and maintenance branches are historical integration inputs; start temporary work branches from current `origin/main` and merge them back. Preserve separate unfinished 0.5, Feeder and Manager experiments until explicitly integrated.
 
 Verify the remote HEAD and the candidate's `source-manifest.json` / `validation.json` before citing a commit or test result. Chat history and old roadmap checkboxes are historical context, not proof of current source or a successful build. Do not repeat migration work already present in the ancestry.

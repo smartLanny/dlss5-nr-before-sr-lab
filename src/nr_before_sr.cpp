@@ -50,11 +50,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.4.5-fix2";
+constexpr const char *kAddonVersion = "beta0.5-dev6";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.4.5-fix2";
+constexpr const char *kBuildIdentity = "beta0.5-dev6";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -533,10 +533,9 @@ std::atomic<unsigned int> g_feature1_create_in_progress{0};
 // Failed/null attempts are logged separately and must not create a false
 // permanent observer gap during HDR or DLSS contract rebuilds.
 std::atomic<unsigned long long> g_feature1_successful_creates{0};
-// A live Feature 13 handle is treated as authoritative RR ownership. There is
-// no public frame token that can prove a retained handle is dormant without a
-// race, so ordinary Feature 1 processing resumes only after the game releases
-// every RR handle (or after a process restart).
+// Lifecycle inventory only. Engines can retain an inactive Feature 13 handle
+// after switching back to Feature 1; a cached handle does not own every later
+// SR evaluation. Actual calls and the transaction gate determine routing.
 std::atomic<unsigned int> g_live_rr_handles{0};
 // Close the small window between entering a Feature 13 Create call and
 // publishing its returned handle in g_features. Feature 1 must not be modified
@@ -859,10 +858,10 @@ struct ChainConfig {
     bool identity_use_original = false;
     // V2 composition treats this as a multiplicative log-ratio exponent.
     // 1.0 follows the model, 2.0 compounds the model ratio twice, 4.0 is
-    // deliberately strong, and 8.0 is an extreme diagnostic ceiling. HDR,
+    // the public maximum (not a recommendation). HDR,
     // finite-value and user-selected maximum-ratio guards remain authoritative.
-    float transfer_strength = 1.2f;
-    float post_transfer_strength = 1.2f;
+    float transfer_strength = 1.0f;
+    float post_transfer_strength = 1.0f;
     // Independent Feature 18 working raster for Mode 2. 0 reference,
     // 1 quality, 2 balanced, 3 performance, 4 ultra, 5 custom.
     int work_mode = 1;
@@ -870,6 +869,14 @@ struct ChainConfig {
     float lighting_lock = 0.20f;
     float edge_guard = 0.25f;
     float detail_stability = 0.0f; // Experimental spatial residual protection; 0 preserves old output.
+    bool high_strength_protection = true; // Mode 2 composition only; does not reset NR history.
+    bool layered_enhancement = false; // One NR inference; independent composite contributions.
+    bool independent_chroma_composition = false; // 0.5 opt-in shared pre/post candidate.
+    bool low_grid_edit_field = false; // #11 luma-only Mode2 experiment; defaults to A.
+    float layer_tone = 1.0f;
+    float layer_structure = 1.0f;
+    float layer_bright = 1.0f;
+    float layer_shadow = 1.0f;
     bool motion_stability = false; // Requested only; requires a proven depth/history contract.
     unsigned int proxy_curve = 1; // 0 legacy, 1 hybrid, 2 reversible
     bool allow_unverified_hdr_color = false;
@@ -930,6 +937,11 @@ std::atomic<int> g_last_carrier_feature{-1};
 std::atomic<unsigned long long> g_rr_passthrough_evaluations{0};
 std::atomic<unsigned long long> g_rr_guarded_sr_evaluations{0};
 std::atomic<bool> g_rr_guard_was_active{false};
+bool IsRayReconstructionRouteObserved() {
+    return g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
+        (g_last_carrier_feature.load(std::memory_order_acquire) == 13 &&
+         g_live_rr_handles.load(std::memory_order_acquire) != 0);
+}
 std::atomic<bool> g_unverified_exposure_texture_bypass{false};
 std::atomic<unsigned long long> g_exposure_texture_bypasses{0};
 std::atomic<bool> g_pre_sr_runtime_rejected{false};
@@ -1210,7 +1222,7 @@ float ReadConfiguredTransferStrength(int configured_mode) {
     const float selected = version >= 1 || configured_mode != 1 ? pre : post;
     const float alternate = version >= 1 || configured_mode != 1 ? post : pre;
     const float strength = std::isfinite(selected) ? selected :
-        (std::isfinite(alternate) ? alternate : 1.2f);
+        (std::isfinite(alternate) ? alternate : 1.0f);
     if (version < 1) {
         // Publish the independent marker only after both compatible fields
         // are saved. Failure keeps the requested value for this process.
@@ -1234,6 +1246,10 @@ float ReadConfiguredTransferStrength(int configured_mode) {
 
 void NormalizeConfig(ChainConfig &config) {
     config.mode = config.mode == 2 ? 2 : 1;
+    config.layer_tone = std::clamp(FiniteOr(config.layer_tone, 1.0f), 0.0f, 2.0f);
+    config.layer_structure = std::clamp(FiniteOr(config.layer_structure, 1.0f), 0.0f, 2.0f);
+    config.layer_bright = std::clamp(FiniteOr(config.layer_bright, 1.0f), 0.0f, 2.0f);
+    config.layer_shadow = std::clamp(FiniteOr(config.layer_shadow, 1.0f), 0.0f, 2.0f);
     config.transfer_strength = std::clamp(FiniteOr(config.transfer_strength, 0.0f), 0.0f, 4.0f);
     // One visible blend control owns both chains. Keeping the legacy field in
     // sync preserves compatibility with existing INI files without allowing a
@@ -1283,6 +1299,12 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.lighting_lock == b.lighting_lock &&
            a.edge_guard == b.edge_guard &&
            a.detail_stability == b.detail_stability &&
+           a.high_strength_protection == b.high_strength_protection &&
+           a.layered_enhancement == b.layered_enhancement &&
+           a.independent_chroma_composition == b.independent_chroma_composition &&
+           a.low_grid_edit_field == b.low_grid_edit_field &&
+           a.layer_tone == b.layer_tone && a.layer_structure == b.layer_structure &&
+           a.layer_bright == b.layer_bright && a.layer_shadow == b.layer_shadow &&
            a.motion_stability == b.motion_stability &&
            a.proxy_curve == b.proxy_curve &&
            a.allow_unverified_hdr_color == b.allow_unverified_hdr_color &&
@@ -1366,6 +1388,15 @@ void ReloadConfig(bool force = false) {
     next.lighting_lock = ReadIniFloat(L"LightingLock", 0.20f);
     next.edge_guard = ReadIniFloat(L"EdgeGuard", 0.25f);
     next.detail_stability = ReadIniFloat(L"DetailStability", 0.0f);
+    next.layered_enhancement = GetPrivateProfileIntW(L"NRBeforeSR", L"LayeredEnhancement", 0, g_ini_path) != 0;
+    next.independent_chroma_composition = GetPrivateProfileIntW(L"NRBeforeSR", L"IndependentChromaComposition", 0, g_ini_path) != 0;
+    next.low_grid_edit_field = GetPrivateProfileIntW(L"NRBeforeSR", L"LowGridEditField", 0, g_ini_path) != 0;
+    next.layer_tone = ReadIniFloat(L"LayerTone", 1.0f);
+    next.layer_structure = ReadIniFloat(L"LayerStructure", 1.0f);
+    next.layer_bright = ReadIniFloat(L"LayerBright", 1.0f);
+    next.layer_shadow = ReadIniFloat(L"LayerShadow", 1.0f);
+    next.high_strength_protection = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"HighStrengthProtection", 1, g_ini_path) != 0;
     next.motion_stability = GetPrivateProfileIntW(L"NRBeforeSR", L"MotionStability", 0, g_ini_path) != 0;
     next.proxy_curve = static_cast<unsigned int>(GetPrivateProfileIntW(
         L"NRBeforeSR", L"ProxyCurve", 1, g_ini_path));
@@ -1457,6 +1488,12 @@ void ReloadConfig(bool force = false) {
         g_history_generation.fetch_add(1, std::memory_order_relaxed);
     }
     if (changed || force) {
+        Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
+            g_config.layered_enhancement, g_config.mode, g_config.layer_tone, g_config.layer_structure, g_config.layer_bright, g_config.layer_shadow);
+        Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", g_config.independent_chroma_composition);
+        Log("LowGridEditField requested=%d; only Mode2 and colour zero; recorded flag=8192; unavailable optional resources retain composition A.", g_config.low_grid_edit_field);
+        Log("HighStrengthProtection requested=%d; effective on V2/candidate luminance above 1x; legacy V2 also protects chroma; codec flag=1024.",
+            g_config.high_strength_protection ? 1 : 0);
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
             "postTransfer=%.3f colorFollowRequested=%.3f preserveLighting=%d proxyScale=%.3f "
             "paperWhiteScale=%.3f peakShoulderRequested=%d warmup=%u intensity=%.3f localTone=%.3f "
@@ -1526,6 +1563,14 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniFloat(L"LightingLock", config.lighting_lock));
     record_write(WriteIniFloat(L"EdgeGuard", config.edge_guard));
     record_write(WriteIniFloat(L"DetailStability", config.detail_stability));
+    record_write(WriteIniInt(L"LayeredEnhancement", config.layered_enhancement ? 1 : 0));
+    record_write(WriteIniInt(L"IndependentChromaComposition", config.independent_chroma_composition ? 1 : 0));
+    record_write(WriteIniInt(L"LowGridEditField", config.low_grid_edit_field ? 1 : 0));
+    record_write(WriteIniFloat(L"LayerTone", config.layer_tone));
+    record_write(WriteIniFloat(L"LayerStructure", config.layer_structure));
+    record_write(WriteIniFloat(L"LayerBright", config.layer_bright));
+    record_write(WriteIniFloat(L"LayerShadow", config.layer_shadow));
+    record_write(WriteIniInt(L"HighStrengthProtection", config.high_strength_protection ? 1 : 0));
     record_write(WriteIniInt(L"MotionStability", config.motion_stability ? 1 : 0));
     record_write(WriteIniInt(L"ProxyCurve", static_cast<int>(config.proxy_curve)));
     record_write(WriteIniInt(L"AllowUnverifiedHdrColor",
@@ -1623,6 +1668,12 @@ bool ApplyConfig(ChainConfig next, const char *source,
     const bool persisted = persist_to_ini ? SaveConfig(g_config) : true;
     const ChainConfig applied = g_config;
     LeaveCriticalSection(&g_chain_cs);
+    Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
+        applied.layered_enhancement, applied.mode, applied.layer_tone, applied.layer_structure, applied.layer_bright, applied.layer_shadow);
+    Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", applied.independent_chroma_composition);
+    Log("LowGridEditField requested=%d; only Mode2 and colour zero; recorded flag=8192; unavailable optional resources retain composition A.", applied.low_grid_edit_field);
+    Log("HighStrengthProtection requested=%d; effective on V2/candidate luminance above 1x; legacy V2 also protects chroma; codec flag=1024.",
+        applied.high_strength_protection ? 1 : 0);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
         "colorFollowRequested=%.3f intensity=%.3f style=%u autoMask=%d skin=%.3f localTone=%.3f "
         "localStructure=%.3f uiCorrection=%d jitterMode=%d paperWhiteScale=%.3f peakShoulderRequested=%d "
@@ -1731,8 +1782,7 @@ void ObserveFrameCadence() {
     const PerfSignature current = {
         perf_config.enabled,
         OtherNrOwnerActive(),
-        g_live_rr_handles.load(std::memory_order_relaxed) != 0 ||
-            g_rr_create_in_progress.load(std::memory_order_relaxed) != 0,
+        IsRayReconstructionRouteObserved(),
         perf_config.mode, perf_config.identity_use_original,
         ActiveTransferStrength(perf_config), perf_config.perf_epoch};
     if (!g_frame_meter.signature_valid ||
@@ -1874,21 +1924,52 @@ bool EnsureNrApi(ID3D12Device *device) {
 
     RuntimeLoadEvidence evidence;
     evidence.stage = "load-modules";
-    g_nr_api.bridge_module = LoadLibraryExW(
-        bridge_path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+    evidence.present[0] = RuntimeRegularFile(bridge_path);
+    evidence.present[1] = RuntimeRegularFile(signed_path);
+    RuntimeLoadRestricted(bridge_path, &g_nr_api.bridge_module, &evidence.errors[0]);
     evidence.loaded[0] = g_nr_api.bridge_module != nullptr;
-    evidence.errors[0] = RuntimeLoadError(evidence.loaded[0]);
-    g_nr_api.signed_module = LoadLibraryExW(
-        signed_path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+    RuntimeLoadRestricted(signed_path, &g_nr_api.signed_module, &evidence.errors[1]);
     evidence.loaded[1] = g_nr_api.signed_module != nullptr;
-    evidence.errors[1] = RuntimeLoadError(evidence.loaded[1]);
+    wchar_t exe_directory[MAX_PATH] = {};
+    if (GetModuleFileNameW(nullptr, exe_directory, MAX_PATH) != 0) {
+        wchar_t *slash = wcsrchr(exe_directory, L'\\');
+        if (slash != nullptr) *(slash + 1) = L'\0';
+        else exe_directory[0] = L'\0';
+    } else exe_directory[0] = L'\0';
+    // Addon-dir miss only. A present-but-126 file is a dependency failure;
+    // do not replace it with a different sibling from the game directory.
+    if (exe_directory[0] && _wcsicmp(directory, exe_directory) != 0) {
+        wchar_t exe_bridge[MAX_PATH] = {};
+        wchar_t exe_signed[MAX_PATH] = {};
+        swprintf_s(exe_bridge, L"%lsnrchain_nvngx.dll", exe_directory);
+        swprintf_s(exe_signed, L"%lsnvngx_dlssnr.dll", exe_directory);
+        if (!evidence.loaded[0] && !evidence.present[0] && RuntimeRegularFile(exe_bridge) &&
+            RuntimeLoadRestricted(exe_bridge, &g_nr_api.bridge_module, &evidence.errors[0])) {
+            evidence.loaded[0] = true;
+            evidence.present[0] = true;
+            evidence.search = "exe-directory";
+        }
+        if (!evidence.loaded[1] && !evidence.present[1] && RuntimeRegularFile(exe_signed) &&
+            RuntimeLoadRestricted(exe_signed, &g_nr_api.signed_module, &evidence.errors[1])) {
+            evidence.loaded[1] = true;
+            evidence.present[1] = true;
+            evidence.search = "exe-directory";
+        }
+    }
     HMODULE core = GetModuleHandleW(L"_nvngx.dll");
     evidence.loaded[2] = core != nullptr;
+    evidence.present[2] = evidence.loaded[2];
     evidence.errors[2] = RuntimeLoadError(evidence.loaded[2]);
+    for (unsigned i = 0; i < 3; ++i)
+        evidence.classes[i] = RuntimeClassifyLoad(evidence.present[i], evidence.loaded[i], evidence.errors[i]);
     if (g_nr_api.bridge_module == nullptr || g_nr_api.signed_module == nullptr || core == nullptr) {
-        Log("NR runtime load failed: bridgeLoaded=%d bridgeWin32=%lu signedLoaded=%d signedWin32=%lu coreLoaded=%d coreWin32=%lu; restart after repairing the installation.",
-            evidence.loaded[0] ? 1 : 0, evidence.errors[0], evidence.loaded[1] ? 1 : 0,
-            evidence.errors[1], evidence.loaded[2] ? 1 : 0, evidence.errors[2]);
+        Log("NR runtime load failed: bridgeLoaded=%d bridgePresent=%d bridgeClass=%s bridgeWin32=%lu "
+            "signedLoaded=%d signedPresent=%d signedClass=%s signedWin32=%lu coreLoaded=%d coreWin32=%lu "
+            "search=%s; restart after repairing the installation.",
+            evidence.loaded[0] ? 1 : 0, evidence.present[0] ? 1 : 0, RuntimeLoadClassName(evidence.classes[0]),
+            evidence.errors[0], evidence.loaded[1] ? 1 : 0, evidence.present[1] ? 1 : 0,
+            RuntimeLoadClassName(evidence.classes[1]), evidence.errors[1],
+            evidence.loaded[2] ? 1 : 0, evidence.errors[2], evidence.search);
         g_nr_api.failed = true;
         RecordRuntimeLoadEvidence(evidence);
         SetBypassReason(BypassReason::RuntimeUnavailable);
@@ -1973,21 +2054,25 @@ struct Codec {
     ID3D12PipelineState *combine_v2 = nullptr;
     ID3D12PipelineState *copy = nullptr;
     ID3D12PipelineState *motion_resample = nullptr;
+    ID3D12PipelineState *build_edit_field = nullptr;
+    bool edit_field_pipeline_failed = false;
     UINT descriptor_size = 0;
     bool failed = false;
 };
 
 Codec g_codec = {};
 
-constexpr UINT kCodecSrvCount = 5;
-constexpr UINT kCodecUavCount = 5;
+constexpr UINT kCodecSrvCount = 6;
+constexpr UINT kCodecUavCount = 6;
 constexpr UINT kCodecDescriptorCount = kCodecSrvCount + kCodecUavCount;
 constexpr UINT kCodecExposureSrvIndex = 4;
+constexpr UINT kCodecEditFieldSrvIndex = 5;
+constexpr UINT kCodecEditFieldUavIndex = kCodecSrvCount + 5;
 constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
 constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
 constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
 constexpr UINT kCodecCaptureUavIndex = kCodecSrvCount + 4;
-constexpr UINT kCodecRootConstantCount = 31;
+constexpr UINT kCodecRootConstantCount = 35;
 
 const char kCodecShader[] = R"HLSL(
 // The HDR proxy keeps a linear mid-range and applies a luminance-preserving
@@ -2001,11 +2086,13 @@ Texture2D<float4> ProxyColor    : register(t1);
 Texture2D<float4> NeuralColor   : register(t2);
 Texture2D<float2> MotionSource  : register(t3);
 Texture2D<float4> ExposureScaleTexture : register(t4);
+Texture2D<float2> EditField : register(t5);
 RWTexture2D<float4> ProxyOut    : register(u0);
 RWTexture2D<float4> ResultOut   : register(u1);
 RWTexture2D<float2> MotionOut   : register(u2);
 RWByteAddressBuffer DeltaStats  : register(u3);
 RWByteAddressBuffer StageCapture : register(u4);
+RWTexture2D<float2> EditFieldOut : register(u5);
 
 cbuffer Constants : register(b0) {
     uint Width;
@@ -2039,6 +2126,10 @@ cbuffer Constants : register(b0) {
     uint CaptureRoiY;
     uint CaptureRoiWidth;
     uint CaptureRoiHeight;
+    float LayerTone;
+    float LayerStructure;
+    float LayerBright;
+    float LayerShadow;
 };
 
 static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
@@ -2395,6 +2486,42 @@ float3 SampleNeuralStoredV2(float2 fullPixelCenter) {
     return (Passthrough & 1u) != 0u ? linearValue : LinearToSRGB(linearValue);
 }
 
+// #11: the model-grid field stores bounded signed log-luminance and validity.
+// No lighting/detail/source-edge protection is moved into this pass.
+[numthreads(8, 8, 1)]
+void BuildEditFieldCS(uint3 tid : SV_DispatchThreadID) {
+    if (tid.x >= ModelWidth || tid.y >= ModelHeight) return;
+    float3 pStored = ProxyColor.Load(int3(tid.xy, 0)).rgb;
+    float3 nStored = NeuralColor.Load(int3(tid.xy, 0)).rgb;
+    if (!IsFiniteModelStoredV2(pStored) || !IsFiniteModelStoredV2(nStored)) {
+        EditFieldOut[tid.xy] = float2(0.0, 0.0);
+        return;
+    }
+    float3 p = LoadProxyLinearV2(int2(tid.xy));
+    float3 n = LoadNeuralLinearV2(int2(tid.xy));
+    float pl = max(dot(p, kLuma), 1.0 / 4096.0);
+    float nl = max(dot(n, kLuma), 1.0 / 4096.0);
+    float edit = clamp(log2(nl / pl), -8.0, 8.0);
+    EditFieldOut[tid.xy] = isfinite(edit) ? float2(edit,1.0) : float2(0.0,0.0);
+}
+
+float2 SampleEditFieldV5(float2 fullPixelCenter) {
+    float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
+        float2(max(Width, 1u), max(Height, 1u)) - 0.5;
+    int2 base = int2(floor(mapped));
+    int2 upper = int2(max(ModelWidth, 1u)-1u, max(ModelHeight, 1u)-1u);
+    float2 a = EditField.Load(int3(clamp(base,int2(0,0),upper),0));
+    float2 b = EditField.Load(int3(clamp(base+int2(1,0),int2(0,0),upper),0));
+    float2 c = EditField.Load(int3(clamp(base+int2(0,1),int2(0,0),upper),0));
+    float2 d = EditField.Load(int3(clamp(base+int2(1,1),int2(0,0),upper),0));
+    // Strict footprint: never renormalize across an invalid neighbour, even
+    // when its interpolation weight is zero. Match the existing finite gate.
+    if (a.y != 1.0 || b.y != 1.0 || c.y != 1.0 || d.y != 1.0 ||
+        !all(isfinite(float4(a.x,b.x,c.x,d.x)))) return float2(0.0,0.0);
+    float2 f = frac(mapped);
+    return float2(lerp(lerp(a.x,b.x,f.x),lerp(c.x,d.x,f.x),f.y),1.0);
+}
+
 float ModelLumaRatioV2(float2 fullPixelCenter) {
     float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
         float2(max(Width, 1u), max(Height, 1u)) - 0.5;
@@ -2402,6 +2529,25 @@ float ModelLumaRatioV2(float2 fullPixelCenter) {
     float p = max(dot(LoadProxyLinearV2(pxy), kLuma), 1.0 / 4096.0);
     float n = max(dot(LoadNeuralLinearV2(pxy), kLuma), 1.0 / 4096.0);
     return clamp(n / p, 1.0 / 256.0, 256.0);
+}
+
+// A sparse lighting tap must not borrow another surface's luminance drift.
+// Keep the same nearest model-grid sample and two loads as ModelLumaRatioV2;
+// return weighted ratio + weight so rejected taps can be renormalized, not
+// replaced with a fictitious unity ratio. This is luma guidance, not a face mask.
+float2 ModelLightingTapV2(float2 fullPixelCenter, float centerProxyLuma) {
+    float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
+        float2(max(Width, 1u), max(Height, 1u)) - 0.5;
+    int2 pxy = int2(round(mapped));
+    float p = dot(LoadProxyLinearV2(pxy), kLuma);
+    float n = dot(LoadNeuralLinearV2(pxy), kLuma);
+    if (!isfinite(p) || !isfinite(n)) return float2(0.0, 0.0);
+    p = max(p, 1.0 / 4096.0);
+    n = max(n, 1.0 / 4096.0);
+    float relativeEdge = abs(p - centerProxyLuma) /
+        max(max(p, centerProxyLuma), 1.0 / 4096.0);
+    float weight = 1.0 - smoothstep(0.10, 0.50, relativeEdge);
+    return float2(weight * clamp(n / p, 1.0 / 256.0, 256.0), weight);
 }
 
 // Only the residual is filtered. Uniform edits and the original image remain intact.
@@ -2429,7 +2575,13 @@ float4 DetailDecisionV2(float2 center, float rawLog, float proxyLuma) {
     float detailWeight = 1.0 - saturate(DetailStability)*risk;
     uint reasons = (lowSampling > 0.0 ? 1u : 0u) | (incoherent > 0.0 ? 2u : 0u) |
         (dark > 0.0 ? 4u : 0u) | (extreme > 0.0 ? 8u : 0u);
-    return float4(detailWeight,float(reasons),rawLog,mean+(rawLog-mean)*detailWeight);
+    // Spatial stabilization may attenuate this pixel's model edit, but it must
+    // not borrow a stronger or opposite-sign edit from the sparse neighbours.
+    // At reduced work resolution that otherwise expands a dark model patch
+    // into an only-mildly-changed full-resolution face pixel.
+    float stabilized = mean + (rawLog - mean) * detailWeight;
+    stabilized = clamp(stabilized, min(rawLog, 0.0), max(rawLog, 0.0));
+    return float4(detailWeight,float(reasons),rawLog,stabilized);
 }
 
 float StabilizeDetailLogV2(float2 center, float rawLog, float proxyLuma) {
@@ -2695,40 +2847,6 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         return;
     }
 
-    // Render-resolution NR can introduce a broad luminance bias that the
-    // following SR pass then magnifies. When requested, estimate that slow
-    // component from a sparse 9-tap neighbourhood and remove it from the
-    // neural result. Fine structure remains in the neural-minus-proxy delta,
-    // while the game's own HDR illumination remains the low-frequency base.
-    if ((Passthrough & 2u) != 0u) {
-        float proxyMean = 0.0;
-        float neuralMean = 0.0;
-        int2 center = int2(tid.xy);
-        int2 upper = int2(Width - 1u, Height - 1u);
-        [unroll]
-        for (int oy = -1; oy <= 1; ++oy) {
-            [unroll]
-            for (int ox = -1; ox <= 1; ++ox) {
-                int2 sampleCoord = clamp(
-                    center + int2(ox, oy) * 4, int2(0, 0), upper);
-                float3 proxySample =
-                    ProxyColor.Load(int3(sampleCoord, 0)).rgb;
-                float3 neuralSample =
-                    NeuralColor.Load(int3(sampleCoord, 0)).rgb;
-                if (!modelEncodedInput) {
-                    proxySample = SRGBToLinear(proxySample);
-                    neuralSample = SRGBToLinear(neuralSample);
-                }
-                proxyMean += dot(proxySample, kLuma);
-                neuralMean += dot(neuralSample, kLuma);
-            }
-        }
-        if (proxyMean > 0.0001 && neuralMean > 0.0001) {
-            neural *= clamp(proxyMean / neuralMean, 0.5, 2.0);
-            modelDelta = neural - proxy;
-        }
-    }
-
     float normalizer = (modelEncodedInput || linearSdrStorage ||
                         srgbSdrStorage || pqEncodedHdr) ? 1.0
         : max(ProxyScale * ResolveSourceToCanonical(), 0.000001);
@@ -2736,6 +2854,33 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float sourceLuma = dot(source, kLuma);
     float proxyLuma = dot(proxy, kLuma);
     float neuralLuma = dot(neural, kLuma);
+    // Post-SR/RR receives the same paired proxy/neural model contract as the
+    // pre-SR path. Attenuate only its broad luminance residual with the shared
+    // model-grid estimator; retain the legacy colour transfer below. The
+    // mapped helper remains valid when post NR uses a smaller work raster.
+    // Preserve the historical binary flag for standalone callers. Production
+    // post routing supplies the scalar; when present it takes precedence so
+    // the legacy bit cannot turn a partial lock into a full lock.
+    float lightingAmount = LightingLock > 0.000001
+        ? saturate(LightingLock) : ((Passthrough & 2u) != 0u ? 1.0 : 0.0);
+    if (lightingAmount > 0.000001) {
+        float safeProxyLuma = max(proxyLuma, 1.0 / 4096.0);
+        float safeNeuralLuma = max(neuralLuma, 1.0 / 4096.0);
+        float logRatio = clamp(log2(safeNeuralLuma / safeProxyLuma), -8.0, 8.0);
+        const float radius = 8.0;
+        float2 center = float2(tid.xy) + 0.5;
+        float2 local = float2(0.40 * (safeNeuralLuma / safeProxyLuma), 0.40);
+        local += 0.15 * ModelLightingTapV2(center + float2(radius, 0.0), safeProxyLuma);
+        local += 0.15 * ModelLightingTapV2(center - float2(radius, 0.0), safeProxyLuma);
+        local += 0.15 * ModelLightingTapV2(center + float2(0.0, radius), safeProxyLuma);
+        local += 0.15 * ModelLightingTapV2(center - float2(0.0, radius), safeProxyLuma);
+        float localMean = clamp(log2(max(local.x / local.y, 1.0 / 256.0)),
+                                -8.0, 8.0);
+        float protectedLog = clamp(logRatio - localMean,
+                                   min(logRatio, 0.0), max(logRatio, 0.0));
+        logRatio = lerp(logRatio, protectedLog, lightingAmount);
+        neuralLuma = proxyLuma * exp2(logRatio);
+    }
     // The proxy may be compressed by the highlight shoulder and proportional
     // peak normalization, so an absolute proxy delta is not in source-HDR
     // units. Transfer the neural residual as a *relative* change around the
@@ -2833,6 +2978,7 @@ void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result) {
         if(ModelNeighborhoodFiniteV2(center) && all(p==p) && all(n==n)) {
             float pl=max(dot(p,kLuma),1.0/4096.0), nl=max(dot(n,kLuma),1.0/4096.0);
             float raw=clamp(log2(nl/pl),-8.0,8.0);
+            if ((Passthrough & 8192u) != 0u) raw=SampleEditFieldV5(center).x;
             decision=DetailDecisionV2(center,raw,pl);
             if(TransferStrength<=0.000001)decision=float4(1.0,64.0,raw,raw);
             else if(FrameConfidence<=0.000001)decision=float4(1.0,128.0,raw,raw);
@@ -2849,6 +2995,47 @@ void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result) {
     }
 }
 
+// V3_BOOST_SCALAR_BEGIN
+// Preserve the one-times anchor. Only the extra edit approaches the remaining
+// budget asymptotically; no extra magnitude is invented or sign reversed.
+float SoftExtraMagnitudeV3(float base, float extraStrength, float limit) {
+    base = min(max(base, 0.0), max(limit, 0.0));
+    float room = max(limit - base, 0.0);
+    float extra = base * max(extraStrength, 0.0);
+    if (room <= 0.0 || extra <= 0.0) return base;
+    return base + room * (extra / (room + extra));
+}
+// V3_BOOST_SCALAR_END
+
+// LAYERED_SCALAR_BEGIN
+// The broad/fine split is a bounded heuristic, not a semantic material mask.
+// Same-sign partitioning avoids invented opposite-sign halos. Gains weight
+// two parts of ONE edit; they do not add repeated NR passes or evade the cap.
+float LayeredLumaStrengthV3(float edit, float mean, float master,
+                          float tone, float structure, float bright, float shadow) {
+    master = clamp(master, 0.0, 4.0);
+    if (master <= 0.0) return 0.0;
+    if (tone == 1.0 && structure == 1.0 && bright == 1.0 && shadow == 1.0)
+        return master;
+    float magnitude = abs(edit);
+    float broad = clamp(mean, min(edit, 0.0), max(edit, 0.0));
+    float fraction = magnitude > 0.0 ? saturate(abs(broad) / magnitude) : 0.0;
+    float gain = tone == structure ? tone : tone * fraction + structure * (1.0 - fraction);
+    float directional = edit > 0.0 ? bright : (edit < 0.0 ? shadow : 1.0);
+    return clamp(master * gain * directional, 0.0, 4.0);
+}
+// LAYERED_SCALAR_END
+
+// INDEPENDENT_CHROMA_SCALAR_BEGIN
+// One scalar budget for the entire log-chroma vector. Attenuation cannot
+// rotate an edit by clipping its channels separately or invent a zero edit.
+// Final luminance still comes exclusively from the existing luminance path.
+float IndependentChromaScaleV4(float peak, float strength, float confidence, float limit) {
+    if (peak <= 0.0 || limit <= 0.0) return 0.0;
+    return min(clamp(strength, 0.0, 2.0) * saturate(confidence), limit / peak);
+}
+// INDEPENDENT_CHROMA_SCALAR_END
+
 [numthreads(8, 8, 1)]
 void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height ||
@@ -2861,18 +3048,23 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float3 proxy = SampleProxyLinearV2(center);
     float3 neural = SampleNeuralLinearV2(center);
     float3 fullProxy = EncodeProxyLinearV2(source);
+    const bool independentChroma = (Passthrough & 4096u) != 0u;
 
     bool finiteInputs = ModelNeighborhoodFiniteV2(center) &&
         all(storedOriginal.rgb == storedOriginal.rgb) &&
         all(source == source) && all(proxy == proxy) && all(neural == neural) &&
         all(abs(source) <= 65504.0.xxx) && all(abs(proxy) <= 65504.0.xxx) &&
         all(abs(neural) <= 65504.0.xxx);
+    // The candidate's logarithmic chromaticity has no signed-colour contract.
+    // Retain the exact source for such samples; do not silently rectify them.
+    const bool unsupportedSignedSource = independentChroma && any(storedOriginal.rgb < 0.0.xxx);
+    if (independentChroma && any(abs(storedOriginal.rgb) > 65504.0.xxx)) finiteInputs = false;
     float3 diagnosticOriginal = SourceToDiagnosticLinear(storedOriginal.rgb);
     float3 diagnosticProxy = proxy;
     float3 diagnosticNeural = neural;
     float diagnosticDelta = max(abs(neural.r - proxy.r),
         max(abs(neural.g - proxy.g), abs(neural.b - proxy.b)));
-    if (!finiteInputs || TransferStrength <= 0.000001 ||
+    if (!finiteInputs || unsupportedSignedSource || TransferStrength <= 0.000001 ||
         FrameConfidence <= 0.000001 || diagnosticDelta <= 0.000001) {
         WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
@@ -2886,24 +3078,39 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float neuralLuma = max(dot(neural, kLuma), 1.0 / 4096.0);
     float fullProxyLuma = max(dot(fullProxy, kLuma), 1.0 / 4096.0);
     float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
+    float rawModelLumaLog = log2(neuralLuma / proxyLuma);
+    if ((Passthrough & 8192u) != 0u) {
+        float2 edit = SampleEditFieldV5(center);
+        if (edit.y != 1.0) {
+            WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
+            RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+                diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0, true);
+            return;
+        }
+        logRatio = edit.x;
+    }
     logRatio = StabilizeDetailLogV2(center, logRatio, proxyLuma);
+    const bool layeredActive = (Passthrough & 2048u) != 0u;
+    float layerMean = 0.0;
 
-    // Remove only the low-frequency component of model luminance drift. The
-    // centre plus four cross taps avoids the old 3x3 edge-heavy correction and
-    // keeps this branch completely free when LightingLock is zero.
-    if (LightingLock > 0.000001) {
+    // Remove only the low-frequency component of model luminance drift.
+    // Weight the same four sparse cross taps by proxy-luma continuity so a
+    // different surface cannot leave a rim of uncorrected model darkening.
+    // Keep this branch completely free when LightingLock is zero.
+    if (LightingLock > 0.000001 || (layeredActive && LayerTone != LayerStructure)) {
         const float radius = 8.0;
-        // The centre ratio is already available. Average four sparse
-        // neighbours in linear-ratio space, then take one logarithm. This
-        // preserves the broad-drift estimate while avoiding five extra
-        // log2 operations and a redundant centre texture pair per pixel.
-        float localRatio = 0.40 * (neuralLuma / proxyLuma);
-        localRatio += 0.15 * ModelLumaRatioV2(center + float2(radius, 0.0));
-        localRatio += 0.15 * ModelLumaRatioV2(center - float2(radius, 0.0));
-        localRatio += 0.15 * ModelLumaRatioV2(center + float2(0.0, radius));
-        localRatio += 0.15 * ModelLumaRatioV2(center - float2(0.0, radius));
+        // The known finite centre anchors the denominator at >= 0.40. Flat
+        // regions retain the previous 0.40/0.15 weights and one-log estimator;
+        // rejecting every neighbour falls back to this pixel's own ratio.
+        float2 local = float2(0.40 * (neuralLuma / proxyLuma), 0.40);
+        local += 0.15 * ModelLightingTapV2(center + float2(radius, 0.0), proxyLuma);
+        local += 0.15 * ModelLightingTapV2(center - float2(radius, 0.0), proxyLuma);
+        local += 0.15 * ModelLightingTapV2(center + float2(0.0, radius), proxyLuma);
+        local += 0.15 * ModelLightingTapV2(center - float2(0.0, radius), proxyLuma);
+        float localRatio = local.x / local.y;
         float localMean = clamp(log2(max(localRatio, 1.0 / 256.0)),
                                 -8.0, 8.0);
+        layerMean = localMean;
         // Protection may only attenuate this pixel's existing edit. A sparse
         // neighbour mean can exceed (or oppose) its residual at a face/geometry
         // boundary. Unbounded subtraction then invents a dark/bright outline,
@@ -2930,10 +3137,34 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         edgeConfidence = lerp(1.0, 1.0 - edge, saturate(EdgeGuard));
     }
     float confidence = saturate(FrameConfidence) * nearBlack * edgeConfidence;
+    float lumaStrength = TransferStrength;
+    if (layeredActive)
+        lumaStrength = LayeredLumaStrengthV3(logRatio, layerMean, TransferStrength,
+            LayerTone, LayerStructure, LayerBright, LayerShadow);
     float maxRatio = max(MaxLumaRatio, 1.0);
     float logLimit = log2(maxRatio);
     float poweredLog = clamp(logRatio * TransferStrength * confidence,
                              -logLimit, logLimit);
+    if (layeredActive)
+        poweredLog = clamp(logRatio * lumaStrength * confidence, -logLimit, logLimit);
+    // With layers off/neutral, preserve dev1 arithmetic inside the public 0..4 range.
+    // This is a spatial composite guard, not a model/history or exposure fix.
+    const bool boostProtectionEnabled = (Passthrough & 1024u) != 0u;
+    const bool protectBoost = boostProtectionEnabled &&
+        TransferStrength > 1.0;
+    if (boostProtectionEnabled && lumaStrength > 1.0) {
+        float baseLog = clamp(logRatio * confidence, -logLimit, logLimit);
+        float budget = logLimit;
+        if (baseLog > 0.0 && (Passthrough & (1u | 16u | 32u)) != 0u) {
+            // Only extra brightening is constrained. A pre-existing 1x clip is
+            // not silently tone-mapped, and HDR never receives an SDR ceiling.
+            float sourcePeak = max(source.r, max(source.g, source.b));
+            float sdrHeadroom = max(log2(rcp(max(sourcePeak, 0.000001))), 0.0);
+            budget = max(baseLog, min(logLimit, sdrHeadroom));
+        }
+        poweredLog = sign(baseLog) * SoftExtraMagnitudeV3(
+            abs(baseLog), lumaStrength - 1.0, budget);
+    }
     float modelProxyTargetLuma = fullProxyLuma * exp2(poweredLog);
 
     // Preserve HDR energy above the bounded model proxy instead of multiplying
@@ -2951,6 +3182,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         ? source * (targetLuma / sourceLuma) : source;
 
     float3 result = lumaOnly;
+    bool candidateChromaApplied = false;
     if (ColorStrength > 0.000001) {
         float3 logRgbRatio = log2(
             max(neural, (1.0 / 4096.0).xxx) /
@@ -2960,6 +3192,28 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         float3 poweredChromaLog = clamp(chromaLog *
             (TransferStrength * ColorStrength * confidence),
             -logLimit.xxx, logLimit.xxx);
+        if (independentChroma) {
+            // Extract colour before luminance-only detail/lighting protection.
+            // TransferStrength remains the master zero gate, but nonzero luma
+            // strength/layers do not amplify or rotate this independent edit.
+            float3 independentLog = logRgbRatio - rawModelLumaLog.xxx;
+            float peak = max(abs(independentLog.r),
+                max(abs(independentLog.g), abs(independentLog.b)));
+            poweredChromaLog = independentLog * IndependentChromaScaleV4(
+                peak, ColorStrength, confidence, logLimit);
+            candidateChromaApplied = any(abs(poweredChromaLog) > 0.0.xxx);
+        } else if (protectBoost) {
+            // Keep the existing 1x chroma anchor. Scale its entire log-vector
+            // together, so extra amplification cannot clip each axis at a
+            // different strength and thereby rotate the edit direction.
+            float3 baseChroma = clamp(chromaLog * (ColorStrength * confidence),
+                                      -logLimit.xxx, logLimit.xxx);
+            float peakLog = max(abs(baseChroma.r),
+                max(abs(baseChroma.g), abs(baseChroma.b)));
+            float scale = peakLog > 0.0 ? SoftExtraMagnitudeV3(
+                peakLog, TransferStrength - 1.0, logLimit) / peakLog : 1.0;
+            poweredChromaLog = baseChroma * scale;
+        }
         float3 chromaGain = exp2(poweredChromaLog);
         float3 coloured = max(source, 0.0.xxx) * chromaGain;
         float colouredLuma = dot(coloured, kLuma);
@@ -2968,6 +3222,12 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         else
             coloured = lumaOnly;
         result = coloured;
+    }
+    if (independentChroma && poweredLog == 0.0 && !candidateChromaApplied) {
+        WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
+        RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+            diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0, false);
+        return;
     }
     const bool boundedSdrStorage =
         (Passthrough & (1u | 16u | 32u)) != 0u;
@@ -3272,6 +3532,10 @@ struct NrStageCaptureInfo {
     unsigned int proxy_curve = 0;
     float frame_confidence = 1.0f;
     float detail_stability = 0.0f;
+    float layer_tone = 1.0f;
+    float layer_structure = 1.0f;
+    float layer_bright = 1.0f;
+    float layer_shadow = 1.0f;
     bool motion_requested = false;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;
@@ -3307,6 +3571,11 @@ struct NrSlot {
     ID3D12Resource *source = nullptr;
     ID3D12Resource *proxy = nullptr;
     ID3D12Resource *neural = nullptr;
+    ID3D12Resource *edit_field = nullptr;
+    D3D12_RESOURCE_STATES edit_field_state = D3D12_RESOURCE_STATE_COMMON;
+    unsigned long long edit_field_bytes = 0;
+    bool edit_field_allocation_failed = false;
+    bool edit_field_recorded = false; // Cleared per before-SR attempt, set after real build recording.
     ID3D12Resource *result = nullptr;
     ID3D12Resource *motion_source = nullptr;
     ID3D12Resource *motion_proxy = nullptr;
@@ -3609,6 +3878,10 @@ void MarkLifecycleUncertain(const char *reason) {
 }
 
 void DestroyStageCapture(NrSlot &slot);
+// Accessed under the same Core context/slot lock as creation and retirement.
+unsigned long long g_edit_field_allocated_bytes = 0;
+constexpr unsigned long long kEditFieldSlotBudget = 64ull * 1024ull * 1024ull;
+constexpr unsigned long long kEditFieldTotalBudget = 256ull * 1024ull * 1024ull;
 
 void DestroySlot(NrSlot &slot) {
     DestroyStageCapture(slot);
@@ -3620,6 +3893,8 @@ void DestroySlot(NrSlot &slot) {
     ReleaseCom(slot.heap);
     ReleaseCom(slot.result);
     ReleaseCom(slot.neural);
+    ReleaseCom(slot.edit_field);
+    g_edit_field_allocated_bytes -= slot.edit_field_bytes;
     ReleaseCom(slot.proxy);
     ReleaseCom(slot.motion_source);
     ReleaseCom(slot.motion_proxy);
@@ -5507,6 +5782,9 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
             slot.stats_clear_heap);
     ID3D12Device_CreateUnorderedAccessView(
         device, slot.delta_stats, nullptr, &stats_uav, stats_clear_cpu);
+    // Populate the expanded table through the shared writer, including typed
+    // null EditField descriptors when the optional experiment is unavailable.
+    WriteCodecDescriptorSet(device, slot, slot.heap);
     BindStageCaptureDescriptor(slot, nullptr, 0);
     if (slot.snapshots_native_output &&
         slot.result_format != DXGI_FORMAT_R16G16B16A16_FLOAT) {
@@ -5604,6 +5882,67 @@ void RebindExposureSource(ID3D12Device *device, ID3D12Resource *exposure,
     slot.exposure_source = exposure;
     WriteExposureSrv(device, exposure, slot.heap);
     WriteExposureSrv(device, exposure, slot.snapshot_heap);
+}
+
+bool EnsureEditField(ID3D12Device *device, NrSlot &slot,
+                     unsigned int width, unsigned int height) {
+    if (!device || !slot.heap || !width || !height || slot.snapshots_native_output)
+        return false;
+    if (slot.edit_field) {
+        const auto desc = ID3D12Resource_GetDesc(slot.edit_field);
+        return desc.Width == width && desc.Height == height;
+    }
+    // No descriptor mutation on a recorded/in-flight slot. Wait for the
+    // existing retirement contract; absence of this optional plane keeps A.
+    if (slot.edit_field_allocation_failed || !CanMutateSlotLocked(slot) ||
+        g_codec.edit_field_pipeline_failed) return false;
+    if (!g_codec.build_edit_field) {
+        ID3DBlob *code = CompileCodecShader("BuildEditFieldCS");
+        HRESULT hr = E_FAIL;
+        if (code) {
+            D3D12_COMPUTE_PIPELINE_STATE_DESC desc={}; desc.pRootSignature=g_codec.root;
+            desc.CS.pShaderBytecode=code->lpVtbl->GetBufferPointer(code);
+            desc.CS.BytecodeLength=code->lpVtbl->GetBufferSize(code);
+            hr=ID3D12Device_CreateComputePipelineState(device,&desc,IID_ID3D12PipelineState,
+                reinterpret_cast<void **>(&g_codec.build_edit_field));
+            ReleaseCom(code);
+        }
+        if (FAILED(hr)) {
+            g_codec.edit_field_pipeline_failed=true;
+            Log("LowGridEditField optional PSO unavailable; existing composition A retained.");
+            return false;
+        }
+    }
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support={}; support.Format=DXGI_FORMAT_R32G32_FLOAT;
+    if (FAILED(ID3D12Device_CheckFeatureSupport(device,D3D12_FEATURE_FORMAT_SUPPORT,
+            &support,sizeof(support))) ||
+        (support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD)==0 ||
+        (support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE)==0) {
+        slot.edit_field_allocation_failed=true;
+        Log("LowGridEditField R32G32_FLOAT load/store unavailable; composition A retained.");
+        return false;
+    }
+    D3D12_RESOURCE_DESC desc={}; desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width=width; desc.Height=height; desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
+    desc.Format=DXGI_FORMAT_R32G32_FLOAT; desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    const auto allocation=ID3D12Device_GetResourceAllocationInfo(device,0,1,&desc);
+    if (!allocation.SizeInBytes || allocation.SizeInBytes > kEditFieldSlotBudget ||
+        allocation.SizeInBytes > kEditFieldTotalBudget - g_edit_field_allocated_bytes) {
+        slot.edit_field_allocation_failed=true;
+        Log("LowGridEditField allocation exceeds 64MiB/slot or 256MiB/Core budget; composition A retained.");
+        return false;
+    }
+    if (!CreateTexture(device,width,height,L"NRChain.LogLumaEditField",&slot.edit_field,
+                       DXGI_FORMAT_R32G32_FLOAT)) {
+        slot.edit_field_allocation_failed=true;
+        return false;
+    }
+    slot.edit_field_bytes=allocation.SizeInBytes;
+    g_edit_field_allocated_bytes+=slot.edit_field_bytes;
+    WriteEditFieldDescriptors(device,slot);
+    Log("LowGridEditField allocated N=%ux%u bytes=%llu total=%llu; same-slot retirement, no additional NR call.",
+        width,height,slot.edit_field_bytes,g_edit_field_allocated_bytes);
+    return true;
 }
 
 bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
@@ -5912,6 +6251,10 @@ struct CodecConstants {
     unsigned int capture_roi_y;
     unsigned int capture_roi_width;
     unsigned int capture_roi_height;
+    float layer_tone = 1.0f;
+    float layer_structure = 1.0f;
+    float layer_bright = 1.0f;
+    float layer_shadow = 1.0f;
 };
 static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * sizeof(UINT));
 
@@ -5928,6 +6271,12 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    unsigned int model_width = 0,
                    unsigned int model_height = 0,
                    float frame_confidence = 1.0f) {
+    // Preserve both legacy entry points when disabled. Post-SR/RR opt-in uses
+    // the same candidate with its own source rectangle, colour policy/exposure
+    // and work grid; it does not change the model input or guide semantics.
+    const bool independent_chroma = g_config.independent_chroma_composition &&
+        (pipeline == g_codec.combine || pipeline == g_codec.combine_v2);
+    if (independent_chroma) pipeline = g_codec.combine_v2;
     const bool v2_combine = pipeline == g_codec.combine_v2;
     const bool any_combine = pipeline == g_codec.combine || v2_combine;
     const bool capture_delta = any_combine &&
@@ -5948,13 +6297,16 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT,
         IsUnityExposureContract(color_contract), g_config.color_strength,
         g_config.preserve_lighting);
-    if (v2_combine) {
-        color_policy.requested_preserve_lighting = g_config.lighting_lock > 0.000001f;
-        color_policy.effective_preserve_lighting = color_policy.requested_preserve_lighting;
-    }
+    if (any_combine)
+        ApplyLightingLockPolicy(color_policy, g_config.mode, g_config.lighting_lock);
     ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,
         g_config.color_strength);
     const unsigned int base_codec_flags = source_flags |
+        ((v2_combine && g_config.mode == 2 && g_config.low_grid_edit_field &&
+          g_config.color_strength <= 0.000001f && slot.edit_field_recorded) ? 8192u : 0u) |
+        (independent_chroma ? 4096u : 0u) |
+        ((v2_combine && g_config.high_strength_protection) ? 1024u : 0u) |
+        ((v2_combine && g_config.layered_enhancement) ? 2048u : 0u) |
         (color_policy.effective_preserve_lighting ? 2u : 0u) |
         (capture_delta ? 8u : 0u) |
         ((hdr_input && color_contract.exposure_texture != nullptr) ? 64u : 0u) |
@@ -5979,8 +6331,12 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         f8_info.proxy_scale=g_config.proxy_scale;f8_info.transfer_strength=ActiveTransferStrength(g_config);
         f8_info.max_luma_ratio=g_config.max_luma_ratio;f8_info.work_mode=g_config.work_mode;
         f8_info.work_linear_scale=static_cast<float>(f8_info.model_width)/std::max(width,1u);
-        f8_info.lighting_lock=v2_combine?g_config.lighting_lock:(g_config.preserve_lighting?1.f:0.f);
+        f8_info.lighting_lock=any_combine?g_config.lighting_lock:0.f;
         f8_info.detail_stability=v2_combine?g_config.detail_stability:0.f;f8_info.motion_requested=g_config.motion_stability;
+        f8_info.layer_tone=v2_combine?g_config.layer_tone:1.f;
+        f8_info.layer_structure=v2_combine?g_config.layer_structure:1.f;
+        f8_info.layer_bright=v2_combine?g_config.layer_bright:1.f;
+        f8_info.layer_shadow=v2_combine?g_config.layer_shadow:1.f;
         f8_info.edge_guard=v2_combine?g_config.edge_guard:0.f;f8_info.proxy_curve=g_config.proxy_curve;
         f8_info.frame_confidence=std::clamp(frame_confidence,0.f,1.f);
         nr_f8::FrameTicket ticket={};
@@ -6075,6 +6431,10 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.lighting_lock = v2_combine ? g_config.lighting_lock :
             (g_config.preserve_lighting ? 1.0f : 0.0f);
         info.edge_guard = v2_combine ? g_config.edge_guard : 0.0f;
+        info.layer_tone = v2_combine ? g_config.layer_tone : 1.0f;
+        info.layer_structure = v2_combine ? g_config.layer_structure : 1.0f;
+        info.layer_bright = v2_combine ? g_config.layer_bright : 1.0f;
+        info.layer_shadow = v2_combine ? g_config.layer_shadow : 1.0f;
         info.proxy_curve = g_config.proxy_curve;
         info.frame_confidence = std::clamp(frame_confidence, 0.0f, 1.0f);
         info.pre_exposure = color_contract.pre_exposure;
@@ -6100,12 +6460,16 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         f8_armed ? f8_info.stride : capture_stages ? slot.stage_capture.info.stride : 0u,
         resolved_source_width, resolved_source_height,
         resolved_model_width, resolved_model_height,
-        v2_combine ? g_config.lighting_lock : 0.0f,
+        any_combine ? g_config.lighting_lock : 0.0f,
         v2_combine ? g_config.edge_guard : 0.0f,
         g_config.proxy_curve, std::clamp(frame_confidence, 0.0f, 1.0f),
         v2_combine ? g_config.detail_stability : 0.0f,
         f8_armed?f8_info.region_x:0u,f8_armed?f8_info.region_y:0u,
-        f8_armed?f8_info.region_width:0u,f8_armed?f8_info.region_height:0u};
+        f8_armed?f8_info.region_width:0u,f8_armed?f8_info.region_height:0u,
+        v2_combine ? g_config.layer_tone : 1.0f,
+        v2_combine ? g_config.layer_structure : 1.0f,
+        v2_combine ? g_config.layer_bright : 1.0f,
+        v2_combine ? g_config.layer_shadow : 1.0f};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
@@ -7370,6 +7734,12 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
     slot->active_render_width = render_width;
     slot->active_render_height = render_height;
+    slot->edit_field_recorded = false;
+    const bool edit_field_ready = g_config.low_grid_edit_field && g_config.mode == 2 &&
+        g_config.color_strength <= 0.000001f && g_config.transfer_strength > 0.000001f &&
+        !g_config.identity_use_original &&
+        context->successful_evaluations_since_reset >= g_config.warmup_after_create &&
+        EnsureEditField(device,*slot,width,height);
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
     if (context->retired) {
         ReleaseCom(device);
@@ -7517,6 +7887,17 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    if (edit_field_ready) {
+        Transition(command_list, slot->edit_field, slot->edit_field_state,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        DispatchCodec(command_list,*slot,g_codec.build_edit_field,width,height,color_contract,
+            (feature.create_flags & 1) != 0,0,0,0,0,slot->codec_color_mode,
+            render_width,render_height,width,height);
+        UavBarrier(command_list,slot->edit_field);
+        Transition(command_list,slot->edit_field,slot->edit_field_state,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        slot->edit_field_recorded = true;
+    }
     DispatchCodec(command_list, *slot, g_codec.combine_v2,
                   render_width, render_height, color_contract,
                   (feature.create_flags & 1) != 0, color_x, color_y, 0, 0,
@@ -8751,7 +9132,7 @@ NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
 
 bool ShouldGuardFeature1ForRayReconstruction() {
     return g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
-           g_live_rr_handles.load(std::memory_order_acquire) != 0;
+           g_rr_ownership_gate_owner.load(std::memory_order_acquire) == 2;
 }
 
 NgxResult ProcessEvaluate(EvaluateFeatureFn original,
@@ -8807,9 +9188,10 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
 
-    // A live Feature 13 handle is authoritative ownership. A count/time based
-    // "dormant" guess races engines that call Feature 1 before Feature 13 and
-    // can produce a double-NR frame, so only an explicit Release resumes work.
+    // This is a classified outermost Feature 1 call. Cached RR handles remain
+    // registered for lifetime tracking, but do not block the game's selected
+    // SR route. Nested vendor forwarding is already handled by DispatchEvaluate;
+    // actual RR work/transitions still exclude modifications via the gate.
     const unsigned int live_rr_handles =
         g_live_rr_handles.load(std::memory_order_acquire);
     if (ShouldGuardFeature1ForRayReconstruction()) {
@@ -8819,8 +9201,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         const unsigned long long guarded = ++g_rr_guarded_sr_evaluations;
         if (guarded <= 3 || (guarded % 600) == 0) {
             Log("SuperSampling evaluate #%llu passed through unmodified "
-                "because %u live Ray Reconstruction handle(s) own the "
-                "viewport conservatively.", guarded, live_rr_handles);
+                "during an active Ray Reconstruction transaction/create "
+                "(cached RR handles=%u).", guarded, live_rr_handles);
         }
         return original(command_list, handle, params, callback);
     }
@@ -8918,8 +9300,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
     if (g_rr_guard_was_active.exchange(false, std::memory_order_relaxed)) {
-        // Explicit RR ownership ended. Any Feature 18 history from before RR is
-        // stale, so reset on the first resumed ordinary-SR frame.
+        // The game selected an ordinary SR evaluation again. Reset its prior
+        // NR history once, even when an inactive RR handle remains cached.
         g_config_generation.fetch_add(1, std::memory_order_relaxed);
         g_history_generation.fetch_add(1, std::memory_order_relaxed);
         Log("Ray Reconstruction activity ended; ordinary SR processing resumed "
@@ -10395,6 +10777,50 @@ bool FormatScreenshotPostfix(char *postfix, std::size_t capacity,
 // writer. The add-on only supplies a compact, filesystem-safe diagnostic
 // postfix. F7 separately queues the existing asynchronous stage request;
 // neither hotkey enters a Feature 18 command-list/lifetime transaction.
+// A report is already saved before this runs. Transfer only its Unicode path;
+// Windows owns the movable allocation after a successful SetClipboardData.
+bool CopyReportPathToClipboard(HWND owner, const wchar_t *path) {
+    if (path == nullptr || path[0] == 0) return false;
+    const std::size_t length = std::wcslen(path);
+    if (length >= 1024) return false;
+    const std::size_t bytes = (length + 1) * sizeof(wchar_t);
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (memory == nullptr) return false;
+    void *data = GlobalLock(memory);
+    if (data == nullptr) { GlobalFree(memory); return false; }
+    std::memcpy(data, path, bytes);
+    GlobalUnlock(memory);
+    if (!OpenClipboard(owner)) { GlobalFree(memory); return false; }
+    const bool copied = EmptyClipboard() &&
+        SetClipboardData(CF_UNICODETEXT, memory) != nullptr;
+    CloseClipboard();
+    if (!copied) GlobalFree(memory);
+    return copied;
+}
+
+// Called under screenshot_hotkey_lock. Clipboard contention is retried across
+// Presents, without sleeping or blocking a render callback waiting for access.
+void PollReportPathClipboard(HWND owner, ULONGLONG now_ms) {
+    static wchar_t pending_path[1024] = {};
+    static ULONGLONG deadline_ms = 0, next_attempt_ms = 0;
+    wchar_t ready_path[1024] = {};
+    if (nr_core_feedback::TakeReportPathForClipboard(ready_path)) {
+        std::memcpy(pending_path, ready_path, sizeof(pending_path));
+        deadline_ms = now_ms + 1500;
+        next_attempt_ms = now_ms;
+    }
+    if (nr_core_feedback::GetReportClipboardStatus() !=
+        nr_core_feedback::ReportClipboardStatus::Pending) pending_path[0] = 0;
+    if (!pending_path[0] || now_ms < next_attempt_ms) return;
+    const bool copied = CopyReportPathToClipboard(owner, pending_path);
+    if (copied || now_ms >= deadline_ms) {
+        nr_core_feedback::SetReportClipboardResult(pending_path, copied);
+        pending_path[0] = 0;
+    } else {
+        next_attempt_ms = now_ms + 100;
+    }
+}
+
 void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     if (runtime == nullptr) return;
 
@@ -10448,6 +10874,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     // queue the bounded core worker. The image coordinator waits for its pair.
     nr_core_feedback::Present(runtime);
     nr_f8::Present(runtime);
+    PollReportPathClipboard(static_cast<HWND>(runtime->get_hwnd()), now_ms);
 
     if (screenshot_pressed && now_ms - last_screenshot_ms >= 350) {
         last_screenshot_ms = now_ms;
@@ -11288,31 +11715,8 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
             sample_identity.instance_id, sample_identity.frame_id,
             sample_identity.config_generation);
     }
-    nr_f8::DrawControls();
-    const unsigned int capture_status = StageCaptureStatus();
-    if (capture_status == 0) {
-        if (ImGui::Button(ui("Capture NR stages once", "采集一次 NR 各阶段")))
-            RequestStageCapture();
-        const int capture_result = g_stage_capture_last_result.load(std::memory_order_relaxed);
-        if (capture_result != 0)
-            ImGui::TextDisabled("%s", capture_result > 0
-                ? ui("Stages saved beside the log. See metadata before comparing.",
-                     "阶段图已保存在日志旁，请结合元数据对照。")
-                : ui("Capture could not be saved. Check the log; rendering continues.",
-                     "采集未能保存，请查看日志；渲染继续。"));
-    } else {
-        ImGui::TextDisabled("%s", capture_status == 3
-            ? ui("Saving stage capture...", "正在保存阶段图……")
-            : ui("Waiting for a stable NR frame and GPU completion...",
-                 "等待稳定的 NR 帧及 GPU 完成……"));
-    }
-    ImGui::TextWrapped("%s", ui(
-        "Optional diagnosis: samples original, proxy, NR and composition once. "
-        "F7 requests stages; '-' saves the displayed image separately. "
-        "NR -> SR stages stop before native SR. These captures are not the same frame.",
-        "可选诊断：单次采集原图、代理图、NR 输出和合成结果。"
-        "F7 请求阶段图；“-”独立截取显示画面。NR→SR 的阶段图止于原生 SR 之前，"
-        "两者不是同一帧。"));
+    // Feedback generation and image comparison live in the Feedback tab.
+    // Diagnostics only presents observations, avoiding duplicate actions.
 }
 
 #include "nr_settings_ui.inl"
@@ -11321,13 +11725,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.4.5-fix2 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dev6 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.4.5-fix2 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev6 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "
@@ -11405,7 +11809,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnReShadePresent);
         reshade::register_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
         reshade::register_overlay(kSettingsOverlayName, DrawSettings);
-        reshade::register_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
         Log("Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot "
             "hotkey (API %u).",
             static_cast<unsigned int>(RESHADE_API_VERSION));
@@ -11417,7 +11820,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             reshade::unregister_event<reshade::addon_event::init_device>(
                 OnCommandStateInitDevice);
             reshade::unregister_overlay(kSettingsOverlayName, DrawSettings);
-            reshade::unregister_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
             reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
@@ -11440,7 +11842,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::unregister_event<reshade::addon_event::init_device>(
             OnCommandStateInitDevice);
         reshade::unregister_overlay(kSettingsOverlayName, DrawSettings);
-        reshade::unregister_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
         reshade::unregister_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
         reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);

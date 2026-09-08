@@ -2,6 +2,7 @@
 import argparse
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 
@@ -46,6 +47,7 @@ CODEC_ENUM
 struct Config {
     bool enabled=true, identity_use_original=false, preserve_lighting=false;
     bool experimental_peak_shoulder=false, allow_unverified_hdr_color=false;
+    bool high_strength_protection=true, layered_enhancement=false;
     float lighting_lock=0;
     int mode=2;
     float transfer_strength=1, color_strength=1;
@@ -106,6 +108,11 @@ namespace ImGui {
     }
 }
 void SettingsTooltip(const char*) {}
+void SettingsField(const char*) {} // Layout label; production policy/UI logic is extracted below.
+bool SettingsSliderFloat(const char*,const char* id,float* value,float minimum,
+                         float maximum,const char* format) {
+    return ImGui::SliderFloat(id,value,minimum,maximum,format);
+}
 void Controls(Config& next,bool has_pending,bool& changed) {
     UI_BLOCK
 }
@@ -139,13 +146,16 @@ int main() {
         check((p.color_reason==NrColorReason::UnverifiedHdr)==legacy_block,"restriction reason matches zero gate");
         if((++cases%127)==0) {
             g_config.mode=mode; g_config.color_strength=requested; g_config.preserve_lighting=lighting;
+            g_config.lighting_lock=lighting ? .75f : 0.f;
+            auto dispatched=p;
+            ApplyLightingLockPolicy(dispatched,mode,g_config.lighting_lock);
             Slot slot{}; slot.result_format=fp16?DXGI_FORMAT_R16G16B16A16_FLOAT:DXGI_FORMAT_R11G11B10_FLOAT;
             auto flags=DispatchPolicy(slot,g_codec.combine,c,hdr,cm,true);
-            check(((flags&2)!=0)==p.effective_preserve_lighting,"real dispatch lighting flag");
-            check(slot.diagnostic_color_strength==p.effective_color_strength &&
-                  slot.diagnostic_preserve_lighting==p.effective_preserve_lighting,
+            check(((flags&2)!=0)==dispatched.effective_preserve_lighting,"real dispatch lighting flag");
+            check(slot.diagnostic_color_strength==dispatched.effective_color_strength &&
+                  slot.diagnostic_preserve_lighting==dispatched.effective_preserve_lighting,
                   "real dispatch freezes effective diagnostic values");
-            check(slot.diagnostic_color_policy.requested_preserve_lighting==lighting &&
+            check(slot.diagnostic_color_policy.requested_preserve_lighting==dispatched.requested_preserve_lighting &&
                   g_recorded_color_policy.policy.color_reason==p.color_reason,
                   "same policy feeds diagnostics and UI snapshot");
         }
@@ -153,6 +163,35 @@ int main() {
     auto unknown=ResolveNrColorPolicy(0,true,CodecColorMode::Automatic,true,true,1,true);
     check(!unknown.color_allowed && unknown.color_reason==NrColorReason::Unknown,
           "absent mode is not a supported live contract");
+    auto post_lighting=ResolveNrColorPolicy(1,true,CodecColorMode::Automatic,false,false,1,true);
+    const auto blocked_color_reason=post_lighting.color_reason;
+    const auto blocked_color_strength=post_lighting.effective_color_strength;
+    const auto blocked_color_allowed=post_lighting.color_allowed;
+    ApplyLightingLockPolicy(post_lighting,1,.75f);
+    check(post_lighting.requested_preserve_lighting &&
+          post_lighting.effective_preserve_lighting &&
+          post_lighting.lighting_reason==NrLightingReason::AfterSr &&
+          std::strcmp(NrLightingReasonName(post_lighting.lighting_reason),
+                      "post-sr-local-match")==0,
+          "post-SR lighting lock is an effective local match");
+    check(post_lighting.color_reason==blocked_color_reason &&
+          post_lighting.effective_color_strength==blocked_color_strength &&
+          post_lighting.color_allowed==blocked_color_allowed &&
+          !post_lighting.color_allowed,
+          "post-SR lighting lock cannot relax unverified HDR colour permission");
+    ApplyLightingLockPolicy(post_lighting,1,0.0001f);
+    check(post_lighting.effective_preserve_lighting,
+          "lighting status uses the shader's epsilon even below displayed slider precision");
+    ApplyLightingLockPolicy(post_lighting,1,NAN);
+    check(!post_lighting.requested_preserve_lighting &&
+          !post_lighting.effective_preserve_lighting &&
+          post_lighting.lighting_reason==NrLightingReason::RequestedOff,
+          "non-finite lighting lock is off");
+    ApplyLightingLockPolicy(post_lighting,0,1.f);
+    check(!post_lighting.requested_preserve_lighting &&
+          !post_lighting.effective_preserve_lighting &&
+          post_lighting.lighting_reason==NrLightingReason::Unknown,
+          "unsupported route cannot enable lighting lock");
     g_config={}; g_config.mode=1; g_config.preserve_lighting=true;
     ColorContract c{}; Slot slot{}; slot.result_format=DXGI_FORMAT_R11G11B10_FLOAT;
     DispatchPolicy(slot,g_codec.combine,c,true,CodecColorMode::Automatic,true);
@@ -195,12 +234,12 @@ int main() {
     check(!changed && next.color_strength==1 && next.preserve_lighting,
           "reading a suppressed historical colour does not edit settings");
     check(ImGui::text.find("requested 1.00 / shader coefficient 0.00")!=std::string::npos &&
-          ImGui::text.find("requested on / effective off")!=std::string::npos,
+          ImGui::text.find("requested off / effective off")!=std::string::npos,
           "real controls distinguish requested colour from the shader coefficient");
     ImGui::try_edits=true; Controls(next,false,changed);
-    check(!ImGui::colour_disabled && ImGui::lighting_disabled && changed &&
-          next.color_strength==.25f && next.allow_unverified_hdr_color && next.preserve_lighting,
-          "approved explicit HDR opt-in edits colour but not forbidden lighting match");
+    check(!ImGui::colour_disabled && !ImGui::lighting_disabled && changed &&
+          next.color_strength==.25f && next.allow_unverified_hdr_color && !next.preserve_lighting,
+          "post-SR lighting is no longer presented as a forbidden route");
     g_last_bypass_reason=static_cast<int>(BypassReason::Guard);
     next=g_config; next.mode=2; changed=true; ImGui::try_edits=false;
     ImGui::text.clear(); Controls(next,true,changed);
@@ -228,7 +267,8 @@ int main() {
     ImGui::text.clear(); Controls(next,false,changed);
     check(!ImGui::colour_disabled && !ImGui::lighting_disabled,
           "unknown contract does not pretend a known restriction");
-    g_config.mode=2; DispatchPolicy(slot,g_codec.combine,c,true,CodecColorMode::Automatic,true);
+    g_config.mode=2; g_config.lighting_lock=.75f;
+    DispatchPolicy(slot,g_codec.combine,c,true,CodecColorMode::Automatic,true);
     check(SnapshotColorPolicy().policy.effective_preserve_lighting,
           "switch back to NR-before-SR restores saved lighting request");
     slot.result_format=DXGI_FORMAT_R16G16B16A16_FLOAT; g_config.mode=1;
@@ -256,6 +296,9 @@ with tempfile.TemporaryDirectory(prefix="nr-color-policy-") as directory:
     cpp = Path(directory) / "policy.cpp"
     exe = Path(directory) / "policy.exe"
     cpp.write_text(harness, encoding="utf-8")
-    subprocess.run([args.compiler, "-std=c++17", "-O2", "-static", "-Wall", "-Wextra",
+    # Darwin does not supply a statically linked system runtime. Keep the
+    # existing static gate on Linux/Windows; this is only the host harness.
+    link_flags = [] if sys.platform == "darwin" else ["-static"]
+    subprocess.run([args.compiler, "-std=c++17", "-O2", *link_flags, "-Wall", "-Wextra",
                     "-I", str(root / "src"), str(cpp), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)

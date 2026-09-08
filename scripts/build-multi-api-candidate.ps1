@@ -54,9 +54,16 @@ try {
     & python -m unittest discover -s tests/native_bridge -p 'test_*.py' -v
     if ($LASTEXITCODE) { throw 'Native bridge transformations failed.' }
     $Checks.Add('native_bridge Python exact-source transformations')
+    & python -m unittest tests.test_ui_refresh tests.test_report_clipboard tests.test_f8_parser tests.test_rr_route_recovery -v
+    if ($LASTEXITCODE) { throw 'UI, clipboard or F7 parser regression failed.' }
+    $Checks.Add('settings UI, clipboard ownership/retry, 512 ROI parser, actual RR recovery admission/dispatch/Win32 gate')
     $Checks.Add('carrier completion: staged production state machine, WARP fence, real access-violation propagation')
     $TestBuild = Join-Path $Output 'tests'
     New-Item -ItemType Directory -Path $TestBuild | Out-Null
+    & (Join-Path $PSScriptRoot 'validate-runtime-load-windows.ps1') -ToolchainRoot $Toolchain `
+        -SourceRoot (Join-Path $Stage 'core') -FixtureRoot $Root `
+        -OutputRoot (Join-Path $TestBuild 'runtime-load-windows')
+    $Checks.Add('runtime load Windows fixture: file-absent vs dependency-missing under restricted LoadLibraryExW')
     $Include = @('-DNR_TEST_MULTIAPI=1', "-I$(Join-Path $Stage 'core')", "-I$Root", "-I$(Join-Path $Math 'Inc')")
     foreach ($Test in @('multi_api/format_access', 'multi_api/format_adapter', 'multi_api/post_policy', 'multi_api/rr_post_runtime', 'multi_api/post_settings', 'multi_api/motion_access', 'multi_api/exposure_access', 'native_bridge/history', 'native_bridge/forward', 'native_bridge/render_scale', 'native_bridge/mirror_rect', 'native_bridge/ngx_parameter_abi')) {
         $Exe = Join-Path $TestBuild ((Split-Path -Leaf $Test) + '.exe')
@@ -95,7 +102,7 @@ try {
         $Checks.Add($Test)
     }
     & (Join-Path $PSScriptRoot 'validate-post-scaled-work-gpu.ps1') -SourceRoot (Join-Path $Stage 'core') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $TestBuild 'post-scaled-work')
-    $Checks.Add('post scaled-work WARP: 48 actual EncodeCS/CombineCS scenarios; FP16 model planes; identity and nonzero test-only neural residual')
+    $Checks.Add('post scaled-work WARP: 48 actual EncodeCS/CombineCS scenarios plus production CombineV2CS LightingLock flat/strong-luma/equal-luma-colour contracts; FP16 model planes; test-only neural input')
     & python (Join-Path $PSScriptRoot 'validate-colour-defaults.py') --compiler $Cxx --root (Join-Path $Stage 'core')
     if ($LASTEXITCODE) { throw 'Actual staged colour defaults/model reset failed.' }
     $Checks.Add('actual staged colour defaults and model-only reset: 165 checks')
@@ -104,16 +111,31 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-rr-retirement.py') --compiler $Cxx --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --negative-control
     if ($LASTEXITCODE) { throw 'RR historical leak control failed.' }
     $Checks.Add('actual staged RR Release hooks: 54 scenarios and historical leak negative control')
-    foreach ($Script in @('validate-picture-budget.py', 'validate-command-creation.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py', 'validate-f8-controller.py', 'validate-recommended-picture.py')) {
+    foreach ($Script in @('validate-picture-budget.py', 'validate-color-policy.py', 'validate-command-creation.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py', 'validate-feedback-hotkeys.py', 'validate-f8-controller.py', 'validate-recommended-picture.py')) {
         & python (Join-Path $PSScriptRoot $Script) --compiler $Cxx
         if ($LASTEXITCODE) { throw "Production regression failed: $Script" }
         $Checks.Add($Script)
     }
+    & python (Join-Path $PSScriptRoot 'validate-f8-controller.py') --gpu --compiler $Cxx
+    if ($LASTEXITCODE) { throw '512 ROI production F7 GPU/stream validation failed.' }
+    $Checks.Add('F7 512 ROI production shader/ring/fence/stream/ZIP WARP: 3 ROI frames plus overview')
     & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain
     $Checks.Add('native command state, observed blend history, 64KiB worker and stack gate')
     & (Join-Path $PSScriptRoot 'validate-command-state-gpu.ps1') -ToolchainRoot $Toolchain
     & (Join-Path $PSScriptRoot 'validate-command-state-gpu.ps1') -ToolchainRoot $Toolchain -BlendStateNegativeControl
     $Checks.Add('command-state WARP including actual blend restore and wrong-blend negative control')
+    foreach ($ResearchGate in @('validate-beta05-boost.py', 'validate-layered-composite.py', 'validate-050-stability.py', 'validate-bug-sweep.py')) {
+        & python (Join-Path $PSScriptRoot $ResearchGate) --compiler $Cxx
+        if ($LASTEXITCODE) { throw "0.5 research regression failed: $ResearchGate" }
+        $Checks.Add("0.5 research: $ResearchGate")
+    }
+    & python (Join-Path $PSScriptRoot 'validate-050-stability.py') --compiler $Cxx --negative-control
+    if ($LASTEXITCODE) { throw '0.5 frozen picture negative control failed.' }
+    $Checks.Add('0.5 frozen picture serialization negative control')
+    & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core')
+    & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -NegativeControl
+    & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -LayerNegativeControl
+    $Checks.Add('0.5 actual generated HLSL WARP high-strength/layered/maintenance lighting, 35-root ABI and independent negative controls')
     & (Join-Path $PSScriptRoot 'validate-static-analysis.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade -SourceRoot (Join-Path $Stage 'core')
     $Checks.Add('actual staged bilingual core and nrchain LLVM static analysis: zero diagnostics')
     & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade

@@ -54,7 +54,9 @@ public static class NativeD3DCompiler {
 }
 
 $failed = @()
-foreach ($entryPoint in @('EncodeCS', 'CombineCS', 'EncodeV2CS', 'CombineV2CS', 'CopyCS', 'ResampleMotionCS')) {
+$entryPoints = @('EncodeCS', 'CombineCS', 'EncodeV2CS', 'CombineV2CS', 'CopyCS', 'ResampleMotionCS')
+if ($sourceText.Contains('void BuildEditFieldCS(')) { $entryPoints += 'BuildEditFieldCS' }
+foreach ($entryPoint in $entryPoints) {
     $code = [IntPtr]::Zero
     $errors = [IntPtr]::Zero
     $result = [NativeD3DCompiler]::D3DCompile(

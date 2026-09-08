@@ -116,8 +116,8 @@ def parse_chunk(stream, filename, file_bytes):
     expected_group = int(match[1])
     expected_chunk = 4 if match[2] == 'overview' else int(match[3])
     magic, version, group, chunk, count, target, planes = HEADER.unpack(read_exact(stream, HEADER.size))
-    require((magic, version, group, chunk, target, planes) ==
-            (b'F8CHK004', 4, expected_group, expected_chunk, 16, 5),
+    require((magic, version, group, chunk, planes) ==
+            (b'F8CHK004', 4, expected_group, expected_chunk, 5) and 1 <= target <= 16,
             f'header/name/schema mismatch: {filename}')
     require(0 <= chunk <= 4 and 0 < count <= (1 if chunk == 4 else 4), 'invalid chunk count')
     consumed = HEADER.size
@@ -143,6 +143,7 @@ def parse_chunk(stream, filename, file_bytes):
         if 'schema' in metadata:
             require(metadata['schema'] == 4, 'metadata schema contradicts chunk')
         record['metadata'] = metadata
+        record['roi_target'] = target
         missing_metadata = sorted(FRAME_METADATA - metadata.keys())
         for kind in ('requested', 'actual'):
             config = metadata.get(kind)
@@ -256,6 +257,9 @@ def inspect_bundle(path):
         require(len({r['index'] for r in records}) == len(records), 'duplicate group record')
         roi = [r for r in records if r['index'] < 16]
         valid = [r for r in roi if r['valid']]
+        targets = {r['roi_target'] for r in records}
+        require(len(targets) == 1, 'group chunks disagree on ROI target')
+        target = targets.pop()
         previous = None
         for record in valid:
             if previous:
@@ -267,18 +271,18 @@ def inspect_bundle(path):
                         record['frame'] == previous['frame'] + 1,
                         'non-contiguous sequence presented as one segment')
             previous = record
-        complete = len(valid) == 16 and [r['index'] for r in valid] == list(range(16))
+        complete = len(valid) == target and [r['index'] for r in valid] == list(range(target))
         metadata_complete = bool(valid) and all(not r['missing_metadata'] for r in valid)
         overview = next((r for r in records if r['index'] == 16 and r['valid']), None)
         if not complete:
-            result['warnings'].append(f'Group {group}: partial ROI sequence ({len(valid)}/16).')
-        if not overview:
+            result['warnings'].append(f'Group {group}: partial ROI sequence ({len(valid)}/{target}).')
+        if not overview and target in (3, 16):
             result['warnings'].append(f'Group {group}: overview missing.')
         if valid and not metadata_complete:
             result['warnings'].append(f'Group {group}: metadata incomplete; do not infer missing settings.')
         result['groups'].append({'group': group, 'complete_sequence': complete,
                                  'metadata_complete': metadata_complete,
-                                 'valid_roi_frames': len(valid), 'overview_present': bool(overview),
+                                 'roi_target': target, 'valid_roi_frames': len(valid), 'overview_present': bool(overview),
                                  'records': records})
     if not groups:
         result['warnings'].append('No NR sequence chunks; inspect collection state and missing reasons.')

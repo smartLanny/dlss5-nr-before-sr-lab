@@ -23,8 +23,8 @@ def record(index, valid=1, frame=None, instance=20, width=2, stride=1, flags=65)
                        stride, flags, len(metadata), len(pixels)) + metadata + pixels
 
 
-def chunk(number, records):
-    return struct.pack('<8s6I', b'F8CHK004', 4, 0, number, len(records), 16, 5) + b''.join(records)
+def chunk(number, records, target=16):
+    return struct.pack('<8s6I', b'F8CHK004', 4, 0, number, len(records), target, 5) + b''.join(records)
 
 
 class ParserTest(unittest.TestCase):
@@ -47,6 +47,21 @@ class ParserTest(unittest.TestCase):
         self.assertTrue(result['complete_sequence'])
         self.assertTrue(result['overview_present'])
         self.assertEqual(set(result['records'][0]['planes']), set(P.PLANES))
+
+    def test_bounded_three_frame_sequence_and_two_frame_matrix_group(self):
+        current = self.bundle([
+            ('groups/0/chunk-000.f8c', chunk(0, [record(i) for i in range(3)], 3)),
+            ('groups/0/overview.f8c', chunk(4, [record(16, frame=500, instance=999, stride=4)], 3))
+        ])['groups'][0]
+        self.assertTrue(current['complete_sequence'])
+        self.assertEqual(current['roi_target'], 3)
+        self.assertTrue(current['overview_present'])
+        matrix = self.bundle([
+            ('groups/0/chunk-000.f8c', chunk(0, [record(0), record(1)], 2))
+        ])['groups'][0]
+        self.assertTrue(matrix['complete_sequence'])
+        self.assertEqual(matrix['roi_target'], 2)
+        self.assertFalse(matrix['overview_present'])
 
     def test_partial_does_not_claim_sixteen(self):
         result = self.bundle([('groups/0/chunk-000.f8c', chunk(0, [record(0), record(1), record(2, 0), record(3, 0)]))])
