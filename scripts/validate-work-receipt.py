@@ -135,7 +135,9 @@ int main() {
     // Native pre observation uses actual same-call Output contract, independent
     // of the work resolver's Reference early return. No shader/model is run.
     FeatureRecord feature;
-    ID3D12Resource color{{500,300}},output{{900,500}};
+    ID3D12Resource color{},output{};
+    color.desc.Width=500;color.desc.Height=300;
+    output.desc.Width=900;output.desc.Height=500;
     NgxParams params{{{"DLSS.Render.Subrect.Dimensions.Width",427},
                       {"DLSS.Render.Subrect.Dimensions.Height",240},
                       {"DLSS.Output.Subrect.Base.X",11},
