@@ -43,6 +43,13 @@ CPU夹具提取生产helper，覆盖代理与原生、两代理同底层、不�
 引用计数平衡，并用旧指针判断作负控；这不是游戏运行证明。
 F8增加lastReject与proxyDeviceMatches，日志在拒绝原因变化时输出具体阶段。
 
+隔离补丁构建源为`7177b78c5b7e02ebc29f21897ec4a8afbc3c5c9d`。
+24项无GPU检查及固定ReShade源的双语完整Core/nrchain编译链接通过。
+source-manifest SHA256为`1681e056f53c08f3cabcec82b352c5a6c5b55cd2946c9cb82177d7951fa260b6`，
+validation.json SHA256为`658b48da4ec9850f4078e52fc2c659aae9568a10bdf95c8b1bf11794c8626ed0`。
+这只是私有编译检查，仍保留dev13版本串；没有生成新验收包或替换游戏。
+本补丁WARP/NVIDIA/游戏/性能均未验证，继承的菜单回归仍未解决。
+
 ## 后续
 
 先在私有受控ReShade窗口检验菜单绘制假设，得到有效复现后修正最小边界。
