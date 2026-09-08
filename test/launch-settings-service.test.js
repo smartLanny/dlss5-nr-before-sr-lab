@@ -93,6 +93,41 @@ test('RTX40 control v11 requires manual review for latent debug and restores onl
   await f.service.restore('g', 'fg'); assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), JSON.parse(original));
 });
 
+test('no-op driver apply revalidates settings and profile after preview without overwriting external changes', async t => {
+  for (const changedField of ['setting', 'profile']) {
+    const f = fixture(t), request = { backend: 'native', quality: 'quality', preset: 'M' };
+    await f.service.apply((await f.service.preview('g', 'sr', request)).id, { confirm: true });
+    const receiptBefore = fs.readFileSync(f.service.receiptFile('g'), 'utf8');
+    const plan = await f.service.preview('g', 'sr', request);
+    assert.equal(plan.noOp, true);
+    const external = f.driver.peek();
+    if (changedField === 'setting') external.settings[DRS.srPreset] = explicit(11);
+    else external.profile = { ...external.profile, name: 'replacement profile', owned: false };
+    f.driver.set(external);
+    await assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'SETTINGS_EXTERNAL_CHANGE' });
+    assert.deepEqual(f.driver.peek(), external);
+    assert.equal(fs.readFileSync(f.service.receiptFile('g'), 'utf8'), receiptBefore);
+    assert.deepEqual(await f.service.pending('g'), []);
+  }
+});
+
+test('no-op RTX40 file apply revalidates the control file after preview', async t => {
+  const f = fixture(t, { family: 'RTX40' }), file = path.join(f.exeDir, policy.FILES.rtx40);
+  fs.writeFileSync(file, JSON.stringify({ version: 11, followGame: true, mode: 'follow', multiplier: 2 }));
+  const request = { backend: 'rtx40', mode: 'fixed', multiplier: 3 };
+  await f.service.apply((await f.service.preview('g', 'fg', request)).id, { confirm: true });
+  const receiptBefore = fs.readFileSync(f.service.receiptFile('g'), 'utf8');
+  const plan = await f.service.preview('g', 'fg', request);
+  assert.equal(plan.noOp, true);
+  const external = JSON.parse(fs.readFileSync(file, 'utf8')); external.multiplier = 4;
+  fs.writeFileSync(file, JSON.stringify(external));
+  const externalText = fs.readFileSync(file, 'utf8');
+  await assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'FILE_CHANGED' });
+  assert.equal(fs.readFileSync(file, 'utf8'), externalText);
+  assert.equal(fs.readFileSync(f.service.receiptFile('g'), 'utf8'), receiptBefore);
+  assert.deepEqual(await f.service.pending('g'), []);
+});
+
 test('restore without an applied domain is a no-op and never probes a missing backend', async t => {
   const f = fixture(t, { family: 'unknown' });
   assert.deepEqual(await f.service.restore('g', 'fg'), { applied: false, skipped: true, noOp: true, runtimeVerified: false });

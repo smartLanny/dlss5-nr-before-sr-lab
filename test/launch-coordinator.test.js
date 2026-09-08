@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createLaunchCoordinator } = require('../src/product/launch-coordinator');
+const { normalizeError } = require('../src/product/errors');
 
 function fixture(overrides = {}, components = null) {
   const calls = [];
@@ -9,6 +10,7 @@ function fixture(overrides = {}, components = null) {
     validateLaunch: async () => calls.push('validate'), launch: async () => { calls.push('launch'); return true; } };
   const settings = { assertReady: async () => calls.push('ready'), hasSrRequest: async () => true,
     beforeLaunch: async () => { calls.push('settings'); return [{ domain: 'sr', applied: true }]; },
+    inspect: async () => ({ requests: {}, applied: { sr: { readbackVerified: true } } }),
     restore: async (_, domain) => calls.push(`restore-${domain}`), ...overrides };
   const legacySrModel = { applyBeforeLaunch: async () => { calls.push('legacy'); return { apply: { ok: true } }; },
     prepareMigration: async () => calls.push('restore-legacy'), write: async () => calls.push('legacy-write') };
@@ -30,14 +32,92 @@ test('legacy-only selection is retained until new SR settings explicitly take ow
   assert.deepEqual(f.calls, ['ready', 'validate', 'closed', 'settings', 'legacy', 'launch']);
 });
 test('failed settings and invalid launch preflight cannot start the game', async () => {
-  const f = fixture({ beforeLaunch: async () => [{ domain: 'fg', applied: false, code: 'SETTINGS_BACKEND_MISSING', reason: 'missing' }] });
-  await assert.rejects(f.module.launch('a'), { code: 'SETTINGS_BACKEND_MISSING' });
+  const outcomes = [{ domain: 'sr', applied: true, runtimeVerified: false },
+    { domain: 'fg', applied: false, code: 'SETTINGS_BACKEND_MISSING', reason: 'missing' }];
+  const f = fixture({ beforeLaunch: async () => outcomes });
+  await assert.rejects(f.module.launch('a'), error => {
+    assert.equal(error.code, 'SETTINGS_BACKEND_MISSING');
+    assert.equal(error.details.phase, 'launch-settings');
+    assert.equal(error.details.gameStarted, false);
+    assert.deepEqual(error.details.launchSettings, outcomes);
+    assert.deepEqual(error.details.recoverableDomains, ['sr']);
+    assert.match(error.message, /SR/);
+    return true;
+  });
   assert.ok(!f.calls.includes('launch'));
   f.service.validateLaunch = async () => { throw new Error('wrong EXE'); };
   f.calls.length = 0;
   await assert.rejects(f.module.launch('a'), /wrong EXE/);
   assert.deepEqual(f.calls, ['ready']);
 });
+test('process spawn failure retains applied-setting recovery details', async () => {
+  const f = fixture({
+    beforeLaunch: async () => [{ domain: 'sr', applied: false, skipped: true, noOp: true }],
+    inspect: async () => ({ requests: { sr: {} }, applied: { sr: { readbackVerified: true } } })
+  });
+  f.service.launch = async () => { f.calls.push('launch'); throw Object.assign(new Error('spawn denied'), { code: 'EACCES' }); };
+  await assert.rejects(f.module.launch('a'), error => {
+    assert.equal(error.code, 'SETTINGS_LAUNCH_FAILED');
+    assert.equal(error.details.phase, 'process-spawn');
+    assert.equal(error.details.gameStarted, false);
+    assert.deepEqual(error.details.recoverableDomains, ['sr']);
+    assert.deepEqual(error.details.launchSettings, [{ domain: 'sr', applied: false, skipped: true, noOp: true }]);
+    assert.match(error.message, /spawn denied/);
+    const publicError = normalizeError(error);
+    assert.equal(publicError.code, 'SETTINGS_LAUNCH_FAILED');
+    assert.deepEqual(publicError.details.recoverableDomains, ['sr']);
+    return true;
+  });
+  assert.deepEqual(f.calls, ['ready', 'validate', 'closed', 'launch']);
+});
+test('legacy SR failure also reports settings already applied by the single writer', async () => {
+  const f = fixture({ hasSrRequest: async () => false });
+  f.legacySrModel.applyBeforeLaunch = async () => ({ apply: { ok: false, error: 'legacy write failed' } });
+  await assert.rejects(f.module.launch('a'), error => {
+    assert.equal(error.code, 'SETTINGS_APPLY_FAILED');
+    assert.equal(error.details.phase, 'legacy-sr');
+    assert.deepEqual(error.details.recoverableDomains, ['sr']);
+    assert.equal(error.details.gameStarted, false);
+    return true;
+  });
+  assert.ok(!f.calls.includes('launch'));
+});
+test('thrown legacy and ownership errors retain completed FG outcomes even if receipt inspection fails', async () => {
+  for (const source of ['legacy', 'ownership']) {
+    const outcomes = [{ domain: 'fg', applied: true, runtimeVerified: false }];
+    const f = fixture({ beforeLaunch: async () => outcomes, hasSrRequest: async () => false,
+      inspect: async () => { throw new Error('receipt read unavailable'); } });
+    const failure = Object.assign(new Error('legacy dependency failed'), { code: 'NVAPI_UNAVAILABLE' });
+    if (source === 'legacy') f.legacySrModel.applyBeforeLaunch = async () => { throw failure; };
+    else f.settings.hasSrRequest = async () => { throw failure; };
+    await assert.rejects(f.module.launch('a'), error => {
+      assert.equal(error.code, 'NVAPI_UNAVAILABLE');
+      assert.equal(error.details.phase, 'legacy-sr');
+      assert.equal(error.details.gameStarted, false);
+      assert.deepEqual(error.details.launchSettings, outcomes);
+      assert.deepEqual(error.details.recoverableDomains, ['fg']);
+      assert.equal(error.cause, failure);
+      assert.equal(error.details.recoveryStateKnown, false);
+      assert.match(error.message, /BUG/);
+      return true;
+    });
+    assert.ok(!f.calls.includes('launch'));
+  }
+});
+
+test('successful restore followed by launch failure never invents a surviving receipt', async () => {
+  const f = fixture({ beforeLaunch: async () => [{ domain: 'sr', applied: true }],
+    inspect: async () => ({ requests: {}, applied: {} }) });
+  f.service.launch = async () => { throw new Error('spawn failed after restore'); };
+  await assert.rejects(f.module.launch('a'), error => {
+    assert.deepEqual(error.details.recoverableDomains, []);
+    assert.equal(error.details.recoveryStateKnown, true);
+    assert.doesNotMatch(error.message, /保留恢复记录/);
+    assert.equal(error.details.gameStarted, false);
+    return true;
+  });
+});
+
 test('no-op restore allows launch and uninstall restores both domains before legacy', async () => {
   const f = fixture({ beforeLaunch: async () => [{ domain: 'sr', applied: false, skipped: true, noOp: true }] });
   assert.equal((await f.module.launch('a')).launched, true);

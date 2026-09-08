@@ -260,6 +260,16 @@ function createLaunchSettingsService(options = {}) {
           plan = plans.get(replacement.id); plans.delete(replacement.id);
         }
       }
+      // A no-op is a claim about current state, not just the old preview.
+      // Recheck before reporting a successful skip; never overwrite a newer
+      // external change or silently launch with a request no longer in effect.
+      // An empty restore has no backend snapshot and remains a true no-op.
+      if (plan.noOp) {
+        if (plan.driver && !policy.same(await driver.read(t.exe, DRIVER_IDS), plan.driver.before))
+          fail('SETTINGS_EXTERNAL_CHANGE', '驱动配置在预览后改变，请重新核对后应用。');
+        if (plan.change && await digestFile(plan.change.file) !== plan.change.beforeHash)
+          fail('FILE_CHANGED', '配置在预览后改变，请重新核对后应用。');
+      }
       if (plan.domain === 'sr') await markSrManaged(t);
       if (plan.noOp) return { applied: false, skipped: true, noOp: true, runtimeVerified: false };
       const transactionId = crypto.randomUUID(); let result;

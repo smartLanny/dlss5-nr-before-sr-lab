@@ -412,7 +412,7 @@ function bindGameCards() {
       runConfirmedAction(allowAntiCheat => window.manager.setGameApi(id, api, { allowAntiCheat }), success, true, id);
     };
     const launch = card.querySelector('.launch-btn');
-    if (launch) launch.onclick = event => { event.stopPropagation(); runAction(() => window.manager.launch(id), '游戏已启动', false); };
+    if (launch) launch.onclick = event => { event.stopPropagation(); runAction(() => window.manager.launch(id), '游戏已启动', false, id); };
     const dismiss = card.querySelector('.dismiss-game-btn');
     if (dismiss) dismiss.onclick = event => { event.stopPropagation(); confirmDismissGame(id); };
     const openFolder = card.querySelector('.open-folder-btn');

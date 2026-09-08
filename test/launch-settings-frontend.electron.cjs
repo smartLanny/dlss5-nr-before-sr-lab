@@ -209,6 +209,8 @@ async function smoke() {
   mock.data.applied.sr = { request: { backend: 'native', quality: 'quality' }, readbackVerified: true };
   await mock.listener({ id: 'ui-fixture', outcomes: [{ domain: 'sr', applied: true }] });
   assert(panel('sr').textContent.includes('配置已读回'), 'Launch IPC completion refreshes the visible settings');
+  await mock.listener({ id: 'ui-fixture', outcomes: [{ domain: 'sr', applied: false, skipped: true }], launchFailed: true });
+  assert(panel('sr').textContent.includes('配置已读回') && panel('sr').textContent.includes('游戏未验证'), 'Failed launch refreshes the retained receipt without claiming game verification');
 
   set('sr', 'quality', 'custom'); set('sr', 'renderPercent', 75); set('sr', 'preset', 'M');
   set('fg', 'mode', 'dynamic'); set('fg', 'targetFps', 144);

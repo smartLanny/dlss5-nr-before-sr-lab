@@ -28,7 +28,12 @@ test('payload preparation rejects mismatched compatibility files before replacin
       '-CompatAddon', fake, '-CompatBridge', fake, '-CompatCarrier', fake, '-CompatConfig', fake,
       '-ReShade64', fake, '-Legacy02', root, '-PayloadRoot', payload
     ];
-    const result = spawnSync('pwsh.exe', args, { encoding: 'utf8' });
+    // This production script supports the inbox Windows PowerShell too; do
+    // not require a separately installed PowerShell 7 merely to test its gate.
+    const executable = process.env.DLSS5_TEST_POWERSHELL || (process.platform === 'win32' ? 'powershell.exe' : 'pwsh');
+    const result = spawnSync(executable, args, { encoding: 'utf8', timeout: 30000 });
+    assert.ifError(result.error);
+    assert.equal(typeof result.status, 'number', 'the production preflight must actually execute');
     assert.notEqual(result.status, 0);
     assert.match(`${result.stdout}\n${result.stderr}`, /Reviewed compatibility input hash mismatch for Chinese core/);
     assert.equal(fs.readFileSync(path.join(current, 'keep.txt'), 'utf8'), 'current-slot-must-survive');

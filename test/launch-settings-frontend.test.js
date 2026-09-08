@@ -131,6 +131,15 @@ test('the new module replaces the legacy writable SR widget and preserves core c
   assert.match(renderer, /核心版本/);
 });
 
+test('failed game launch refreshes any settings that were already applied and enables feedback context', () => {
+  const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
+  const renderer = fs.readFileSync(path.join(__dirname, '../src/renderer/renderer.js'), 'utf8');
+  assert.match(main, /error\?\.details\?\.launchSettings/);
+  assert.match(main, /outcomes\.filter\(row => row\?\.applied === true \|\| row\?\.skipped === true\)/);
+  assert.match(main, /launchFailed: true/);
+  assert.match(renderer, /window\.manager\.launch\(id\), '游戏已启动', false, id/);
+});
+
 test('new SR controls expose presets and ratios without offering a legacy OptiScaler backend', async () => {
   for (const [quality, percent] of Object.entries({ dlaa: 100, quality: 67, balanced: 59, performance: 50, ultraPerformance: 33 })) {
     const fields = ui.initialFields('sr', { requests: { sr: { request: { backend: 'native', quality } } } });

@@ -142,7 +142,19 @@ function registerIpc() {
     return service.uninstall(id, removeSettings === true);
   });
   call('game-launch', async id => {
-    const result = await launchCoordinator.launch(id);
+    let result;
+    try { result = await launchCoordinator.launch(id); }
+    catch (error) {
+      const outcomes = error?.details?.launchSettings;
+      if (Array.isArray(outcomes) && win && !win.isDestroyed()) {
+        win.webContents.send('launch-settings-applied', {
+          id,
+          outcomes: outcomes.filter(row => row?.applied === true || row?.skipped === true),
+          launchFailed: true
+        });
+      }
+      throw error;
+    }
     if (win && !win.isDestroyed()) {
       if (result.srModel) win.webContents.send('sr-model-applied', { id, ...result.srModel });
       win.webContents.send('launch-settings-applied', { id, outcomes: result.launchSettings });

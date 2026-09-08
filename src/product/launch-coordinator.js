@@ -11,6 +11,37 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
   }
   const closed = id => guards.assertGameClosed(service.gameDirectory(id), service.gameExecutable(id));
   const hasComponentReceipt = id => fs.existsSync(path.join(service.gameDirectory(id), '_DLSS5_Backup', 'xiaofeng-fg-components.json'));
+  async function launchFailure(id, error, phase, launchSettings) {
+    const outcomes = Array.isArray(launchSettings) ? launchSettings : [];
+    let ownedDomains = null;
+    try {
+      const applied = (await settings.inspect(id))?.applied;
+      if (applied && typeof applied === 'object' && !Array.isArray(applied)) ownedDomains = Object.keys(applied);
+    } catch {}
+    // A successful restore is also reported as applied, but it has removed the
+    // receipt. Prefer the authoritative ownership snapshot to old outcome rows.
+    const recoverableDomains = [...new Set((ownedDomains ?? outcomes.filter(row => row?.applied === true).map(row => row.domain))
+      .filter(domain => domain === 'sr' || domain === 'fg'))];
+    const original = error && typeof error === 'object' ? error : new Error(String(error));
+    const suffix = recoverableDomains.length
+      ? ownedDomains !== null
+        ? `；${recoverableDomains.map(value => value.toUpperCase()).join(' / ')} 设置保留恢复记录，请在对应区域核对并撤销。`
+        : '；启动设置可能已有变更，但恢复状态暂无法读取。请核对设置记录并提交 BUG 反馈，不要反复写入。'
+      : '';
+    const wrapped = new Error(`${original.message || '游戏启动失败。'}${suffix}`);
+    wrapped.code = typeof original.code === 'string' && /^(SETTINGS_|NVAPI_|FG_)/.test(original.code)
+      ? original.code : 'SETTINGS_LAUNCH_FAILED';
+    wrapped.cause = original;
+    wrapped.details = {
+      ...(original.details && typeof original.details === 'object' ? original.details : {}),
+      phase,
+      gameStarted: false,
+      launchSettings: outcomes,
+      recoveryStateKnown: ownedDomains !== null,
+      recoverableDomains
+    };
+    return wrapped;
+  }
   async function launch(id) {
     await settings.assertReady(id);
     await service.validateLaunch(id);
@@ -26,13 +57,22 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
     }
     const launchSettings = await settings.beforeLaunch(id);
     const failure = launchSettings.find(row => row.applied !== true && row.skipped !== true);
-    if (failure) throw Object.assign(new Error(failure.reason || '启动设置应用失败，未启动游戏。'), { code: failure.code || 'SETTINGS_APPLY_FAILED' });
+    if (failure) throw await launchFailure(id, Object.assign(new Error(failure.reason || '启动设置应用失败，未启动游戏。'),
+      { code: failure.code || 'SETTINGS_APPLY_FAILED' }), 'launch-settings', launchSettings);
     let srModel = null;
-    if (!await settings.hasSrRequest(id)) {
-      srModel = await legacySrModel.applyBeforeLaunch(id);
-      if (srModel?.apply?.ok !== true) throw Object.assign(new Error(srModel?.apply?.error || 'SR 模型应用失败，未启动游戏。'), { code: 'SETTINGS_APPLY_FAILED' });
+    try {
+      if (!await settings.hasSrRequest(id)) {
+        srModel = await legacySrModel.applyBeforeLaunch(id);
+        if (srModel?.apply?.ok !== true) throw Object.assign(new Error(srModel?.apply?.error || 'SR 模型应用失败，未启动游戏。'),
+          { code: 'SETTINGS_APPLY_FAILED' });
+      }
+    } catch (error) {
+      // Dependency failures may throw rather than return { apply: { ok: false } }.
+      // Keep already completed FG/SR outcomes visible in both cases.
+      throw await launchFailure(id, error, 'legacy-sr', launchSettings);
     }
-    return { launched: await service.launch(id), srModel, launchSettings };
+    try { return { launched: await service.launch(id), srModel, launchSettings }; }
+    catch (error) { throw await launchFailure(id, error, 'process-spawn', launchSettings); }
   }
   async function restoreForUninstall(id) {
     await settings.assertReady(id);
