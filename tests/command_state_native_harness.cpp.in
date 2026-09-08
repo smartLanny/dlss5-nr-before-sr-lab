@@ -519,8 +519,14 @@ int main(int argc, char **argv) {
         Check(exit_code == 0, "two simultaneous known-null scopes fit a 64 KiB worker stack");
     }
     const auto old_token = record->token;
-    OnCommandStateDestroyList(&owner); OnCommandStateInitList(&owner);
-    Check(ReadCommandStateToken(list) != old_token && !CaptureNativeCommandState(list, *snapshot), "destroy/reused native pointer cannot inherit old shadow");
+    OnCommandStateDestroyList(&owner);
+    Hr(ID3D12GraphicsCommandList_Close(list),"close before real native destruction");
+    Drop(list);
+    Check(!FindCommandStateTokenLocked(old_token),"real native destruction retires old shadow");
+    Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,pipeline,
+        IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&list)),"new native lifetime");
+    owner={&owner_device,list}; OnCommandStateInitList(&owner);
+    Check(ReadCommandStateToken(list) != old_token && !CaptureNativeCommandState(list, *snapshot), "new native object cannot inherit old lifetime certification");
     OnCommandStateDestroyList(&owner);
     ReleaseNativeCommandState(*snapshot); delete snapshot;
     Drop(signature); Drop(startup_signature); Drop(list); Drop(allocator); Drop(pipeline); Drop(other_pipeline);
