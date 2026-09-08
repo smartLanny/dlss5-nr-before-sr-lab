@@ -56,6 +56,7 @@ public static class NativeD3DCompiler {
 $failed = @()
 $entryPoints = @('EncodeCS', 'CombineCS', 'EncodeV2CS', 'CombineV2CS', 'CopyCS', 'ResampleMotionCS')
 if ($sourceText.Contains('void BuildEditFieldCS(')) { $entryPoints += 'BuildEditFieldCS' }
+if ($sourceText.Contains('void BuildColorEditFieldCS(')) { $entryPoints += 'BuildColorEditFieldCS' }
 foreach ($entryPoint in $entryPoints) {
     $code = [IntPtr]::Zero
     $errors = [IntPtr]::Zero
