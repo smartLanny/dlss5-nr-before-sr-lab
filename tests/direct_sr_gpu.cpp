@@ -24,9 +24,16 @@ constexpr UINT kRenderWidth = 640, kRenderHeight = 360;
 constexpr UINT kOutputWidth = 1280, kOutputHeight = 720;
 
 void Check(HRESULT hr, const char *what) {
+#ifdef NR_CASCADE_FAIL_CLOSED
+    if (FAILED(hr)) {
+        std::cerr << "FATAL_CASCADE: " << what << " hr=" << std::hex << unsigned(hr) << '\n';
+        std::cerr.flush(); ExitProcess(2);
+    }
+#else
     if (FAILED(hr)) throw std::runtime_error(std::string(what) + " failed hr=0x" + [&] {
         char text[16]{}; sprintf_s(text, "%08X", static_cast<unsigned>(hr)); return std::string(text);
     }());
+#endif
 }
 [[noreturn]] void FatalSubmittedGpu(const char *what, HRESULT hr = E_FAIL) {
     std::cerr << "FATAL_SUBMITTED_GPU: " << what << " hr=0x" << std::hex
