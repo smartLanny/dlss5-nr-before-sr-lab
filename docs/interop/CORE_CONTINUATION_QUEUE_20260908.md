@@ -17,7 +17,7 @@ next，不发布稳定版或移动历史 tag。以下“未实现”针对列出
 | #155/#157/#160 | 已有实现待整合：文件名、source=off bootstrap、ReShade预加载排除 | 保留各自边界，不能称#153游戏崩溃已修 |
 | #164启动顺序 | 本次已实现：#175续做，启动切片492f802、最终运行批次e7df0fc | 显式native preflight已替换宿主日志等待；详见CORE_PROVIDER_STARTUP，完整transport继续 |
 | #164完整provider/transport | 部分实现继续：#171 Signal/Drain、官方bootstrap、真实Core样本 | 接实际producer调度/退出重建；DX11/Vulkan/Legacy沿原桥，不另建Core |
-| #14 | 部分实现继续：#174官方FFX mapper，#175受控NR→SR | 固定实际无DLSS游戏/API/SDK，接真实dispatch；先SR-only再NR→SR，最后游戏/原生回退验收；已向维护者询问游戏 |
+| #14 | 部分实现继续：#174官方FFX mapper，#175受控NR→SR及BL3输入receipt | 已固定本机BL3指纹/Luma源码并完整编译UE诊断插件；未部署/游戏观测，generic仅DLAA/R=O。下一步实际输入/SR-only证据，再NR→SR与回退 |
 | #4/#107/#108 | 部分实现继续：现有Core/owner/admission合同 | 本次f819a8e已补external/native RR单owner和事务隔离；继续随实际provider补自检，不新增巨型框架 |
 | #153/#106 | 未定根因；已有新旧carrier/编译器/加载证据 | 本次f6de13d已修两处模块枚举OOB；loader-lock/首device单例仍需独立两阶段激活实验，不吞AV重入，不称全部游戏崩溃已修 |
 | #99/#123 | 部分诊断已有；其余游戏gate缺证 | 用已有诊断收窄剩余gate；确实缺证保留needs-evidence，不冻结其它代码 |
@@ -27,7 +27,7 @@ next，不发布稳定版或移动历史 tag。以下“未实现”针对列出
 | #15/#12/#82成本方案 | 部分实现继续：后置50–100%与真实R/N/O已有 | 独立NR/RR低成本实验；原生RR只调用一次，保持采样/曝光/历史一致性；性能矩阵最后测，不重写RR热切 |
 | #71/#168 | 部分实现继续：#170追平hotfix且保留#119祖先 | 0.5独立工作树接#172，保持与维护默认隔离 |
 | #169 | 部分实现继续：#172成对合成合同/原始N | dev5生产e084、#172@bd2b3b1已交独立亮度/色度候选、72三路WARP/旧参考字节等价/双语链接；游戏画质仍未验收 |
-| #11 | 未完成低网格EditField | 独立codex/050-editfield-20260908正在实现最小N尺寸log-luma/valid pass；full-res保护保留，不同时换输入/恢复核 |
+| #11 | dev6实现及受控shader验证已交，完整运行验收未完成 | #172@987ef37，实际源码6062a0b；64组WARP/384rawplanes/默认A对dev5字节等价/双语链接通过；资源故障、保护开启、硬件/游戏与成本仍待验收 |
 | #84 | 未完成scale-aware Lanczos-2 AA输入核 | 接#11，按实际缩放定义采样支持/归一化与退化路径，保留旧输入核对照 |
 | #85 | 未完成Catmull-Rom 4+4恢复/纵向合成融合 | 接输入核，先实现等价恢复/融合候选，集中验证边界和GPU成本 |
 | #86 | 未完成低网格安全运算前移/色彩EditField | 随#169/#11依赖接入，保持颜色/亮度界限，不把高频保护错误移到低网格 |
@@ -45,8 +45,8 @@ next，不发布稳定版或移动历史 tag。以下“未实现”针对列出
 
 - 主任务：#175最终运行批次e7df0fc已构建/真实GPU通过；继续实际输入/provider生命周期与后置成本合同。
 - Sol Medium：carrier两处OOB、联合GPU时间戳、#121历史失败证据保留已交；补后续源码的独立完整链接。
-- Astra：0.5-dev5合成已交#172；`codex/050-editfield-20260908`接#11最小EditField。
-- Astra：FG观测改进已交#173；BL3只读指纹与真实Luma TAA接点已锁，generic仅DLAA/R=O，尚未游戏运行。
+- Astra：0.5-dev5及dev6最小EditField已交#172；默认A对照保持，新算法游戏画质与成本未验收。
+- Astra：FG观测改进已交#173；BL3指纹/Luma TAA接点已锁，完整receipt插件已链接，generic仅DLAA/R=O，尚未加载或游戏运行。
 
 各隔离worktree保留原候选/未提交文件；无Luna。源码切片与最后compile/WARP/
 NVIDIA/game验收分别记录。Lab托管CI因付款/额度未启动，不重跑且不计通过。

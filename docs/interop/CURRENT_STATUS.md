@@ -15,6 +15,18 @@ carrier模块枚举越界修复，加入真实GPU分段时间戳。双语Core/nr
 UseAutoMask/UICorrection 的 8 组 signed/unsigned、0/1 互读；不支持把本配置的人脸问题
 归因为整数重载差异，且没有声称 #162 视觉修复。[参数证据边界](MASK_PARAMETER_BOUNDARY_20260908.md)。
 这些后续提交不冒充已含在上面的 `e7df0fc` 硬件构建中。
+`d4cb94a` 已另外完成双语 Core/nrchain 链接及 115 个生成文件校验；
+[后续构建身份](COMMAND_HISTORY_BUILD_20260908.md)，没有重复 GPU 验收。
+
+#14 的固定 Luma UE 输入诊断插件已完成完整 MSVC 编译/链接；依赖锁和产物 SHA256
+见 [BL3 输入边界](BL3_INPUT_SEAM_20260908.md)。未部署、加载或启动游戏；generic
+路径仍为 DLAA/R=O，真实 BL3 时域输入尚未观测。此项不是新游戏支持或玩家安装包。
+
+独立 #172 已推进至 `987ef37`，实际 dev6 源码 `6062a0b`：可关闭的低网格
+log-luma/valid EditField 已完成 64 组 WARP A/B、384 个原始平面独立复核、
+默认 A 对 dev5 逐字节对照及双语完整链接。
+[详细边界与构建锁](https://github.com/smartLanny/dlss5-nr-before-sr-lab/blob/987ef37/docs/interop/EDIT_FIELD_20260908.md)。
+新增算法不宣称无损或提速；保护开启、运行时资源故障、NVIDIA/game与性能仍待验收。
 
 ## 2026-09-08 新授权接续：Core native-observer 启动协议
 
