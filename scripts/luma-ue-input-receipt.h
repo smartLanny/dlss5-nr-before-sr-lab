@@ -7,6 +7,22 @@
 #include <string>
 
 namespace nr_luma_receipt {
+// This records the real SR Draw return only, not observed GPU completion/pixels.
+template<class Sink>
+void ObserveResult(unsigned long long shader, unsigned long long frame,
+                   bool draw_succeeded, Sink sink) noexcept {
+    try {
+        static std::mutex mutex;
+        static unsigned rows = 0;
+        const std::lock_guard lock(mutex);
+        if (rows >= 32) return;
+        const auto text = std::format(
+            "NR_UE_SR_RESULT v=1 row={} shader={:08x} drawFrame={} drawSucceeded={} gpuObserved=0",
+            ++rows, shader, frame, draw_succeeded ? 1 : 0);
+        sink(text.c_str());
+    } catch (...) { /* Diagnostic failure cannot replace the original SR result. */ }
+}
+
 struct Site {
     unsigned long long shader;
     bool compute;

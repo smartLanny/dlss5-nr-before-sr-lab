@@ -5,6 +5,13 @@
 #include <cassert>
 #include <cstring>
 static unsigned observed = 0;
+static unsigned results = 0;
+static void ResultSink(const char* text) {
+    ++results;
+    assert(std::strstr(text, "NR_UE_SR_RESULT v=1"));
+    assert(std::strstr(text, results % 2 ? "drawSucceeded=0" : "drawSucceeded=1"));
+    assert(std::strstr(text, "gpuObserved=0"));
+}
 static void Sink(const char* text) {
     ++observed;
     assert(std::strstr(text, "NR_UE_INPUT_RECEIPT v=1"));
@@ -24,4 +31,7 @@ int main() {
         nr_luma_receipt::Observe(draw, settings, site, &Sink);
     assert(observed == 32);
     assert(draw.jitter_x == 0.25f && draw.output_color == nullptr);
+    for (int i = 0; i < 5000; ++i)
+        nr_luma_receipt::ObserveResult(0x1234, unsigned(i), i % 2 != 0, &ResultSink);
+    assert(results == 32);
 }

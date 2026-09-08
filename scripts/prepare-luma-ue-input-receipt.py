@@ -28,6 +28,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--source', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)
+    ap.add_argument('--owner-test', action='store_true',
+                    help='Record SR return and honor EnableHDR in Development; deploy FirstBoot=0/EnableHDR=0 separately')
     a = ap.parse_args()
     source = a.source.read_bytes()
     if hashlib.sha256(source).hexdigest() != SOURCE_SHA256:
@@ -38,6 +40,18 @@ def main():
         ap.error('Pinned source anchor changed')
     text = text.replace(include, include + '\n#if DEVELOPMENT\n#include "nr-ue-input-receipt.h"\n#endif', 1)
     text = text.replace(ANCHOR, RECEIPT + ANCHOR, 1)
+    if a.owner_test:
+        hdr_anchor = '#if !DEVELOPMENT // Force HDR in dev mode, so we can easily debug textures'
+        if text.count(hdr_anchor) != 1:
+            ap.error('Owner-test HDR configuration anchor changed')
+        text = text.replace(hdr_anchor,
+            '#if 1 // Owner input test honors the existing EnableHDR setting even in Development', 1)
+        result = '''
+#if DEVELOPMENT
+               nr_luma_receipt::ObserveResult(shader_hash, draw_data.frame_index, dlss_succeeded,
+                  [](const char* receipt) { reshade::log::message(reshade::log::level::info, receipt); });
+#endif'''
+        text = text.replace(ANCHOR, ANCHOR + result, 1)
     header = Path(__file__).with_name('luma-ue-input-receipt.h').read_bytes()
     a.output.mkdir(parents=False, exist_ok=False)
     (a.output / 'main.cpp').write_text(text, encoding='utf-8', newline='\n')
@@ -46,7 +60,10 @@ def main():
                 'patched_main_sha256': hashlib.sha256(text.encode()).hexdigest(),
                 'receipt_header_sha256': hashlib.sha256(header).hexdigest(),
                 'max_rows_per_process': 32, 'game_launched': False,
-                'full_addon_compiled': False, 'runtime_inputs_observed': False}
+                'full_addon_compiled': False, 'runtime_inputs_observed': False,
+                'owner_test': a.owner_test, 'sr_return_logged': a.owner_test,
+                'required_owner_build_define': 'DISABLE_AUTO_DEBUGGER=1' if a.owner_test else None,
+                'owner_config': {'FirstBoot': 0, 'EnableHDR': 0} if a.owner_test else None}
     (a.output / 'source-manifest.json').write_text(json.dumps(manifest, indent=2)+'\n', encoding='utf-8')
     print('External diagnostic source staged; no add-on build, install or game execution implied.')
 
