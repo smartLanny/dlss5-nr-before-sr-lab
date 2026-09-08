@@ -74,7 +74,7 @@ and disabled stored preferences retain baseline bytes.
 
 CPU results include 1044 boost, 155748 layer scalar / 8 normalization, 33 picture
 serializer/loader, 408 recommended settings, 156 Windows core TXT/ZIP and 35012
-LightingLock-bound assertions. Counts are assertions/scenarios, not games.
+LightingLock-bound assertions. Additional inherited workflow gates were rerun: 38 forwarding, 172 null-raster, 60 exact maintained blend detour checks with the raw-NULL negative control, 74 colour-policy and 70 retirement checks. The old research CanonicalBlendFactor fixture was adapted to the current explicit CommandStateBlendFactorValues detour; production was not changed. Counts are assertions/scenarios, not games.
 
 Source, Windows compile, WARP, hosted CI, NVIDIA Feature18 and actual game results
 are separate facts. The complete build passed 46 local gates, including bilingual Core/nrchain

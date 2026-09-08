@@ -110,14 +110,14 @@ int main() {
 
 
 def blend_pointer(source: str, negative: bool = False) -> str:
-    # Compile the exact production macro, helper and OMSetBlendFactor invocation.
+    # Compile the exact maintained helper and explicit four-slot detour. The
+    # former research macro is superseded, never duplicated in production.
     family = definition(source, 'struct CommandStateHookFamily {') + ';'
-    macro = source[source.index('#define NR_STATE_HOOK('):source.index('NR_STATE_HOOK(SetPipelineState,')]
-    helper = definition(source, 'const FLOAT *CanonicalBlendFactor(')
-    begin = source.index('NR_STATE_HOOK(OMSetBlendFactor,')
+    helper = definition(source, 'const FLOAT *CommandStateBlendFactorValues(')
+    begin = source.index('CommandStateHookFamily g_state_OMSetBlendFactor;')
     invoke = source[begin:source.index('NR_STATE_HOOK(OMSetStencilRef,', begin)]
     if negative:
-        old = '(command_list, CanonicalBlendFactor(values))'
+        old = '(command_list, effective)'
         assert invoke.count(old) == 1
         invoke = invoke.replace(old, '(command_list, values)')
     return COMMON + r'''
@@ -137,7 +137,7 @@ template<class F> void MutateNativeCommandState(ID3D12GraphicsCommandList *,F mu
     check(native_calls==mutations+1,"original runs once before shadow update");
     mutation(observed);++mutations;
 }
-''' + family + '\n' + macro + '\n' + helper + '\n' + invoke + r'''
+''' + family + '\n' + helper + '\n' + invoke + r'''
 int main() {
     ID3D12GraphicsCommandList list;
     const FLOAT unity[4]={1,1,1,1};
@@ -253,5 +253,6 @@ if __name__=='__main__':
         assert 'if (record == nullptr)\n        g_command_state_registration_repair_needed.store(true' in cs
         assert 'g_command_state_registration_repair_needed.store(record == nullptr' not in cs
         ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
-        assert 'next.mode = 1; next.enabled = true; next.identity_use_original = false;' in ui
+        assert 'next.mode = mode == 0 ? 2 : 1; changed = true;' in ui
+        assert 'if (rr_guarded) ImGui::EndDisabled();' in ui
         print('PASS sticky registration / visible comparison integration')
