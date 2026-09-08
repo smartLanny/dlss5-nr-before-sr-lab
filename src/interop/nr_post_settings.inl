@@ -7,13 +7,21 @@ std::atomic<unsigned long long> revision{0};
 std::atomic<bool> ready{false}, persistence_failed{false}, request_rejected{false};
 std::atomic<unsigned> rejected_percent{0};
 std::atomic<unsigned long long> rr_attempts{0}, rr_recorded{0}, rr_native_failures{0};
+// Lifetime boundary observations, not mutually exclusive frame outcomes.
+// Compare start/end deltas from one process; native failure can also follow
+// a before-state rejection. None of these counters changes NR admission.
+std::atomic<unsigned long long> rr_before_state_rejected{0}, rr_prepare_declined{0};
+std::atomic<unsigned long long> rr_after_state_rejected{0}, rr_finish_declined{0};
+std::atomic<unsigned long long> rr_finish_gate_rejected{0};
 std::atomic<unsigned long long> last_rr_tick{0};
 std::atomic<int> last_rr_stage{0}; // 0 untouched, 1 prepared, 2 recorded, 3 native failed, 4 not applied
 std::atomic<ULONGLONG> next_poll{0};
+// RR selects its compatible post route automatically. The master NR switch
+// and all resource/lifecycle admission checks remain authoritative.
+constexpr bool RrPostAutomatic() { return true; }
 Options Read() {
-    const bool loaded=ready.load(std::memory_order_acquire);
     const unsigned v=bits.load(std::memory_order_acquire);
-    return {loaded && (v&256u)!=0, nr_post_compat::Percent(v&255u)};
+    return {RrPostAutomatic(), nr_post_compat::Percent(v&255u)};
 }
 bool Reject(unsigned percent) {
     const bool was_rejected=request_rejected.exchange(true,std::memory_order_acq_rel);
@@ -23,6 +31,7 @@ bool Reject(unsigned percent) {
     return false;
 }
 bool PrepareRequestLocked(Options& value) {
+    value.rr=RrPostAutomatic();
     if(value.percent!=0 && !nr_post_compat::SupportedPercent(value.percent))
         return Reject(value.percent);
     if(value.percent==0) {
@@ -40,7 +49,8 @@ bool PrepareRequestLocked(Options& value) {
 void ApplyLocked(Options value) {
     // Only validated, nonzero work percentages may enter this packed state.
     if(!nr_post_compat::SupportedPercent(value.percent)) { Reject(value.percent); return; }
-    const unsigned encoded=value.percent|(value.rr?256u:0u);
+    value.rr=RrPostAutomatic();
+    const unsigned encoded=value.percent|256u;
     if(bits.exchange(encoded,std::memory_order_acq_rel)!=encoded) {
         revision.fetch_add(1,std::memory_order_release);
         g_config_generation.fetch_add(1,std::memory_order_relaxed);
@@ -58,7 +68,9 @@ void Poll() {
             std::memory_order_relaxed)) return;
     const auto observed_revision=revision.load(std::memory_order_acquire);
     Options next;
-    next.rr=GetPrivateProfileIntW(L"NRBeforeSR",L"RRPostEnabled",1,g_ini_path)!=0;
+    // Ignore legacy RRPostEnabled=0: RR routing is automatic, not a second
+    // enable switch. User F6/master state is never changed by this policy.
+    next.rr=RrPostAutomatic();
     next.percent=GetPrivateProfileIntW(L"NRBeforeSR",L"PostWorkPercent",100,g_ini_path);
     const bool zero_request=next.percent==0;
     EnterCriticalSection(&g_chain_cs);
@@ -88,6 +100,21 @@ bool Request(Options next) {
     const bool rr_saved=WriteIniInt(L"RRPostEnabled",next.rr?1:0);
     const bool scale_saved=WriteIniInt(L"PostWorkPercent",static_cast<int>(next.percent));
     persistence_failed.store(!rr_saved||!scale_saved,std::memory_order_release);
+    LeaveCriticalSection(&g_chain_cs);
+    return true;
+}
+// The existing capture session owns the configuration hold for its complete
+// bounded sequence. Temporary work sizes and restoration must never write INI.
+bool RequestForCapture(Options next) {
+    if(!nr_f8::g_config_hold.load(std::memory_order_acquire) ||
+       !nr_post_compat::SupportedPercent(next.percent)) return false;
+    EnterCriticalSection(&g_chain_cs);
+    if(!nr_f8::g_config_hold.load(std::memory_order_acquire)) {
+        LeaveCriticalSection(&g_chain_cs); return false;
+    }
+    next.rr=RrPostAutomatic();
+    ApplyLocked(next);
+    ready.store(true,std::memory_order_release);
     LeaveCriticalSection(&g_chain_cs);
     return true;
 }

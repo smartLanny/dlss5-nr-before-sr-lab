@@ -5,8 +5,8 @@
 void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.mode = 2;
     next.identity_use_original = false;
-    next.transfer_strength = 1.20f;
-    next.post_transfer_strength = 1.20f;
+    next.transfer_strength = 1.0f;
+    next.post_transfer_strength = 1.0f;
     next.work_mode = 1;
     next.custom_work_scale = 0.75f;
     next.lighting_lock = 0.20f;

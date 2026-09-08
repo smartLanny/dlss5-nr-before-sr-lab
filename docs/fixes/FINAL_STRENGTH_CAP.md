@@ -1,6 +1,6 @@
 # Final effect strength limited to 4 (unreleased)
 
-Refs #102. The public final blend slider changes from 0–8 to 0–4 in both processing modes. Existing TransferStrength values above 4 normalize to 4, and PostTransferStrength stays synchronized; values 0–4, the new-install default 1.2 and master-off are unchanged. Nonfinite requests retain the existing safe-zero behavior.
+Refs #102. The public final blend slider changes from 0–8 to 0–4 in both processing modes. Existing TransferStrength values above 4 normalize to 4, and PostTransferStrength stays synchronized; values 0–4 and master-off are unchanged. The current new-install and recommended default is 1.0. Nonfinite requests retain the existing safe-zero behavior.
 
 This is **final effect strength**, not the model Intensity control (still 0–2). No hidden >4 override is added. UI, configuration comments and diagnostic screenshot naming share the same cap. This does not claim that 4 is a recommended setting or guarantee colour fidelity; the 0.5 high-strength protection and #103 colour-follow research remain separate.
 

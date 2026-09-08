@@ -1,6 +1,7 @@
 void TestGpuPipeline() {
     Reset();config.enabled=true;config.mode=2;config.transfer_strength=config.post_transfer_strength=1;
     config.color_strength=0;reshade::api::effect_runtime runtime;Start(runtime);test_clock+=3100;
+    constexpr unsigned side=512;
     Gpu gpu;nr_f8_gpu::CaptureRing ring;
     // Recreate a CPU-only descriptor source. Production Arm explicitly rejects
     // copying from a shader-visible heap; the detached destination is GPU visible.
@@ -9,17 +10,17 @@ void TestGpuPipeline() {
     Check(gpu.device->CreateDescriptorHeap(&hd,IID_ID3D12DescriptorHeap,gpu.heap.address()),"CPU descriptor mirror");
     const auto fence=[](void *key,unsigned long long value){auto *f=static_cast<ID3D12Fence *>(key);return f->GetCompletedValue()!=UINT64_MAX && f->GetCompletedValue()>=value;};
     const auto deliver=[](void *,nr_f8_gpu::ReadbackJob *job){nr_f8::RawReady(job->ticket,job->info,job->readback,job->bytes,job->valid);job->readback=nullptr;delete job;};
-    for(unsigned i=0;i<17;++i) {
-        auto info=Info(i==16?900:100+i,32,32);info.codec_flags=528;info.transfer_strength=1;info.color_strength=0;
+    for(unsigned i=0;i<kCurrentRoiFrames+1;++i) {
+        auto info=Info(i==kCurrentRoiFrames?900:100+i,side,side);info.codec_flags=528;info.transfer_strength=1;info.color_strength=0;
         info.source_format=info.result_format=DXGI_FORMAT_R32G32B32A32_FLOAT;info.proxy_scale=1;info.pre_exposure=1;info.exposure_scale=1;
         info.has_pre_exposure=info.has_exposure_scale=true;info.frame_confidence=1;info.max_luma_ratio=2;
         info.identity.tuning.intensity=1;info.identity.tuning.local_tone=info.identity.tuning.local_structure=1;
         NrCaptureParams params={};params.reset_known=true;params.game_jitter_valid=true;params.game_jitter_x=params.game_jitter_y=0;
         FrameTicket ticket;Check(ReserveFrame(info,params,ticket),"WARP frame reserves immutable identity");
-        auto source=gpu.MakeTexture(32,32,std::vector<Float4>(1024,Float4{.2f,.3f,.4f,.7f}));
-        auto proxy=gpu.MakeTexture(32,32,std::vector<Float4>(1024,Float4{.4f,.5f,.6f,1}));
-        auto neural=gpu.MakeTexture(32,32,std::vector<Float4>(1024,Float4{.5f,.6f,.7f,1}));
-        auto output=gpu.MakeTexture(32,32,std::vector<Float4>(1024,Float4{}));
+        auto source=gpu.MakeTexture(side,side,std::vector<Float4>(side*side,Float4{.2f,.3f,.4f,.7f}));
+        auto proxy=gpu.MakeTexture(side,side,std::vector<Float4>(side*side,Float4{.4f,.5f,.6f,1}));
+        auto neural=gpu.MakeTexture(side,side,std::vector<Float4>(side*side,Float4{.5f,.6f,.7f,1}));
+        auto output=gpu.MakeTexture(side,side,std::vector<Float4>(side*side,Float4{}));
         gpu.TextureState(source,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);gpu.TextureState(proxy,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         gpu.TextureState(neural,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);gpu.TextureState(output,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         gpu.Srv(0,source.resource.p);gpu.Srv(1,proxy.resource.p);gpu.Srv(2,neural.resource.p);gpu.Srv(3,nullptr);gpu.Srv(kCodecExposureSrvIndex,nullptr);
@@ -39,10 +40,10 @@ void TestGpuPipeline() {
             Check(ring.OnSubmit(8000,gpu.fence.p,gpu.submitted+1)==1,"interrupted recording exact fence registered");
         }
         nr_f8_gpu::ArmResult arm;Check(ring.Arm(args,arm),"production detached GPU Arm");Check(ring.BeginDispatch(gpu.list.p,arm.slot,1000+i),"production begin transition");
-        const CodecConstants constants={32,32,1,1,1,0,2,528,0,0,0,0,0,0,0,0,1,info.stride,32,32,32,32,0,0,1,1,0,info.region_x,info.region_y,info.region_width,info.region_height};
+        const CodecConstants constants={side,side,1,1,1,0,2,528,0,0,0,0,0,0,0,0,1,info.stride,side,side,side,side,0,0,1,1,0,info.region_x,info.region_y,info.region_width,info.region_height};
         ID3D12DescriptorHeap *heaps[]={arm.heap};gpu.list->SetDescriptorHeaps(1,heaps);gpu.list->SetComputeRootSignature(gpu.root.p);
         gpu.list->SetComputeRootDescriptorTable(0,arm.heap->GetGPUDescriptorHandleForHeapStart());gpu.list->SetComputeRoot32BitConstants(1,kCodecRootConstantCount,&constants,0);
-        gpu.list->SetPipelineState(gpu.v2_pipeline.p);gpu.list->Dispatch(4,4,1);
+        gpu.list->SetPipelineState(gpu.v2_pipeline.p);gpu.list->Dispatch(side/8,side/8,1);
         Check(ring.FinishDispatch(gpu.list.p,arm.slot,1000+i),"production five-plane copy recording");
         Check(ring.OnSubmit(1000+i,gpu.fence.p,gpu.submitted+1)==1,"exact fence submission registered");
         Check(ring.Collect(fence,deliver,nullptr)==0,"no readback before actual queue fence");
@@ -51,7 +52,7 @@ void TestGpuPipeline() {
         Check(ring.OnRecordingInvalidated(1000+i,false)==1,"successful real Reset invalidates token");
         Check(ring.Collect(fence,deliver,nullptr)==1,"fence plus token dispatches production readback worker");Drain();
         if(i==0){Check(ring.OnRecordingInvalidated(8000,false)==1,"interrupted token invalidated after real Reset");Check(ring.Collect(fence,deliver,nullptr)==1,"interrupted copy retires only with exact fence plus dead token");Drain();}
-        Check(g_session->groups[0].frames[i].valid,"real GPU record streamed");
+        Check(g_session->groups[0].frames[ticket.index].valid,"real GPU record streamed");
     }
     Present(&runtime);Shot(runtime);Present(&runtime);Drain();
     Check(g_status==Status::Complete,"actual GPU pipeline wrote complete ZIP");

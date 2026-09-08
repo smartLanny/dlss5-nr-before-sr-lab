@@ -51,8 +51,7 @@ bool CanApply() {
         !g_module_observer_gap_detected.load(std::memory_order_acquire) &&
         !g_feature_tracking_uncertain.load(std::memory_order_acquire) &&
         !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) &&
-        g_live_rr_handles.load(std::memory_order_acquire) == 0 &&
-        !g_rr_guard_was_active.load(std::memory_order_acquire) &&
+        !IsRayReconstructionRouteObserved() &&
         !g_shortfuse_nr_enabled.load(std::memory_order_acquire) &&
         !g_generic_renodx_conflict.load(std::memory_order_acquire) &&
         !nr_f8::IsActive() && SnapshotConfig().enabled;
@@ -209,8 +208,25 @@ void DrawRenderControl() {
     const auto ui = [zh](const char* en,const char* cn){return zh ? cn : en;};
     ImGui::SeparatorText(ui("Game render resolution (experimental)","游戏渲染分辨率（实验）"));
     static int edit = 67;
-    ImGui::SliderInt(ui("Render percent of output","渲染尺寸 / 输出尺寸"), &edit, 50, 100, "%d%%");
-    if (ImGui::Button(ui("Request render scale","请求渲染比例"))) SetRequest(static_cast<unsigned>(edit));
+    const bool rr_guarded = IsRayReconstructionRouteObserved();
+    if (rr_guarded) ImGui::BeginDisabled();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(ui("Game render scale","游戏渲染比例"));
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::SliderInt("##game-render-scale", &edit, 50, 100, "%d%%");
+    if (ImGui::Button(ui("Request on next engine query","下次引擎查询时请求")))
+        SetRequest(static_cast<unsigned>(edit));
+    if (rr_guarded) ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+        ImGui::TextUnformatted(ui(
+            "Changes only the answer to a later engine optimal-settings query. It does not resize current resources immediately and is not proof that the game accepted the suggestion.",
+            "仅修改下一次引擎最佳设置查询的建议值，不会立即重建当前资源，也不能证明游戏已接受该建议。"));
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
     ImGui::SameLine();
     if (ImGui::Button(ui("Game-owned on next query","下次查询恢复游戏控制"))) SetRequest(0);
     const auto req = request.load(std::memory_order_acquire);
@@ -218,9 +234,11 @@ void DrawRenderControl() {
     AcquireSRWLockShared(&status_lock); s=status; ReleaseSRWLockShared(&status_lock);
     ImGui::Text(ui("Saved request: %u%% (0 = game-owned) | query hooks: %u / %u",
         "已保存请求：%u%%（0=游戏控制）| 查询钩子：%u / %u"), static_cast<unsigned>(req), getter_count.load(), callback_count.load());
-    ImGui::TextWrapped("%s", ui(
-        "This requests REAL SR-input rendering from the engine, not a smaller NR image. Toggle the game's DLSS quality/resolution to trigger a new query. Some games cache the callback or use fixed DLAA/DRS and may require a restart, or ignore this control entirely. Unsupported ranges keep the vendor answer. F6 stops NR; it cannot instantly resize engine allocations back.",
-        "这里向引擎请求真正的 SR 前渲染尺寸，不是缩小 NR 图片。切换游戏 DLSS 档位/分辨率可触发重新查询；缓存回调、固定 DLAA 或动态分辨率的游戏可能需要重启，或完全不响应。不支持的比例保留厂商原值。F6 关闭 NR，但不能立即恢复引擎已分配的渲染尺寸。"));
+    ImGui::TextDisabled("%s", rr_guarded ? ui(
+        "Paused while RR protection is active; restore game control remains available.",
+        "光线重建保护期间暂停新请求；仍可恢复为游戏控制。") : ui(
+        "Applies only on a later engine query; live effect is not guaranteed.",
+        "仅影响后续引擎查询，不保证实时生效。"));
     if (s.queries) {
         ImGui::Text(ui("Last query: output %ux%u -> suggestion %ux%u | generation %llu | decision %u",
             "最近查询：输出 %ux%u → 建议 %ux%u | 代次 %llu | 结果 %u"),
@@ -228,14 +246,8 @@ void DrawRenderControl() {
         ImGui::TextDisabled("%s",ui("0 native/paused, 1 invalid/missing bounds, 2 outside runtime bounds, 3 query accepted (not proof of resize)",
             "0 原生/暂停；1 边界缺失/无效；2 超出运行库范围；3 查询已接受（不等于已改变渲染）"));
     }
-    ImGui::Text(ui("Core last reported R -> O: %ux%u -> %ux%u (may be historical)",
-        "核心最近报告 R → O：%ux%u → %ux%u（可能为历史值）"),
-        g_last_dlss_input_width.load(),g_last_dlss_input_height.load(),
-        g_last_dlss_output_width.load(),g_last_dlss_output_height.load());
-    ImGui::Text(ui("NR success / transfer submissions: %llu / %llu",
-        "NR 成功 / 效果提交：%llu / %llu"),
-        static_cast<unsigned long long>(g_nr_successful_evaluations.load()),
-        static_cast<unsigned long long>(g_nr_transfer_submitted_frames.load()));
+    ImGui::TextDisabled("%s",ui("Actual dimensions are shown in the observation below.",
+        "实际尺寸见下方只读观察。"));
     if (!callback_count.load()) ImGui::TextWrapped("%s",ui(
         "No eligible vendor callback observed yet. This is NOT an active render-scale override. Existing DLSS/TAA mods with a fixed render size need their own engine controller.",
         "尚未观察到可用厂商回调，当前不是已生效的渲染覆盖。固定渲染尺寸的 DLSS/TAA 模组仍需要自己的引擎分辨率控制器。"));

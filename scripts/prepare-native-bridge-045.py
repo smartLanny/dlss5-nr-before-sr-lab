@@ -57,9 +57,15 @@ def patch_ui(text: str) -> str:
         '    if (nr_present_api_status::IsD3d11PresentRuntime(runtime))\n',
         '    else if (!current.config.enabled || ActiveTransferStrength(current.config) <= 0.000001f)',
         '    if (nr_present_api_status::IsD3d11PresentRuntime(runtime)) {\n        DrawDx11DeploymentStatus();\n    }\n')
+    refreshed = '        SettingsSection(ui("Observed game render scale", "游戏真实渲染比例"));'
+    if refreshed in text:
+        return once(text, refreshed,
+            '        DrawRenderControl();\n'
+            + refreshed)
     return once(text,
-        '    if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {',
-        '    DrawRenderControl();\n    if (ImGui::CollapsingHeader(ui("Advanced picture controls", "高级画质"))) {')
+        '    if (ImGui::CollapsingHeader(ui("Developer options", "开发者选项"))) {',
+        '    if (ImGui::CollapsingHeader(ui("Developer options", "开发者选项"))) {\n'
+        '        DrawRenderControl();')
 
 def patch_bridge(text: str) -> str:
     text = old_bridge(text)
@@ -211,7 +217,7 @@ def prepare(core: Path, upstream: Path, output: Path) -> None:
         manifest["files"] = {p.relative_to(stage).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(stage.rglob("*")) if p.is_file() and p != mf}
         mf.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-        stage.rename(output)
+        legacy.publish_stage(stage, output)
 
 legacy.patch_core = patch_core
 legacy.patch_ui = patch_ui

@@ -29,14 +29,17 @@ long InterlockedCompareExchange(long* p, long value, long expected) {
     const auto old = *p; if (old == expected) *p = value; return old;
 }
 constexpr int SRC_MIRROR = 1, SRC_SYNTH = 2;
+constexpr int CFG_SRC_MIRROR = 1, CFG_SRC_OFF = 3;
 const NVSDK_NGX_Handle* g_eval_handle = nullptr;
-struct { int stage = 3; bool skip = true, off = false; } g_cfg;
+struct { int stage = 3; bool skip = true, off = false; int source = CFG_SRC_MIRROR; } g_cfg;
+void CfgReload() { g_cfg.source = g_cfg.off ? CFG_SRC_OFF : CFG_SRC_MIRROR; }
 struct { bool frame_ready = false, need_reset = false, partial_output = false; } g_bridge;
 static NrNativeBridgeHistory g_nr_native_history;
 static bool g_nr_native_delivery = false;
 namespace nr_native_bridge_client {
 bool enabled = true;
-bool AllowsFrame(bool) { return enabled; }
+int queries = 0;
+bool AllowsFrame(bool) { ++queries; return enabled; }
 }
 using PFN_Evaluate = NVSDK_NGX_Result (*)(ID3D11DeviceContext*, const NVSDK_NGX_Handle*,
                                        const NVSDK_NGX_Parameter*, void*);
@@ -121,5 +124,23 @@ int main() {
     CHECK(order == std::vector<char>({'N'}));
     CHECK(g_bridge_cs == 0 && g_ngx_cs == 0 && g_hook_cs == 0 && hook.installed);
     CHECK(init_calls == 1);
+    // An explicit off switch must apply before the first private-device init,
+    // without consuming the bootstrap latch. Turning it back on remains usable.
+    g_probe_done = 0; g_bridge.frame_ready = false; g_cfg.off = true;
+    native_result = NGX_SUCCESS; order.clear();
+    const int old_queries = nr_native_bridge_client::queries;
+    CHECK(Forward(hook, &context, &handle, &p, nullptr) == NGX_SUCCESS);
+    CHECK(order == std::vector<char>({'N'}));
+    CHECK(init_calls == 1 && g_probe_done == 0);
+    CHECK(nr_native_bridge_client::queries == old_queries);
+    native_result = FAILURE; order.clear();
+    CHECK(Forward(hook, &context, &handle, &p, nullptr) == FAILURE);
+    CHECK(order == std::vector<char>({'N'}) && init_calls == 1 && g_probe_done == 0);
+    native_result = NGX_SUCCESS;
+    g_cfg.off = false; order.clear();
+    CHECK(Forward(hook, &context, &handle, &p, nullptr) == NGX_SUCCESS);
+    CHECK(init_calls == 2 && g_probe_done == 1);
+    CHECK(order == std::vector<char>({'N','M'}));
+    CHECK(g_bridge_cs == 0 && g_ngx_cs == 0 && g_hook_cs == 0 && hook.installed);
     std::puts("native bridge exact forward body: passed (CPU doubles, no GPU)");
 }

@@ -394,6 +394,16 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
             neural[y*model_width+x] = {p.x*gain,p.y*gain,p.z*gain,1.0f};
         }
     }
+    if (variant == 8) {
+        for (UINT y = 0; y < model_height; ++y)
+            for (UINT x = 0; x < model_width; ++x) {
+                proxy[y * model_width + x] = {0.5f, 0.5f, 0.5f, 1.0f};
+                const float gain = x >= 7 && x <= 8 && y >= 7 && y <= 8
+                    ? 0.9f : 0.5f;
+                neural[y * model_width + x] = {
+                    0.5f * gain, 0.5f * gain, 0.5f * gain, 1.0f};
+            }
+    }
     if (variant == 3) neural[0].x = std::numeric_limits<float>::quiet_NaN();
     auto source_texture = gpu.MakeTexture(source_width, source_height, original);
     auto proxy_texture = gpu.MakeTexture(model_width, model_height, proxy);
@@ -673,6 +683,23 @@ int main() {
             Require(std::abs(uniform_off.output[i].x-uniform_on.output[i].x)<0.00001f,
                     "Detail stability changed a uniform model edit");
         scenarios += 2;
+        // At 50% model resolution, a mildly dark bilinear centre surrounded
+        // by a stronger residual must not be darkened further by the spatial
+        // stabilizer. This exercises the production shader on WARP.
+        const auto scaled_detail_off = Run(
+            gpu, 32, 32, 0, 1, 1u, 8, true, 16, 16, {}, 0.0f, {}, 1.0f);
+        const auto scaled_detail_on = Run(
+            gpu, 32, 32, 0, 1, 1u, 8, true, 16, 16, {}, 1.0f, {}, 1.0f);
+        constexpr UINT scaled_output_width = 32 + 2 + 2;
+        const Float4 &scaled_off = scaled_detail_off.output[
+            (16 + 1) * scaled_output_width + (15 + 2)];
+        const Float4 &scaled_on = scaled_detail_on.output[
+            (16 + 1) * scaled_output_width + (15 + 2)];
+        Require(scaled_on.x >= scaled_off.x - 0.0001f &&
+                    scaled_on.y >= scaled_off.y - 0.0001f &&
+                    scaled_on.z >= scaled_off.z - 0.0001f,
+                "Detail stability amplified a 50%-grid dark centre residual");
+        ++scenarios;
         // Exercise the production CombineCS path numerically. The neural
         // fixture has a positive residual, so increasing the transfer scalar
         // must increase the composed luminance; 1.2 must remain distinct from

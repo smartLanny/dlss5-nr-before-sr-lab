@@ -19,6 +19,7 @@ enum class NrLightingReason : unsigned int {
     RequestedOff,
     NrBeforeSr,
     OnlyNrBeforeSr,
+    AfterSr,
 };
 
 struct NrColorPolicy {
@@ -65,6 +66,19 @@ NrColorPolicy ResolveNrColorPolicy(int mode, bool hdr_input,
     return result;
 }
 
+// Finalize the LightingLock request for the selected composition route. This
+// is deliberately independent from HDR colour admission: post-SR local
+// lighting matching must not grant colour processing for an unverified input.
+void ApplyLightingLockPolicy(NrColorPolicy &policy, int mode, float strength) {
+    const bool supported = mode == 1 || mode == 2;
+    const bool requested = supported && std::isfinite(strength) && strength > 0.000001f;
+    policy.requested_preserve_lighting = requested;
+    policy.effective_preserve_lighting = requested;
+    policy.lighting_reason = !supported ? NrLightingReason::Unknown :
+        !requested ? NrLightingReason::RequestedOff :
+        mode == 1 ? NrLightingReason::AfterSr : NrLightingReason::NrBeforeSr;
+}
+
 // Called inside DispatchCodec's existing configuration lock before constants
 // and diagnostic snapshots are published. The explicit optional argument keeps
 // host tests independent; the production call uses the same committed strength
@@ -104,6 +118,7 @@ const char *NrLightingReasonName(NrLightingReason reason) {
     case NrLightingReason::RequestedOff: return "requested-off";
     case NrLightingReason::NrBeforeSr: return "nr-before-sr-local-match";
     case NrLightingReason::OnlyNrBeforeSr: return "only-nr-before-sr";
+    case NrLightingReason::AfterSr: return "post-sr-local-match";
     default: return "unknown-live-contract";
     }
 }

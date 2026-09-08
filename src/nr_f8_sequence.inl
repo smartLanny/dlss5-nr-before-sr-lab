@@ -1,9 +1,10 @@
 // Control runs under g_control, metadata under g_lock. Never acquire g_chain_cs
 // while holding g_lock. GPU callbacks only publish small immutable records.
 namespace nr_f8 {
-constexpr unsigned kFrames = 16, kSlots = 17, kGroups = 3;
+constexpr unsigned kFrames = 16, kSlots = 17, kGroups = 7;
+constexpr unsigned kCurrentRoiFrames = 3, kMatrixRoiFrames = 2, kRoiSide = 512;
 enum class Status { Idle, Requested, Running, Packaging, Complete, Partial, Failed };
-enum class Comparison { Standard, Current, Strength, Protection, Jitter };
+enum class Comparison { ShareMatrix, Current, Strength, Protection, Jitter };
 struct Options { Comparison comparison = Comparison::Current; bool custom_roi = false; unsigned x = 0, y = 0; };
 struct Frame {
     NrStageCaptureInfo info = {};
@@ -15,9 +16,13 @@ struct Frame {
 struct Group {
     ChainConfig requested = {};
     ChainConfig actual = {};
-    unsigned generation = 0, count = 0, delivered = 0;
+    unsigned generation = 0, count = 0, delivered = 0, roi_target = 0;
+    unsigned requested_post_percent = 0, actual_post_percent = 0;
+    int expected_mode = 2;
     unsigned long long started = 0, shot_present = 0;
     bool applied = false, sealed = false, partial = false;
+    bool overview_target = false, overview_reserved = false;
+    bool rr_at_start = false;
     bool shot_requested = false, shot_received = false;
     char reason[160] = {};
     wchar_t screenshot[1024] = {};
@@ -27,9 +32,10 @@ struct Session {
     unsigned long long id = 0, started = 0;
     Options options = {};
     ChainConfig original = {};
+    nr_post_settings::Options post_original = {};
     Group groups[kGroups] = {};
     unsigned group = 0, group_count = 3;
-    bool restored = false, partial = false;
+    bool restored = false, post_restored = false, partial = false;
     UINT64 payload_bytes = 0;
     wchar_t directory[1024] = {};
     FeedbackSession activity = {};
@@ -39,7 +45,11 @@ struct Session {
 #include "nr_f8_stream.inl"
 SRWLOCK g_lock = SRWLOCK_INIT, g_control = SRWLOCK_INIT;
 std::atomic<Status> g_status{Status::Idle};
-std::atomic<bool> g_config_hold{false}, g_cancel{false}, g_window_open{false};
+std::atomic<bool> g_config_hold{false}, g_cancel{false};
+// Hotkeys can arrive while the settings overlay is closed. Keep this request
+// until DrawSettings consumes it; capture progress itself remains independent
+// of whether any ImGui page is visible.
+std::atomic<bool> g_settings_feedback_page_requested{false};
 std::atomic<unsigned long long> g_present{0};
 std::atomic<unsigned> g_hotkey{VK_F8};
 Session *g_session = nullptr;
@@ -48,7 +58,14 @@ unsigned long long g_next_session = 0;
 wchar_t g_last_zip[1024] = {};
 
 bool IsActive() { const auto s=g_status.load(); return s==Status::Requested || s==Status::Running; }
-void OpenWindow() { g_window_open.store(true); }
+void RequestSettingsFeedbackPage() {
+    g_settings_feedback_page_requested.store(true, std::memory_order_release);
+}
+bool TakeSettingsFeedbackPageRequest() {
+    return g_settings_feedback_page_requested.exchange(
+        false, std::memory_order_acq_rel);
+}
+void OpenWindow() { RequestSettingsFeedbackPage(); }
 void Cancel() {
     // Serialize against Present/Watchdog so cancellation cannot land between
     // Present's Requested check and image-session publication.
@@ -86,7 +103,16 @@ bool RequestWithOptions(const Options &options) {
 }
 ChainConfig GroupConfig(const ChainConfig &base, Comparison kind, unsigned index) {
     ChainConfig c=base;
-    if (kind==Comparison::Standard) { c.enabled=index!=0; c.mode=index==2?1:2; }
+    if (kind==Comparison::ShareMatrix) {
+        c.enabled=index!=0;
+        if(index) {
+            c.mode=index<=3?2:1;
+            if(index<=3) {
+                c.work_mode=5;
+                c.custom_work_scale=index==1?.5f:index==2?.75f:1.f;
+            }
+        }
+    }
     else if (kind!=Comparison::Current) {
         c.enabled=true;
         if (kind==Comparison::Strength) c.transfer_strength=c.post_transfer_strength=index==0?1.f:index==1?1.2f:1.5f;
@@ -95,6 +121,14 @@ ChainConfig GroupConfig(const ChainConfig &base, Comparison kind, unsigned index
     }
     if (kind!=Comparison::Current) NormalizeConfig(c);
     return c;
+}
+unsigned GroupPostPercent(Comparison kind,unsigned index,unsigned fallback) {
+    if(kind==Comparison::ShareMatrix && index>=4)return index==4?50u:index==5?75u:100u;
+    return fallback;
+}
+bool UsesPostOptions(Comparison kind) { return kind==Comparison::ShareMatrix; }
+bool GroupUsesPostOptions(Comparison kind,unsigned index) {
+    return kind==Comparison::ShareMatrix && index>=4;
 }
 void Break(Group &g, const char *reason) {
     g.partial=true; g.sealed=true;
@@ -109,11 +143,11 @@ bool ReserveFrame(NrStageCaptureInfo &info, const NrCaptureParams &params, Frame
     bool accepted=false;
     if (s && s->group<s->group_count) {
         Group &g=s->groups[s->group];
-        if (g.applied && g.requested.enabled && !g.sealed && g.count<kSlots &&
+        if (g.applied && g.requested.enabled && !g.sealed &&
             GetTickCount64()-g.started>=3000 && info.identity.warmed_up &&
             info.identity.since_reset>=64 && info.identity.config_generation==g.generation &&
-            g.generation==g_config_generation.load() && info.mode==g.requested.mode) {
-            if (g.count>0 && g.count<kFrames) {
+            g.generation==g_config_generation.load() && info.mode==g.expected_mode) {
+            if (g.count>0 && g.count<g.roi_target) {
                 const auto &last=g.frames[g.count-1].info;
                 if (last.identity.instance_id!=info.identity.instance_id ||
                     last.feature_generation!=info.feature_generation ||
@@ -125,7 +159,10 @@ bool ReserveFrame(NrStageCaptureInfo &info, const NrCaptureParams &params, Frame
                     params.reset) Break(g,"reset, instance/size change or gap in successful composition frames");
             }
             if (!g.sealed && info.source_width && info.source_height) {
-                const bool overview=g.count==kFrames;
+                const bool overview=g.count==g.roi_target;
+                if(overview && !g.overview_target) {
+                    g.sealed=true;ReleaseSRWLockExclusive(&g_lock);return false;
+                }
                 if (overview) {
                     UINT64 bytes=0;
                     if (!ComputeStageCaptureGrid(info.source_width,info.source_height,
@@ -136,8 +173,8 @@ bool ReserveFrame(NrStageCaptureInfo &info, const NrCaptureParams &params, Frame
                     info.region_x=info.region_y=info.region_width=info.region_height=0;
                 } else {
                     info.stride=1;
-                    info.width=info.region_width=std::min(256u,info.source_width);
-                    info.height=info.region_height=std::min(256u,info.source_height);
+                    info.width=info.region_width=std::min(kRoiSide,info.source_width);
+                    info.height=info.region_height=std::min(kRoiSide,info.source_height);
                     info.region_x=s->options.custom_roi?std::min(s->options.x,info.source_width-info.width):(info.source_width-info.width)/2;
                     info.region_y=s->options.custom_roi?std::min(s->options.y,info.source_height-info.height):(info.source_height-info.height)/2;
                 }
@@ -147,9 +184,11 @@ bool ReserveFrame(NrStageCaptureInfo &info, const NrCaptureParams &params, Frame
                     ReleaseSRWLockExclusive(&g_lock); return false;
                 }
                 s->payload_bytes+=bytes;
-                ticket={s->id,s->group,g.count};
-                Frame &f=g.frames[g.count++]; f.info=info; f.params=params; f.reserved=true;
-                if (g.count==kSlots) g.sealed=true;
+                const unsigned slot=overview?kFrames:g.count++;
+                ticket={s->id,s->group,slot};
+                Frame &f=g.frames[slot]; f.info=info; f.params=params; f.reserved=true;
+                if(overview){g.overview_reserved=true;g.sealed=true;}
+                else if(g.count==g.roi_target && !g.overview_target)g.sealed=true;
                 accepted=true;
             }
         }
@@ -239,13 +278,15 @@ void Screenshot(reshade::api::effect_runtime *runtime,const char *path) {
 bool Complete(const Group &g) {
     if (!g.applied || g.partial || !g.shot_received) return false;
     if (!g.requested.enabled) return true;
-    if (g.count!=kSlots) return false;
-    for (const auto &f:g.frames) if (!f.valid) return false;
+    if (g.count!=g.roi_target || (g.overview_target && !g.overview_reserved)) return false;
+    for (unsigned i=0;i<g.count;++i) if (!g.frames[i].valid) return false;
+    if (g.overview_target && !g.frames[kFrames].valid) return false;
     return true;
 }
 void WriteTimeline(FILE *out,const Session &s) {
     std::fprintf(out,"group,index,overview,valid,instance,frame,config,sinceReset,mode,sourceW,sourceH,modelW,modelH,roiX,roiY,sampleW,sampleH,stride,sourceBaseX,sourceBaseY,outputBaseX,outputBaseY,sourceFormat,outputFormat,reset,resetKnown,gameJitterValid,gameJitterX,gameJitterY,nrJitterForwarded,nrJitterX,nrJitterY,gameMvValid,gameMvX,gameMvY,nrMvX,nrMvY,depthW,depthH,mvW,mvH,preExposure,hasPreExposure,exposureScale,hasExposureScale,gpuRawExposure,gpuResolvedExposure,gpuSourceToCanonical,gpuPreExposure,transfer,color,maxLumaRatio,proxyScale,proxyCurve,frameConfidence,detailStability,lightingLock,motionRequested,motionAvailable,modelIntensity,skinStructure\n");
-    for(unsigned g=0;g<s.group_count;++g) for(unsigned i=0;i<s.groups[g].count;++i) {
+    for(unsigned g=0;g<s.group_count;++g) for(unsigned row=0;row<s.groups[g].count+(s.groups[g].overview_reserved?1u:0u);++row) {
+        const unsigned i=row<s.groups[g].count?row:kFrames;
         const auto &f=s.groups[g].frames[i];const auto &n=f.info;const auto &p=f.params;
         std::fprintf(out,"%u,%u,%d,%d,%llu,%llu,%u,%u,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%.9g,%.9g,%d,%.9g,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%u,%u,%u,%u,%.9g,%d,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%u,%.9g,%.9g,%.9g,%d,0,%.9g,%.9g\n",
             g,i,i==kFrames,f.valid,n.identity.instance_id,n.identity.frame_id,n.identity.config_generation,n.identity.since_reset,n.mode,
@@ -267,10 +308,10 @@ DWORD WINAPI PackageWorker(void *opaque) {
         "artifact.addonSha256=%s\nartifact.identityStatus=%s\n"
         "artifact.hashMeasurement=loaded-path-file-once-worker\n",
         kSourceCommit, kSourceDirty ? 1 : 0, module_identity.sha256, module_identity.status);nr_bundle::Result result={};result.status=nr_bundle::Status::Failed;
-    bool complete=s->restored && !s->partial;
+    bool complete=s->restored && s->post_restored && !s->partial;
     for(unsigned i=0;i<s->group_count;++i)complete=Complete(s->groups[i]) && complete;
-    FeedbackAppend(s->activity,"format=DLSS5-F8-v4\nsession=%llu\ncomparison=%u\ngroups=%u\ncapture.complete=%d\nconfig.restored=%d\nconfig.writesToIni=0\nnativeSrOutput=not-obtained\nmvDepthPixels=not-obtained; resource read contract unavailable\nmotionProtection=unavailable\npayloadBytes=%llu\ngpuBudgetBytes=%llu\ncpuBudgetBytes=%llu\n",
-        s->id,static_cast<unsigned>(s->options.comparison),s->group_count,complete,s->restored,s->payload_bytes,nr_f8_budget::kGpuLimit,nr_f8_budget::kCpuLimit);
+    FeedbackAppend(s->activity,"format=DLSS5-F8-v4\nsession=%llu\ncomparison=%u\ngroups=%u\ncapture.complete=%d\nconfig.restored=%d\npostConfig.restored=%d\nconfig.writesToIni=0\ncapture.order=sequential; keep the scene and camera fixed\ncapture.sameFrameClaim=0\nnativeSrOutput=not-obtained\nmvDepthPixels=not-obtained; resource read contract unavailable\nmotionProtection=unavailable\npayloadBytes=%llu\ngpuBudgetBytes=%llu\ncpuBudgetBytes=%llu\n",
+        s->id,static_cast<unsigned>(s->options.comparison),s->group_count,complete,s->restored,s->post_restored,s->payload_bytes,nr_f8_budget::kGpuLimit,nr_f8_budget::kCpuLimit);
     auto *job=nr_bundle::CreateJob(s->directory,s->activity.report);
     if(job) {
         nr_bundle::AddFile(*job,g_log_path,"logs/nr-current.log",nr_bundle::FileKind::LogTail,true);
@@ -293,9 +334,9 @@ DWORD WINAPI PackageWorker(void *opaque) {
         swprintf_s(path,L"%ls\\capture-analysis.txt",s->directory);_wfopen_s(&file,path,L"wb");
         if(file) {
             std::fprintf(file,"DLSS5 %s 本地采集 / local capture\n完整采集=%d；原设置恢复=%d；不自动上传。\n默认仅采当前状态，不启用NR也不切换模式。只有用户选择对比时临时切换。\n\n",kBuildIdentity,complete,s->restored);
-            for(unsigned i=0;i<s->group_count;++i){const auto &g=s->groups[i];unsigned valid=0;for(unsigned f=0;f<std::min(g.count,kFrames);++f)valid+=g.frames[f].valid;
-                std::fprintf(file,"Group %u: mode=%d enabled=%d requestedStrength=%.4g actualStrength=%.4g ROI=%u/16 overview=%d screenshotPresent=%llu complete=%d reason=%s\n",i,g.requested.mode,g.requested.enabled,ActiveTransferStrength(g.requested),ActiveTransferStrength(g.actual),valid,g.frames[16].valid,g.shot_present,Complete(g),g.reason);}
-            std::fprintf(file,"\n分块格式 F8CHK004：每块最多4帧，overview单独保存。原图/代理/NR/合成/保护五平面是同一次Combine dispatch的原像素ROI；曝光尾部写入每条JSON。代理/NR按合成时工作网格映射采样。索引0-15要求NR帧连续、instance/config/尺寸相同；16为独立概览。缺失帧保留元数据而不是拼接。\n截图是独立Present，不是同帧最终SR证据。原生最终SR纹理、MV/Depth像素未取得，不能验证时域重投影。\n保护数据RGBA=权重、原因位、原始log残差、空间保护后log残差；原因1低采样/2细碎不一致/4近黑/8极端比值/16关闭/32输入无效/64零强度/128历史抑制/256无残差/512后置不可用。这是空间保护，不是人脸/HUD识别，也不证明运动保护。\n每帧JSON含完整请求/实际参数、codecFlags、曝光有效性、jitter、MV比例与实际模型tuning；请在相同颜色域分析，不独立归一化或用均值替代画质。部分包请检查manifest缺失原因。\n");
+            for(unsigned i=0;i<s->group_count;++i){const auto &g=s->groups[i];unsigned valid=0;for(unsigned f=0;f<g.count;++f)valid+=g.frames[f].valid;
+                std::fprintf(file,"Group %u: requestedMode=%d expectedCaptureMode=%d rrAtStart=%d enabled=%d requestedStrength=%.4g actualStrength=%.4g requestedPostPercent=%u actualPostPercent=%u ROI=%u/%u roiSide=%u overview=%d screenshotPresent=%llu complete=%d reason=%s\n",i,g.requested.mode,g.expected_mode,g.rr_at_start,g.requested.enabled,ActiveTransferStrength(g.requested),ActiveTransferStrength(g.actual),g.requested_post_percent,g.actual_post_percent,valid,g.roi_target,kRoiSide,g.overview_reserved&&g.frames[kFrames].valid,g.shot_present,Complete(g),g.reason);}
+            std::fprintf(file,"\n分块格式 F8CHK004：头中的roiTarget记录本组目标（当前采集3帧，分享矩阵2帧）；ROI索引从0连续，16仅供当前采集的独立概览。原图/代理/NR/合成/保护五平面是同一次Combine dispatch的512原像素ROI；曝光尾部写入每条JSON。代理/NR按合成时工作网格映射采样。缺失帧保留元数据而不是拼接。\n截图是之后的独立Present，各组也是顺序采集；它们不是同一帧最终SR证据。采集期间需保持场景与镜头。原生最终SR纹理、MV/Depth像素未取得，不能验证时域重投影。\n保护数据RGBA=权重、原因位、原始log残差、空间保护后log残差；原因1低采样/2细碎不一致/4近黑/8极端比值/16关闭/32输入无效/64零强度/128历史抑制/256无残差/512后置细节/边缘空间权重不可用（lightingLock按独立亮度保护生效）。这是空间保护，不是人脸/HUD识别，也不证明运动保护。\n每帧JSON含完整请求/实际参数、codecFlags、曝光有效性、jitter、MV比例与实际模型tuning；请在相同颜色域分析，不独立归一化或用均值替代画质。部分包请检查manifest缺失原因。\n");
             const bool ok=std::ferror(file)==0;std::fclose(file);
             if(ok){nr_bundle::AddFile(*job,path,"capture-analysis.txt",nr_bundle::FileKind::Copy,true);
                 nr_bundle::AddFile(*job,path,"分析说明.txt",nr_bundle::FileKind::Copy,true);}
@@ -304,7 +345,8 @@ DWORD WINAPI PackageWorker(void *opaque) {
         for(unsigned i=0;i<s->group_count;++i) {
             const auto &g=s->groups[i];char name[128]={};
             for(unsigned chunk=0;chunk<5;++chunk) {
-                if(chunk*4>=g.count)continue;
+                if(chunk<4 && chunk*4>=g.count)continue;
+                if(chunk==4 && !g.overview_reserved)continue;
                 swprintf_s(path,L"%ls\\group-%u-chunk-%u.f8c",s->directory,i,chunk);
                 if(chunk==4)std::snprintf(name,sizeof(name),"groups/%u/overview.f8c",i);
                 else std::snprintf(name,sizeof(name),"groups/%u/chunk-%03u.f8c",i,chunk);
@@ -332,20 +374,36 @@ DWORD WINAPI PackageWorker(void *opaque) {
 void StartGroup(Session &s) {
     const unsigned index=s.group;
     const ChainConfig requested=GroupConfig(s.original,s.options.comparison,index);
-    if(s.options.comparison!=Comparison::Current)ApplyConfig(requested,"F8 transient comparison",false);
+    const bool rr_pre_skip=s.options.comparison!=Comparison::Current && requested.enabled && requested.mode==2 &&
+        IsRayReconstructionRouteObserved();
+    const unsigned requested_post=GroupPostPercent(s.options.comparison,index,s.post_original.percent);
+    const bool group_uses_post=GroupUsesPostOptions(s.options.comparison,index);
+    const bool post_applied=rr_pre_skip || !requested.enabled || !group_uses_post ||
+        nr_post_settings::RequestForCapture({true,requested_post});
+    if(s.options.comparison!=Comparison::Current && !rr_pre_skip)ApplyConfig(requested,"F8 transient comparison",false);
     ChainConfig actual=SnapshotConfig();
+    const auto actual_post=nr_post_settings::Read();
     actual.perf_epoch=requested.perf_epoch; // internal monotonic statistics epoch is not a user setting
     AcquireSRWLockExclusive(&g_lock);
     Group &g=s.groups[index];g.requested=requested;g.actual=actual;g.generation=g_config_generation.load();
-    g.applied=SameConfig(requested,actual);g.started=GetTickCount64();
-    if(!g.applied)Break(g,"configuration was not applied");
+    g.requested_post_percent=requested_post;g.actual_post_percent=actual_post.percent;
+    g.rr_at_start=IsRayReconstructionRouteObserved();
+    g.expected_mode=s.options.comparison==Comparison::Current && g.rr_at_start?1:requested.mode;
+    g.roi_target=s.options.comparison==Comparison::Current?kCurrentRoiFrames:kMatrixRoiFrames;
+    g.overview_target=s.options.comparison==Comparison::Current;
+    g.applied=rr_pre_skip || (post_applied && SameConfig(requested,actual) &&
+        (!requested.enabled || !group_uses_post || actual_post.percent==requested_post));g.started=GetTickCount64();
+    if(rr_pre_skip)Break(g,"NR -> SR comparison skipped: Ray Reconstruction is active; only post-RR ordering may be sampled");
+    else if(!g.applied)Break(g,"configuration was not applied");
     ReleaseSRWLockExclusive(&g_lock);
 }
 void Finish(Session *s) {
     AcquireSRWLockExclusive(&g_lock);g_session=nullptr;g_status.store(Status::Packaging);ReleaseSRWLockExclusive(&g_lock);
     if(s->options.comparison!=Comparison::Current)ApplyConfig(s->original,"F8 restore original",false);
+    if(UsesPostOptions(s->options.comparison))nr_post_settings::RequestForCapture(s->post_original);
     ChainConfig restored=SnapshotConfig();restored.perf_epoch=s->original.perf_epoch;
     s->restored=SameConfig(s->original,restored);
+    s->post_restored=!UsesPostOptions(s->options.comparison) || nr_post_settings::Read().percent==s->post_original.percent;
     g_config_hold.store(false);
     FeedbackAppendActivity(s->activity,"end");
     if(!QueueUserWorkItem(PackageWorker,s,WT_EXECUTEDEFAULT)) {
@@ -363,13 +421,20 @@ void Tick(reshade::api::effect_runtime *runtime) {
             Break(g,g_cancel.load()?"cancelled":age>=30000?"group timeout; missing pixels retained as partial":"Ray Reconstruction owns the rendering path");
             s->partial=true;finish=true;
         } else {
-            if(g.requested.enabled && (ShouldGuardFeature1ForRayReconstruction() || OtherNrOwnerActive()))
-                Break(g,"RR or another NR addon owns this path; only screenshots/logs available");
+            const bool rr_now=IsRayReconstructionRouteObserved();
+            if(s->options.comparison==Comparison::Current && rr_now!=g.rr_at_start)
+                Break(g,"RR route changed during current-state capture; mixed-route pixels were not combined");
+            else if(g.requested.enabled && ((s->options.comparison!=Comparison::Current && g.requested.mode==2 && rr_now) || OtherNrOwnerActive()))
+                Break(g,s->options.comparison!=Comparison::Current && g.requested.mode==2 && rr_now
+                    ?"NR -> SR comparison skipped: Ray Reconstruction is active; only post-RR ordering may be sampled"
+                    :"another NR addon owns this path; only screenshots/logs available");
             if(runtime && runtime==s->runtime && !g.shot_requested && age>=3000) {
                 g.shot_requested=true;g.shot_present=g_present.load();shot=true;
                 std::snprintf(tag,sizeof(tag),"DLSS5_F8_%llu_%u",s->id,s->group);
             }
-            bool ready=g.applied && g.shot_received && (!g.requested.enabled || (g.sealed && g.delivered==g.count));
+            const unsigned expected=g.count+(g.overview_reserved?1u:0u);
+            bool ready=g.shot_received && ((g.partial&&g.sealed) ||
+                (g.applied && (!g.requested.enabled || (g.sealed && g.delivered==expected))));
             if(ready) {s->partial|=!Complete(g);if(s->group+1<s->group_count){++s->group;advance=true;}else finish=true;}
         }
     }
@@ -401,8 +466,13 @@ void Present(reshade::api::effect_runtime *runtime) {
         s->id=++g_next_session;s->options=g_options;s->runtime=runtime;s->started=GetTickCount64();
         s->core_pair=nr_core_feedback::SnapshotPair();
         s->partial=!s->core_pair.ready || !s->core_pair.complete;
-        s->group_count=s->options.comparison==Comparison::Current?1:(s->options.comparison==Comparison::Protection || s->options.comparison==Comparison::Jitter)?2:3;
-        g_config_hold.store(true);s->original=SnapshotConfig();
+        s->group_count=s->options.comparison==Comparison::Current?1:s->options.comparison==Comparison::ShareMatrix?7:
+            (s->options.comparison==Comparison::Protection || s->options.comparison==Comparison::Jitter)?2:3;
+        const UINT64 roi_bytes=static_cast<UINT64>(kRoiSide)*kRoiSide*80u+16u;
+        const UINT64 overview_reserve=s->options.comparison==Comparison::Current?40ull*1024*1024+16u:0u;
+        if(roi_bytes*s->group_count*(s->options.comparison==Comparison::Current?kCurrentRoiFrames:kMatrixRoiFrames)+overview_reserve>
+            nr_f8_budget::kPayloadLimit){delete s;g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;}
+        g_config_hold.store(true);s->original=SnapshotConfig();s->post_original=nr_post_settings::Read();
         FeedbackAppend(s->activity,"build=%s\n",kBuildIdentity);FeedbackAppendActivity(s->activity,"start");
         AcquireSRWLockExclusive(&g_lock);g_session=s;g_status.store(Status::Running);ReleaseSRWLockExclusive(&g_lock);
         StartGroup(*s);
@@ -428,12 +498,15 @@ void DrawCoreTextStatus(bool chinese) {
     nr_bundle::CopyPath(view->path,nr_core_feedback::g_report_path);
     ReleaseSRWLockShared(&g_feedback_lock);
     if (view->text) {
-        ImGui::TextWrapped("%s", chinese ? "TXT 已保存，直接发送这个文件或复制全文到群文档即可。" : "TXT saved. Send this file or copy its full text into your feedback document.");
+        const auto clipboard=nr_core_feedback::GetReportClipboardStatus();
+        ImGui::TextWrapped("%s",clipboard==nr_core_feedback::ReportClipboardStatus::Copied
+            ?(chinese?"TXT 已保存，文件路径已自动复制。直接发送这个文件即可。":"TXT saved and its file path was copied automatically. Send that file directly.")
+            :clipboard==nr_core_feedback::ReportClipboardStatus::Failed
+                ?(chinese?"TXT 已保存，但自动复制路径失败；文件路径如下。":"TXT was saved, but automatic path copy failed. The file path is shown below.")
+                :(chinese?"TXT 已保存，正在复制文件路径。":"TXT saved; copying its file path."));
         if (!view->complete) ImGui::TextWrapped("%s", chinese ? "TXT 部分证据不可用，缺失原因已写入文件；不代表游戏正常。" : "TXT is partial; missing evidence is explicit, not proof of game health.");
-        if (ImGui::Button(chinese ? "复制完整报告（群文档）" : "Copy full TXT report")) ImGui::SetClipboardText(view->text->c_str());
         WideToUtf8(view->path,view->utf8,sizeof(view->utf8));
         ImGui::TextWrapped("%s",view->utf8);
-        if (ImGui::Button(chinese ? "复制 TXT 路径" : "Copy TXT path")) ImGui::SetClipboardText(view->utf8);
     } else if (view->error) {
         ImGui::TextWrapped(chinese ? "TXT 保存失败（Win32 %lu）；没有复用上一次的报告。" : "TXT failed (Win32 %lu); no previous report was reused.",view->error);
     }
@@ -442,12 +515,10 @@ void DrawCoreTextStatus(bool chinese) {
 void DrawCoreStatus() {
     const bool zh=UseChineseUi();
     char path[4096]={},reason[160]={};
-    char submission[nr_feedback_ticket::kCapacity] = {};
     AcquireSRWLockShared(&g_feedback_lock);
     const auto status=g_feedback_status.load();
     WideToUtf8(g_feedback_last_zip,path,sizeof(path));
     nr_bundle::CopyText(reason,sizeof(reason),nr_core_feedback::g_reason);
-    nr_bundle::CopyText(submission,sizeof(submission),nr_core_feedback::g_submission);
     ReleaseSRWLockShared(&g_feedback_lock);
     if(status==0)return;
     if(status==1 || status==2) {
@@ -459,9 +530,6 @@ void DrawCoreStatus() {
             (zh?"核心反馈保存失败，没有复用旧包路径。":"Core feedback failed; no old package path reused."));
         if(reason[0])ImGui::TextWrapped("%s",reason);
         if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(zh?"复制核心包路径":"Copy core path"))ImGui::SetClipboardText(path);}
-        if (submission[0] && ImGui::Button(zh?"复制报告摘要（粘贴后补充现象）":"Copy report summary"))
-            ImGui::SetClipboardText(submission);
-
     }
     DrawCoreTextStatus(UseChineseUi());
 }
@@ -475,18 +543,18 @@ void DrawControls() {
     const bool busy=IsActive() || state==Status::Packaging || nr_core_feedback::Busy();
     ImGui::BeginDisabled(busy);
     if(ImGui::Button(use_chinese_ui?"生成反馈 TXT（F8，推荐）":"Save feedback TXT (F8, recommended)"))RequestCore();
-    F8Tooltip(use_chinese_ui?"用于不生效、旁路和兼容性。保存一个带时间、游戏、版本名的 TXT，直接复制全文填表；不生成 ZIP，不采图片、不改设置。TXT 上限 2 MiB。":"For bypass and compatibility issues. Saves one TXT named by time, game and actual build. No ZIP, images or setting changes. Bounded report ceiling: 2 MiB.");
+    F8Tooltip(use_chinese_ui?"用于不生效、旁路和兼容性。成功写完一个带时间、游戏、版本名的 TXT 后自动复制文件路径；不复制正文、不生成 ZIP、不采图片、不改设置。TXT 上限 192 KiB。":"For bypass and compatibility issues. After one named TXT is written successfully, its file path is copied automatically. No report text, ZIP, images or setting changes. Bounded report ceiling: 192 KiB.");
     ImGui::EndDisabled();
     if(!busy) {
-        static int comparison=1,x=0,y=0,key=VK_F8;static bool custom=false;
+        static int x=0,y=0,key=VK_F8;static bool custom=false;
         if(ImGui::Button(use_chinese_ui?"采集图像补充包（F7，仅画面异常）":"Capture image supplement (F7, visual issues only)"))RequestWithOptions({Comparison::Current,false,0,0});
-        F8Tooltip(use_chinese_ui?"先生成新的配对核心包，再采当前图像；用于颜色、亮度、闪烁和细节问题。请一起提交界面显示的新核心包。默认不改设置，图像部分可能等待 GPU 或标记缺失。":"Creates a fresh paired core package before images. Use for color, lighting, flicker and detail issues; submit the new core path too. Default capture changes no settings; missing GPU images are explicit.");
-        if(ImGui::TreeNode(use_chinese_ui?"对比采集与区域设置":"Comparison and region options")) {
-        ImGui::Combo(use_chinese_ui?"采集内容":"Comparison",&comparison,use_chinese_ui?"标准三组对比\0只采当前问题\0强度 1.0 / 1.2 / 1.5\0细节保护关闭 / 开启\0NR jitter 未传递 / 传递\0":"Standard three groups\0Current issue only\0Strength 1.0 / 1.2 / 1.5\0Detail protection off / on\0NR jitter off / on\0");
-        F8Tooltip(use_chinese_ui?"对比采集会临时切换所选参数；固定镜头，不改变游戏 DLSS/HDR。每组等待3秒与64次成功 NR，结束后恢复。":"Comparison capture temporarily changes the selected parameter. Keep the camera fixed; game DLSS/HDR stays unchanged. Waits 3 seconds and 64 successful NR evaluations, then restores settings.");
+        F8Tooltip(use_chinese_ui?"当前设置采集使用三个连续 512×512 ROI、一个概览和一张独立显示截图；不改变设置。":"Current-state capture uses three consecutive 512x512 ROIs, one overview and a separate display screenshot without changing settings.");
+        if(ImGui::TreeNode(use_chinese_ui?"顺序画面对比与区域设置":"Sequential picture comparison and region")) {
         ImGui::Checkbox(use_chinese_ui?"指定问题位置（原图像素）":"Custom source-pixel region",&custom);
-        if(custom){ImGui::InputInt("X",&x);ImGui::InputInt("Y",&y);}else ImGui::TextDisabled("%s",use_chinese_ui?"默认中央 256×256 原像素区域":"Default: central 256 x 256 native pixels");
-        if(ImGui::Button(use_chinese_ui?"开始采集":"Start capture"))RequestWithOptions({static_cast<Comparison>(comparison),custom,static_cast<unsigned>(std::max(x,0)),static_cast<unsigned>(std::max(y,0))});
+        if(custom){ImGui::InputInt("X",&x);ImGui::InputInt("Y",&y);}else ImGui::TextDisabled("%s",use_chinese_ui?"默认中央 512×512 原像素区域":"Default: central 512 x 512 native pixels");
+        if(ImGui::Button(use_chinese_ui?"当前设置 512 对照":"Current 512 capture"))RequestWithOptions({Comparison::Current,custom,static_cast<unsigned>(std::max(x,0)),static_cast<unsigned>(std::max(y,0))});
+        if(ImGui::Button(use_chinese_ui?"一键分享七组对比":"Capture seven-group share matrix"))RequestWithOptions({Comparison::ShareMatrix,custom,static_cast<unsigned>(std::max(x,0)),static_cast<unsigned>(std::max(y,0))});
+        F8Tooltip(use_chinese_ui?"依次采原生、NR→SR 50/75/100、SR→NR 50/75/100；每组两个 512 ROI 和一张独立截图。它们不是同一帧，采集期间请保持场景与镜头。RR 活跃时跳过所有前置组。结束、取消或失败都会恢复原设置。":"Sequentially captures native, NR-to-SR 50/75/100, and SR-to-NR 50/75/100 with two 512 ROIs and a separate screenshot per group. These are not the same frame; keep the scene and camera fixed. Active RR skips every pre-SR group. Completion, cancellation and failure restore the original settings.");
         ImGui::TreePop();
         }
         if(ImGui::TreeNode(use_chinese_ui?"快捷键设置":"Shortcut")) {
@@ -500,7 +568,7 @@ void DrawControls() {
         }
     } else {
         AcquireSRWLockShared(&g_lock);
-        if(g_session){const auto &s=*g_session;const auto &g=s.groups[s.group];ImGui::Text(use_chinese_ui?"第 %u/%u 组，已记录 %u/16 帧，后台取得 %u 帧":"Group %u/%u, recorded %u/16 frames, delivered %u",s.group+1,s.group_count,std::min(g.count,kFrames),g.delivered);}
+        if(g_session){const auto &s=*g_session;const auto &g=s.groups[s.group];ImGui::Text(use_chinese_ui?"第 %u/%u 组，已记录 %u/%u 个 512 ROI，后台取得 %u 项":"Group %u/%u, recorded %u/%u 512 ROIs, delivered %u items",s.group+1,s.group_count,g.count,g.roi_target,g.delivered);}
         ReleaseSRWLockShared(&g_lock);
         if(IsActive() && ImGui::Button(use_chinese_ui?"取消并恢复设置":"Cancel and restore"))Cancel();
     }
@@ -509,11 +577,5 @@ void DrawControls() {
         char path[4096]={};AcquireSRWLockShared(&g_lock);WideToUtf8(g_last_zip,path,sizeof(path));ReleaseSRWLockShared(&g_lock);
         if(path[0]){ImGui::TextWrapped("%s",path);if(ImGui::Button(use_chinese_ui?"复制图像包路径":"Copy image path"))ImGui::SetClipboardText(path);}
     }
-}
-void DrawOverlay(reshade::api::effect_runtime *) {
-    if(!g_window_open.load() && !IsActive() && g_status.load()!=Status::Packaging && !nr_core_feedback::Busy())return;
-    const bool use_chinese_ui=UseChineseUi();
-    bool open=true;if(ImGui::Begin(use_chinese_ui?"DLSS5 反馈采集###dlss5-feedback-window":"DLSS5 feedback capture###dlss5-feedback-window",&open,ImGuiWindowFlags_AlwaysAutoResize))DrawControls();ImGui::End();
-    if(!open){g_window_open.store(false);if(IsActive())Cancel();}
 }
 } // namespace nr_f8
