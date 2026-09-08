@@ -24,6 +24,7 @@ function installMock() {
     boot: async () => ok({ product: { name: 'DLSS 5 AI 超分管理器', edition: '装机宅版', author: '野生的装机宅', version: 'UI smoke' }, settings: {}, hardware: mock.data.hardware,
       payload: mock.payload, games: [game], addons: [] }),
     readPayloadSource: async () => sourceState(),
+    openExternal: async key => { mock.calls.push(['open-external', key]); return ok(true); },
     pickPayloadSource: async () => { mock.calls.push(['pick-source']); if (mock.failSource) return { ok: false, error: { code: 'ERR_PAYLOAD_SOURCE_HASH', message: '测试组件校验失败：核心文件不匹配' } }; mock.payload.source = { mode: 'external', path: 'D:\\安装组件库\\已校验', ready: true }; return sourceState(); },
     recheckPayloadSource: async () => { mock.calls.push(['recheck-source']); mock.payload.source.ready = false; mock.payload.source.error = { code: 'ERR_PAYLOAD_SOURCE_UNAVAILABLE', message: '所选组件目录已断开，请重新连接。' }; mock.payload.ready = false; mock.payload.versions = {}; return { ok: false, error: mock.payload.source.error }; },
     resetPayloadSource: async () => { mock.calls.push(['reset-source']); mock.payload.source = { mode: 'bundled', path: 'C:\\组件\\随程序提供', ready: true }; mock.payload.ready = true; return sourceState(); },
@@ -161,6 +162,19 @@ async function smoke() {
   assert(!field('sr', 'backend') && panel('sr').querySelector('[data-ls-action="save"]').disabled && saved('sr').backend === 'optiscaler', 'Legacy OptiScaler requests are preserved for restoration without an editable backend');
   await click('sr', 'restore');
   assert(!saved('sr') && field('sr', 'renderPercent'), 'Restoring legacy OptiScaler unlocks native SR editing');
+  const preparesBeforeRuntime = count('prepare-components');
+  mock.data.fgComponents = { route: 'compatibility', ready: false, canPrepare: false, missing: [], blockers: ['缺少 VC++ x64 运行库：vcruntime140.dll'], runtime: { status: 'missing', ready: false } };
+  await controller.refresh();
+  assert(panel('fg').querySelector('[data-ls-action="runtime-help"]') && !panel('fg').querySelector('[data-ls-action="prepare"]') && !field('fg', 'mode'), 'Missing VC runtime exposes an official repair path without claiming FG readiness');
+  await click('fg', 'runtime-help');
+  assert(mock.calls.some(row => row[0] === 'open-external' && row[1] === 'vcRuntimeUrl') && count('prepare-components') === preparesBeforeRuntime, 'Runtime help opens the fixed official link without writing game files');
+  await click('fg', 'runtime-check');
+  assert(panel('fg').textContent.includes('运行库检查尚未通过') && !field('fg', 'mode'), 'An unsuccessful runtime recheck keeps FG blocked');
+  mock.data.fgComponents.runtime.repair = 'game-files'; await controller.refresh();
+  assert(!panel('fg').querySelector('[data-ls-action="runtime-help"]') && panel('fg').textContent.includes('验证游戏安装文件'), 'A broken game-local DLL is not misrepresented as fixable by installing a system runtime');
+  mock.data.fgComponents = { route: 'compatibility', ready: false, canPrepare: true, missing: ['兼容插件'], blockers: [], runtime: { status: 'available', ready: true } };
+  await click('fg', 'runtime-check');
+  assert(panel('fg').querySelector('[data-ls-action="prepare"]') && panel('fg').textContent.includes('游戏内加载与帧生成仍需验证'), 'Runtime recovery unlocks preparation while keeping game verification separate');
   mock.data.fgComponents = { route: 'compatibility', ready: false, canPrepare: true, missing: ['兼容插件', '加载器'], blockers: [] };
   await controller.refresh();
   assert(panel('fg').querySelector('[data-ls-action="prepare"]') && !field('fg', 'mode'), 'Missing RTX40 components expose preparation instead of unusable controls');
@@ -266,6 +280,7 @@ app.whenReady().then(async () => {
       })()`);
     }
     if (process.env.SRFG_UI_STATE === 'bridge') await win.webContents.executeJavaScript("(()=>{const row=document.querySelector('.api-config-block'),view=row.closest('.view');view.scrollTop+=row.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()");
+    if (process.env.SRFG_UI_STATE === 'runtime-missing') await win.webContents.executeJavaScript(`(async()=>{const mock=window.__launchMock,host=document.querySelector('.launch-settings-host');mock.data.fgComponents={route:'compatibility',ready:false,canPrepare:false,missing:[],blockers:['缺少 VC++ x64 运行库：vcruntime140.dll、msvcp140.dll。请安装或修复微软运行库后重新检查。'],runtime:{status:'missing',ready:false}};await host.launchSettingsController.refresh(false);const view=document.querySelector('.view.active');view.scrollTop+=host.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()`);
     win.webContents.invalidate();
     await new Promise(resolve => setTimeout(resolve, 150));
     const screenshot = process.argv[2];

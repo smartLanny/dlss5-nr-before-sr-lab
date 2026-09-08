@@ -11,6 +11,7 @@ const { readManifest } = require('./manifest');
 const { planRtx40Mfg } = require('./launch-profile-plan');
 const { appError } = require('./errors');
 const { noLinks, atomicJson } = require('./launch-safety');
+const { inspectVcRuntime } = require('./windows-runtime');
 
 const HASH = /^[a-f0-9]{64}$/;
 const CONTROL = 'RTX40MFG-Universal.json';
@@ -70,6 +71,7 @@ function createFgComponents(options = {}) {
   const assertGameClosed = options.assertGameClosed || guards.assertGameClosed;
   const antiCheatPresent = options.antiCheatPresent || guards.antiCheatPresent;
   const getReShadeSource = options.getReShadeSource || (() => null);
+  const inspectRuntime = options.inspectRuntime || inspectVcRuntime;
   function target(id) {
     const game = options.gameDirectory(id), exe = options.gameExecutable(id);
     if (typeof game !== 'string' || typeof exe !== 'string' || !path.isAbsolute(game) || !path.isAbsolute(exe) || path.extname(exe).toLowerCase() !== '.exe') fail('SETTINGS_FG_TARGET', '游戏 EXE 无效。');
@@ -140,6 +142,13 @@ function createFgComponents(options = {}) {
     }
     if (route === 'unsupported') return { route, ready: false, missing: [], blockers: ['仅 RTX 40 使用社区兼容组件；RTX 50 使用原生 FG。'], canPrepare: false, components: [], api: observed?.api || 'unknown', exe: t.exe };
     const blockers = [], missing = [], components = []; let manifest = null;
+    let runtime;
+    try { runtime = await inspectRuntime({ applicationDirectory: t.dir }); }
+    catch { runtime = { status: 'unknown', ready: false, missing: [], message: '无法读取或验证 Windows x64 VC++ 运行库文件。' }; }
+    if (!runtime || runtime.ready !== true || runtime.status !== 'available') {
+      if (!runtime || !['missing', 'unknown'].includes(runtime.status)) runtime = { status: 'unknown', ready: false, missing: [], message: '无法读取或验证 Windows x64 VC++ 运行库文件。' };
+      blockers.push(runtime.message || 'RTX40 FG 需要 Windows x64 VC++ 运行库。');
+    }
     try { manifest = readResourceManifest(); } catch (error) { blockers.push(error.message); }
     if (pe.getBitness(t.exe) !== 64) blockers.push('所选程序不是 Windows x64 游戏 EXE。');
     if (observed?.api !== 'dx12') blockers.push(observed?.api === 'unknown' ? '请先确认游戏实际使用 DirectX 12。' : '当前只为 DirectX 12 准备 RTX40 FG 兼容组件。');
@@ -186,7 +195,7 @@ function createFgComponents(options = {}) {
     if (receipt) for (const row of receipt.files) if (row.mode !== 'adopted' && row.role !== 'control') { const actual = fileHash(journal.safePath(t.game, row.rel)); if (actual && actual !== row.after) blockers.push(`${path.basename(row.rel)} 已在准备后被外部修改。`); }
     if (receipt) for (const component of components) { const row = receipt.files.find(item => path.basename(item.rel).toLowerCase() === component.name.toLowerCase()); if (row) component.owned = row.mode !== 'adopted'; }
     const ready = blockers.length === 0 && missing.length === 0 && !components.some(row => ['needs-update', 'external'].includes(row.status));
-    return { route, ready, needsCleanup: false, managed: Boolean(receipt), missing: [...new Set(missing)], blockers, canPrepare: blockers.length === 0 && !ready, components, api: observed?.api || 'unknown', exe: t.exe, proxy, receipt: Boolean(receipt) };
+    return { route, ready, needsCleanup: false, managed: Boolean(receipt), missing: [...new Set(missing)], blockers, canPrepare: blockers.length === 0 && !ready, components, api: observed?.api || 'unknown', exe: t.exe, proxy, receipt: Boolean(receipt), runtime };
   }
   async function prepare(id, { allowAntiCheat = false } = {}) {
     const status = await inspect(id); if (status.route !== 'compatibility') fail('SETTINGS_FG_UNSUPPORTED', status.blockers[0] || '当前无需 RTX40 兼容组件。');

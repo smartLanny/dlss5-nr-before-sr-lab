@@ -145,9 +145,10 @@
     const blockers = Array.isArray(info.blockers) ? info.blockers : [];
     const missing = Array.isArray(info.missing) ? info.missing : [];
     return `<div class="launch-components"><strong>${native ? 'RTX 50 · 原生帧生成' : info.route === 'compatibility' ? 'RTX 40 · 兼容帧生成' : '帧生成路线待确认'}</strong>
-      <p>${native ? info.needsCleanup ? '需要先移除原来的兼容组件，再使用原生路线。' : '使用游戏和 NVIDIA 驱动的原生帧生成，无需另装兼容组件。' : info.ready ? '兼容组件已就绪，可以设置倍率。首次使用请在游戏内开启帧生成。' : '由管理器准备兼容插件、加载器和所需运行环境，完成后再开放设置。'}</p>
+      <p>${native ? info.needsCleanup ? '需要先移除原来的兼容组件，再使用原生路线。' : '使用游戏和 NVIDIA 驱动的原生帧生成，无需另装兼容组件。' : info.ready ? '兼容组件已就绪，可以设置倍率。首次使用请在游戏内开启帧生成。' : '先检查系统运行库，再由管理器准备兼容插件与加载器。'}</p>
       ${blockers.length ? `<p class="launch-error">${blockers.map(esc).join('<br>')}</p>` : ''}
       ${missing.length ? `<details><summary>待准备的组件（${missing.length}）</summary><ul>${missing.map(item => `<li>${esc(typeof item === 'string' ? item : item.label || item.name || item.role)}</li>`).join('')}</ul></details>` : ''}
+      ${!native && info.runtime && info.runtime.ready !== true ? `<div class="payload-source-actions">${info.runtime.repair !== 'game-files' ? `<button class="button primary" type="button" data-ls-action="runtime-help"${busy ? ' disabled' : ''}>下载 VC++ x64 运行库</button>` : ''}<button class="button" type="button" data-ls-action="runtime-check"${busy ? ' disabled' : ''}>重新检查运行库</button></div><p class="config-note">${info.runtime.repair === 'game-files' ? '请先验证游戏安装文件，再重新检查。管理器不会覆盖游戏自带的运行库。' : '微软官方安装程序。完成安装或修复后返回此处；不会自动修改游戏文件。'}</p>` : ''}
       ${info.needsCleanup ? `<button class="button primary" type="button" data-ls-action="native-route"${busy ? ' disabled' : ''}>切换为原生帧生成</button>` : !info.ready && info.canPrepare ? `<button class="button primary" type="button" data-ls-action="prepare"${busy ? ' disabled' : ''}>准备兼容组件</button>` : ''}
       ${!native && info.managed ? `<button class="button subtle" type="button" data-ls-action="remove-components"${busy ? ' disabled' : ''}>移除兼容组件</button>` : ''}
     </div>`;
@@ -210,7 +211,13 @@
       let succeeded = false;
       try {
         if (domain) delete messages[domain];
-        if (action === 'prepare') {
+        if (action === 'runtime-help') {
+          render();
+          if (unwrap(await manager.openExternal('vcRuntimeUrl')) !== true) throw new Error('无法打开微软下载，请稍后重试。');
+          setMessage('fg', '已打开微软运行库下载；安装或修复完成后点击“重新检查运行库”。');
+        } else if (action === 'runtime-check') {
+          render();
+        } else if (action === 'prepare') {
           render();
           let response = await manager.prepareFgComponents(id, { allowAntiCheat: false });
           if (response?.ok === false && response.error?.code === 'ERR_ANTI_CHEAT_CONFIRM') {
@@ -271,6 +278,8 @@
         if (succeeded && action === 'restore' && data) { drafts[domain] = initialFields(domain, data); dirty[domain] = false; }
         if (succeeded && ['native-route', 'remove-components'].includes(action) && data) { drafts.fg = initialFields('fg', data); dirty.fg = false; }
         if (succeeded && action === 'prepare' && data?.fgComponents?.ready !== true) setMessage('fg', '组件检查尚未通过，请处理上方提示后重试。', true);
+        if (succeeded && action === 'runtime-check') setMessage('fg', data?.fgComponents?.runtime?.ready === true
+          ? '基础运行库文件检查通过；游戏内加载与帧生成仍需验证。' : '运行库检查尚未通过，请处理上方提示。', data?.fgComponents?.runtime?.ready !== true);
       }
       busy = false;
       render();

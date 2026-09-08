@@ -24,6 +24,7 @@ function fixture(t, options = {}) {
   const service = createFgComponents({ resourcesPath: path.join(root, 'resources'), appDir: root, gameDirectory: () => game, gameExecutable: () => exe,
     detectHardware: () => ({ family: series === 'RTX50' ? 'RTX50' : 'RTX40', series: [series] }), scan: async () => ({ ...facts }),
     pe: { getBitness: () => 64, getImports: () => options.imports || ['version.dll'] }, assertGameClosed: async () => {}, antiCheatPresent: () => options.antiCheat === true,
+    inspectRuntime: options.inspectRuntime || (() => ({ status: 'available', ready: true, missing: [], message: 'fixture base files only' })),
     getReShadeSource: options.getReShadeSource || (async () => ({ file: reshade, sha256: sha256(Buffer.from('reshade')) })) });
   return { root, game, dir, exe, resources, files, facts, service, setSeries: value => { series = value; } };
 }
@@ -38,8 +39,11 @@ test('UAL config merges required values while preserving an existing root-plugin
 });
 
 test('native FG and no-op component restore do not depend on NR payload availability', async t => {
-  const f = fixture(t, { series: 'RTX50', getReShadeSource: async () => { throw new Error('missing NR payload'); } });
+  let runtimeChecks = 0;
+  const f = fixture(t, { series: 'RTX50', inspectRuntime: () => { runtimeChecks++; throw new Error('must not inspect RTX50 runtime'); },
+    getReShadeSource: async () => { throw new Error('missing NR payload'); } });
   assert.equal((await f.service.inspect('g')).ready, true);
+  assert.equal(runtimeChecks, 0);
   assert.deepEqual(await f.service.restore('g'), { restored: false, unchanged: true });
 });
 
@@ -66,6 +70,23 @@ test('unsupported route, missing Streamline and unknown proxy never prepare file
   const blocked = fixture(t, { streamlineFg: false }); fs.writeFileSync(path.join(blocked.dir, 'version.dll'), 'foreign');
   const status = await blocked.service.inspect('g'); assert.equal(status.canPrepare, false); assert.match(status.blockers.join(' '), /Streamline/); assert.match(status.blockers.join(' '), /不会覆盖/);
   await assert.rejects(blocked.service.prepare('g'), { code: 'SETTINGS_FG_BLOCKED' }); assert.equal(fs.existsSync(path.join(blocked.dir, 'RTX40MFGCore.dll')), false);
+});
+
+test('RTX40 runtime gate blocks a complete component set without writing and clears on a fresh recheck', async t => {
+  let available = false;
+  const f = fixture(t, { inspectRuntime: () => available
+    ? { status: 'available', ready: true, missing: [], message: 'base files present; game not verified' }
+    : { status: 'missing', ready: false, missing: ['vcruntime140_1.dll'], message: '缺少有效的 Windows x64 VC++ 运行库文件：vcruntime140_1.dll。' } });
+  for (const role of ['core', 'asi', 'overlay']) fs.copyFileSync(path.join(f.resources, f.files[role].file), path.join(f.dir, f.files[role].file));
+  fs.copyFileSync(path.join(f.resources, f.files.ual.file), path.join(f.dir, 'version.dll'));
+  fs.writeFileSync(path.join(f.dir, 'version.ini'), '[GlobalSets]\nLoadPlugins=1\nLoadFromScriptsOnly=1\nLoadExtraPlugins=RTX40MFG.asi\nDontLoadFromDllMain=0\nForceEntryPointHook=0\n');
+  fs.writeFileSync(path.join(f.dir, 'RTX40MFG-Universal.json'), require('../src/product/fg-components').DEFAULT_CONTROL);
+  const before = await f.service.inspect('g');
+  assert.equal(before.runtime.status, 'missing'); assert.equal(before.ready, false); assert.equal(before.canPrepare, false);
+  await assert.rejects(f.service.prepare('g'), { code: 'SETTINGS_FG_BLOCKED' });
+  assert.equal(fs.existsSync(f.service.receiptFile('g')), false);
+  available = true;
+  const after = await f.service.inspect('g'); assert.equal(after.runtime.status, 'available'); assert.equal(after.ready, true);
 });
 
 test('RTX50 reports managed RTX40 cleanup and restore retains ReShade later owned by NR installer', async t => {

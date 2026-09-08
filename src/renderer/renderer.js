@@ -170,8 +170,8 @@ function renderVersionSelector() {
   select.value = selected;
   const item = versions[selected];
   $('addonVersionNote').textContent = item && item.notes
-    ? `${item.notes} 切换后点击游戏卡片里的“修复”即可对比。`
-    : '安装和修复会使用这里选择的版本；切换后点击游戏卡片里的“修复”即可对比。';
+    ? `${item.notes} 此处用于新安装；已安装游戏请在其卡片选择并“应用版本”。`
+    : '此处用于新安装；已安装游戏保留自己的版本，请在其卡片选择并“应用版本”。';
   select.disabled = false;
   renderPayloadNotice(removedSelection);
 }
@@ -499,7 +499,7 @@ function queueSetting(id, patch, root) {
     state.pendingPatches.delete(id);
     try {
       const settings = unwrap(await window.manager.writeNr(id, pending));
-      toast('设置已保存，游戏内约半秒自动生效');
+      toast('NR 参数已保存；游戏内效果请在 ReShade 中确认。');
     } catch (error) { toast(error.message, true); }
   }, 180));
 }

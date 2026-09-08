@@ -4,5 +4,6 @@
   "author": "野生的装机宅",
   "bilibiliUrl": "https://space.bilibili.com/941799",
   "qqGroup": "392308850",
-  "releaseUrl": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases"
+  "releaseUrl": "https://github.com/smartLanny/dlss5-nr-before-sr-lab/releases",
+  "vcRuntimeUrl": "https://aka.ms/vc14/vc_redist.x64.exe"
 }

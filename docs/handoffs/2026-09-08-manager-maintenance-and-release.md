@@ -1,5 +1,17 @@
 # 现用 xiaofeng 管理器维护与待发布交接
 
+## 最新追加：运行库与 UI 检查（dev.3）
+
+当前候选更新为 **Manager 0.4.6-hotfix.7-dev.3**，继续 #195；下面的 dev.2 / b8785be / 287 测试及构建摘要为上一批历史。当前安装版仍是 hotfix.6，Core 组件没有替换，兼容性支线与发布条件不变。
+
+静态 normal/delay import 核对发现：现装 Manager/Electron 没有直接 MSVCP/VCRUNTIME 依赖，随包 ffmpeg/EGL/GLES/Vulkan 等文件存在；RTX40MFGCore.dll 和 RTX40MFG.asi 则确实依赖 MSVCP140/VCRUNTIME140/VCRUNTIME140_1。静态表不涵盖所有 LoadLibrary/驱动/NGX/Streamline 运行期加载，不能把用户“打不开”全部归因于 VC++。
+
+已增加 RTX40 专属基础运行库检查，尊重游戏 EXE 目录优先、缺失回退 System32 的顺序，只读 PE 头确认实际 AMD64，拒绝把 ARM64 的 PE32+ 当 x64。缺库/无法确认时不再显示 FG 就绪，并提供固定微软官方下载与重检入口；本地 DLL 错误则提示验证游戏文件，不误导用户安装全局库就能替换本地坏文件。RTX50 不受此检查影响，恢复始终可用。不运行或静默安装任何运行库，不扫描 PATH，不加载用户 DLL。基础文件通过不代表最低版本、导出/依赖解析或游戏运行已经验证。
+
+UI 检查另修正了默认核心版本提示仍暗示“点修复自动升级”的旧文案，以及 NR 保存提示容易被误解为 SR/FG 立即生效的问题。后续布局建议为：缩短游戏长页、常用设置/高级选项分层、突出每游戏组件身份和一项明确操作、将新装默认核心放回组件管理页。未实施未经用户选择的整套视觉重构。
+
+最终完整 **292 passed / 0 failed / 0 skipped**（`build/runtime-final-tests.log`），实际新 ASAR renderer 在 900×1100 / 1280×900 下，缺库→官方下载→重检→允许准备及本地 DLL 错误提示交互通过，IPC/GPU 数据仍为夹具。真实 external unpacked 资源验证通过，内部 EXE manifest 为 requireAdministrator。新 `app.asar` SHA256 为 `7bdbd160967ccadc46e8403d4424f22da7c33faed6034b5abda6572bb94e83c5`；内部 EXE 为 `edc0e333b0a36e878ebf2ce268153fac9f63caad9dea2d6ca338dedf473e5a52`。尚未发布新 portable/Setup，不把本地目录当完整玩家包。
+
 ## 当前边界
 
 Manager 候选 **0.4.6-hotfix.7-dev.2**，接续 #189 `063a428118996413cf157b914f5058b51e430438`，包含 #181 `94489177be989ab316fc9167ade41f9d75ce1a10`。维护分支为 `codex/manager-maintenance-20260908`。Core 组件基线仍为 **0.4.6-hotfix.1 · Beta**；0.3.3.5 稳定基线、0.2 历史项继续可选。候选没有替换已安装 hotfix.6，没有使用冻结的旧测试 UI，没有修改游戏目录。

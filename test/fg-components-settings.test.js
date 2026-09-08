@@ -39,6 +39,7 @@ test('RTX40 components gate launch settings and both layers restore their own fi
     gameDirectory: () => game, gameExecutable: () => exe,
     detectHardware: async () => ({ family: 'RTX40', series: ['RTX40'] }), scan: async () => ({ api: 'dx12', streamlineFg: true, reshadeAddon: false }),
     pe: { getBitness: () => 64, getImports: () => ['version.dll'] }, assertGameClosed: async () => {}, antiCheatPresent: () => false,
+    inspectRuntime: () => ({ status: 'available', ready: true, missing: [], message: 'fixture base files only' }),
     getReShadeSource: async () => ({ file: reshadeSource, sha256: reshadeHash }) });
   const assertComponents = async id => {
     const status = await components.inspect(id);
