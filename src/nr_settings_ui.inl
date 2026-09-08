@@ -414,13 +414,33 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "INI 工作比例请求无效，已保留上一有效精度；1–49% 尚不可用，不会暗中提高到 50%。"));
     }
 #endif
-    int style = static_cast<int>(next.style);
     SettingsSection(ui("Model details", "模型细节"));
     SettingsField(ui("Style", "风格"));
-    if (ImGui::Combo("##nr-model-style", &style,
-            ui("Default\0Natural\0Cinematic\0", "默认\0自然\0电影\0"))) {
-        next.style = static_cast<unsigned>(style); changed = true;
+    const char *style_labels[] = {ui("Default###style-option", "默认###style-option"),
+        ui("Natural###style-option", "自然###style-option"),
+        ui("Cinematic###style-option", "电影###style-option")};
+    const float style_width = std::max(1.0f,
+        (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f);
+    ImGui::PushID("nr-model-style");
+    for (unsigned option = 0; option < 3; ++option) {
+        if (option != 0) ImGui::SameLine();
+        ImGui::PushID(static_cast<int>(option));
+        const bool selected = next.style == option;
+        if (selected) ImGui::PushStyleColor(ImGuiCol_Button,
+            ImGui::GetStyleColorVec4(ImGuiCol_Header));
+        const bool clicked = ImGui::Button(style_labels[option],
+            ImVec2(style_width, ImGui::GetFrameHeight() * 1.25f));
+        if (selected) ImGui::PopStyleColor();
+        if (clicked && !selected) {
+            next.style = option;
+            changed = true;
+            apply_discrete_edit = true;
+        }
+        SettingsTooltip(ui("Choose the AI picture style. The selected option stays highlighted; switching briefly reloads the model.",
+            "选择 AI 画面风格。当前选择会高亮显示；切换后模型会短暂重新加载。"));
+        ImGui::PopID();
     }
+    ImGui::PopID();
 
         changed |= SettingsSliderFloat(ui("Model strength", "模型强度"),
             "##nr-model-strength", &next.intensity, 0.f, 2.f, "%.2f");

@@ -44,7 +44,7 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dev10') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dev11') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py')) {
         & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler
@@ -99,12 +99,12 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dev10*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dev10 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dev11*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dev11 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 0 -or $Version.FilePrivatePart -ne 10) { throw 'Wrong numeric PE version.' }
+            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 0 -or $Version.FilePrivatePart -ne 11) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }
