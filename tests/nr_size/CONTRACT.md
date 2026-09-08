@@ -19,7 +19,7 @@ boundaries share units of N.width/N.height; per-output sums of x/y weights are
 zero-padding or invented threshold. 320x184 and 160x88 have different aspect ratios;
 the whole source rectangle is mapped to each N rectangle explicitly (no crop).
 Depth is constant ordinary 0.5 at N; motion is zero at N; exposure=1; jitter is
-known zero for this static synthetic fixture. Both NR input and output are N×N.
+known zero for this static synthetic fixture. NR is 1:1 N→N at each listed width/height.
 
 Each Create and Evaluate completes a real serial same-queue fence. Dynamic
 readback uses GetCopyableFootprints, strips row padding and saves RGBA16F little
@@ -55,3 +55,11 @@ printed; runtime/module hashes and all raw-plane hashes must be locked for the
 eventual authorized batch. The signed model's minimum dimensions remain unknown.
 Compile success does not establish any of these four Create/Evaluate admissions,
 image quality, temporal validity or permission to expose 1–49% in the product.
+
+Prepared artifact SHA256 locks (private binaries/logs, not committed):
+
+| Artifact | SHA256 |
+| --- | --- |
+| generated fixed_size_gpu.cpp | `5e32087b4e279beba92413fbe0cce846390bfee03bc4fbef4ed5a5f8391c5389` |
+| fixed_size_gpu.exe | `21c0ade929ec0fc4c25a40fca162887625a64135da4b387669b3938b10db10fe` |
+| build.log | `0f460a5d37f974a91b1dd6619b496c81dc7b75a5a6b7a1eb95d8e91d54f52801` |
