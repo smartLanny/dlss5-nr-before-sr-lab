@@ -58,9 +58,8 @@ and `nrchain_nvngx.dll`
 The merge reused the already completed #85 and #86 WARP evidence; it did not
 repeat either GPU run or claim that Catmull reconstructs colour.
 
-When #84 is integrated, its `t7/u7` plane should remain outside the present
-`t5/u5` field and `t6/u6` restore descriptors. The allocator must then replace
-the separate family totals with one extra-resource total and one per-slot sum:
-field + horizontal restore + Lanczos input, including create-before-release
-overlap. Until that shared accounting exists, two nominal 256 MiB family caps
-must not be described as a 256 MiB overall cap.
+#84 integration keeps its input plane at `t7/u7`, outside the `t5/u5` field and
+`t6/u6` restore descriptors. The merged allocator uses one extra-resource total
+and one per-slot sum for field + horizontal restore + Lanczos input, including
+create-before-release overlap. The resulting 64 MiB slot and 256 MiB Core caps
+therefore cover all three optional planes together.

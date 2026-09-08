@@ -19,7 +19,7 @@ void ExportCatmullContract(Gpu &gpu,const char *directory) {
         const UINT sourceFlags=variant==13?16u:1u;
         auto run=[&](UINT flags){return Run(gpu,20,13,0,1,sourceFlags|8192u|flags,variant,true,
             n.first,n.second,{},0.f,{},strength,{1,1,1,1},true,0.f);};
-        const auto bilinear=run(0),fused=run(16384u),reference=run(16384u|65536u);
+        const auto bilinear=run(0),fused=run(16384u),reference=run(16384u|131072u);
         float maximum=0.f;
         for(size_t i=0;i<fused.output.size();++i) {
             const float *f=&fused.output[i].x,*r=&reference.output[i].x;

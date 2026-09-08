@@ -59,6 +59,7 @@ if ($sourceText.Contains('void BuildEditFieldCS(')) { $entryPoints += 'BuildEdit
 if ($sourceText.Contains('void RestoreEditHorizontalCS(')) { $entryPoints += 'RestoreEditHorizontalCS' }
 if ($sourceText.Contains('void RestoreEditReferenceCS(')) { $entryPoints += 'RestoreEditReferenceCS' }
 if ($sourceText.Contains('void BuildColorEditFieldCS(')) { $entryPoints += 'BuildColorEditFieldCS' }
+if ($sourceText.Contains('void LanczosHorizontalCS(')) { $entryPoints += @('LanczosHorizontalCS','LanczosVerticalCS') }
 foreach ($entryPoint in $entryPoints) {
     $code = [IntPtr]::Zero
     $errors = [IntPtr]::Zero

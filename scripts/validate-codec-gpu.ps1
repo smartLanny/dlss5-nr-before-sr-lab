@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -17,11 +17,11 @@ if (!$shader.Success -or !$constants.Success -or !$descriptors.Success) {
 }
 $harness = $harness.Replace('// @PRODUCTION_SHADER@', $shader.Value)
 if($CatmullOutput) {
-    if($EditFieldOutput -or $ComparisonOutput -or $BaselineSource -or $NegativeControl -or $LayerNegativeControl) {throw 'Run Catmull contract independently.'}
+    if($EditFieldOutput -or $InputFilterOutput -or $ColorEditField -or $ComparisonOutput -or $BaselineSource -or $NegativeControl -or $LayerNegativeControl) {throw 'Run Catmull contract independently.'}
     # Test-only non-fused oracle materializes one R-sized field. No production
     # resource/flag or full-resolution EditField allocation is introduced.
     $harness=$harness.Replace('float2 SampleRestoredEdit(float2 center) {',
-        'float2 SampleRestoredEdit(float2 center) { if ((Passthrough & 65536u)!=0u) return EditHorizontal.Load(int3(int2(center),0));')
+        'float2 SampleRestoredEdit(float2 center) { if ((Passthrough & 131072u)!=0u) return EditHorizontal.Load(int3(int2(center),0));')
     $referenceEntry=@'
 [numthreads(8,8,1)] void RestoreEditReferenceCS(uint3 tid:SV_DispatchThreadID) {
     if(tid.x>=Width || tid.y>=Height) return;
@@ -35,7 +35,7 @@ if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
     $baselineShader = [regex]::Match($baseline, 'const char kCodecShader\[\] = R"HLSL\([\s\S]*?\)HLSL";')
     if (!$baselineShader.Success -or !$baseline.Contains('ModelLightingTapV2')) { throw 'Expected actual maintenance shader with edge-aware LightingLock.' }
     $harness = $harness.Replace('// @MAINTENANCE_SHADER@', $baselineShader.Value.Replace('kCodecShader', 'kMaintenanceShader'))
-    $comparison = if ($ColorEditField) { '' } else { @'
+    $comparison = if ($ColorEditField -or $InputFilterOutput -or $CombinedLowGrid) { '' } else { @'
         Gpu baseline(kMaintenanceShader);
         unsigned comparison_count = 0;
         for (bool before : {false,true}) for (UINT flags : {0u,1u,16u,32u,64u,128u,192u})
@@ -55,7 +55,16 @@ $boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_stren
 $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
 $layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
-if($CatmullOutput) {
+if($CombinedLowGrid) {
+    if (!$BaselineSource -or $CatmullOutput -or $ColorEditField -or $InputFilterOutput -or
+        $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl) {
+        throw 'Combined low-grid contract requires only BaselineSource.'
+    }
+    $inputTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/input_filter_gpu.inl') -Raw -Encoding UTF8
+    $combinedTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/combined_low_grid_gpu.inl') -Raw -Encoding UTF8
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $inputTests + "`n" + $combinedTests)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 2 && std::strcmp(argv[1], "--combined-low-grid") == 0) { ValidateCombinedLowGrid(gpu); return 0; }')
+} elseif($CatmullOutput) {
     $catTests=Get-Content (Join-Path $projectRoot 'tests/catmull_edit_gpu.inl') -Raw -Encoding UTF8
     $harness=$harness.Replace('// @COMPOSITION_CONTRACT_TESTS@',$catTests)
     $harness=$harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@','if (argc==3 && std::strcmp(argv[1],"--catmull-contract")==0) { ExportCatmullContract(gpu,argv[2]); return 0; }')
@@ -68,6 +77,15 @@ if($CatmullOutput) {
     $colorTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/color_edit_field_gpu.inl') -Raw -Encoding UTF8
     $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $colorTests)
     $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 2 && std::strcmp(argv[1], "--color-edit-field") == 0) { ValidateColorEditField(gpu); return 0; }')
+} elseif (![string]::IsNullOrWhiteSpace($InputFilterOutput)) {
+    if ($NegativeControl -or $LayerNegativeControl -or $ComparisonOutput -or $EditFieldOutput) { throw 'Run input filter export independently.' }
+    if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
+        $baselineHash = (Get-FileHash -LiteralPath $BaselineSource -Algorithm SHA256).Hash.ToLowerInvariant()
+        $harness = '#define NR_INPUT_FILTER_BASELINE_SOURCE_SHA "' + $baselineHash + '"' + "`n" + $harness
+    }
+    $inputTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/input_filter_gpu.inl') -Raw -Encoding UTF8
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $inputTests)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 3 && std::strcmp(argv[1], "--input-filter-contract") == 0) { ExportInputFilterContract(gpu, argv[2]); return 0; }')
 } elseif (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
     if ($NegativeControl -or $LayerNegativeControl -or $ComparisonOutput) { throw 'Run EditField export independently.' }
     if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
@@ -124,7 +142,10 @@ if ($CompileOnly) {
     Write-Host 'Production codec fixture compiled only; no WARP/GPU dispatch executed.'
     return
 }
-if($CatmullOutput) {
+if($CombinedLowGrid) {
+    & $binary '--combined-low-grid'
+    if($LASTEXITCODE -ne 0){throw 'Combined low-grid GPU contract failed.'}
+} elseif($CatmullOutput) {
     & $binary '--catmull-contract' ([IO.Path]::GetFullPath($CatmullOutput))
     if($LASTEXITCODE -ne 0){throw 'Catmull GPU contract failed; evidence retained.'}
     & python (Join-Path $projectRoot 'scripts/validate-catmull-edit.py') --capture $CatmullOutput
@@ -134,6 +155,11 @@ if($CatmullOutput) {
 if ($ColorEditField) {
     & $binary '--color-edit-field'
     if ($LASTEXITCODE -ne 0) { throw 'Production colour EditField validation failed.' }
+} elseif (![string]::IsNullOrWhiteSpace($InputFilterOutput)) {
+    & $binary '--input-filter-contract' ([IO.Path]::GetFullPath($InputFilterOutput))
+    if ($LASTEXITCODE -ne 0) { throw 'Production input filter export failed.' }
+    & python (Join-Path $projectRoot 'scripts/validate-input-filter.py') --capture $InputFilterOutput --source (Join-Path $SourceRoot 'src/nr_before_sr.cpp')
+    if ($LASTEXITCODE -ne 0) { throw 'Independent input filter contract validation failed.' }
 } elseif (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
     & $binary '--edit-field-contract' ([IO.Path]::GetFullPath($EditFieldOutput))
     if ($LASTEXITCODE -ne 0) { throw 'Production EditField export failed.' }

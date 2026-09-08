@@ -50,11 +50,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dev6";
+constexpr const char *kAddonVersion = "beta0.5-dev7";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dev6";
+constexpr const char *kBuildIdentity = "beta0.5-dev7";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -875,6 +875,7 @@ struct ChainConfig {
     bool low_grid_edit_field = false; // #11 luma-only Mode2 experiment; defaults to A.
     bool catmull_edit_restore = false; // #85: off = existing BilinearSafe.
     bool low_grid_color_edit_field = false; // #86 normalized opponent-colour field; defaults to A.
+    unsigned int nr_input_filter = 0; // 0 ExactArea, 1 scale-aware Lanczos2 AA (pre-SR).
     float layer_tone = 1.0f;
     float layer_structure = 1.0f;
     float layer_bright = 1.0f;
@@ -1204,6 +1205,7 @@ bool SameHistoryConfig(const ChainConfig &a, const ChainConfig &b) {
            a.custom_work_scale == b.custom_work_scale &&
            a.proxy_scale == b.proxy_scale &&
            a.proxy_curve == b.proxy_curve &&
+           a.nr_input_filter == b.nr_input_filter &&
            a.depth_mode == b.depth_mode;
 }
 
@@ -1264,6 +1266,7 @@ void NormalizeConfig(ChainConfig &config) {
     config.detail_stability = std::isfinite(config.detail_stability)
         ? std::clamp(config.detail_stability, 0.0f, 1.0f) : 0.0f;
     config.proxy_curve = std::min(config.proxy_curve, 2u);
+    if (config.nr_input_filter > 1u) config.nr_input_filter = 0u;
     config.color_strength = std::clamp(FiniteOr(config.color_strength, 0.0f), 0.0f, 2.0f);
     config.max_luma_ratio = std::clamp(FiniteOr(config.max_luma_ratio, 4.0f), 1.0f, 16.0f);
     config.proxy_scale = std::clamp(FiniteOr(config.proxy_scale, 1.0f), 0.25f, 2.0f);
@@ -1307,6 +1310,7 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.low_grid_edit_field == b.low_grid_edit_field &&
            a.catmull_edit_restore == b.catmull_edit_restore &&
            a.low_grid_color_edit_field == b.low_grid_color_edit_field &&
+           a.nr_input_filter == b.nr_input_filter &&
            a.layer_tone == b.layer_tone && a.layer_structure == b.layer_structure &&
            a.layer_bright == b.layer_bright && a.layer_shadow == b.layer_shadow &&
            a.motion_stability == b.motion_stability &&
@@ -1397,6 +1401,7 @@ void ReloadConfig(bool force = false) {
     next.low_grid_edit_field = GetPrivateProfileIntW(L"NRBeforeSR", L"LowGridEditField", 0, g_ini_path) != 0;
     next.catmull_edit_restore = GetPrivateProfileIntW(L"NRBeforeSR", L"CatmullRomEditRestore", 0, g_ini_path) != 0;
     next.low_grid_color_edit_field = GetPrivateProfileIntW(L"NRBeforeSR", L"LowGridColorEditField", 0, g_ini_path) != 0;
+    next.nr_input_filter = static_cast<unsigned int>(GetPrivateProfileIntW(L"NRBeforeSR", L"NRInputFilter", 0, g_ini_path));
     next.layer_tone = ReadIniFloat(L"LayerTone", 1.0f);
     next.layer_structure = ReadIniFloat(L"LayerStructure", 1.0f);
     next.layer_bright = ReadIniFloat(L"LayerBright", 1.0f);
@@ -1499,6 +1504,7 @@ void ReloadConfig(bool force = false) {
         Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", g_config.independent_chroma_composition);
         Log("LowGridEditField requested=%d; only Mode2 and colour zero; recorded flag=8192; unavailable optional resources retain composition A.", g_config.low_grid_edit_field);
         Log("LowGridColorEditField requested=%d; Mode2 normalized-opponent candidate flag=32768; actual colour remains policy-gated.", g_config.low_grid_color_edit_field);
+        Log("NRInputFilter requested=%u (0 ExactArea, 1 Lanczos2AA); actual recorded flag=65536; Mode2 only, 1:1 retains Area.",g_config.nr_input_filter);
         Log("HighStrengthProtection requested=%d; effective on V2/candidate luminance above 1x; legacy V2 also protects chroma; codec flag=1024.",
             g_config.high_strength_protection ? 1 : 0);
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
@@ -1575,6 +1581,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"LowGridEditField", config.low_grid_edit_field ? 1 : 0));
     record_write(WriteIniInt(L"CatmullRomEditRestore", config.catmull_edit_restore ? 1 : 0));
     record_write(WriteIniInt(L"LowGridColorEditField", config.low_grid_color_edit_field ? 1 : 0));
+    record_write(WriteIniInt(L"NRInputFilter", static_cast<int>(config.nr_input_filter)));
     record_write(WriteIniFloat(L"LayerTone", config.layer_tone));
     record_write(WriteIniFloat(L"LayerStructure", config.layer_structure));
     record_write(WriteIniFloat(L"LayerBright", config.layer_bright));
@@ -1682,6 +1689,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
     Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", applied.independent_chroma_composition);
     Log("LowGridEditField requested=%d; only Mode2 and colour zero; recorded flag=8192; unavailable optional resources retain composition A.", applied.low_grid_edit_field);
     Log("LowGridColorEditField requested=%d; Mode2 normalized-opponent candidate flag=32768; actual colour remains policy-gated.", applied.low_grid_color_edit_field);
+    Log("NRInputFilter requested=%u (0 ExactArea, 1 Lanczos2AA); actual recorded flag=65536; Mode2 only, 1:1 retains Area.",applied.nr_input_filter);
     Log("HighStrengthProtection requested=%d; effective on V2/candidate luminance above 1x; legacy V2 also protects chroma; codec flag=1024.",
         applied.high_strength_protection ? 1 : 0);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
@@ -2070,20 +2078,25 @@ struct Codec {
     ID3D12PipelineState *build_color_edit_field = nullptr;
     bool edit_field_pipeline_failed = false;
     bool color_edit_field_pipeline_failed = false;
+    ID3D12PipelineState *lanczos_horizontal = nullptr;
+    ID3D12PipelineState *lanczos_vertical = nullptr;
+    bool lanczos_pipeline_failed = false;
     UINT descriptor_size = 0;
     bool failed = false;
 };
 
 Codec g_codec = {};
 
-constexpr UINT kCodecSrvCount = 7;
-constexpr UINT kCodecUavCount = 7;
+constexpr UINT kCodecSrvCount = 8;
+constexpr UINT kCodecUavCount = 8;
 constexpr UINT kCodecDescriptorCount = kCodecSrvCount + kCodecUavCount;
 constexpr UINT kCodecExposureSrvIndex = 4;
 constexpr UINT kCodecEditFieldSrvIndex = 5;
 constexpr UINT kCodecEditFieldUavIndex = kCodecSrvCount + 5;
 constexpr UINT kCodecEditRestoreSrvIndex = 6;
 constexpr UINT kCodecEditRestoreUavIndex = kCodecSrvCount + 6;
+constexpr UINT kCodecLanczosSrvIndex = 7;
+constexpr UINT kCodecLanczosUavIndex = kCodecSrvCount + 7;
 constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
 constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
 constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
@@ -2104,6 +2117,7 @@ Texture2D<float2> MotionSource  : register(t3);
 Texture2D<float4> ExposureScaleTexture : register(t4);
 Texture2D<float4> EditField : register(t5);
 Texture2D<float2> EditHorizontal : register(t6);
+Texture2D<float4> LanczosIntermediate : register(t7);
 RWTexture2D<float4> ProxyOut    : register(u0);
 RWTexture2D<float4> ResultOut   : register(u1);
 RWTexture2D<float2> MotionOut   : register(u2);
@@ -2112,6 +2126,7 @@ RWByteAddressBuffer StageCapture : register(u4);
 RWTexture2D<float2> EditFieldOut : register(u5);
 RWTexture2D<float4> ColorEditFieldOut : register(u5);
 RWTexture2D<float2> EditHorizontalOut : register(u6);
+RWTexture2D<float4> LanczosIntermediateOut : register(u7);
 
 cbuffer Constants : register(b0) {
     uint Width;
@@ -2779,27 +2794,11 @@ float3 EncodeCompositionToStoredV2(float3 value) {
         -65504.0.xxx, 65504.0.xxx);
 }
 
-[numthreads(8, 8, 1)]
-void EncodeV2CS(uint3 tid : SV_DispatchThreadID) {
-    if (tid.x >= Width || tid.y >= Height ||
-        SourceWidth == 0u || SourceHeight == 0u) return;
-
-    // ModelEncodedValueDomain deliberately preserves the live bounded R8
-    // numbers without guessing a gamma curve. At 1:1, encoded contracts stay
-    // byte-for-byte equivalent; scaled R8 is area-filtered in that same value
-    // domain instead of being accidentally encoded a second time.
+float3 FilterExactAreaV6(uint2 pixel) {
     const bool modelValueDomain = (Passthrough & 1u) != 0u;
-    const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
-    const bool encodedStorage = modelValueDomain || srgbSdrStorage;
-    if (SourceWidth == Width && SourceHeight == Height && encodedStorage) {
-        float4 exact = LoadSourceStoredV2(int2(tid.xy));
-        ProxyOut[tid.xy] = float4(exact.rgb, 1.0);
-        return;
-    }
-
-    float2 sourceStart = float2(tid.xy) *
+    float2 sourceStart = float2(pixel) *
         float2(SourceWidth, SourceHeight) / float2(Width, Height);
-    float2 sourceEnd = float2(tid.xy + 1u) *
+    float2 sourceEnd = float2(pixel + 1u) *
         float2(SourceWidth, SourceHeight) / float2(Width, Height);
     int2 first = int2(floor(sourceStart));
     int2 last = int2(ceil(sourceEnd));
@@ -2822,10 +2821,119 @@ void EncodeV2CS(uint3 tid : SV_DispatchThreadID) {
         }
     }
     float3 filteredValue = total / max(totalWeight, 0.000001);
+    return filteredValue;
+}
+
+[numthreads(8, 8, 1)]
+void EncodeV2CS(uint3 tid : SV_DispatchThreadID) {
+    if (tid.x >= Width || tid.y >= Height ||
+        SourceWidth == 0u || SourceHeight == 0u) return;
+
+    // ModelEncodedValueDomain deliberately preserves the live bounded R8
+    // numbers without guessing a gamma curve. At 1:1, encoded contracts stay
+    // byte-for-byte equivalent; scaled R8 is area-filtered in that same value
+    // domain instead of being accidentally encoded a second time.
+    const bool modelValueDomain = (Passthrough & 1u) != 0u;
+    const bool srgbSdrStorage = (Passthrough & 32u) != 0u;
+    const bool encodedStorage = modelValueDomain || srgbSdrStorage;
+    if (SourceWidth == Width && SourceHeight == Height && encodedStorage) {
+        float4 exact = LoadSourceStoredV2(int2(tid.xy));
+        if (!IsFiniteModelStoredV2(exact.rgb)) exact.rgb=0.0.xxx;
+        ProxyOut[tid.xy] = float4(exact.rgb, 1.0);
+        return;
+    }
+
+    float3 filteredValue = FilterExactAreaV6(tid.xy);
     float3 proxyValue = EncodeProxyLinearV2(filteredValue);
     float3 storedProxy = modelValueDomain
         ? saturate(proxyValue) : LinearToSRGB(proxyValue);
+    if (!all(isfinite(storedProxy))) storedProxy=0.0.xxx;
     ProxyOut[tid.xy] = float4(storedProxy, 1.0);
+}
+
+// LANCZOS2_SCALAR_BEGIN
+// Public sinc/window definition, independently implemented. Distance is in
+// source pixels and scale=N/R; support is 2/scale rather than a fixed radius.
+float Lanczos2AAWeightV6(float distance, float scale) {
+    float x = abs(distance * scale);
+    if (x >= 2.0) return 0.0;
+    if (x < 0.000001) return 1.0;
+    const float pi = 3.14159265358979323846;
+    return (sin(pi*x)/(pi*x)) * (sin(0.5*pi*x)/(0.5*pi*x));
+}
+// LANCZOS2_SCALAR_END
+
+float LanczosIntermediateScaleV6() {
+    if ((Passthrough & (1u|16u|32u)) != 0u) return 4.0;
+    if ((Passthrough & 128u) != 0u)
+        return 4.0 * max(kPqToScrgbUnit * max(ProxyScale,0.001),1.0);
+    return 4.0 * max(ProxyScale * ResolveSourceToCanonical(),0.000001);
+}
+
+float4 LanczosSourceV6(int2 p,float storageScale) {
+    float3 stored=LoadSourceStoredV2(p).rgb;
+    if (!IsFiniteModelStoredV2(stored)) return 0.0.xxxx;
+    float3 value=DecodeStoredForV2(stored)/storageScale;
+    return all(isfinite(value)) ? float4(value,1.0) : 0.0.xxxx;
+}
+
+[numthreads(8,8,1)]
+void LanczosHorizontalCS(uint3 tid : SV_DispatchThreadID) {
+    if (tid.x>=ModelWidth || tid.y>=SourceHeight || !SourceWidth || !ModelWidth) return;
+    float storageScale=LanczosIntermediateScaleV6();
+    if (SourceWidth==ModelWidth) {
+        LanczosIntermediateOut[tid.xy]=LanczosSourceV6(int2(tid.xy),storageScale);
+        return;
+    }
+    float scale=float(ModelWidth)/float(SourceWidth);
+    if (scale<0.125 || scale>1.0) {LanczosIntermediateOut[tid.xy]=0.0.xxxx;return;}
+    float center=(float(tid.x)+0.5)/scale-0.5;
+    int first=int(ceil(center-2.0/scale)),last=int(floor(center+2.0/scale));
+    float3 total=0.0.xxx;float weights=0.0;bool valid=true;
+    [loop] for(int x=first;x<=last;++x) {
+        float w=Lanczos2AAWeightV6(float(x)-center,scale);
+        if(w==0.0) continue;
+        float4 value=LanczosSourceV6(int2(x,int(tid.y)),storageScale);
+        valid=valid && value.a==1.0;
+        total+=value.rgb*w;weights+=w;
+    }
+    float3 filtered=total/max(weights,0.000001);
+    valid=valid && weights>0.000001 && all(isfinite(filtered)) && all(abs(filtered)<=65504.0.xxx);
+    // RGBA16F retains signed lobes; alpha is exact validity. No intermediate
+    // saturation. Out-of-range/invalid arithmetic delegates the final pixel to Area.
+    LanczosIntermediateOut[tid.xy]=valid ? float4(filtered,1.0) : 0.0.xxxx;
+}
+
+[numthreads(8,8,1)]
+void LanczosVerticalCS(uint3 tid : SV_DispatchThreadID) {
+    if(tid.x>=Width || tid.y>=Height || !SourceHeight || !Height) return;
+    float3 total=0.0.xxx;float weights=0.0;bool valid=true;
+    float scale=float(Height)/float(SourceHeight);
+    if(SourceHeight==Height) {
+        float4 value=LanczosIntermediate.Load(int3(tid.xy,0));
+        total=value.rgb;weights=1.0;valid=value.a==1.0;
+    } else if(scale>=0.125 && scale<=1.0) {
+        float center=(float(tid.y)+0.5)/scale-0.5;
+        int first=int(ceil(center-2.0/scale)),last=int(floor(center+2.0/scale));
+        [loop] for(int y=first;y<=last;++y) {
+            float w=Lanczos2AAWeightV6(float(y)-center,scale);
+            if(w==0.0) continue;
+            int row=clamp(y,0,int(SourceHeight)-1);
+            float4 value=LanczosIntermediate.Load(int3(int(tid.x),row,0));
+            valid=valid && value.a==1.0 && all(isfinite(value.rgb));
+            total+=value.rgb*w;weights+=w;
+        }
+    } else valid=false;
+    float3 filtered=total/max(weights,0.000001)*LanczosIntermediateScaleV6();
+    if(!valid || weights<=0.000001 || !all(isfinite(filtered)))
+        filtered=FilterExactAreaV6(tid.xy);
+    // The model receives the existing bounded proxy contract only after both
+    // axes. Undefined Area data becomes finite black, never an NR NaN/Inf input.
+    if(!all(isfinite(filtered))) filtered=0.0.xxx;
+    float3 proxy=EncodeProxyLinearV2(filtered);
+    float3 stored=(Passthrough&1u)!=0u ? saturate(proxy) : LinearToSRGB(proxy);
+    if(!all(isfinite(stored))) stored=0.0.xxx;
+    ProxyOut[tid.xy]=float4(saturate(stored),1.0);
 }
 
 [numthreads(8, 8, 1)]
@@ -3651,6 +3759,7 @@ struct NrTuningSignature {
     unsigned int style = 0;
     bool ui_correction = false;
     NrJitterMode jitter_mode = NrJitterMode::GameInputPixel;
+    unsigned int input_filter = 0; // Input/history identity, not an NGX model parameter.
 };
 
 struct NrDiagnosticIdentity {
@@ -3758,6 +3867,11 @@ struct NrSlot {
     unsigned long long edit_horizontal_bytes = 0;
     bool edit_horizontal_allocation_failed = false;
     bool edit_horizontal_recorded = false;
+    ID3D12Resource *lanczos_intermediate = nullptr;
+    D3D12_RESOURCE_STATES lanczos_state = D3D12_RESOURCE_STATE_COMMON;
+    unsigned long long lanczos_bytes = 0;
+    bool lanczos_allocation_failed = false;
+    bool lanczos_recorded = false;
     ID3D12Resource *result = nullptr;
     ID3D12Resource *motion_source = nullptr;
     ID3D12Resource *motion_proxy = nullptr;
@@ -3824,6 +3938,7 @@ NrTuningSignature CurrentNrTuningSignature() {
     signature.style = g_config.style;
     signature.ui_correction = g_config.ui_correction;
     signature.jitter_mode = g_config.jitter_mode;
+    signature.input_filter = g_config.nr_input_filter;
     return signature;
 }
 
@@ -3836,7 +3951,7 @@ bool SameNrTuningSignature(const NrTuningSignature &a,
            a.auto_mask == b.auto_mask &&
            a.style == b.style &&
            a.ui_correction == b.ui_correction &&
-           a.jitter_mode == b.jitter_mode;
+           a.jitter_mode == b.jitter_mode && a.input_filter == b.input_filter;
 }
 
 struct NrContext {
@@ -3846,6 +3961,9 @@ struct NrContext {
     bool diagnostic_first_sample_logged = false;
     bool diagnostic_reset_requested = false;
     bool reset_retry_pending = false;
+    int last_input_filter = -1;
+    unsigned int input_filter_source_width = 0, input_filter_source_height = 0;
+    bool lanczos_disabled_for_context = false;
     const NgxHandle *sr_handle = nullptr;
     unsigned long long feature_generation = 0;
     NgxHandle *nr_handle = nullptr;
@@ -4061,9 +4179,22 @@ void MarkLifecycleUncertain(const char *reason) {
 
 void DestroyStageCapture(NrSlot &slot);
 // Accessed under the same Core context/slot lock as creation and retirement.
-unsigned long long g_edit_field_allocated_bytes = 0;
-constexpr unsigned long long kEditFieldSlotBudget = 64ull * 1024ull * 1024ull;
-constexpr unsigned long long kEditFieldTotalBudget = 256ull * 1024ull * 1024ull;
+// One cap covers every optional low-grid plane, including create-before-release overlap.
+unsigned long long g_extra_allocated_bytes = 0;
+constexpr unsigned long long kExtraSlotBudget = 64ull * 1024ull * 1024ull;
+constexpr unsigned long long kExtraTotalBudget = 256ull * 1024ull * 1024ull;
+
+unsigned long long ExtraSlotBytes(const NrSlot &slot) {
+    return slot.edit_field_bytes + slot.edit_horizontal_bytes + slot.lanczos_bytes;
+}
+
+bool FitsExtraResourcePeak(const NrSlot &slot, unsigned long long new_bytes) {
+    const unsigned long long slot_bytes = ExtraSlotBytes(slot);
+    return new_bytes != 0 && slot_bytes <= kExtraSlotBudget &&
+        new_bytes <= kExtraSlotBudget - slot_bytes &&
+        g_extra_allocated_bytes <= kExtraTotalBudget &&
+        new_bytes <= kExtraTotalBudget - g_extra_allocated_bytes;
+}
 
 void DestroySlot(NrSlot &slot) {
     DestroyStageCapture(slot);
@@ -4076,9 +4207,9 @@ void DestroySlot(NrSlot &slot) {
     ReleaseCom(slot.result);
     ReleaseCom(slot.neural);
     ReleaseCom(slot.edit_field);
-    g_edit_field_allocated_bytes -= slot.edit_field_bytes;
     ReleaseCom(slot.edit_horizontal);
-    g_edit_field_allocated_bytes -= slot.edit_horizontal_bytes;
+    ReleaseCom(slot.lanczos_intermediate);
+    g_extra_allocated_bytes -= ExtraSlotBytes(slot);
     ReleaseCom(slot.proxy);
     ReleaseCom(slot.motion_source);
     ReleaseCom(slot.motion_proxy);
@@ -5433,7 +5564,8 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_nr_failed_create_process_latched.load(std::memory_order_acquire))
         return nullptr;
-    const NrTuningSignature requested_tuning = CurrentNrTuningSignature();
+    NrTuningSignature requested_tuning = CurrentNrTuningSignature();
+    if (mode != 2) requested_tuning.input_filter = 0;
     PrepareStageCaptureContextLocked(sr_handle, feature_generation, mode);
     NrContext *empty = nullptr;
     NrContext *matching = nullptr;
@@ -5485,6 +5617,9 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                 !SameNrTuningSignature(context.tuning_signature,
                                        requested_tuning)) {
                 context.retired = true;
+                if(context.tuning_signature.input_filter!=requested_tuning.input_filter)
+                    Log("NR input filter request changed %u->%u; retiring old input/history after exact fence.",
+                        context.tuning_signature.input_filter,requested_tuning.input_filter);
                 Log("Feature 18 create-time tuning changed for handle=%p "
                     "mode=%d extent=%ux%u: intensity %.3f->%.3f style %u->%u "
                     "autoMask %d->%d skin %.3f->%.3f localTone %.3f->%.3f "
@@ -6123,18 +6258,11 @@ bool EnsureEditField(ID3D12Device *device, NrSlot &slot,
     const auto allocation=ID3D12Device_GetResourceAllocationInfo(device,0,1,&desc);
     // Create-before-release preserves the proven plane if replacement fails.
     // Budget that real overlap, rather than reporting only the post-swap net.
-    if (!allocation.SizeInBytes || slot.edit_field_bytes > kEditFieldSlotBudget ||
-        slot.edit_horizontal_bytes > kEditFieldSlotBudget - slot.edit_field_bytes ||
-        allocation.SizeInBytes > kEditFieldSlotBudget - slot.edit_field_bytes -
-            slot.edit_horizontal_bytes ||
-        g_edit_field_allocated_bytes > kEditFieldTotalBudget ||
-        allocation.SizeInBytes > kEditFieldTotalBudget - g_edit_field_allocated_bytes) {
+    if (!FitsExtraResourcePeak(slot, allocation.SizeInBytes)) {
         slot.edit_field_allocation_failed=true;
         Log("LowGridEditField replacement peak exceeds 64MiB/slot or 256MiB/Core budget; existing field retained and composition A used.");
         return false;
     }
-    const unsigned long long retained_bytes =
-        g_edit_field_allocated_bytes - slot.edit_field_bytes;
     ID3D12Resource *replacement = nullptr;
     if (!CreateTexture(device,width,height,color_variant
             ? L"NRChain.NormalizedOpponentEditField"
@@ -6142,15 +6270,15 @@ bool EnsureEditField(ID3D12Device *device, NrSlot &slot,
         slot.edit_field_allocation_failed=true;
         return false;
     }
+    g_extra_allocated_bytes += allocation.SizeInBytes;
     ReleaseCom(slot.edit_field);
-    g_edit_field_allocated_bytes = retained_bytes;
+    g_extra_allocated_bytes -= slot.edit_field_bytes;
     slot.edit_field = replacement;
     slot.edit_field_state = D3D12_RESOURCE_STATE_COMMON;
     slot.edit_field_bytes=allocation.SizeInBytes;
-    g_edit_field_allocated_bytes+=slot.edit_field_bytes;
     WriteEditFieldDescriptors(device,slot);
     Log("LowGridEditField allocated N=%ux%u format=%s bytes=%llu total=%llu; safe-slot replacement, no additional NR call.",
-        width,height,FormatName(field_format),slot.edit_field_bytes,g_edit_field_allocated_bytes);
+        width,height,FormatName(field_format),slot.edit_field_bytes,g_extra_allocated_bytes);
     return true;
 }
 
@@ -6184,18 +6312,82 @@ bool EnsureEditRestore(ID3D12Device *device, NrSlot &slot, UINT width, UINT heig
     d.Width=width; d.Height=height; d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;
     d.Format=DXGI_FORMAT_R16G16_FLOAT; d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     const auto allocation=ID3D12Device_GetResourceAllocationInfo(device,0,1,&d);
-    if(!allocation.SizeInBytes || slot.edit_field_bytes>kEditFieldSlotBudget ||
-        allocation.SizeInBytes>kEditFieldSlotBudget-slot.edit_field_bytes ||
-        g_edit_field_allocated_bytes>kEditFieldTotalBudget ||
-        allocation.SizeInBytes>kEditFieldTotalBudget-g_edit_field_allocated_bytes ||
+    if(!FitsExtraResourcePeak(slot, allocation.SizeInBytes) ||
         !CreateTexture(device,width,height,L"NRChain.EditHorizontal",&slot.edit_horizontal,DXGI_FORMAT_R16G16_FLOAT)) {
         slot.edit_horizontal_allocation_failed=true; return false;
     }
     slot.edit_horizontal_bytes=allocation.SizeInBytes;
-    g_edit_field_allocated_bytes+=allocation.SizeInBytes;
+    g_extra_allocated_bytes+=allocation.SizeInBytes;
     WriteEditRestoreDescriptors(device,slot);
     Log("CatmullRomEditRestore allocated RxN=%ux%u FP16 bytes=%llu; valid BilinearSafe fallback remains.",
         width,height,allocation.SizeInBytes);
+    return true;
+}
+
+bool EnsureLanczosInput(ID3D12Device *device,NrSlot &slot,unsigned int nw,unsigned int nh,
+                        unsigned int rw,unsigned int rh) {
+    if (!device || device!=g_codec.device || !slot.heap || slot.snapshots_native_output ||
+        !nw || !nh || !rw || !rh || nw>rw || nh>rh ||
+        rw>8ull*nw || rh>8ull*nh || (nw==rw && nh==rh)) return false;
+    if (slot.lanczos_intermediate) {
+        const auto d=ID3D12Resource_GetDesc(slot.lanczos_intermediate);
+        if (d.Width==nw && d.Height==rh) return true;
+    }
+    if (slot.lanczos_allocation_failed || g_codec.lanczos_pipeline_failed ||
+        !CanMutateSlotLocked(slot)) return false;
+    if (!g_codec.lanczos_horizontal || !g_codec.lanczos_vertical) {
+        ID3DBlob *horizontal=CompileCodecShader("LanczosHorizontalCS");
+        ID3DBlob *vertical=CompileCodecShader("LanczosVerticalCS");
+        HRESULT hr=E_FAIL;
+        if(horizontal && vertical) {
+            D3D12_COMPUTE_PIPELINE_STATE_DESC d={};d.pRootSignature=g_codec.root;
+            d.CS.pShaderBytecode=horizontal->lpVtbl->GetBufferPointer(horizontal);
+            d.CS.BytecodeLength=horizontal->lpVtbl->GetBufferSize(horizontal);
+            hr=ID3D12Device_CreateComputePipelineState(device,&d,IID_ID3D12PipelineState,
+                reinterpret_cast<void **>(&g_codec.lanczos_horizontal));
+            if(SUCCEEDED(hr)) {
+                d.CS.pShaderBytecode=vertical->lpVtbl->GetBufferPointer(vertical);
+                d.CS.BytecodeLength=vertical->lpVtbl->GetBufferSize(vertical);
+                hr=ID3D12Device_CreateComputePipelineState(device,&d,IID_ID3D12PipelineState,
+                    reinterpret_cast<void **>(&g_codec.lanczos_vertical));
+            }
+        }
+        ReleaseCom(horizontal);ReleaseCom(vertical);
+        if(FAILED(hr)) {
+            ReleaseCom(g_codec.lanczos_horizontal);ReleaseCom(g_codec.lanczos_vertical);
+            g_codec.lanczos_pipeline_failed=true;
+            Log("Lanczos2AA optional pipelines unavailable; ExactArea retained.");return false;
+        }
+    }
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support={};support.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    if(FAILED(ID3D12Device_CheckFeatureSupport(device,D3D12_FEATURE_FORMAT_SUPPORT,&support,sizeof(support))) ||
+       (support.Support1&D3D12_FORMAT_SUPPORT1_SHADER_LOAD)==0 ||
+       (support.Support2&D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE)==0) {
+        slot.lanczos_allocation_failed=true;
+        Log("Lanczos2AA signed FP16 load/store unsupported; ExactArea retained.");return false;
+    }
+    D3D12_RESOURCE_DESC d={};d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    d.Width=nw;d.Height=rh;d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;
+    d.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    const auto allocation=ID3D12Device_GetResourceAllocationInfo(device,0,1,&d);
+    if(!FitsExtraResourcePeak(slot, allocation.SizeInBytes)) {
+        slot.lanczos_allocation_failed=true;
+        Log("Lanczos2AA 64MiB/slot or 256MiB/Core allocation budget unavailable; ExactArea retained.");return false;
+    }
+    ID3D12Resource *next=nullptr;
+    if(!CreateTexture(device,nw,rh,L"NRChain.Lanczos2SignedHorizontal",&next)) {
+        slot.lanczos_allocation_failed=true;return false;
+    }
+    // Safe mutation was proved before allocation. Count the temporary old+new
+    // overlap against the quota, then release the retired old extent.
+    g_extra_allocated_bytes+=allocation.SizeInBytes;
+    ReleaseCom(slot.lanczos_intermediate);
+    g_extra_allocated_bytes-=slot.lanczos_bytes;
+    slot.lanczos_intermediate=next;slot.lanczos_bytes=allocation.SizeInBytes;
+    slot.lanczos_state=D3D12_RESOURCE_STATE_COMMON;
+    WriteLanczosDescriptors(device,slot);
+    Log("Lanczos2AA intermediate Nw x Rh=%ux%u bytes=%llu total=%llu; R=%ux%u N=%ux%u.",
+        nw,rh,slot.lanczos_bytes,g_extra_allocated_bytes,rw,rh,nw,nh);
     return true;
 }
 
@@ -6567,6 +6759,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
           ((g_config.low_grid_edit_field && g_config.color_strength <= 0.000001f) ||
            low_grid_color)) ? 8192u : 0u) |
         (low_grid_color ? 32768u : 0u) |
+        ((g_config.mode == 2 && slot.lanczos_recorded) ? 65536u : 0u) |
         (independent_chroma ? 4096u : 0u) |
         ((v2_combine && g_config.high_strength_protection) ? 1024u : 0u) |
         ((v2_combine && g_config.layered_enhancement) ? 2048u : 0u) |
@@ -7658,8 +7851,8 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     SetFloat(params, "DLSSNR.SkinStructureStrength", tuning.skin_structure);
     SetInt(params, "DLSSNR.UseAutoMask", tuning.auto_mask ? 1 : 0);
     SetUInt(params, "DLSSNR.Style", tuning.style);
-    // 310.8 reads UICorrection through the unsigned NGX parameter slot.
-    // Writing the signed slot leaves the runtime unable to observe this value.
+    // Keep an explicit unsigned-writer convention. The fixed 310.8 runtime
+    // accepts int/uint getter cross-reads; this is not an unsigned-only contract.
     SetUInt(params, "DLSSNR.UICorrection", tuning.ui_correction ? 1u : 0u);
     SetInt(params, "DLSS.Indicator.Invert.X.Axis", 0);
     SetInt(params, "DLSS.Indicator.Invert.Y.Axis", 0);
@@ -7997,6 +8190,25 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
     slot->active_render_width = render_width;
     slot->active_render_height = render_height;
+    slot->lanczos_recorded = false;
+    const bool wants_lanczos = g_config.nr_input_filter == 1u && !g_config.identity_use_original;
+    const bool lanczos_ready = wants_lanczos && !context->lanczos_disabled_for_context &&
+        EnsureLanczosInput(device,*slot,width,height,render_width,render_height);
+    if(wants_lanczos && !lanczos_ready &&
+       (slot->lanczos_allocation_failed || g_codec.lanczos_pipeline_failed))
+        context->lanczos_disabled_for_context = true;
+    const int effective_input_filter = lanczos_ready ? 1 : 0;
+    if(context->last_input_filter >= 0 &&
+       (context->last_input_filter != effective_input_filter ||
+        (effective_input_filter == 1 &&
+         (context->input_filter_source_width != render_width || context->input_filter_source_height != render_height)))) {
+        context->reset_retry_pending = true;
+        Log("NR actual input filter/scale changed %d->%d; request Reset until successful Evaluate.",
+            context->last_input_filter,effective_input_filter);
+    }
+    context->last_input_filter = effective_input_filter;
+    context->input_filter_source_width = render_width;
+    context->input_filter_source_height = render_height;
     slot->edit_field_recorded = false;
     slot->edit_horizontal_recorded = false;
     const bool color_edit_field = g_config.low_grid_color_edit_field;
@@ -8062,10 +8274,25 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
     Transition(command_list, slot->proxy, slot->proxy_state,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    DispatchCodec(command_list, *slot, g_codec.encode_v2, width, height,
-                  color_contract, (feature.create_flags & 1) != 0,
-                  color_x, color_y, 0, 0, slot->codec_color_mode,
-                  render_width, render_height, width, height, 1.0f);
+    if(lanczos_ready) {
+        Transition(command_list,slot->lanczos_intermediate,slot->lanczos_state,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        DispatchCodec(command_list,*slot,g_codec.lanczos_horizontal,width,render_height,
+            color_contract,(feature.create_flags&1)!=0,color_x,color_y,0,0,slot->codec_color_mode,
+            render_width,render_height,width,height,1.0f);
+        UavBarrier(command_list,slot->lanczos_intermediate);
+        Transition(command_list,slot->lanczos_intermediate,slot->lanczos_state,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        DispatchCodec(command_list,*slot,g_codec.lanczos_vertical,width,height,
+            color_contract,(feature.create_flags&1)!=0,color_x,color_y,0,0,slot->codec_color_mode,
+            render_width,render_height,width,height,1.0f);
+        slot->lanczos_recorded = true;
+    } else {
+        DispatchCodec(command_list, *slot, g_codec.encode_v2, width, height,
+                      color_contract, (feature.create_flags & 1) != 0,
+                      color_x, color_y, 0, 0, slot->codec_color_mode,
+                      render_width, render_height, width, height, 1.0f);
+    }
     UavBarrier(command_list, slot->proxy);
     Transition(command_list, slot->proxy, slot->proxy_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -12012,13 +12239,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dev6 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dev7 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev6 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev7 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

@@ -29,7 +29,7 @@ def wiring():
     assert all(f'{v}.y != 1.0' in sample for v in 'abcd')
     assert 'return float2(0.0,0.0)' in sample
     assert 'slot.edit_field_allocation_failed || !CanMutateSlotLocked(slot)' in s
-    assert 'g_edit_field_allocated_bytes -= slot.edit_field_bytes;' in s
+    assert 'g_extra_allocated_bytes -= ExtraSlotBytes(slot);' in s
     assert 'g_config.low_grid_edit_field && g_config.color_strength <= 0.000001f' in s
     assert 'slot.edit_field_recorded' in s
     assert 'context->successful_evaluations_since_reset >= g_config.warmup_after_create' in s
@@ -37,7 +37,7 @@ def wiring():
     assert body.index('g_codec.build_edit_field')<body.index('UavBarrier(command_list,slot->edit_field)')<body.index('slot->edit_field_recorded = true')
     # Public budgets cover actual allocation sizes (including alignment), not
     # merely estimated width*height, and reject rather than wrap at extremes.
-    assert 'allocation.SizeInBytes > kEditFieldTotalBudget - g_edit_field_allocated_bytes' in s
+    assert 'FitsExtraResourcePeak(slot, allocation.SizeInBytes)' in s
     print('PASS EditField production opt-in, strict validity, full-res guards and lifetime/budget wiring')
 
 

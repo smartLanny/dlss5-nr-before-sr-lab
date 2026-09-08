@@ -450,6 +450,15 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         "低网格稳定色彩编辑场（实验）"), &next.low_grid_color_edit_field);
     SettingsTooltip(ui("Before SR only. Stores log luminance plus normalized opponent-colour change at NR size, with explicit near-black and finite validity. Interpolation happens before full-resolution colour reconstruction; source edge, HDR headroom, ratio, gamut and finite guards remain final. This is not a face mask and does not add another NR call. Off keeps the existing RG32F luminance field and composition paths.",
         "仅用于前置路线。在 NR 尺寸保存对数亮度及归一化对手色变化，并显式标记近黑和有限性。先插值、再在全分辨率重建色彩；原图边缘、HDR 余量、倍率、色域及有限值保护仍在最终阶段。这不是人脸遮罩，也不增加 NR 调用。关闭时保留现有 RG32F 亮度场与合成路径。"));
+    ImGui::BeginDisabled(next.mode != 2);
+    int input_filter=static_cast<int>(next.nr_input_filter);
+    if(ImGui::Combo(ui("NR input filter", "NR 输入滤波"),&input_filter,
+        ui("Exact Area\0Lanczos-2 AA (experimental)\0", "精确面积\0Lanczos-2 抗混叠（实验）\0"))) {
+        next.nr_input_filter=static_cast<unsigned int>(input_filter);changed=true;
+    }
+    SettingsTooltip(ui("Only changes pre-SR model input downsampling. 1:1 retains Exact Area. Lanczos preserves signed intermediate lobes, then bounds the final model input; preparation failure keeps Area. Changing the input retires old history. This adds a pass and memory, with unverified game quality and GPU cost.",
+        "只改变前置模型输入的降采样；1:1 保留精确面积。Lanczos 在中间面保留有符号负瓣，最后限制模型输入范围；准备失败保留面积核。切换会退休旧历史。增加处理步骤与内存，游戏画质和 GPU 成本尚未验证。"));
+    ImGui::EndDisabled();
     changed |= ImGui::Checkbox(ui("High-strength protection (experimental)",
         "高强度保护（实验）"), &next.high_strength_protection);
     SettingsTooltip(ui("Above 1x effective strength, soft-limits extra luminance; SDR uses remaining headroom. Applies before SR and to the optional shared post candidate. Legacy pre composition also soft-limits extra chroma; independent chroma uses its own colour budget. This does not fix an already clipped 1x result or guarantee stable pictures at 4x.",

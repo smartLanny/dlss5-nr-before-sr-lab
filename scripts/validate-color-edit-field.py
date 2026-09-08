@@ -54,8 +54,9 @@ def wiring():
     assert 'float2 ReadLumaEditV6(int2 p)' in source
     assert 'DXGI_FORMAT_R32G32B32A32_FLOAT' in source
     assert 'CanMutateSlotLocked(slot)' in source
-    assert 'allocation.SizeInBytes > kEditFieldSlotBudget - slot.edit_field_bytes' in source
-    assert 'allocation.SizeInBytes > kEditFieldTotalBudget - g_edit_field_allocated_bytes' in source
+    assert 'bool FitsExtraResourcePeak(' in source
+    assert 'new_bytes <= kExtraSlotBudget - slot_bytes' in source
+    assert 'new_bytes <= kExtraTotalBudget - g_extra_allocated_bytes' in source
     assert 'ReleaseCom(slot.edit_field);' in source
     assert '(low_grid_color ? 32768u : 0u)' in source
     build_shader = source.split('void BuildColorEditFieldCS(', 1)[1].split(
