@@ -20,10 +20,19 @@ output for independent final composition.
 
 A tiny MSVC host performed official NGX initialization and real parameter-object
 allocation, without loading our Core, creating SR/NR, or submitting GPU commands.
-For both UseAutoMask and UICorrection, Set(int, 1) and Set(unsigned, 1) were each
-read successfully through both integer overloads, returning value 1. Parameters
+The committed probe `tests/multi_api/ngx_parameter_roundtrip.cpp` was compiled
+and run from `d4cb94a`. For both UseAutoMask and UICorrection, values 0 and 1
+written with Set(int) and Set(unsigned) were each read successfully through both
+integer overloads: eight cases passed with exact matching values. Parameters
 were reset between cases; destruction and shutdown completed. This is one
 factory/runtime configuration, not a guarantee across every NGX version.
+
+The private executable SHA256 is
+`8cad01e5112473d35e9ce74c5d3cbb0343c3895c4170a311007dba5f9bab1157`;
+its result log SHA256 is
+`552f26681c05a0b92c4f0f286da096938537213cc5eeff48c24b922df8f61dd6`.
+These are parameter-probe artifacts, not a replacement for the `e7df0fc` Core
+hardware build or a face-protection visual test.
 
 Therefore a signed/unsigned mismatch is **not supported as the cause here**.
 An old Core comment claiming the unsigned writer was mandatory was corrected;

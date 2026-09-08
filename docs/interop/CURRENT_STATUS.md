@@ -10,6 +10,12 @@ carrier模块枚举越界修复，加入真实GPU分段时间戳。双语Core/nr
 启用和额外呈现；均非游戏验收，未混入维护默认或Manager。#11低网格EditField与
 #14实际游戏输入接点继续，详见[完整代码队列](CORE_CONTINUATION_QUEUE_20260908.md)。
 
+随后追加 `8aa80e9` 的命令状态历史修复：同一 token 的成功记录不再覆盖不同失败原因；
+这是诊断改动，不等于 #121 闪烁已修。`d4cb94a` 的真实 NGX 参数对象探针完成
+UseAutoMask/UICorrection 的 8 组 signed/unsigned、0/1 互读；不支持把本配置的人脸问题
+归因为整数重载差异，且没有声称 #162 视觉修复。[参数证据边界](MASK_PARAMETER_BOUNDARY_20260908.md)。
+这些后续提交不冒充已含在上面的 `e7df0fc` 硬件构建中。
+
 ## 2026-09-08 新授权接续：Core native-observer 启动协议
 
 维护者明确授权新 Astra session 在原 09:00 批次之后继续开发；旧截止记录保留为历史。
