@@ -32,6 +32,50 @@ NrExternalResourceV1 NrResource(ID3D12Resource *resource, D3D12_RESOURCE_STATES 
     r.state_before=r.state_after=state;r.provenance=NrGuideProvenance::Synthetic;
     return r;
 }
+struct GpuTimestamps {
+    static constexpr UINT kFrames = 8;
+    static constexpr UINT kPerFrame = 3;
+    ComPtr<ID3D12QueryHeap> heap;
+    ComPtr<ID3D12Resource> readback;
+    UINT64 frequency = 0;
+};
+GpuTimestamps MakeGpuTimestamps(DeviceContext &ctx) {
+    GpuTimestamps out;
+    D3D12_QUERY_HEAP_DESC desc{};
+    desc.Type=D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    desc.Count=GpuTimestamps::kFrames*GpuTimestamps::kPerFrame;
+    Check(ctx.device->CreateQueryHeap(&desc,IID_PPV_ARGS(&out.heap)),"CreateQueryHeap(timestamp)");
+    out.readback=Buffer(ctx.device.Get(),UINT64(desc.Count)*sizeof(UINT64),
+        D3D12_HEAP_TYPE_READBACK,D3D12_RESOURCE_STATE_COPY_DEST);
+    Check(ctx.queue->GetTimestampFrequency(&out.frequency),"GetTimestampFrequency");
+    if(!out.frequency)throw std::runtime_error("timestamp frequency is zero");
+    return out;
+}
+void ResolveGpuTimestamps(DeviceContext &ctx,GpuTimestamps &timestamps,UINT frame) {
+    const UINT first=frame*GpuTimestamps::kPerFrame;
+    ctx.list->ResolveQueryData(timestamps.heap.Get(),D3D12_QUERY_TYPE_TIMESTAMP,
+        first,GpuTimestamps::kPerFrame,timestamps.readback.Get(),UINT64(first)*sizeof(UINT64));
+}
+void PrintGpuTimestamps(GpuTimestamps &timestamps,UINT frame,bool nr_recorded) {
+    const UINT first=frame*GpuTimestamps::kPerFrame;
+    const UINT64 offset=UINT64(first)*sizeof(UINT64);
+    const D3D12_RANGE read_range={static_cast<SIZE_T>(offset),
+        static_cast<SIZE_T>(offset+GpuTimestamps::kPerFrame*sizeof(UINT64))};
+    void *mapped=nullptr;
+    Check(timestamps.readback->Map(0,&read_range,&mapped),"timestamp readback Map");
+    const UINT64 *value=static_cast<const UINT64 *>(mapped)+first;
+    if(value[1]<value[0]||value[2]<value[1]) {
+        const D3D12_RANGE written={0,0};timestamps.readback->Unmap(0,&written);
+        throw std::runtime_error("GPU timestamps are not monotonic");
+    }
+    const double scale=1000.0/static_cast<double>(timestamps.frequency);
+    const double nr_ms=static_cast<double>(value[1]-value[0])*scale;
+    const double sr_ms=static_cast<double>(value[2]-value[1])*scale;
+    const D3D12_RANGE written={0,0};timestamps.readback->Unmap(0,&written);
+    std::cout<<"frame="<<frame<<" NR_segment_ms="<<nr_ms<<" SR_segment_ms="<<sr_ms
+        <<" nr_recorded="<<nr_recorded<<" timestamp_frequency_hz="<<timestamps.frequency
+        <<" timestamp_boundaries=before_external_submit,after_external_submit,after_sr_and_transitions\n";
+}
 }
 
 int wmain(int argc,wchar_t **argv) {
@@ -101,11 +145,15 @@ int wmain(int argc,wchar_t **argv) {
         nr.motion.motion_scale_x=frame.dispatch.motionVectorScale.x;
         nr.motion.motion_scale_y=frame.dispatch.motionVectorScale.y;
         nr.pre_exposure=frame.dispatch.preExposure;nr.exposure_scale=1;
+        auto timestamps=MakeGpuTimestamps(ctx);
         unsigned nr_frames=0,sr_frames=0;
         for(unsigned i=0;i<8;++i){
             nr.frame_id=i+1;nr.fence_value=ctx.next_fence-1;
             NrExternalSubmitResultV1 nr_result{};
+            const UINT timestamp_base=i*GpuTimestamps::kPerFrame;
+            ctx.list->EndQuery(timestamps.heap.Get(),D3D12_QUERY_TYPE_TIMESTAMP,timestamp_base);
             const int accepted=submit(kNrExternalProviderAbi,&nr,&nr_result);
+            ctx.list->EndQuery(timestamps.heap.Get(),D3D12_QUERY_TYPE_TIMESTAMP,timestamp_base+1);
             std::cout<<"frame="<<i<<" nr_submit="<<accepted<<" nr_reason="<<NrExternalProviderReasonName(nr_result.reason)
                 <<" nr_recorded="<<nr_result.writeback_performed<<'\n';
             if(!nr_on && (nr_result.reason!=NrExternalProviderReason::Disabled||nr_result.writeback_performed))
@@ -118,10 +166,13 @@ int wmain(int argc,wchar_t **argv) {
                 throw std::runtime_error("B production map rejected actual NR/SR input resource");
             const auto evaluated=NGX_D3D12_EVALUATE_DLSS_EXT(ctx.list.Get(),sr,params,&mapping.evaluate);
             if(transformed)TransitionCombined(ctx,nr_output.Get(),D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            ctx.list->EndQuery(timestamps.heap.Get(),D3D12_QUERY_TYPE_TIMESTAMP,timestamp_base+2);
+            ResolveGpuTimestamps(ctx,timestamps,i);
             // Even a failed backend may have recorded commands. Complete this
             // submitted batch before reporting failure or releasing any input.
             ctx.SubmitAndWait();ctx.Reset();
             RequireNgx(evaluated,"sr_evaluate_combined_batch_completed");
+            PrintGpuTimestamps(timestamps,i,transformed);
             ++sr_frames;nr_frames+=transformed;
             const auto pixels=ReadOutput(ctx,frame.output.Get());ctx.Reset();
             if(pixels.nonfinite||pixels.finite!=size_t(kOutputWidth)*kOutputHeight*4)
