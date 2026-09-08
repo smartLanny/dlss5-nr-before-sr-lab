@@ -1,0 +1,22 @@
+{
+  "row": 12,
+  "nick": "neroeggs",
+  "version": "0.4.2 dx11版",
+  "config": "5080  驱动616.56",
+  "game": "博德之门3",
+  "bug": "不生效",
+  "is_sample": false,
+  "folder": "R12_neroeggs_博德之门3_0.4.2_dx11版",
+  "files": [
+    {
+      "cell": "nr-before-sr.log.txt",
+      "saved": "nr-before-sr.log.txt",
+      "size": 73344
+    },
+    {
+      "cell": "ReShade.log.txt",
+      "saved": "ReShade.log.txt",
+      "size": 17491
+    }
+  ]
+}

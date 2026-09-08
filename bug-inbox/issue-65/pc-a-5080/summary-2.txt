@@ -1,0 +1,622 @@
+format=DLSS5-LogSummary-v1
+source.bytes=2283650
+scan.bytes=2283650
+scan.complete=1
+lines.scanned=9408
+lines.truncated=0
+privacy=ASCII excerpts; local paths and pointer-sized values redacted; hashes cover excerpts only
+
+[head]
+00:19:07:733 [17648] | INFO  | Initializing crosire's ReShade version '6.8.0.2155' (64-bit) loaded from '[local-path]
+00:19:07:761 [17648] | INFO  | Registering hooks for 'user32.dll' ...
+00:19:07:761 [17648] | INFO  | > Libraries loaded.
+00:19:07:762 [17648] | INFO  | > Found 21 match(es). Installing ...
+00:19:07:788 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:789 [17648] | INFO  | > Delayed.
+00:19:07:789 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:789 [17648] | INFO  | > Delayed.
+00:19:07:790 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:790 [17648] | INFO  | > Delayed.
+00:19:07:790 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:791 [17648] | INFO  | > Delayed.
+00:19:07:791 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:791 [17648] | INFO  | > Delayed.
+00:19:07:791 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:792 [17648] | INFO  | > Delayed.
+00:19:07:792 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:792 [17648] | INFO  | > Libraries loaded.
+00:19:07:792 [17648] | INFO  | > Found 3 match(es). Installing ...
+00:19:07:820 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:820 [17648] | INFO  | > Delayed.
+00:19:07:820 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:820 [17648] | INFO  | > Delayed until first call to an exported function.
+00:19:07:820 [17648] | INFO  | Registering hooks for 'openvr_api.dll' ...
+00:19:07:820 [17648] | INFO  | > Delayed.
+00:19:07:820 [17648] | INFO  | Initialized.
+00:19:07:865 [12632] | INFO  | Installing delayed hooks for '[local-path]
+00:19:07:865 [12632] | INFO  | > Found 2 match(es). Installing ...
+00:19:08:135 [17648] | INFO  | Redirecting RegisterClassExW(lpWndClassEx = [address] { "SteamWinsockInitFakeClass_1", style = 0 }) ...
+00:19:09:139 [17648] | INFO  | Redirecting RegisterClassExW(lpWndClassEx = [address] { "via", style = 0xb }) ...
+00:19:09:139 [17648] | INFO  | > Adding 'CS_OWNDC' window class style flag to "via".
+00:19:09:567 [17648] | INFO  | Installing delayed hooks for '[local-path]
+00:19:09:567 [17648] | INFO  | > Found 8 match(es). Installing ...
+00:19:09:618 [17648] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:09:618 [17648] | INFO  | Installing export hooks for '[local-path]
+00:19:09:957 [17648] | INFO  | > Found 5 match(es). Installing ...
+00:19:09:984 [12632] | INFO  | Installing delayed hooks for '[local-path]
+00:19:09:985 [12632] | INFO  | > Found 2 match(es). Installing ...
+00:19:09:985 [17648] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c100, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+00:19:09:989 [17648] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:10:212 [17648] | WARN  | Ignoring LoadLibrary('drvstore.dll') call to avoid possible deadlock.
+00:19:10:215 [17648] | WARN  | Ignoring LoadLibrary('devobj.dll') call to avoid possible deadlock.
+00:19:10:287 [17648] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c100, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+00:19:10:287 [17648] | INFO  | Searching for add-ons (*.addon, *.addon64) in '[local-path]
+00:19:10:287 [17648] | INFO  | Loading add-on from '[local-path]
+00:19:10:295 [17648] | INFO  | Registered add-on "DLSS 5 NR Perfect Chain beta0.4.3 (Chinese UI) | Bilibili UID 941799" v0.4.3.2 using ReShade API version 18.
+00:19:10:297 [10348] | WARN  | Ignoring LoadLibrary('[local-path]
+00:19:10:297 [17648] | INFO  | Loading add-on from '[local-path]
+00:19:10:310 [17648] | ERROR | Failed to register add-on, because another one with the same name ("DLSS 5 NR Perfect Chain beta0.4.3 (Chinese UI) | Bilibili UID 941799") was already registered!
+00:19:10:312 [17648] | ERROR | Failed to load add-on from '[local-path]
+00:19:10:312 [17648] | INFO  | Loading add-on from '[local-path]
+00:19:10:327 [17648] | INFO  | Registered add-on "RenoDX" v0.2026.603.1223 using ReShade API version 18.
+00:19:10:328 [17648] | INFO  | [RenoDX] ResourceUtil attached.
+00:19:10:328 [17648] | INFO  | [RenoDX] utils::swapchain attached.
+00:19:10:328 [17648] | INFO  | [RenoDX] Resource upgrade attached.
+00:19:10:328 [17648] | INFO  | [RenoDX] mods::swapchain attached.
+00:19:10:328 [17648] | INFO  | [RenoDX] PipelineLayoutUtil attached.
+00:19:10:328 [17648] | INFO  | [RenoDX] utils::shader attached.
+00:19:10:328 [17648] | INFO  | [RenoDX] mods::shader attached.
+00:19:10:335 [17648] | INFO  | [RenoDX] mods::shader(Attached Custom Shaders: 9 from 8369408 to [address])
+00:19:10:335 [17648] | INFO  | [RenoDX] mods::shader(Attached Injections: 19 at [address])
+00:19:10:339 [17648] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:10:533 [17648] | WARN  | Ignoring LoadLibrary('cryptbase.dll') call to avoid possible deadlock.
+00:19:10:535 [17648] | WARN  | Ignoring LoadLibrary('wldp.dll') call to avoid possible deadlock.
+00:19:10:560 [ 8660] | WARN  | Ignoring LoadLibrary('[local-path]
+00:19:10:586 [14264] | WARN  | Ignoring LoadLibrary('[local-path]
+00:19:10:935 [17648] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:10:942 [17648] | DEBUG | [RenoDX] utils::resource::upgrade::OnInitDevice(110823432, api: d3d12)
+00:19:10:942 [17648] | INFO  | [RenoDX] mods::swapchain::OnInitDevice([address], native: [address])
+00:19:10:942 [17648] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: 110823432, api: d3d12)
+00:19:10:943 [17648] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xc58c0b1e)
+00:19:10:943 [17648] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xc752540a)
+00:19:10:943 [17648] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xd4f30207)
+00:19:10:943 [17648] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x692e2e27)
+00:19:10:943 [17648] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xf58348dc)
+00:19:10:943 [17648] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x4e55c17e)
+00:19:10:943 [17648] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x1e6ccbaf)
+00:19:10:943 [17648] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0xfd9d7a88)
+00:19:10:943 [17648] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Registered runtime replacement: 0x7d28e89e)
+00:19:10:943 [17648] | INFO  | [RenoDX] mods::shader::OnInitDevice(110823432)
+00:19:11:334 [17648] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+00:19:11:335 [17648] | INFO  | > Dumping command queue description:
+00:19:11:335 [17648] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:11:335 [17648] | INFO  |   | Parameter                               | Value                                   |
+00:19:11:335 [17648] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:11:335 [17648] | INFO  |   | Type                                    | 0                                       |
+00:19:11:335 [17648] | INFO  |   | Priority                                | 0                                       |
+00:19:11:335 [17648] | INFO  |   | Flags                                   | 0                                       |
+00:19:11:335 [17648] | INFO  |   | NodeMask                                | 1                                       |
+00:19:11:335 [17648] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:11:366 [17648] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+00:19:11:366 [17648] | INFO  | > Dumping command queue description:
+00:19:11:366 [17648] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:11:366 [17648] | INFO  |   | Parameter                               | Value                                   |
+00:19:11:366 [17648] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:11:367 [17648] | INFO  |   | Type                                    | 2                                       |
+00:19:11:367 [17648] | INFO  |   | Priority                                | 100                                     |
+00:19:11:367 [17648] | INFO  |   | Flags                                   | 0                                       |
+00:19:11:367 [17648] | INFO  |   | NodeMask                                | 1                                       |
+00:19:11:367 [17648] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:11:384 [17648] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+00:19:11:384 [17648] | INFO  | > Dumping command queue description:
+00:19:11:384 [17648] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:11:384 [17648] | INFO  |   | Parameter                               | Value                                   |
+00:19:11:384 [17648] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:11:384 [17648] | INFO  |   | Type                                    | 2                                       |
+00:19:11:384 [17648] | INFO  |   | Priority                                | 0                                       |
+00:19:11:384 [17648] | INFO  |   | Flags                                   | 0                                       |
+00:19:11:384 [17648] | INFO  |   | NodeMask                                | 1                                       |
+00:19:11:384 [17648] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:11:400 [17648] | INFO  | Redirecting ID3D12Device::CreateCommandQueue(this = [address], pDesc = [address], riid = {0EC870A6-5D7E-4C22-8CFC-[address]}, ppCommandQueue = [address]) ...
+00:19:11:400 [17648] | INFO  | > Dumping command queue description:
+00:19:11:400 [17648] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:11:400 [17648] | INFO  |   | Parameter                               | Value                                   |
+00:19:11:400 [17648] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:11:400 [17648] | INFO  |   | Type                                    | 3                                       |
+00:19:11:400 [17648] | INFO  |   | Priority                                | 0                                       |
+00:19:11:400 [17648] | INFO  |   | Flags                                   | 0                                       |
+00:19:11:400 [17648] | INFO  |   | NodeMask                                | 0                                       |
+00:19:11:400 [17648] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:11:422 [17648] | INFO  | Redirecting CreateDXGIFactory1(riid = {7B7166EC-21C7-44AE-B21A-[address]}, ppFactory = [address]) ...
+00:19:11:436 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 2 with slot count 19 creating new size of 4, root_dwords: 2 => 21, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1186471216 )
+00:19:11:436 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 2, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:436 [17648] | WARN  | [RenoDX] mods::shader::OnCreatePipelineLayout(shader injection oversized: 19/13, root_dwords: 51, descriptor_injection_cost: 0 )
+00:19:11:436 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 31 with slot count 19 creating new size of 33, root_dwords: 51 => 64, constant_injection_cost: 13, descriptor_injection_cost: 0, newParams: 1837836192 )
+00:19:11:436 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 31, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:436 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1202829968 )
+00:19:11:436 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:437 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1193547856 )
+00:19:11:437 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:437 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 19 creating new size of 11, root_dwords: 13 => 32, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1191045024 )
+00:19:11:437 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:437 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1816545328 )
+00:19:11:437 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:437 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1824703504 )
+00:19:11:437 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:437 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1816536000 )
+00:19:11:437 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:438 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1192537248 )
+00:19:11:438 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:438 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1824713664 )
+00:19:11:438 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:438 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1824706368 )
+00:19:11:438 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:438 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1192540192 )
+00:19:11:438 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:438 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1816546176 )
+00:19:11:438 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:438 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1824709408 )
+00:19:11:438 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:438 [17648] | WARN  | [RenoDX] mods::shader::OnCreatePipelineLayout(shader injection oversized: 19/13, root_dwords: 51, descriptor_injection_cost: 0 )
+00:19:11:439 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 31 with slot count 19 creating new size of 33, root_dwords: 51 => 64, constant_injection_cost: 13, descriptor_injection_cost: 0, newParams: 1838147472 )
+00:19:11:439 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 31, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:439 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1838159536 )
+00:19:11:439 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:439 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1824706976 )
+00:19:11:439 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:439 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 19 creating new size of 11, root_dwords: 13 => 32, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1191046368 )
+00:19:11:439 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:439 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1816540240 )
+00:19:11:439 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:439 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1838459424 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1816541088 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1192543136 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1824707584 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1824708192 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1192538720 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1816549568 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:440 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1824710624 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:442 [17648] | WARN  | [RenoDX] mods::shader::OnCreatePipelineLayout(shader injection oversized: 19/13, root_dwords: 51, descriptor_injection_cost: 0 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 31 with slot count 19 creating new size of 33, root_dwords: 51 => 64, constant_injection_cost: 13, descriptor_injection_cost: 0, newParams: 1838460512 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 31, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1838480016 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1824711232 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 19 creating new size of 11, root_dwords: 13 => 32, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1191042336 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1838503584 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1838222336 )
+00:19:11:442 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1838507824 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1192543504 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1838518176 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1838518784 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1192542400 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1838506128 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:443 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1838520608 )
+00:19:11:444 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:444 [17648] | WARN  | [RenoDX] mods::shader::OnCreatePipelineLayout(shader injection oversized: 19/13, root_dwords: 51, descriptor_injection_cost: 0 )
+00:19:11:444 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 31 with slot count 19 creating new size of 33, root_dwords: 51 => 64, constant_injection_cost: 13, descriptor_injection_cost: 0, newParams: 1838800912 )
+00:19:11:444 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 31, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:11:444 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 1838307168 )
+00:19:11:444 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:552 [17648] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+
+[first events]
+00:19:10:310 [17648] | ERROR | Failed to register add-on, because another one with the same name ("DLSS 5 NR Perfect Chain beta0.4.3 (Chinese UI) | Bilibili UID 941799") was already registered!
+
+[recent important]
+00:19:07:761 [17648] | INFO  | Registering hooks for 'user32.dll' ...
+00:19:07:788 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:789 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:790 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:790 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:791 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:791 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:792 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:820 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:820 [17648] | INFO  | Registering hooks for '[local-path]
+00:19:07:820 [17648] | INFO  | Registering hooks for 'openvr_api.dll' ...
+00:19:07:865 [12632] | INFO  | Installing delayed hooks for '[local-path]
+00:19:09:567 [17648] | INFO  | Installing delayed hooks for '[local-path]
+00:19:09:618 [17648] | INFO  | Installing export hooks for '[local-path]
+00:19:09:984 [12632] | INFO  | Installing delayed hooks for '[local-path]
+00:19:09:985 [17648] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c100, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+00:19:10:287 [17648] | INFO  | Redirecting D3D12CreateDevice(pAdapter = [address], MinimumFeatureLevel = c100, riid = {189819F1-1DB6-4B57-BE54-[address]}, ppDevice = [address]) ...
+00:19:10:310 [17648] | ERROR | Failed to register add-on, because another one with the same name ("DLSS 5 NR Perfect Chain beta0.4.3 (Chinese UI) | Bilibili UID 941799") was already registered!
+00:19:10:312 [17648] | ERROR | Failed to load add-on from '[local-path]
+00:19:10:942 [17648] | DEBUG | [RenoDX] utils::shader::OnInitDevice(Hooking device: 110823432, api: d3d12)
+00:19:13:569 [ 3936] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+00:19:13:624 [ 3936] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+
+[tail]
+00:19:12:179 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 31 with slot count 19 creating new size of 33, root_dwords: 51 => 64, constant_injection_cost: 13, descriptor_injection_cost: 0, newParams: 4446266656 )
+00:19:12:179 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 31, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:179 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4443034608 )
+00:19:12:179 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:179 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444478960 )
+00:19:12:179 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:179 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 19 creating new size of 11, root_dwords: 13 => 32, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4448297776 )
+00:19:12:179 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:179 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447392752 )
+00:19:12:179 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:179 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4443039024 )
+00:19:12:180 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:180 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447401232 )
+00:19:12:180 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:180 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4441968864 )
+00:19:12:180 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:180 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444481392 )
+00:19:12:180 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:180 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444477136 )
+00:19:12:180 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:180 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4441984688 )
+00:19:12:180 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:181 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447405472 )
+00:19:12:181 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:181 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444483824 )
+00:19:12:181 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:181 [17648] | WARN  | [RenoDX] mods::shader::OnCreatePipelineLayout(shader injection oversized: 19/13, root_dwords: 51, descriptor_injection_cost: 0 )
+00:19:12:181 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 31 with slot count 19 creating new size of 33, root_dwords: 51 => 64, constant_injection_cost: 13, descriptor_injection_cost: 0, newParams: 4446268016 )
+00:19:12:181 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 31, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:181 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4443031296 )
+00:19:12:181 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:181 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444479568 )
+00:19:12:181 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 19 creating new size of 11, root_dwords: 13 => 32, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4448298672 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447402080 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4443033504 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447402928 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4441977328 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444484432 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444472272 )
+00:19:12:182 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4441980272 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447408864 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444468624 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:183 [17648] | WARN  | [RenoDX] mods::shader::OnCreatePipelineLayout(shader injection oversized: 19/13, root_dwords: 51, descriptor_injection_cost: 0 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 31 with slot count 19 creating new size of 33, root_dwords: 51 => 64, constant_injection_cost: 13, descriptor_injection_cost: 0, newParams: 4446257136 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 31, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4443024672 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444487472 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 19 creating new size of 11, root_dwords: 13 => 32, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4448299120 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447410560 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4443036816 )
+00:19:12:183 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447399536 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4441981744 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444485648 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444486256 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4441974016 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447396992 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:185 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444488080 )
+00:19:12:186 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:186 [17648] | WARN  | [RenoDX] mods::shader::OnCreatePipelineLayout(shader injection oversized: 19/13, root_dwords: 51, descriptor_injection_cost: 0 )
+00:19:12:186 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 31 with slot count 19 creating new size of 33, root_dwords: 51 => 64, constant_injection_cost: 13, descriptor_injection_cost: 0, newParams: 4446274816 )
+00:19:12:186 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 31, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:186 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4443040128 )
+00:19:12:186 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:186 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444488688 )
+00:19:12:186 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:186 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 19 creating new size of 11, root_dwords: 13 => 32, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4448300016 )
+00:19:12:186 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:186 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447397840 )
+00:19:12:186 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:186 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4443045648 )
+00:19:12:187 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:187 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447424976 )
+00:19:12:187 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:187 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4441979536 )
+00:19:12:187 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:187 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444502064 )
+00:19:12:187 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:187 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444505104 )
+00:19:12:187 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:187 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4441972176 )
+00:19:12:187 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:188 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447426672 )
+00:19:12:188 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:188 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444497200 )
+00:19:12:188 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:188 [17648] | WARN  | [RenoDX] mods::shader::OnCreatePipelineLayout(shader injection oversized: 19/13, root_dwords: 51, descriptor_injection_cost: 0 )
+00:19:12:188 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 31 with slot count 19 creating new size of 33, root_dwords: 51 => 64, constant_injection_cost: 13, descriptor_injection_cost: 0, newParams: 4446273456 )
+00:19:12:188 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 31, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:188 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4443056688 )
+00:19:12:188 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:188 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444501456 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 19 creating new size of 11, root_dwords: 13 => 32, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4448284784 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447419888 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4443046752 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447423280 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4441985792 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444492336 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444495984 )
+00:19:12:189 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4441981008 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447424128 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444490512 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:190 [17648] | WARN  | [RenoDX] mods::shader::OnCreatePipelineLayout(shader injection oversized: 19/13, root_dwords: 51, descriptor_injection_cost: 0 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 31 with slot count 19 creating new size of 33, root_dwords: 51 => 64, constant_injection_cost: 13, descriptor_injection_cost: 0, newParams: 4446278896 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 31, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4443041232 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444496592 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:190 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 9 with slot count 19 creating new size of 11, root_dwords: 13 => 32, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4448301808 )
+00:19:12:191 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 9, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:191 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447430064 )
+00:19:12:191 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:191 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 25 with slot count 19 creating new size of 27, root_dwords: 41 => 60, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4443054480 )
+00:19:12:191 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 25, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:191 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447430912 )
+00:19:12:191 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:191 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4441985424 )
+00:19:12:191 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:191 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444494160 )
+00:19:12:191 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:191 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444503280 )
+00:19:12:192 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:192 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 7 with slot count 19 creating new size of 9, root_dwords: 11 => 30, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4441986896 )
+00:19:12:192 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 7, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:192 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 19 with slot count 19 creating new size of 21, root_dwords: 31 => 50, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4447431760 )
+00:19:12:192 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 19, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:192 [17648] | INFO  | [RenoDX] mods::shader::OnCreatePipelineLayout(will insert cbuffer 13 at root_index 13 with slot count 19 creating new size of 15, root_dwords: 21 => 40, constant_injection_cost: 19, descriptor_injection_cost: 0, newParams: 4444500240 )
+00:19:12:192 [17648] | INFO  | [RenoDX] mods::shader::OnInitPipelineLayout([address], injection index: 13, descriptor injection index: -1, descriptor injection count: 0, injection layout: [address], cbvIndex:13 )
+00:19:12:552 [17648] | INFO  | Redirecting CreateDXGIFactory1(riid = {770AAE78-F26F-4DBA-A829-[address]}, ppFactory = [address]) ...
+00:19:12:629 [17648] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798031-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+00:19:13:087 [ 3936] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForHwnd(this = [address], pDevice = [address], hWnd = [address], pDesc = [address], pFullscreenDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+00:19:13:087 [ 3936] | INFO  | > Dumping swap chain description:
+00:19:13:087 [ 3936] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:13:087 [ 3936] | INFO  |   | Parameter                               | Value                                   |
+00:19:13:088 [ 3936] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:13:088 [ 3936] | INFO  |   | Width                                   | 1920                                    |
+00:19:13:088 [ 3936] | INFO  |   | Height                                  | 1080                                    |
+00:19:13:088 [ 3936] | INFO  |   | RefreshRate                             | 0                   0                   |
+00:19:13:088 [ 3936] | INFO  |   | Format                                  | DXGI_FORMAT_R10G10B10A2_UNORM           |
+00:19:13:088 [ 3936] | INFO  |   | Stereo                                  | FALSE                                   |
+00:19:13:088 [ 3936] | INFO  |   | ScanlineOrdering                        | 0                                       |
+00:19:13:088 [ 3936] | INFO  |   | Scaling                                 | 0                                       |
+00:19:13:088 [ 3936] | INFO  |   | SampleCount                             | 1                                       |
+00:19:13:088 [ 3936] | INFO  |   | SampleQuality                           | 0                                       |
+00:19:13:088 [ 3936] | INFO  |   | BufferUsage                             | 0x20                                    |
+00:19:13:088 [ 3936] | INFO  |   | BufferCount                             | 3                                       |
+00:19:13:088 [ 3936] | INFO  |   | Windowed                                | TRUE                                    |
+00:19:13:088 [ 3936] | INFO  |   | SwapEffect                              | 4                                       |
+00:19:13:088 [ 3936] | INFO  |   | AlphaMode                               | 0                                       |
+00:19:13:088 [ 3936] | INFO  |   | Flags                                   | 0x842                                   |
+00:19:13:088 [ 3936] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:13:088 [ 3936] | DEBUG | [RenoDX] mods::swapchain::OnCreateSwapchain()
+00:19:13:089 [ 3936] | INFO  | [RenoDX] mods::swapchain::ShouldModifySwapchain(Checking class name: via)
+00:19:13:089 [ 3936] | INFO  | [RenoDX] mods::swapchain::OnCreateSwapchain(swap: r10g10b10a2_unorm => r10g10b10a2_unorm, present mode: 0x4 => 0x4, present flag: 0x842 (ALLOW_MODE_SWITCH | FRAME_LATENCY_WAITABLE_OBJECT | ALLOW_TEARING) => 0x840 (FRAME_LATENCY_WAITABLE_OBJECT | ALLOW_TEARING), buffers:3 => 3, fullscreen:0 => 0, refresh:0 => 0, width: 1920, height: 1080)
+00:19:13:120 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:13:127 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:13:132 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:13:138 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:13:147 [ 3936] | INFO  | Running on NVIDIA GeForce RTX 5080 Driver 616.56.
+00:19:13:464 [ 3936] | DEBUG | [RenoDX] utils::resource::upgrade::OnInitSwapchain(reset resource upgrade)
+00:19:13:464 [ 3936] | DEBUG | [RenoDX] mods::swapchain::OnInitSwapchain([address], resize: false)
+00:19:13:464 [ 3936] | INFO  | [RenoDX] mods::swapchain::ShouldModifySwapchain(Checking class name: via)
+00:19:13:464 [ 3936] | INFO  | [RenoDX] mods::swapchain::OnInitSwapchain(Primary swapchain desc: 1920x1080, format: r10g10b10a2_unorm, hwnd: [address], device: [address])
+00:19:13:464 [ 3936] | DEBUG | [RenoDX] mods::swapchain::CheckSwapchainSize(set DXGI_MWA_NO_WINDOW_CHANGES)
+00:19:13:464 [ 3936] | DEBUG | [RenoDX] mods::swapchain::CheckSwapchainSize(screen_width: 3840, screen_height: 2160, buffer_width: 1920, buffer_height: 1080, buffer_format: r10g10b10a2_unorm, target_format: r10g10b10a2_unorm)
+00:19:13:464 [ 3936] | INFO  | [RenoDX] mods::swapchain::OnSetFullscreenState(fake_fullscreen_pending=0, hwnd=[address])
+00:19:13:466 [ 3936] | INFO  | [RenoDX] utils::swapchain::OnInitEffectRuntime(Runtime: 110823432, colorspace: hdr10_st2084)
+00:19:13:467 [ 3936] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+00:19:13:499 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:499 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B60-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:507 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B80-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:508 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B81-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:508 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:508 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:514 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B82-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:514 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B83-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:515 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {3319AFA0-17EF-11F1-8001-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:530 [24676] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0xfd9d7a88)
+00:19:13:530 [24676] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0xfd9d7a88, pipeline: [address], index: 4, type: pixel_shader, stage: pixel_shader)
+00:19:13:531 [24676] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0xfd9d7a88)
+00:19:13:531 [24676] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0xfd9d7a88, pipeline: [address], index: 4, type: pixel_shader, stage: pixel_shader)
+00:19:13:536 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {331A9A00-17EF-11F1-8002-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:542 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {331B0F30-17EF-11F1-8004-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:549 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {331BAB70-17EF-11F1-8007-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:555 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {331BAB70-17EF-11F1-8008-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:562 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {331BAB70-17EF-11F1-8009-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:569 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {331B3640-17EF-11F1-8006-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:569 [ 3936] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+00:19:13:569 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {331BAB70-17EF-11F1-800A-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:576 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {331A9A00-17EF-11F1-8003-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:610 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {331BD280-17EF-11F1-800B-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:617 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {331BD280-17EF-11F1-800C-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:624 [ 3936] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {E55FE4E0-88D3-11F1-8001-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:13:624 [ 3936] | WARN  | IDirectInput8W::CreateDevice failed with error code E_FAIL.
+00:19:13:873 [12632] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:13:883 [12632] | INFO  | Redirecting CreateDXGIFactory1(riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:13:903 [20936] | INFO  | Successfully compiled '[local-path]
+00:19:13:914 [ 3464] | INFO  | Successfully compiled '[local-path]
+00:19:13:916 [12632] | INFO  | Redirecting IDXGIFactory2::CreateSwapChainForComposition(this = [address], pDevice = [address], pDesc = [address], pRestrictToOutput = [address], ppSwapChain = ) ...
+00:19:13:916 [12632] | INFO  | > Dumping swap chain description:
+00:19:13:916 [12632] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:13:916 [12632] | INFO  |   | Parameter                               | Value                                   |
+00:19:13:917 [12632] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:13:917 [12632] | INFO  |   | Width                                   | 1                                       |
+00:19:13:917 [12632] | INFO  |   | Height                                  | 1                                       |
+00:19:13:917 [12632] | INFO  |   | Format                                  | DXGI_FORMAT_B8G8R8A8_UNORM              |
+00:19:13:917 [12632] | INFO  |   | Stereo                                  | FALSE                                   |
+00:19:13:917 [12632] | INFO  |   | SampleCount                             | 1                                       |
+00:19:13:917 [12632] | INFO  |   | SampleQuality                           | 0                                       |
+00:19:13:918 [12632] | INFO  |   | BufferUsage                             | 0x20                                    |
+00:19:13:918 [12632] | INFO  |   | BufferCount                             | 2                                       |
+00:19:13:918 [12632] | INFO  |   | SwapEffect                              | 3                                       |
+00:19:13:918 [12632] | INFO  |   | AlphaMode                               | 1                                       |
+00:19:13:918 [12632] | INFO  |   | Flags                                   | 0                                       |
+00:19:13:918 [12632] | INFO  |   +-----------------------------------------+-----------------------------------------+
+00:19:13:918 [12632] | DEBUG | [RenoDX] mods::swapchain::OnCreateSwapchain()
+00:19:13:918 [12632] | INFO  | [RenoDX] mods::swapchain::ShouldModifySwapchain(Checking class name: )
+00:19:13:918 [12632] | INFO  | [RenoDX] mods::swapchain::OnCreateSwapchain(Abort from unchanged desc: [address])
+00:19:13:925 [ 8876] | INFO  | Successfully compiled '[local-path]
+00:19:13:935 [12632] | WARN  | Skipping swap chain because it was created without a proxy Direct3D device.
+00:19:13:951 [ 2748] | INFO  | Successfully compiled '[local-path]
+00:19:13:964 [20888] | INFO  | Successfully compiled '[local-path]
+00:19:13:972 [13580] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0xf58348dc)
+00:19:13:972 [13580] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0xf58348dc, pipeline: [address], index: 4, type: pixel_shader, stage: pixel_shader)
+00:19:13:972 [ 7176] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0x692e2e27)
+00:19:13:972 [ 6736] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0xd4f30207)
+00:19:13:972 [24676] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0x7d28e89e)
+00:19:13:972 [ 7176] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0x692e2e27, pipeline: [address], index: 4, type: pixel_shader, stage: pixel_shader)
+00:19:13:972 [ 6736] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0xd4f30207, pipeline: [address], index: 4, type: pixel_shader, stage: pixel_shader)
+00:19:13:972 [24676] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0x7d28e89e, pipeline: [address], index: 4, type: pixel_shader, stage: pixel_shader)
+00:19:13:973 [ 6736] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0xc752540a)
+00:19:13:973 [ 6736] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0xc752540a, pipeline: [address], index: 4, type: pixel_shader, stage: pixel_shader)
+00:19:13:975 [18084] | INFO  | Successfully compiled '[local-path]
+00:19:13:976 [ 9740] | INFO  | Successfully compiled '[local-path]
+00:19:13:983 [18684] | INFO  | Successfully compiled '[local-path]
+00:19:13:994 [ 2280] | INFO  | Successfully compiled '[local-path]
+00:19:14:002 [22596] | INFO  | Successfully compiled '[local-path]
+00:19:14:013 [26664] | INFO  | Successfully compiled '[local-path]
+00:19:14:023 [13512] | INFO  | Successfully compiled '[local-path]
+00:19:14:032 [15892] | INFO  | Redirecting IDXGISwapChain::SetFullscreenState(this = [address], Fullscreen = FALSE, pTarget = [address]) ...
+00:19:14:033 [15892] | INFO  | [RenoDX] mods::swapchain::OnSetFullscreenState(fake_fullscreen_pending=0, hwnd=[address])
+00:19:14:083 [ 3936] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 3, Width = 3840, Height = 2160, NewFormat = 24, SwapChainFlags = 0x842) ...
+00:19:14:086 [ 3936] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+00:19:14:086 [ 3936] | DEBUG | [RenoDX] mods::swapchain::OnDestroySwapchain([address], resize: true)
+00:19:14:086 [ 3936] | DEBUG | [RenoDX] mods::swapchain::OnCreateSwapchain()
+00:19:14:086 [ 3936] | INFO  | [RenoDX] mods::swapchain::ShouldModifySwapchain(Checking class name: via)
+00:19:14:086 [ 3936] | INFO  | [RenoDX] mods::swapchain::OnCreateSwapchain(swap: r10g10b10a2_unorm => r10g10b10a2_unorm, present mode: 0x4 => 0x4, present flag: 0x842 (ALLOW_MODE_SWITCH | FRAME_LATENCY_WAITABLE_OBJECT | ALLOW_TEARING) => 0x840 (FRAME_LATENCY_WAITABLE_OBJECT | ALLOW_TEARING), buffers:3 => 3, fullscreen:0 => 0, refresh:0 => 0, width: 3840, height: 2160)
+00:19:14:093 [ 3936] | DEBUG | [RenoDX] utils::resource::upgrade::OnInitSwapchain(reset resource upgrade)
+00:19:14:093 [ 3936] | DEBUG | [RenoDX] mods::swapchain::OnInitSwapchain([address], resize: true)
+00:19:14:093 [ 3936] | INFO  | [RenoDX] mods::swapchain::ShouldModifySwapchain(Checking class name: via)
+00:19:14:093 [ 3936] | INFO  | [RenoDX] mods::swapchain::OnInitSwapchain(Primary swapchain desc: 3840x2160, format: r10g10b10a2_unorm, hwnd: [address], device: [address])
+00:19:14:093 [ 3936] | DEBUG | [RenoDX] mods::swapchain::CheckSwapchainSize(set DXGI_MWA_NO_WINDOW_CHANGES)
+00:19:14:093 [ 3936] | DEBUG | [RenoDX] mods::swapchain::CheckSwapchainSize(screen_width: 3840, screen_height: 2160, buffer_width: 3840, buffer_height: 2160, buffer_format: r10g10b10a2_unorm, target_format: r10g10b10a2_unorm)
+00:19:14:095 [ 3936] | INFO  | [RenoDX] mods::swapchain::OnSetFullscreenState(fake_fullscreen_pending=0, hwnd=[address])
+00:19:14:095 [17544] | WARN  | Ignoring LoadLibrary('[local-path]
+00:19:14:098 [ 3936] | INFO  | [RenoDX] utils::swapchain::OnInitEffectRuntime(Runtime: 110823432, colorspace: hdr10_st2084)
+00:19:14:098 [ 3936] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+00:19:14:127 [24016] | INFO  | Successfully compiled '[local-path]
+00:19:14:137 [27500] | INFO  | Successfully compiled '[local-path]
+00:19:14:146 [12272] | INFO  | Successfully compiled '[local-path]
+00:19:14:168 [15892] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0xfd9d7a88)
+00:19:14:169 [15892] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0xfd9d7a88, pipeline: [address], index: 4, type: pixel_shader, stage: pixel_shader)
+00:19:14:170 [27056] | INFO  | Successfully compiled '[local-path]
+00:19:14:182 [22620] | INFO  | Successfully compiled '[local-path]
+00:19:14:187 [25104] | INFO  | Successfully compiled '[local-path]
+00:19:14:191 [23464] | INFO  | Successfully compiled '[local-path]
+00:19:14:199 [26960] | INFO  | Successfully compiled '[local-path]
+00:19:14:208 [26868] | INFO  | Successfully compiled '[local-path]
+00:19:14:214 [ 5612] | INFO  | Successfully compiled '[local-path]
+00:19:14:223 [ 7432] | INFO  | Successfully compiled '[local-path]
+00:19:14:233 [ 1508] | INFO  | Successfully compiled '[local-path]
+00:19:15:215 [15892] | INFO  | Redirecting DirectInput8Create(hinst = [address], dwVersion = 800, riidltf = {BF798031-483A-4DA2-AA99-[address]}, ppvOut = [address], pUnkOuter = [address]) ...
+00:19:15:216 [15892] | INFO  | Redirecting IDirectInput8W::CreateDevice(this = [address], rguid = {6F1D2B61-D5A0-11CF-BFC7-[address]}, lplpDirectInputDevice = [address], pUnkOuter = [address]) ...
+00:19:15:408 [13580] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0x1e6ccbaf)
+00:19:15:408 [13580] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0x1e6ccbaf, pipeline: [address], index: 0, type: compute_shader, stage: compute_shader)
+00:19:15:409 [ 6736] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0x4e55c17e)
+00:19:15:409 [ 7176] | DEBUG | [RenoDX] utils::shader::BuildReplacementPipeline(Replacing 0xc58c0b1e)
+00:19:15:409 [ 6736] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0x4e55c17e, pipeline: [address], index: 4, type: pixel_shader, stage: pixel_shader)
+00:19:15:409 [ 7176] | DEBUG | [RenoDX] utils::shader::PipelineShaderDetails(Replacing pipeline for 0xc58c0b1e, pipeline: [address], index: 4, type: pixel_shader, stage: pixel_shader)
+00:19:17:404 [15892] | WARN  | Ignoring LoadLibrary('cryptnet.dll') call to avoid possible deadlock.
+00:19:17:419 [ 5356] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:19:17:598 [ 3692] | WARN  | Ignoring LoadLibrary('[local-path]
+00:19:17:611 [ 3692] | WARN  | Ignoring LoadLibrary('api-ms-win-appmodel-runtime-l1-1-2') call to avoid possible deadlock.
+00:19:17:614 [15892] | WARN  | Ignoring LoadLibrary('Advapi32.dll') call to avoid possible deadlock.
+00:19:17:615 [15892] | WARN  | Ignoring LoadLibrary('gdi32.dll') call to avoid possible deadlock.
+00:19:17:618 [15892] | WARN  | Ignoring LoadLibrary('kernel32.dll') call to avoid possible deadlock.
+00:19:17:632 [ 6988] | WARN  | Ignoring LoadLibrary('[local-path]
+00:19:17:643 [23468] | WARN  | Ignoring LoadLibrary('[local-path]
+00:19:17:986 [15892] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:18:018 [15892] | INFO  | Redirecting D2D1CreateFactory(factoryType = 0, riid = {0869759F-4F00-413F-B03E-[address]}, pFactoryOptions = [address], ppIFactory = [address]) ...
+00:19:18:018 [15892] | INFO  | Redirecting ID2D1Factory1::CreateDevice(this = [address], dxgiDevice = [address], d2dDevice = [address]) ...
+00:19:27:673 [15892] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:29:929 [15892] | INFO  | Redirecting IDXGISwapChain::ResizeBuffers(this = [address], BufferCount = 2, Width = 3840, Height = 2160, NewFormat = 24, SwapChainFlags = 0x842) ...
+00:19:29:937 [15892] | INFO  | Destroyed runtime environment on runtime [address] ('[local-path]
+00:19:29:937 [15892] | DEBUG | [RenoDX] mods::swapchain::OnDestroySwapchain([address], resize: true)
+00:19:29:937 [15892] | DEBUG | [RenoDX] mods::swapchain::OnCreateSwapchain()
+00:19:29:938 [15892] | INFO  | [RenoDX] mods::swapchain::ShouldModifySwapchain(Checking class name: via)
+00:19:29:938 [15892] | INFO  | [RenoDX] mods::swapchain::OnCreateSwapchain(swap: r10g10b10a2_unorm => r10g10b10a2_unorm, present mode: 0x4 => 0x4, present flag: 0x842 (ALLOW_MODE_SWITCH | FRAME_LATENCY_WAITABLE_OBJECT | ALLOW_TEARING) => 0x840 (FRAME_LATENCY_WAITABLE_OBJECT | ALLOW_TEARING), buffers:2 => 2, fullscreen:0 => 0, refresh:0 => 0, width: 3840, height: 2160)
+00:19:30:205 [15892] | DEBUG | [RenoDX] utils::resource::upgrade::OnInitSwapchain(reset resource upgrade)
+00:19:30:205 [15892] | DEBUG | [RenoDX] mods::swapchain::OnInitSwapchain([address], resize: true)
+00:19:30:205 [15892] | INFO  | [RenoDX] mods::swapchain::ShouldModifySwapchain(Checking class name: via)
+00:19:30:205 [15892] | INFO  | [RenoDX] mods::swapchain::OnInitSwapchain(Primary swapchain desc: 3840x2160, format: r10g10b10a2_unorm, hwnd: [address], device: [address])
+00:19:30:205 [15892] | DEBUG | [RenoDX] mods::swapchain::CheckSwapchainSize(set DXGI_MWA_NO_WINDOW_CHANGES)
+00:19:30:205 [15892] | DEBUG | [RenoDX] mods::swapchain::CheckSwapchainSize(screen_width: 3840, screen_height: 2160, buffer_width: 3840, buffer_height: 2160, buffer_format: r10g10b10a2_unorm, target_format: r10g10b10a2_unorm)
+00:19:30:205 [15892] | INFO  | [RenoDX] mods::swapchain::OnSetFullscreenState(fake_fullscreen_pending=0, hwnd=[address])
+00:19:30:208 [15892] | INFO  | [RenoDX] utils::swapchain::OnInitEffectRuntime(Runtime: 110823432, colorspace: hdr10_st2084)
+00:19:30:208 [15892] | INFO  | Recreated runtime environment on runtime [address] ('[local-path]
+00:19:30:231 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:30:242 [12732] | INFO  | Successfully compiled '[local-path]
+00:19:30:252 [19652] | INFO  | Successfully compiled '[local-path]
+00:19:30:263 [ 4616] | INFO  | Successfully compiled '[local-path]
+00:19:30:283 [24108] | INFO  | Successfully compiled '[local-path]
+00:19:30:289 [24420] | INFO  | Successfully compiled '[local-path]
+00:19:30:297 [15652] | INFO  | Successfully compiled '[local-path]
+00:19:30:298 [ 5660] | INFO  | Successfully compiled '[local-path]
+00:19:30:307 [26484] | INFO  | Successfully compiled '[local-path]
+00:19:30:316 [19416] | INFO  | Successfully compiled '[local-path]
+00:19:30:322 [21144] | INFO  | Successfully compiled '[local-path]
+00:19:30:332 [ 2972] | INFO  | Successfully compiled '[local-path]
+00:19:30:342 [ 9164] | INFO  | Successfully compiled '[local-path]
+00:19:30:412 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0x80000000, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:19:30:430 [ 3936] | INFO  | Redirecting D2D1CreateFactory(factoryType = 0, riid = {0869759F-4F00-413F-B03E-[address]}, pFactoryOptions = [address], ppIFactory = [address]) ...
+00:19:30:430 [ 3936] | INFO  | Redirecting ID2D1Factory1::CreateDevice(this = [address], dxgiDevice = [address], d2dDevice = [address]) ...
+00:20:46:983 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:20:46:990 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:20:46:999 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:20:54:294 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:20:54:300 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:20:54:308 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:21:05:273 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:21:05:280 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:21:05:289 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:21:08:936 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:21:08:943 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:21:08:950 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:45:489 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:45:496 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:22:45:505 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:28:885 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:28:893 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
+00:23:28:901 [ 3936] | INFO  | Redirecting CreateDXGIFactory2(Flags = 0, riid = {1BC6EA02-EF36-464F-BF0C-[address]}, ppFactory = [address]) ...
