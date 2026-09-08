@@ -6,8 +6,12 @@
 beta0.5-dev6 / PE 0.5.0.6。默认关闭，仅 Mode2 + ColorStrength=0 的 N 尺寸
 R32G32_FLOAT log-luma/valid pass 已接真实 slot、描述符和 barrier；原全分辨率
 保护保留。64 MiB/slot、256 MiB/Core 实际纹理分配上界，准备失败回既有合成。
-生成源 C++、7 个 SM5 入口和 64-pair 原始数据 A/B 夹具仅编译通过；此检查点
-未运行 GPU/游戏或链接新 DLL。等待协调任务集中验收，不触动 dev5 产物/旧 raw。
+生成源 C++、7 个 SM5 入口通过；随后使用 clean fixture `2479afd` 一次完成
+64-pair A/B WARP，6,528 个 N log/valid 样本独立校验通过，384 raw planes。
+同批默认 A 与冻结 dev5 e084 shader 的 64 组输入/输出逐字节相同；仅三组
+非整数网格结构场景出现算法差异，不表示画质提高。父任务独立重算全部 raw 哈希。
+同冻结 6062 生成源已完整链接双语 Core/nrchain，PE 0.5.0.6及内嵌源码核验通过。
+GPU 已释放；无 NVIDIA/游戏/性能/Reset/DRS 故障验收，不触动 dev5 产物/旧 raw。
 [实现、源锁、边界和后续命令](EDIT_FIELD_20260908.md)。
 
 ## 2026-09-08 新授权：0.5 独立亮度／色度候选

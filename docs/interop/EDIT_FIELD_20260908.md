@@ -67,8 +67,10 @@ The original source pins/required ancestry passed clean generation. All original
 manifest-listed generated files were independently hashed. Generated Core C++
 frontend compile and all seven production SM5 entries passed. The 64-pair actual
 production A/B fixture compiled with `-CompileOnly`; no GPU device was opened.
-The source wiring contract checker passed. This is not a linked DLL or a WARP,
-NVIDIA, game, performance, Reset/DRS or allocation-failure runtime result.
+The source wiring contract checker passed. At that initial compile checkpoint
+there was no DLL link or WARP execution. The subsequently authorized checks are
+recorded below; they do not establish NVIDIA/game/performance, Reset/DRS or
+allocation-failure runtime results.
 
 An initial direct canonical frontend attempt failed on the known missing
 build-time `nr_post_settings` transformation; the actual generated source
@@ -85,7 +87,7 @@ Compile-only fixture executable SHA256:
 The private `build/editfield-minimal-validation/validation.json` binds the
 runtime source, logs and exact checked artifacts; later docs are separate.
 
-## Coordinated next GPU action
+## Coordinated GPU result and frozen-source complete build
 
 The prepared fixture compares the same raw Original/Proxy/Neural at N=13x13 and
 7x5, eight fixtures and strengths 0/1/2/4, with colour/protections off for the
@@ -96,16 +98,72 @@ source hashes, finite/alpha/identity boundaries, same-grid tolerance and actual
 noninteger reconstruction differences. Cases include identity, invalid neural,
 structured edges, bright/dark edits, explicit linear HDR and near-black.
 
-After coordination releases the GPU, run once with a new output directory:
+After coordination explicitly released the GPU, the following small contract
+ran once. The optional frozen baseline compares only these same 64 inputs; it
+does not run the old 504-case gate:
 
 ```powershell
 ./scripts/validate-codec-gpu.ps1 -ToolchainRoot $Toolchain `
-  -SourceRoot "$Generated/core" -EditFieldOutput $NewCaptureDirectory
+  -SourceRoot "$Generated/core" -EditFieldOutput $NewCaptureDirectory `
+  -BaselineSource "$FrozenDev5/core/src/nr_before_sr.cpp"
 ```
 
-No A/B execution has happened at this checkpoint. Further required work includes
+Actual runtime source remained `6062a0be77be561d1936c204d975ca4890f21453`;
+test-source was clean `2479afdffd29052b302673081ccdd2009fb23a97`. All 64 A/B
+pairs passed with 384 real raw planes / 1,131,520 bytes. Python independently
+recomputed all 6,528 N-sized log/valid values. The frozen dev5 runtime was
+`e084a5247d26eaf8fd60a741d131db7908829a7f`, source hash
+`67a19fda16560012cce5680bacd5e270b5d5611b15b5a43cc88249e45f0bc7ca`:
+all 64 default-A outputs and their Original/Proxy/Neural inputs were
+byte-identical to that previous production shader. This is shader equivalence
+for the captured cases, not complete live-DLL lifecycle validation.
+
+Only the noninteger 7x5 structured fixture differed, at strengths 1/2/4 with
+RGB MAE 0.0299176408 / 0.0616336936 / 0.10427817. This is a real algorithm
+difference, not a quality improvement or a no-loss optimization. Same-grid
+cases met the declared 2e-6 tolerance.
+
+CPU inspection of completed readbacks verified 10,816 finite/alpha-preserving
+output pixels, 9,464 bounded SDR pixels, 2,704 exact zero-strength identities,
+eight invalid N samples encoded as (0,0), and all 52 strict invalid-footprint
+output pixels retaining their original stored source. No extra GPU run was
+needed for that audit. The process count was checked zero after WARP.
+
+Contract SHA256:
+`6790d8d1c205274af17ccfadbf9614948634ea0a71396342b2fd95f5f52996b1`.
+Validation manifest SHA256:
+`9c3a1a1193e97a98164203ad6871929895d6365a92b4a88a8286e4b6b9976d0f`.
+The coordinating parent independently rehashed all 384 raw planes and confirmed
+this manifest and the unchanged generated-source manifest. Additional boundary
+audit SHA256:
+`b9b58684076976d56cd8322270f23ab39c3f688a8b22ac756b875be9085a9b21`.
+Executed fixture EXE SHA256:
+`4783f2dabeaee38a2a58063f3ce00af4243f7c5438617d767b391e4a4f5df766`.
+
+The unmodified generated build script then completely linked both Core languages
+and nrchain. It explicitly embeds source `6062a0b`, with SourceDirty=1 denoting
+generated experimental source, rather than reading the later documentation
+HEAD. All original source-manifest entries were hash-verified before and after
+linking; both Core binaries contain the exact source SHA and PE 0.5.0.6.
+
+| Output | Bytes | SHA256 |
+| --- | ---: | --- |
+| English Core | 1,379,328 | `12b1cb8005056fc4d6a852ff197187eda997b2337762640eeb1067b0a33199c5` |
+| Chinese Core | 1,402,880 | `c70ce86b6efb3598f0372fc90e07ae6d173b9a91735c6b6af5ee913d83c0c122` |
+| nrchain_nvngx.dll | 8,192 | `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb` |
+
+Complete build log SHA256:
+`f185f8809823c7e858ab94dae0dd2f0750c97c7ed5a8d12406b1c20233ae2f80`.
+Private full logs, all previous preparation failures, raw fields, source
+manifests and `full-core-build-validation.json` are retained. No GPU calls
+followed the 64-case batch; no new NVIDIA/game run, release or stable merge
+was performed.
+
+## Remaining boundaries
+
+Further required work includes
 runtime allocation/PSO/slot-reuse/Reset/DRS fault controls, unchanged-source A
-regression evidence, protection-on ablations, actual GPU timing including the
+regression beyond these 64 shader fixtures, protection-on ablations, actual GPU timing including the
 additional pass and bandwidth, and genuine NVIDIA/game sequences. #85/#86
 follow only a measured retain/reject decision; #84 new inputs require a new
 model run and cannot reuse this fixture's Neural as purported new-kernel output.
