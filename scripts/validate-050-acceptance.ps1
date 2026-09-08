@@ -44,8 +44,24 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dev8') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dev9') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
+    foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py')) {
+        & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler
+        if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
+        $Checks.Add($Test)
+    }
+    foreach ($Test in @('tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py')) {
+        & python (Join-Path $Root $Test)
+        if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
+        $Checks.Add($Test)
+    }
+    $DepthProbe = Join-Path $Output 'rr-depth-evidence.exe'
+    & $Compiler -std=c++17 -O2 -static -Wall -Wextra -Werror (Join-Path $Root 'tests/multi_api/rr_depth_evidence.cpp') -o $DepthProbe
+    if ($LASTEXITCODE) { throw 'RR depth evidence probe compile failed.' }
+    & $DepthProbe
+    if ($LASTEXITCODE) { throw 'RR depth evidence probe failed.' }
+    $Checks.Add('bounded RR projection CPU copy')
     foreach ($Pair in @(@('validate-work-config.py','work-config'), @('validate-recommended-picture.py','recommended'))) {
         $Directory = Join-Path $Output $Pair[1]
         New-Item -ItemType Directory -Path $Directory | Out-Null
@@ -83,12 +99,12 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dev8*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dev8 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dev9*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dev9 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 0 -or $Version.FilePrivatePart -ne 8) { throw 'Wrong numeric PE version.' }
+            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 0 -or $Version.FilePrivatePart -ne 9) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }

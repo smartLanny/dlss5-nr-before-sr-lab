@@ -5,6 +5,29 @@
     const auto now = GetTickCount64();
     const auto attempted = nr_post_settings::last_rr_tick.load(std::memory_order_acquire);
     const bool recent = attempted != 0 && now >= attempted && now - attempted <= 2000;
+    FeedbackAppend(s, "%s.post.rr.depthType=%d\n",
+        prefix, nr_post_settings::last_rr_depth_type.load(std::memory_order_acquire));
+    {
+        auto &receipt = nr_post_settings::projection;
+        const auto sequence = receipt.sequence.load(std::memory_order_seq_cst);
+        const auto generation = receipt.generation.load(std::memory_order_seq_cst);
+        const auto tick = receipt.tick.load(std::memory_order_seq_cst);
+        const int state = receipt.state.load(std::memory_order_seq_cst);
+        float matrix[16]{};
+        for (unsigned i = 0; i != 16; ++i)
+            matrix[i] = receipt.values[i].load(std::memory_order_seq_cst);
+        const bool coherent = sequence != 0 && !(sequence & 1) &&
+            sequence == receipt.sequence.load(std::memory_order_seq_cst);
+        FeedbackAppend(s, "%s.post.rr.projection.coherent=%d\n", prefix, coherent ? 1 : 0);
+        if (coherent) {
+            FeedbackAppend(s, "%s.post.rr.projection.state=%d\n%s.post.rr.projection.generation=%llu\n"
+                "%s.post.rr.projection.ageMs=%lld\n%s.post.rr.projection.note=CPU copy only; layout, units and conversion not validated\n",
+                prefix, state, prefix, generation,
+                prefix, now >= tick ? static_cast<long long>(now-tick) : -1LL, prefix);
+            if (state == 4) for (unsigned i = 0; i != 16; ++i)
+                FeedbackAppend(s, "%s.post.rr.projection.m%u=%.9g\n", prefix, i, static_cast<double>(matrix[i]));
+        }
+    }
     FeedbackAppend(s,
         "%s.post.request.rr=%d\n%s.post.request.percent=%u\n"
         "%s.post.request.revision=%llu\n%s.post.settingsReady=%d\n"

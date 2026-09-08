@@ -8,7 +8,8 @@
 #include "src/interop/nr_post_compat.h"
 using NgxResult=std::int32_t;
 struct ID3D12GraphicsCommandList{};struct NgxHandle{};struct NgxParams{};
-struct FeatureRecord{const NgxHandle* handle=nullptr;int feature_id=-1;unsigned long long generation=0;};
+struct FeatureRecord{const NgxHandle* handle=nullptr;int feature_id=-1;unsigned long long generation=0;int rr_depth_type=1;};
+void ObserveRrDepthProjection(const NgxParams*, const FeatureRecord&) {}
 using EvaluateFeatureFn=NgxResult(*)(ID3D12GraphicsCommandList*,const NgxHandle*,const NgxParams*,void*);
 constexpr NgxResult kNgxSuccess=1;
 struct Config{bool enabled=true,identity_use_original=false;int mode=2;float post_transfer_strength=1;} g_config;
@@ -21,7 +22,7 @@ namespace nr_post_settings{
  std::atomic<unsigned long long> rr_attempts{0},rr_recorded{0},rr_native_failures{0},last_rr_tick{0};
  std::atomic<unsigned long long> rr_before_state_rejected{0},rr_prepare_declined{0};
  std::atomic<unsigned long long> rr_after_state_rejected{0},rr_finish_declined{0},rr_finish_gate_rejected{0};
- std::atomic<int> last_rr_stage{0};
+ std::atomic<int> last_rr_stage{0}, last_rr_depth_type{-1};
 }
 enum class BypassReason{RayReconstructionGuard,Feature1TransactionBusy};
 void SetBypassReason(BypassReason){}

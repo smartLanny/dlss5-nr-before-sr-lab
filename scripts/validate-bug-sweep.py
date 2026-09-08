@@ -125,9 +125,8 @@ int main() {
 ''')
 
     def test_face_controls_round_trip(self) -> None:
-        marker = '        SettingsTooltip(ui("Adjusts the model local structure parameter;'
-        start = ui_source.index(";\n", ui_source.index(marker)) + 2
-        end = ui_source.index("        // END PRIMARY MODEL CONTROLS", start)
+        start = ui_source.index('        if (ImGui::Checkbox(ui("Separate skin detail"')
+        end = ui_source.index('    changed |= ImGui::Checkbox(ui("Independent luma', start)
         controls = ui_source[start:end]
         self.run_cpp("face-ui", config_code() + r'''
 int toggle = -1, sliders = 0;
@@ -138,7 +137,7 @@ void SettingsNote(const char *) {}
 namespace ImGui {
 bool Checkbox(const char *label, bool *value) {
     const std::string text(label);
-    if (text == "Face mask" || text == "人脸遮罩") {
+    if (text == "Separate skin detail" || text == "单独调整皮肤细节（实验）") {
         if (toggle >= 0) { bool old = *value; *value = toggle != 0; return old != *value; }
     }
     return false;

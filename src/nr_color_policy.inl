@@ -180,19 +180,19 @@ const char *NrColorPolicyStatusName(NrColorPolicyStatus status) {
 const char *NrColorPolicyStatusText(NrColorPolicyStatus status, bool chinese) {
     switch (status) {
     case NrColorPolicyStatus::Inactive:
-        return chinese ? "NR 合成未启用；实际值未知，设置已保留。" :
+        return chinese ? "NR 当前未启用，AI 色彩暂不处理；设置已保留。" :
             "NR composition is inactive; effective values are unknown. Requests are retained.";
     case NrColorPolicyStatus::Pending:
-        return chinese ? "设置待应用；等待此配置的合成帧。" :
+        return chinese ? "正在应用设置，请等待 AI 重新开始处理画面。" :
             "Settings pending; waiting for a composition frame with this configuration.";
     case NrColorPolicyStatus::Bypassed:
-        return chinese ? "当前帧已旁路；实际值未知，设置已保留。" :
+        return chinese ? "NR 当前未参与画面处理，AI 色彩暂不生效；设置已保留。" :
             "The current frame is bypassed; effective values are unknown. Requests are retained.";
     case NrColorPolicyStatus::ContractChanged:
-        return chinese ? "游戏输入合同已变化；等待新的合成帧。" :
+        return chinese ? "游戏刚切换了画面模式，正在等待 AI 恢复处理。" :
             "The game input contract changed; waiting for a new composition frame.";
     default:
-        return chinese ? "暂无当前合成合同；实际值未知，设置已保留。" :
+        return chinese ? "暂无最近的 AI 画面处理记录；设置已保留。" :
             "No current composition contract; effective values are unknown. Requests are retained.";
     }
 }
@@ -201,13 +201,17 @@ const char *NrColorPolicyStatusText(NrColorPolicyStatus status, bool chinese) {
 // recorded values when status is not Current so exports can identify history.
 NrColorPolicySnapshot g_recorded_color_policy = {};
 
+int EffectivePictureMode(int requested_mode) {
+    return IsRayReconstructionRouteObserved() ? 1 : requested_mode;
+}
+
 NrColorPolicySnapshot SnapshotColorPolicy() {
     EnterCriticalSection(&g_chain_cs);
     NrColorPolicySnapshot snapshot = g_recorded_color_policy;
     snapshot.status = ColorPolicyStatusFor(snapshot,
         g_config_generation.load(std::memory_order_relaxed),
         g_pipeline_stats_generation.load(std::memory_order_relaxed),
-        g_config.mode, g_config.enabled && !g_config.identity_use_original &&
+        EffectivePictureMode(g_config.mode), g_config.enabled && !g_config.identity_use_original &&
             ActiveTransferStrength(g_config) > 0.001f,
         g_last_bypass_reason.load(std::memory_order_relaxed) !=
             static_cast<int>(BypassReason::None), GetTickCount64());

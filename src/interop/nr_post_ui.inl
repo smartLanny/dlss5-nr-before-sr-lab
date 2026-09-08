@@ -1,6 +1,36 @@
 // This include precedes nr_settings_ui.inl in the generated translation unit.
 void SettingsTooltip(const char *text);
 
+// RR observation selects a route; only recent, matching NR activity describes
+// execution. A saved front preference must not be mistaken for applied post work.
+void DrawPostRouteStatus() {
+    const bool zh = UseChineseUi();
+    auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
+    const auto snapshot = SnapshotColorPolicy();
+    if (snapshot.status == NrColorPolicyStatus::Current && snapshot.mode == 1) {
+        ImGui::TextWrapped("%s", ui("RR is active; NR has recently processed its output.",
+            "光线重建（RR）已开启；NR 最近已在它之后处理画面。"));
+        return;
+    }
+    const auto tick = nr_post_settings::last_rr_tick.load(std::memory_order_acquire);
+    const auto now = GetTickCount64();
+    const bool recent = tick && now >= tick && now - tick <= 2000;
+    const int depth = nr_post_settings::last_rr_depth_type.load(std::memory_order_acquire);
+    if (recent && depth != 1 && snapshot.status == NrColorPolicyStatus::Bypassed) {
+        ImGui::TextWrapped("%s", depth == 0 ? ui(
+            "RR is active, but NR is not processing: this game's linear depth needs an adapter. Native RR is retained; NR picture controls cannot take effect yet.",
+            "光线重建（RR）已开启，但 NR 未生效：当前游戏的深度格式还需要适配。已保留游戏原生 RR；此时调整 NR 画质不会改变画面。") : ui(
+            "RR is active, but NR is not processing: the game's depth format is unknown. Native RR is retained.",
+            "光线重建（RR）已开启，但暂未确认游戏的深度格式，NR 未生效。已保留游戏原生 RR。"));
+    } else if (snapshot.status == NrColorPolicyStatus::Bypassed) {
+        ImGui::TextWrapped("%s", ui("RR is selected, but NR is currently bypassed. Save an F8 report if this persists.",
+            "已选择兼容光线重建的处理方式，但 NR 当前未参与画面处理。持续无效时请按 F8。"));
+    } else {
+        ImGui::TextWrapped("%s", ui("RR selects NR after reconstruction. Waiting for recent NR processing; this is not an enabled-result claim.",
+            "检测到光线重建，NR 将在它之后处理；正在等待新的处理记录，当前尚不能确认 NR 生效。"));
+    }
+}
+
 // Called directly below the mode selector for an effective post route.
 void DrawPostResolutionControl() {
     const bool zh=UseChineseUi();
@@ -14,7 +44,7 @@ void DrawPostResolutionControl() {
     const bool held=nr_f8::g_config_hold.load(std::memory_order_acquire);
     if(held) ImGui::BeginDisabled();
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(ui("NR working scale","NR 工作比例"));
+    ImGui::TextUnformatted(ui("NR rendering scale","NR 渲染比例"));
     ImGui::SameLine();
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::SliderInt("##post-nr-working-scale",&edit,50,100,"%d%%");
@@ -26,7 +56,7 @@ void DrawPostResolutionControl() {
     if(held) ImGui::EndDisabled();
     SettingsTooltip(ui(
         "Controls only post-SR/RR NR work from 50% to 100%. It does not change the game's render scale or enable F6.",
-        "仅调整 SR/RR 后置 NR 的工作量，可在 50%–100% 连续选择；不改变游戏真实渲染比例，也不会开启 F6。"));
+        "控制 DLSS5 NR AI 渲染的分辨率。数值越高，通常细节越完整，但会占用更多显卡性能，帧率可能降低。此处只调整 NR，游戏本身的分辨率不变。"));
     if(nr_post_settings::request_rejected.load(std::memory_order_acquire))
         ImGui::TextWrapped(ui("Unsupported request %u%%: previous precision retained, not clamped. F8 TXT for BUG feedback.",
             "不支持 %u%% 请求：保留原精度，不暗中改为其他比例。异常时请 F8 收集 TXT 上传 BUG。"),

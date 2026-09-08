@@ -15,7 +15,8 @@ constexpr NgxResult kNgxSuccess = 1;
 struct ID3D12GraphicsCommandList {};
 struct NgxHandle {};
 struct NgxParams { unsigned output_sentinel = 12345; };
-struct FeatureRecord { const NgxHandle* handle; int feature_id; ULONGLONG generation; };
+struct FeatureRecord { const NgxHandle* handle; int feature_id; ULONGLONG generation; int rr_depth_type=1; };
+void ObserveRrDepthProjection(const NgxParams*, const FeatureRecord&) {}
 using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList*, const NgxHandle*, const NgxParams*, void*);
 struct ChainConfig { bool enabled=true, identity_use_original=false; float post_transfer_strength=1; int mode=2; };
 ChainConfig g_config;

@@ -39,6 +39,8 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
         return original(command_list,handle,params,callback);
     }
     BeginPipelineStatsScopeLocked(feature.generation,1);
+    ObserveRrDepthProjection(params, feature);
+    nr_post_settings::last_rr_depth_type.store(feature.rr_depth_type,std::memory_order_relaxed);
     g_pipeline_eligible_carriers.fetch_add(1,std::memory_order_relaxed);
     ++nr_post_settings::rr_attempts;
     nr_post_settings::last_rr_tick.store(GetTickCount64(),std::memory_order_relaxed);

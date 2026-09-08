@@ -243,7 +243,7 @@ def patch_core(text: str) -> str:
     text=edit(text,'void WriteCombined(',capture)
 
     text=once(text,'NgxResult ProcessEvaluate(',
-        '#include "interop/nr_rr_post_runtime.inl"\n\nNgxResult ProcessEvaluate(')
+        '#include "interop/nr_rr_depth_evidence.inl"\n#include "interop/nr_rr_post_runtime.inl"\n\nNgxResult ProcessEvaluate(')
     def process(s):
         # Replace only the exact old RR branch; all Feature1/RR exclusion and
         # resource/queue checks below it remain unchanged.

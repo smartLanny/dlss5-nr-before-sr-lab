@@ -58,41 +58,37 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
     const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
     NrColorPolicySnapshot color_policy_snapshot = SnapshotColorPolicy();
     if (color_policy_snapshot.status != NrColorPolicyStatus::Bypassed &&
-        (has_pending || changed || color_policy_snapshot.mode != next.mode))
+        (has_pending || changed || color_policy_snapshot.mode != EffectivePictureMode(next.mode)))
         color_policy_snapshot.status = NrColorPolicyStatus::Pending;
     const bool current_color_policy =
         color_policy_snapshot.status == NrColorPolicyStatus::Current;
     const bool color_follow_changed = SettingsSliderFloat(
-        ui("NR tone follow", "NR 色调跟随"), "##nr-colour-enhancement",
+        ui("AI colour amount", "AI 色彩强度"), "##nr-colour-enhancement",
         &next.color_strength, 0.0f, 1.0f, "%.2f");
-    SettingsTooltip(ui("Controls only NR hue and saturation follow, not brightness, detail or the overall mix. If the model changes only luminance, this may have little effect. Applies after releasing the slider. 0 keeps the game tone; a nonzero value permits unverified HDR colour with the existing safety warning.",
-        "只控制 NR 色相与饱和度跟随，不改变亮度、细节或整体效果倍率。模型只改变明暗时，此项变化可能很小；松开滑块后应用。0 保留游戏色调；非零值会按现有安全规则允许未验证 HDR 色彩并显示警告。"));
-    if (color_follow_changed) next.allow_unverified_hdr_color = next.color_strength > 0.0f;
+    SettingsTooltip(ui("Controls only NR hue and saturation follow, not brightness, detail or the overall mix. If the model changes only luminance, this may have little effect. Applies after releasing the slider. 0 keeps the game colour. Experimental HDR permission is a separate developer option.",
+        "决定画面采用多少 AI 生成的颜色。0 保留游戏原色，1 使用允许范围内的完整 AI 色彩；它不增加细节，也不单独调整明暗。AI 没有明显改变颜色时，对比也会很小。松开滑块后生效。"));
     changed |= color_follow_changed;
     if (color_follow_changed &&
         color_policy_snapshot.status != NrColorPolicyStatus::Bypassed)
         color_policy_snapshot.status = NrColorPolicyStatus::Pending;
-    if (next.allow_unverified_hdr_color || (current_color_policy && !color_policy_snapshot.policy.color_allowed))
+    if (next.allow_unverified_hdr_color && current_color_policy &&
+        color_policy_snapshot.policy.color_reason == NrColorReason::ExperimentalUnverifiedHdr)
         ImGui::TextWrapped("%s", ui("WARNING: unverified HDR colour may shift hue or flicker. Set colour to 0 or restore recommended settings to undo.", "警告：未验证 HDR 色彩可能偏色或闪烁；可拉回 0 或一键恢复推荐画质。"));
     if (color_policy_snapshot.status == NrColorPolicyStatus::Current) {
         const NrColorPolicy &policy = color_policy_snapshot.policy;
-        ImGui::TextDisabled(ui("Last recorded colour: requested %.2f / shader coefficient %.2f",
-            "最近颜色记录：请求 %.2f / 合成系数 %.2f"),
-            static_cast<double>(policy.requested_color_strength),
-            static_cast<double>(policy.effective_color_strength));
         if (policy.amplification_color_limited)
             ImGui::TextDisabled("%s", ui("Colour protection is active above 1x.",
                 "强度超过 1 倍，颜色保护已生效。"));
         if (!policy.color_allowed)
             ImGui::TextWrapped("%s", ui(
                 "NR colour follow is paused for the current HDR contract; luminance NR can continue.",
-                "当前 HDR 合同暂停 NR 色彩跟随；明暗 NR 仍可继续。"));
+                "当前 HDR 画面暂不调整 AI 颜色，明暗和细节仍可处理。实验兼容开关在开发者选项。"));
         else
             ImGui::TextDisabled("%s", policy.color_reason == NrColorReason::ExperimentalUnverifiedHdr
                 ? ui("NR colour follow is experimental for this HDR contract.",
-                     "当前 HDR 合同中的 NR 色彩跟随属于实验功能。")
+                     "正在使用实验 HDR 调色。出现偏色时可在开发者选项关闭。")
                 : ui("NR colour follow is available for the current input.",
-                     "当前输入可使用 NR 色彩跟随。"));
+                     "AI 色彩已参与最近的画面处理；实际变化取决于场景。"));
         SettingsTooltip(ui(
             "The saved request can differ from the effective bounded coefficient. Above 1x, colour amplification is budgeted separately from luminance; this status is not a measured visible-strength result.",
             "保存的请求值可能与受限后的实际系数不同。强度超过 1 倍时，颜色放大会与明暗分开限制；此状态不是实测画面强度。"));
@@ -265,16 +261,12 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     // Keep controls stationary while live status text changes (#121).
     ImGui::BeginChild("nr-live-status", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 4.25f), true);
     const auto activity=ReadUiActivity();
-    if(activity.valid) {
-        ImGui::TextWrapped(ui("Last %llu ms (process): SR %llu | NR %llu | submitted %llu",
-            "最近 %llu 毫秒（进程）：SR %llu | NR %llu | 已提交 %llu"),
-            static_cast<unsigned long long>(activity.elapsed_ms),
-            static_cast<unsigned long long>(activity.delta.carriers),
-            static_cast<unsigned long long>(activity.delta.nr),
-            static_cast<unsigned long long>(activity.delta.submitted));
-    } else ImGui::TextDisabled("%s",ui("Sampling actual activity...", "正在采样实际活动……"));
-    SettingsTooltip(ui("Historical process-wide counter deltas, not FPS or proof of picture quality. Enable is your request; NR success and composition submission are separate stages. Raw per-carrier reasons remain in F8.",
-        "这是历史进程计数增量，不是帧率或画质证明。开关是请求，NR 成功与合成提交是不同阶段；F8 仍保留真实的逐载体原因。"));
+    if (activity.valid) {
+        const bool processing = activity.delta.nr > 0 && activity.delta.submitted > 0;
+        ImGui::TextUnformatted(processing ? ui("Recent activity: AI processing and output submission observed.", "最近状态：已观察到 AI 处理和画面输出提交。") :
+            ui("Recent activity: no new AI output yet.", "最近状态：暂未观察到新的 AI 画面输出。"));
+    } else ImGui::TextDisabled("%s", ui("Checking AI activity...", "正在检查 AI 是否开始处理……"));
+    SettingsTooltip(ui("Recent process activity, not FPS or measured picture quality. Detailed counters are in F8.", "根据最近处理记录显示，不代表帧率或实测画质；完整诊断计数保留在 F8 报告。"));
     const auto live_reason = static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_acquire));
     if (live_reason == BypassReason::RuntimeUnavailable) {
         ImGui::TextWrapped("%s", ui("NR runtime could not load or initialize. Keep your NVIDIA DLLs; install the matching nrchain_nvngx.dll and nvngx_dlssnr.dll from this OTA beside the addon (game directory is a fallback). F8 TXT distinguishes file-absent from Win32 126 dependency-missing.",
@@ -292,14 +284,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImGui::TextWrapped("%s", ui("Native game SR. Enable the plugin and raise effect strength to compare NR.",
             "当前为游戏原生 SR。启用插件并提高效果强度，即可对比 NR。"));
     else if (reason == BypassReason::RayReconstructionGuard) {
-        const auto at = nr_post_settings::last_rr_tick.load(std::memory_order_acquire);
-        const auto now = GetTickCount64();
-        const bool recent = at && now >= at && now - at <= 2000;
-        ImGui::TextWrapped("%s", recent ? ui(
-            "Ray Reconstruction protection is active; eligible RR is routed automatically to post-NR.",
-            "光线重建保护中；符合条件的 RR 会自动进入后置 NR。") : ui(
-            "Ray Reconstruction protection is active; waiting for a new RR evaluation before reporting post-NR activity.",
-            "光线重建保护中；正在等待新的 RR 评估，再报告后置 NR 活动。"));
+        DrawPostRouteStatus();
     }
     else if (reason == BypassReason::ShortFuseOwnsNr)
         ImGui::TextWrapped("%s", ui("Another NR plugin is active. Disable its NR effect before using this one.",
@@ -371,10 +356,6 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         "恢复前置 NR、NR 效果倍率 1.0、模型强度 1.0、颜色请求 1.0 等既有推荐画质；退出诊断原图，关闭实验输入核、EditField、合成、HDR 调色与高光路径。保留 F6 总开关、深度/Jitter/R8 游戏兼容设置和反馈偏好；按正常规则保存及更新历史，不清除运行时安全故障。"));
     SettingsSection(ui("Processing", "处理方式"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
-    const auto rr_last_attempt = nr_post_settings::last_rr_tick.load(std::memory_order_acquire);
-    const auto rr_now = GetTickCount64();
-    const bool rr_recent = rr_last_attempt != 0 && rr_now >= rr_last_attempt &&
-        rr_now - rr_last_attempt <= 2000;
     int mode = rr_guarded ? 1 : (next.mode == 2 ? 0 : 1);
     SettingsField(ui("Processing mode", "处理模式"));
     if (rr_guarded) ImGui::BeginDisabled();
@@ -385,14 +366,10 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     if (rr_guarded) ImGui::EndDisabled();
     SettingsTooltip(ui("Before SR usually costs less. After SR processes the reconstructed output. The game controls its own DLSS render scale; this selector does not force DLAA.",
-        "前置通常较省性能，后置处理重建后的输出。游戏自行控制 DLSS 真实渲染比例；此选项不会强制 DLAA。"));
-    if (rr_guarded) ImGui::TextWrapped("%s", rr_recent ? ui(
-        "Ray Reconstruction is active: SR/RR -> NR is selected automatically; NR -> SR is unavailable.",
-        "光线重建生效，强制后置 NR：当前为 SR/RR → NR，NR → SR 暂不可选。") : ui(
-        "Ray Reconstruction resources are present, so NR -> SR stays protected. Waiting for current RR activity; prior counters may be historical.",
-        "检测到光线重建资源，已保护性禁用 NR → SR；正在等待本次 RR 活动，既有计数可能是历史累计。"));
-#if NR_HAS_DETAIL_STABILITY
+        "前置：先做 AI 渲染，再放大画面，通常更省性能。后置：先由游戏放大画面，再做 AI 渲染，通常更耗性能。开启光线重建（RR）时自动选择后置。"));
+    if (rr_guarded) DrawPostRouteStatus();
     const bool before_sr = !rr_guarded && next.mode == 2;
+#if NR_HAS_DETAIL_STABILITY
     const bool effective_post = !before_sr;
     // These atomics are historical observations, NOT a coherent frame tuple.
     // They only seed a visibly labelled estimate; no config is migrated until
@@ -409,7 +386,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             g_last_dlss_input_width.load(), g_last_dlss_input_height.load(),
             g_last_dlss_output_width.load(), g_last_dlss_output_height.load());
     precision = std::clamp(precision, 50.0f, 100.0f);
-    if (SettingsSliderFloat(ui("NR working scale", "NR 工作比例"),
+    if (SettingsSliderFloat(ui("NR rendering scale", "NR 渲染比例"),
             "##nr-processing-precision", &precision, 50.0f, 100.0f, "%.0f%%")) {
         if (effective_post) {
             post_precision = precision;
@@ -429,7 +406,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
     SettingsTooltip(ui(
         "Sets only NR work from 50% to 100% for the effective pre/post route. It does not change the game's render resolution. New installs use pre-SR 100% (N=R); existing presets/custom requests are retained. 100% uses the route's full input.",
-        "仅设置当前前置/后置路线的 NR 工作量，可在 50%–100% 连续调整；不改变游戏真实渲染分辨率。新装前置默认 100%（N=R），已有预设/自定义请求保留；100% 使用该路线的完整输入。"));
+        "控制 DLSS5 NR AI 渲染的分辨率。数值越高，通常细节越完整，但会占用更多显卡性能，帧率可能降低。此处只调整 NR，游戏本身的分辨率不变。"));
     if (before_sr &&
         g_work_request_rejected.load(std::memory_order_acquire)) {
         SettingsNote(ui(
@@ -437,57 +414,6 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "INI 工作比例请求无效，已保留上一有效精度；1–49% 尚不可用，不会暗中提高到 50%。"));
     }
 #endif
-    changed |= ImGui::Checkbox(ui("Independent luma / chroma composition (experimental)",
-        "亮度／色度独立合成（实验）"), &next.independent_chroma_composition);
-    SettingsTooltip(ui("Uses the shared candidate before or after SR. Nonzero final strength controls luminance; Colour follow independently controls chroma with a common colour budget. Zero final strength still bypasses all edits. Off restores the original route. HDR colour permission is unchanged; no extra model call. GPU cost and game quality await validation.",
-        "前置和后置均可使用此候选。非零最终强度控制亮度，颜色跟随独立控制色度并使用共同颜色预算；最终强度为零仍关闭全部修改。关闭恢复原路线。HDR 颜色准入不变，不增加模型调用；GPU 开销与游戏画质尚待验证。"));
-    ImGui::BeginDisabled(next.mode != 2 && !next.independent_chroma_composition);
-    changed |= ImGui::Checkbox(ui("Low-grid luminance edit field (experimental)",
-        "低网格亮度编辑场（实验）"), &next.low_grid_edit_field);
-    SettingsTooltip(ui("Effective only before SR with Colour follow zero. Computes a luma edit at NR size, then restores it; this changes the interpolation order and may change edges. Source protection remains at full resolution. Adds one optional pass and bounded storage; unavailable resources retain the existing composition. GPU benefit and game quality are unverified.",
-        "仅前置且颜色跟随为零时生效。在 NR 尺寸计算亮度编辑后恢复，会改变插值顺序及可能的边缘观感。原图保护仍在全分辨率。增加一次可选处理和有界存储，资源不可用则保留原合成；GPU 收益和游戏画质未验证。"));
-    ImGui::BeginDisabled(next.low_grid_color_edit_field || next.color_strength > 0.000001f);
-    changed |= ImGui::Checkbox(ui("Catmull-Rom edit restore (experimental; off = BilinearSafe)",
-        "Catmull-Rom编辑恢复（实验，关闭为BilinearSafe）"), &next.catmull_edit_restore);
-    SettingsTooltip(ui("Requires low-grid luminance editing and zero colour follow. Uses a bounded FP16 horizontal plane; vertical restoration stays in final composition. Invalid footprints or unavailable resources retain valid BilinearSafe. No speed or quality claim.",
-        "需低网格亮度编辑且颜色跟随为零。使用有界FP16横向中间面，纵向恢复在最终合成内完成。无效邻域或资源不可用则退有效双线性；不保证速度或画质收益。"));
-    ImGui::EndDisabled();
-    changed |= ImGui::Checkbox(ui("Low-grid stable colour edit field (experimental)",
-        "低网格稳定色彩编辑场（实验）"), &next.low_grid_color_edit_field);
-    SettingsTooltip(ui("Before SR only. Stores log luminance plus normalized opponent-colour change at NR size, with explicit near-black and finite validity. Interpolation happens before full-resolution colour reconstruction; source edge, HDR headroom, ratio, gamut and finite guards remain final. This is not a face mask and does not add another NR call. Off keeps the existing RG32F luminance field and composition paths.",
-        "仅用于前置路线。在 NR 尺寸保存对数亮度及归一化对手色变化，并显式标记近黑和有限性。先插值、再在全分辨率重建色彩；原图边缘、HDR 余量、倍率、色域及有限值保护仍在最终阶段。这不是人脸遮罩，也不增加 NR 调用。关闭时保留现有 RG32F 亮度场与合成路径。"));
-    ImGui::BeginDisabled(next.mode != 2);
-    int input_filter=static_cast<int>(next.nr_input_filter);
-    if(ImGui::Combo(ui("NR input filter", "NR 输入滤波"),&input_filter,
-        ui("Exact Area\0Lanczos-2 AA (experimental)\0", "精确面积\0Lanczos-2 抗混叠（实验）\0"))) {
-        next.nr_input_filter=static_cast<unsigned int>(input_filter);changed=true;
-    }
-    SettingsTooltip(ui("Only changes pre-SR model input downsampling. 1:1 retains Exact Area. Lanczos preserves signed intermediate lobes, then bounds the final model input; preparation failure keeps Area. Changing the input retires old history. This adds a pass and memory, with unverified game quality and GPU cost.",
-        "只改变前置模型输入的降采样；1:1 保留精确面积。Lanczos 在中间面保留有符号负瓣，最后限制模型输入范围；准备失败保留面积核。切换会退休旧历史。增加处理步骤与内存，游戏画质和 GPU 成本尚未验证。"));
-    ImGui::EndDisabled();
-    changed |= ImGui::Checkbox(ui("High-strength protection (experimental)",
-        "高强度保护（实验）"), &next.high_strength_protection);
-    SettingsTooltip(ui("Above 1x effective strength, soft-limits extra luminance; SDR uses remaining headroom. Applies before SR and to the optional shared post candidate. Legacy pre composition also soft-limits extra chroma; independent chroma uses its own colour budget. This does not fix an already clipped 1x result or guarantee stable pictures at 4x.",
-        "有效强度高于 1 时软限制额外明暗增强，SDR 参考剩余空间；适用于前置及可选的共用后置候选。旧前置同时软限制额外色彩，独立色度候选采用自己的颜色预算。不能修复 1 倍已经剪裁的结果，也不保证 4 倍画面稳定。"));
-    ImGui::EndDisabled();
-    if (ImGui::CollapsingHeader(ui("Layered composition (one NR)", "分层强化（单次 NR）"))) {
-        ImGui::BeginDisabled(next.mode != 2 && !next.independent_chroma_composition);
-        changed |= ImGui::Checkbox(ui("Enable layered composition", "启用分层强化"), &next.layered_enhancement);
-        ImGui::BeginDisabled(!next.layered_enhancement);
-        changed |= ImGui::SliderFloat(ui("Broad tone contribution", "大范围影调贡献"), &next.layer_tone, 0.f, 2.f, "%.2f");
-        changed |= ImGui::SliderFloat(ui("Structure contribution", "局部结构贡献"), &next.layer_structure, 0.f, 2.f, "%.2f");
-        changed |= ImGui::SliderFloat(ui("Brightening contribution", "提亮贡献"), &next.layer_bright, 0.f, 2.f, "%.2f");
-        changed |= ImGui::SliderFloat(ui("Darkening contribution", "压暗贡献"), &next.layer_shadow, 0.f, 2.f, "%.2f");
-        ImGui::EndDisabled();
-        if (ImGui::Button(ui("Reset only these layers", "仅恢复分层默认"))) {
-            next.layered_enhancement = false;
-            next.layer_tone = next.layer_structure = next.layer_bright = next.layer_shadow = 1.f;
-            changed = true;
-        }
-        ImGui::TextWrapped("%s", ui("Experimental pre-SR or shared post-candidate composition, not repeated model inference. 1 is neutral. Combined luminance strength cannot exceed 4. Colour follow remains independent under HDR and colour. The split is not a face/material mask and cannot recover detail absent from the model. No extra NR pass; GPU cost still needs measurement.",
-            "实验前置或共用后置候选的合成，不是多次运行模型。1 为中性，组合后的有效明暗强度最多 4。颜色跟随仍在 HDR 与颜色中独立控制。这不是人脸或材质遮罩，不能恢复模型没有的细节。不增加 NR 次数；实际 GPU 开销仍需测量。"));
-        ImGui::EndDisabled();
-    }
     int style = static_cast<int>(next.style);
     SettingsSection(ui("Model details", "模型细节"));
     SettingsField(ui("Style", "风格"));
@@ -499,7 +425,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         changed |= SettingsSliderFloat(ui("Model strength", "模型强度"),
             "##nr-model-strength", &next.intensity, 0.f, 2.f, "%.2f");
         SettingsTooltip(ui("This tunes the model itself, not the overall NR effect. Saturation can limit the visible change.",
-            "这项调整模型内部行为，不等于 NR 效果倍率。默认 1.0，保留已有值；模型参数提交后需要重建/预热，短暂原图不是人脸识别成功的证明。"));
+            "控制 AI 生成画面时的处理力度，默认 1.0。调高可能改变更多细节，也可能更不自然。它与最终效果倍率不同；调整后模型会短暂重新加载。"));
         if (next.intensity != 1.0f) {
             ImGui::TextDisabled("%s", ui("Model default is 1.0; the value above is your saved setting.",
                 "模型默认是 1.0；上方显示的是已保存的设置。"));
@@ -509,27 +435,14 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 apply_discrete_edit = true;
             }
         }
-        changed |= SettingsSliderFloat(ui("Local tone", "局部影调"),
+        changed |= SettingsSliderFloat(ui("Local contrast", "局部明暗对比"),
             "##nr-local-tone", &next.local_tone, 0.f, 2.f, "%.2f");
-        SettingsTooltip(ui("Changes local contrast inside the NR model. It is separate from final blend strength.", "调整 NR 模型内部的局部明暗对比，与最终混合强度不同。"));
-        changed |= SettingsSliderFloat(ui("Local structure", "局部结构"),
+        SettingsTooltip(ui("Changes local contrast inside the NR model. It is separate from final blend strength.", "控制 AI 对相邻区域明暗差异的处理。调高通常对比更明显；不是屏幕亮度开关。"));
+        changed |= SettingsSliderFloat(ui("Overall detail", "整体细节强度"),
             "##nr-local-structure", &next.local_structure, 0.f, 2.f, "%.2f");
-        SettingsTooltip(ui("Adjusts the model local structure parameter; stronger values can amplify unstable fine detail.", "调整模型内部局部结构参数；过高也可能放大不稳定细节。"));
-        if (ImGui::Checkbox(ui("Face mask", "人脸遮罩"), &next.auto_mask)) {
-            if (next.auto_mask && next.skin_structure < 0.f)
-                next.skin_structure = 0.f;
-            changed = true;
-        }
-        SettingsTooltip(ui("Requests the model's built-in face/skin structure control, not a final-composition face exemption or a mask generated by this plugin. Its effect depends on the model and input. Off sends skin strength -1 to follow Local structure; the last independent value is retained for re-enabling.", "请求模型内置的人脸/皮肤结构控制，不是最终合成的人脸豁免，也不是插件额外生成人脸识别图；效果取决于模型和输入。关闭时向模型发送皮肤强度 -1，跟随局部结构；上次独立设置会保留，重新开启时恢复。"));
-        if (next.auto_mask) {
-            changed |= SettingsSliderFloat(ui("Skin detail strength", "皮肤细节强度"),
-                "##nr-skin-detail", &next.skin_structure, 0.f, 2.f, "%.2f");
-            SettingsTooltip(ui("Independent skin structure request while Face mask is enabled. Legacy negative values start at 0; existing nonnegative values are retained. This is not guaranteed face detection or a measured picture-strength value.", "仅在人脸遮罩开启时请求独立皮肤结构强度。旧版负值从 0 开始，已有非负值保留；这不保证人脸识别成功，数值也不代表测得的画面效果强度。"));
-        } else {
-            SettingsNote(ui("Enable Face mask to adjust skin detail; currently follows Local structure.", "开启人脸遮罩后可调整皮肤细节；当前跟随局部结构。"));
-        }
-        changed |= ImGui::Checkbox(ui("UI correction", "UI 结构保护"), &next.ui_correction);
-        SettingsTooltip(ui("Requests the model UI-correction parameter with its unsigned type. This plugin does not supply a separate HUD mask here; preservation of text or HUD is not guaranteed. New installations enable it; existing explicit settings are kept.", "按无符号类型请求模型内置 UI 结构保护。本插件在此没有额外提供 HUD 遮罩，不保证字幕或界面完全不变；新装默认开启，保留已有明确设置。"));
+        SettingsTooltip(ui("Adjusts the model local structure parameter; stronger values can amplify unstable fine detail.", "控制 AI 对全画面纹理和轮廓的处理。调高通常细节更突出，过高也可能带来闪烁或不自然的纹理。"));
+        changed |= ImGui::Checkbox(ui("UI correction", "文字与界面保护"), &next.ui_correction);
+        SettingsTooltip(ui("Requests the model UI-correction parameter with its unsigned type. This plugin does not supply a separate HUD mask here; preservation of text or HUD is not guaranteed. New installations enable it; existing explicit settings are kept.", "请求 AI 尽量保留文字和游戏界面的结构。建议开启，但不能保证所有字幕和界面元素都不变。"));
         // END PRIMARY MODEL CONTROLS
 
     if (next.identity_use_original && ImGui::Button(ui("Show NR picture (leave diagnostic identity)", "显示 NR 效果（退出诊断原图）"))) {
@@ -548,7 +461,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         next.transfer_strength = next.post_transfer_strength = effect_strength; changed = true;
     }
     SettingsTooltip(ui("Controls the overall final NR mix, including visible brightness and detail. 0 keeps native SR; 1 is the base effect. NR tone follow separately controls only hue and saturation.",
-        "控制最终 NR 整体混合，包括可见的明暗与细节。0 保留原生 SR，1 为基础效果；“NR 色调跟随”只单独控制色相与饱和度。"));
+        "控制最终画面保留多少 AI 效果，包含明暗和细节。0 为游戏原图，1 为正常效果；超过 1 会放大变化，也可能失真。颜色可用“AI 色彩强度”另外调整。"));
 
 #if NR_HAS_DETAIL_STABILITY
         if (!before_sr) ImGui::BeginDisabled();
@@ -570,19 +483,87 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
 #endif
         ImGui::SeparatorText(ui("Colour and HDR", "色彩与 HDR"));
         DrawColorControls(next, has_pending, changed);
-        changed |= ImGui::Checkbox(ui("Experimental highlight mapping", "实验高光映射"), &next.experimental_peak_shoulder);
+        changed |= ImGui::Checkbox(ui("Highlight mapping", "高光映射"), &next.experimental_peak_shoulder);
         SettingsTooltip(ui("Unknown HDR defaults to luminance only. Storage, exposure and ownership safety remain active.",
-            "未知 HDR 默认仅处理明暗；存储、曝光和所有权安全检查始终保留。"));
-        changed |= SettingsSliderFloat(ui("Maximum luminance ratio", "最大亮度倍率"),
+            "改变强光送入 AI 前的压缩方式，尽量保留灯光、天空等亮部的层次。此项仍在验证，出现亮度异常时关闭；它不会替你开启游戏 HDR。"));
+        changed |= SettingsSliderFloat(ui("Maximum luminance ratio", "明暗变化上限"),
             "##nr-max-luma-ratio", &next.max_luma_ratio, 1.f, 8.f, "%.2f");
+        SettingsTooltip(ui("Limits how far the AI result can brighten or darken the original. Higher values allow larger changes; they do not add detail by themselves.", "限制 AI 相对原画面最多能提亮或压暗多少。调高会允许更大的明暗变化，但不会凭空增加细节。"));
+        if (ImGui::CollapsingHeader(ui("Developer options", "开发者选项"))) {
+        SettingsNote(ui("Experimental controls; existing saved values are retained.", "以下为实验调节，通常保持默认即可；收起菜单不会改变已保存的设置。"));
+        if (ImGui::Checkbox(ui("Separate skin detail", "单独调整皮肤细节（实验）"), &next.auto_mask)) {
+            if (next.auto_mask && next.skin_structure < 0.f)
+                next.skin_structure = 0.f;
+            changed = true;
+        }
+        SettingsTooltip(ui("Requests the model's built-in face/skin structure control, not a final-composition face exemption or a mask generated by this plugin. Its effect depends on the model and input. Off sends skin strength -1 to follow Local structure; the last independent value is retained for re-enabling.", "尝试让 AI 单独调整它识别到的皮肤细节。开启后可用下方滑块；关闭后，皮肤随整体细节一起变化。它不能锁定人脸，也不能保证每个角色都被识别。其他画质设置仍会影响人脸。"));
+        if (next.auto_mask) {
+            changed |= SettingsSliderFloat(ui("Skin detail strength", "皮肤细节强度"),
+                "##nr-skin-detail", &next.skin_structure, 0.f, 2.f, "%.2f");
+            SettingsTooltip(ui("Independent skin structure request while Face mask is enabled. Legacy negative values start at 0; existing nonnegative values are retained. This is not guaranteed face detection or a measured picture-strength value.", "控制 AI 对已识别皮肤的细节处理。数值越高通常越强调纹理；设为 0 也不会恢复整张脸的原图，因为整体明暗、颜色和效果强度仍会作用于人脸。调整后模型会短暂重新加载。"));
+        } else {
+            SettingsNote(ui("Enable Face mask to adjust skin detail; currently follows Local structure.", "皮肤当前随整体细节一起调整；开启上方选项后才使用独立强度。"));
+        }
+    changed |= ImGui::Checkbox(ui("Independent luma / chroma composition (experimental)",
+        "分开控制 AI 明暗与颜色（实验）"), &next.independent_chroma_composition);
+    SettingsTooltip(ui("Uses the shared candidate before or after SR. Nonzero final strength controls luminance; Colour follow independently controls chroma with a common colour budget. Zero final strength still bypasses all edits. Off restores the original route. HDR colour permission is unchanged; no extra model call. GPU cost and game quality await validation.",
+        "前置和后置均可使用此候选。非零最终强度控制亮度，颜色跟随独立控制色度并使用共同颜色预算；最终强度为零仍关闭全部修改。关闭恢复原路线。HDR 颜色准入不变，不增加模型调用；GPU 开销与游戏画质尚待验证。"));
+    ImGui::BeginDisabled(!before_sr && !next.independent_chroma_composition);
+    changed |= ImGui::Checkbox(ui("Low-grid luminance edit field (experimental)",
+        "低分辨率亮度合成（实验）"), &next.low_grid_edit_field);
+    SettingsTooltip(ui("Effective only before SR with Colour follow zero. Computes a luma edit at NR size, then restores it; this changes the interpolation order and may change edges. Source protection remains at full resolution. Adds one optional pass and bounded storage; unavailable resources retain the existing composition. GPU benefit and game quality are unverified.",
+        "仅前置且颜色跟随为零时生效。在 NR 尺寸计算亮度编辑后恢复，会改变插值顺序及可能的边缘观感。原图保护仍在全分辨率。增加一次可选处理和有界存储，资源不可用则保留原合成；GPU 收益和游戏画质未验证。"));
+    ImGui::BeginDisabled(next.low_grid_color_edit_field || next.color_strength > 0.000001f);
+    changed |= ImGui::Checkbox(ui("Catmull-Rom edit restore (experimental; off = BilinearSafe)",
+        "更锐利的细节恢复（实验）"), &next.catmull_edit_restore);
+    SettingsTooltip(ui("Requires low-grid luminance editing and zero colour follow. Uses a bounded FP16 horizontal plane; vertical restoration stays in final composition. Invalid footprints or unavailable resources retain valid BilinearSafe. No speed or quality claim.",
+        "需低网格亮度编辑且颜色跟随为零。使用有界FP16横向中间面，纵向恢复在最终合成内完成。无效邻域或资源不可用则退有效双线性；不保证速度或画质收益。"));
+    ImGui::EndDisabled();
+    changed |= ImGui::Checkbox(ui("Low-grid stable colour edit field (experimental)",
+        "低分辨率色彩合成（实验）"), &next.low_grid_color_edit_field);
+    SettingsTooltip(ui("Before SR only. Stores log luminance plus normalized opponent-colour change at NR size, with explicit near-black and finite validity. Interpolation happens before full-resolution colour reconstruction; source edge, HDR headroom, ratio, gamut and finite guards remain final. This is not a face mask and does not add another NR call. Off keeps the existing RG32F luminance field and composition paths.",
+        "仅用于前置路线。在 NR 尺寸保存对数亮度及归一化对手色变化，并显式标记近黑和有限性。先插值、再在全分辨率重建色彩；原图边缘、HDR 余量、倍率、色域及有限值保护仍在最终阶段。这不是人脸遮罩，也不增加 NR 调用。关闭时保留现有 RG32F 亮度场与合成路径。"));
+    ImGui::BeginDisabled(!before_sr);
+    int input_filter=static_cast<int>(next.nr_input_filter);
+    if(ImGui::Combo(ui("NR input filter", "NR 输入滤波"),&input_filter,
+        ui("Exact Area\0Lanczos-2 AA (experimental)\0", "精确面积\0Lanczos-2 抗混叠（实验）\0"))) {
+        next.nr_input_filter=static_cast<unsigned int>(input_filter);changed=true;
+    }
+    SettingsTooltip(ui("Only changes pre-SR model input downsampling. 1:1 retains Exact Area. Lanczos preserves signed intermediate lobes, then bounds the final model input; preparation failure keeps Area. Changing the input retires old history. This adds a pass and memory, with unverified game quality and GPU cost.",
+        "只改变前置模型输入的降采样；1:1 保留精确面积。Lanczos 在中间面保留有符号负瓣，最后限制模型输入范围；准备失败保留面积核。切换会退休旧历史。增加处理步骤与内存，游戏画质和 GPU 成本尚未验证。"));
+    ImGui::EndDisabled();
+    changed |= ImGui::Checkbox(ui("High-strength protection (experimental)",
+        "高强度颜色与亮度保护（默认开启）"), &next.high_strength_protection);
+    SettingsTooltip(ui("Above 1x effective strength, soft-limits extra luminance; SDR uses remaining headroom. Applies before SR and to the optional shared post candidate. Legacy pre composition also soft-limits extra chroma; independent chroma uses its own colour budget. This does not fix an already clipped 1x result or guarantee stable pictures at 4x.",
+        "有效强度高于 1 时软限制额外明暗增强，SDR 参考剩余空间；适用于前置及可选的共用后置候选。旧前置同时软限制额外色彩，独立色度候选采用自己的颜色预算。不能修复 1 倍已经剪裁的结果，也不保证 4 倍画面稳定。"));
+    ImGui::EndDisabled();
+    if (ImGui::CollapsingHeader(ui("Layered composition (one NR)", "分层强化（单次 NR）"))) {
+        ImGui::BeginDisabled(!before_sr && !next.independent_chroma_composition);
+        changed |= ImGui::Checkbox(ui("Enable layered composition", "启用分层强化"), &next.layered_enhancement);
+        ImGui::BeginDisabled(!next.layered_enhancement);
+        changed |= ImGui::SliderFloat(ui("Broad tone contribution", "大范围明暗强度"), &next.layer_tone, 0.f, 2.f, "%.2f");
+        changed |= ImGui::SliderFloat(ui("Structure contribution", "细节强度"), &next.layer_structure, 0.f, 2.f, "%.2f");
+        changed |= ImGui::SliderFloat(ui("Brightening contribution", "亮部增强"), &next.layer_bright, 0.f, 2.f, "%.2f");
+        changed |= ImGui::SliderFloat(ui("Darkening contribution", "暗部增强"), &next.layer_shadow, 0.f, 2.f, "%.2f");
+        ImGui::EndDisabled();
+        if (ImGui::Button(ui("Reset only these layers", "仅恢复分层默认"))) {
+            next.layered_enhancement = false;
+            next.layer_tone = next.layer_structure = next.layer_bright = next.layer_shadow = 1.f;
+            changed = true;
+        }
+        ImGui::TextWrapped("%s", ui("Experimental pre-SR or shared post-candidate composition, not repeated model inference. 1 is neutral. Combined luminance strength cannot exceed 4. Colour follow remains independent under HDR and colour. The split is not a face/material mask and cannot recover detail absent from the model. No extra NR pass; GPU cost still needs measurement.",
+            "实验前置或共用后置候选的合成，不是多次运行模型。1 为中性，组合后的有效明暗强度最多 4。颜色跟随仍在 HDR 与颜色中独立控制。这不是人脸或材质遮罩，不能恢复模型没有的细节。不增加 NR 次数；实际 GPU 开销仍需测量。"));
+        ImGui::EndDisabled();
+    }
 #if NR_HAS_DETAIL_STABILITY
         int curve = static_cast<int>(next.proxy_curve);
         if (ImGui::Combo(ui("HDR mapping", "HDR 映射"), &curve,
-                ui("Legacy shoulder\0Hybrid\0Reversible (experimental)\0", "旧版压肩\0混合\0可逆（实验）\0"))) {
+                ui("Legacy shoulder\0Hybrid\0Reversible (experimental)\0", "柔和压缩\0混合压缩\0可逆压缩（实验）\0"))) {
             next.proxy_curve = static_cast<unsigned>(curve); changed = true;
         }
 #endif
-        if (ImGui::CollapsingHeader(ui("Developer options", "开发者选项"))) {
+        changed |= ImGui::Checkbox(ui("Allow experimental HDR colour", "允许实验 HDR 调色"), &next.allow_unverified_hdr_color);
+        SettingsTooltip(ui("Allows colour edits for an unverified HDR input. Turn off if colour shifts or flicker appear; the AI colour slider never changes this permission.", "当前 HDR 颜色无法确认时，允许尝试 AI 调色。出现偏色或闪烁时关闭；调整 AI 色彩强度不会自动开启此项。"));
         SettingsSection(ui("Observed game render scale", "游戏真实渲染比例"));
         const unsigned render_width = g_last_dlss_input_width.load(std::memory_order_relaxed);
         const unsigned render_height = g_last_dlss_input_height.load(std::memory_order_relaxed);
@@ -601,7 +582,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         }
         SettingsTooltip(ui(
             "Read-only observation. Change the game's actual render scale in its DLSS quality settings; NR working scale is independent.",
-            "这是只读观测。游戏真实渲染比例由游戏内 DLSS 质量档位调整，与 NR 工作比例相互独立。"));
+            "这是只读观测。游戏真实渲染比例由游戏内 DLSS 质量档位调整，与 NR 渲染比例相互独立。"));
 
             int jitter = static_cast<int>(next.jitter_mode);
             if (ImGui::Combo(ui("NR jitter input", "NR jitter 输入"), &jitter,

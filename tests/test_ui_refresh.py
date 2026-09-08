@@ -20,8 +20,8 @@ class UiRefreshContract(unittest.TestCase):
 
     def test_rr_protection_forces_effective_post_without_a_toggle(self):
         self.assertIn("IsRayReconstructionRouteObserved()", self.ui)
-        self.assertIn("rr_recent", self.ui)
-        self.assertIn("光线重建生效，强制后置 NR", self.ui)
+        self.assertIn("DrawPostRouteStatus()", self.ui)
+        self.assertIn("NR 未生效", self.post)
         self.assertIn("正在等待新的 RR 评估", self.post)
         self.assertNotIn("Use RR -> NR when Ray Reconstruction is active", self.post)
 
@@ -83,7 +83,7 @@ class UiRefreshContract(unittest.TestCase):
 
     def test_labels_separate_overall_effect_from_tone_follow(self):
         self.assertIn('ui("Overall NR effect", "NR 效果倍率")', self.ui)
-        self.assertIn('ui("NR tone follow", "NR 色调跟随")', self.ui)
+        self.assertIn('ui("AI colour amount", "AI 色彩强度")', self.ui)
         self.assertIn("including visible brightness and detail", self.ui)
         self.assertIn("only hue and saturation", self.ui)
         self.assertIn("If the model changes only luminance, this may have little effect.", self.ui)

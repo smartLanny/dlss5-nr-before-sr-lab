@@ -15,6 +15,13 @@ std::atomic<unsigned long long> rr_after_state_rejected{0}, rr_finish_declined{0
 std::atomic<unsigned long long> rr_finish_gate_rejected{0};
 std::atomic<unsigned long long> last_rr_tick{0};
 std::atomic<int> last_rr_stage{0}; // 0 untouched, 1 prepared, 2 recorded, 3 native failed, 4 not applied
+std::atomic<int> last_rr_depth_type{-1}; // actual Create declaration; never infer from texture format
+struct ProjectionReceipt {
+    std::atomic<unsigned long long> sequence{0}, generation{0}, tick{0};
+    std::atomic<int> state{0}; // 0 none, 1 absent, 2 unreadable, 3 nonfinite, 4 finite copy
+    std::atomic<float> values[16]{};
+};
+ProjectionReceipt projection;
 std::atomic<ULONGLONG> next_poll{0};
 // RR selects its compatible post route automatically. The master NR switch
 // and all resource/lifecycle admission checks remain authoritative.

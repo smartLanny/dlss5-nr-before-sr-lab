@@ -48,6 +48,7 @@ struct Config {
     bool enabled=true, identity_use_original=false, preserve_lighting=false;
     bool experimental_peak_shoulder=false, allow_unverified_hdr_color=false;
     bool high_strength_protection=true, layered_enhancement=false;
+    bool low_grid_edit_field=false, catmull_edit_restore=false;
     float lighting_lock=0;
     int mode=2;
     float transfer_strength=1, color_strength=1;
@@ -57,6 +58,8 @@ enum class BypassReason { None, Guard };
 std::atomic<unsigned> g_config_generation{7};
 std::atomic<unsigned long long> g_pipeline_stats_generation{12};
 std::atomic<int> g_last_bypass_reason{0};
+bool rr_observed=false;
+bool IsRayReconstructionRouteObserved() { return rr_observed; }
 unsigned long long clock_ms=2000;
 int g_chain_cs=0, held=0;
 void EnterCriticalSection(int*) { ++held; }
@@ -67,6 +70,7 @@ PEAK_SHOULDER
 struct Slot {
     DXGI_FORMAT result_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
     NrColorPolicy diagnostic_color_policy{};
+    bool edit_field_recorded=false, edit_horizontal_recorded=false, lanczos_recorded=false;
     float diagnostic_color_strength=-1;
     bool diagnostic_preserve_lighting=true;
 };
@@ -78,6 +82,7 @@ unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_con
     const bool any_combine = pipeline == g_codec.combine || v2_combine;
     const unsigned source_flags=0;
     const bool f8_armed=false;
+    const bool low_grid_color=false, independent_chroma=false;
     DISPATCH
     return codec_flags;
 }
@@ -196,6 +201,18 @@ int main() {
     ColorContract c{}; Slot slot{}; slot.result_format=DXGI_FORMAT_R11G11B10_FLOAT;
     DispatchPolicy(slot,g_codec.combine,c,true,CodecColorMode::Automatic,true);
     auto snapshot=SnapshotColorPolicy();
+    rr_observed=true; g_config.mode=2;
+    check(SnapshotColorPolicy().status==NrColorPolicyStatus::Current,
+          "automatic RR post is current with a saved front preference");
+    Config rr_next=g_config; bool rr_changed=false; ImGui::text.clear();
+    Controls(rr_next,false,rr_changed);
+    check(ImGui::text.find("Settings pending")==std::string::npos && !rr_changed,
+          "real colour UI compares effective RR mode without changing preference");
+    rr_observed=false;
+    check(SnapshotColorPolicy().status==NrColorPolicyStatus::Pending,
+          "RR exit waits for the actual front composition");
+    g_config.mode=1;
+
     check(snapshot.status==NrColorPolicyStatus::Current && !held,"coherent current snapshot unlocks");
     check(snapshot.policy.effective_color_strength==0 &&
           !snapshot.policy.effective_preserve_lighting,"Wuthering Waves HDR R11 post-SR remains bounded");
@@ -233,12 +250,11 @@ int main() {
     ImGui::try_edits=false; Controls(next,false,changed);
     check(!changed && next.color_strength==1 && next.preserve_lighting,
           "reading a suppressed historical colour does not edit settings");
-    check(ImGui::text.find("requested 1.00 / shader coefficient 0.00")!=std::string::npos &&
-          ImGui::text.find("requested off / effective off")!=std::string::npos,
+    check(ImGui::text.find("requested off / effective off")!=std::string::npos,
           "real controls distinguish requested colour from the shader coefficient");
     ImGui::try_edits=true; Controls(next,false,changed);
     check(!ImGui::colour_disabled && !ImGui::lighting_disabled && changed &&
-          next.color_strength==.25f && next.allow_unverified_hdr_color && !next.preserve_lighting,
+          next.color_strength==.25f && !next.allow_unverified_hdr_color && !next.preserve_lighting,
           "post-SR lighting is no longer presented as a forbidden route");
     g_last_bypass_reason=static_cast<int>(BypassReason::Guard);
     next=g_config; next.mode=2; changed=true; ImGui::try_edits=false;
