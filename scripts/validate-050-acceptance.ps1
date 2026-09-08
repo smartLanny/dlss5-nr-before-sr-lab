@@ -33,6 +33,8 @@ $Failure = $null
 $OldToolchain = $env:DLSS5_LLVM_MINGW_ROOT
 $OldCxx = $env:CXX
 $OldPostSource = $env:POST_COMPAT_CORE_SOURCE
+$OldImGuiSdk = $env:NR_RESHADE_ROOT
+$OldImGuiLlvm = $env:NR_LLVM_BIN
 New-Item -ItemType Directory -Path $Output | Out-Null
 Start-Transcript -LiteralPath (Join-Path $Output 'validation.log') | Out-Null
 Push-Location $Root
@@ -40,18 +42,20 @@ try {
     $env:DLSS5_LLVM_MINGW_ROOT = $Toolchain
     $env:CXX = $Compiler
     $env:POST_COMPAT_CORE_SOURCE = Join-Path $Root 'src/nr_before_sr.cpp'
+    $env:NR_RESHADE_ROOT = $ReShade
+    $env:NR_LLVM_BIN = Join-Path $Toolchain 'bin'
     & python (Join-Path $PSScriptRoot 'prepare-multi-api-beta.py') --core $Root --upstream $UpstreamRoot --output $Stage
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dev13') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dev14') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-command-creation.py')) {
         & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
         $Checks.Add($Test)
     }
-    foreach ($Test in @('tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py', 'tests/test_rr_depth_projection.py', 'tests/test_rr_depth_device_identity.py', 'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py', 'tests/test_picture_reset.py')) {
+    foreach ($Test in @('tests/test_ui_refresh.py', 'tests/test_imgui_abi.py', 'tests/multi_api/test_rr_post_diagnostics.py', 'tests/test_rr_depth_projection.py', 'tests/test_rr_depth_device_identity.py', 'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py', 'tests/test_picture_reset.py')) {
         & python (Join-Path $Root $Test)
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
         $Checks.Add($Test)
@@ -103,8 +107,8 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dev13*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dev13 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dev14*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dev14 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
@@ -121,6 +125,8 @@ try {
     $env:DLSS5_LLVM_MINGW_ROOT = $OldToolchain
     $env:CXX = $OldCxx
     $env:POST_COMPAT_CORE_SOURCE = $OldPostSource
+    $env:NR_RESHADE_ROOT = $OldImGuiSdk
+    $env:NR_LLVM_BIN = $OldImGuiLlvm
     Stop-Transcript | Out-Null
     $Result = [ordered]@{
         schema='nr050-focused-acceptance-v1'; source_commit=$Commit;

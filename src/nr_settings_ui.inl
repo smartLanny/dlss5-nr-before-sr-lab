@@ -23,6 +23,13 @@ void SettingsField(const char *label) {
     ImGui::SetNextItemWidth(-1.0f);
 }
 
+float SettingsContentWidth() {
+    // Preserve the real content bounds (including scrollbars/columns) while
+    // crossing the host's aggregate-return ABI explicitly.
+    return nr_imgui_abi::CallHostVec2(
+        imgui_function_table_instance()->GetContentRegionAvail).x;
+}
+
 void SettingsSliderLabel(const char *label) {
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label);
@@ -425,7 +432,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ui("Natural###style-option", "自然###style-option"),
         ui("Cinematic###style-option", "电影###style-option")};
     const float style_width = std::max(1.0f,
-        (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f);
+        (SettingsContentWidth() - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f);
     ImGui::PushID("nr-model-style");
     for (unsigned option = 0; option < 3; ++option) {
         if (option != 0) ImGui::SameLine();
