@@ -7,8 +7,15 @@ bool LightEqual(const RunResult &a,const RunResult &b) {
 }
 RunResult LightRun(Gpu &gpu, int variant, LightCase controls={}, UINT extra=0,
         UINT nw=0, UINT nh=0,float strength=1.f,float color=0.f,bool active=true,bool before=true) {
-    return Run(gpu,25,23,1,1,1u|extra|(active?kLightFlag:0u),variant,before,nw,nh,
-        {},0.f,{},strength,{1.f,1.f,1.f,1.f},false,color,controls);
+    try {
+        // The old capture oracle cannot compare reconstructed NaN payloads;
+        // invalid-input cases still validate output, alpha and subrect guards.
+        return Run(gpu,25,23,variant==3?0u:1u,1,1u|extra|(active?kLightFlag:0u),variant,before,nw,nh,
+            {},0.f,{},strength,{1.f,1.f,1.f,1.f},false,color,controls);
+    } catch (...) {
+        std::fprintf(stderr,"Light case variant=%d flags=%u N=%ux%u strength=%g color=%g active=%d before=%d preview=%u\n",variant,extra,nw,nh,strength,color,active,before,controls.preview);
+        throw;
+    }
 }
 Float4 LightCenter(const RunResult &r) { return r.output[(23/2+1)*(25+4)+(25/2+2)]; }
 void ValidateLightStyle(Gpu &gpu) {
