@@ -35,9 +35,34 @@ MinHook trampolines, actual Create/Release observation, a serialized device/
 feature/swapchain registry, paired resize handling and complete bounded normal
 session retirement. These changes do not establish the cause of #153.
 
+## Final review and targeted corrections
+
+One parallel runtime/contract review of the frozen `4a564a3` candidate found
+three P1 issues. All were fixed in `213ae7a` and the changed paths received one
+targeted recheck, with no remaining actionable finding in those paths:
+
+- ReShade callbacks expose the raw device, while a wrapped context returns its
+  proxy. Device identity now uses the pinned ReShade `IID_UnwrappedObject`,
+  balances both references, and leaves the original NGX call parameters intact.
+- In-frame failure could retire and clear the multithread interface before its
+  matching Leave. A local strong-reference guard now owns Enter/Leave. Failed
+  MV conversion also exits before exposure can access a retired device.
+- Session teardown omitted D3D11 depth/MV shaders and persistent PQ resources.
+  It now releases those after completion proof. Real WARP tests recreate both
+  shaders on device B and check their owner; PQ lists, allocators, heap, fence
+  and event are retired, while all persistent fields are exercised by the
+  existing extracted-session fault fixture.
+
+The old frozen source fails the proxy-identity check, frame-unlock/MV-return
+checks and expanded session-release checks. The first frame negative attempted
+launch without its C++ runtime DLL; that fixture execution failure was retained,
+then corrected by static linking before recording the actual failing old paths.
+The native production policy keeps inherited device/list unwrap diagnostics off;
+those disabled paths were not expanded by this correction.
+
 ## Exact build and evidence
 
-Production source: `4a564a361d32c307b59015ee976c4238b4a7bb6a`.
+Production source: `213ae7a503fbab8a6b773368dfd55df77319ad1e`.
 Documentation or PR commits after this point are not the DLL build source.
 
 The canonical generator ran from committed, clean tracked source. Dependency
@@ -47,7 +72,7 @@ kept. The old worktree's local transform outputs are not this build's evidence.
 | Result | Scope |
 | --- | --- |
 | Source/build gate | All 43 canonical check groups completed |
-| Python suites | 73 multi-API tests: 71 passed, 2 skipped; 31 native-bridge and 35 UI/feedback/RR tests passed |
+| Python suites | 73 multi-API tests: 71 passed, 2 skipped; 33 native-bridge and 35 UI/feedback/RR tests passed |
 | Partial observer | 4 actual generated promotion cases passed |
 | Scanner | 8 actual generated scanner scenarios passed, with real Windows critical sections and loader/hook API doubles |
 | Canonical binaries | LLVM linked bilingual Core, nrchain and carrier; six generated production shader entries compiled |
@@ -71,11 +96,11 @@ removing or relaxing the check. Its failed log remains intact.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| Canonical source manifest | `1a9bae15165f9838f9a85122b9c63878887081cf95e2cb253a5a78ed77597e1a` |
-| LLVM carrier | `8859fbbd7107eb93ce8aaf84959b771bbe9dc49c3d660eb93c097c6f3738d6c1` |
-| MSVC carrier | `7df3b846e51d192313919da7dd2b36b9e987c1b7fa185744ba8bc4a261a00b0b` |
-| English Core | `eec03815b7ec94368622c8c3c6b29f10d4ef1647d276c4edb46437abdbe5bf7a` |
-| Chinese Core | `0d02d024d8634ce0573138e59f1528ae37f96289b44f0b2add599165d5ee5bef` |
+| Canonical source manifest | `03acb173aba3fa8a0dbfaff3f3648c2c83d5163d0bc9073521ca89b237130b0b` |
+| LLVM carrier | `a2aee948ecaff9a9fceb9b980cdfcecac921f7097e82daa0b0f03623cc3613f0` |
+| MSVC carrier | `42ec76a5d27c8945d9870a78e08c96425494c8a78ca5795470bb9983f1781be6` |
+| English Core | `4ee0f7758c23747ab028e87b30ed430c6aee2bfa1619d1f41e784b599bcbf2a7` |
+| Chinese Core | `5e6dc78bf9d2e1025944db7d2cae2ed04ed834590129abd0979e6bcc417a32d6` |
 | nrchain | `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb` |
 
 Run the existing `scripts/build-multi-api-candidate.ps1` with the pinned upstream,
