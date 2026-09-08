@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <vector>
 #include "src/interop/nr_external_provider_d3d12.h"
+#include "src/interop/nr_external_provider_completion.h"
 
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3d12.lib")
@@ -130,9 +131,9 @@ static std::vector<std::uint32_t> Readback(ID3D12Device *device,
     if (FAILED(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
         Fail("fence");
     HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    queue->Signal(fence, 1);
-    fence->SetEventOnCompletion(1, event);
-    WaitForSingleObject(event, INFINITE);
+    if (nr_external_provider_completion::SignalAndWait(queue, fence, event, 1, 5000) !=
+        nr_external_provider_completion::Result::Complete)
+        Fail("readback submission completion");
     CloseHandle(event);
 
     std::uint8_t *mapped = nullptr;

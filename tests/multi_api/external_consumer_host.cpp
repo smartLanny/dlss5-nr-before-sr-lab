@@ -105,7 +105,7 @@ int main(int argc, char **argv) {
     frame.depth=resource(depth,DXGI_FORMAT_R32_FLOAT,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     frame.motion=resource(motion,DXGI_FORMAT_R16G16_FLOAT,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     NrExternalSubmitResultV1 result{};
-    unsigned recordings=0;
+    unsigned recordings=0,changed_recordings=0;
     for(unsigned attempt=0;attempt<(hardware?8u:1u);++attempt){
     frame.frame_id=attempt+1;
     const int accepted=submit(kNrExternalProviderAbi,&frame,&result);
@@ -119,7 +119,9 @@ int main(int argc, char **argv) {
     if(hardware){
         unsigned changed=0;for(unsigned i=0;i<pixels.size();++i)changed+=pixels[i]!=source[i];
         recordings+=result.writeback_performed!=0;
-        std::printf("NVIDIA completion/readback attempt=%u recorded=%u pixelsDifferentFromInput=%u\n",attempt+1,result.writeback_performed,changed);
+        changed_recordings+=(result.writeback_performed!=0 && changed!=0);
+        std::uint32_t hash=2166136261u;for(auto pixel:pixels)hash=(hash^pixel)*16777619u;
+        std::printf("NVIDIA completion/readback attempt=%u recorded=%u pixelsDifferentFromInput=%u outputHash=%08X\n",attempt+1,result.writeback_performed,changed,hash);
         if(result.reason==NrExternalProviderReason::RuntimeUnavailable)break;
         D3D12_RESOURCE_BARRIER barrier{};barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         barrier.Transition.pResource=output;barrier.Transition.Subresource=D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
@@ -135,5 +137,5 @@ int main(int argc, char **argv) {
     motion_upload->Release();depth_upload->Release();color_upload->Release();upload->Release(); motion->Release(); depth->Release(); output->Release(); color->Release();
     fence->Release(); list->Release(); allocator->Release();queue->Release();device->Release();adapter->Release();factory->Release();
     // The DLL's worker is process scoped; do not simulate unsupported dynamic unload.
-    return 0;
+    return hardware && (!recordings || !changed_recordings) ? 2 : 0;
 }
