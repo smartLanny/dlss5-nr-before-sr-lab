@@ -6120,7 +6120,8 @@ bool EnsureLanczosInput(ID3D12Device *device,NrSlot &slot,unsigned int nw,unsign
     d.Width=nw;d.Height=rh;d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;
     d.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     const auto allocation=ID3D12Device_GetResourceAllocationInfo(device,0,1,&d);
-    if(!allocation.SizeInBytes || allocation.SizeInBytes>kLanczosSlotBudget ||
+    if(!allocation.SizeInBytes || slot.lanczos_bytes>kLanczosSlotBudget ||
+        allocation.SizeInBytes>kLanczosSlotBudget-slot.lanczos_bytes ||
         allocation.SizeInBytes>kLanczosTotalBudget-g_lanczos_allocated_bytes) {
         slot.lanczos_allocation_failed=true;
         Log("Lanczos2AA 64MiB/slot or 256MiB/Core allocation budget unavailable; ExactArea retained.");return false;
