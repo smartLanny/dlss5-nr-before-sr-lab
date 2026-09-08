@@ -1,0 +1,142 @@
+07:55:42.848  DLSS 5 AI Rendering Perfect Chain beta0.4.6 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=nr-before-sr.zh-CN.addon64 | build_id=beta0.4.6 | sourceCommit=9087a9efbc7bb53a3c79e7766a174534f49c412c sourceDirty=1
+07:55:42.851  Shared strength migration: sourceMode=2 selected=1 strengthConfigVersion=1 persisted=1.
+07:55:42.851  Migrated legacy configuration to beta0.4.3 in memory: default mode is now render-resolution NR -> SR; persisted=1.
+07:55:42.854  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+07:55:42.854  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+07:55:42.855  Config: enabled=1 mode=2 identity=0 preTransfer=1.000 postTransfer=1.000 colorFollowRequested=0.000 preserveLighting=1 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.100 localTone=1.000 localStructure=1.000 skinStructure=0.300 autoMask=1 style=2 uiCorrection=0 r8OutputEncoding=0 perfEpoch=23 jitterMode=1 feature18Evals=0
+07:55:42.857  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+07:55:44.304  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:55:44.305  [module] pinned hook owner name=D3D12 command state address=00007FFD3AE78DE0 module=00007FFD3AE20000 until process exit.
+07:55:44.330  [module] pinned hook owner name=D3D12 command state address=00007FFD3AEECD50 module=00007FFD3AE20000 until process exit.
+07:55:44.356  [module] pinned hook owner name=D3D12 command state address=00007FFD3AEECDA0 module=00007FFD3AE20000 until process exit.
+07:55:45.899  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:55:46.862  [command-state] device meta-command contract: known=1 initDirty=0x0 executeDirty=0x0 supportedMask=0x1038.
+07:55:48.614  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:55:52.672  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:55:55.975  [command-state] observed CreateCommandSignature: call=1 signature=000001B47C1E6040 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+07:55:55.975  [command-state] observed CreateCommandSignature: call=2 signature=000001B47C1E6810 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+07:55:55.975  [command-state] observed CreateCommandSignature: call=3 signature=000001B47BBB6E00 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[10] root=0000000000000000.
+07:55:55.976  [command-state] observed CreateCommandSignature: call=4 signature=000001B47BBB75D0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[0] root=0000000000000000.
+07:55:55.976  [command-state] observed CreateCommandSignature: call=5 signature=000001B47BBB7DA0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=0000000000000000.
+07:55:59.530  Found SR NGX module: H:\games\The Blood of Dawnwalker\Engine\Plugins\Runtime\Nvidia\DLSS\Binaries\ThirdParty\Win64\nvngx_dlss.dll
+07:55:59.530  [module] pinned hook owner name=nvngx_dlss.dll address=00007FFC64A90000 module=00007FFC64A90000 until process exit.
+07:55:59.530  [module] pinned hook owner name=_nvngx.dll address=00007FFCA4AA0000 module=00007FFCA4AA0000 until process exit.
+07:55:59.530  [module] pinned hook owner name=D3D12_CreateFeature address=00007FFC64ABD2E0 module=00007FFC64A90000 until process exit.
+07:55:59.531  MH_CreateHook D3D12_CreateFeature                    target=00007FFC64ABD2E0 status=0 (MH_OK)
+07:55:59.531  [module] pinned hook owner name=D3D12_EvaluateFeature address=00007FFC64ABD450 module=00007FFC64A90000 until process exit.
+07:55:59.531  MH_CreateHook D3D12_EvaluateFeature                  target=00007FFC64ABD450 status=0 (MH_OK)
+07:55:59.532  [module] pinned hook owner name=D3D12_ReleaseFeature address=00007FFC64ABD730 module=00007FFC64A90000 until process exit.
+07:55:59.532  MH_CreateHook D3D12_ReleaseFeature                   target=00007FFC64ABD730 status=0 (MH_OK)
+07:55:59.532  [module] pinned hook owner name=core CreateFeature address=00007FFCA4B08540 module=00007FFCA4AA0000 until process exit.
+07:55:59.532  MH_CreateHook core CreateFeature                     target=00007FFCA4B08540 status=0 (MH_OK)
+07:55:59.533  [module] pinned hook owner name=core EvaluateFeature address=00007FFCA4B08740 module=00007FFCA4AA0000 until process exit.
+07:55:59.533  MH_CreateHook core EvaluateFeature                   target=00007FFCA4B08740 status=0 (MH_OK)
+07:55:59.533  [module] pinned hook owner name=core ReleaseFeature address=00007FFCA4B08640 module=00007FFCA4AA0000 until process exit.
+07:55:59.534  MH_CreateHook core ReleaseFeature                    target=00007FFCA4B08640 status=0 (MH_OK)
+07:55:59.581  MH_EnableHook all status=0
+07:55:59.582  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+07:55:59.582  [module] initial scan complete: sr=00007FFC64A90000 core=00007FFCA4AA0000 dlssd=0000000000000000.
+07:55:59.583  NGX observer/AI-upscaling hooks active.
+07:56:02.563  [module] lazy rescan #1 core=00007FFCA4AA0000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+07:56:02.564  [post-compat] initial RR-post=1 Npost/O=100%; requested Mode=2 retained.
+07:56:02.566  [dx11-deployment] module snapshot complete=1 carriers=0 matching045=0; filename evidence only, not NR readiness or GPU completion.
+07:56:02.622  [render-scale] parameter-provider observer installed; engine re-query still required
+07:56:02.684  [render-scale] parameter-provider observer installed; engine re-query still required
+07:56:02.735  [render-scale] parameter-provider observer installed; engine re-query still required
+07:56:02.789  [render-scale] parameter-provider observer installed; engine re-query still required
+07:56:02.795  [perf] reset stage=C-NR-transfer epoch=23 transfer=1.000; warming 180 frames
+07:56:02.820  [artifact-identity] sourceCommit=9087a9efbc7bb53a3c79e7766a174534f49c412c sourceDirty=1 status=verified addonPath=H:\games\The Blood of Dawnwalker\Dawnwalker\Binaries\Win64\nr-before-sr.zh-CN.addon64 addonSha256=b68f2709a131c9ce0513b6366dbcc2e7d551bef5bcd41934075407378a48c090 measurement=loaded-path-file-once-worker.
+07:56:09.163  [module] lazy rescan #2 core=00007FFCA4AA0000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+07:56:09.478  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+07:56:10.157  [module] lazy rescan #3 core=00007FFCA4AA0000 coreLifecycle=1 dlssd=0000000000000000 dlssdLifecycle=0 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+07:56:11.784  _nvngx core CreateFeature entered: call=1 id=1 (SuperSampling)
+07:56:11.832  core CreateFeature id=1 (SuperSampling) result=0x00000001(Success) handle=000001B7D2EED430
+07:56:11.832      Width                                      = 1920
+07:56:11.833      Height                                     = 1080
+07:56:11.833      OutWidth                                   = 3840
+07:56:11.833      OutHeight                                  = 2160
+07:56:11.834      PerfQualityValue                           = 0
+07:56:11.834      DLSS.Feature.Create.Flags                  = 73
+07:56:11.834      DLSS.Enable.Output.Subrects                = 0
+07:56:11.834      CreationNodeMask                           = 1
+07:56:11.835      VisibilityNodeMask                         = 1
+07:56:11.835  Feature 1 contract generation=1 handle=000001B7D2EED430 create=1920x1080 -> 3840x2160 flags=73 quality=0; all NR contracts will be rebuilt.
+07:56:11.836  _nvngx core EvaluateFeature reached: call=1 handle=000001B7D2EED430
+07:56:11.836  --- SuperSampling Evaluate #1 handle=000001B7D2EED430 generation=1 create=1920x1080 -> 3840x2160 ---
+07:56:11.836      Color                                      = 000001B7CCBFD000 physical=1920x1080 format=26(R11G11B10_FLOAT) mips=1 flags=0x1 sample=1
+07:56:11.837      MotionVectors                              = 000001B7CCBFA030 physical=3840x2160 format=34(R16G16_FLOAT) mips=1 flags=0x4 sample=1
+07:56:11.837      Depth                                      = 000001B7D176FA10 physical=1920x1080 format=19(R32G8X24_TYPELESS) mips=1 flags=0x2 sample=1
+07:56:11.839      Output                                     = 000001B7D177A630 physical=3840x2160 format=10(R16G16B16A16_FLOAT) mips=1 flags=0x4 sample=1
+07:56:11.840      DLSS.Input.Color.Subrect.Base.X            = 0
+07:56:11.841      DLSS.Input.Color.Subrect.Base.Y            = 0
+07:56:11.841      DLSS.Input.Depth.Subrect.Base.X            = 0
+07:56:11.842      DLSS.Input.Depth.Subrect.Base.Y            = 0
+07:56:11.842      DLSS.Input.MV.Subrect.Base.X               = 0
+07:56:11.842      DLSS.Input.MV.Subrect.Base.Y               = 0
+07:56:11.843      DLSS.Output.Subrect.Base.X                 = 0
+07:56:11.843      DLSS.Output.Subrect.Base.Y                 = 0
+07:56:11.843      DLSS.Render.Subrect.Dimensions.Width       = 1920
+07:56:11.844      DLSS.Render.Subrect.Dimensions.Height      = 1080
+07:56:11.844      MV.Scale.X                                 = 1
+
+--- ColorDiag / finalChanged ---
+1:07:55:42.848  DLSS 5 AI Rendering Perfect Chain beta0.4.6 attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=nr-before-sr.zh-CN.addon64 | build_id=beta0.4.6 | sourceCommit=9087a9efbc7bb53a3c79e7766a174534f49c412c sourceDirty=1
+21:07:55:59.530  Found SR NGX module: H:\games\The Blood of Dawnwalker\Engine\Plugins\Runtime\Nvidia\DLSS\Binaries\ThirdParty\Win64\nvngx_dlss.dll
+48:07:56:02.820  [artifact-identity] sourceCommit=9087a9efbc7bb53a3c79e7766a174534f49c412c sourceDirty=1 status=verified addonPath=H:\games\The Blood of Dawnwalker\Dawnwalker\Binaries\Win64\nr-before-sr.zh-CN.addon64 addonSha256=b68f2709a131c9ce0513b6366dbcc2e7d551bef5bcd41934075407378a48c090 measurement=loaded-path-file-once-worker.
+113:07:56:11.980  [state] bypass transition #1: waiting-feature1 -> command-state-unverified.
+255:07:56:16.818  [state] bypass transition #2: command-state-unverified -> none/active.
+416:07:56:18.437  ColorDiag #1 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.000152 changed=0 maxFinalRelativeDelta=0.000000 meanFinalRelativeDelta=0.000000 finalChanged=0 sampledExposure=1.000000 sampledSourceToCanonical=0.638621 transfer=1.000 colorFollowEffective=0.000 preserveLighting=1.
+419:07:56:18.438      nr-output  meanRGB=(0.000007,0.000042,0.000026) luma=0.000033 hash=30CE063B
+420:07:56:18.438      composited meanRGB=(0.000000,0.000000,0.000000) luma=0.000000 hash=47838489
+424:07:56:22.735  ColorDiag #2 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.000176 changed=0 maxFinalRelativeDelta=0.000000 meanFinalRelativeDelta=0.000000 finalChanged=0 sampledExposure=1.000000 sampledSourceToCanonical=0.058279 transfer=1.000 colorFollowEffective=0.000 preserveLighting=1.
+427:07:56:22.736      nr-output  meanRGB=(0.000008,0.000044,0.000027) luma=0.000036 hash=3EF19264
+428:07:56:22.736      composited meanRGB=(0.000000,0.000000,0.000000) luma=0.000000 hash=47838489
+430:07:56:23.378  ColorDiag #3 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.000180 changed=0 maxFinalRelativeDelta=0.000000 meanFinalRelativeDelta=0.000000 finalChanged=0 sampledExposure=1.000000 sampledSourceToCanonical=0.015383 transfer=1.000 colorFollowEffective=0.000 preserveLighting=1.
+433:07:56:23.378      nr-output  meanRGB=(0.000007,0.000047,0.000026) luma=0.000038 hash=2DD35B14
+434:07:56:23.378      composited meanRGB=(0.000000,0.000000,0.000000) luma=0.000000 hash=47838489
+598:07:57:35.273  [state] bypass transition #3: none/active -> master-disabled.
+601:07:57:36.203  [state] bypass transition #4: master-disabled -> waiting-feature1.
+604:07:57:36.278  [state] bypass transition #5: waiting-feature1 -> none/active.
+607:07:57:48.594  [state] bypass transition #6: none/active -> master-disabled.
+610:07:57:50.770  [state] bypass transition #7: master-disabled -> waiting-feature1.
+613:07:57:50.844  [state] bypass transition #8: waiting-feature1 -> none/active.
+703:07:58:30.700  [state] bypass transition #9: none/active -> master-disabled.
+706:07:58:31.634  [state] bypass transition #10: master-disabled -> waiting-feature1.
+709:07:58:31.709  [state] bypass transition #11: waiting-feature1 -> none/active.
+711:07:58:40.568  [state] bypass transition #12: none/active -> master-disabled.
+774:07:59:32.213  ColorDiag #51 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.348082 changed=2040 maxFinalRelativeDelta=0.305662 meanFinalRelativeDelta=0.004566 finalChanged=1385 sampledExposure=1.000000 sampledSourceToCanonical=165.920944 transfer=1.000 colorFollowEffective=0.000 preserveLighting=1.
+777:07:59:32.214      nr-output  meanRGB=(0.887210,0.950796,0.798962) luma=0.926315 hash=2C930B61
+778:07:59:32.215      composited meanRGB=(0.893094,0.958885,0.796868) luma=0.933200 hash=FD77C145
+798:07:59:34.522  ColorDiag #52 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.449074 changed=2040 maxFinalRelativeDelta=0.437201 meanFinalRelativeDelta=0.036424 finalChanged=2040 sampledExposure=1.000000 sampledSourceToCanonical=165.730316 transfer=1.000 colorFollowEffective=0.000 preserveLighting=1.
+801:07:59:34.523      nr-output  meanRGB=(0.716745,0.771026,0.651705) luma=0.750871 hash=B7020762
+802:07:59:34.523      composited meanRGB=(0.890124,0.955305,0.793739) luma=0.929782 hash=B49C10A2
+823:07:59:37.743  ColorDiag #53 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.374914 changed=2040 maxFinalRelativeDelta=0.281991 meanFinalRelativeDelta=0.007398 finalChanged=1522 sampledExposure=1.000000 sampledSourceToCanonical=163.822250 transfer=1.000 colorFollowEffective=0.000 preserveLighting=1.
+826:07:59:37.744      nr-output  meanRGB=(0.875611,0.931569,0.791105) luma=0.909531 hash=8D8A8FF4
+827:07:59:37.744      composited meanRGB=(0.893353,0.959442,0.792916) luma=0.933368 hash=E2B1029F
+873:07:59:43.352  ColorDiag #55 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.421005 changed=2040 maxFinalRelativeDelta=0.453755 meanFinalRelativeDelta=0.005659 finalChanged=1445 sampledExposure=1.000000 sampledSourceToCanonical=166.349182 transfer=1.200 colorFollowEffective=0.000 preserveLighting=1.
+876:07:59:43.353      nr-output  meanRGB=(0.889710,0.949874,0.800121) luma=0.926271 hash=0BE63003
+877:07:59:43.353      composited meanRGB=(0.893423,0.956447,0.796764) luma=0.931519 hash=7B671B2B
+898:07:59:48.403  ColorDiag #57 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.366384 changed=2040 maxFinalRelativeDelta=0.362411 meanFinalRelativeDelta=0.009416 finalChanged=1541 sampledExposure=1.000000 sampledSourceToCanonical=165.322021 transfer=1.200 colorFollowEffective=0.000 preserveLighting=1.
+901:07:59:48.403      nr-output  meanRGB=(0.880179,0.930082,0.797447) luma=0.909897 hash=38592EE6
+902:07:59:48.404      composited meanRGB=(0.894533,0.957182,0.796231) luma=0.932242 hash=897D2DC0
+924:07:59:56.478  ColorDiag #60 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.282842 changed=2040 maxFinalRelativeDelta=0.363844 meanFinalRelativeDelta=0.009469 finalChanged=1553 sampledExposure=1.000000 sampledSourceToCanonical=163.423630 transfer=1.200 colorFollowEffective=0.000 preserveLighting=1.
+927:07:59:56.479      nr-output  meanRGB=(0.872971,0.931923,0.797815) luma=0.909707 hash=D67627DE
+928:07:59:56.479      composited meanRGB=(0.888763,0.959315,0.800407) luma=0.932842 hash=1FF0C0D9
+1015:08:00:26.944  ColorDiag #70 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.333316 changed=2040 maxFinalRelativeDelta=0.361170 meanFinalRelativeDelta=0.009835 finalChanged=1544 sampledExposure=1.000000 sampledSourceToCanonical=164.674774 transfer=1.200 colorFollowEffective=0.000 preserveLighting=1.
+1018:08:00:26.945      nr-output  meanRGB=(0.874295,0.928695,0.793048) luma=0.907336 hash=1D405DC3
+1019:08:00:26.946      composited meanRGB=(0.891404,0.957154,0.795077) luma=0.931474 hash=0424796F
+1066:08:00:31.149  ColorDiag #72 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.367492 changed=2040 maxFinalRelativeDelta=0.330234 meanFinalRelativeDelta=0.009230 finalChanged=1552 sampledExposure=1.000000 sampledSourceToCanonical=163.708160 transfer=1.200 colorFollowEffective=0.000 preserveLighting=1.
+1069:08:00:31.150      nr-output  meanRGB=(0.874098,0.931500,0.797382) luma=0.909613 hash=3D963B20
+1070:08:00:31.150      composited meanRGB=(0.890833,0.958201,0.795740) luma=0.932149 hash=D6FEC76D
+1093:08:00:38.424  ColorDiag #75 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.393197 changed=2040 maxFinalRelativeDelta=0.456748 meanFinalRelativeDelta=0.009613 finalChanged=1532 sampledExposure=1.000000 sampledSourceToCanonical=163.499649 transfer=1.200 colorFollowEffective=0.000 preserveLighting=1.
+1096:08:00:38.425      nr-output  meanRGB=(0.873297,0.930873,0.794711) luma=0.908801 hash=6FC96A48
+1097:08:00:38.425      composited meanRGB=(0.889508,0.956852,0.794693) luma=0.930827 hash=C708AFD3
+1143:08:00:44.480  ColorDiag #77 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.229375 changed=2040 maxFinalRelativeDelta=0.422980 meanFinalRelativeDelta=0.009596 finalChanged=1532 sampledExposure=1.000000 sampledSourceToCanonical=160.863922 transfer=1.200 colorFollowEffective=0.000 preserveLighting=1.
+1146:08:00:44.481      nr-output  meanRGB=(0.870329,0.933921,0.796521) luma=0.910481 hash=4B8AD437
+1147:08:00:44.481      composited meanRGB=(0.866753,0.939709,0.784661) luma=0.913004 hash=40EBE3E5
+1167:08:00:46.138  ColorDiag #78 mode=2 featureGeneration=1 extent=1920x1080 samples=2040 invalid=0 maxNrDelta=0.321066 changed=2040 maxFinalRelativeDelta=0.447877 meanFinalRelativeDelta=0.010307 finalChanged=1552 sampledExposure=1.000000 sampledSourceToCanonical=160.333374 transfer=1.200 colorFollowEffective=0.000 preserveLighting=1.
+1170:08:00:46.139      nr-output  meanRGB=(0.867402,0.932456,0.802040) luma=0.909210 hash=ABEE1357
+1171:08:00:46.140      composited meanRGB=(0.883396,0.958688,0.800450) luma=0.931256 hash=CDB35899
+1195:08:00:53.576  ColorDiag #80 mode=1 featureGeneration=1 extent=3840x2160 samples=8160 invalid=0 maxNrDelta=1.000000 changed=8160 maxFinalRelativeDelta=0.750000 meanFinalRelativeDelta=0.023694 finalChanged=7967 sampledExposure=1.000000 sampledSourceToCanonical=162.150681 transfer=1.200 colorFollowEffective=0.000 preserveLighting=1.
+1198:08:00:53.577      nr-output  meanRGB=(0.881096,0.943446,0.809718) luma=0.920535 hash=C8E36F92
+1199:08:00:53.577      composited meanRGB=(0.889712,0.962526,0.798589) luma=0.935209 hash=C76AA788
