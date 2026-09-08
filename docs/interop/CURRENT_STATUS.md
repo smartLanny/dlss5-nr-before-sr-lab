@@ -1,5 +1,18 @@
 # 统一开发与测试交接入口
 
+## 2026-09-08 #85 Catmull恢复独立切片（一次WARP完成）
+
+从#172@987ef37独立接续；生产c355e70，实际生成/构建源1ad47fb。
+默认关闭CatmullRomEditRestore，固定Area+现有亮度EditField+颜色0，
+新增FP16 R.width×N.height横向面，纵向4tap融合最终合成；严格valid和
+有效Bilinear回退，full-res保护留原位，资源沿现有slot/queue/fence退休。
+统一ReadLumaEditV6读取接点，未纳#84输入核或#86颜色算法。
+8生产SM5/参考SM5/生成Core前端通过；唯一80组WARP，480 raw planes，
+融合与非融合最终输出最大误差0；11520横向样本独立验证，276无效footprint
+回退像素相等，错误中心负控1966命中。GPU已释放；冻结源双语Core/nrchain
+完整链接且全部源manifest哈希未变。不是DLL生命周期/游戏/性能验收，未推送。
+[数学、资源合同、构建锁、验证边界](CATMULL_EDIT_20260908.md)。
+
 ## 2026-09-08 新授权：#11 最小亮度 EditField 实验
 
 从 dev5 最终交接另建隔离分支，生产源码 `6062a0be77be561d1936c204d975ca4890f21453`，
