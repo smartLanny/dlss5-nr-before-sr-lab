@@ -1,5 +1,64 @@
 # #14 Borderlands 3: read-only input investigation, no game support claim
 
+## Full receipt add-on compiled and linked; still not loaded or deployed
+
+The subsequent authorized dependency pass completed the real generic UE
+`Development-Release|x64` project with both `unity_build.cpp` and the patched
+`main.cpp`; MSBuild exited 0 and produced a 1,897,472-byte DLL-format `.addon`.
+SHA256: `1a93cb0d960f8f4d75bf4d69e8afa48d4beb9b5074d5fc3d1070510bb4278db0`.
+This supersedes only the earlier full-build dependency blockage. It does not
+supersede the absence of real BL3 input observations or DLAA/R=O limitation.
+
+Actual receipt implementation source remains
+`fa4c6eb88d0b6f05a97d6deb30d41e8bc30b77b1`; this later report is not its build
+source. Patched main SHA256 is
+`1dc5d9c1ffbe47ded56bbfe0e0eaa541fd02f4404fef4f4b126988b006e5ee3e`, receipt
+header SHA256 is `dd9cc1f562d3168e94f245e94f271e43d8bf782f2cba32822079533cc9cda74d`.
+The fixed upstream source/headers, exact NGX library, actual ATL package hashes,
+compiler and artifact evidence are in
+[the dependency lock](BL3_RECEIPT_BUILD_DEPS_20260908.json).
+
+Only 166 selected upstream text/source files (6,413,090 bytes) were obtained,
+with every downloaded file's Git blob verified. These cover Core, generic UE,
+Global/Includes/UE shaders, relevant project files, required ReShade headers and
+NGX headers. ReShade is fixed at its Luma submodule pin `18deaa52…`; existing
+ImGui matches its required pin `3912b3d…` exactly. The small stb header is fixed
+at `28d546…`. DirectXMath was reused from the existing cache. Optional FSR is
+disabled with the supported `UseLumaFSR=false` property; no AMD SDK, DKUtil or
+unused NVAPI libraries were pulled into this build.
+
+The matching Luma NGX static library was fetched separately (5,576,350 bytes).
+No differently versioned cached NGX library was substituted, and no 69 MB NGX
+runtime was downloaded. The remaining actual runtime selection is untested.
+
+The first full build failed at `shader_compiler.hpp:3` because official
+`atlbase.h` was absent. Its original log is preserved with SHA256
+`d72cf370656e743496ac4cc5a88486d9f7f7f9e7f77a65f516234c651ce898b4`.
+Only the official catalog's ATL Headers/X64 VSIX payloads were then downloaded
+(1,388,331 bytes total), SHA256-verified and extracted outside Visual Studio.
+No system component installation was run. An intermediate attempt to pass ATL
+through process environment alone did not propagate through this MSBuild
+project; that failure log is also retained. The external project finally adds
+only ATL/DirectXMath include paths and ATL library paths before Cpp.targets.
+The resulting project hash is recorded in the dependency lock.
+
+The build command used `msbuild` on the existing UE vcxproj with
+`Configuration=Development-Release`, `Platform=x64`, `PlatformToolset=v143`,
+`WindowsTargetPlatformVersion=10.0.26100.0`, an explicit external `SolutionDir`,
+`SolutionName=Luma`, `UseLumaFSR=false`, `LumaPackage=false`, and
+`PostBuildEventUseInBuild=false`. The build process also cleared
+`LUMA_UNREAL_ENGINE_BIN_PATH`. Full success log SHA256:
+`462a625a60bfe2cd7c37ebc16ab6c766d1243e9dfd15926626a02a45bdab967b`.
+
+Read-only PE inspection confirms `AddonInit`, `AddonUninit`, `NAME`,
+`DESCRIPTION` and `WEBSITE` exports and expected Windows/VC runtime imports.
+This verifies a complete compiled add-on, not a successful load: no LoadLibrary,
+ReShade session, game launch, shader compilation in a game or GPU work occurred.
+The Development build resolves shader assets through its external source
+`SOLUTION_DIR`; the selected Global/Includes/Unreal Engine shader directories
+must remain present. It is **not a self-contained single-file install** and no
+player package, deployment or runtime compatibility result is implied.
+
 ## Follow-up: bounded input receipt prepared, full add-on not built
 
 The fixed upstream already provides a Development-only **Frame Capture** button
