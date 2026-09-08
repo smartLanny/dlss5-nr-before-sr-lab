@@ -73,11 +73,16 @@ void Experiment(const std::wstring& sdk_dir,const std::wstring& nr_dir) {
     for(auto& r:color)Upload(*c,r.Get(),pixels.data(),kOutputWidth*8,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,uploads);
     Upload(*c,depth.Get(),z.data(),kOutputWidth*4,read,uploads);Upload(*c,motion.Get(),mv.data(),kOutputWidth*4,read,uploads);
     c->SubmitAndWait();c->Reset();const auto baseline=ReadOutput(*c,color[0].Get());c->Reset();
+    std::cout<<"P0_initial_hash="<<baseline.hash<<std::endl;
+    uint64_t input_hash=baseline.hash;
     Barrier(*c,color[0].Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,read);c->SubmitAndWait();c->Reset();
     const wchar_t* paths[]={sdk_dir.c_str()};NVSDK_NGX_FeatureCommonInfo common{};common.PathListInfo.Path=paths;common.PathListInfo.Length=1;
     Ngx(NVSDK_NGX_D3D12_Init_with_ProjectID("7a94da60-f8c9-4b8b-9d8a-22f0293c4801",NVSDK_NGX_ENGINE_TYPE_CUSTOM,
         "synthetic-two-nr-unverified-phase",sdk_dir.c_str(),c->device.Get(),&common,NVSDK_NGX_Version_API),"bootstrap_init");
     auto core=GetModuleHandleW(L"_nvngx.dll");if(!core)Stop("official factory unavailable");
+    wchar_t factory_path[32768]{};
+    if(!GetModuleFileNameW(core,factory_path,32768))Stop("factory path receipt");
+    std::wcout<<L"loaded_factory="<<factory_path<<std::endl;
     auto nr=Module(nr_dir+L"\\nvngx_dlssnr.dll"),bridge=Module(nr_dir+L"\\nrchain_nvngx.dll");
     auto init=reinterpret_cast<Result(*)(void*,unsigned long long,const wchar_t*,ID3D12Device*,uint32_t,const void*)>(Symbol(bridge,"NRChain_Init"));
     auto create=reinterpret_cast<Result(*)(void*,ID3D12GraphicsCommandList*,int,void*,void**)>(Symbol(bridge,"NRChain_Create"));
@@ -97,11 +102,15 @@ void Experiment(const std::wstring& sdk_dir,const std::wstring& nr_dir) {
         Ngx(evaluate(Symbol(nr,"NVSDK_NGX_D3D12_EvaluateFeature"),c->list.Get(),features[layer],params[layer],nullptr),"evaluate");
         c->SubmitAndWait();c->Reset();const auto s=ReadOutput(*c,color[layer+1].Get());c->Reset();
         std::cout<<"layer="<<layer<<" fence="<<c->next_fence-1<<" finite="<<s.finite<<" nonfinite="<<s.nonfinite<<" hash="<<s.hash<<std::endl;
+        std::cout<<"layer="<<layer<<" input_hash="<<input_hash<<" output_hash="<<s.hash<<" changed="<<(input_hash!=s.hash)<<" quality_claim=false"<<std::endl;
+        input_hash=s.hash;
         if(s.nonfinite||s.finite!=pixels.size())Stop("finite output");
         if(layer==0){Barrier(*c,color[1].Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS,read);c->SubmitAndWait();c->Reset();}
     }
     Barrier(*c,color[0].Get(),read,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    const auto preserved=ReadOutput(*c,color[0].Get());c->Reset();if(preserved.hash!=baseline.hash)Stop("P0 changed");
+    const auto preserved=ReadOutput(*c,color[0].Get());c->Reset();
+    std::cout<<"P0_final_hash="<<preserved.hash<<std::endl;
+    if(preserved.hash!=baseline.hash)Stop("P0 changed");
     for(unsigned i=0;i<2;++i){Ngx(release(Symbol(nr,"NVSDK_NGX_D3D12_ReleaseFeature"),features[i]),"release");Ngx(destroy(params[i]),"destroy");}
     Ngx(NVSDK_NGX_D3D12_Shutdown1(c->device.Get()),"bootstrap_shutdown");
     std::cout<<"complete layers=2 frames=1 P0_preserved=true phase_verified=false production=false composite=not-executed"<<std::endl;
