@@ -1,5 +1,17 @@
 # 统一开发与测试交接入口
 
+## #82 同次调用尺寸诊断：原生后置 SR/RR 历史 receipt
+
+依赖 #183，生产/完整链接源 `ed38ae9fb289cec006f25ac7b540f5a63f558c96`。
+只在原生后置模型评估与合成录制成功后，在现有chain lock内保存同次R/N/O、
+既有NR评估token、配置/历史/feature代际及NR实例/slot-use序号。实际匹配命令
+提交并Signal成功才绑定围栏；非阻塞完成观察独立记录，不把录制当完成。
+F8冻结捕获与UI仅标last-recorded；游戏frame/view、独立资源代际明确unknown，
+前置与external完整R/N/O尚unsupported，不拼atomics或造viewID。
+26个CPU/mock-fence合同及同源双语Core/nrchain完整链接通过，117项manifest
+匹配；无GPU/游戏矩阵、NR算法、Manager或0.5改动。
+[接点、证据身份与剩余边界](WORK_SIZE_RECEIPT_20260908.md)。
+
 ## #82 配置接续：新装100%，旧请求保留，非法比例不再静默钳制
 
 生产源 `3411a51433149219ef54b3e88fe242a6f2efc149`：真正缺文件的新装及新模板
