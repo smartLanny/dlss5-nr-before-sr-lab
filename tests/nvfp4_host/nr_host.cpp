@@ -120,16 +120,19 @@ int wmain(int argc,wchar_t**argv){try{
     const fs::path runtime=fs::absolute(argv[1]),bridge=fs::absolute(argv[2]),assets=fs::absolute(argv[3]),output=fs::absolute(argv[4]);
     const unsigned w=std::stoul(argv[5]),h=std::stoul(argv[6]),frames=argc>7?std::stoul(argv[7]):16,warmup=argc>9?std::stoul(argv[9]):8;
     if(!w||!h||w>7680||h>4320||frames>100000||warmup>10000)throw std::runtime_error("invalid dimensions/frame count");
-    const std::wstring mode=argc>8?argv[8]:L"fp8";fs::create_directories(output);Device d;
+    const std::wstring mode=argc>8?argv[8]:L"fp8";
+    if(mode!=L"fp8"&&mode!=L"passthrough"&&mode!=L"reference"&&mode!=L"optimized"&&mode!=L"fused")throw std::runtime_error("unknown host experiment mode");
+    fs::create_directories(output);Device d;
 #ifdef NR_HOST_BACKEND
     nr::nvfp4::Config cfg;cfg.asset_directory=assets.c_str();cfg.nr_runtime_path=runtime.c_str();cfg.mode=mode==L"fp8"?nr::nvfp4::Mode::Disabled:mode==L"passthrough"?nr::nvfp4::Mode::Passthrough:mode==L"reference"?nr::nvfp4::Mode::UpstreamReference:nr::nvfp4::Mode::Optimized;
     Observation observation;observation.directory=output;cfg.observe_module=&Observation::Module;cfg.observe_launch=&Observation::Launch;cfg.observe_stage=&Observation::Stage;cfg.observer_user=&observation;
     nr::nvfp4::OptimizedAcceptance acceptance;std::wstring optimized_dir;std::array<std::string,4> accepted_strings;std::vector<uint32_t> accepted_m;
-    if(mode==L"optimized"){
+    if(mode==L"optimized"||mode==L"fused"){
         if(argc<11)throw std::runtime_error("optimized mode requires a privately verified acceptance text file");std::ifstream f{fs::path(argv[10])};if(!f)throw std::runtime_error("acceptance file missing");
         std::string line;std::getline(f,line);optimized_dir=fs::u8path(line).wstring();for(auto&s:accepted_strings)if(!std::getline(f,s))throw std::runtime_error("incomplete acceptance file");
         std::getline(f,line);acceptance.variant=unsigned(std::stoul(line));while(std::getline(f,line)){if(!line.empty())accepted_m.push_back(unsigned(std::stoul(line)));}if(accepted_m.empty())throw std::runtime_error("no accepted shapes");
         acceptance.directory=optimized_dir.c_str();acceptance.cubin_sha256=accepted_strings[0].c_str();acceptance.builder_sha256=accepted_strings[1].c_str();acceptance.build_id=accepted_strings[2].c_str();acceptance.kernel_id=accepted_strings[3].c_str();acceptance.tested_m=accepted_m.data();acceptance.tested_m_count=unsigned(accepted_m.size());cfg.optimized_acceptance=&acceptance;
+        acceptance.fused_publish=mode==L"fused";
     }
     if(!nr::nvfp4::Init(cfg)||!nr::nvfp4::EnsureStarted(d.device.Get()))throw std::runtime_error("backend startup");
 #else
@@ -186,6 +189,6 @@ int wmain(int argc,wchar_t**argv){try{
 #ifdef NR_HOST_BACKEND
     nr::nvfp4::RetireContext(1,1);nr::nvfp4::Shutdown();
 #endif
-    std::ofstream meta(output/"host.json");meta<<"{\"width\":"<<w<<",\"height\":"<<h<<",\"frames\":"<<frames<<",\"warmup\":"<<warmup<<",\"input\":\"synthetic-static-fp16\",\"timing_boundary\":\"Feature18-only\",\"game\":false,\"sr\":false}\n";
+    std::ofstream meta(output/"host.json");meta<<"{\"width\":"<<w<<",\"height\":"<<h<<",\"frames\":"<<frames<<",\"warmup\":"<<warmup<<",\"mode\":\""<<std::string(mode.begin(),mode.end())<<"\",\"input\":\"synthetic-static-fp16\",\"timing_boundary\":\"Feature18-only\",\"game\":false,\"sr\":false}\n";
     std::cout<<"completed=true game=false sr=false frames="<<frames<<'\n';return 0;
 }catch(const std::exception&e){std::cerr<<"host_failed="<<e.what()<<'\n';std::cerr.flush();ExitProcess(2);}}
