@@ -854,6 +854,8 @@ void DumpEvaluate(const NgxParams *params, const FeatureRecord &feature,
 // AI upscaling chain: render-resolution NR, then the game's original SR
 // -------------------------------------------------------------------------
 
+#include "nr_light_style.h"
+
 struct ChainConfig {
     bool enabled = false;
     int mode = 2;
@@ -882,6 +884,11 @@ struct ChainConfig {
     float layer_structure = 1.0f;
     float layer_bright = 1.0f;
     float layer_shadow = 1.0f;
+    float light_broad = 1.f, light_dark = 1.f;
+    float light_reflection = 1.f, light_structure = 1.f, light_glow = 0.f;
+    unsigned light_preview = 0; // Transient diagnostic view; never persisted.
+    unsigned light_style_version = 1, light_preset = 0;
+    float light_preset_color = 1.f; // Resolved colour snapshot of selected preset.
     bool motion_stability = false; // Requested only; requires a proven depth/history contract.
     unsigned int proxy_curve = 1; // 0 legacy, 1 hybrid, 2 reversible
     bool allow_unverified_hdr_color = false;
@@ -1321,6 +1328,7 @@ float ReadConfiguredTransferStrength(int configured_mode) {
 }
 
 void NormalizeConfig(ChainConfig &config) {
+    nr_light_style::Normalize(config);
     config.mode = config.mode == 2 ? 2 : 1;
     config.layer_tone = std::clamp(FiniteOr(config.layer_tone, 1.0f), 0.0f, 2.0f);
     config.layer_structure = std::clamp(FiniteOr(config.layer_structure, 1.0f), 0.0f, 2.0f);
@@ -1385,6 +1393,11 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.nr_input_filter == b.nr_input_filter &&
            a.layer_tone == b.layer_tone && a.layer_structure == b.layer_structure &&
            a.layer_bright == b.layer_bright && a.layer_shadow == b.layer_shadow &&
+           a.light_broad == b.light_broad && a.light_dark == b.light_dark &&
+           a.light_reflection == b.light_reflection && a.light_structure == b.light_structure &&
+           a.light_glow == b.light_glow && a.light_preview == b.light_preview &&
+           a.light_preset == b.light_preset && a.light_style_version == b.light_style_version &&
+           a.light_preset_color == b.light_preset_color &&
            a.motion_stability == b.motion_stability &&
            a.proxy_curve == b.proxy_curve &&
            a.allow_unverified_hdr_color == b.allow_unverified_hdr_color &&
@@ -1491,6 +1504,14 @@ void ReloadConfig(bool force = false) {
     next.layer_structure = ReadIniFloat(L"LayerStructure", 1.0f);
     next.layer_bright = ReadIniFloat(L"LayerBright", 1.0f);
     next.layer_shadow = ReadIniFloat(L"LayerShadow", 1.0f);
+    next.light_broad = ReadIniFloat(L"LightBroad", 1.f);
+    next.light_dark = ReadIniFloat(L"LightDark", 1.f);
+    next.light_reflection = ReadIniFloat(L"LightReflection", 1.f);
+    next.light_structure = ReadIniFloat(L"LightStructure", 1.f);
+    next.light_glow = ReadIniFloat(L"LightGlow", 0.f);
+    next.light_style_version = GetPrivateProfileIntW(L"NRBeforeSR", L"LightStyleVersion", 1, g_ini_path);
+    next.light_preset = GetPrivateProfileIntW(L"NRBeforeSR", L"LightPreset", 0, g_ini_path);
+    next.light_preview = g_config.light_preview;
     next.high_strength_protection = GetPrivateProfileIntW(
         L"NRBeforeSR", L"HighStrengthProtection", 1, g_ini_path) != 0;
     next.motion_stability = GetPrivateProfileIntW(L"NRBeforeSR", L"MotionStability", 0, g_ini_path) != 0;
@@ -1501,6 +1522,7 @@ void ReloadConfig(bool force = false) {
     next.suppress_reset_frame = GetPrivateProfileIntW(
         L"NRBeforeSR", L"SuppressResetFrame", 1, g_ini_path) != 0;
     next.color_strength = ReadIniFloat(L"ColorStrength", 1.0f);
+    next.light_preset_color = ReadIniFloat(L"LightPresetColor", next.color_strength);
     next.max_luma_ratio = ReadIniFloat(L"MaxLumaRatio", 4.0f);
     next.preserve_lighting = GetPrivateProfileIntW(
         L"NRBeforeSR", L"PreserveLighting", 0, g_ini_path) != 0;
@@ -1671,6 +1693,14 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniFloat(L"LayerStructure", config.layer_structure));
     record_write(WriteIniFloat(L"LayerBright", config.layer_bright));
     record_write(WriteIniFloat(L"LayerShadow", config.layer_shadow));
+    record_write(WriteIniFloat(L"LightBroad", config.light_broad));
+    record_write(WriteIniFloat(L"LightDark", config.light_dark));
+    record_write(WriteIniFloat(L"LightReflection", config.light_reflection));
+    record_write(WriteIniFloat(L"LightStructure", config.light_structure));
+    record_write(WriteIniFloat(L"LightGlow", config.light_glow));
+    record_write(WriteIniInt(L"LightStyleVersion", static_cast<int>(config.light_style_version)));
+    record_write(WriteIniInt(L"LightPreset", static_cast<int>(config.light_preset)));
+    record_write(WriteIniFloat(L"LightPresetColor", config.light_preset_color));
     record_write(WriteIniInt(L"HighStrengthProtection", config.high_strength_protection ? 1 : 0));
     record_write(WriteIniInt(L"MotionStability", config.motion_stability ? 1 : 0));
     record_write(WriteIniInt(L"ProxyCurve", static_cast<int>(config.proxy_curve)));
@@ -3917,6 +3947,9 @@ struct NrStageCaptureInfo {
     float layer_structure = 1.0f;
     float layer_bright = 1.0f;
     float layer_shadow = 1.0f;
+    float light_broad = 1.f, light_dark = 1.f, light_reflection = 1.f;
+    float light_structure = 1.f, light_glow = 0.f;
+    unsigned light_preview = 0;
     bool motion_requested = false;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;
