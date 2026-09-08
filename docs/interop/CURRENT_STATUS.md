@@ -1,5 +1,18 @@
 # 统一开发与测试交接入口
 
+## #82 前置尺寸回执补齐：诊断观察失败不改变 NR
+
+生产/完整链接源 `a7c651fb980863f56e280c4f80dc132735042ad3`，CPU夹具修正
+`326a6cf`。原生前置在NR+合成实际录制后、改Color前独立观察同次Output的O；
+使用先前真实Color有效矩形R和已绑定context N，包括100%精确R=N。
+O缺失/歧义/越界只不发布receipt，不改变NR准入或合法substitution。
+route明确native-pre-nr-recorded，后续SR成功/呈现未知；复用原提交与非阻塞
+围栏完成观察门，后置函数不改。39个CPU/mock-resource合同、同源双语Core/
+nrchain完整链接及117项manifest通过；无GPU/游戏矩阵、算法或Manager改动。
+[精确接点、构建层与未知边界](PRE_WORK_SIZE_RECEIPT_20260908.md)。
+下方ed38检查点的“前置unsupported”已由本片接续；external、游戏frame/view
+及独立资源generation仍unknown，1–49%仍未开放。
+
 ## #82 同次调用尺寸诊断：原生后置 SR/RR 历史 receipt
 
 依赖 #183，生产/完整链接源 `ed38ae9fb289cec006f25ac7b540f5a63f558c96`。
