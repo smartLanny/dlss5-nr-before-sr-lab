@@ -5,7 +5,7 @@ const product = JSON.parse(fs.readFileSync(path.join(__dirname, '../product.json
 
 test('DXGI awaiting confirmation is never labeled temporarily unsupported', () => {
   const context = {}; vm.createContext(context);
-  vm.runInContext(source.slice(source.indexOf('function supportBadge('), source.indexOf('function hardwareLabel(')), context);
+  vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('), source.indexOf('function hardwareLabel(')), context);
   context.game = { supported: false, installed: false, supportCode: 'ERR_API_SELECTION_REQUIRED' };
   const html = vm.runInContext('supportBadge(game)', context);
   assert.match(html, /API 待确认/); assert.doesNotMatch(html, /暂不支持/);
@@ -61,7 +61,7 @@ test('manual API choices retain their names and unsupported NR routes do not off
     context.game = { apiOverride: api, chosen: { detectedApi: 'dx12', apiResolution: { api, source: 'override' } } };
     const html = vm.runInContext('apiControls(game)', context);
     assert.ok(html.includes(`value="${api}" selected`));
-    assert.match(html, /当前 API 暂不支持 NR，不部署兼容桥接/);
+    assert.match(html, api === 'vulkan' ? /Vulkan 试验桥接当前不可用/ : /当前 API 暂不支持 NR，不部署兼容桥接/);
     assert.equal(vm.runInContext('gameApiLabel(game.chosen)', context), `${label}（已指定）`);
     for (const choice of ['auto', 'dx9', 'dx10', 'dx11', 'dx12', 'vulkan', 'opengl']) assert.ok(html.includes(`value="${choice}"`));
   }
@@ -89,6 +89,7 @@ test('saving each API calls the current game route without replacing its selecte
 test('game cards keep rename available and show a real pending install state', () => {
   const context = { state: { installing: new Set() }, payloadReadyForHardware: () => true };
   vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('), source.indexOf('function supportBadge(')), context);
   vm.runInContext(source.slice(source.indexOf('function cardAction('), source.indexOf('const API_LABELS')), context);
   context.game = { id: 'game-1', installed: false, supported: true };
   let html = vm.runInContext('cardAction(game)', context);
@@ -106,6 +107,63 @@ test('game cards keep rename available and show a real pending install state', (
   assert.doesNotMatch(source, /window\.prompt/);
   const markup = fs.readFileSync(path.join(__dirname, '../src/renderer/index.html'), 'utf8');
   assert.match(markup, /id="renameGameInput"/);
+});
+
+test('Vulkan route uses only its fixed experimental package and never exposes SR/FG without native DLSS', () => {
+  const context = { escapeHtml: String, state: { installing: new Set(), addons: [], payload: { selectedVersion: 'ordinary-core', versions: { 'ordinary-core': {} } }, detailTabs: new Map() },
+    payloadReadyForHardware: () => false, hardwareLabel: () => 'RTX 50' };
+  vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('), source.indexOf('function renderGames(')), context);
+  context.game = { id: 'vk-game', name: 'VK', installed: true, supported: false, nativeDlssAvailable: false,
+    chosen: { path: 'C:/Games/VK.exe', bitness: 64, apiResolution: { api: 'vulkan', source: 'override' } },
+    vulkan: { available: true, installed: true, coreVersion: '0.4.6-hotfix.1-vulkan-provider', packageId: 'nr-vulkan-e7df0fc', experimental: true } };
+  const html = vm.runInContext('gameDetail(game)', context);
+  assert.ok(html.indexOf('游戏图形 API') < html.indexOf('Vulkan 桥接 · 试验版'));
+  assert.match(html, /0\.4\.6-hotfix\.1 · Vulkan Beta/);
+  assert.match(html, /value="nr-vulkan-e7df0fc" selected/);
+  assert.equal(vm.runInContext('vulkanVersionOption(game)', context), '<option value="nr-vulkan-e7df0fc" selected>0.4.6-hotfix.1 · Vulkan Beta</option>');
+  assert.doesNotMatch(html, /value="ordinary-core"/);
+  assert.match(html, /通过画面和深度估算运动/);
+  assert.match(html, /未检测到普通 DLSS/);
+  assert.doesNotMatch(html, /launch-settings-host|调整超分补帧|d3d12-btn|使用 D3D12 兼容修复/);
+  assert.match(vm.runInContext('cardAction(game)', context), /启动游戏/);
+  context.game = { id: 'dx-game', installed: true, supported: true, addonVersion: 'ordinary-core', nativeDlssAvailable: true,
+    chosen: { path: 'C:/Games/DX.exe', bitness: 64, apiResolution: { api: 'dx12', source: 'override' } } };
+  assert.match(vm.runInContext('gameDetail(game)', context), /d3d12-btn|使用 D3D12 兼容修复/);
+});
+
+test('unavailable Vulkan gives the backend reason and cannot render an install action', () => {
+  const context = { escapeHtml: value => String(value).replaceAll('<', '&lt;'), state: { installing: new Set(), addons: [], payload: null, detailTabs: new Map() },
+    payloadReadyForHardware: () => true, hardwareLabel: () => 'RTX 50' };
+  vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('), source.indexOf('function renderGames(')), context);
+  context.game = { id: 'vk-missing', installed: false, supported: true, nativeDlssAvailable: false,
+    chosen: { path: 'C:/Games/VK.exe', bitness: 64, apiResolution: { api: 'vulkan', source: 'override' } },
+    vulkan: { available: false, installed: false, coreVersion: '0.4.6-hotfix.1-vulkan-provider', packageId: 'nr-vulkan-e7df0fc', reason: '固定运行资产<缺失>', experimental: true } };
+  const html = vm.runInContext('gameDetail(game)', context);
+  assert.match(html, /固定运行资产&lt;缺失>/);
+  assert.doesNotMatch(html, /固定运行资产<缺失>/);
+  assert.match(vm.runInContext('supportBadge(game)', context), /Vulkan 暂不可用/);
+  const action = vm.runInContext('cardAction(game)', context);
+  assert.match(action, /disabled>Vulkan 暂不可用/); assert.doesNotMatch(action, /install-btn|payload-open-btn/);
+});
+
+test('collapsed Vulkan install and installed repair pass the exact package ID', async () => {
+  const calls = [], head = {}, install = {}, repair = {};
+  const game = { id: 'vk-game', chosen: { apiResolution: { api: 'vulkan' } }, vulkan: { packageId: 'nr-vulkan-e7df0fc', available: true } };
+  const card = { dataset: { id: game.id }, querySelector: selector => ({ '.game-card-head': head, '.install-btn': install, '.repair-inline-btn': repair })[selector] || null };
+  const context = { state: { games: [game], installing: new Set() }, document: { querySelectorAll: selector => selector === '.game-card' ? [card] : [] },
+    window: { manager: { install: (...args) => { calls.push(['install', ...args]); }, repair: (...args) => { calls.push(['repair', ...args]); } } },
+    setInstallBusy() {}, runConfirmedAction: work => Promise.resolve(work(true)), confirmRenameGame() {}, confirmDismissGame() {}, confirmUninstall() {} };
+  vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('), source.indexOf('function supportBadge(')), context);
+  vm.runInContext(source.slice(source.indexOf('function bindGameCards('), source.indexOf('async function loadExpanded(')), context);
+  vm.runInContext('bindGameCards()', context);
+  install.onclick({ stopPropagation() {} }); repair.onclick(); await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    ['install', 'vk-game', { allowAntiCheat: true, version: 'nr-vulkan-e7df0fc' }],
+    ['repair', 'vk-game', { allowAntiCheat: true, version: 'nr-vulkan-e7df0fc' }]
+  ]);
 });
 
 test('install busy state updates only the existing button and restores it', () => {
@@ -206,4 +264,13 @@ test('a lost imported source remains visibly selected instead of masquerading as
   const html=vm.runInContext('addonVersionRow(game,true)',context);
   assert.match(html,/value="imported-123456789abc" selected disabled/);
   assert.match(html,/原安装源不可用/);assert.doesNotMatch(html,/value="0\.4\.6-hotfix\.1" selected/);
+});
+
+
+test('runtime evidence awaiting verification is neutral and distinct from a broken installation', () => {
+  const context = { escapeHtml: value => String(value) }; vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('function diagnosticRows('), source.indexOf('async function loadRepairDiagnostic(')), context);
+  context.rows = [{label:'Runtime',ok:null,detail:'待验证'},{label:'Binary',ok:true},{label:'Broken',ok:false}];
+  const html=vm.runInContext('diagnosticRows(rows)',context);
+  assert.match(html,/diag-icon pending">○/);assert.match(html,/diag-icon bad">×/);assert.match(html,/1 项文件检查通过/);
 });

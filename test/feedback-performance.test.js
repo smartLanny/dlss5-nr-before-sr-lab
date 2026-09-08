@@ -28,6 +28,7 @@ test('feedback reads at most 256 KiB from a large runtime log', async t => {
   const file = path.join(root, 'ReShade.log');
   const fd = fs.openSync(file, 'w');
   fs.ftruncateSync(fd, 64 * 1024 * 1024);
+  fs.writeSync(fd, Buffer.from('STARTUP_BUILD_IDENTITY\n'), 0, 23, 0);
   fs.writeSync(fd, Buffer.from('LATEST_RELEVANT_ERROR\n'), 0, 22, 64 * 1024 * 1024 - 22); fs.closeSync(fd);
   const originalOpen = fs.promises.open.bind(fs.promises); let readBytes = 0;
   t.mock.method(fs.promises, 'open', async (...args) => {
@@ -40,7 +41,9 @@ test('feedback reads at most 256 KiB from a large runtime log', async t => {
   });
   const collector = createFeedbackCollector({ userData: path.join(root, 'user') });
   const report = await collector.buildReport({ game: { dir: root, chosen: { path: path.join(root, 'Game.exe') } } });
-  assert.equal(readBytes, 256 * 1024); assert.match(report.text, /LATEST_RELEVANT_ERROR/); assert.match(report.text, /截断/);
+  assert.ok(readBytes > 0 && readBytes <= 256 * 1024, 'large logs must stay within the I/O budget');
+  assert.match(report.text, /STARTUP_BUILD_IDENTITY/); assert.match(report.text, /LATEST_RELEVANT_ERROR/);
+  assert.match(report.text, /省略中间日志/);
 });
 
 test('rendering a completed scan does not scan again, and a failed refresh can be retried', async t => {

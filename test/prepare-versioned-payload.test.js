@@ -31,7 +31,11 @@ test('payload preparation rejects mismatched compatibility files before replacin
     // This production script supports the inbox Windows PowerShell too; do
     // not require a separately installed PowerShell 7 merely to test its gate.
     const executable = process.env.DLSS5_TEST_POWERSHELL || (process.platform === 'win32' ? 'powershell.exe' : 'pwsh');
-    const result = spawnSync(executable, args, { encoding: 'utf8', timeout: 30000 });
+    // Node otherwise passes PowerShell 7's module search path verbatim to
+    // Windows PowerShell 5, where its Utility module cannot be loaded.
+    const env = { ...process.env };
+    if (process.platform === 'win32' && /^powershell(?:\.exe)?$/i.test(path.basename(executable))) delete env.PSModulePath;
+    const result = spawnSync(executable, args, { encoding: 'utf8', timeout: 30000, env });
     assert.ifError(result.error);
     assert.equal(typeof result.status, 'number', 'the production preflight must actually execute');
     assert.notEqual(result.status, 0);

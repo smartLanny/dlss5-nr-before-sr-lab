@@ -148,6 +148,7 @@ function inspectVersion(dir, entry, digest = sha256, safetyRoot = dir) {
     notes: entry && entry.notes,
     source: entry && entry.source,
     compatibility: entry && entry.compatibility,
+    trustedUpgradeFrom: Array.isArray(entry?.trustedUpgradeFrom) ? entry.trustedUpgradeFrom.filter(value => /^[a-f0-9]{64}$/i.test(value)).slice(0, 16) : [],
     ota: Boolean(entry && entry.ota),
     variants,
     ready: FAMILIES.every(family => variants[family].ready)
@@ -197,6 +198,7 @@ function inspectCompactVersion(root, id, entry, fixed, digest = sha256) {
     notes: entry && entry.notes,
     source: entry && entry.source,
     compatibility: entry && entry.compatibility,
+    trustedUpgradeFrom: Array.isArray(entry?.trustedUpgradeFrom) ? entry.trustedUpgradeFrom.filter(value => /^[a-f0-9]{64}$/i.test(value)).slice(0, 16) : [],
     ota: Boolean(entry && entry.ota),
     variants,
     ready: FAMILIES.every(family => variants[family].ready)
@@ -292,6 +294,7 @@ function requirePayload(dir, hardwareFamily, version) {
   payload.versionInfo = result.versions && result.versions[result.selectedVersion]
       ? { id: result.selectedVersion, label: result.versions[result.selectedVersion].label, notes: result.versions[result.selectedVersion].notes,
         compatibility: result.versions[result.selectedVersion].compatibility || null,
+        trustedUpgradeFrom: result.versions[result.selectedVersion].trustedUpgradeFrom || [],
         ota: Boolean(result.versions[result.selectedVersion].ota) }
     : null;
   return payload;

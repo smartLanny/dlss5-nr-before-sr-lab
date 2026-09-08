@@ -275,7 +275,16 @@ function createLaunchSettingsService(options = {}) {
     await fsp.unlink(file); return true;
   }
   async function recover(id) {
-    return serialize(async () => { const t = target(id); await assertStopped(t); const driverRestored = await restoreDriverPending(t);
+    return serialize(async () => { const t = target(id); await assertStopped(t);
+      const pendingFile = journal.pendingPath(t.dir);
+      if (fs.existsSync(pendingFile)) {
+        await noLinks(pendingFile);
+        if (fs.statSync(pendingFile).size > 2 * 1024 * 1024) fail('SETTINGS_RECEIPT_INVALID', '文件恢复记录大小无效。');
+        const pending = JSON.parse(await fsp.readFile(pendingFile, 'utf8'));
+        if (pending.files?.some(row => String(row.rel || '').replace(/\\/g, '/').toLowerCase() === '_dlss5_backup/reframework-preparation.json'))
+          fail('REF_RECOVERY_REQUIRED', 'REFramework 有未完成操作，请在“RE 引擎兼容”区域恢复，以保留外部新出现的文件。');
+      }
+      const driverRestored = await restoreDriverPending(t);
       const filesRestored = fs.existsSync(journal.pendingPath(t.dir)) ? await journal.recover(t.dir) : false;
       return { recovered: driverRestored || filesRestored, driverRestored, filesRestored };
     });

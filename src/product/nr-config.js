@@ -139,15 +139,16 @@ async function writeConfig(file, patch) {
   return readConfig(file);
 }
 
-function defaultPatch() {
+function defaultPatch(version = '') {
+  const currentBeta = /^0\.4\.7(?:beta|-beta)(?:$|[.-])/.test(String(version));
   return {
     Enabled: 1,
-    Intensity: 1.0,
+    Intensity: currentBeta ? 1.2 : 1.0,
     WorkMode: 0,
     CustomWorkScale: 1.0,
     Style: 0,
     AutoMask: 0,
-    ColorStrength: 0.75,
+    ColorStrength: currentBeta ? 1.0 : 0.75,
     SkinStructureStrength: -1,
     TransferStrength: 1.0,
     PostTransferStrength: 1.0

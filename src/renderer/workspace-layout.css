@@ -34,6 +34,14 @@ button, input, select { -webkit-app-region: no-drag; }
 .detail-tabs button:hover { color: var(--text); }
 .enhancement-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(230px, 1fr); gap: 16px; align-items: start; }
 .enhancement-sidebar { display: grid; gap: 16px; min-width: 0; }
+.reframework-host { min-width: 0; padding-top: 13px; border-top: 1px solid var(--line); }
+.reframework-host > .button { flex: 0 0 auto; }
+.reframework-copy { display: grid; flex: 1 1 280px; min-width: 0; gap: 6px; }
+.reframework-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--text); }
+.reframework-heading .badge { flex-shrink: 0; }
+.reframework-messages { margin: 2px 0 0; padding-left: 18px; color: #efa3a3; font-size: 12px; line-height: 1.6; }
+.reframework-messages.warning { color: #d9c895; }
+.reframework-error { margin: 2px 0 0; }
 .enhancement-sidebar .component-block { margin-top: 0; }
 .enhancement-sidebar .diag-row { grid-template-columns: 14px minmax(90px, 1fr) minmax(0, 1fr); gap: 8px; font-size: 12px; }
 .enhancement-sidebar .diagnostic-actions .button { padding: 9px 12px; font-size: 12px; }

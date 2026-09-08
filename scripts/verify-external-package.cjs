@@ -9,7 +9,7 @@ const FORBIDDEN = new Set([
   'dlss5-native-carrier-045-dx11-compat.addon64'
 ]);
 const REQUIRED_RESOURCES = [
-  'nvapi-drs.ps1', 'nvapi-profile.ps1', 'windows-registry-values.ps1', 'launcher-locations.ps1',
+  'nvapi-drs.ps1', 'nvapi-profile.ps1', 'windows-registry-values.ps1', 'launcher-locations.ps1', 'game-launch-broker.ps1',
   'fg-components/manifest.json', 'fg-components/LICENSE', 'fg-components/MINHOOK-LICENSE.txt',
   'fg-components/UAL-LICENSE', 'fg-components/global.ini'
 ];
@@ -58,6 +58,7 @@ function verifyExternalPackage(selected) {
   });
   if (forbiddenAsar.length) fail('app.asar 中包含不应随外部版分发的 NR payload。', { files: forbiddenAsar.slice(0, 20) });
   if (fs.existsSync(path.join(resources, 'payload'))) fail('外部组件版 resources 中仍包含 payload 目录。', { path: path.join(resources, 'payload') });
+  if (fs.existsSync(path.join(resources, 'vulkan-runtime'))) fail('外部组件版 resources 中仍包含 Vulkan NR 运行包。');
   const resourceFiles = walkNames(resources).filter(name => path.resolve(resources, name) !== path.resolve(archive));
   const forbiddenResources = resourceFiles.filter(name => FORBIDDEN.has(path.basename(name).toLowerCase()));
   if (forbiddenResources.length) fail('外部组件版 resources 中包含专有 NR 文件。', { files: forbiddenResources.slice(0, 20) });

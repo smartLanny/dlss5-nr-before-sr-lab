@@ -22,11 +22,12 @@ function prepareCoreCatalog(input) {
     // these entries, so persisted selections can explain their replacement.
     for (const id of ['0.4.5', '0.4.5-ota', '0.4.6', '0.4.6-ota']) superseded[id] = latestHotfix;
   } else if (!Object.hasOwn(bundle.versions, bundle.defaultVersion) && replacement) bundle.defaultVersion = replacement;
+  if (Object.hasOwn(bundle.versions, '0.4.7beta')) bundle.defaultVersion = '0.4.7beta';
   if (Object.keys(superseded).length) bundle.supersededVersions = superseded;
   const hasR4Baseline = Object.hasOwn(bundle.versions,'0.3.3-dev-r4');
   for (const [id, entry] of Object.entries(bundle.versions)) {
     if (/^0\.2\./.test(id)) entry.label = `${id.match(/^0\.2\.\d+(?:\.\d+)?/)[0]}（历史兼容）`;
-    if (/^0\.4\./.test(id)) entry.label = `${id} · Beta`;
+    if (/^0\.4\./.test(id)) entry.label = id === '0.4.7beta' ? '0.4.7beta' : `${id} · Beta`;
     if (/^0\.3\./.test(id)) {
       if (hasR4Baseline) entry.label = id === '0.3.3-dev-r4' ? '0.3.3-r4 · 稳定兼容' : `${id} · 历史对照`;
       else {

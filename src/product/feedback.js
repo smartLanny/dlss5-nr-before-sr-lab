@@ -3,9 +3,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { noLinks, inside } = require('./launch-safety');
 
 const MAX_LOG_BYTES = 256 * 1024;
 const MAX_OPERATIONS = 80;
+const LOG_EXCERPT_BYTES = 24 * 1024;
 
 function trimText(value, max = MAX_LOG_BYTES) {
   const text = String(value || '').replace(/\u0000/g, '');
@@ -15,13 +17,22 @@ function trimText(value, max = MAX_LOG_BYTES) {
 }
 
 async function readLogTail(file) {
+  await noLinks(file);
   const handle = await fs.promises.open(file, 'r');
   try {
     const stat = await handle.stat();
-    const length = Math.min(stat.size, MAX_LOG_BYTES), buffer = Buffer.alloc(length);
-    const { bytesRead } = await handle.read(buffer, 0, length, Math.max(0, stat.size - length));
-    const prefix = stat.size > length ? `...[前面的内容已截断，保留最后 ${Math.round(length / 1024)} KB]...\n` : '';
-    return prefix + buffer.subarray(0, bytesRead).toString('utf8').replace(/\u0000/g, '');
+    if (!stat.isFile()) return '';
+    const length = Math.min(stat.size, LOG_EXCERPT_BYTES), buffer = Buffer.alloc(length);
+    if (stat.size <= length) {
+      const { bytesRead } = await handle.read(buffer, 0, length, 0);
+      return buffer.subarray(0, bytesRead).toString('utf8').replace(/\u0000/g, '');
+    }
+    const headSize = 4096, tailSize = length - headSize;
+    const head = await handle.read(buffer, 0, headSize, 0);
+    const tail = await handle.read(buffer, headSize, tailSize, stat.size - tailSize);
+    return buffer.subarray(0, head.bytesRead).toString('utf8').replace(/\u0000/g, '') +
+      '\n...[省略中间日志；保留启动信息和最近错误，总计最多 24 KB]...\n' +
+      buffer.subarray(headSize, headSize + tail.bytesRead).toString('utf8').replace(/\u0000/g, '');
   } finally { await handle.close(); }
 }
 
@@ -74,20 +85,23 @@ function createFeedbackCollector({ userData, productVersion = '0.0.0' }) {
     }
   }
 
-  async function readLogs(gameDir, executableDir) {
+  async function readLogs(gameDir, executableDir, managedLogDirs = []) {
     const names = new Set([
       'ReShade.log',
       'nr-before-sr.log',
       'nr-before-sr.previous.log',
       'nr_before_sr.log',
-      'dlss5.log'
+      'dlss5.log', 'dlss5-feed.log'
     ]);
     const files = [];
-    for (const dir of [executableDir, gameDir]) {
+    const external = managedLogDirs.filter(dir => typeof dir === 'string' && path.isAbsolute(dir) &&
+      (inside(path.resolve(userData), path.resolve(dir)) || gameDir && path.resolve(dir).toLowerCase() === path.resolve(gameDir, '_storage_').toLowerCase())).slice(0, 2);
+    for (const dir of [...external, executableDir, gameDir]) {
       if (!dir || !fs.existsSync(dir)) continue;
       let entries = [];
       try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { continue; }
       for (const entry of entries) {
+        if (files.length >= 4) return files;
         if (!entry.isFile() || !names.has(entry.name)) continue;
         const file = path.join(dir, entry.name);
         if (files.some(row => row.file.toLowerCase() === file.toLowerCase())) continue;
@@ -109,14 +123,14 @@ function createFeedbackCollector({ userData, productVersion = '0.0.0' }) {
     }).join('\n');
   }
 
-  async function buildReport({ game, diagnostic = null, hardware = null, payload = null, settings = null, gameId = null, includePaths = false }) {
+  async function buildReport({ game, diagnostic = null, hardware = null, payload = null, settings = null, gameId = null, includePaths = false, managedLogDirs = [] }) {
     const chosen = game && game.chosen ? game.chosen : null;
     const executable = chosen && chosen.path ? chosen.path : null;
     const gameDir = game && game.dir ? game.dir : null;
     const executableDir = executable ? path.dirname(executable) : gameDir;
     const [operations, logs] = await Promise.all([
       readOperations(gameId),
-      readLogs(gameDir, executableDir)
+      readLogs(gameDir, executableDir, managedLogDirs)
     ]);
     const payloadSummary = payload ? {
       selectedVersion: payload.selectedVersion || null,

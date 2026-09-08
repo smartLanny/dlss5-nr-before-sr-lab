@@ -460,7 +460,7 @@ test('all API choices persist per EXE while detected API remains independent', a
   for (const api of ['dx9', 'dx10', 'dx11', 'dx12', 'vulkan', 'opengl']) {
     await f.service.setGameApi(id, api); const game = (await f.service.boot()).games[0];
     assert.equal(game.apiOverride, api); assert.equal(game.chosen.apiResolution.api, api); assert.equal(game.chosen.detectedApi, 'mixed');
-    if (!['dx11', 'dx12'].includes(api)) assert.equal(game.supportCode, 'ERR_UNSUPPORTED_API');
+    if (!['dx11', 'dx12'].includes(api)) assert.equal(game.supportCode, api === 'vulkan' ? 'VULKAN_UNAVAILABLE' : 'ERR_UNSUPPORTED_API');
   }
   await f.service.setGameApi(id, 'auto'); const automatic = (await f.service.boot()).games[0];
   assert.equal(automatic.apiOverride, 'auto'); assert.equal(automatic.chosen.apiResolution.api, 'mixed'); assert.equal(automatic.supportCode, 'ERR_API_SELECTION_REQUIRED');

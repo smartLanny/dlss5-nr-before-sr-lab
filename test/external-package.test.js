@@ -8,12 +8,13 @@ const asar = require('@electron/asar');
 const packageJson = require('../package.json');
 const { verifyExternalPackage } = require('../scripts/verify-external-package.cjs');
 
-test('external build inherits the normal app while excluding only bundled payload resources', () => {
+test('external build inherits the normal app while excluding native and Vulkan NR payload resources', () => {
   const before = structuredClone(packageJson.build), config = require('../scripts/external-build-config.cjs');
   assert.deepEqual(packageJson.build, before, 'loading the variant must not mutate the default package config');
   for (const key of ['appId', 'productName', 'files', 'fileAssociations']) assert.deepEqual(config[key], before[key]);
   assert.equal(config.extraResources.some(row => row.from === 'payload'), false);
-  for (const from of ['src/product/nvapi-drs.ps1', 'src/product/nvapi-profile.ps1', 'src/product/windows-registry-values.ps1', 'src/product/launcher-locations.ps1', 'resources/fg-components'])
+  assert.equal(config.extraResources.some(row => row.from === 'resources/vulkan-runtime'), false);
+  for (const from of ['src/product/nvapi-drs.ps1', 'src/product/nvapi-profile.ps1', 'src/product/windows-registry-values.ps1', 'src/product/launcher-locations.ps1', 'src/product/game-launch-broker.ps1', 'resources/fg-components', 'resources/vulkan-reshade'])
     assert.equal(config.extraResources.some(row => row.from === from), true, `${from} retained`);
   for (const [from, to] of [['scripts/startup-diagnostics.cmd', '启动诊断.cmd'], ['scripts/startup-diagnostics.ps1', 'startup-diagnostics.ps1']])
     assert.equal(config.extraFiles.some(row => row.from === from && row.to === to), true, `${to} retained at app root`);
@@ -28,7 +29,7 @@ async function packagedFixture(t, options = {}) {
   fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({ name: 'xiaofeng-dlss5-manager', main: 'main.js' })); fs.writeFileSync(path.join(app, 'main.js'), 'module.exports = true;');
   if (options.forbiddenAsar) fs.writeFileSync(path.join(app, 'nr-before-sr.zh-CN.addon64'), 'must not enter asar');
   await asar.createPackage(app, path.join(resources, 'app.asar'));
-  for (const name of ['nvapi-drs.ps1', 'nvapi-profile.ps1', 'windows-registry-values.ps1', 'launcher-locations.ps1']) fs.writeFileSync(path.join(resources, name), '# fixture');
+  for (const name of ['nvapi-drs.ps1', 'nvapi-profile.ps1', 'windows-registry-values.ps1', 'launcher-locations.ps1', 'game-launch-broker.ps1']) fs.writeFileSync(path.join(resources, name), '# fixture');
   for (const name of ['启动诊断.cmd', 'startup-diagnostics.ps1']) fs.writeFileSync(path.join(path.dirname(resources), name), 'fixture');
   const fg = path.join(resources, 'fg-components'); fs.mkdirSync(fg);
   for (const name of ['LICENSE', 'MINHOOK-LICENSE.txt', 'UAL-LICENSE', 'global.ini', 'component.dll']) fs.writeFileSync(path.join(fg, name), name);
@@ -44,7 +45,7 @@ test('package verifier accepts an external build with FG licenses and no NR payl
 
 test('package verifier rejects each missing system helper and root diagnostic entry from every supported input path', async t => {
   const f = await packagedFixture(t);
-  for (const rel of ['resources/windows-registry-values.ps1', 'resources/launcher-locations.ps1', '启动诊断.cmd', 'startup-diagnostics.ps1']) {
+  for (const rel of ['resources/windows-registry-values.ps1', 'resources/launcher-locations.ps1', 'resources/game-launch-broker.ps1', '启动诊断.cmd', 'startup-diagnostics.ps1']) {
     const file = path.join(f.unpacked, rel), original = fs.readFileSync(file); fs.unlinkSync(file);
     for (const selected of [f.unpacked, f.resources, path.join(f.resources, 'app.asar')]) {
       assert.throws(() => verifyExternalPackage(selected), error => {
@@ -59,7 +60,7 @@ test('package verifier rejects each missing system helper and root diagnostic en
 
 test('package verifier rejects empty or directory replacements for required helpers', async t => {
   const f = await packagedFixture(t);
-  for (const rel of ['resources/windows-registry-values.ps1', 'resources/launcher-locations.ps1', '启动诊断.cmd', 'startup-diagnostics.ps1']) {
+  for (const rel of ['resources/windows-registry-values.ps1', 'resources/launcher-locations.ps1', 'resources/game-launch-broker.ps1', '启动诊断.cmd', 'startup-diagnostics.ps1']) {
     const file = path.join(f.unpacked, rel), original = fs.readFileSync(file);
     fs.writeFileSync(file, ''); assert.throws(() => verifyExternalPackage(f.unpacked), { code: 'ERR_EXTERNAL_PACKAGE_INVALID' });
     fs.unlinkSync(file); fs.mkdirSync(file); assert.throws(() => verifyExternalPackage(f.unpacked), { code: 'ERR_EXTERNAL_PACKAGE_INVALID' });
@@ -74,4 +75,6 @@ test('package verifier rejects proprietary NR files in resources or app.asar', a
 
   const second = await packagedFixture(t, { forbiddenAsar: true });
   assert.throws(() => verifyExternalPackage(path.join(second.resources, 'app.asar')), { code: 'ERR_EXTERNAL_PACKAGE_INVALID' });
+  const third = await packagedFixture(t); fs.mkdirSync(path.join(third.resources, 'vulkan-runtime'));
+  assert.throws(() => verifyExternalPackage(third.resources), { code: 'ERR_EXTERNAL_PACKAGE_INVALID' });
 });

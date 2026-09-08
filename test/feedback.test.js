@@ -60,3 +60,20 @@ test('feedback reports anti-cheat confirmation separately from a real failure', 
   assert.match(report.text, /game-repair \| 需确认 \[ERR_ANTI_CHEAT_CONFIRM\]/);
   assert.doesNotMatch(report.text, /game-repair \| 失败 \[ERR_ANTI_CHEAT_CONFIRM\]/);
 });
+
+test('external Vulkan feedback retains startup identity and recent failure with bounded reads', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dlss5-feedback-vulkan-'));
+  t.after(() => fs.rmSync(root, {recursive:true,force:true}));
+  const userData = path.join(root, 'user'), profile = path.join(userData, 'vulkan-runtime/game'), addons=path.join(profile,'addons');
+  fs.mkdirSync(addons,{recursive:true});
+  fs.writeFileSync(path.join(addons,'dlss5-feed.log'),'SOURCE_COMMIT=verified\n'+'routine frame\n'.repeat(150000)+'NR_COMPLETION_FAILED\n');
+  fs.writeFileSync(path.join(profile,'ReShade.log'),'Vulkan layer loaded\n');
+  const collector=createFeedbackCollector({userData});
+  const report=await collector.buildReport({game:{name:'sample',dir:root},managedLogDirs:[profile,addons]});
+  assert.match(report.text,/SOURCE_COMMIT=verified/);assert.match(report.text,/NR_COMPLETION_FAILED/);
+  assert.match(report.text,/Vulkan layer loaded/);assert.match(report.text,/省略中间日志/);
+  assert.ok(Buffer.byteLength(report.text)<28*1024);
+  const outside=path.join(root,'outside');fs.mkdirSync(outside);fs.writeFileSync(path.join(outside,'dlss5-feed.log'),'OUTSIDE_NOT_INCLUDED');
+  const refused=await collector.buildReport({game:{name:'sample',dir:root},managedLogDirs:[outside]});
+  assert.doesNotMatch(refused.text,/OUTSIDE_NOT_INCLUDED/);
+});

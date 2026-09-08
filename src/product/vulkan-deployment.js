@@ -50,6 +50,16 @@ function createVulkanDeployment(options = {}) {
     }
   }
 
+  function activationGroupKey(exe) {
+    const value = typeof activation?.groupKey === 'function' ? activation.groupKey(exe) : path.resolve(exe);
+    if (typeof value !== 'string' || !path.isAbsolute(value)) fail('VULKAN_ACTIVATION_INVALID', '按 EXE 激活 adapter 返回了无效共享作用域。');
+    return path.resolve(value).toLowerCase();
+  }
+  function refGroupKey(ref) {
+    const value = ref?.activation?.groupKey;
+    return typeof value === 'string' && path.isAbsolute(value) ? path.resolve(value).toLowerCase() : path.resolve(ref.exe).toLowerCase();
+  }
+
   async function acquireLock() {
     await noLinks(lockPath); await fsp.mkdir(stateRoot, { recursive: true });
     try {
@@ -155,12 +165,16 @@ function createVulkanDeployment(options = {}) {
     if (row.layer.mode === 'reused' && (!HASH.test(row.layer.manifestSha256 || '') || !HASH.test(row.layer.librarySha256 || ''))) fail('VULKAN_STATE_INVALID', '外部 Vulkan layer 摘要收据无效。');
     if (row.layer.mode === 'owned') validateRegistryState(row.layer.registryBefore);
     validateRegistryState(row.layer.registryAfter);
+    if (row.layer.registryScope !== undefined && row.layer.registryScope !== 'HKLM') fail('VULKAN_STATE_INVALID', 'Vulkan layer 注册作用域无效。');
     const seen = new Set();
     for (const ref of row.refs) {
       if (!ref || typeof ref.id !== 'string' || typeof ref.exe !== 'string' || !path.isAbsolute(ref.exe) || !HASH.test(ref.exeSha256 || '') ||
           !ref.activation || !['owned', 'reused'].includes(ref.activation.mode)) fail('VULKAN_STATE_INVALID', 'Vulkan 游戏引用无效。');
       const key = path.resolve(ref.exe).toLowerCase(); if (seen.has(key)) fail('VULKAN_STATE_INVALID', '同一 EXE 存在重复 Vulkan 引用。'); seen.add(key);
       validateActivationState(ref.activation.before); validateActivationState(ref.activation.after);
+      if (ref.activation.groupKey !== undefined && (typeof ref.activation.groupKey !== 'string' || !path.isAbsolute(ref.activation.groupKey) || path.resolve(ref.activation.groupKey).toLowerCase() !== activationGroupKey(ref.exe))) fail('VULKAN_STATE_INVALID', 'Vulkan 游戏激活共享作用域无效。');
+      if (ref.activation.ownerBefore !== undefined) validateActivationState(ref.activation.ownerBefore);
+      if (ref.activation.ownerAfter !== undefined) validateActivationState(ref.activation.ownerAfter);
     }
     return row;
   }
@@ -206,12 +220,30 @@ function createVulkanDeployment(options = {}) {
   }
 
   async function registryRead(name) { return validateRegistryState(await registry.read(name)); }
+  async function machineList() {
+    if (typeof registry.listMachine !== 'function') return null;
+    let rows;
+    try { rows = await registry.listMachine(); }
+    catch (error) { fail('VULKAN_MACHINE_REGISTRY_UNAVAILABLE', '无法只读检查 HKLM x64 Vulkan layer。', { cause: error.code || 'read' }); }
+    if (!Array.isArray(rows) || rows.length > 4096) fail('VULKAN_MACHINE_REGISTRY_INVALID', 'HKLM x64 Vulkan layer 列表无效。');
+    return rows;
+  }
+  async function machineRead(name) {
+    const rows = await machineList(); if (!rows) return { exists: false };
+    const matches = rows.filter(row => row && typeof row.name === 'string' && path.isAbsolute(row.name) && samePath(row.name, name));
+    if (matches.length > 1) fail('VULKAN_MACHINE_REGISTRY_INVALID', 'HKLM x64 Vulkan layer 注册值身份不明确。');
+    if (!matches.length) return { exists: false };
+    return validateRegistryState(matches[0]);
+  }
   async function registryWrite(name, expected, desired) {
     const before = await registryRead(name); if (!sameState(before, expected)) fail('VULKAN_REGISTRY_CHANGED', 'Vulkan 注册表值已被外部修改。');
     await registry.write(name, expected, desired);
     const after = await registryRead(name); if (!sameState(after, desired)) fail('VULKAN_REGISTRY_WRITE', 'Vulkan 注册表写入后读回不一致。');
   }
   async function activationRead(exe) { return validateActivationState(await activation.read(exe)); }
+  async function activationToken(exe, marker) {
+    return typeof activation.bindToken === 'function' ? await activation.bindToken(exe, marker) : marker;
+  }
   async function activationWrite(exe, expected, desired) {
     const before = await activationRead(exe); if (!equalJson(before, expected)) fail('VULKAN_ACTIVATION_CHANGED', '游戏的 Vulkan 激活状态已被外部修改。');
     await activation.write(exe, expected, desired);
@@ -319,7 +351,7 @@ function createVulkanDeployment(options = {}) {
 
   async function receiptBlockers(receipt) {
     const blockers = [];
-    const reg = await registryRead(receipt.layer.manifest);
+    const reg = receipt.layer.registryScope === 'HKLM' ? await machineRead(receipt.layer.manifest) : await registryRead(receipt.layer.manifest);
     if (!sameState(reg, receipt.layer.registryAfter)) blockers.push(`${receipt.layer.mode === 'owned' ? 'Manager 自有' : '外部复用'} Vulkan 注册值与收据不一致。`);
     if (receipt.layer.mode === 'owned') for (const [file, hash] of [[receipt.layer.manifest, receipt.recipe.manifestSha256], [receipt.layer.library, receipt.recipe.librarySha256]]) {
       try { await noLinks(file); if (await digestFile(file) !== hash) blockers.push(`${path.basename(file)} 与收据摘要不一致。`); }
@@ -368,6 +400,41 @@ function createVulkanDeployment(options = {}) {
       let layer;
       if (receipt) layer = receipt.layer;
       else {
+        const machineValues = await machineList();
+        if (machineValues) {
+          const machineCandidates = [];
+          for (const value of machineValues) {
+            if (!value || value.type !== 'REG_DWORD' || !['0', '0x0'].includes(String(value.data).toLowerCase()) || typeof value.name !== 'string' || !path.isAbsolute(value.name)) continue;
+            try {
+              if (/^\\\\/.test(value.name)) continue;
+              await noLinks(value.name);
+              const stat = await fsp.stat(value.name); if (!stat.isFile() || stat.size > 64 * 1024) continue;
+              const data = JSON.parse(await fsp.readFile(value.name, 'utf8'));
+              if (data?.layer?.name === recipe.layer.name) machineCandidates.push({ value, data });
+            } catch {}
+          }
+          if (machineCandidates.length) {
+            const verifier = externalLayer?.verifyMachine || externalLayer?.verify;
+            if (typeof verifier !== 'function') fail('VULKAN_MACHINE_LAYER_CONFLICT', '检测到 HKLM x64 中已有同名 Vulkan layer，但无法安全验证复用；未写入 HKCU。');
+            const accepted = [];
+            for (const candidate of machineCandidates) {
+              const result = await verifier({ manifestPath: candidate.value.name, manifest: candidate.data, recipe, registryScope: 'HKLM', registryView: '64' });
+              if (result?.valid !== true || typeof result.library !== 'string' || !path.isAbsolute(result.library)) continue;
+              const expectedLibrary = path.resolve(path.dirname(candidate.value.name), candidate.data?.layer?.library_path || '');
+              if (!samePath(expectedLibrary, result.library) || pe.getBitness(result.library) !== 64 || !candidate.data.layer.disable_environment) continue;
+              await noLinks(candidate.value.name); await noLinks(result.library);
+              const manifestSha256 = await digestFile(candidate.value.name), librarySha256 = await digestFile(result.library);
+              if (manifestSha256 && librarySha256) accepted.push({ candidate, result, manifestSha256, librarySha256 });
+            }
+            if (accepted.length !== 1) fail('VULKAN_MACHINE_LAYER_CONFLICT', 'HKLM x64 中已有同名 Vulkan layer，但无法唯一验证复用；未写入 HKCU。');
+            layer = { mode: 'reused', registryScope: 'HKLM', manifest: path.resolve(accepted[0].candidate.value.name), library: path.resolve(accepted[0].result.library), identity: String(accepted[0].result.identity || ''),
+              manifestSha256: accepted[0].manifestSha256, librarySha256: accepted[0].librarySha256,
+              registryAfter: validateRegistryState({ exists: true, type: accepted[0].candidate.value.type, data: accepted[0].candidate.value.data }) };
+          }
+        }
+        if (layer) {
+          // A verified machine layer is reused in place; never create a same-name HKCU value.
+        } else {
         const values = await registry.list(); if (!Array.isArray(values)) fail('VULKAN_REGISTRY_INVALID', '无法枚举 Vulkan layer 注册值。');
         const candidates = [];
         for (const value of values) {
@@ -408,11 +475,20 @@ function createVulkanDeployment(options = {}) {
           if (registryBefore.exists) fail('VULKAN_REGISTRY_CHANGED', 'Manager layer 注册值已存在但没有有效收据。');
           layer = { mode: 'owned', manifest: targetManifest, library: targetLibrary, registryBefore, registryAfter: { exists: true, type: 'REG_DWORD', data: 0 } };
         }
+        }
       }
 
       const activationBefore = await activationRead(target.exe);
-      const activationAfter = activationBefore.active ? activationBefore : { active: true, token: `${PRODUCT}:${tx}` };
-      const ref = { id: target.id, exe: target.exe, exeSha256, activation: { mode: activationBefore.active ? 'reused' : 'owned', before: activationBefore, after: activationAfter } };
+      const groupKey = activationGroupKey(target.exe);
+      const sharedRefs = receipt?.refs.filter(item => refGroupKey(item) === groupKey) || [];
+      const owner = sharedRefs.find(item => item.activation.ownerBefore && item.activation.ownerAfter) || sharedRefs.find(item => item.activation.mode === 'owned');
+      const activationAfter = owner ? (owner.activation.ownerAfter || owner.activation.after) : activationBefore.active ? activationBefore : { active: true, token: await activationToken(target.exe, `${PRODUCT}:${tx}`) };
+      const ownerBefore = owner ? (owner.activation.ownerBefore || owner.activation.before) : activationBefore;
+      const ownerAfter = owner ? (owner.activation.ownerAfter || owner.activation.after) : activationAfter;
+      const ownsActivation = !activationBefore.active && !owner;
+      const activation = { mode: ownsActivation ? 'owned' : 'reused', before: activationBefore, after: activationAfter, groupKey,
+        ...(ownsActivation || owner ? { ownerBefore, ownerAfter } : {}) };
+      const ref = { id: target.id, exe: target.exe, exeSha256, activation };
       const targetReceipt = receipt ? { ...receipt, refs: [...receipt.refs, ref], updatedAt: new Date().toISOString() } : {
         version: 1, product: PRODUCT, registry: { ...registry.identity }, recipe: { id: recipe.id, release: recipe.release, manifestSha256: recipe.layer.manifestSha256, librarySha256: recipe.layer.librarySha256 },
         layer, refs: [ref], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
@@ -458,7 +534,17 @@ function createVulkanDeployment(options = {}) {
       if (index < 0) return { restored: false, unchanged: true };
       const ref = receipt.refs[index]; await noLinks(ref.exe);
       if (await digestFile(ref.exe) !== ref.exeSha256 && fs.existsSync(ref.exe)) fail('VULKAN_GAME_CHANGED', '游戏 EXE 与 Vulkan 引用记录不一致。');
-      const refs = receipt.refs.filter((_, i) => i !== index), targetReceipt = refs.length ? { ...receipt, refs, updatedAt: new Date().toISOString() } : null;
+      let refs = receipt.refs.filter((_, i) => i !== index);
+      const groupKey = refGroupKey(ref);
+      const remainingGroupRefs = refs.filter(item => refGroupKey(item) === groupKey);
+      if (ref.activation.mode === 'owned' && remainingGroupRefs.length) {
+        const ownerBefore = ref.activation.ownerBefore || ref.activation.before;
+        const ownerAfter = ref.activation.ownerAfter || ref.activation.after;
+        const transfer = remainingGroupRefs[0];
+        refs = refs.map(item => item === transfer ? { ...item, activation: { ...item.activation, mode: 'owned', before: ownerBefore, after: ownerAfter,
+          ownerBefore, ownerAfter } } : item);
+      }
+      const targetReceipt = refs.length ? { ...receipt, refs, updatedAt: new Date().toISOString() } : null;
       const tx = crypto.randomUUID(), backupDir = path.join(stateRoot, 'recovery', tx); const files = [];
       if (!refs.length && receipt.layer.mode === 'owned') for (const [targetFile, hash] of [[receipt.layer.manifest, receipt.recipe.manifestSha256], [receipt.layer.library, receipt.recipe.librarySha256]]) {
         await noLinks(targetFile);
@@ -468,7 +554,7 @@ function createVulkanDeployment(options = {}) {
       const activationCurrent = await activationRead(ref.exe);
       if (ref.activation.mode === 'owned' && !equalJson(activationCurrent, ref.activation.after)) fail('VULKAN_ACTIVATION_CHANGED', '游戏的 Vulkan 激活状态已被外部修改。');
       const pending = { version: 1, product: PRODUCT, transactionId: tx, operation: 'restore', stage: 'planned', beforeReceipt: receipt, targetReceipt,
-        activation: ref.activation.mode === 'owned' ? { exe: ref.exe, before: ref.activation.before, after: ref.activation.after } : null,
+        activation: ref.activation.mode === 'owned' && !remainingGroupRefs.length ? { exe: ref.exe, before: ref.activation.before, after: ref.activation.after } : null,
         registry: !refs.length && receipt.layer.mode === 'owned' ? { name: receipt.layer.manifest, before: receipt.layer.registryBefore, after: receipt.layer.registryAfter } : null, files };
       await atomicJson(pendingPath, pending);
       try {

@@ -80,4 +80,7 @@ test('recommended reset sets both final blend routes to one without confusing mo
   assert.equal(restored.PostTransferStrength, 1);
   assert.equal(restored.ColorStrength, 0.75);
   assert.match(updateSection(original, defaultPatch()), /OtherValue=keep/);
+  assert.equal(defaultPatch('0.4.7beta').Intensity, 1.2);
+  assert.equal(defaultPatch('0.4.7beta').ColorStrength, 1);
+  assert.equal(defaultPatch('0.4.6-hotfix.1').Intensity, 1);
 });

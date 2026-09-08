@@ -2,6 +2,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { noLinks, atomicJson } = require('./launch-safety');
+const { createReframeworkPreparation, RECEIPT: REF_RECEIPT } = require('./reframework-preparation');
+const { REFRAMEWORK_ADAPTERS, OFFICIAL_REFRAMEWORK_01417: REF_OFFICIAL } = require('./reframework-compatibility');
 const { INSTALLED_NAMES, DX11_COMPAT_VERSION } = require('./constants');
 const { appError, MESSAGES } = require('./errors');
 const { inspectAddonLayout, requireAddonLayout } = require('./reshade-layout');
@@ -27,8 +30,175 @@ function createInstaller(overrides = {}) {
   const guards = overrides.guards || require('../core/install-guards');
   const pe = overrides.pe || require('../core/pe');
   const copy = overrides.copyFile || ((source, target) => fs.promises.copyFile(source, target));
+  const refDigest = overrides.reframeworkFileDigest || sha256;
 
   const safe = (gameDir, target) => journal.safePath(gameDir, path.relative(gameDir, target));
+
+  function refError(code, message, details) { throw Object.assign(new Error(message), { code, details }); }
+  const samePath = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+  const relKey = value => path.normalize(value).toLowerCase();
+  async function checkedHash(gameDir, file) {
+    safe(gameDir, file); await noLinks(file);
+    if (!fs.existsSync(file)) return null;
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.nlink > 1) throw appError('ERR_FILE_CHANGED', { rel: path.relative(gameDir, file) });
+    return sha256(file);
+  }
+  function trustedHashes(version, info) {
+    if (!/^0\.4\.7-?beta$/i.test(String(version || '')) || info?.id && !/^0\.4\.7-?beta$/i.test(info.id) ||
+        !Array.isArray(info?.trustedUpgradeFrom) || info.trustedUpgradeFrom.length > 16) return new Set();
+    if (!info.trustedUpgradeFrom.every(value => typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value))) return new Set();
+    return new Set(info.trustedUpgradeFrom.map(value => value.toLowerCase()));
+  }
+  async function preflightWrites(gameDir, manifest, writes, version, info) {
+    const trusted = trustedHashes(version, info), adoptions = [];
+    for (const write of writes) {
+      await noLinks(write.source);
+      if (!write.expected || !fs.existsSync(write.source) || !fs.statSync(write.source).isFile() || sha256(write.source) !== write.expected.toLowerCase())
+        throw appError('ERR_PAYLOAD_HASH', { file: path.basename(write.source), reason: 'source-changed' });
+      const row = findEntry(manifest, path.relative(gameDir, write.target)), current = await checkedHash(gameDir, write.target);
+      if (!row) continue;
+      validateEntry(gameDir, manifest, row, journal.safePath);
+      if (row.original.existed) {
+        const backup = journal.safePath(gameDir, row.original.backupRel); await noLinks(backup);
+        if (!row.original.sha256 || sha256(backup) !== row.original.sha256) throw appError('ERR_BACKUP_INVALID', { rel: row.rel });
+      }
+      if (current && current !== row.installedSha256) {
+        if (write.kind !== 'addon' || row.kind !== 'addon' || !trusted.has(current)) throw appError('ERR_FILE_CHANGED', { rel: row.rel });
+        adoptions.push({ row, current, target: write.target, next: write.expected.toLowerCase(), version });
+      }
+    }
+    return adoptions;
+  }
+  async function adoptTrusted(gameDir, manifest, adoptions, exePath) {
+    for (const adoption of adoptions) {
+      await guards.assertGameClosed(gameDir, exePath);
+      if (await checkedHash(gameDir, adoption.target) !== adoption.current) throw appError('ERR_FILE_CHANGED', { rel: adoption.row.rel });
+      const backupRel = path.join('_DLSS5_Backup', 'trusted-core-upgrades', manifest.installId, `${adoption.row.rel}.${adoption.current}.bin`);
+      const backup = journal.safePath(gameDir, backupRel); await noLinks(backup);
+      const exists = fs.existsSync(backup);
+      if (exists && (!fs.statSync(backup).isFile() || sha256(backup) !== adoption.current)) throw appError('ERR_BACKUP_INVALID', { rel: backupRel });
+      if (!exists) {
+        await journal.capture(gameDir, backup); await copyFile(adoption.target, backup);
+        if (sha256(backup) !== adoption.current) throw appError('ERR_BACKUP_INVALID', { rel: backupRel });
+      }
+      if (manifest.trustedCoreUpgrades !== undefined && !Array.isArray(manifest.trustedCoreUpgrades)) throw appError('ERR_BACKUP_INVALID');
+      manifest.trustedCoreUpgrades = [...(manifest.trustedCoreUpgrades || []), { rel: adoption.row.rel, fromSha256: adoption.current,
+        toSha256: adoption.next, version: adoption.version, backupRel, acceptedAt: new Date().toISOString() }];
+      adoption.row.installedSha256 = adoption.current;
+    }
+    if (adoptions.length) await saveManifest(gameDir, manifest);
+  }
+  function refInTransaction(gameDir) {
+    // This adapter is private to an already-open installer journal. REF's
+    // metadata confirmation must capture into it, never start a second WAL.
+    return createReframeworkPreparation({ overrides: { pe, fileDigest: refDigest, guards, journal: { ...journal,
+      transaction: async (root, work) => {
+        if (!samePath(root, gameDir)) throw appError('ERR_BACKUP_INVALID');
+        return work();
+      } } } });
+  }
+  async function preflightRef(gameDir, exePath, manifest, rootRows, allowConfirm, adoptions = []) {
+    const adapter = REFRAMEWORK_ADAPTERS.find(row => row.executable.toLowerCase() === path.basename(exePath).toLowerCase());
+    if (!adapter || !samePath(path.dirname(exePath), gameDir) || pe.getBitness(exePath) !== 64) return null;
+    const input = { gameDir, exe: exePath, engine: adapter.engine };
+    const receiptFile = journal.safePath(gameDir, REF_RECEIPT); await noLinks(receiptFile);
+    let record = null, receiptHash = null;
+    if (fs.existsSync(receiptFile)) {
+      const stat = fs.statSync(receiptFile);
+      if (!stat.isFile() || stat.size > 128 * 1024) refError('REF_RECEIPT_INVALID', 'REFramework 收据无效，请先检查兼容组件。');
+      receiptHash = sha256(receiptFile);
+      try { record = JSON.parse(fs.readFileSync(receiptFile, 'utf8')); } catch { refError('REF_RECEIPT_INVALID', 'REFramework 收据无法解析，请保留文件并保存反馈。'); }
+      if (record.version !== 1 || record.product !== 'xiaofeng-reframework-preparation' || record.adapter !== adapter.id ||
+          !record.game || !samePath(record.game.dir, gameDir) || record.game.exe?.toLowerCase() !== adapter.executable.toLowerCase() || !Array.isArray(record.mirrors))
+        refError('REF_RECEIPT_INVALID', 'REFramework 收据没有绑定当前游戏。');
+    }
+    const loader = path.join(gameDir, 'dinput8.dll'); await noLinks(loader);
+    const official = fs.existsSync(loader) && fs.statSync(loader).isFile() && fs.statSync(loader).size === REF_OFFICIAL.dll_bytes &&
+      refDigest(loader) === REF_OFFICIAL.dll_sha256 && pe.getBitness(loader) === 64;
+    if (!official) {
+      if (record?.mirrors?.length) refError('REF_COMPONENT_HASH', '已有受管 Core 镜像，但官方 REFramework loader 缺失或变化；请先恢复固定兼容组件。');
+      return null;
+    }
+    const claims = [], mirrors = [];
+    for (const row of rootRows) {
+      if (path.dirname(path.resolve(gameDir, row.rel)) !== path.resolve(gameDir) || !/\.addon64$/i.test(row.rel)) continue;
+      const rootFile = journal.safePath(gameDir, row.rel), mirrorRel = `_storage_/${path.basename(row.rel).toLowerCase()}`;
+      const mirrorFile = journal.safePath(gameDir, mirrorRel), rootHash = await checkedHash(gameDir, rootFile), mirrorHash = await checkedHash(gameDir, mirrorFile);
+      const owned = record?.mirrors.find(item => relKey(item.rootRel || '') === relKey(row.rel));
+      const trusted = adoptions.some(item => item.row === row && item.current === rootHash);
+      if (rootHash && rootHash !== row.installedSha256 && !trusted) throw appError('ERR_FILE_CHANGED', { rel: row.rel });
+      if (owned) {
+        if (owned.rootInstallId !== manifest.installId || relKey(owned.mirrorRel || '') !== relKey(mirrorRel) || owned.sha256 !== mirrorHash)
+          refError('REF_MIRROR_CHANGED', '已确认 Core 镜像已变化，请保留 _storage_ 并保存反馈；不会覆盖。', { file: mirrorRel });
+        mirrors.push({ row, mirrorRel, rootHash, mirrorHash });
+      } else if (mirrorHash) {
+        if (!allowConfirm || !record || rootHash !== mirrorHash || !rootHash)
+          refError('REF_MIRROR_UNOWNED', '发现未确认的 Core 镜像。请先准备 REFramework 组件，再选择核心版本安装/升级确认；不匹配文件须保留并核对。', { file: mirrorRel });
+        claims.push({ rootRel: row.rel, mirrorRel, sha256: mirrorHash }); mirrors.push({ row, mirrorRel, rootHash, mirrorHash });
+      }
+    }
+    if (!allowConfirm && record?.mirrors.some(item => !mirrors.some(row => relKey(row.mirrorRel) === relKey(item.mirrorRel))))
+      refError('REF_MIRROR_UNOWNED', '镜像收据没有对应的当前主 Core 归属，卸载已停止；请保存反馈。');
+    return { input, receiptFile, receiptHash, record, claims, mirrors, service: refInTransaction(gameDir), plan: null };
+  }
+  async function planRefUpdate(context, nextHash) {
+    if (!context || !context.mirrors.length) return;
+    if (context.receiptHash !== (fs.existsSync(context.receiptFile) ? sha256(context.receiptFile) : null)) refError('REF_STATE_CHANGED', 'Core 预检后 REFramework 收据发生变化。');
+    if (context.claims.length) await context.service.confirmMirrors(context.input, { confirm: true, mirrors: context.claims });
+    context.plan = await context.service.planMirrors(context.input, { operation: 'replace', files: context.mirrors.map(item => ({
+      rootRel: item.row.rel, sha256: nextHash || item.rootHash })) });
+  }
+  async function archiveMirror(gameDir, operation, exePath) {
+    if (!operation.archive) return;
+    const from = journal.safePath(gameDir, operation.archive.sourceRel), to = journal.safePath(gameDir, operation.archive.targetRel);
+    await guards.assertGameClosed(gameDir, exePath);
+    if (await checkedHash(gameDir, from) !== operation.archive.sha256) refError('REF_MIRROR_CHANGED', '备份前 Core 镜像发生变化。');
+    if (await checkedHash(gameDir, to) !== null) refError('REF_MIRROR_BACKUP_CHANGED', 'Core 镜像备份目标已出现，不会覆盖。');
+    await journal.capture(gameDir, to); await copyFile(from, to);
+    if (sha256(to) !== operation.archive.sha256) refError('REF_MIRROR_BACKUP_CHANGED', 'Core 镜像备份读回不一致。');
+  }
+  async function saveRefPlan(context, next) {
+    if (!context?.plan) return;
+    await noLinks(context.receiptFile);
+    if (sha256(context.receiptFile) !== context.plan.receiptBeforeSha256) refError('REF_STATE_CHANGED', '写入前 REFramework 收据发生变化。');
+    await journal.capture(context.input.gameDir, context.receiptFile); await atomicJson(context.receiptFile, next);
+  }
+  async function applyRefUpdate(context) {
+    if (!context?.plan) return;
+    const { gameDir, exe } = context.input;
+    for (const operation of context.plan.operations) {
+      await archiveMirror(gameDir, operation, exe); await guards.assertGameClosed(gameDir, exe);
+      const root = journal.safePath(gameDir, operation.rootRel), mirror = journal.safePath(gameDir, operation.mirrorRel);
+      if (await checkedHash(gameDir, root) !== operation.sha256 || await checkedHash(gameDir, mirror) !== operation.expectedMirrorSha256)
+        refError('REF_MIRROR_CHANGED', 'Core 写入前 root/mirror 状态改变，整笔升级将回滚。');
+      await journal.capture(gameDir, mirror); await copyFile(root, mirror);
+      if (sha256(mirror) !== operation.sha256) refError('REF_MIRROR_CHANGED', 'Core 镜像写入后读回不一致，整笔升级将回滚。');
+    }
+    await saveRefPlan(context, context.plan.receiptNext);
+  }
+  async function applyRefUninstall(context, manifest, conflictRestores) {
+    if (!context?.plan) return [];
+    const { gameDir, exe } = context.input, restored = [], next = structuredClone(context.plan.receiptNext);
+    for (const operation of context.plan.operations) {
+      const row = findEntry(manifest, operation.rootRel); await archiveMirror(gameDir, operation, exe); await guards.assertGameClosed(gameDir, exe);
+      const mirror = journal.safePath(gameDir, operation.mirrorRel);
+      if (await checkedHash(gameDir, mirror) !== operation.expectedMirrorSha256) refError('REF_MIRROR_CHANGED', '卸载前 Core 镜像已变化，整笔卸载将回滚。');
+      const conflict = conflictRestores.find(item => relKey(item.sourceRel) === relKey(row.rel));
+      const restoredHash = row.original.existed ? row.original.sha256 : conflict?.sha256 || null;
+      const root = journal.safePath(gameDir, row.rel);
+      if (await checkedHash(gameDir, root) !== restoredHash) refError('REF_MIRROR_CHANGED', '主 Core 的实际恢复结果与原收据不符，镜像未单独写入。');
+      await journal.capture(gameDir, mirror);
+      if (restoredHash) {
+        await copyFile(root, mirror);
+        if (sha256(mirror) !== restoredHash) refError('REF_MIRROR_CHANGED', '恢复 Core 镜像后读回不一致。');
+      } else await fs.promises.unlink(mirror);
+      restored.push({ rootRel: row.rel, mirrorRel: operation.mirrorRel, restoredSha256: restoredHash });
+    }
+    next.retiredMirrors = [...(next.retiredMirrors || []), ...next.mirrors.filter(row => restored.some(item => relKey(item.mirrorRel) === relKey(row.mirrorRel)))];
+    next.mirrors = next.mirrors.filter(row => !restored.some(item => relKey(item.mirrorRel) === relKey(row.mirrorRel)));
+    await saveRefPlan(context, next); return restored;
+  }
 
   function canWrite(dir) {
     const probe = path.join(dir, `.xiaofeng_write_test_${process.pid}_${Date.now()}`);
@@ -116,6 +286,11 @@ function createInstaller(overrides = {}) {
     const sidecar = await sidecarBackup(gameDir, target, manifest);
     await journal.capture(gameDir, target);
     const entry = await recordOriginal(gameDir, manifest, target, kind);
+    if (kind === 'addon') {
+      await guards.assertGameClosed(gameDir, manifestExecutable(gameDir, manifest)); await noLinks(source); await noLinks(target);
+      if (sha256(source) !== expected) throw appError('ERR_PAYLOAD_HASH', { file: path.basename(source), reason: 'source-changed' });
+      if (existing && fs.existsSync(target) && sha256(target) !== existing.installedSha256) throw appError('ERR_FILE_CHANGED', { rel: existing.rel });
+    }
     await copyFile(source, target);
     const installedHash = fs.statSync(target).isFile() ? sha256(target) : null;
     if (installedHash !== expected) throw appError('ERR_PAYLOAD_HASH', { file: path.basename(source), reason: 'copy-changed' });
@@ -341,6 +516,15 @@ function createInstaller(overrides = {}) {
         if (existingProxyConflict(exeDir, reshade)) throw appError('ERR_RESHADER_CONFLICT');
         if (reshade.installed && !reshade.addonSupport) throw appError('ERR_RESHADER_NO_ADDON');
         requireAddonLayout(exeDir);
+        const coreTarget = installedFile(exeDir, 'addon');
+        const writes = ['addon', 'bridge', 'runtime', ...(!reshade.installed ? ['reshade'] : []), ...(carrierRequired ? ['carrier'] : [])]
+          .map(kind => ({ kind, source: payload[kind].file, target: installedFile(exeDir, kind), expected: payload[kind].actual }));
+        const adoptions = await preflightWrites(gameDir, manifest, writes, payload.version, payload.versionInfo);
+        const rootRow = findEntry(manifest, path.relative(gameDir, coreTarget));
+        const refContext = await preflightRef(gameDir, exePath, manifest,
+          [rootRow || { rel: path.relative(gameDir, coreTarget), kind: 'addon', installedSha256: null }], true, adoptions);
+        await adoptTrusted(gameDir, manifest, adoptions, exePath);
+        await planRefUpdate(refContext, payload.addon.actual);
 
         // Retire a carrier managed under an older filename first. If that
         // restores a pre-existing carrier, the conflict pass below moves it
@@ -368,6 +552,7 @@ function createInstaller(overrides = {}) {
         }
         await writeManaged(gameDir, manifest, payload.addon.file,
           installedFile(exeDir, 'addon'), 'addon', payload.addon.actual);
+        await applyRefUpdate(refContext);
         await writeManaged(gameDir, manifest, payload.bridge.file,
           installedFile(exeDir, 'bridge'), 'bridge', payload.bridge.actual);
         await writeManaged(gameDir, manifest, payload.runtime.file,
@@ -618,7 +803,7 @@ function createInstaller(overrides = {}) {
     });
   }
 
-  async function upgradeAddon({ gameDir, addon, version, scan: suppliedScan, allowAntiCheat = false }) {
+  async function upgradeAddon({ gameDir, addon, version, versionInfo, scan: suppliedScan, allowAntiCheat = false }) {
     const manifest = readManifest(gameDir);
     if (!manifest) throw appError('ERR_NOT_INSTALLED');
     const scan = suppliedScan || await scanModule.scanGame(gameDir);
@@ -644,6 +829,15 @@ function createInstaller(overrides = {}) {
     return journal.transaction(gameDir, async () => {
       try {
         requireAddonLayout(exeDir);
+        const writes = [{ kind: 'addon', source: addon.file, target, expected: addon.addonSha256 }];
+        if (addon.bridgeFile) writes.push({ kind: 'bridge', source: addon.bridgeFile, target: installedFile(exeDir, 'bridge'), expected: addon.bridgeSha256 });
+        if (carrierRequired) writes.push({ kind: 'carrier', source: addon.carrierFile, target: carrierTarget, expected: addon.carrierSha256 });
+        const adoptions = await preflightWrites(gameDir, manifest, writes, version || addon.id, versionInfo || addon.versionInfo);
+        const rootRow = findEntry(manifest, path.relative(gameDir, target));
+        const refContext = await preflightRef(gameDir, exePath, manifest,
+          [rootRow || { rel: path.relative(gameDir, target), kind: 'addon', installedSha256: null }], true, adoptions);
+        await adoptTrusted(gameDir, manifest, adoptions, exePath);
+        await planRefUpdate(refContext, addon.addonSha256);
         await retireManagedCarriers(gameDir, manifest, carrierRequired ? carrierTarget : null);
         const found = await moveConflicts(gameDir, manifest.installId, {
           addonDir: exeDir,
@@ -652,6 +846,7 @@ function createInstaller(overrides = {}) {
         });
         manifest.conflicts = [...(manifest.conflicts || []), ...found];
         await writeManaged(gameDir, manifest, addon.file, target, 'addon', addon.addonSha256);
+        await applyRefUpdate(refContext);
         if (addon.bridgeFile) {
           await writeManaged(gameDir, manifest, addon.bridgeFile,
             installedFile(exeDir, 'bridge'), 'bridge', addon.bridgeSha256);
@@ -726,6 +921,8 @@ function createInstaller(overrides = {}) {
     const warnings = [];
     return journal.transaction(gameDir, async () => {
       for (const row of manifest.files) validateEntry(gameDir, manifest, row, journal.safePath);
+      const refContext = await preflightRef(gameDir, exePath, manifest, manifest.files.filter(row => row.kind === 'addon'), false);
+      const settingsKept = Boolean(refContext) || !removeSettings;
       // Restoring a filename twice cannot restore both versions. The first
       // quarantine contains the pre-install state; later copies remain in the
       // indexed history instead of producing a half-completed uninstall.
@@ -757,6 +954,7 @@ function createInstaller(overrides = {}) {
       // binary was changed after installation. In particular, never overwrite
       // a changed carrier with the pre-install backup.
       for (const row of manifest.files) {
+        if (refContext && row.kind === 'config') continue;
         if (row.kind === 'config' && !removeSettings && !row.original.existed) continue;
         const resolution = rowTargets.get(row), target = resolution.target;
         if (resolution.ambiguous) {
@@ -786,9 +984,11 @@ function createInstaller(overrides = {}) {
           warnings.push({ code: 'ERR_FILE_CHANGED', rel: row.sourceRel });
         }
       }
-      if (warnings.length) return { removed: false, settingsKept: !removeSettings, warnings };
+      if (warnings.length) return { removed: false, settingsKept, warnings };
+      await planRefUpdate(refContext);
 
       for (const row of [...manifest.files].reverse()) {
+        if (refContext && row.kind === 'config') continue;
         if (row.kind === 'config' && !removeSettings && !row.original.existed) continue;
         const resolution = rowTargets.get(row), target = resolution.target;
         await journal.capture(gameDir, target);
@@ -807,6 +1007,7 @@ function createInstaller(overrides = {}) {
         capture: target => journal.capture(gameDir, target)
       });
       if (restoreWarnings.length) throw appError(restoreWarnings[0].code, { warnings: restoreWarnings });
+      const reframeworkMirrors = await applyRefUninstall(refContext, manifest, conflictRestores);
       for (const row of ownedSidecars) {
         // Recheck after asynchronous restore operations. A changed sidecar is
         // retained; it must never prevent restoring the active game files.
@@ -826,11 +1027,11 @@ function createInstaller(overrides = {}) {
       if (fs.existsSync(history)) throw appError('ERR_FILE_CHANGED', { rel: historyRel });
       await journal.capture(gameDir, history);
       await journal.atomicJson(history, { ...manifest, restoredAt: new Date().toISOString(),
-        restoration: { conflictSources: conflictRestores.map(row => row.sourceRel), retainedSidecars, archivedSidecars } });
+        restoration: { conflictSources: conflictRestores.map(row => row.sourceRel), retainedSidecars, archivedSidecars, reframeworkMirrors } });
       const file = manifestPath(gameDir);
       await journal.capture(gameDir, file);
       if (fs.existsSync(file)) await fs.promises.unlink(file);
-      return { removed: true, settingsKept: !removeSettings, warnings,
+      return { removed: true, settingsKept, warnings, reframeworkMirrors,
         historyRel, retainedSidecars, archivedConflictCopies: (manifest.conflicts || []).length - conflictRestores.length };
     });
   }

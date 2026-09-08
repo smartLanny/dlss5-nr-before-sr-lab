@@ -127,6 +127,7 @@ function normalizeError(error) {
     errBackendRecovery: 'ERR_BACKUP_INVALID'
   };
   const code = Object.hasOwn(codeMap, originalCode) ? codeMap[originalCode] : originalCode || 'ERR_INTERNAL';
+  const vulkanError = /^(VULKAN_|GAME_LAUNCH_|REGISTRY_|REF_)[A-Z_]+$/.test(code);
   const details = safeDetails(incoming.details || incoming.params || {});
   for (const field of ['phase', 'gameStarted', 'recoveryStateKnown', 'recoverableDomains']) {
     if (details[field] === undefined && incoming[field] !== undefined) Object.assign(details, safeDetails({ [field]: incoming[field] }));
@@ -137,7 +138,7 @@ function normalizeError(error) {
       message: shortText(nested.message), details: nested.details || nested.params });
   }
   let message = Object.hasOwn(MESSAGES, code) ? MESSAGES[code]
-    : launchError ? shortText(incoming.message) || MESSAGES.ERR_INTERNAL : MESSAGES.ERR_INTERNAL;
+    : launchError || vulkanError ? shortText(incoming.message) || MESSAGES.ERR_INTERNAL : MESSAGES.ERR_INTERNAL;
   if (originalCode === 'errBackendRecovery') message = '上次操作的回退尚未完成，恢复文件可能缺失。请保留游戏目录和 _DLSS5_Backup，先处理恢复；若仍失败，在“修复”页保存反馈。';
   if (originalCode === 'errUnsafeTarget') message = '目标路径或链接不符合安全写入条件，已停止操作。请核对游戏目录；无法确认时，在“修复”页保存反馈。';
   const sourceReason = shortText(incoming.message, 180);

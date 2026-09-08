@@ -54,6 +54,29 @@ The release payload may contain an official ReShade add-on-enabled x64 runtime.
 ReShade remains separately licensed by its authors. It is not committed to this
 repository and must be prepared from a lawful official source.
 
+The optional Vulkan package uses the official add-on-enabled ReShade 6.8.0
+setup, SHA-256 `afe4c8f13048306307983b8b3d41d5bf00a86820440b0e57dea10950e1176445`.
+Its original x64 layer manifest and DLL are extracted without patching; the
+BSD 3-Clause notice is included in `resources/vulkan-reshade/LICENSE.md`.
+
+## Vulkan scene and motion inputs
+
+The optional Vulkan package combines the project's own NR Core with an adapted
+[DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder) at
+`26c002d5156d178c2db438327194077c9ad94418`. Feeder's MIT notice is retained as
+`licenses/Feeder-MIT.txt` inside the runtime package. Its scene and depth inputs
+come from ReShade; its motion estimates use the pinned VORT shader closure at
+`b410b9f0c0fbb83c8cb42164aaf1655fab386f4a`. These motion estimates are not native
+game motion vectors.
+
+VORT's repository-level MIT notice is retained as `licenses/VORT-root-MIT.txt`.
+Individual file notices remain authoritative: the required
+`Includes/vort_MotionVectors.fxh` carries CC BY-NC 4.0, and its original header
+is preserved. The closure must not be described as entirely MIT-licensed.
+The accompanying ReShade.fxh at `6db142b4b1a05c764222e5b0bd9a644b7ccfe1dc`
+retains its CC0 notice. The runtime recipe records each shipped file's digest
+and provenance separately.
+
 ## NVIDIA runtime
 
 `nvngx_dlssnr.dll` is not part of this repository and is not licensed by the

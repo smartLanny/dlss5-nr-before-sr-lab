@@ -173,14 +173,16 @@ function registerIpc() {
     'game-hotkey-write', 'nr-read', 'nr-write', 'nr-default', 'nr-recommended',
     'sr-model-read', 'sr-model-write', 'feedback-export', 'launch-settings-inspect',
     'launch-settings-save', 'launch-settings-preview', 'launch-settings-restore', 'launch-settings-recover',
-    'fg-components-prepare', 'fg-components-restore', 'launch-settings-update', 'launch-settings-reset-all'
+    'fg-components-prepare', 'fg-components-restore', 'launch-settings-update', 'launch-settings-reset-all',
+    'game-reframework-inspect', 'game-reframework-prepare', 'game-reframework-restore', 'game-reframework-recover'
   ]);
   const guardedActions = new Set(['game-install', 'game-repair', 'game-upgrade-addon', 'game-toggle-d3d12',
-    'game-api-set', 'nr-write', 'nr-default', 'nr-recommended', 'game-hotkey-write']);
+    'game-api-set', 'nr-write', 'nr-default', 'nr-recommended', 'game-hotkey-write', 'game-reframework-prepare', 'game-reframework-restore']);
   const serializedActions = new Set([...guardedActions, 'game-launch', 'game-uninstall', 'game-dismiss',
     'game-confirm', 'game-rename', 'settings-update', 'sr-model-write', 'launch-settings-save', 'launch-settings-preview',
     'launch-settings-apply', 'launch-settings-restore', 'launch-settings-recover', 'fg-components-prepare', 'fg-components-restore',
-    'payload-source-pick', 'payload-source-reset', 'payload-source-recheck', 'launch-settings-update', 'launch-settings-reset-all']);
+    'payload-source-pick', 'payload-source-reset', 'payload-source-recheck', 'launch-settings-update', 'launch-settings-reset-all',
+    'game-reframework-recover']);
   const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => service.withError(
     () => {
       const work = async () => {
@@ -282,6 +284,10 @@ function registerIpc() {
     return service.refreshAfterMutation(result);
   });
   call('game-hotkeys-read', id => service.readGameHotkeys(id));
+  call('game-reframework-inspect', id => service.readReframework(id));
+  call('game-reframework-prepare', (id, options) => service.prepareReframework(id, options));
+  call('game-reframework-restore', id => service.restoreReframework(id));
+  call('game-reframework-recover', id => service.recoverReframework(id));
   call('game-hotkey-write', (id, target, binding) => service.writeGameHotkey(id, target, binding));
   call('nr-default', id => service.applyDefault(id));
   call('nr-recommended', id => service.applyDefault(id));

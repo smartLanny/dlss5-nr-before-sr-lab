@@ -19,10 +19,13 @@ const { readOtaPackage } = require('./ota');
 const { createFeedbackCollector } = require('./feedback');
 const { resolveVersion } = require('./version-selection');
 const { resolvePayloadDirectory, inspectSource } = require('./payload-source');
+const { createVulkanService } = require('./vulkan-service');
+const { createReframeworkPreparation } = require('./reframework-preparation');
+const { REFRAMEWORK_ADAPTERS } = require('./reframework-compatibility');
 
 const QUIET_READ_ACTIONS = new Set(['boot', 'games-refresh', 'games-list', 'game-diagnose', 'game-hotkeys-read',
   'nr-read', 'sr-model-read', 'launch-settings-inspect', 'addon-list', 'game-art', 'game-icon',
-  'game-selection-icon', 'feedback-build', 'payload-source-read']);
+  'game-selection-icon', 'feedback-build', 'payload-source-read', 'game-reframework-inspect']);
 
 function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', overrides = {} }) {
   const store = createStore(path.join(userData, 'settings.json'));
@@ -40,6 +43,64 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   let collectionFresh = false;
   let activeRefresh = null, refreshGeneration = 0, scanEpoch = 0;
   let hardware = detectGpu();
+  const vulkan = overrides.vulkan || createVulkanService({ userData, resourcesPath, appDir, hardware });
+  const refResources = resourcesPath && fs.existsSync(path.join(resourcesPath, 'reframework-01417', 'component.json'))
+    ? path.join(resourcesPath, 'reframework-01417') : path.join(appDir, 'resources', 'reframework-01417');
+  const reframework = overrides.reframework || createReframeworkPreparation({ componentRoot: refResources });
+  function reframeworkInput(game) {
+    const exe = game?.scan?.chosen?.path;
+    if (!exe || path.resolve(path.dirname(exe)).toLowerCase() !== path.resolve(game.dir).toLowerCase() || game.scan.chosen.bitness !== 64) return null;
+    const adapter = REFRAMEWORK_ADAPTERS.find(row => row.executable.toLowerCase() === path.basename(exe).toLowerCase());
+    return adapter ? { gameDir: game.dir, exe, engine: adapter.engine } : null;
+  }
+  async function prepareDetectedReframework(game, result) {
+    const input = classifyApi(game?.scan?.chosen) === 'dx12' && reframeworkInput(game);
+    if (!input) return result;
+    try {
+      const prepared = await reframework.prepare(input);
+      return { ...result, reframework: { ...prepared, automatic: true, ready: true } };
+    } catch (cause) {
+      // The native transaction has committed. Keep that fact visible while the
+      // independent compatibility receipt remains available for repair/recovery.
+      const error = normalizeError(cause);
+      await feedback.record({ action: 'game-reframework-auto', gameId: game.id, ok: false,
+        errorCode: error.code, errorMessage: error.message }).catch(() => {});
+      return { ...result, reframework: { automatic: true, ready: false, error } };
+    }
+  }
+  async function prepareExistingReframework(game, options = {}) {
+    const input = classifyApi(game?.scan?.chosen) === 'dx12' && reframeworkInput(game);
+    if (!input || !fs.existsSync(manifestPath(game.dir))) return;
+    const guards = require('../core/install-guards');
+    if (guards.antiCheatPresent(game.dir) && options.allowAntiCheat !== true) throw appError('ERR_ANTI_CHEAT_CONFIRM');
+    // Existing official loaders may already have a matching Core cache. Record
+    // component ownership first so the original installer can confirm that cache.
+    await reframework.prepare(input);
+  }
+  const vulkanRoute = game => classifyApi(game?.scan?.chosen) === 'vulkan';
+  const vulkanOwned = game => vulkan.summary(game).installed === true;
+  function requireKnownVulkanOwnership(game) {
+    const state = vulkan.summary(game);
+    if (state.needsRecovery && !state.installed) throw Object.assign(new Error(state.reason ||
+      'Vulkan 恢复记录无法读取，暂时不能移除游戏条目或改变加载路线。请保留记录并保存反馈。'), { code: 'VULKAN_RECOVERY_FIRST' });
+  }
+  function routeRestoreFirst() {
+    throw Object.assign(new Error('Vulkan 与原有 DX11 / DX12 加载方式不同。请先卸载当前插件并恢复备份，再选择新的 API 安装。'), { code: 'VULKAN_RESTORE_FIRST' });
+  }
+  async function settingDirectory(game, kind = 'nr') {
+    if (vulkanOwned(game)) {
+      const basePath = vulkan.configDir(game);
+      return kind === 'nr' ? path.join(basePath, 'addons') : basePath;
+    }
+    const input = kind === 'nr' && reframeworkInput(game);
+    if (input) {
+      const state = await reframework.inspect(input);
+      if (state.loader?.exists && state.canPrepare && state.config?.effective && state.config.existingStoragePreferred)
+        return path.dirname(state.config.effective);
+      if (state.loader?.exists && state.blockers?.length) throw Object.assign(new Error(state.blockers[0].message), { code: state.blockers[0].code });
+    }
+    return path.dirname(installedExecutable(game));
+  }
 
   function assertSourceIdentity() {
     const selected = store.read();
@@ -312,6 +373,19 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   }
 
   async function diagnoseGame(game) {
+    if (vulkanOwned(game) || vulkanRoute(game) && !readManifest(game.dir)) {
+      const raw = await vulkan.diagnose(game), checks = raw.components || {};
+      const components = [
+        { key: 'vulkan-profile', label: '外部运行组件', ok: checks.profile?.ready === true, detail: checks.profile?.ready ? '配套核心与文件校验通过' : checks.profile?.error?.message || '运行组件需要准备或修复' },
+        { key: 'vulkan-layer', label: 'Vulkan 加载层', ok: checks.deployment?.ready === true, detail: checks.deployment?.ready ? '注册与共享引用完整' : checks.deployment?.blockers?.join('；') || '加载层尚未就绪' },
+        { key: 'vulkan-activation', label: '按游戏激活', ok: checks.activation?.active === true, detail: checks.activation?.active ? '绑定当前 EXE 的外部运行目录' : '尚未完成激活' },
+        { key: 'vulkan-loaded', label: '本次加载', ok: raw.loaded === true ? true : null, detail: raw.loaded === true ? '本次运行日志已确认' : '待启动游戏验证' },
+        { key: 'vulkan-processed', label: 'NR 处理', ok: raw.processed === true ? true : null, detail: raw.detail || (raw.processed === true ? '本次日志已确认 NR 完成；画面效果请在游戏内核对' : '尚未确认，文件检查不代表增强已生效') }
+      ];
+      return { payload: { selectedVersion: vulkan.summary(game).coreVersion, ready: vulkan.summary(game).available },
+        diagnostic: { complete: raw.ready === true, components, deploymentApi: 'vulkan', pending: raw.pending,
+          installed: raw.installed, runtimeVerified: raw.runtimeVerified, blockers: raw.blockers || [] } };
+    }
     let inspected;
     try { inspected = inspectGamePayload(game); }
     catch (error) {
@@ -340,23 +414,32 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   }
 
   async function repairGame(game, options = {}) {
+      if (vulkanOwned(game) || vulkanRoute(game)) return vulkan.install(game, options);
       const requestedVersion = options && typeof options.version === 'string' ? options.version : null;
       const version = selectedVersionForGame(game, requestedVersion);
       const imported = importedAddon(version);
       if (/^imported-/i.test(version || '') && !imported) throw appError('ERR_ADDON_NOT_FOUND');
       if (imported) {
+        await prepareExistingReframework(game, options);
         const result = await installer.upgradeAddon({ gameDir: game.dir, addon: imported, version: imported.id, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
-        return result;
+        return prepareDetectedReframework(game, result);
       }
       const payload = selectedPayload(game, requestedVersion);
+      await prepareExistingReframework(game, options);
       const result = await installer.repair({ gameDir: game.dir, payload, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
-      return payload.replacement ? { ...result, payloadReplacement: payload.replacement } : result;
+      return prepareDetectedReframework(game, payload.replacement ? { ...result, payloadReplacement: payload.replacement } : result);
   }
 
   function publicGame(game) {
     if (!game) return null;
     const { scan, ...safe } = game;
-    return { ...safe, nativeDlssAvailable: Boolean(scan?.primaryDlss && /^nvngx_dlss\.dll$/i.test(scan.primaryDlss.name || '')),
+    const vk = vulkan.summary(game);
+    const routed = vulkanRoute(game);
+    return { ...safe, vulkan: vk,
+      ...(reframeworkInput(game) ? { reframework: { matched: true, label: 'REFramework', profile: 'onimusha-wots-reframework-01417' } } : {}),
+      ...(routed ? { supported: vk.available === true, supportCode: vk.available ? null : 'VULKAN_UNAVAILABLE', supportText: vk.reason || 'Vulkan 桥接 · 试验版' } : {}),
+      ...(vk.installed ? { installed: true, addonVersion: vk.coreVersion } : {}),
+      nativeDlssAvailable: Boolean(scan?.primaryDlss && /^nvngx_dlss\.dll$/i.test(scan.primaryDlss.name || '')),
       recommendedAddonVersion: safe.recommendedAddonVersion ? recommendedCompatVersion() : null };
   }
 
@@ -467,7 +550,12 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   async function validateLaunch(id) {
     const game = findGame(id);
     if (!game.scan || !game.scan.chosen || !game.scan.chosen.path) throw appError('ERR_NO_GAME_EXE');
-    if (game.installed) {
+    if (vulkanOwned(game)) {
+      if (!vulkanRoute(game)) routeRestoreFirst();
+      // The Vulkan launch operation verifies the immutable profile and layer
+      // once, immediately before creating its ordinary-privilege process.
+    } else if (game.installed) {
+      if (vulkanRoute(game)) routeRestoreFirst();
       const diagnostic = await installer.diagnose({ gameDir: game.dir, scan: game.scan });
       if (['mixed', 'unknown'].includes(classifyApi(game.scan.chosen))) throw appError('ERR_API_SELECTION_REQUIRED');
       if (diagnostic.routeMismatch) throw appError('ERR_API_ROUTE_PENDING');
@@ -553,6 +641,8 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     },
     dismissGame: async id => {
       const game = findGame(id);
+      requireKnownVulkanOwnership(game);
+      if (vulkanOwned(game)) await vulkan.restore(game);
       // Removing a library entry also removes this tool's NR deployment. Never
       // hide the game while an incomplete restore still needs the user's attention.
       if (readManifest(game.dir)) {
@@ -608,6 +698,8 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       if (!['auto', 'dx9', 'dx10', 'dx11', 'dx12', 'vulkan', 'opengl'].includes(api)) throw appError('ERR_BAD_REQUEST');
       const game = findGame(id);
       if (!game.scan || !game.scan.chosen) throw appError('ERR_NO_GAME_EXE');
+      const nextApi = api === 'auto' ? game.scan.chosen.detectedApiResolution?.api || game.scan.chosen.detectedApi || 'unknown' : api;
+      if (vulkanOwned(game) && nextApi !== 'vulkan' || readManifest(game.dir) && nextApi === 'vulkan') routeRestoreFirst();
       const state = store.read();
       const key = pathKey(game.dir);
       await store.write({ gameOverrides: { ...state.gameOverrides,
@@ -716,25 +808,33 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     },
     install: async (id, options = {}) => {
       const game = findGame(id);
+      requireKnownVulkanOwnership(game);
+      if (vulkanRoute(game) || vulkanOwned(game)) return refreshAfterMutation(await vulkan.install(game, options));
       const payload = selectedPayload(game, options && typeof options.version === 'string' ? options.version : null);
+      await prepareExistingReframework(game, options);
       const result = await installer.install({ gameDir: game.dir, payload, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
-      return refreshAfterMutation(payload.replacement ? { ...result, payloadReplacement: payload.replacement } : result);
+      return refreshAfterMutation(await prepareDetectedReframework(game, payload.replacement ? { ...result, payloadReplacement: payload.replacement } : result));
     },
     repair: async (id, options = {}) => refreshAfterMutation(await repairGame(findGame(id), options)),
     upgradeAddon: async (id, version, options = {}) => {
       const game = findGame(id);
+      if (vulkanOwned(game) || vulkanRoute(game)) return refreshAfterMutation(await vulkan.install(game, { ...options, version }));
       const imported = importedAddon(version);
       if (!imported) throw appError('ERR_ADDON_NOT_FOUND');
+      await prepareExistingReframework(game, options);
       const result = await installer.upgradeAddon({ gameDir: game.dir, addon: imported, version: imported.id, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
-      return refreshAfterMutation(result);
+      return refreshAfterMutation(await prepareDetectedReframework(game, result));
     },
     toggleD3D12: async (id, enabled, options = {}) => {
       const game = findGame(id);
+      if (vulkanOwned(game) || vulkanRoute(game)) routeRestoreFirst();
       const result = await installer.toggleD3D12({ gameDir: game.dir, enabled: enabled === true, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
       return refreshAfterMutation(result);
     },
     launch: async id => {
       const exe = await validateLaunch(id);
+      const game = findGame(id);
+      if (vulkanOwned(game)) { await vulkan.launch(game); return true; }
       const { spawn } = require('child_process');
       await new Promise((resolve, reject) => {
         const child = spawn(exe, [], { cwd: path.dirname(exe), detached: true, stdio: 'ignore', windowsHide: false });
@@ -745,6 +845,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     },
     uninstall: async (id, removeSettings = false) => {
       const game = findGame(id);
+      if (vulkanOwned(game)) return refreshAfterMutation(await vulkan.restore(game));
       const result = await installer.uninstall({ gameDir: game.dir, removeSettings, scan: game.scan });
       if (result?.removed !== true) {
         const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
@@ -754,6 +855,36 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       return refreshAfterMutation(result);
     },
     diagnose: async id => (await diagnoseGame(findGame(id))).diagnostic,
+    readReframework: async id => {
+      const input = reframeworkInput(findGame(id));
+      if (!input) return { matched: false, ready: false, canPrepare: false, blockers: [] };
+      const pendingFile = path.join(input.gameDir, '_DLSS5_Backup', 'pending-switch.json');
+      if (fs.existsSync(pendingFile)) {
+        await require('./launch-safety').noLinks(pendingFile);
+        if (fs.statSync(pendingFile).size > 2 * 1024 * 1024) throw appError('ERR_BACKUP_INVALID');
+        const pending = JSON.parse(fs.readFileSync(pendingFile, 'utf8'));
+        if (pending.files?.some(row => String(row.rel || '').replace(/\\/g, '/').toLowerCase() === '_dlss5_backup/reframework-preparation.json'))
+          return { matched: true, ready: false, canPrepare: false, needsRecovery: true, blockers: [{ code: 'REF_RECOVERY_REQUIRED', message: '兼容组件有未完成操作，请先恢复。' }], warnings: [] };
+      }
+      return reframework.inspect(input);
+    },
+    prepareReframework: async (id, options = {}) => {
+      const game = findGame(id), input = reframeworkInput(game);
+      if (!input) throw Object.assign(new Error('当前游戏没有匹配的 REFramework 兼容配套。'), { code: 'REF_UNSUPPORTED_TARGET' });
+      const guards = require('../core/install-guards');
+      if (guards.antiCheatPresent(game.dir) && options.allowAntiCheat !== true) throw appError('ERR_ANTI_CHEAT_CONFIRM');
+      return reframework.prepare(input);
+    },
+    restoreReframework: async id => {
+      const input = reframeworkInput(findGame(id));
+      if (!input) throw Object.assign(new Error('当前游戏没有匹配的 REFramework 兼容配套。'), { code: 'REF_UNSUPPORTED_TARGET' });
+      return reframework.restore(input);
+    },
+    recoverReframework: async id => {
+      const input = reframeworkInput(findGame(id));
+      if (!input) throw Object.assign(new Error('当前游戏没有匹配的 REFramework 兼容配套。'), { code: 'REF_UNSUPPORTED_TARGET' });
+      return reframework.recover(input);
+    },
     collectFeedback: async (id, options = {}) => {
       const game = findGame(id);
       const includePaths = options && options.includePaths === true;
@@ -769,12 +900,18 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
         };
       }
       let settings = null;
+      let managedLogDirs = [];
       try {
         if (game.scan && game.scan.chosen && game.scan.chosen.path) {
-          const file = path.join(path.dirname(game.scan.chosen.path), 'nr_before_sr.ini');
+          const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
           if (fs.existsSync(file)) settings = readConfig(file);
         }
       } catch {}
+      try {
+        if (vulkanOwned(game)) managedLogDirs = [await settingDirectory(game, 'reshade'), await settingDirectory(game)];
+        else if (reframeworkInput(game)) managedLogDirs = [await settingDirectory(game)];
+      }
+      catch { /* A broken binding must still allow exporting its diagnosis. */ }
       return feedback.buildReport({
         game,
         diagnostic,
@@ -782,22 +919,23 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
         payload,
         settings,
         gameId: id,
-        includePaths
+        includePaths,
+        managedLogDirs
       });
     },
     readNrSettings: async id => {
       const game = findGame(id);
-      const file = path.join(path.dirname(installedExecutable(game)), 'nr_before_sr.ini');
+      const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
       return readConfig(file);
     },
     writeNrSettings: async (id, patch) => {
       const game = findGame(id);
-      const file = path.join(path.dirname(installedExecutable(game)), 'nr_before_sr.ini');
+      const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
       return writeConfig(file, patch);
     },
     readGameHotkeys: async id => {
       const game = findGame(id);
-      const executableDir = path.dirname(installedExecutable(game));
+      const executableDir = await settingDirectory(game, 'reshade');
       return {
         nr: { key: 117, label: 'F6', fixed: true, supported: false },
         reshade: readReShadeHotkey(path.join(executableDir, 'ReShade.ini'))
@@ -805,14 +943,14 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     },
     writeGameHotkey: async (id, target, binding) => {
       const game = findGame(id);
-      const executableDir = path.dirname(installedExecutable(game));
+      const executableDir = await settingDirectory(game, 'reshade');
       if (target !== 'reshade') throw appError('ERR_HOTKEY_UNSUPPORTED');
       return writeReShadeHotkey(path.join(executableDir, 'ReShade.ini'), binding);
     },
     applyDefault: async id => {
       const game = findGame(id);
-      const file = path.join(path.dirname(installedExecutable(game)), 'nr_before_sr.ini');
-      const patch = defaultPatch();
+      const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
+      const patch = defaultPatch(vulkanOwned(game) ? '' : readManifest(game.dir)?.payloadVersion);
       let current = '';
       try { current = fs.readFileSync(file, 'utf8'); } catch {}
       if (!/^[ \t]*WorkMode\s*=/mi.test(current)) {
@@ -824,8 +962,8 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     },
     applyRecommended: async id => {
       const game = findGame(id);
-      const file = path.join(path.dirname(installedExecutable(game)), 'nr_before_sr.ini');
-      const patch = defaultPatch();
+      const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
+      const patch = defaultPatch(vulkanOwned(game) ? '' : readManifest(game.dir)?.payloadVersion);
       let current = '';
       try { current = fs.readFileSync(file, 'utf8'); } catch {}
       if (!/^[ \t]*WorkMode\s*=/mi.test(current)) {

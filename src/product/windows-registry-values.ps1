@@ -46,6 +46,18 @@ try {
   catch { Fail 'REGISTRY_REQUEST_INVALID' 'Request JSON is invalid.' }
   if ($null -eq $request -or [int]$request.version -ne 1 -or [string]$request.view -cne '64') { Fail 'REGISTRY_REQUEST_INVALID' 'Request version or registry view is invalid.' }
   Validate-Key ([string]$request.key)
+  if ([string]$request.op -ceq 'listMachine') {
+    $machineBase = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+      $machineKey = $machineBase.OpenSubKey('Software\Khronos\Vulkan\ImplicitLayers', $false)
+      try {
+        $rows = @()
+        if ($null -ne $machineKey) { foreach ($name in $machineKey.GetValueNames()) { $state = State $machineKey $name; $state.name = $name; $rows += $state } }
+        Send-Result $true $rows $null $null
+      } finally { if ($null -ne $machineKey) { $machineKey.Dispose() } }
+    } finally { $machineBase.Dispose() }
+    exit 0
+  }
   $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64)
   try {
     if ([string]$request.op -ceq 'list') {

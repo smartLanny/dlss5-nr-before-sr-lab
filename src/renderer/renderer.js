@@ -125,9 +125,14 @@ function setInstallBusy(id, value) {
     : '一键安装';
 }
 
+function isVulkanRoute(game) { return game?.chosen?.apiResolution?.api === 'vulkan'; }
+function routeInstalled(game) { return isVulkanRoute(game) ? game?.vulkan?.installed === true : game?.installed === true; }
+function routeSupported(game) { return isVulkanRoute(game) ? game?.vulkan?.available === true : game?.supported === true; }
+
 function supportBadge(game) {
-  if (game.installed) return '<span class="badge good">已安装</span>';
-  if (game.supported) return '<span class="badge good">支持安装</span>';
+  if (routeInstalled(game)) return '<span class="badge good">已安装</span>';
+  if (routeSupported(game)) return '<span class="badge good">支持安装</span>';
+  if (isVulkanRoute(game)) return '<span class="badge bad">Vulkan 暂不可用</span>';
   if (game.supportCode === 'ERR_API_SELECTION_REQUIRED') return '<span class="badge">API 待确认</span>';
   if (game.supportCode === 'ERR_CARRIER_NOT_SELECTED') return '<span class="badge">兼容组件已关闭</span>';
   return '<span class="badge bad">暂不支持</span>';
@@ -212,12 +217,12 @@ function renderVersionSelector() {
 function coreVersionLabel(id, item) {
   if (id === '0.3.3-dev-r4') return '0.3.3-r4 · 稳定兼容';
   const raw = String(item && item.label || id);
-  const version = raw.match(/^(0\.\d+\.\d+(?:\.\d+)?(?:-(?:hotfix|beta)\.\d+)?)/);
+  const version = raw.match(/^(0\.\d+\.\d+(?:\.\d+)?(?:-hotfix\.\d+)?)([-\s]?beta(?:\.\d+)?)?/i);
   if (version) {
-    const value = version[1];
-    if (value.startsWith('0.2.')) return value.replace(/-beta\.\d+$/i, '');
+    const value = version[1] + (version[2] ? version[2].replace(/^\s+/, '') : '');
+    if (value.startsWith('0.2.')) return version[1];
     if (value.startsWith('0.3.')) return `${value} · 历史对照`;
-    if (value.startsWith('0.4.')) return `${value} · Beta`;
+    if (value.startsWith('0.4.') || version[2]) return `${value} · Beta`;
     return value;
   }
   return raw.replace(/(?:\s*[-–—]\s*|\s*[（(])(?:DXGI|DX11|DX12|DirectX\s*11|DirectX\s*12)\b.*$/i, '').trim() || String(id);
@@ -240,23 +245,37 @@ function actionSuccessMessage(success, value) {
     const retained = Array.isArray(value.retainedSidecars) ? value.retainedSidecars.length : Number(value.retainedSidecars) || 0;
     return `卸载完成；备份已集中保存在 _DLSS5_Backup${retained > 0 ? '；被外部改动的备份已原位保留' : ''}`;
   }
+  if (value?.reframework?.automatic === true) {
+    const nativeResult = success === '安装完成' ? '核心已安装'
+      : success === '修复完成' || success.startsWith('已应用核心 ') ? '核心已更新' : success;
+    if (value.reframework.ready === false) {
+      const error = value.reframework.error || {};
+      const detail = `${error.message || '准备未完成'}${error.code ? ` [${error.code}]` : ''}`;
+      return `${nativeResult}；卡普空 RE 引擎兼容未完成：${detail}`;
+    }
+    if (value.reframework.ready === true) return `${nativeResult}；已自动准备卡普空 RE 引擎兼容`;
+  }
   const replacement = value?.payloadReplacement;
   return replacement?.from && replacement?.to && replacement.from !== replacement.to
     ? `${success}；已应用替代核心 ${coreVersionLabel(replacement.to)}（原选择 ${coreVersionLabel(replacement.from)} 已退出常规分发）`
     : success;
 }
 
-function versionOptionsMarkup(selected = state.payload && state.payload.selectedVersion, includeImported = true) {
+function versionOptionsMarkup(selected = state.payload && state.payload.selectedVersion, includeImported = true, game = null) {
   const versions = state.payload && state.payload.versions ? Object.entries(state.payload.versions)
     .sort(([left], [right]) => left.localeCompare(right, 'en', { numeric: true })) : [];
   const imported = includeImported ? (state.addons || []).filter(item => item.addonOnly).map(item => [item.id, item]) : [];
   const all = [...versions, ...imported];
   if (!all.length) return '<option value="">当前组件</option>';
   const missingInstalled = includeImported && selected && !all.some(([id])=>id===selected) && !catalogReplacement(selected);
+  const option = (id, item, active = false) => {
+    const dx12Only = game?.chosen?.apiResolution?.api === 'dx11' && id === '0.4.7beta';
+    return `<option value="${escapeHtml(id)}"${active ? ' selected' : ''}${dx12Only ? ' disabled' : ''}>${escapeHtml(coreVersionLabel(id,item))}${item.addonOnly ? '（导入）' : ''}${dx12Only ? '（仅原生 DX12）' : ''}</option>`;
+  };
   if (missingInstalled) return `<option value="${escapeHtml(selected)}" selected disabled>${/^imported-/.test(selected)?'当前导入核心':escapeHtml(coreVersionLabel(selected))}（原安装源不可用）</option>`+
-    all.map(([id,item])=>`<option value="${escapeHtml(id)}">${escapeHtml(coreVersionLabel(id,item))}${item.addonOnly?'（导入）':''}</option>`).join('');
+    all.map(([id,item])=>option(id,item)).join('');
   if (!all.some(([id]) => id === selected)) selected = catalogReplacement(selected) || (state.payload && state.payload.selectedVersion);
-  return all.map(([id, item]) => `<option value="${escapeHtml(id)}"${id === selected ? ' selected' : ''}>${escapeHtml(coreVersionLabel(id, item))}${item.addonOnly ? '（导入）' : ''}</option>`).join('');
+  return all.map(([id, item]) => option(id, item, id === selected)).join('');
 }
 
 function poster(game) {
@@ -295,7 +314,8 @@ function cardAction(game) {
   const installButton = `<button class="button primary install-btn${installBusy ? ' is-busy' : ''}" aria-live="polite" aria-busy="${installBusy}"${installBusy ? ' disabled' : ''}>${installBusy ? '<span class="button-spinner" aria-hidden="true"></span><span>正在安装…</span>' : '一键安装'}</button>`;
   const rename = '<button class="button subtle rename-game-btn" type="button" title="修改游戏名称">改名</button>';
   const dismiss = '<button class="icon-button dismiss-game-btn" title="移除这个游戏" aria-label="移除这个游戏">×</button>';
-  if (game.installed) return `<button class="button primary launch-btn">启动游戏</button><button class="button subtle card-open">设置</button>${rename}${dismiss}`;
+  if (routeInstalled(game)) return `<button class="button primary launch-btn">启动游戏</button><button class="button subtle card-open">设置</button>${rename}${dismiss}`;
+  if (isVulkanRoute(game)) return game.vulkan?.available === true ? `${installButton}${rename}${dismiss}` : `<button class="button" disabled>Vulkan 暂不可用</button>${rename}${dismiss}`;
   if (game.supported && payloadReadyForHardware()) return `${installButton}${rename}${dismiss}`;
   if (game.supported) return `<button class="button subtle payload-open-btn">检查安装组件</button>${rename}${dismiss}`;
   if (game.supportCode === 'ERR_API_SELECTION_REQUIRED') return `<button class="button subtle">请选择游戏 API</button>${rename}${dismiss}`;
@@ -320,12 +340,13 @@ function apiControls(game) {
   const detectedLabel = detected.api === 'dx11' ? 'DX11 桥接' : detected.api === 'dx12' ? 'DX12' : API_LABELS[detected.api] || 'API 待确认';
   const options = [['auto', `${detectedLabel}（自动）`],
     ['dx12', 'DX12（无需桥接）'], ['dx11', 'DX11 桥接'],
-    ['vulkan', 'Vulkan（暂不支持 NR）'], ['dx10', 'DirectX 10（暂不支持 NR）'],
+    ['vulkan', game.vulkan?.available ? 'Vulkan（试验版）' : 'Vulkan（当前不可用）'], ['dx10', 'DirectX 10（暂不支持 NR）'],
     ['dx9', 'DirectX 9（暂不支持 NR）'], ['opengl', 'OpenGL（暂不支持 NR）']]
     .map(([id, label]) => `<option value="${id}"${id === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
   const deployment = resolution.api === 'dx11' ? '兼容桥接随 DirectX 11 自动部署。'
     : resolution.api === 'dx12' ? 'DirectX 12 无需兼容桥接。'
-      : ['dx9', 'dx10', 'vulkan', 'opengl', 'unsupported'].includes(resolution.api) ? '当前 API 暂不支持 NR，不部署兼容桥接。' : 'API 待确认，暂不部署兼容桥接。';
+      : resolution.api === 'vulkan' ? (game.vulkan?.available ? 'Vulkan 使用独立试验桥接，不部署 DirectX 兼容组件。' : 'Vulkan 试验桥接当前不可用。')
+        : ['dx9', 'dx10', 'opengl', 'unsupported'].includes(resolution.api) ? '当前 API 暂不支持 NR，不部署兼容桥接。' : 'API 待确认，暂不部署兼容桥接。';
   const evidence = (detected.evidence || []).join('；');
   const entryMismatch = detected.source === 'game-entry' && selected !== 'auto' && selected !== detected.api
     ? `<p class="config-note" role="status">此 EXE 的已知入口为 ${escapeHtml(API_LABELS[detected.api] || detected.api)}；切换下拉框不会切换程序入口。请通过“选择 EXE”选择对应入口。${escapeHtml(evidence)}</p>` : '';
@@ -335,7 +356,7 @@ function apiControls(game) {
 function addonVersionRow(game, applyVersion = false) {
   const selected = game.installed ? (game.addonVersion || game.recommendedAddonVersion || (state.payload && state.payload.selectedVersion))
     : (game.recommendedAddonVersion || (state.payload && state.payload.selectedVersion));
-  const options = versionOptionsMarkup(selected, Boolean(game.installed));
+  const options = versionOptionsMarkup(selected, Boolean(game.installed), game);
   const apply = applyVersion ? '<button class="button subtle version-apply-btn">应用版本</button>' : '';
   const installed = game.installed && game.addonVersion;
   const replacement = installed ? catalogReplacement(installed) : null;
@@ -347,7 +368,73 @@ function gameApiLabel(chosen) {
   const resolution = chosen && chosen.apiResolution;
   if (!resolution) return chosen && chosen.apiLabel || 'API 未确认';
   const label = resolution.api === 'dx11' ? 'DX11 桥接' : resolution.api === 'dx12' ? 'DX12' : API_LABELS[resolution.api] || 'API 待确认';
-  return `${label}${resolution.source === 'override' ? '（已指定）' : ['dx11', 'dx12'].includes(resolution.api) ? '（自动）' : ''}`;
+  return `${label}${resolution.source === 'override' ? '（已指定）' : ['dx11', 'dx12', 'vulkan'].includes(resolution.api) ? '（自动）' : ''}`;
+}
+
+const VULKAN_CORE_LABEL = '0.4.6-hotfix.1 · Vulkan Beta';
+function vulkanVersionOption(game) {
+  const version = typeof game?.vulkan?.packageId === 'string' ? game.vulkan.packageId : '';
+  return `<option value="${escapeHtml(version)}" selected>${VULKAN_CORE_LABEL}</option>`;
+}
+function vulkanRouteMarkup(game) {
+  const info = game.vulkan || {};
+  const version = typeof info.packageId === 'string' ? info.packageId : '';
+  const installed = info.installed === true;
+  const available = info.available === true;
+  const status = installed ? '已安装' : available ? '可准备' : '暂不可用';
+  const reason = !available && typeof info.reason === 'string' && info.reason.trim() ? info.reason.trim() :
+    (!available ? '当前没有通过校验的 Vulkan 配套运行资产。' : '');
+  const apply = installed ? `<button class="button subtle version-apply-btn"${available && version ? '' : ' disabled'}>修复配套版本</button>` : '<span></span>';
+  return `<div class="config-block core-selection vulkan-route-block"><div class="config-title"><div><h4>核心版本</h4><p class="section-caption">Vulkan 桥接 · 试验版</p></div><span class="badge ${available || installed ? 'good' : 'bad'}">${status}</span></div>
+    <div class="control-row addon-version-row"><label>配套核心</label><select class="game-version-select" aria-label="Vulkan 配套核心版本" disabled>${vulkanVersionOption(game)}</select>${apply}</div>
+    <p class="config-note">使用 Vulkan 配套核心。其他核心版本的 Vulkan 支持尚未验证。</p>
+    ${reason ? `<p class="config-note launch-error" role="status">${escapeHtml(reason)}</p>` : ''}
+    <p class="config-note">提供 NR 画面增强，通过画面和深度估算运动。实际效果请在游戏内验证。</p></div>`;
+}
+
+const REFRAMEWORK_PROFILE = 'onimusha-wots-reframework-01417';
+function isReframeworkGame(game) {
+  return game?.reframework?.matched === true && game.reframework.profile === REFRAMEWORK_PROFILE;
+}
+
+function reframeworkHostMarkup(game) {
+  return isReframeworkGame(game)
+    ? `<div class="compat-actions reframework-host" data-reframework-profile="${REFRAMEWORK_PROFILE}" aria-label="卡普空 RE 引擎兼容"><div class="reframework-copy"><div class="reframework-heading"><strong>卡普空 RE 引擎兼容</strong><span class="badge">读取中</span></div><span>已检测到卡普空 RE 引擎兼容配套，一键安装时自动准备 REFramework。正在检查当前状态…</span></div></div>`
+    : '';
+}
+
+function reframeworkMessage(value) {
+  if (typeof value === 'string') return value;
+  return value && typeof value.message === 'string' ? value.message : '';
+}
+
+function reframeworkCardMarkup(info, busy = false, error = '') {
+  const stateValue = info && typeof info === 'object' ? info : {};
+  const loader = stateValue.loader && typeof stateValue.loader === 'object' ? stateValue.loader : {};
+  const config = stateValue.config && typeof stateValue.config === 'object' ? stateValue.config : {};
+  const external = stateValue.ready === true && loader.ownership === 'external';
+  const owned = stateValue.ready === true && loader.ownership === 'owned';
+  const needsRecovery = stateValue.needsRecovery === true;
+  const status = needsRecovery ? '需恢复' : external ? '已使用现有框架' : stateValue.ready === true ? '已就绪' : stateValue.canPrepare === true ? '待安装' : '需处理';
+  const badge = needsRecovery ? 'bad' : stateValue.ready === true ? 'good' : stateValue.canPrepare === true ? '' : 'bad';
+  const blockers = Array.isArray(stateValue.blockers) ? stateValue.blockers.map(reframeworkMessage).filter(Boolean) : [];
+  const warnings = Array.isArray(stateValue.warnings) ? stateValue.warnings.map(reframeworkMessage).filter(Boolean) : [];
+  const action = needsRecovery
+    ? `<button class="button primary reframework-recover-btn" type="button"${busy ? ' disabled aria-busy="true"' : ''}>${busy ? '正在恢复…' : '恢复未完成操作'}</button>`
+    : stateValue.canPrepare === true && stateValue.ready !== true
+    ? `<button class="button primary reframework-prepare-btn" type="button"${busy ? ' disabled aria-busy="true"' : ''}>${busy ? '正在准备…' : '准备 REFramework'}</button>`
+    : owned
+      ? `<button class="button reframework-restore-btn" type="button"${busy ? ' disabled aria-busy="true"' : ''}>${busy ? '正在撤销…' : '撤销 REFramework'}</button>`
+      : '';
+  const configNote = config.existingStoragePreferred === true || config.effective
+    ? '保留已有配置；准备和撤销不会删除玩家设置。'
+    : '为此游戏准备兼容设置，并保留玩家已有配置。';
+  return `${action || ''}<div class="reframework-copy"><div class="reframework-heading"><strong>卡普空 RE 引擎兼容</strong><span class="badge ${badge}">${status}</span></div>
+    <span>已检测到卡普空 RE 引擎兼容配套，一键安装时自动准备 REFramework。</span>
+    <span>${configNote}${external ? ' 当前使用游戏已有的框架，管理器不会取得删除权。' : ''}</span>
+    ${blockers.length ? `<ul class="reframework-messages" aria-label="需要处理">${blockers.map(message => `<li>${escapeHtml(message)}</li>`).join('')}</ul>` : ''}
+    ${warnings.length ? `<ul class="reframework-messages warning" aria-label="提示">${warnings.map(message => `<li>${escapeHtml(message)}</li>`).join('')}</ul>` : ''}
+    ${error ? `<p class="config-note launch-error reframework-error" role="alert">${escapeHtml(error)}</p>` : ''}</div>`;
 }
 
 function detailKey(game) {
@@ -357,13 +444,21 @@ function detailKey(game) {
 function gameDetail(game) {
   const key = detailKey(game);
   const active = state.detailTabs.get(key) === 'graphics' ? 'graphics' : 'enhance';
-  const title = game.supported ? '安装条件已确认'
+  const vulkan = isVulkanRoute(game);
+  const installed = routeInstalled(game);
+  const supported = routeSupported(game);
+  const title = supported ? '安装条件已确认'
     : game.supportCode === 'ERR_API_SELECTION_REQUIRED' ? '请先确认游戏图形 API' : '安装前需要处理';
-  const installDetail = game.supported
-    ? (payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可使用上方“一键安装”。` : '请到“组件管理”选择完整安装组件，再返回安装。')
+  const installDetail = supported
+    ? (vulkan ? '已匹配固定 Vulkan 试验组件，可使用上方“一键安装”。' : payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可使用上方“一键安装”。` : '请到“组件管理”选择完整安装组件，再返回安装。')
+    : vulkan ? game.vulkan?.reason || 'Vulkan 试验桥接当前不可用。'
     : game.supportText || '请先选择游戏实际运行的 EXE。';
-  const installationStatus = game.installed ? `<div class="config-block component-block"><div class="config-title"><div><h4>安装状态</h4><p class="section-caption">文件与安装记录</p></div><span class="component-summary" role="status">检查中</span></div><div class="component-body">正在检查…</div><div class="diagnostic-actions"><button class="button primary repair-inline-btn">一键修复</button><button class="button subtle feedback-inline-btn">保存反馈</button><button class="button danger uninstall-inline-btn">卸载插件</button></div><div class="route-advanced"><h4>兼容修复</h4><div class="compat-actions"><button class="button subtle d3d12-btn">${game.d3d12Route ? '撤销 D3D12 兼容修复' : '使用 D3D12 兼容修复'}</button><span>针对异环等部分 DX12 网游的加载报错、DXGI 入口冲突，可尝试此修复。只适用于 DX12，保留原文件，可随时撤销。</span></div></div></div>` : '';
-  const nr = game.installed ? `<div class="enhancement-layout">
+  const routeRepair = vulkan ? '' : `<div class="route-advanced"><h4>兼容修复</h4><div class="compat-actions"><button class="button d3d12-btn">${game.d3d12Route ? '撤销 D3D12 兼容修复' : '使用 D3D12 兼容修复'}</button><span>针对异环等部分 DX12 网游的加载报错、DXGI 入口冲突，可尝试此修复。只适用于 DX12，保留原文件，可随时撤销。</span></div>${reframeworkHostMarkup(game)}</div>`;
+  const installationStatus = installed ? `<div class="config-block component-block"><div class="config-title"><div><h4>安装状态</h4><p class="section-caption">文件与安装记录</p></div><span class="component-summary" role="status">检查中</span></div><div class="component-body">正在检查…</div><div class="diagnostic-actions"><button class="button primary repair-inline-btn">一键修复</button><button class="button subtle feedback-inline-btn">保存反馈</button><button class="button danger uninstall-inline-btn">卸载插件</button></div>${routeRepair}</div>` : '';
+  const launchJump = game.nativeDlssAvailable === false ? '<p class="config-note">未检测到游戏自带的普通 DLSS；当前只提供画面增强设置。</p>' : '<button class="button subtle launch-jump-btn" type="button">调整超分补帧</button>';
+  const preinstallCompatibility = !installed && isReframeworkGame(game)
+    ? `<div class="route-advanced"><h4>兼容修复</h4>${reframeworkHostMarkup(game)}</div>` : '';
+  const nr = installed ? `<div class="enhancement-layout">
     <div class="config-block enhancement-controls">
       <div class="config-title"><div><h4>画面设置</h4><p class="section-caption">调整后自动保存到这个游戏</p></div><span class="save-state" role="status">正在读取…</span></div>
       <div class="control-row"><label>风格</label><div class="segmented style-segment"><button data-value="0">默认</button><button data-value="1">自然</button><button data-value="2">电影</button></div><span></span></div>
@@ -379,12 +474,13 @@ function gameDetail(game) {
     </div>
     <aside class="enhancement-sidebar">${installationStatus}<div class="config-block enhancement-guide"><h4>快捷操作</h4><p class="config-note">用 F6 对比增强前后的画面，实际效果以游戏内表现为准。</p>
       <div class="shortcut-block"><div class="shortcut-row"><label>NR 效果切换</label><button class="button subtle nr-hotkey-btn" disabled>F6 开关</button></div><div class="shortcut-row"><label>ReShade 菜单</label><button class="button subtle reshade-hotkey-btn">Home</button></div><p class="config-note">修改菜单快捷键后，下次启动游戏生效。</p></div>
-      <button class="button subtle launch-jump-btn" type="button">调整超分补帧</button>
+      ${launchJump}
     </div></aside>
-  </div>` : `<div class="config-block detail-empty"><h4>${title}</h4><p class="config-note">${escapeHtml(installDetail)}</p><p class="config-note">安装完成后，可在这里调整风格和增强强度。</p></div>`;
-  const graphics = game.chosen ? '<section class="launch-settings-host" aria-label="超分补帧启动设置"><p class="config-note">正在读取超分补帧设置…</p></section>'
+  </div>` : `<div class="config-block detail-empty"><h4>${title}</h4><p class="config-note">${escapeHtml(installDetail)}</p><p class="config-note">安装完成后，可在这里调整风格和增强强度。</p>${preinstallCompatibility}</div>`;
+  const graphics = game.chosen && game.nativeDlssAvailable !== false ? '<section class="launch-settings-host" aria-label="超分补帧启动设置"><p class="config-note">正在读取超分补帧设置…</p></section>'
+    : game.chosen ? `<div class="config-block detail-empty"><h4>未检测到普通 DLSS</h4><p class="config-note">${vulkan ? '当前 Vulkan 试验路线提供 NR 画面增强；' : ''}没有可验证的普通 DLSS 超分组件，因此不提供超分或补帧设置。</p></div>`
     : '<div class="config-block detail-empty"><h4>请先确认游戏 EXE</h4><p class="config-note">选择实际运行程序后，才能读取此游戏的超分补帧设置。</p></div>';
-  const route = `<div class="route-layout game-route-controls">${apiControls(game)}<div class="config-block core-selection"><h4>核心版本</h4>${addonVersionRow(game, Boolean(game.installed))}${!game.installed ? '<p class="config-note">安装时使用这个核心；0.4 系列仍为 Beta，0.3 为稳定基线。</p>' : ''}</div></div>`;
+  const route = `<div class="route-layout game-route-controls">${apiControls(game)}${vulkan ? vulkanRouteMarkup(game) : `<div class="config-block core-selection"><h4>核心版本</h4>${addonVersionRow(game, Boolean(game.installed))}${!game.installed ? '<p class="config-note">安装时使用这个核心；0.4 系列仍为 Beta，0.3 为稳定基线。</p>' : ''}</div>`}</div>`;
   const tabs = [['enhance', '画面设置'], ['graphics', '超分补帧']];
   return `<div class="game-detail" data-game-detail="${escapeHtml(game.id)}" data-detail-key="${escapeHtml(key)}">
     ${route}
@@ -414,7 +510,11 @@ function renderGames(options = {}) {
     if (replacement) {
       replacement.replaceWith(previousExpanded); reusedExpanded = true;
       const select = previousExpanded.querySelector('.game-version-select');
-      if (select) select.innerHTML = versionOptionsMarkup(select.value, Boolean(state.games.find(game => game.id === previousExpanded.dataset.id)?.installed));
+      const currentGame = state.games.find(game => game.id === previousExpanded.dataset.id);
+      if (select) {
+        select.innerHTML = isVulkanRoute(currentGame) ? vulkanVersionOption(currentGame) : versionOptionsMarkup(select.value, Boolean(currentGame?.installed), currentGame);
+        if (isVulkanRoute(currentGame)) select.disabled = true;
+      }
     }
   }
   bindGameCards();
@@ -486,7 +586,7 @@ function bindGameCards() {
       event.stopPropagation();
       if (state.installing.has(id)) return;
       setInstallBusy(id, true);
-      const version = card.querySelector('.game-version-select')?.value;
+      const version = isVulkanRoute(game) ? game.vulkan?.packageId : card.querySelector('.game-version-select')?.value;
       void runConfirmedAction(allowAntiCheat => window.manager.install(id, { allowAntiCheat, version }), '安装完成', true, id)
         .finally(() => setInstallBusy(id, false));
     };
@@ -508,7 +608,7 @@ function bindGameCards() {
     const openFolder = card.querySelector('.open-folder-btn');
     if (openFolder) openFolder.onclick = () => window.manager.openFolder(id);
     const repair = card.querySelector('.repair-inline-btn');
-    if (repair) repair.onclick = () => runConfirmedAction(allowAntiCheat => window.manager.repair(id, { allowAntiCheat }), '修复完成', true, id);
+    if (repair) repair.onclick = () => runConfirmedAction(allowAntiCheat => window.manager.repair(id, { allowAntiCheat, ...(isVulkanRoute(game) ? { version: game.vulkan?.packageId } : {}) }), '修复完成', true, id);
     const feedback = card.querySelector('.feedback-inline-btn');
     if (feedback) feedback.onclick = () => { state.repairGame = id; state.feedbackGame = id; switchView('repair'); };
     const uninstall = card.querySelector('.uninstall-inline-btn');
@@ -539,16 +639,76 @@ function bindGameCards() {
       runConfirmedAction(async allowAntiCheat => {
         if (imported) return window.manager.upgradeAddon(id, version, { allowAntiCheat });
         return window.manager.repair(id, { allowAntiCheat, version });
-      }, `已应用核心 ${coreVersionLabel(version, imported)}`, true, id);
+      }, `已应用核心 ${isVulkanRoute(game) ? VULKAN_CORE_LABEL : coreVersionLabel(version, imported)}`, true, id);
     };
   });
+}
+
+function reframeworkErrorText(error) {
+  const message = error?.message || '兼容组件操作失败。';
+  return `${message}${error?.code ? ` [${error.code}]` : ''}`;
+}
+
+function bindReframeworkCard(root, id) {
+  const host = root.querySelector('.reframework-host');
+  if (!host || host.dataset.busy === 'true') return;
+  const run = async action => {
+    if (host.dataset.busy === 'true') return;
+    host.dataset.busy = 'true';
+    host.innerHTML = reframeworkCardMarkup(host.reframeworkInfo, true);
+    let operationError = '';
+    const captureError = error => { operationError = reframeworkErrorText(error); };
+    const completed = action === 'prepare'
+      ? await runConfirmedAction(
+        allowAntiCheat => window.manager.prepareReframework(id, { allowAntiCheat }),
+        '兼容组件已安装', false, id, captureError)
+      : action === 'restore' ? await runAction(
+        () => window.manager.restoreReframework(id),
+        '兼容组件已撤销，玩家配置已保留', false, id, captureError)
+        : await runAction(
+          () => window.manager.recoverReframework(id),
+          '未完成操作已恢复', false, id, captureError);
+    if (!host.isConnected) return;
+    host.dataset.busy = 'false';
+    await loadReframeworkCard(root, id, completed ? '' : operationError);
+  };
+  const prepare = host.querySelector('.reframework-prepare-btn');
+  if (prepare) prepare.onclick = event => { event.stopPropagation(); void run('prepare'); };
+  const restore = host.querySelector('.reframework-restore-btn');
+  if (restore) restore.onclick = event => { event.stopPropagation(); void run('restore'); };
+  const recover = host.querySelector('.reframework-recover-btn');
+  if (recover) recover.onclick = event => { event.stopPropagation(); void run('recover'); };
+}
+
+async function loadReframeworkCard(root, id, operationError = '') {
+  const host = root.querySelector('.reframework-host');
+  if (!host) return;
+  const revision = Number(host.dataset.loadRevision || 0) + 1;
+  host.dataset.loadRevision = String(revision);
+  if (!host.reframeworkInfo) {
+    host.innerHTML = '<div class="reframework-copy"><div class="reframework-heading"><strong>卡普空 RE 引擎兼容</strong><span class="badge">读取中</span></div><span>已检测到卡普空 RE 引擎兼容配套，一键安装时自动准备 REFramework。正在检查当前状态…</span></div>';
+  }
+  try {
+    const info = unwrap(await window.manager.readReframework(id));
+    if (!host.isConnected || Number(host.dataset.loadRevision) !== revision) return;
+    host.reframeworkInfo = info;
+    host.innerHTML = reframeworkCardMarkup(info, false, operationError);
+    bindReframeworkCard(root, id);
+  } catch (error) {
+    if (!host.isConnected || Number(host.dataset.loadRevision) !== revision) return;
+    host.innerHTML = reframeworkCardMarkup(host.reframeworkInfo, false,
+      operationError || `读取失败：${reframeworkErrorText(error)}`);
+    bindReframeworkCard(root, id);
+  }
 }
 
 async function loadExpanded(id) {
   const loadToken = (state.expandedLoadToken || 0) + 1;
   state.expandedLoadToken = loadToken;
   const root = document.querySelector(`[data-game-detail="${id}"]`);
-  if (!root || !root.querySelector('.nr-mask')) return;
+  if (!root) return;
+  void loadReframeworkCard(root, id);
+  if (!root.querySelector('.nr-mask')) return;
   const nrControls = root.querySelectorAll('.nr-mask, .style-segment button, .nr-model-strength, .nr-effect-strength, .nr-skin-strength, .default-btn');
   const indicator = root.querySelector('.save-state');
   const hotkeyButton = root.querySelector('.reshade-hotkey-btn');
@@ -608,7 +768,7 @@ async function loadExpanded(id) {
   if (diagnosticResult.status === 'fulfilled' && Array.isArray(diagnosticResult.value?.components)) {
     const diagnostic = diagnosticResult.value;
     root.querySelector('.component-body').innerHTML = diagnosticRows(diagnostic.components);
-    const problems = diagnostic.components.filter(row => !row.ok).length;
+    const problems = diagnostic.components.filter(row => row.ok === false).length;
     root.querySelector('.component-summary').textContent = problems ? `${problems} 项需要处理` : '文件检查通过';
   } else {
     root.querySelector('.component-summary').textContent = '诊断读取失败';
@@ -691,8 +851,8 @@ function bindHotkeyControls(root, id, hotkeys) {
   };
 }
 
-async function runAction(work, success, refresh = true, gameId = null) {
-  if (state.busy) return;
+async function runAction(work, success, refresh = true, gameId = null, onError = null) {
+  if (state.busy) return false;
   setBusy(true);
   try {
     const outcome = await window.executeUiAction(
@@ -700,9 +860,20 @@ async function runAction(work, success, refresh = true, gameId = null) {
       refresh ? refreshGames : null
     );
     if (!outcome.completed) throw outcome.error;
-    toast(actionSuccessMessage(success, outcome.value));
+    const automaticReframeworkFailure = outcome.value?.reframework?.automatic === true && outcome.value.reframework.ready === false;
+    toast(actionSuccessMessage(success, outcome.value), automaticReframeworkFailure);
+    if (gameId && outcome.value?.reframework?.automatic === true) {
+      const root = document.querySelector(`[data-game-detail="${CSS.escape(gameId)}"]`);
+      if (root?.querySelector('.reframework-host')) {
+        const error = automaticReframeworkFailure
+          ? `自动准备未完成：${reframeworkErrorText(outcome.value.reframework.error)}` : '';
+        await loadReframeworkCard(root, gameId, error);
+      }
+    }
     if (outcome.refreshError) queueRefreshRetry();
+    return true;
   } catch (error) {
+    if (typeof onError === 'function') onError(error);
     if (!error.silent) {
       if (gameId) {
         state.lastFailureGame = gameId;
@@ -713,6 +884,7 @@ async function runAction(work, success, refresh = true, gameId = null) {
       const hint = gameId ? '；可在“修复”页保存反馈日志' : '';
       toast(`${error.message}${code}${hint}`, true);
     }
+    return false;
   }
   finally { setBusy(false); }
 }
@@ -737,7 +909,7 @@ async function refreshGames() {
   if (state.repairGame && !state.games.some(g => g.id === state.repairGame)) state.repairGame = null;
 }
 
-async function runConfirmedAction(work, success, refresh = true, gameId = null) {
+async function runConfirmedAction(work, success, refresh = true, gameId = null, onError = null) {
   return runAction(async () => {
     try {
       return await window.resolveUiEnvelope(() => work(false), unwrap);
@@ -753,7 +925,7 @@ async function runConfirmedAction(work, success, refresh = true, gameId = null) 
       setBusy(true);
       return await window.resolveUiEnvelope(() => work(true), unwrap);
     }
-  }, success, refresh, gameId);
+  }, success, refresh, gameId, onError);
 }
 
 function renderRepairSelect() {
@@ -845,9 +1017,12 @@ function confirmRemoveAddon(id) {
 }
 
 function diagnosticRows(rows) {
-  const markup = row => `<div class="diag-row"><span class="diag-icon ${row.ok ? 'ok' : 'bad'}">${row.ok ? '●' : '×'}</span><span>${escapeHtml(row.label)}</span><span class="diag-detail">${escapeHtml(row.detail || (row.ok ? '完整' : '异常'))}</span></div>`;
-  const failed = rows.filter(row => !row.ok), passed = rows.filter(row => row.ok);
-  return `${failed.map(markup).join('')}${passed.length ? `<details class="healthy-components"><summary>${failed.length ? '其余 ' : ''}${passed.length} 项文件检查通过</summary>${passed.map(markup).join('')}</details>` : ''}`;
+  const markup = row => {
+    const status = row.ok === true ? 'ok' : row.ok === false ? 'bad' : 'pending';
+    return `<div class="diag-row"><span class="diag-icon ${status}">${status === 'ok' ? '●' : status === 'bad' ? '×' : '○'}</span><span>${escapeHtml(row.label)}</span><span class="diag-detail">${escapeHtml(row.detail || (status === 'ok' ? '完整' : status === 'bad' ? '异常' : '待验证'))}</span></div>`;
+  };
+  const failed = rows.filter(row => row.ok === false), pending = rows.filter(row => row.ok !== true && row.ok !== false), passed = rows.filter(row => row.ok === true);
+  return `${failed.map(markup).join('')}${pending.map(markup).join('')}${passed.length ? `<details class="healthy-components"><summary>${failed.length || pending.length ? '其余 ' : ''}${passed.length} 项文件检查通过</summary>${passed.map(markup).join('')}</details>` : ''}`;
 }
 
 async function loadRepairDiagnostic() {
@@ -868,7 +1043,7 @@ async function loadRepairDiagnostic() {
     const diagnostic = unwrap(await window.manager.diagnose(id));
     if (token !== state.repairLoadToken || state.repairGame !== id) return;
     state.diagnostics = diagnostic;
-    const problems = diagnostic.components.filter(row => !row.ok).length;
+    const problems = diagnostic.components.filter(row => row.ok === false).length;
     $('diagnostics').innerHTML = `<div class="diagnostic-heading"><div><h3>${problems ? `${problems} 项需要处理` : '文件检查通过'}</h3><p>${problems ? '先处理以下异常，已通过的项目收在下方。' : '已核对当前安装文件；游戏实际效果仍需在游戏内确认。'}</p></div><span class="badge ${problems ? 'warn' : 'good'}">${escapeHtml(game?.name || '')}</span></div>${diagnosticRows(diagnostic.components)}`;
     $('copyDiagBtn').disabled = false;
   } catch (error) { if (token === state.repairLoadToken) $('diagnostics').innerHTML = `<p class="launch-error">${escapeHtml(error.message)}</p>`; }

@@ -16,3 +16,9 @@ product UI, payload contract, NR settings layer, install/repair workflow and
 Chinese beginner-facing copy are maintained separately.
 
 See `docs/UPSTREAM_SYNC.md` before importing a later upstream revision.
+
+`src/core/file-journal.js` is a downstream copy of the pinned MIT journal, with
+one product recovery extension: `preservePending` keeps an interrupted journal
+when automatically rolling back could erase a newly appeared external file.
+REFramework recovery validates that ownership before using the shared journal.
+The upstream submodule remains at the original revision and is not patched.

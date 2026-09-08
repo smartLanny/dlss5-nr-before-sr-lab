@@ -1,6 +1,6 @@
 {
   "name": "xiaofeng-dlss5-manager",
-  "version": "0.4.6-hotfix.7-dev.9",
+  "version": "0.4.6-hotfix.7-dev.10",
   "private": true,
   "description": "A beginner-friendly desktop manager for the DLSS 5 NR-before-SR add-on.",
   "main": "main.js",
@@ -29,7 +29,7 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "buildVersion": "0.4.6.9",
+    "buildVersion": "0.4.6.10",
     "appId": "com.xiaofeng.dlss5.manager",
     "productName": "DLSS 5 AI 超分管理器",
     "files": [
@@ -83,6 +83,18 @@
         "to": "launcher-locations.ps1"
       },
       {
+        "from": "src/product/game-launch-broker.ps1",
+        "to": "game-launch-broker.ps1"
+      },
+      {
+        "from": "resources/vulkan-reshade",
+        "to": "vulkan-reshade"
+      },
+      {
+        "from": "resources/vulkan-runtime",
+        "to": "vulkan-runtime"
+      },
+      {
         "from": "resources/fg-components",
         "to": "fg-components",
         "filter": [
@@ -94,6 +106,15 @@
           "LICENSE",
           "MINHOOK-LICENSE.txt",
           "UAL-LICENSE"
+        ]
+      },
+      {
+        "from": "resources/reframework-01417",
+        "to": "reframework-01417",
+        "filter": [
+          "component.json",
+          "dinput8.dll",
+          "LICENSE"
         ]
       }
     ],

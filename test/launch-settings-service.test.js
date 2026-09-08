@@ -39,6 +39,16 @@ function fixture(t, options = {}) {
   return { root, game, exeDir, exe, driver, service };
 }
 
+test('generic launch recovery cannot bypass REFramework ownership checks', async t => {
+  const f = fixture(t), pending = path.join(f.game, '_DLSS5_Backup/pending-switch.json');
+  fs.mkdirSync(path.dirname(pending), { recursive: true });
+  const bytes = JSON.stringify({ files: [{ rel: '_DLSS5_Backup/reframework-preparation.json' }] });
+  fs.writeFileSync(pending, bytes);
+  const before = f.driver.peek();
+  await assert.rejects(f.service.recover('g'), { code: 'REF_RECOVERY_REQUIRED' });
+  assert.equal(fs.readFileSync(pending, 'utf8'), bytes); assert.deepEqual(f.driver.peek(), before);
+});
+
 test('native SR owns four keys, leaves FG isolated and restores through the shared file journal', async t => {
   const f = fixture(t); const request = { backend: 'native', quality: 'custom', renderPercent: 75, preset: 'M' };
   await f.service.save('g', 'sr', request); assert.equal(await f.service.hasSrRequest('g'), true);

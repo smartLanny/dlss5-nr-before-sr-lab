@@ -93,6 +93,9 @@ function createWindowsRegistryValues(options = {}) {
   }
   async function list() {
     const result = await call({ op: 'list' });
+    return normalizeList(result);
+  }
+  function normalizeList(result) {
     if (!Array.isArray(result) || result.length > 4096) fail('REGISTRY_HELPER_PROTOCOL', '注册表 value 列表无效。');
     return result.map(row => {
       validateName(row?.name);
@@ -101,6 +104,9 @@ function createWindowsRegistryValues(options = {}) {
       return { name: row.name, type: row.type, supported: false };
     });
   }
+  async function listMachine() {
+    return normalizeList(await call({ op: 'listMachine' }));
+  }
   async function write(name, expected, desired) {
     name = validateName(name); expected = normalizeState(expected); desired = normalizeState(desired);
     const result = normalizeState(await call({ op: 'write', name, expected, desired }));
@@ -108,7 +114,7 @@ function createWindowsRegistryValues(options = {}) {
     return result;
   }
 
-  return Object.freeze({ identity: Object.freeze({ scope: 'HKCU', view: '64', key }), read, list, write });
+  return Object.freeze({ identity: Object.freeze({ scope: 'HKCU', view: '64', key }), read, list, listMachine, write });
 }
 
 module.exports = { createWindowsRegistryValues, normalizeState };

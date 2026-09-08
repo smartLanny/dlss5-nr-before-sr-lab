@@ -47,7 +47,17 @@ test('read refuses unsupported target types while list reports them without conv
   assert.deepEqual(await adapter.list(), [
     { name: 'string-value', type: 'REG_STRING', supported: false },
     { name: 'dword-value', exists: true, type: 'REG_DWORD', data: 0, supported: true }
-  ]);
+]);
+});
+
+test('listMachine performs a read-only fixed HKLM Vulkan layer snapshot', async () => {
+  let request;
+  const adapter = fake({ runner: async (_file, _args, options) => {
+    request = JSON.parse(options.input);
+    return { code: 0, stdout: JSON.stringify({ version: 1, ok: true, result: [{ name: 'C:\\ProgramData\\ReShade\\ReShade64.json', exists: true, type: 'REG_DWORD', data: 0 }] }), stderr: '' };
+  } });
+  assert.deepEqual(await adapter.listMachine(), [{ name: 'C:\\ProgramData\\ReShade\\ReShade64.json', exists: true, type: 'REG_DWORD', data: 0, supported: true }]);
+  assert.equal(request.op, 'listMachine'); assert.equal(request.view, '64');
 });
 
 test('write validates exact states before invoking the helper', async () => {
