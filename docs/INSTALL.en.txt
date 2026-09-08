@@ -6,7 +6,7 @@ Official releases: https://space.bilibili.com/941799
 
 First installation
 
-New installations start with final effect strength 1.2, colour follow 0.75, and the model HUD/text-protection parameter enabled. The slider is the actual request with no hidden multiplier. Explicit existing settings, including zero, are preserved; effective colour follow remains zero for unknown HDR inputs.
+New installations start with one NR pass, final effect strength 1.0, pre-SR NR work at 100% (N=R), colour follow 1.0, and the model HUD/text-protection parameter enabled. The sliders are the actual requests with no hidden multiplier. Explicit valid existing settings, including zero, are preserved; effective colour follow remains zero for unknown HDR inputs.
 
 Choose the full package for your GPU. The game needs D3D12, native DLSS Super Resolution, and ReShade / RHI with addon support. Use it only in offline environments that allow these addons and have no anti-cheat.
 

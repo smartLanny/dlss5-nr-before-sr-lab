@@ -55,12 +55,14 @@ class PictureIntegration(unittest.TestCase):
                 load.assert_not_called()
 
     def test_pins_cover_actual_ui_composition_and_build_dependencies(self):
-        self.assertEqual(set(m.INTEGRATION_CORE_PINS), {'src/nr_command_state.inl', 'src/nr_settings_ui.inl',
+        self.assertEqual(set(m.INTEGRATION_CORE_PINS), {'config/nr_before_sr.ini', 'scripts/patch-post-compat.py',
+            'src/nr_codec_descriptors.inl', 'src/nr_command_state.inl', 'src/nr_settings_ui.inl',
             'src/nr_color_policy.inl', 'src/nr_color_amplification.h', 'src/nr_precision_ui.h', 'scripts/build.ps1',
-            'src/interop/nr_ngx_parameter_abi.h', 'src/nr_before_sr.cpp', 'src/nr_before_sr.rc', 'src/nr_feedback_capture.inl', 'src/nr_feedback_core.inl',
+            'src/interop/nr_ngx_parameter_abi.h', 'src/nr_before_sr.cpp', 'src/nr_before_sr.rc',
+            'src/nr_recommended_picture.inl', 'src/nr_work_config.h', 'src/nr_feedback_capture.inl', 'src/nr_feedback_core.inl',
             'src/nr_feedback_text.h', 'src/nr_feedback_single_text.h', 'src/nr_f8_sequence.inl', 'src/nr_runtime_load_evidence.inl'})
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'eed50de022be7f0a2c78c43c2a16032ee4254218')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '84dfe33a21bd0dd88a37fd66084b7bf7d7f4f923')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '5d37cfddf4b9eb375672f49eac62b28c2ed572b3')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '2fb62b32c3817e91777b6b77f8360a44d069ff27')
 
 if __name__ == '__main__': unittest.main()

@@ -367,8 +367,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         changed = true;
     }
     SettingsTooltip(ui(
-        "Restores Before SR, overall NR effect 1.0, model strength 1.0, colour request 1.0 and the shipped picture defaults. Exits diagnostic identity and disables unverified HDR colour/peak experiments. Keeps Enable (F6), depth/jitter/R8 game contracts and feedback preferences. Uses the normal save/history rules; runtime safety faults are not cleared.",
-        "恢复前置 NR、NR 效果倍率 1.0、模型强度 1.0、颜色请求 1.0 等随包推荐画质；退出诊断原图，关闭未验证 HDR 调色与高光实验。保留 F6 总开关、深度/Jitter/R8 游戏兼容设置和反馈偏好；按正常规则保存及更新历史，不清除运行时安全故障。"));
+        "Restores Before SR, overall NR effect 1.0, model strength 1.0, colour request 1.0 and the established recommendation. Exits diagnostic identity and disables experimental input, EditField, composition, HDR-colour and peak paths. Keeps Enable (F6), depth/jitter/R8 game contracts and feedback preferences. Uses the normal save/history rules; runtime safety faults are not cleared.",
+        "恢复前置 NR、NR 效果倍率 1.0、模型强度 1.0、颜色请求 1.0 等既有推荐画质；退出诊断原图，关闭实验输入核、EditField、合成、HDR 调色与高光路径。保留 F6 总开关、深度/Jitter/R8 游戏兼容设置和反馈偏好；按正常规则保存及更新历史，不清除运行时安全故障。"));
     SettingsSection(ui("Processing", "处理方式"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
     const auto rr_last_attempt = nr_post_settings::last_rr_tick.load(std::memory_order_acquire);
@@ -428,8 +428,14 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             observed_post_precision = post_options.percent;
     }
     SettingsTooltip(ui(
-        "Sets only NR work from 50% to 100% for the effective pre/post route. It does not change the game's render resolution. 100% uses the route's full input.",
-        "仅设置当前前置/后置路线的 NR 工作量，可在 50%–100% 连续调整；不改变游戏真实渲染分辨率，100% 使用该路线的完整输入。"));
+        "Sets only NR work from 50% to 100% for the effective pre/post route. It does not change the game's render resolution. New installs use pre-SR 100% (N=R); existing presets/custom requests are retained. 100% uses the route's full input.",
+        "仅设置当前前置/后置路线的 NR 工作量，可在 50%–100% 连续调整；不改变游戏真实渲染分辨率。新装前置默认 100%（N=R），已有预设/自定义请求保留；100% 使用该路线的完整输入。"));
+    if (before_sr &&
+        g_work_request_rejected.load(std::memory_order_acquire)) {
+        SettingsNote(ui(
+            "The INI work request was rejected. Previous valid precision is retained; 1-49% is unavailable, not silently raised to 50%.",
+            "INI 工作比例请求无效，已保留上一有效精度；1–49% 尚不可用，不会暗中提高到 50%。"));
+    }
 #endif
     changed |= ImGui::Checkbox(ui("Independent luma / chroma composition (experimental)",
         "亮度／色度独立合成（实验）"), &next.independent_chroma_composition);

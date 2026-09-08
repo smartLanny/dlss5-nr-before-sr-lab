@@ -3,6 +3,7 @@ This does not simulate a game, ImGui, Win32 persistence or NVIDIA runtime.
 """
 from pathlib import Path
 import argparse
+from contextlib import nullcontext
 import configparser
 import os
 import re
@@ -17,6 +18,9 @@ FIELDS = {
  'lighting_lock':'LightingLock', 'edge_guard':'EdgeGuard',
  'detail_stability':'DetailStability', 'motion_stability':'MotionStability',
  'high_strength_protection':'HighStrengthProtection', 'layered_enhancement':'LayeredEnhancement',
+ 'independent_chroma_composition':'IndependentChromaComposition',
+ 'low_grid_edit_field':'LowGridEditField', 'catmull_edit_restore':'CatmullRomEditRestore',
+ 'low_grid_color_edit_field':'LowGridColorEditField', 'nr_input_filter':'NRInputFilter',
  'layer_tone':'LayerTone', 'layer_structure':'LayerStructure',
  'layer_bright':'LayerBright', 'layer_shadow':'LayerShadow',
  'proxy_curve':'ProxyCurve', 'allow_unverified_hdr_color':'AllowUnverifiedHdrColor',
@@ -29,6 +33,7 @@ FIELDS = {
  'auto_mask':'AutoMask', 'style':'Style', 'ui_correction':'UICorrection',
 }
 PRESERVED={'enabled','depth_mode','r8_output_encoding','jitter_mode','perf_epoch'}
+RECOMMENDED_OVERRIDES={'work_mode':'1','custom_work_scale':'0.75'}
 IDENTIFIER=r'[a-z_][a-z0-9_]*'
 
 def definition(text,marker):
@@ -60,6 +65,8 @@ def main():
  p=argparse.ArgumentParser(description=__doc__)
  p.add_argument('--root',type=Path,default=Path(__file__).resolve().parents[1])
  p.add_argument('--compiler',default=os.environ.get('CXX','g++'))
+ p.add_argument('--build-dir',type=Path,
+                help='Use an existing private build directory instead of system temp')
  p.add_argument('--negative-control',action='store_true');a=p.parse_args();root=a.root
  cpp=(root/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
  ui=(root/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
@@ -75,7 +82,8 @@ def main():
   helper=helper.replace(marker,'next.color_strength = 0.5f;',1)
  dirty=[];checks=[]
  for field,key in FIELDS.items():
-  number=values[key];expected=f'static_cast<decltype(c.{field})>({number})'
+  number=values[key];recommended=RECOMMENDED_OVERRIDES.get(field,number)
+  expected=f'static_cast<decltype(c.{field})>({recommended})'
   dirty.append(f'c.{field}=static_cast<decltype(c.{field})>(({number})==0?1:0);')
   checks.append(f'check(c.{field}=={expected},"INI default {key}");')
  code=r'''#include <cstdio>
@@ -91,7 +99,9 @@ void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAI
  code+='}\n}\nstd::printf("recommended picture reset: %d checks, %d failures\\n",count,failures);return failures?1:0;}\n'
  compiler=shutil.which(a.compiler)
  if not compiler:raise SystemExit('C++ compiler not found')
- with tempfile.TemporaryDirectory(prefix='nr-recommended-') as td:
+ context=(nullcontext(str(a.build_dir.resolve())) if a.build_dir else
+          tempfile.TemporaryDirectory(prefix='nr-recommended-'))
+ with context as td:
   src=Path(td)/'test.cpp';exe=Path(td)/('test.exe' if os.name=='nt' else 'test');src.write_text(code,encoding='utf-8')
   flags=['-std=c++20','-O0','-Wall','-Wextra','-Werror']+(['-static'] if os.name=='nt' else [])
   subprocess.run([compiler,*flags,str(src),'-o',str(exe)],check=True)

@@ -18,9 +18,12 @@ def replace_definition(text, signature, fn):
     return edit(text,signature,fn)
 
 def patch_core(text: str) -> str:
-    text=once(text,'#include "MinHook.h"','#include "MinHook.h"\n#include "interop/nr_post_compat.h"')
-    text=once(text,'struct NrApi {','#include "interop/nr_post_settings.inl"\n\nstruct NrApi {')
-    text=once(text,'    PollNgxLifecycleModules(false);','    PollNgxLifecycleModules(false);\n    nr_post_settings::Poll();')
+    if '#include "interop/nr_post_compat.h"' not in text:
+        text=once(text,'#include "MinHook.h"','#include "MinHook.h"\n#include "interop/nr_post_compat.h"')
+    if '#include "interop/nr_post_settings.inl"' not in text:
+        text=once(text,'struct NrApi {','#include "interop/nr_post_settings.inl"\n\nstruct NrApi {')
+    if '    nr_post_settings::Poll();' not in text:
+        text=once(text,'    PollNgxLifecycleModules(false);','    PollNgxLifecycleModules(false);\n    nr_post_settings::Poll();')
     text=once(text,'#include "nr_settings_ui.inl"','#include "interop/nr_post_ui.inl"\n#include "nr_settings_ui.inl"')
     # DLSSD depth interpretation is declared at Create, not inferred from R32.
     text=edit(text,'struct FeatureRecord {',lambda s:once(s,'    int create_flags = 0;',
