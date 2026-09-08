@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$LightStyle)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$LightStyle, [switch]$PostLightStyle)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -35,7 +35,7 @@ if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
     $baselineShader = [regex]::Match($baseline, 'const char kCodecShader\[\] = R"HLSL\([\s\S]*?\)HLSL";')
     if (!$baselineShader.Success -or !$baseline.Contains('ModelLightingTapV2')) { throw 'Expected actual maintenance shader with edge-aware LightingLock.' }
     $harness = $harness.Replace('// @MAINTENANCE_SHADER@', $baselineShader.Value.Replace('kCodecShader', 'kMaintenanceShader'))
-    $comparison = if ($ColorEditField -or $InputFilterOutput -or $CombinedLowGrid -or $LightStyle) { '' } else { @'
+    $comparison = if ($ColorEditField -or $InputFilterOutput -or $CombinedLowGrid -or $LightStyle -or $PostLightStyle) { '' } else { @'
         Gpu baseline(kMaintenanceShader);
         unsigned comparison_count = 0;
         for (bool before : {false,true}) for (UINT flags : {0u,1u,16u,32u,64u,128u,192u})
@@ -55,7 +55,25 @@ $boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_stren
 $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
 $layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
-if($LightStyle) {
+if($PostLightStyle) {
+    if (!$BaselineSource -or $LightStyle -or $CombinedLowGrid -or $CatmullOutput -or $ColorEditField -or $InputFilterOutput -or $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl) { throw 'PostLightStyle requires only its frozen generated BaselineSource.' }
+    $candidateManifestPath = Join-Path (Split-Path -Parent $SourceRoot) 'source-manifest.json'
+    $baselineCore = Split-Path -Parent (Split-Path -Parent $BaselineSource)
+    $baselineManifestPath = Join-Path (Split-Path -Parent $baselineCore) 'source-manifest.json'
+    $candidateManifest = Get-Content -LiteralPath $candidateManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $baselineManifest = Get-Content -LiteralPath $baselineManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($baselineManifest.source_commit -ne '59ab029614df6fad6ea1e95df18a0a986be58962') { throw 'PostLightStyle baseline must be frozen dline1 source 59ab029, not a raw historical shader.' }
+    if ($candidateManifest.integration.picture_source_pins.'scripts/patch-post-compat.py' -ne $baselineManifest.integration.picture_source_pins.'scripts/patch-post-compat.py') { throw 'PostLightStyle requires the same post-generation transformation.' }
+    $candidateHash = (Get-FileHash -LiteralPath (Join-Path $SourceRoot 'src/nr_before_sr.cpp') -Algorithm SHA256).Hash.ToLowerInvariant()
+    $baselineHash = (Get-FileHash -LiteralPath $BaselineSource -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($candidateManifest.files.'core/src/nr_before_sr.cpp' -ne $candidateHash -or $baselineManifest.files.'core/src/nr_before_sr.cpp' -ne $baselineHash) { throw 'Generated post source does not match its actual source manifest.' }
+    foreach ($text in @($source,$baseline)) {
+        if (!$text.Contains('float3 storedProxy = scaled ? SampleProxyStoredV2') -or !$text.Contains('LoadPostArea(tid.xy)')) { throw 'Expected actual generated post sampling, not raw source.' }
+    }
+    $postLightTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/post_light_style_gpu.inl') -Raw -Encoding UTF8
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $postLightTests)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 2 && std::strcmp(argv[1], "--post-light-style") == 0) { ValidatePostLightStyle(gpu); return 0; }')
+} elseif($LightStyle) {
     if (!$BaselineSource -or $CombinedLowGrid -or $CatmullOutput -or $ColorEditField -or $InputFilterOutput -or $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl) { throw 'LightStyle requires only its frozen BaselineSource.' }
     $lightTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/light_style_gpu.inl') -Raw -Encoding UTF8
     $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $lightTests)
@@ -147,7 +165,11 @@ if ($CompileOnly) {
     Write-Host 'Production codec fixture compiled only; no WARP/GPU dispatch executed.'
     return
 }
-if($LightStyle) {
+if($PostLightStyle) {
+    & $binary '--post-light-style'
+    if($LASTEXITCODE -ne 0){throw 'Post light style production GPU contract failed.'}
+    return
+} elseif($LightStyle) {
     & $binary '--light-style'
     if($LASTEXITCODE -ne 0){throw 'Light style production GPU contract failed.'}
     return

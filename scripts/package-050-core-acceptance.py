@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline1'
+VERSION = 'beta0.5-dline2'
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -45,6 +45,7 @@ def package(build: Path, output: Path) -> dict:
     commit = result['source_commit']
     if (result.get('schema') != 'nr050-focused-acceptance-v1' or result.get('success') is not True
             or result.get('warp_verified') is not True or result.get('carrier_compiled') is not False
+            or result.get('post_light_style_warp_verified') is not True
             or result.get('nvidia_feature18_verified') is not False
             or result.get('game_runtime_verified') is not False
             or result.get('five_percent_performance_gate') != 'unmeasured'
@@ -58,6 +59,9 @@ def package(build: Path, output: Path) -> dict:
                 'tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py',
                 'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py',
                 'four-region production scalar and three negative controls',
+                'legacy-post production scalar and four negative controls',
+                'generated legacy-post light fixture compiled without GPU dispatch',
+                'legacy-post light controls production WARP; synthetic Neural only',
                 'four-region light controls production WARP; synthetic Neural only',
                 'bounded RR projection CPU copy',
                 'validate-recommended-picture.py', 'recommended independent negative control',
@@ -85,13 +89,13 @@ def package(build: Path, output: Path) -> dict:
     artifacts = result['artifacts']
     addons = sorted(n for n in artifacts if n.endswith('.addon64') and VERSION in n)
     if len(addons) != 2 or set(artifacts) != set(addons + ['nrchain_nvngx.dll']):
-        raise ValueError('Expected two dline1 language cores and only the owned bridge.')
+        raise ValueError('Expected two dline2 language cores and only the owned bridge.')
     binaries = {name: checked_file(binary_root, name, entry['sha256']) for name, entry in artifacts.items()}
     for name, data in binaries.items():
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/DLINE1_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
+    guide = (ROOT / 'docs/testing/DLINE2_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     packages = []
     for addon in addons:
@@ -103,8 +107,9 @@ def package(build: Path, output: Path) -> dict:
             'validation_sha256': sha((build / 'validation.json').read_bytes()),
             'scope': 'D3D12 Core-only manual acceptance; not Manager/multi-API OTA',
             'single_nr': True, 'experimental_algorithms_default_off': True,
-            'light_style': 'pre-SR only; neutral by default; three candidate presets',
-            'post_light_style_verified': False, 'skin_protection_runtime': False,
+            'light_style': 'independent pre/post candidate; neutral by default; three candidate presets; no new RR adapter',
+            'post_light_style_warp_verified': True, 'post_light_style_game_verified': False,
+            'skin_protection_runtime': False,
             'source_verified': True, 'compile_verified': True, 'warp_verified': True,
             'nvidia_feature18_verified': False, 'game_runtime_verified': False,
             'five_percent_performance_gate': 'unmeasured', 'carrier_included': False,

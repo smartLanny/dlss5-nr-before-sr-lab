@@ -14,11 +14,11 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
     const auto ui=[zh](const char *en,const char *cn) { return zh?cn:en; };
     SettingsSection(ui("Light and detail (candidate)","光影与细节（候选）"));
     if (!before_sr)
-        SettingsNote(ui("Before-SR controls: the current post-SR route retains your requests without applying this group, including RR-forced post-SR.",
-            "本组仅前置 NR 生效。当前为后置（包括 RR 自动后置），请求会保留，但本组光影控制未应用。"));
+        SettingsNote(ui("This candidate supports post-SR light controls, including the existing RR automatic post route. If NR is bypassed or cannot run, requests remain saved without a picture change. No new RR game adapter is included.",
+            "本候选已接入后置光影控制，包括既有 RR 自动后置。NR 被旁路或无法运行时，请求仍会保留，但画面不会改变；本版未增加新的 RR 游戏适配。"));
     else
-        SettingsNote(ui("100% retains the candidate contribution. These controls are not material or face masks.",
-            "100% 保留候选的对应成分。这些是画面分量控制，不是材质或人脸识别。"));
+        SettingsNote(ui("This candidate supports pre-SR light controls. If NR is bypassed, requests are retained without applying the effect. 100% retains the original contribution; these are not material or face masks.",
+            "本候选已接入前置光影控制。NR 被旁路时，请求保留但效果不应用。100% 保留原有对应成分；这不是材质或人脸识别。"));
 
     bool manual=false;
     manual|=LightStylePercent(ui("Reflection enhancement","反射增强"),
@@ -88,15 +88,13 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
             "##nr-light-dark",next.light_dark,2.f);
         if (broad_changed) { nr_light_style::MarkCustom(next); changed=true; }
         int preview=static_cast<int>(next.light_preview);
-        ImGui::BeginDisabled(!before_sr);
         if (ImGui::Combo(ui("Diagnostic preview###light-preview","诊断预览###light-preview"),&preview,
             ui("0: Final picture\0" "1: Four contribution regions\0" "2: NR before/after difference\0",
                "0：最终画面\0" "1：四分区范围\0" "2：NR 修改前后差\0"))) {
             next.light_preview=static_cast<unsigned>(preview); changed=true; apply_discrete_edit=true;
         }
-        ImGui::EndDisabled();
-        SettingsTooltip(ui("Regions: orange broad-bright, blue broad-dark, yellow fine-bright, purple fine-dark; intensity shows the remaining protected log edit. Difference is absolute final NR output minus original input in linear colour, magnified 4x. It includes NR, colour and protections, not only this group. Preview is not saved or an NR-history reset.",
-            "四分区：橙色宽亮、蓝色宽暗、黄色细亮、紫色细暗；强度表示保护后剩余的对数编辑。差分为 NR 最终输出与原图的绝对线性差乘 4，包含原 NR、颜色和保护，并非本组独立影响。预览不保存，也不重建 NR 历史。"));
+        SettingsTooltip(ui("Regions: orange broad-bright, blue broad-dark, yellow fine-bright, purple fine-dark; intensity shows the remaining protected luminance edit in the active route. Difference is absolute final NR output minus original input in linear colour, magnified 4x. It includes NR, colour and protections, not only this group. Preview is not saved or an NR-history reset.",
+            "四分区：橙色宽亮、蓝色宽暗、黄色细亮、紫色细暗；强度表示当前处理路线在保护后仍保留的亮度改动。差分为 NR 最终输出与原图的绝对线性差乘 4，包含原 NR、颜色和保护，并非本组独立影响。预览不保存，也不重建 NR 历史。"));
     }
 }
 
