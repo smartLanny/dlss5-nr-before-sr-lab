@@ -5,12 +5,12 @@
 #endif
 
 #if NR_UI_CHINESE
-#define NR_FILE_DESCRIPTION "DLSS 5 AI渲染完美链路 beta0.5-dev14"
-#define NR_ORIGINAL_FILENAME "DLSS5-AI渲染超分版-beta0.5-dev14-@野生的装机宅-Bilibili.addon64"
+#define NR_FILE_DESCRIPTION "DLSS 5 AI渲染完美链路 beta0.5-dev14-nvfp4-dev1"
+#define NR_ORIGINAL_FILENAME "DLSS5-AI渲染超分版-beta0.5-dev14-nvfp4-dev1-@野生的装机宅-Bilibili.addon64"
 #define NR_PRODUCT_NAME "DLSS 5 AI渲染完美链路"
 #else
-#define NR_FILE_DESCRIPTION "DLSS 5 AI Rendering Perfect Chain beta0.5-dev14"
-#define NR_ORIGINAL_FILENAME "DLSS5-AI-Rendering-Upscaling-beta0.5-dev14-@野生的装机宅-Bilibili.en.addon64"
+#define NR_FILE_DESCRIPTION "DLSS 5 AI Rendering Perfect Chain beta0.5-dev14-nvfp4-dev1"
+#define NR_ORIGINAL_FILENAME "DLSS5-AI-Rendering-Upscaling-beta0.5-dev14-nvfp4-dev1-@野生的装机宅-Bilibili.en.addon64"
 #define NR_PRODUCT_NAME "DLSS 5 AI Rendering Perfect Chain"
 #endif
 

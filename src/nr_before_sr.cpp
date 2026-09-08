@@ -39,6 +39,9 @@
 #include "nr_shortcut_edge.h"
 #include "nr_ui_activity.h"
 #include "nr_work_config.h"
+#include "nr_gpu_timing.h"
+#include "nr_nvfp4_failure.h"
+#include "nvfp4/backend.h"
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
@@ -54,11 +57,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dev14";
+constexpr const char *kAddonVersion = "beta0.5-dev14-nvfp4-dev1";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dev14";
+constexpr const char *kBuildIdentity = "beta0.5-dev14-nvfp4-dev1";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -905,6 +908,9 @@ struct ChainConfig {
     unsigned int style = 0;
     bool ui_correction = false;
     int perf_epoch = 0;
+    unsigned int nr_precision_mode = 0; // 0 Off/native FP8; 1 Auto NVFP4 (owned pre-SR only).
+    bool nr_precision_diagnostic = false; // Observe the original FFN without replacing it.
+    bool gpu_timing = false; // Optional bounded GPU queries; no CPU/GPU wait.
     // 0 = unknown/fail closed, 1 = verified linear UNORM, 2 = verified
     // sRGB-encoded values stored through an UNORM view. This is a profile
     // contract, not a general user image-tuning option.
@@ -1222,6 +1228,8 @@ bool SameHistoryConfig(const ChainConfig &a, const ChainConfig &b) {
            a.proxy_scale == b.proxy_scale &&
            a.proxy_curve == b.proxy_curve &&
            a.nr_input_filter == b.nr_input_filter &&
+           a.nr_precision_mode == b.nr_precision_mode &&
+           a.nr_precision_diagnostic == b.nr_precision_diagnostic &&
            a.depth_mode == b.depth_mode;
 }
 
@@ -1353,6 +1361,7 @@ void NormalizeConfig(ChainConfig &config) {
         ? std::clamp(config.detail_stability, 0.0f, 1.0f) : 0.0f;
     config.proxy_curve = std::min(config.proxy_curve, 2u);
     if (config.nr_input_filter > 1u) config.nr_input_filter = 0u;
+    if (config.nr_precision_mode > 1u) config.nr_precision_mode = 0u;
     config.color_strength = std::clamp(FiniteOr(config.color_strength, 0.0f), 0.0f, 2.0f);
     config.max_luma_ratio = std::clamp(FiniteOr(config.max_luma_ratio, 4.0f), 1.0f, 16.0f);
     config.proxy_scale = std::clamp(FiniteOr(config.proxy_scale, 1.0f), 0.25f, 2.0f);
@@ -1420,6 +1429,9 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.style == b.style &&
            a.ui_correction == b.ui_correction &&
            a.perf_epoch == b.perf_epoch &&
+           a.nr_precision_mode == b.nr_precision_mode &&
+           a.nr_precision_diagnostic == b.nr_precision_diagnostic &&
+           a.gpu_timing == b.gpu_timing &&
            a.r8_output_encoding == b.r8_output_encoding &&
            a.jitter_mode == b.jitter_mode;
 }
@@ -1530,6 +1542,9 @@ void ReloadConfig(bool force = false) {
     next.retry_original_on_sr_failure = GetPrivateProfileIntW(
         L"NRBeforeSR", L"RetryOriginalOnSRFailure", 1, g_ini_path) != 0;
     next.depth_mode = GetPrivateProfileIntW(L"NRBeforeSR", L"DepthMode", -1, g_ini_path);
+    next.nr_precision_mode = GetPrivateProfileIntW(L"NRBeforeSR", L"NrPrecisionMode", 0, g_ini_path);
+    next.nr_precision_diagnostic = GetPrivateProfileIntW(L"NRBeforeSR", L"NrPrecisionDiagnostic", 0, g_ini_path) != 0;
+    next.gpu_timing = GetPrivateProfileIntW(L"NRBeforeSR", L"GpuTiming", 0, g_ini_path) != 0;
     next.intensity = ReadIniFloat(L"Intensity", 1.2f);
     next.local_tone = ReadIniFloat(L"LocalToneStrength", 1.0f);
     next.local_structure = ReadIniFloat(L"LocalStructureStrength", 1.0f);
@@ -1712,6 +1727,9 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"Style", static_cast<int>(config.style)));
     record_write(WriteIniInt(L"UICorrection", config.ui_correction ? 1 : 0));
     record_write(WriteIniInt(L"PerfEpoch", config.perf_epoch));
+    record_write(WriteIniInt(L"NrPrecisionMode", static_cast<int>(config.nr_precision_mode)));
+    record_write(WriteIniInt(L"NrPrecisionDiagnostic", config.nr_precision_diagnostic ? 1 : 0));
+    record_write(WriteIniInt(L"GpuTiming", config.gpu_timing ? 1 : 0));
     record_write(WriteIniInt(L"R8OutputEncoding", config.r8_output_encoding));
     record_write(WriteIniInt(L"JitterMode", static_cast<int>(config.jitter_mode)));
     // Remove the obsolete option from configs created by older builds.
@@ -1863,6 +1881,8 @@ struct PerfSignature {
     bool identity = true;
     float transfer = 0.0f;
     int epoch = 0;
+    unsigned precision = 0;
+    bool precision_diagnostic = false, gpu_timing = false;
 };
 
 struct FrameMeter {
@@ -1885,7 +1905,8 @@ bool SamePerfSignature(const PerfSignature &a, const PerfSignature &b) {
            a.other_nr_owner == b.other_nr_owner &&
            a.rr_bypass == b.rr_bypass && a.mode == b.mode &&
            a.identity == b.identity && a.transfer == b.transfer &&
-           a.epoch == b.epoch;
+           a.epoch == b.epoch && a.precision == b.precision &&
+           a.precision_diagnostic == b.precision_diagnostic && a.gpu_timing == b.gpu_timing;
 }
 
 const char *PerfStageName(const PerfSignature &signature) {
@@ -1913,7 +1934,8 @@ void ObserveFrameCadence() {
         OtherNrOwnerActive(),
         IsRayReconstructionRouteObserved(),
         perf_config.mode, perf_config.identity_use_original,
-        ActiveTransferStrength(perf_config), perf_config.perf_epoch};
+        ActiveTransferStrength(perf_config), perf_config.perf_epoch,
+        perf_config.nr_precision_mode, perf_config.nr_precision_diagnostic, perf_config.gpu_timing};
     if (!g_frame_meter.signature_valid ||
         !SamePerfSignature(current, g_frame_meter.signature)) {
         g_frame_meter.signature = current;
@@ -1924,9 +1946,9 @@ void ObserveFrameCadence() {
         g_frame_meter.warmup_remaining = 180;
         g_frame_meter.count = 0;
         g_frame_meter.sum_ms = 0.0;
-        Log("[perf] reset stage=%s epoch=%d transfer=%.3f; warming 180 frames",
+        Log("[perf] reset stage=%s epoch=%d transfer=%.3f precisionRequested=%u diagnosticPassthrough=%d gpuTiming=%d; warming 180 frames",
             PerfStageName(current), current.epoch,
-            static_cast<double>(current.transfer));
+            static_cast<double>(current.transfer), current.precision, current.precision_diagnostic, current.gpu_timing);
         return;
     }
 
@@ -1993,6 +2015,7 @@ void ReleaseCom(T *&object) {
 }
 
 #include "interop/nr_post_settings.inl"
+#include "nr_gpu_timing.inl"
 
 struct NrApi {
     HMODULE bridge_module = nullptr;
@@ -3876,6 +3899,8 @@ struct NrTuningSignature {
     bool ui_correction = false;
     NrJitterMode jitter_mode = NrJitterMode::GameInputPixel;
     unsigned int input_filter = 0; // Input/history identity, not an NGX model parameter.
+    unsigned int precision_mode = 0;
+    bool precision_diagnostic = false;
 };
 
 struct NrDiagnosticIdentity {
@@ -4059,6 +4084,8 @@ NrTuningSignature CurrentNrTuningSignature() {
     signature.ui_correction = g_config.ui_correction;
     signature.jitter_mode = g_config.jitter_mode;
     signature.input_filter = g_config.nr_input_filter;
+    signature.precision_mode = g_config.nr_precision_mode;
+    signature.precision_diagnostic = g_config.nr_precision_diagnostic;
     return signature;
 }
 
@@ -4071,10 +4098,16 @@ bool SameNrTuningSignature(const NrTuningSignature &a,
            a.auto_mask == b.auto_mask &&
            a.style == b.style &&
            a.ui_correction == b.ui_correction &&
-           a.jitter_mode == b.jitter_mode && a.input_filter == b.input_filter;
+           a.jitter_mode == b.jitter_mode && a.input_filter == b.input_filter &&
+           a.precision_mode == b.precision_mode &&
+           a.precision_diagnostic == b.precision_diagnostic;
 }
 
 struct NrContext {
+    unsigned long long nvfp4_context_id = 0; // Assigned before Create; never an opaque pointer identity.
+    unsigned long long nvfp4_evaluation_serial = 0;
+    bool nvfp4_effective_known = false, nvfp4_last_effective = false;
+    bool nvfp4_transition_blocked = false, nvfp4_transition_pending = false;
     unsigned long long stage_capture_request_id = 0;
     unsigned long long instance_id = 0;
     unsigned int successful_evaluations_since_reset = 0;
@@ -4151,6 +4184,8 @@ struct NrContext {
 };
 
 NrContext g_contexts[16] = {};
+nr_nvfp4_core::FailureLatch g_nvfp4_failure_latch;
+unsigned long long g_next_nvfp4_context_id = 0; // g_chain_cs
 
 #include "nr_jitter_status.inl"
 
@@ -4289,6 +4324,8 @@ void CollectF8GpuLocked() {
 }
 
 void MarkLifecycleUncertain(const char *reason) {
+    g_gpu_timing.Quarantine();
+    nr::nvfp4::OnQuarantine(0, reason);
     if (!g_lifecycle_tracking_uncertain.exchange(true,
                                                   std::memory_order_acq_rel)) {
         Log("GPU lifecycle tracking became uncertain (%s). Feature 18 is now "
@@ -4392,6 +4429,7 @@ void DestroyContext(NrContext &context) {
             context.params = nullptr;
         }
     }
+    nr::nvfp4::RetireContext(context.nvfp4_context_id, context.feature_generation);
     for (auto &slot : context.slots) DestroySlot(slot);
     context = {};
 }
@@ -5240,6 +5278,9 @@ void DetachLifecycleCommandListTokenLocked(
         --context->recording_command_lists;
     }
     g_f8_gpu.OnRecordingInvalidated(token,record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof);
+    const bool definitely_unsubmitted = record->submission_count==0 && record->in_flight_submissions==0 && !record->execution_attempted_without_proof;
+    g_gpu_timing.OnReset(token, definitely_unsubmitted);
+    nr::nvfp4::OnReset(token, definitely_unsubmitted);
     record->detached = true;
     const unsigned int active =
         g_lifecycle_active_command_lists.load(std::memory_order_relaxed);
@@ -5560,6 +5601,8 @@ bool CaptureSubmissionBatchLocked(
         // never-submitted work in the narrow post-Execute return window.
         ++record->submission_count;
         g_f8_gpu.OnSubmit(record->token,queue_state,batch.fence_value);
+        g_gpu_timing.OnSubmit(record->token, queue_state->queue, queue_state->fence, batch.fence_value);
+        nr::nvfp4::OnSubmit(record->token, queue_state->queue, queue_state->fence, batch.fence_value);
         if (batch.quarantine)
             record->execution_attempted_without_proof = true;
     }
@@ -5684,6 +5727,10 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
                                const NrGuideSignature &requested_guides,
                                bool requested_peak_shoulder = false) {
     CollectRetiredContextsLocked();
+    if (mode == 2 && g_nvfp4_failure_latch.Contains(feature_generation)) {
+        SetBypassReason(BypassReason::RuntimeRejected);
+        return nullptr;
+    }
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) ||
         g_nr_failed_create_process_latched.load(std::memory_order_acquire))
         return nullptr;
@@ -5770,6 +5817,11 @@ NrContext *FindOrCreateContext(const NgxHandle *sr_handle,
     }
     if (matching != nullptr) return matching;
     if (empty != nullptr) {
+        empty->nvfp4_context_id = ++g_next_nvfp4_context_id;
+        if (!empty->nvfp4_context_id) {
+            MarkLifecycleUncertain("NVFP4 context identity exhausted");
+            return nullptr;
+        }
         empty->sr_handle = sr_handle;
         empty->feature_generation = feature_generation;
         empty->mode = mode;
@@ -7984,6 +8036,8 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     return true;
 }
 
+#include "nr_nvfp4_core.inl"
+
 NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
                                 NrContext &context,
                                 const FeatureRecord &feature,
@@ -8009,9 +8063,10 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
     NgxResult result = 0xBAD00005u;
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
-        result = g_nr_api.bridge_create(
-            g_nr_api.signed_create, command_list, 18,
-            context.params, &handle);
+        result = CallOwnedNrPrecision(context, command_list, nr::nvfp4::Phase::Create, [&] {
+            return g_nr_api.bridge_create(g_nr_api.signed_create, command_list, 18,
+                                          context.params, &handle);
+        });
     }
     if (result == kNgxSuccess && handle != nullptr) {
         context.instance_id = ++g_next_nr_instance_id;
@@ -8034,19 +8089,23 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
             static_cast<NgxHandle *>(handle);
         context.create_dependencies_quarantined = true;
         context.failed = true;
-        g_nr_failed_create_process_latched.store(true,
-                                                  std::memory_order_release);
+        const bool scoped_precision_failure = context.mode == 2 &&
+            context.lifecycle_dependencies_quarantined &&
+            g_nvfp4_failure_latch.Contains(context.feature_generation);
+        if (!scoped_precision_failure)
+            g_nr_failed_create_process_latched.store(true, std::memory_order_release);
         SetBypassReason(BypassReason::FailedCreateQuarantine);
         Log("Feature 18 Create failed but returned handle=%p. The handle, "
             "parameter block, descriptor heaps and all dependent textures are "
-            "quarantined until process exit; every later Feature 18 attempt is "
-            "disabled for this process.", handle);
+            "quarantined until process exit; disabled scope=%s.", handle,
+            scoped_precision_failure ? "this carrier generation (NVFP4 failure)" : "all Feature18 in this process");
     }
     return result;
 }
 
 struct Substitution {
     bool active = false;
+    nr_gpu_timing::Ticket timing = nr_gpu_timing::kNoTicket;
     // Set only at pre-SR input admission, before any NR call or GPU command.
     bool compatibility_fallback = false;
     NgxParams *params = nullptr;
@@ -8368,6 +8427,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    PrepareNrPrecision(device); // Cold preparation before the first NR GPU command.
     bool lifecycle_recorded = false;
 
     ID3D12Resource *motion_override = nullptr;
@@ -8382,6 +8442,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             return substitution;
         }
         lifecycle_recorded = true;
+        substitution.timing = BeginNrGpuTiming(device, command_list, *context);
         Transition(command_list, slot->motion_proxy, slot->motion_proxy_state,
                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         DispatchMotionResample(command_list, *slot, width, height,
@@ -8407,6 +8468,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    if (!lifecycle_recorded)
+        substitution.timing = BeginNrGpuTiming(device, command_list, *context);
     ReleaseCom(device);
 
     Transition(command_list, slot->proxy, slot->proxy_state,
@@ -8448,6 +8511,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             return substitution;
         }
     }
+    g_gpu_timing.Mark(substitution.timing, command_list, nr_gpu_timing::Boundary::EncodeEnd);
     const bool first = context->nr_handle == nullptr;
     if (!BindNrParameters(*context, *slot, guides, feature,
                           width, height, color_contract, first,
@@ -8481,12 +8545,15 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
 
     NgxResult evaluated = 0xBAD00005u;
+    g_gpu_timing.Mark(substitution.timing, command_list, nr_gpu_timing::Boundary::FeatureBegin);
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
-        evaluated = g_nr_api.bridge_evaluate(
-            g_nr_api.signed_evaluate, command_list, context->nr_handle,
-            context->params, nullptr);
+        evaluated = CallOwnedNrPrecision(*context, command_list, nr::nvfp4::Phase::Evaluate, [&] {
+            return g_nr_api.bridge_evaluate(g_nr_api.signed_evaluate, command_list,
+                                            context->nr_handle, context->params, nullptr);
+        }, slot);
     }
+    g_gpu_timing.Mark(substitution.timing, command_list, nr_gpu_timing::Boundary::FeatureEnd);
     if (evaluated != kNgxSuccess) {
         if (context->evaluations < 3)
             Log("signed feature 18 evaluate failed: 0x%08X (%s)",
@@ -8558,6 +8625,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
+    g_gpu_timing.Mark(substitution.timing, command_list, nr_gpu_timing::Boundary::CompositeEnd);
     substitution.active = true;
     substitution.params = const_cast<NgxParams *>(sr_params);
     substitution.original_color = color;
@@ -10045,6 +10113,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     // Feature 18 warm-up, Create or Evaluate failure may still have changed
     // the game's compute bindings. Restore the exact entry state before SR.
     before_state.Restore();
+    NrSrGpuTimingScope sr_timing(before_sr.timing, before_state.command_list);
     if (!before_sr.active && !after_sr.active) {
         LeaveCriticalSection(&g_chain_cs);
         rr_transaction.Release();
@@ -10097,6 +10166,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             return result;
         }
     }
+    sr_timing.valid = used_before_sr && result == kNgxSuccess && !retried_original_color;
     if (used_before_sr && result == kNgxSuccess &&
         !retried_original_color) {
         if (!RecordVisibleTransferLocked(command_list, feature.generation, 2))
@@ -12396,13 +12466,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dev14 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dev14-nvfp4-dev1 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev14 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev14-nvfp4-dev1 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

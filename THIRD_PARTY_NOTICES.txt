@@ -56,3 +56,22 @@ NVIDIA and games
 No NVIDIA proprietary DLL, SDK binary/header, neural-network payload, game file,
 or game asset is included. Product names are used only to describe interoperability
 and do not imply affiliation or endorsement.
+
+NVFP4 experimental reference
+----------------------------
+
+The optional src/nvfp4 reference dispatch and asset identities are adapted from
+wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass at
+ec96f42f8d32a4fc82f7c4558c0ed12a9f90d853 (v0.7.1-hybrid), particularly
+OptiScaler/dlssnr/DlssNrNative.cpp, DlssNrHybridBuilder.h, and
+DlssNrHybridAssets.h. That upstream work is provided under GNU GPL version 3;
+its full license is preserved in third_party/nvfp4_reference/LICENSE.txt.
+This experimental branch retains that attribution and supplies its corresponding
+backend and kernel source with the local experimental package.
+
+CUTLASS v4.7.1 (cb4247394dd82148787aed73e5dc7cef33cbf862) is an external build
+dependency under NVIDIA's BSD-3-Clause license. CUDA Toolkit components remain
+external build dependencies under their NVIDIA terms. Neither dependency tree
+is vendored in this source checkout. Immutable upstream reference kernels and
+weights are acquired separately into a local private directory by
+scripts/prepare-nvfp4-assets.py; they are not an original NVIDIA NR runtime.

@@ -101,6 +101,14 @@ $BridgeObject = Join-Path $Objects 'nrchain_nvngx.o'
 & $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' '-c' $BridgeSource '-o' $BridgeObject
 if ($LASTEXITCODE -ne 0) { throw "C++ compilation failed: $BridgeSource" }
 
+# The optional backend is a separate C++ COM translation unit; the Core keeps
+# its existing CINTERFACE boundary and the NRChain bridge ABI is unchanged.
+$Nvfp4Source = Join-Path $ProjectRoot 'src\nvfp4\backend.cpp'
+$Nvfp4Object = Join-Path $Objects 'nr_nvfp4_backend.o'
+& $CppCompiler @Common '-std=c++20' '-Wall' '-Wextra' '-Wpedantic' '-c' $Nvfp4Source '-o' $Nvfp4Object
+if ($LASTEXITCODE -ne 0) { throw "NVFP4 backend compilation failed: $Nvfp4Source" }
+$ObjectFiles += $Nvfp4Object
+
 $ResourceSource = Join-Path $ProjectRoot 'src\nr_before_sr.rc'
 
 $AddonSource = Join-Path $ProjectRoot 'src\nr_before_sr.cpp'
@@ -112,7 +120,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.en.o'
         ResourceObject = 'nr_before_sr.en.resource.o'
         LinkLeaf = 'nr_before_sr.en.link.addon64'
-        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dev14-@野生的装机宅-Bilibili.en.addon64'
+        Output = 'DLSS5-AI-Rendering-Upscaling-beta0.5-dev14-nvfp4-dev1-@野生的装机宅-Bilibili.en.addon64'
     },
     @{
         Language = 'Simplified Chinese'
@@ -121,7 +129,7 @@ $AddonBuilds = @(
         Object = 'nr_before_sr.zh-CN.o'
         ResourceObject = 'nr_before_sr.zh-CN.resource.o'
         LinkLeaf = 'nr_before_sr.zh-CN.link.addon64'
-        Output = 'DLSS5-AI渲染超分版-beta0.5-dev14-@野生的装机宅-Bilibili.addon64'
+        Output = 'DLSS5-AI渲染超分版-beta0.5-dev14-nvfp4-dev1-@野生的装机宅-Bilibili.addon64'
     }
 )
 $AddonOutputs = @()
@@ -147,7 +155,7 @@ foreach ($AddonBuild in $AddonBuilds) {
         '-Wl,--strip-all', '-Wl,--no-insert-timestamp'
     ) + $ObjectFiles + @(
         $AddonObject, $ResourceObject, '-o', $LinkOutput, '-lkernel32', '-luser32', '-ld3d12',
-        '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'
+        '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32', '-lbcrypt'
     )
     & $CppCompiler @LinkArgs
     if ($LASTEXITCODE -ne 0) { throw "Link failed ($($AddonBuild.Language))." }

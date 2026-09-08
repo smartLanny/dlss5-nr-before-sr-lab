@@ -506,6 +506,30 @@ void Present(reshade::api::effect_runtime *runtime) {
         local.wYear, local.wMonth, local.wDay, local.wHour, local.wMinute, local.wSecond, local.wMilliseconds,
         utc.wYear, utc.wMonth, utc.wDay, utc.wHour, utc.wMinute, utc.wSecond, utc.wMilliseconds);
     AppendPictureConfig(s, config, session->snapshot_ok);
+    const auto precision=nr::nvfp4::GetStatus();
+    const auto timing=g_gpu_timing.Read();
+    FeedbackAppend(s,"precision.historyResets=%llu\nprecision.unconfirmedTransitions=%llu\n",
+        g_nvfp4_history_resets.load(),g_nvfp4_unconfirmed_transitions.load());
+    FeedbackAppend(s,"precision.requested=%u\nprecision.diagnosticPassthrough=%d\nprecision.backendState=%u\n"
+        "precision.backendMode=%u\nprecision.observedM=%llu\nprecision.replacedPairs=%llu\n"
+        "precision.originalLaunches=%llu\nprecision.replacementLaunches=%llu\nprecision.deviceBytes=%llu\n"
+        "precision.failedMayHaveRecorded=%d\nprecision.restartRequired=%d\nprecision.reason=%s\n"
+        "precision.scope=owned Feature18 pre-SR only; recorded replacement is not GPU completion\n"
+        "gpuTiming.requested=%d\ngpuTiming.available=%d\ngpuTiming.context=%llu\ngpuTiming.config=%u\n"
+        "gpuTiming.precision=%u\ngpuTiming.workExtent=%ux%u\ngpuTiming.completed=%llu\n"
+        "gpuTiming.dropped=%llu\ngpuTiming.invalid=%llu\ngpuTiming.pending=%llu\n"
+        "gpuTiming.encodingMs=%.6f\ngpuTiming.feature18Ms=%.6f\ngpuTiming.compositionMs=%.6f\ngpuTiming.srMs=%.6f\n"
+        "gpuTiming.contract=mean of successful composed NR-to-SR recordings after exact queue fence and recording invalidation; no FFN-only claim\n",
+        config.nr_precision_mode,config.nr_precision_diagnostic,static_cast<unsigned>(precision.state),
+        static_cast<unsigned>(precision.mode),static_cast<unsigned long long>(precision.observed_m),
+        static_cast<unsigned long long>(precision.replaced_pairs),static_cast<unsigned long long>(precision.original_launches),
+        static_cast<unsigned long long>(precision.replacement_launches),static_cast<unsigned long long>(precision.live_device_bytes),
+        precision.may_have_recorded_failure,g_nvfp4_recording_failures.load()!=0,
+        nr_feedback_text::Sanitize(precision.reason).c_str(),config.gpu_timing,timing.available,
+        static_cast<unsigned long long>(timing.key.context),timing.key.config,timing.key.precision,
+        timing.key.width,timing.key.height,static_cast<unsigned long long>(timing.completed),
+        static_cast<unsigned long long>(timing.dropped),static_cast<unsigned long long>(timing.invalid),
+        static_cast<unsigned long long>(timing.pending),timing.encoding_ms,timing.feature18_ms,timing.composition_ms,timing.sr_ms);
     FeedbackAppendActivity(s, "start");
     AcquireSRWLockExclusive(&g_feedback_lock);
     g_pair.config = generation; g_feedback_session = &s;

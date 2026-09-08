@@ -536,6 +536,29 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         SettingsTooltip(ui("Limits how far the AI result can brighten or darken the original. Higher values allow larger changes; they do not add detail by themselves.", "限制 AI 相对原画面最多能提亮或压暗多少。调高会允许更大的明暗变化，但不会凭空增加细节。"));
         if (ImGui::CollapsingHeader(ui("Developer options", "开发者选项"))) {
         SettingsNote(ui("Experimental controls; existing saved values are retained.", "以下为实验调节，通常保持默认即可；收起菜单不会改变已保存的设置。"));
+        int precision=static_cast<int>(next.nr_precision_mode);
+        if(ImGui::Combo(ui("NR precision", "NR 推理精度"), &precision,
+            ui("Off / original FP8\0Auto NVFP4 (experimental)\0", "关闭 / 原始 FP8\0自动 NVFP4（实验）\0"))) {
+            next.nr_precision_mode=static_cast<unsigned>(precision);changed=true;
+        }
+        SettingsTooltip(ui("Applies only to this add-on's NR before SR. Changing precision creates fresh NR history. Availability and real FFN replacements are shown separately.",
+            "仅用于本插件的 NR→SR。更改精度会重建 NR 历史；是否可用与是否实际替换会分别显示。"));
+        ImGui::BeginDisabled(next.nr_precision_mode==0);
+        changed |= ImGui::Checkbox(ui("Observe original FFN only", "仅诊断原始 FFN"), &next.nr_precision_diagnostic);
+        ImGui::EndDisabled();
+        changed |= ImGui::Checkbox(ui("GPU segment timing", "GPU 分段计时"), &next.gpu_timing);
+        const auto precision_status=nr::nvfp4::GetStatus();
+        ImGui::TextDisabled("%s", precision_status.replaced_pairs!=0
+            ? ui("NVFP4: replacement recording observed (historical)", "NVFP4：历史上已观察到替换录制")
+            : ui("NVFP4: no replacement observed", "NVFP4：尚未观察到替换"));
+        ImGui::TextWrapped("%s", precision_status.reason);
+        const auto timing=g_gpu_timing.Read();
+        if(timing.available) ImGui::TextDisabled(
+            ui("GPU mean ms: encode %.3f | NR %.3f | compose %.3f | SR %.3f (%llu samples)",
+               "GPU 平均毫秒：编码 %.3f | NR %.3f | 合成 %.3f | SR %.3f（%llu 样本）"),
+            timing.encoding_ms,timing.feature18_ms,timing.composition_ms,timing.sr_ms,
+            static_cast<unsigned long long>(timing.completed));
+        else ImGui::TextDisabled("%s",ui("GPU timing: waiting for complete valid recordings", "GPU 计时：等待有效录制实际完成"));
     changed |= ImGui::Checkbox(ui("Colour protection (default on)", "色彩保护（默认开启）"), &next.color_protection);
     SettingsTooltip(ui("Limits extra colour amplification when Extra enhancement exceeds 1, helping avoid overly strong colours. Recommended on. Turning it off only removes this colour limit; HDR and invalid-value protections remain.",
         "当“额外增强”超过 1 时，限制颜色被过度放大，减少颜色过浓的情况。建议保持开启；关闭仅取消这项限制，其他 HDR 和异常数值保护仍然有效。"));
