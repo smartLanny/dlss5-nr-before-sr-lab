@@ -1,0 +1,153 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { createLaunchSettingsService } = require('../src/product/launch-settings-service');
+const policy = require('../src/product/launch-settings-policy');
+const { DRS } = require('../src/product/launch-profile-plan');
+
+const absent = () => ({ kind: 'absent', value: null, location: null, predefined: null });
+const explicit = value => ({ kind: 'explicit', value, location: 0, predefined: false });
+const clone = structuredClone;
+function fakeDriver() {
+  let current = { profile: null, settings: Object.fromEntries([...policy.IDS.sr, ...policy.IDS.fg].map(id => [id, absent()])) };
+  let failAfterWrite = null;
+  return {
+    read: async () => clone(current), peek: () => clone(current), set: value => { current = clone(value); },
+    failOnce(afterWrite = () => {}) { failAfterWrite = afterWrite; },
+    async write(exe, expected, desired) {
+      assert.deepEqual(current, expected, 'full driver CAS'); current = clone(desired);
+      if (!current.profile && Object.values(current.settings).some(value => value.kind === 'explicit'))
+        current.profile = { name: 'owned fixture', appName: exe, exclusive: true, owned: true };
+      if (failAfterWrite) { const afterWrite = failAfterWrite; failAfterWrite = null; afterWrite(current); throw Object.assign(new Error('lost response'), { code: 'NVAPI_READBACK_MISMATCH' }); }
+      return clone(current);
+    }
+  };
+}
+function fixture(t, options = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-launch-settings-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const game = path.join(root, 'game'), exeDir = path.join(game, 'Binaries', 'Win64'), exe = path.join(exeDir, 'Game.exe');
+  fs.mkdirSync(exeDir, { recursive: true }); fs.writeFileSync(exe, 'synthetic');
+  const driver = fakeDriver(), legacy = options.legacy || { migrationInfo: async () => ({ baselineCaptured: false }) };
+  const service = createLaunchSettingsService({ userData: path.join(root, 'user'), appDir: root,
+    gameDirectory: () => game, gameExecutable: () => exe, driver, legacySrModel: legacy,
+    detectHardware: async () => ({ family: options.family || 'RTX50', series: [options.family || 'RTX50'] }),
+    environment: async () => ({ verified: true, running: [] }), peBitness: () => 64, ...(options.service || {}) });
+  return { root, game, exeDir, exe, driver, service };
+}
+
+test('native SR owns four keys, leaves FG isolated and restores through the shared file journal', async t => {
+  const f = fixture(t); const request = { backend: 'native', quality: 'custom', renderPercent: 75, preset: 'M' };
+  await f.service.save('g', 'sr', request); assert.equal(await f.service.hasSrRequest('g'), true);
+  const preview = await f.service.preview('g', 'sr'); assert.deepEqual(new Set(preview.driverSettings), new Set(policy.IDS.sr));
+  await f.service.apply(preview.id, { confirm: true });
+  assert.equal(f.driver.peek().settings[DRS.srRatio].value, 75);
+  for (const id of policy.IDS.fg) assert.deepEqual(f.driver.peek().settings[id], absent());
+  const state = await f.service.inspect('g'); assert.equal(state.applied.sr.readbackVerified, true); assert.equal(state.runtimeVerified, false);
+  await f.service.restore('g', 'sr'); assert.equal(f.driver.peek().profile, null); assert.deepEqual((await f.service.inspect('g')).applied, {});
+  assert.equal(await f.service.hasSrRequest('g'), true); assert.equal((await f.service.inspect('g')).requests.sr, undefined);
+  assert.deepEqual(await f.service.pending('g'), []);
+});
+
+test('old SR baseline is restored before the new full four-key baseline is captured', async t => {
+  let captured = true, migrations = 0, f;
+  const legacy = { migrationInfo: async () => ({ baselineCaptured: captured, selection: 'm', effective: 'm' }),
+    prepareMigration: async () => { migrations++; captured = false; const state = f.driver.peek(); state.settings[DRS.srPreset] = explicit(11); f.driver.set(state); return { ok: true, restored: true }; } };
+  f = fixture(t, { legacy });
+  const plan = await f.service.preview('g', 'sr', { backend: 'native', quality: 'preserve', preset: 'M' });
+  await f.service.apply(plan.id, { confirm: true }); assert.equal(migrations, 1);
+  const applied = (await f.service.inspect('g')).applied.sr;
+  assert.equal(applied.baseline.settings[DRS.srPreset].value, 11);
+  assert.equal(f.driver.peek().settings[DRS.srPreset].value, 13);
+});
+
+test('handing SR back to the game first migrates an old baseline and keeps legacy writer disabled', async t => {
+  let captured = true, migrations = 0, f;
+  const legacy = { migrationInfo: async () => ({ baselineCaptured: captured, selection: 'auto', effective: 'm' }),
+    prepareMigration: async () => { migrations++; captured = false; const state = f.driver.peek(); state.settings[DRS.srPreset] = explicit(11); f.driver.set(state); return { ok: true, restored: true }; } };
+  f = fixture(t, { legacy });
+  const result = await f.service.restore('g', 'sr'); assert.equal(result.noOp, true); assert.equal(migrations, 1);
+  assert.equal(f.driver.peek().settings[DRS.srPreset].value, 11); assert.equal(await f.service.hasSrRequest('g'), true);
+  const state = await f.service.inspect('g'); assert.equal(state.legacy.managed, true); assert.equal(state.legacy.effective, 'm'); assert.deepEqual(state.applied, {});
+});
+
+test('uncertain driver failure restores the before snapshot and clears both pending gates', async t => {
+  const f = fixture(t); const plan = await f.service.preview('g', 'sr', { backend: 'native', quality: 'quality', preset: 'K' });
+  f.driver.failOnce(current => { current.settings[DRS.fgCount] = explicit(99); });
+  await assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'NVAPI_READBACK_MISMATCH' });
+  assert.equal(f.driver.peek().settings[DRS.srPreset].kind, 'absent'); assert.equal(f.driver.peek().settings[DRS.fgCount].value, 99);
+  assert.ok(f.driver.peek().profile, 'unowned domain value keeps the profile'); assert.deepEqual(await f.service.pending('g'), []);
+  assert.equal(fs.existsSync(f.service.receiptFile('g')), false);
+});
+
+test('RTX40 control v11 requires manual review for latent debug and restores only owned keys', async t => {
+  const f = fixture(t, { family: 'RTX40' }), file = path.join(f.exeDir, policy.FILES.rtx40);
+  const original = '{"version":11,"followGame":true,"mode":"follow","multiplier":2,"generatedOnlyDebug":true,"other":7}\n';
+  fs.writeFileSync(file, original); await f.service.save('g', 'fg', { backend: 'rtx40', mode: 'fixed', multiplier: 3 });
+  const auto = await f.service.beforeLaunch('g'); assert.equal(auto[0].code, 'SETTINGS_REVIEW_REQUIRED'); assert.equal(fs.readFileSync(file, 'utf8'), original);
+  const plan = await f.service.preview('g', 'fg'); assert.equal(plan.requiresReview, true); await f.service.apply(plan.id, { confirm: true });
+  const changed = JSON.parse(fs.readFileSync(file, 'utf8')); assert.equal(changed.multiplier, 3); assert.equal(changed.other, 7);
+  await f.service.restore('g', 'fg'); assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), JSON.parse(original));
+});
+
+test('restore without an applied domain is a no-op and never probes a missing backend', async t => {
+  const f = fixture(t, { family: 'unknown' });
+  assert.deepEqual(await f.service.restore('g', 'fg'), { applied: false, skipped: true, noOp: true, runtimeVerified: false });
+});
+
+test('official fixed and dynamic FG share the profile without overwriting native SR', async t => {
+  const f = fixture(t);
+  let plan = await f.service.preview('g', 'sr', { backend: 'native', quality: 'quality', preset: 'L' });
+  await f.service.apply(plan.id, { confirm: true }); const srBefore = clone(f.driver.peek().settings[DRS.srPreset]);
+  plan = await f.service.preview('g', 'fg', { backend: 'nvidia', mode: 'fixed', multiplier: 4 });
+  await f.service.apply(plan.id, { confirm: true }); assert.equal(f.driver.peek().settings[DRS.fgCount].value, 3);
+  plan = await f.service.preview('g', 'fg', { backend: 'nvidia', mode: 'dynamic', targetFps: 120 });
+  await f.service.apply(plan.id, { confirm: true }); assert.equal(f.driver.peek().settings[DRS.fgMode].value, 4); assert.equal(f.driver.peek().settings[DRS.fgTarget].value, 120);
+  assert.deepEqual(f.driver.peek().settings[DRS.srPreset], srBefore);
+  await f.service.restore('g', 'fg'); assert.ok(f.driver.peek().profile); assert.deepEqual(f.driver.peek().settings[DRS.srPreset], srBefore);
+  await f.service.restore('g', 'sr'); assert.equal(f.driver.peek().profile, null);
+});
+
+test('OptiScaler ratio restore preserves unrelated later INI edits', async t => {
+  const f = fixture(t), file = path.join(f.exeDir, policy.FILES.optiscaler);
+  fs.writeFileSync(file, '[UpscaleRatio]\r\nUpscaleRatioOverrideEnabled=false\r\n[FG]\r\nEnabled=true\r\n');
+  const plan = await f.service.preview('g', 'sr', { backend: 'optiscaler', quality: 'custom', renderPercent: 75 });
+  await f.service.apply(plan.id, { confirm: true }); assert.match(fs.readFileSync(file, 'utf8'), /UpscaleRatioOverrideValue=1\.333333333/);
+  fs.appendFileSync(file, 'UserKey=keep\r\n'); await f.service.restore('g', 'sr');
+  const restored = fs.readFileSync(file, 'utf8'); assert.match(restored, /UpscaleRatioOverrideEnabled=false/); assert.doesNotMatch(restored, /UpscaleRatioOverrideValue/); assert.match(restored, /Enabled=true/); assert.match(restored, /UserKey=keep/);
+});
+
+test('damaged or target-injecting applied receipt is rejected before any write', async t => {
+  const f = fixture(t), file = f.service.receiptFile('g'); fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '{bad'); await assert.rejects(f.service.inspect('g'), { code: 'SETTINGS_RECEIPT_INVALID' });
+  fs.writeFileSync(file, JSON.stringify({ version: 1, exe: f.exe, applied: { sr: { exe: f.exe, backend: 'optiscaler', request: { backend: 'optiscaler', quality: 'game' }, name: '..\\outside.ini', baselineText: '', lastValues: {} } }, driverOriginalProfile: null }));
+  await assert.rejects(f.service.restore('g', 'sr'), { code: 'SETTINGS_RECEIPT_INVALID' });
+});
+
+test('inspect performs fresh readback and apply rejects an EXE changed after preview', async t => {
+  const f = fixture(t); let plan = await f.service.preview('g', 'sr', { backend: 'native', quality: 'quality', preset: 'K' });
+  fs.writeFileSync(f.exe, 'changed synthetic'); await assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'SETTINGS_EXE_CHANGED' });
+  plan = await f.service.preview('g', 'sr', { backend: 'native', quality: 'quality', preset: 'K' }); await f.service.apply(plan.id, { confirm: true });
+  assert.equal((await f.service.inspect('g')).applied.sr.readbackVerified, true);
+  const changed = f.driver.peek(); changed.settings[DRS.srPreset] = explicit(12); f.driver.set(changed);
+  assert.equal((await f.service.inspect('g')).applied.sr.readbackVerified, false);
+});
+
+test('pending recovery remains visible with a corrupt current receipt and legacy inspection failure', async t => {
+  let recovered = false, f;
+  const journal = {
+    safePath: (_root, rel) => rel,
+    pendingPath: game => path.join(game, '_DLSS5_Backup', 'pending-switch.json'),
+    async recover(game) { recovered = true; fs.rmSync(this.pendingPath(game), { force: true }); fs.rmSync(f.service.receiptFile('g'), { force: true }); return true; },
+    async transaction() { throw new Error('not used'); }, async capture() {}
+  };
+  const legacy = { migrationInfo: async () => { throw Object.assign(new Error('legacy damaged'), { code: 'SETTINGS_LEGACY_MIGRATION' }); } };
+  f = fixture(t, { legacy, service: { journal } });
+  const pending = journal.pendingPath(f.game); fs.mkdirSync(path.dirname(pending), { recursive: true }); fs.writeFileSync(pending, '{}'); fs.writeFileSync(f.service.receiptFile('g'), '{bad');
+  const state = await f.service.inspect('g'); assert.equal(state.pending.length, 1); assert.deepEqual(state.applied, {}); assert.equal(state.receiptError.code, 'SETTINGS_RECEIPT_INVALID'); assert.match(state.notice, /先恢复/);
+  await f.service.recover('g'); assert.equal(recovered, true); assert.deepEqual(await f.service.pending('g'), []);
+  const after = await f.service.inspect('g'); assert.equal(after.legacy.error.code, 'SETTINGS_LEGACY_MIGRATION'); assert.match(after.notice, /旧 SR/);
+});

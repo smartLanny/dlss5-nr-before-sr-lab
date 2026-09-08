@@ -11,14 +11,14 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark"><img src="app-icon.svg" alt=""></div>
+        <div class="brand-mark"><img src="app-icon.png" alt=""></div>
         <div><h1 id="brandName">DLSS 5 AI 超分</h1><p id="brandEdition">装机宅版</p></div>
       </div>
       <nav>
-        <button class="nav active" data-view="games"><span>▣</span>游戏</button>
-        <button class="nav" data-view="repair"><span>◇</span>修复</button>
-        <button class="nav" data-view="addons"><span>◆</span>插件版本</button>
-        <button class="nav" data-view="settings"><span>⚙</span>设置</button>
+        <button class="nav active" data-view="games"><span class="nav-icon nav-icon-games" aria-hidden="true"></span>游戏</button>
+        <button class="nav" data-view="repair"><span class="nav-icon nav-icon-repair" aria-hidden="true"></span>修复</button>
+        <button class="nav" data-view="addons"><span class="nav-icon nav-icon-addons" aria-hidden="true"></span>插件版本</button>
+        <button class="nav" data-view="settings"><span class="nav-icon nav-icon-settings" aria-hidden="true"></span>设置</button>
       </nav>
       <div class="sidebar-foot">
         <p id="authorText">by 野生的装机宅</p>
@@ -169,7 +169,7 @@
     </div>
   </div>
   <script src="action-flow.js"></script>
+  <script src="launch-settings-ui.js"></script>
   <script src="renderer.js"></script>
-  <script src="sr-model-ui.js"></script>
 </body>
 </html>

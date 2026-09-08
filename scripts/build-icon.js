@@ -1,11 +1,11 @@
 'use strict';
 
-const { app, BrowserWindow } = require('electron');
+const { app, nativeImage } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
-const source = path.join(root, 'src', 'renderer', 'app-icon.svg');
+const source = path.join(root, 'src', 'renderer', 'app-icon.png');
 const outDir = path.join(root, 'build');
 const sizes = [16, 24, 32, 48, 64, 128, 256];
 
@@ -33,28 +33,16 @@ function buildIco(images) {
   return Buffer.concat([header, directory, ...images.map(image => image.png)]);
 }
 
-app.whenReady().then(async () => {
-  const svg = fs.readFileSync(source, 'utf8');
-  const window = new BrowserWindow({
-    show: false,
-    width: 1024,
-    height: 1024,
-    useContentSize: true,
-    transparent: true,
-    backgroundColor: '#00000000',
-    webPreferences: { offscreen: true }
-  });
+app.whenReady().then(() => {
   try {
-    const html = `<!doctype html><html><body style="margin:0;width:1024px;height:1024px;background:transparent;overflow:hidden">${svg}</body></html>`;
-    await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-    const image = await window.webContents.capturePage({ x: 0, y: 0, width: 1024, height: 1024 });
+    const image = nativeImage.createFromPath(source);
+    if (image.isEmpty()) throw new Error('Application icon source is invalid.');
     fs.mkdirSync(outDir, { recursive: true });
     const images = sizes.map(size => ({ size, png: pngData(image, size) }));
     fs.writeFileSync(path.join(outDir, 'icon.ico'), buildIco(images));
     fs.writeFileSync(path.join(outDir, 'icon.png'), pngData(image, 1024));
     console.log(`Built build/icon.ico and build/icon.png from ${path.relative(root, source)}`);
   } finally {
-    window.destroy();
     app.quit();
   }
 });

@@ -40,6 +40,12 @@ function appError(code, details = {}) {
 
 function normalizeError(error) {
   const incoming = error && typeof error === 'object' ? error : {};
+  const launchError = /^(SETTINGS_|NVAPI_)[A-Z_]+$/.test(incoming.code || '') ||
+    ['EXE_REQUIRED', 'RECOVERY_FIRST', 'PLAN_EXPIRED', 'CONFIRM_REQUIRED', 'GAME_RUNNING', 'PROCESS_UNKNOWN',
+      'FILE_CHANGED', 'WRITE_VERIFY_FAILED', 'BACKUP_INVALID', 'BACKUP_DAMAGED', 'STAGE_CHANGED', 'JOURNAL_INVALID',
+      'AMBIGUOUS_INI', 'CONFLICTING_REQUEST', 'DUPLICATE_JSON_KEY', 'INVALID_INPUT', 'INVALID_JSON',
+      'INVALID_JSON_VALUE', 'INVALID_RANGE', 'INVALID_TEXT', 'PROTOCOL_MISMATCH', 'UNKNOWN_FIELD',
+      'UNKNOWN_MODE', 'UNKNOWN_PRESET', 'UNKNOWN_QUALITY', 'INVALID_EXE', 'INVALID_SNAPSHOT'].includes(incoming.code);
   const codeMap = {
     errGameRunning: 'ERR_GAME_RUNNING',
     errProcessCheck: 'ERR_PROCESS_CHECK',
@@ -49,9 +55,9 @@ function normalizeError(error) {
     errBackendRecovery: 'ERR_BACKUP_INVALID'
   };
   const code = codeMap[incoming.code] ||
-    (typeof incoming.code === 'string' && MESSAGES[incoming.code] ? incoming.code : 'ERR_INTERNAL');
+    (typeof incoming.code === 'string' && (MESSAGES[incoming.code] || launchError) ? incoming.code : 'ERR_INTERNAL');
   const details = incoming.details || incoming.params || {};
-  let message = MESSAGES[code] || incoming.message || MESSAGES.ERR_INTERNAL;
+  let message = MESSAGES[code] || (typeof incoming.message === 'string' ? incoming.message.slice(0, 1500) : '') || MESSAGES.ERR_INTERNAL;
   if (code === 'ERR_GAME_RUNNING' && Array.isArray(details.processes)) {
     const names = [...new Set(details.processes.map(row => row && row.name)
       .filter(name => typeof name === 'string' && name.trim())

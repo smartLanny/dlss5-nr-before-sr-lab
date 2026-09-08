@@ -12,7 +12,26 @@ guards and file-journal foundation are adapted from DLSS5-Swapper:
 
 The original copyright and MIT permission notice are retained in `LICENSE`.
 
-## ReShade
+The three pure INI helpers in `src/product/launch-ini.js` are adapted from
+DLSS5-Swapper commit `027d1becef8d048b757eb76ced639df583374917`; their full MIT
+notice is included in `src/product/SWAPPER-INI-LICENSE.txt`.
+
+## Launch configuration controls
+
+The scoped SR/FG configuration compiler and NVIDIA profile adapter were migrated
+from this project's frozen public Manager implementation at
+`0b386eb2de1cc392cf69a8b6fb809800f9e1cc62`. Public configuration contracts are
+documented in the compiler's `SOURCES` object. This code manages existing
+OptiScaler/RTX40 control configuration and public NVIDIA profile settings;
+it does not include those projects' rendering or frame-generation implementations.
+
+## Lucide navigation icons
+
+Four navigation icons are copied without path changes from Lucide `0.468.0`
+(`f12b0de177fbc2a6795e99be065887e72b237123`). The full ISC/MIT attribution is
+included in `src/renderer/icons/LICENSE`. Source: https://github.com/lucide-icons/lucide.
+
+## ReShade runtime
 
 The release payload may contain an official ReShade add-on-enabled x64 runtime.
 ReShade remains separately licensed by its authors. It is not committed to this
