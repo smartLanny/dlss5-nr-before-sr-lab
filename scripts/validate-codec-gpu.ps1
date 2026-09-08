@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -16,6 +16,20 @@ if (!$shader.Success -or !$constants.Success -or !$descriptors.Success) {
     throw 'Production codec extraction markers changed; update the GPU harness.'
 }
 $harness = $harness.Replace('// @PRODUCTION_SHADER@', $shader.Value)
+if($CatmullOutput) {
+    if($EditFieldOutput -or $ComparisonOutput -or $BaselineSource -or $NegativeControl -or $LayerNegativeControl) {throw 'Run Catmull contract independently.'}
+    # Test-only non-fused oracle materializes one R-sized field. No production
+    # resource/flag or full-resolution EditField allocation is introduced.
+    $harness=$harness.Replace('float2 SampleRestoredEdit(float2 center) {',
+        'float2 SampleRestoredEdit(float2 center) { if ((Passthrough & 32768u)!=0u) return EditHorizontal.Load(int3(int2(center),0));')
+    $referenceEntry=@'
+[numthreads(8,8,1)] void RestoreEditReferenceCS(uint3 tid:SV_DispatchThreadID) {
+    if(tid.x>=Width || tid.y>=Height) return;
+    EditHorizontalOut[tid.xy]=SampleRestoredEdit(float2(tid.xy)+0.5);
+}
+'@
+    $harness=$harness.Replace(')HLSL";', $referenceEntry+"`n"+')HLSL";')
+}
 if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
     $baseline = Get-Content -LiteralPath $BaselineSource -Raw -Encoding UTF8
     $baselineShader = [regex]::Match($baseline, 'const char kCodecShader\[\] = R"HLSL\([\s\S]*?\)HLSL";')
@@ -41,7 +55,11 @@ $boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_stren
 $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
 $layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
-if (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
+if($CatmullOutput) {
+    $catTests=Get-Content (Join-Path $projectRoot 'tests/catmull_edit_gpu.inl') -Raw -Encoding UTF8
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_TESTS@',$catTests)
+    $harness=$harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@','if (argc==3 && std::strcmp(argv[1],"--catmull-contract")==0) { ExportCatmullContract(gpu,argv[2]); return 0; }')
+} elseif (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
     if ($NegativeControl -or $LayerNegativeControl -or $ComparisonOutput) { throw 'Run EditField export independently.' }
     if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
         $baselineHash = (Get-FileHash -LiteralPath $BaselineSource -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -95,6 +113,13 @@ $compiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang++.exe'
 if ($LASTEXITCODE -ne 0) { throw 'GPU codec harness compilation failed.' }
 if ($CompileOnly) {
     Write-Host 'Production codec fixture compiled only; no WARP/GPU dispatch executed.'
+    return
+}
+if($CatmullOutput) {
+    & $binary '--catmull-contract' ([IO.Path]::GetFullPath($CatmullOutput))
+    if($LASTEXITCODE -ne 0){throw 'Catmull GPU contract failed; evidence retained.'}
+    & python (Join-Path $projectRoot 'scripts/validate-catmull-edit.py') --capture $CatmullOutput
+    if($LASTEXITCODE -ne 0){throw 'Independent Catmull validation failed; evidence retained.'}
     return
 }
 if (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
