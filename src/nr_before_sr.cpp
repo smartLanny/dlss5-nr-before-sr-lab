@@ -3956,6 +3956,7 @@ struct NrStageCaptureInfo {
     float light_broad = 1.f, light_dark = 1.f, light_reflection = 1.f;
     float light_structure = 1.f, light_glow = 0.f;
     unsigned light_preview = 0;
+    bool light_supported = false;
     bool motion_requested = false;
     float pre_exposure = 1.0f;
     float exposure_scale = 1.0f;

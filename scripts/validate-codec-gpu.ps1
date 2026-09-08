@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$LightStyle)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -35,7 +35,7 @@ if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
     $baselineShader = [regex]::Match($baseline, 'const char kCodecShader\[\] = R"HLSL\([\s\S]*?\)HLSL";')
     if (!$baselineShader.Success -or !$baseline.Contains('ModelLightingTapV2')) { throw 'Expected actual maintenance shader with edge-aware LightingLock.' }
     $harness = $harness.Replace('// @MAINTENANCE_SHADER@', $baselineShader.Value.Replace('kCodecShader', 'kMaintenanceShader'))
-    $comparison = if ($ColorEditField -or $InputFilterOutput -or $CombinedLowGrid) { '' } else { @'
+    $comparison = if ($ColorEditField -or $InputFilterOutput -or $CombinedLowGrid -or $LightStyle) { '' } else { @'
         Gpu baseline(kMaintenanceShader);
         unsigned comparison_count = 0;
         for (bool before : {false,true}) for (UINT flags : {0u,1u,16u,32u,64u,128u,192u})
@@ -55,7 +55,12 @@ $boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_stren
 $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
 $layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
-if($CombinedLowGrid) {
+if($LightStyle) {
+    if (!$BaselineSource -or $CombinedLowGrid -or $CatmullOutput -or $ColorEditField -or $InputFilterOutput -or $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl) { throw 'LightStyle requires only its frozen BaselineSource.' }
+    $lightTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/light_style_gpu.inl') -Raw -Encoding UTF8
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $lightTests)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 2 && std::strcmp(argv[1], "--light-style") == 0) { ValidateLightStyle(gpu); return 0; }')
+} elseif($CombinedLowGrid) {
     if (!$BaselineSource -or $CatmullOutput -or $ColorEditField -or $InputFilterOutput -or
         $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl) {
         throw 'Combined low-grid contract requires only BaselineSource.'
@@ -142,7 +147,11 @@ if ($CompileOnly) {
     Write-Host 'Production codec fixture compiled only; no WARP/GPU dispatch executed.'
     return
 }
-if($CombinedLowGrid) {
+if($LightStyle) {
+    & $binary '--light-style'
+    if($LASTEXITCODE -ne 0){throw 'Light style production GPU contract failed.'}
+    return
+} elseif($CombinedLowGrid) {
     & $binary '--combined-low-grid'
     if($LASTEXITCODE -ne 0){throw 'Combined low-grid GPU contract failed.'}
     return

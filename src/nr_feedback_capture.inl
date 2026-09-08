@@ -591,6 +591,13 @@ void FeedbackPresent(reshade::api::effect_runtime *runtime) {
             config.color_strength, config.preserve_lighting ? 1 : 0,
             applied.instance_id, applied.frame_id, applied.config_generation, applied.tuning.intensity,
             applied.tuning.style);
+        FeedbackAppend(*s,"lightStyle.requestVersion=%u\nlightStyle.requestPreset=%u\n"
+            "lightStyle.requestBroad=%.9g\nlightStyle.requestDark=%.9g\nlightStyle.requestReflection=%.9g\n"
+            "lightStyle.requestStructure=%.9g\nlightStyle.requestGlow=%.9g\nlightStyle.requestPreview=%u\n"
+            "lightStyle.actual=recorded per dispatch in stage metadata; request is not output completion\n",
+            config.light_style_version,config.light_preset,static_cast<double>(config.light_broad),
+            static_cast<double>(config.light_dark),static_cast<double>(config.light_reflection),
+            static_cast<double>(config.light_structure),static_cast<double>(config.light_glow),config.light_preview);
         FeedbackAppendActivity(*s, "start");
         const char *stage_block = FeedbackStageBlockReason(config);
         // RequestStageCapture uses atomics and Log only, never g_chain_cs.

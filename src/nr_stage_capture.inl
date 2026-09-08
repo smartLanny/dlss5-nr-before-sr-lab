@@ -373,6 +373,7 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         "proxyScale=%.9g\nproxyMapping=%s\ntransfer=%.9g\ncolorFollowEffective=%.9g\nmaxLumaRatio=%.9g\n"
         "workMode=%d\nworkLinearScale=%.9g\nlightingLock=%.9g\nedgeGuard=%.9g\n"
         "proxyCurve=%u\nframeConfidence=%.9g\n"
+        "lightStyleSupported=%d\nlightStyleRecorded=%d\nlightBroad=%.9g\nlightDark=%.9g\nlightReflection=%.9g\nlightStructure=%.9g\nlightGlow=%.9g\nlightPreview=%u\n"
         "preExposure=%.9g\nhasPreExposure=%d\nscalarExposureScale=%.9g\nhasExposureScale=%d\n"
         "sampling=nearest grid at active-region coordinates (x*stride,y*stride)\n"
         "pixels=PFM little-endian float RGB, raw shader values; alpha omitted\n"
@@ -406,6 +407,10 @@ bool WriteStageCaptureMetadata(const wchar_t *directory,
         static_cast<double>(info.lighting_lock),
         static_cast<double>(info.edge_guard), info.proxy_curve,
         static_cast<double>(info.frame_confidence),
+        info.light_supported?1:0,(info.codec_flags&262144u)!=0u,
+        static_cast<double>(info.light_broad),static_cast<double>(info.light_dark),
+        static_cast<double>(info.light_reflection),static_cast<double>(info.light_structure),
+        static_cast<double>(info.light_glow),info.light_preview,
         static_cast<double>(info.pre_exposure),
         info.has_pre_exposure ? 1 : 0, static_cast<double>(info.exposure_scale),
         info.has_exposure_scale ? 1 : 0,
