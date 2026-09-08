@@ -159,7 +159,14 @@ public:
 
     std::uint64_t Created(std::uintptr_t handle, std::uintptr_t device,
                           std::uint32_t flags, bool flags_known) noexcept {
-        if (handle == 0 || !IsDevice(device)) return 0;
+        if (handle == 0) return 0;
+        if (!IsDevice(device)) {
+            // An address reused by a Create on an unknown device must not
+            // retain the record from the previous device.
+            for (auto &feature : features_)
+                if (feature.handle == handle) feature = {};
+            return 0;
+        }
         const auto generation = ++next_feature_generation_;
         for (auto &feature : features_)
             if (feature.handle == handle) {
@@ -197,9 +204,11 @@ public:
     }
 
     bool StillCurrent(const FeatureRecord &record) const noexcept {
+        if (record.handle == 0 || record.device == 0 || record.generation == 0 ||
+            !record.flags_known || !HasSwapchain(record.device)) return false;
         for (const auto &feature : features_)
             if (feature.handle == record.handle && feature.device == record.device &&
-                feature.generation == record.generation) return true;
+                feature.generation == record.generation && feature.flags_known) return true;
         return false;
     }
 
@@ -221,10 +230,12 @@ private:
         bool resizing = false;
     };
     bool IsDevice(std::uintptr_t device) const noexcept {
+        if (device == 0) return false;
         for (const auto &entry : devices_) if (entry.device == device) return true;
         return false;
     }
     bool HasSwapchain(std::uintptr_t device) const noexcept {
+        if (device == 0) return false;
         for (const auto &entry : swapchains_)
             if (entry.device == device && entry.swapchain != 0 && !entry.resizing) return true;
         return false;
