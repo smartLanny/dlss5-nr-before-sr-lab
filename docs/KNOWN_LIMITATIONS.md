@@ -1,5 +1,20 @@
 # Known limitations
 
+## NTE face control: known defect, investigation paused (2026-09-08)
+
+[Issue #162](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/162)
+remains open at the owner's request. Face adjustment has no clear independent
+visual effect in NTE in current 0.5 and the tested 0.4.6 rollback, including RR off.
+CP2077 reportedly responds to the same control. The game/model/integration cause
+is unresolved; this is not a proven 0.5 regression. Investigation and face-specific
+retest requests are paused. Post-route face darkening is recorded separately;
+earlier residual/lighting fixes do not establish that face adjustment is fixed.
+See [dev10 handoff](interop/DEV10_FULLSCREEN_20260908.md).
+
+dev10 F7 uses original-resolution display screenshots. A complete capture means
+the requested screenshots and records were saved, not that NR or face segmentation
+was proven to execute. It does not contain internal GPU planes or same-frame A/B.
+
 ## r3 diagnostic scope
 
 The optional raw-stage capture stops at composition. In NR→SR it does not read
