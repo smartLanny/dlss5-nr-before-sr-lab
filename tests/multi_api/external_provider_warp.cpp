@@ -41,7 +41,8 @@ static ID3D12Resource *CreateTex(ID3D12Device *device, UINT w, UINT h,
 static void FillUploadAndCopy(ID3D12Device *device, ID3D12GraphicsCommandList *list,
                               ID3D12Resource *texture, UINT w, UINT h,
                               const std::vector<std::uint32_t> &pixels,
-                              ID3D12Resource **upload_out) {
+                              ID3D12Resource **upload_out,
+                              DXGI_FORMAT upload_format = DXGI_FORMAT_R8G8B8A8_UNORM) {
     const UINT row_pitch = (w * 4 + 255u) & ~255u;
     D3D12_HEAP_PROPERTIES heap{};
     heap.Type = D3D12_HEAP_TYPE_UPLOAD;
@@ -72,7 +73,7 @@ static void FillUploadAndCopy(ID3D12Device *device, ID3D12GraphicsCommandList *l
     D3D12_TEXTURE_COPY_LOCATION src{};
     src.pResource = upload;
     src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    src.PlacedFootprint.Footprint.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    src.PlacedFootprint.Footprint.Format = upload_format;
     src.PlacedFootprint.Footprint.Width = w;
     src.PlacedFootprint.Footprint.Height = h;
     src.PlacedFootprint.Footprint.Depth = 1;

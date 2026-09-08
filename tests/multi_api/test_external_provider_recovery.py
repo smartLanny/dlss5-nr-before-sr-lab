@@ -46,6 +46,12 @@ class RecoverySourceTests(unittest.TestCase):
         self.assertIn('nr_external_provider_completion::Wait(g.fence12, g.fence_event,', frame)
         self.assertIn('external_delegated = submitted != 0 &&', frame)
         self.assertIn('feed_in.epoch = nr_external_resource_epoch;', frame)
+        bootstrap = patched[patched.index('bootstrapping NGX allocation runtime'):]
+        bootstrap = bootstrap[:bootstrap.index('    else\n#endif')]
+        self.assertIn('SafeNgxInit12(data_path, g.dev12, &bootstrap_code)', bootstrap)
+        self.assertIn('g.ngx_inited = true;', bootstrap)
+        self.assertNotIn('AllocateParameters', bootstrap)
+        self.assertNotIn('CreateDlssFeature', bootstrap)
         self.assertNotIn('__has_include', patched)
         # All Vk/GL/D3D11 frame implementations remain byte-for-byte unchanged.
         old_tail = original[original.index('static void FeedFrameVk('):]

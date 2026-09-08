@@ -4,7 +4,7 @@
 Read-only source tree is never modified. The transformer copies into an output
 stage and patches production so Feeder:
   1) verifies the pinned git commit,
-  2) claims NRExternalProvider_* and skips private NGX Init/Create/Evaluate,
+  2) claims NRExternalProvider_* and skips private NR Create/Evaluate,
   3) submits color/depth/MV/exposure with monotonic frame ids,
   4) EndCommands-trains core queue affinity on starter declines (no AbortCommands),
   5) never runs a second NR owner when ownership is claimed.
@@ -34,7 +34,8 @@ PRODUCER_INCLUDES = (
     '#endif\n'
 )
 
-# Skip private NGX Init when the lab consumer already owns NR.
+# Preserve official NGX bootstrap: the core uses _nvngx allocation exports.
+# Initialization does not create another NR owner; private Feature1 stays off.
 INIT_NGX_ANCHOR = (
     '    Breadcrumb("initialising NGX on the game\'s device");\n'
     '    DWORD ngx_code = 0;\n'
@@ -47,9 +48,19 @@ INIT_NGX_REPLACEMENT = r'''#if defined(NR_FEED_EXTERNAL_PROVIDER)
     }
     if (nr_external_provider_client::ShouldDisableFeederNr())
     {
-        Breadcrumb("skipping private NGX init (external NR consumer owns Feature18)");
-        Log("[feed] provider-only session: private NGX Init/Create/Evaluate skipped");
-        g.ngx_inited = false;
+        Breadcrumb("bootstrapping NGX allocation runtime for external NR Core");
+        DWORD bootstrap_code = 0;
+        const NVSDK_NGX_Result bootstrap = SafeNgxInit12(data_path, g.dev12, &bootstrap_code);
+        if (bootstrap_code != 0 || NVSDK_NGX_FAILED(bootstrap))
+        {
+            Log("[feed] external Core NGX bootstrap failed result=0x%08X exception=0x%08X",
+                bootstrap, bootstrap_code);
+            ShutdownSession();
+            FeedDisable("external Core NGX bootstrap unavailable");
+            return false;
+        }
+        Log("[feed] provider-only session: NGX allocation runtime initialized; private Feature1 Create/Evaluate skipped");
+        g.ngx_inited = true;
         g.params = nullptr;
         g.feature = nullptr;
     }
@@ -446,7 +457,7 @@ def stage_feeder(feeder_root: Path, output: Path, producer_headers: Path) -> dic
         },
         'feed_cpp_sha256': hashlib.sha256(patched.encode('utf-8')).hexdigest(),
         'feed_vk_hook_sha256': hashlib.sha256(hook_text.encode('utf-8')).hexdigest(),
-        'external_nr': 'FeedFrame12 provider-only: skip private NGX Init/Create/'
+        'external_nr': 'FeedFrame12 provider-only: official NGX allocation bootstrap; skip private Feature1 Create/'
                        'Evaluate; SubmitFrameV1; starter EndCommands trains affinity; '
                        'no second NR on decline',
     }

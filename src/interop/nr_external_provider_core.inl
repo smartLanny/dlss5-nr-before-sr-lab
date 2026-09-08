@@ -644,8 +644,12 @@ inline EvaluateResult EvaluateExternalFrame(const NrExternalFrameV1 &frame,
     substitution.slot = slot;
     substitution.output_base_x = frame.output.rect_x;
     substitution.output_base_y = frame.output.rect_y;
-    substitution.width = width;
-    substitution.height = height;
+    // Current post-SR compositor separates full output and model work extents.
+    // Leaving work_* zero submits a real Feature18 Create with a 0x0 extent.
+    substitution.width = render_width;
+    substitution.height = render_height;
+    substitution.work_width = width;
+    substitution.work_height = height;
     substitution.guide_width = render_width;
     substitution.guide_height = render_height;
     substitution.color_contract = color_contract;
