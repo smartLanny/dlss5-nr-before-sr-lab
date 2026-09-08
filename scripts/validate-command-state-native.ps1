@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$PoolNegativeControl, [switch]$NativeRecordOnly)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$PoolNegativeControl, [switch]$NativeRecordOnly, [switch]$FirstRecordingOnly, [switch]$FirstRecordingNegativeControl, [switch]$BuildOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) { throw 'Provide -ToolchainRoot.' }
@@ -11,6 +11,11 @@ if ($PoolNegativeControl) {
     $needle='PrimeCommandListBeforeResetLocked(*record, native);' # Removes both pre-notification and native-result recovery to reproduce old lazy-only policy
     if (!$production.Contains($needle)) { throw 'Pool negative anchor missing' }
     $production=$production.Replace($needle,'(void)0; // exact old lazy-only defect')
+}
+if ($FirstRecordingNegativeControl) {
+    $needle='record->state->first_recording_observed = true;'
+    if (!$production.Contains($needle)) { throw 'First-recording negative anchor missing' }
+    $production=$production.Replace($needle,'record->state->first_recording_observed = false; // old no-first-recording baseline')
 }
 $main = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_before_sr.cpp') -Raw
 foreach ($expression in @(
@@ -28,6 +33,7 @@ $pristine = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\pristine_nul
 $pristine = (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\command_pool_native.inl') -Raw) + "`n" + $pristine
 $harness = $harness.Replace('// @PRISTINE_NULL_TEST@', $pristine)
 $harness = $harness.Replace('// @NATIVE_RECORD_TEST@', (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\native_command_record.inl') -Raw))
+$harness = $harness.Replace('// @FIRST_RECORDING_TEST@', (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\first_recording_native.inl') -Raw))
 # Preserve existing checkpoints if a native test process terminates before flushing.
 # This affects the test executable only, never the extracted production source.
 $entry = 'int main(int argc, char **argv) {'
@@ -50,6 +56,17 @@ foreach ($source in @('buffer', 'hook', 'trampoline', 'hde\hde64')) {
 }
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' '-fstack-usage' "-I$(Join-Path $minHook 'include')" $generated @objects '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'Native command-state harness compilation failed.' }
+if ($BuildOnly) { Write-Output "Built only: $binary"; exit 0 }
+if ($FirstRecordingOnly -or $FirstRecordingNegativeControl) {
+    $output=& $binary '--first-recording' 2>&1
+    $code=$LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+    if ($FirstRecordingNegativeControl) {
+        if ($code -ne 41 -or ($output -join "`n") -notmatch 'FIRST_RECORDING_NATIVE_ORACLE') { throw 'Wrong first-recording negative failure' }
+        Write-Output 'Negative control passed: no Create-boundary baseline misses the first carrier.'
+    } elseif ($code -ne 0) { throw "First-recording gate failed (exit=$code)." }
+    exit 0
+}
 if ($NativeRecordOnly) {
     & $binary '--native-record'
     if ($LASTEXITCODE -ne 0) { throw "Native record gate failed (exit=$LASTEXITCODE)." }

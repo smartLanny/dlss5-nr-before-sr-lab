@@ -1,5 +1,6 @@
-// Optional evidence observer only. A successful Create receipt does NOT set
-// state.known or bypass the existing Reset/coverage/queue admission rules.
+// A successful Create receipt alone does NOT set state.known. Only a complete
+// before-recording observation plus a real PSO setter can establish the separate
+// first-recording path; Reset/null/coverage/queue rules otherwise remain intact.
 constexpr GUID kCommandCreationReceipt = {0x7a8e5c43,0x13bf,0x4f80,{0x9a,0x46,0x2e,0x82,0x62,0xd7,0xa1,0x93}};
 std::atomic<UINT64> g_command_create_calls{0}, g_command_create_successes{0};
 std::atomic<UINT64> g_command_create1_calls{0}, g_command_create1_successes{0};
@@ -29,7 +30,8 @@ void ObserveCommandCreation(ID3D12Device *device, D3D12_COMMAND_LIST_TYPE type,
         info.device_identity = meta.device_identity;
     if (FAILED(ID3D12GraphicsCommandList_SetPrivateData(list, kCommandCreationReceipt, sizeof(info), &info)))
         g_command_create_receipt_failures.fetch_add(1, std::memory_order_relaxed);
-    else RegisterCreatedCommandStateList(list,meta,info);
+    else if (RegisterCreatedCommandStateList(list,meta,info))
+        ObserveCommandFirstRecording(list,info);
     ID3D12GraphicsCommandList_Release(list);
 }
 CommandStateHookFamily g_state_CreateCommandList, g_state_CreateCommandList1;

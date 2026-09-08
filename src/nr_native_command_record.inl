@@ -123,3 +123,30 @@ bool InstallCommandStateObservation(ID3D12GraphicsCommandList *native,bool obser
     ID3D12Device_Release(device);
     return ready;
 }
+
+// Called only by the successful native Create observer, before returning the
+// list to application recording. Receipt replay/late wrapper registration does
+// not call this boundary. Only #205's initial-null ordinary-PSO case is covered.
+void ObserveCommandFirstRecording(ID3D12GraphicsCommandList *native, const CommandCreationInfo &creation) {
+    if (!g_enabled_fast.load(std::memory_order_acquire) || creation.method != 1 ||
+        creation.initial_pso || !creation.serial || creation.flags != 0) return;
+    const auto token = ReadCommandStateToken(native); // No external private-data call under this lock.
+    AcquireSRWLockExclusive(&g_command_state_lock);
+    auto *record = FindCommandStateTokenLocked(token);
+    if (record && record->native == native && record->native_created && record->lifetime_ready &&
+        record->meta_contract.device_identity == creation.device_identity &&
+        record->creation.serial == creation.serial && !record->state &&
+        !record->captures && !record->native_resets && !record->reset_notifications) {
+        // This reuses bounded allocation and already published *complete* QI
+        // family coverage. It neither installs hooks nor records a Reset.
+        const auto *family = FindObservedCommandFamilyLocked(*record, native);
+        if (family && family->null_guard) PrimeCommandListBeforeResetLocked(*record, native);
+        if (record->state && record->hooks_ready && record->state->null_guard_covered) {
+            record->state->first_recording_observed = true;
+            record->state->unknown_reason = "create-awaiting-PSO";
+            // Do not use ResetNativeCommandState: reset_serial and native Reset
+            // evidence must stay zero. The dummy initial PSO is not restorable.
+        }
+    }
+    ReleaseSRWLockExclusive(&g_command_state_lock);
+}

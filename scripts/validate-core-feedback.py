@@ -198,6 +198,16 @@ int main(int argc,char **argv) {
         "retry after pre-Present cancellation receives a new session identity");
     nr_core_feedback::Cancel();
     {
+        g_command_state_evidence.first_recording_observed=true;
+        g_command_state_evidence.baseline="Create-first-recording";
+        g_command_state_evidence.reset_serial=0;g_command_state_evidence.fresh_reset=false;
+        FeedbackSession first_recording;
+        FeedbackAppendActivity(first_recording,"sample");
+        check(std::strstr(first_recording.report,"sample.commandState.firstRecordingObserved=1\n"),"first recording provenance reaches F8");
+        check(std::strstr(first_recording.report,"sample.commandState.baseline=Create-first-recording\n"),"first recording baseline is not relabeled Reset");
+        check(std::strstr(first_recording.report,"sample.commandState.resetSerial=0\n") &&
+            std::strstr(first_recording.report,"sample.commandState.freshReset=0\n"),"first recording F8 does not fabricate Reset proof");
+        g_command_state_evidence.first_recording_observed=false;g_command_state_evidence.baseline="Reset";
         FeedbackSession unobserved;
         FeedbackAppendActivity(unobserved,"sample");
         check(std::strstr(unobserved.report,"sample.commandState.blend=unobserved\n"),"unobserved blend never masquerades as four zeroes");

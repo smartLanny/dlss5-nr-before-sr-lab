@@ -47,6 +47,7 @@ bool PublishCommandStateHooks(CommandStateHookRequest*,unsigned){++publications;
 HRESULT Original(ID3D12Device*,UINT,D3D12_COMMAND_LIST_TYPE,ID3D12CommandAllocator*,ID3D12PipelineState*,REFIID,void**out){++original_calls;if(SUCCEEDED(original_result)&&out)*out=&list;return original_result;}
 HRESULT Original1(ID3D12Device4*,UINT,D3D12_COMMAND_LIST_TYPE,D3D12_COMMAND_LIST_FLAGS,REFIID,void**out){++original_calls;if(SUCCEEDED(original_result)&&out)*out=&list;return original_result;}
 int checks=0,failures=0;void check(bool ok,const char*m){++checks;if(!ok){++failures;std::printf("FAIL: %s\n",m);}}
+void ObserveCommandFirstRecording(ID3D12GraphicsCommandList*,const CommandCreationInfo&) {}
 '''
 MAIN=r'''
 int main(){
