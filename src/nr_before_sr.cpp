@@ -533,10 +533,9 @@ std::atomic<unsigned int> g_feature1_create_in_progress{0};
 // Failed/null attempts are logged separately and must not create a false
 // permanent observer gap during HDR or DLSS contract rebuilds.
 std::atomic<unsigned long long> g_feature1_successful_creates{0};
-// A live Feature 13 handle is treated as authoritative RR ownership. There is
-// no public frame token that can prove a retained handle is dormant without a
-// race, so ordinary Feature 1 processing resumes only after the game releases
-// every RR handle (or after a process restart).
+// Lifecycle inventory only. Engines can retain an inactive Feature 13 handle
+// after switching back to Feature 1; a cached handle does not own every later
+// SR evaluation. Actual calls and the transaction gate determine routing.
 std::atomic<unsigned int> g_live_rr_handles{0};
 // Close the small window between entering a Feature 13 Create call and
 // publishing its returned handle in g_features. Feature 1 must not be modified
@@ -861,8 +860,8 @@ struct ChainConfig {
     // 1.0 follows the model, 2.0 compounds the model ratio twice, 4.0 is
     // deliberately strong, and 8.0 is an extreme diagnostic ceiling. HDR,
     // finite-value and user-selected maximum-ratio guards remain authoritative.
-    float transfer_strength = 1.2f;
-    float post_transfer_strength = 1.2f;
+    float transfer_strength = 1.0f;
+    float post_transfer_strength = 1.0f;
     // Independent Feature 18 working raster for Mode 2. 0 reference,
     // 1 quality, 2 balanced, 3 performance, 4 ultra, 5 custom.
     int work_mode = 1;
@@ -930,6 +929,11 @@ std::atomic<int> g_last_carrier_feature{-1};
 std::atomic<unsigned long long> g_rr_passthrough_evaluations{0};
 std::atomic<unsigned long long> g_rr_guarded_sr_evaluations{0};
 std::atomic<bool> g_rr_guard_was_active{false};
+bool IsRayReconstructionRouteObserved() {
+    return g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
+        (g_last_carrier_feature.load(std::memory_order_acquire) == 13 &&
+         g_live_rr_handles.load(std::memory_order_acquire) != 0);
+}
 std::atomic<bool> g_unverified_exposure_texture_bypass{false};
 std::atomic<unsigned long long> g_exposure_texture_bypasses{0};
 std::atomic<bool> g_pre_sr_runtime_rejected{false};
@@ -1210,7 +1214,7 @@ float ReadConfiguredTransferStrength(int configured_mode) {
     const float selected = version >= 1 || configured_mode != 1 ? pre : post;
     const float alternate = version >= 1 || configured_mode != 1 ? post : pre;
     const float strength = std::isfinite(selected) ? selected :
-        (std::isfinite(alternate) ? alternate : 1.2f);
+        (std::isfinite(alternate) ? alternate : 1.0f);
     if (version < 1) {
         // Publish the independent marker only after both compatible fields
         // are saved. Failure keeps the requested value for this process.
@@ -1731,8 +1735,7 @@ void ObserveFrameCadence() {
     const PerfSignature current = {
         perf_config.enabled,
         OtherNrOwnerActive(),
-        g_live_rr_handles.load(std::memory_order_relaxed) != 0 ||
-            g_rr_create_in_progress.load(std::memory_order_relaxed) != 0,
+        IsRayReconstructionRouteObserved(),
         perf_config.mode, perf_config.identity_use_original,
         ActiveTransferStrength(perf_config), perf_config.perf_epoch};
     if (!g_frame_meter.signature_valid ||
@@ -1874,21 +1877,52 @@ bool EnsureNrApi(ID3D12Device *device) {
 
     RuntimeLoadEvidence evidence;
     evidence.stage = "load-modules";
-    g_nr_api.bridge_module = LoadLibraryExW(
-        bridge_path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+    evidence.present[0] = RuntimeRegularFile(bridge_path);
+    evidence.present[1] = RuntimeRegularFile(signed_path);
+    RuntimeLoadRestricted(bridge_path, &g_nr_api.bridge_module, &evidence.errors[0]);
     evidence.loaded[0] = g_nr_api.bridge_module != nullptr;
-    evidence.errors[0] = RuntimeLoadError(evidence.loaded[0]);
-    g_nr_api.signed_module = LoadLibraryExW(
-        signed_path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+    RuntimeLoadRestricted(signed_path, &g_nr_api.signed_module, &evidence.errors[1]);
     evidence.loaded[1] = g_nr_api.signed_module != nullptr;
-    evidence.errors[1] = RuntimeLoadError(evidence.loaded[1]);
+    wchar_t exe_directory[MAX_PATH] = {};
+    if (GetModuleFileNameW(nullptr, exe_directory, MAX_PATH) != 0) {
+        wchar_t *slash = wcsrchr(exe_directory, L'\\');
+        if (slash != nullptr) *(slash + 1) = L'\0';
+        else exe_directory[0] = L'\0';
+    } else exe_directory[0] = L'\0';
+    // Addon-dir miss only. A present-but-126 file is a dependency failure;
+    // do not replace it with a different sibling from the game directory.
+    if (exe_directory[0] && _wcsicmp(directory, exe_directory) != 0) {
+        wchar_t exe_bridge[MAX_PATH] = {};
+        wchar_t exe_signed[MAX_PATH] = {};
+        swprintf_s(exe_bridge, L"%lsnrchain_nvngx.dll", exe_directory);
+        swprintf_s(exe_signed, L"%lsnvngx_dlssnr.dll", exe_directory);
+        if (!evidence.loaded[0] && !evidence.present[0] && RuntimeRegularFile(exe_bridge) &&
+            RuntimeLoadRestricted(exe_bridge, &g_nr_api.bridge_module, &evidence.errors[0])) {
+            evidence.loaded[0] = true;
+            evidence.present[0] = true;
+            evidence.search = "exe-directory";
+        }
+        if (!evidence.loaded[1] && !evidence.present[1] && RuntimeRegularFile(exe_signed) &&
+            RuntimeLoadRestricted(exe_signed, &g_nr_api.signed_module, &evidence.errors[1])) {
+            evidence.loaded[1] = true;
+            evidence.present[1] = true;
+            evidence.search = "exe-directory";
+        }
+    }
     HMODULE core = GetModuleHandleW(L"_nvngx.dll");
     evidence.loaded[2] = core != nullptr;
+    evidence.present[2] = evidence.loaded[2];
     evidence.errors[2] = RuntimeLoadError(evidence.loaded[2]);
+    for (unsigned i = 0; i < 3; ++i)
+        evidence.classes[i] = RuntimeClassifyLoad(evidence.present[i], evidence.loaded[i], evidence.errors[i]);
     if (g_nr_api.bridge_module == nullptr || g_nr_api.signed_module == nullptr || core == nullptr) {
-        Log("NR runtime load failed: bridgeLoaded=%d bridgeWin32=%lu signedLoaded=%d signedWin32=%lu coreLoaded=%d coreWin32=%lu; restart after repairing the installation.",
-            evidence.loaded[0] ? 1 : 0, evidence.errors[0], evidence.loaded[1] ? 1 : 0,
-            evidence.errors[1], evidence.loaded[2] ? 1 : 0, evidence.errors[2]);
+        Log("NR runtime load failed: bridgeLoaded=%d bridgePresent=%d bridgeClass=%s bridgeWin32=%lu "
+            "signedLoaded=%d signedPresent=%d signedClass=%s signedWin32=%lu coreLoaded=%d coreWin32=%lu "
+            "search=%s; restart after repairing the installation.",
+            evidence.loaded[0] ? 1 : 0, evidence.present[0] ? 1 : 0, RuntimeLoadClassName(evidence.classes[0]),
+            evidence.errors[0], evidence.loaded[1] ? 1 : 0, evidence.present[1] ? 1 : 0,
+            RuntimeLoadClassName(evidence.classes[1]), evidence.errors[1],
+            evidence.loaded[2] ? 1 : 0, evidence.errors[2], evidence.search);
         g_nr_api.failed = true;
         RecordRuntimeLoadEvidence(evidence);
         SetBypassReason(BypassReason::RuntimeUnavailable);
@@ -2404,6 +2438,25 @@ float ModelLumaRatioV2(float2 fullPixelCenter) {
     return clamp(n / p, 1.0 / 256.0, 256.0);
 }
 
+// A sparse lighting tap must not borrow another surface's luminance drift.
+// Keep the same nearest model-grid sample and two loads as ModelLumaRatioV2;
+// return weighted ratio + weight so rejected taps can be renormalized, not
+// replaced with a fictitious unity ratio. This is luma guidance, not a face mask.
+float2 ModelLightingTapV2(float2 fullPixelCenter, float centerProxyLuma) {
+    float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
+        float2(max(Width, 1u), max(Height, 1u)) - 0.5;
+    int2 pxy = int2(round(mapped));
+    float p = dot(LoadProxyLinearV2(pxy), kLuma);
+    float n = dot(LoadNeuralLinearV2(pxy), kLuma);
+    if (!isfinite(p) || !isfinite(n)) return float2(0.0, 0.0);
+    p = max(p, 1.0 / 4096.0);
+    n = max(n, 1.0 / 4096.0);
+    float relativeEdge = abs(p - centerProxyLuma) /
+        max(max(p, centerProxyLuma), 1.0 / 4096.0);
+    float weight = 1.0 - smoothstep(0.10, 0.50, relativeEdge);
+    return float2(weight * clamp(n / p, 1.0 / 256.0, 256.0), weight);
+}
+
 // Only the residual is filtered. Uniform edits and the original image remain intact.
 // No temporal/face-mask claim: this confidence uses same-dispatch model samples only.
 float4 DetailDecisionV2(float2 center, float rawLog, float proxyLuma) {
@@ -2429,7 +2482,13 @@ float4 DetailDecisionV2(float2 center, float rawLog, float proxyLuma) {
     float detailWeight = 1.0 - saturate(DetailStability)*risk;
     uint reasons = (lowSampling > 0.0 ? 1u : 0u) | (incoherent > 0.0 ? 2u : 0u) |
         (dark > 0.0 ? 4u : 0u) | (extreme > 0.0 ? 8u : 0u);
-    return float4(detailWeight,float(reasons),rawLog,mean+(rawLog-mean)*detailWeight);
+    // Spatial stabilization may attenuate this pixel's model edit, but it must
+    // not borrow a stronger or opposite-sign edit from the sparse neighbours.
+    // At reduced work resolution that otherwise expands a dark model patch
+    // into an only-mildly-changed full-resolution face pixel.
+    float stabilized = mean + (rawLog - mean) * detailWeight;
+    stabilized = clamp(stabilized, min(rawLog, 0.0), max(rawLog, 0.0));
+    return float4(detailWeight,float(reasons),rawLog,stabilized);
 }
 
 float StabilizeDetailLogV2(float2 center, float rawLog, float proxyLuma) {
@@ -2695,40 +2754,6 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         return;
     }
 
-    // Render-resolution NR can introduce a broad luminance bias that the
-    // following SR pass then magnifies. When requested, estimate that slow
-    // component from a sparse 9-tap neighbourhood and remove it from the
-    // neural result. Fine structure remains in the neural-minus-proxy delta,
-    // while the game's own HDR illumination remains the low-frequency base.
-    if ((Passthrough & 2u) != 0u) {
-        float proxyMean = 0.0;
-        float neuralMean = 0.0;
-        int2 center = int2(tid.xy);
-        int2 upper = int2(Width - 1u, Height - 1u);
-        [unroll]
-        for (int oy = -1; oy <= 1; ++oy) {
-            [unroll]
-            for (int ox = -1; ox <= 1; ++ox) {
-                int2 sampleCoord = clamp(
-                    center + int2(ox, oy) * 4, int2(0, 0), upper);
-                float3 proxySample =
-                    ProxyColor.Load(int3(sampleCoord, 0)).rgb;
-                float3 neuralSample =
-                    NeuralColor.Load(int3(sampleCoord, 0)).rgb;
-                if (!modelEncodedInput) {
-                    proxySample = SRGBToLinear(proxySample);
-                    neuralSample = SRGBToLinear(neuralSample);
-                }
-                proxyMean += dot(proxySample, kLuma);
-                neuralMean += dot(neuralSample, kLuma);
-            }
-        }
-        if (proxyMean > 0.0001 && neuralMean > 0.0001) {
-            neural *= clamp(proxyMean / neuralMean, 0.5, 2.0);
-            modelDelta = neural - proxy;
-        }
-    }
-
     float normalizer = (modelEncodedInput || linearSdrStorage ||
                         srgbSdrStorage || pqEncodedHdr) ? 1.0
         : max(ProxyScale * ResolveSourceToCanonical(), 0.000001);
@@ -2736,6 +2761,33 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float sourceLuma = dot(source, kLuma);
     float proxyLuma = dot(proxy, kLuma);
     float neuralLuma = dot(neural, kLuma);
+    // Post-SR/RR receives the same paired proxy/neural model contract as the
+    // pre-SR path. Attenuate only its broad luminance residual with the shared
+    // model-grid estimator; retain the legacy colour transfer below. The
+    // mapped helper remains valid when post NR uses a smaller work raster.
+    // Preserve the historical binary flag for standalone callers. Production
+    // post routing supplies the scalar; when present it takes precedence so
+    // the legacy bit cannot turn a partial lock into a full lock.
+    float lightingAmount = LightingLock > 0.000001
+        ? saturate(LightingLock) : ((Passthrough & 2u) != 0u ? 1.0 : 0.0);
+    if (lightingAmount > 0.000001) {
+        float safeProxyLuma = max(proxyLuma, 1.0 / 4096.0);
+        float safeNeuralLuma = max(neuralLuma, 1.0 / 4096.0);
+        float logRatio = clamp(log2(safeNeuralLuma / safeProxyLuma), -8.0, 8.0);
+        const float radius = 8.0;
+        float2 center = float2(tid.xy) + 0.5;
+        float2 local = float2(0.40 * (safeNeuralLuma / safeProxyLuma), 0.40);
+        local += 0.15 * ModelLightingTapV2(center + float2(radius, 0.0), safeProxyLuma);
+        local += 0.15 * ModelLightingTapV2(center - float2(radius, 0.0), safeProxyLuma);
+        local += 0.15 * ModelLightingTapV2(center + float2(0.0, radius), safeProxyLuma);
+        local += 0.15 * ModelLightingTapV2(center - float2(0.0, radius), safeProxyLuma);
+        float localMean = clamp(log2(max(local.x / local.y, 1.0 / 256.0)),
+                                -8.0, 8.0);
+        float protectedLog = clamp(logRatio - localMean,
+                                   min(logRatio, 0.0), max(logRatio, 0.0));
+        logRatio = lerp(logRatio, protectedLog, lightingAmount);
+        neuralLuma = proxyLuma * exp2(logRatio);
+    }
     // The proxy may be compressed by the highlight shoulder and proportional
     // peak normalization, so an absolute proxy delta is not in source-HDR
     // units. Transfer the neural residual as a *relative* change around the
@@ -2888,20 +2940,21 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
     logRatio = StabilizeDetailLogV2(center, logRatio, proxyLuma);
 
-    // Remove only the low-frequency component of model luminance drift. The
-    // centre plus four cross taps avoids the old 3x3 edge-heavy correction and
-    // keeps this branch completely free when LightingLock is zero.
+    // Remove only the low-frequency component of model luminance drift.
+    // Weight the same four sparse cross taps by proxy-luma continuity so a
+    // different surface cannot leave a rim of uncorrected model darkening.
+    // Keep this branch completely free when LightingLock is zero.
     if (LightingLock > 0.000001) {
         const float radius = 8.0;
-        // The centre ratio is already available. Average four sparse
-        // neighbours in linear-ratio space, then take one logarithm. This
-        // preserves the broad-drift estimate while avoiding five extra
-        // log2 operations and a redundant centre texture pair per pixel.
-        float localRatio = 0.40 * (neuralLuma / proxyLuma);
-        localRatio += 0.15 * ModelLumaRatioV2(center + float2(radius, 0.0));
-        localRatio += 0.15 * ModelLumaRatioV2(center - float2(radius, 0.0));
-        localRatio += 0.15 * ModelLumaRatioV2(center + float2(0.0, radius));
-        localRatio += 0.15 * ModelLumaRatioV2(center - float2(0.0, radius));
+        // The known finite centre anchors the denominator at >= 0.40. Flat
+        // regions retain the previous 0.40/0.15 weights and one-log estimator;
+        // rejecting every neighbour falls back to this pixel's own ratio.
+        float2 local = float2(0.40 * (neuralLuma / proxyLuma), 0.40);
+        local += 0.15 * ModelLightingTapV2(center + float2(radius, 0.0), proxyLuma);
+        local += 0.15 * ModelLightingTapV2(center - float2(radius, 0.0), proxyLuma);
+        local += 0.15 * ModelLightingTapV2(center + float2(0.0, radius), proxyLuma);
+        local += 0.15 * ModelLightingTapV2(center - float2(0.0, radius), proxyLuma);
+        float localRatio = local.x / local.y;
         float localMean = clamp(log2(max(localRatio, 1.0 / 256.0)),
                                 -8.0, 8.0);
         // Protection may only attenuate this pixel's existing edit. A sparse
@@ -5948,10 +6001,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT,
         IsUnityExposureContract(color_contract), g_config.color_strength,
         g_config.preserve_lighting);
-    if (v2_combine) {
-        color_policy.requested_preserve_lighting = g_config.lighting_lock > 0.000001f;
-        color_policy.effective_preserve_lighting = color_policy.requested_preserve_lighting;
-    }
+    if (any_combine)
+        ApplyLightingLockPolicy(color_policy, g_config.mode, g_config.lighting_lock);
     ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,
         g_config.color_strength);
     const unsigned int base_codec_flags = source_flags |
@@ -5979,7 +6030,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         f8_info.proxy_scale=g_config.proxy_scale;f8_info.transfer_strength=ActiveTransferStrength(g_config);
         f8_info.max_luma_ratio=g_config.max_luma_ratio;f8_info.work_mode=g_config.work_mode;
         f8_info.work_linear_scale=static_cast<float>(f8_info.model_width)/std::max(width,1u);
-        f8_info.lighting_lock=v2_combine?g_config.lighting_lock:(g_config.preserve_lighting?1.f:0.f);
+        f8_info.lighting_lock=any_combine?g_config.lighting_lock:0.f;
         f8_info.detail_stability=v2_combine?g_config.detail_stability:0.f;f8_info.motion_requested=g_config.motion_stability;
         f8_info.edge_guard=v2_combine?g_config.edge_guard:0.f;f8_info.proxy_curve=g_config.proxy_curve;
         f8_info.frame_confidence=std::clamp(frame_confidence,0.f,1.f);
@@ -6100,7 +6151,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         f8_armed ? f8_info.stride : capture_stages ? slot.stage_capture.info.stride : 0u,
         resolved_source_width, resolved_source_height,
         resolved_model_width, resolved_model_height,
-        v2_combine ? g_config.lighting_lock : 0.0f,
+        any_combine ? g_config.lighting_lock : 0.0f,
         v2_combine ? g_config.edge_guard : 0.0f,
         g_config.proxy_curve, std::clamp(frame_confidence, 0.0f, 1.0f),
         v2_combine ? g_config.detail_stability : 0.0f,
@@ -8751,7 +8802,7 @@ NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
 
 bool ShouldGuardFeature1ForRayReconstruction() {
     return g_rr_create_in_progress.load(std::memory_order_acquire) != 0 ||
-           g_live_rr_handles.load(std::memory_order_acquire) != 0;
+           g_rr_ownership_gate_owner.load(std::memory_order_acquire) == 2;
 }
 
 NgxResult ProcessEvaluate(EvaluateFeatureFn original,
@@ -8807,9 +8858,10 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
 
-    // A live Feature 13 handle is authoritative ownership. A count/time based
-    // "dormant" guess races engines that call Feature 1 before Feature 13 and
-    // can produce a double-NR frame, so only an explicit Release resumes work.
+    // This is a classified outermost Feature 1 call. Cached RR handles remain
+    // registered for lifetime tracking, but do not block the game's selected
+    // SR route. Nested vendor forwarding is already handled by DispatchEvaluate;
+    // actual RR work/transitions still exclude modifications via the gate.
     const unsigned int live_rr_handles =
         g_live_rr_handles.load(std::memory_order_acquire);
     if (ShouldGuardFeature1ForRayReconstruction()) {
@@ -8819,8 +8871,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         const unsigned long long guarded = ++g_rr_guarded_sr_evaluations;
         if (guarded <= 3 || (guarded % 600) == 0) {
             Log("SuperSampling evaluate #%llu passed through unmodified "
-                "because %u live Ray Reconstruction handle(s) own the "
-                "viewport conservatively.", guarded, live_rr_handles);
+                "during an active Ray Reconstruction transaction/create "
+                "(cached RR handles=%u).", guarded, live_rr_handles);
         }
         return original(command_list, handle, params, callback);
     }
@@ -8918,8 +8970,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
     if (g_rr_guard_was_active.exchange(false, std::memory_order_relaxed)) {
-        // Explicit RR ownership ended. Any Feature 18 history from before RR is
-        // stale, so reset on the first resumed ordinary-SR frame.
+        // The game selected an ordinary SR evaluation again. Reset its prior
+        // NR history once, even when an inactive RR handle remains cached.
         g_config_generation.fetch_add(1, std::memory_order_relaxed);
         g_history_generation.fetch_add(1, std::memory_order_relaxed);
         Log("Ray Reconstruction activity ended; ordinary SR processing resumed "
@@ -10395,6 +10447,50 @@ bool FormatScreenshotPostfix(char *postfix, std::size_t capacity,
 // writer. The add-on only supplies a compact, filesystem-safe diagnostic
 // postfix. F7 separately queues the existing asynchronous stage request;
 // neither hotkey enters a Feature 18 command-list/lifetime transaction.
+// A report is already saved before this runs. Transfer only its Unicode path;
+// Windows owns the movable allocation after a successful SetClipboardData.
+bool CopyReportPathToClipboard(HWND owner, const wchar_t *path) {
+    if (path == nullptr || path[0] == 0) return false;
+    const std::size_t length = std::wcslen(path);
+    if (length >= 1024) return false;
+    const std::size_t bytes = (length + 1) * sizeof(wchar_t);
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (memory == nullptr) return false;
+    void *data = GlobalLock(memory);
+    if (data == nullptr) { GlobalFree(memory); return false; }
+    std::memcpy(data, path, bytes);
+    GlobalUnlock(memory);
+    if (!OpenClipboard(owner)) { GlobalFree(memory); return false; }
+    const bool copied = EmptyClipboard() &&
+        SetClipboardData(CF_UNICODETEXT, memory) != nullptr;
+    CloseClipboard();
+    if (!copied) GlobalFree(memory);
+    return copied;
+}
+
+// Called under screenshot_hotkey_lock. Clipboard contention is retried across
+// Presents, without sleeping or blocking a render callback waiting for access.
+void PollReportPathClipboard(HWND owner, ULONGLONG now_ms) {
+    static wchar_t pending_path[1024] = {};
+    static ULONGLONG deadline_ms = 0, next_attempt_ms = 0;
+    wchar_t ready_path[1024] = {};
+    if (nr_core_feedback::TakeReportPathForClipboard(ready_path)) {
+        std::memcpy(pending_path, ready_path, sizeof(pending_path));
+        deadline_ms = now_ms + 1500;
+        next_attempt_ms = now_ms;
+    }
+    if (nr_core_feedback::GetReportClipboardStatus() !=
+        nr_core_feedback::ReportClipboardStatus::Pending) pending_path[0] = 0;
+    if (!pending_path[0] || now_ms < next_attempt_ms) return;
+    const bool copied = CopyReportPathToClipboard(owner, pending_path);
+    if (copied || now_ms >= deadline_ms) {
+        nr_core_feedback::SetReportClipboardResult(pending_path, copied);
+        pending_path[0] = 0;
+    } else {
+        next_attempt_ms = now_ms + 100;
+    }
+}
+
 void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     if (runtime == nullptr) return;
 
@@ -10448,6 +10544,7 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     // queue the bounded core worker. The image coordinator waits for its pair.
     nr_core_feedback::Present(runtime);
     nr_f8::Present(runtime);
+    PollReportPathClipboard(static_cast<HWND>(runtime->get_hwnd()), now_ms);
 
     if (screenshot_pressed && now_ms - last_screenshot_ms >= 350) {
         last_screenshot_ms = now_ms;
@@ -11288,31 +11385,8 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
             sample_identity.instance_id, sample_identity.frame_id,
             sample_identity.config_generation);
     }
-    nr_f8::DrawControls();
-    const unsigned int capture_status = StageCaptureStatus();
-    if (capture_status == 0) {
-        if (ImGui::Button(ui("Capture NR stages once", "采集一次 NR 各阶段")))
-            RequestStageCapture();
-        const int capture_result = g_stage_capture_last_result.load(std::memory_order_relaxed);
-        if (capture_result != 0)
-            ImGui::TextDisabled("%s", capture_result > 0
-                ? ui("Stages saved beside the log. See metadata before comparing.",
-                     "阶段图已保存在日志旁，请结合元数据对照。")
-                : ui("Capture could not be saved. Check the log; rendering continues.",
-                     "采集未能保存，请查看日志；渲染继续。"));
-    } else {
-        ImGui::TextDisabled("%s", capture_status == 3
-            ? ui("Saving stage capture...", "正在保存阶段图……")
-            : ui("Waiting for a stable NR frame and GPU completion...",
-                 "等待稳定的 NR 帧及 GPU 完成……"));
-    }
-    ImGui::TextWrapped("%s", ui(
-        "Optional diagnosis: samples original, proxy, NR and composition once. "
-        "F7 requests stages; '-' saves the displayed image separately. "
-        "NR -> SR stages stop before native SR. These captures are not the same frame.",
-        "可选诊断：单次采集原图、代理图、NR 输出和合成结果。"
-        "F7 请求阶段图；“-”独立截取显示画面。NR→SR 的阶段图止于原生 SR 之前，"
-        "两者不是同一帧。"));
+    // Feedback generation and image comparison live in the Feedback tab.
+    // Diagnostics only presents observations, avoiding duplicate actions.
 }
 
 #include "nr_settings_ui.inl"
@@ -11405,7 +11479,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnReShadePresent);
         reshade::register_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
         reshade::register_overlay(kSettingsOverlayName, DrawSettings);
-        reshade::register_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
         Log("Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot "
             "hotkey (API %u).",
             static_cast<unsigned int>(RESHADE_API_VERSION));
@@ -11417,7 +11490,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             reshade::unregister_event<reshade::addon_event::init_device>(
                 OnCommandStateInitDevice);
             reshade::unregister_overlay(kSettingsOverlayName, DrawSettings);
-            reshade::unregister_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
             reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
@@ -11440,7 +11512,6 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::unregister_event<reshade::addon_event::init_device>(
             OnCommandStateInitDevice);
         reshade::unregister_overlay(kSettingsOverlayName, DrawSettings);
-        reshade::unregister_overlay("DLSS5 F8 Capture", nr_f8::DrawOverlay);
         reshade::unregister_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
         reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);

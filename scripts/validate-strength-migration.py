@@ -65,12 +65,13 @@ int main() {
     }
     fixture(4,1,L"0",L"1",L"1"); check(Load().transfer_strength==0,"canonical zero wins over stale post field");
     fixture(4,1,L"1.6",L"0.3",L"1"); check(Load().transfer_strength==1.6f,"canonical wins regardless of mode");
+    fixture(4,2,L"1.2",L"0.4",L"1"); { const auto prior=Load(); check(prior.transfer_strength==1.2f&&prior.post_transfer_strength==1.2f,"explicit prior 1.2 is preserved and mirrored"); }
     fixture(4,1,L"1.6",L"0.3"); check(Load().transfer_strength==.3f,"existing version3 post value is legacy");
     fixture(4,2,L"0.3",L"1.6"); check(Load().transfer_strength==.3f,"existing version3 pre value is legacy");
     fixture(4,1,L"0",nullptr); check(Load().transfer_strength==0,"missing active field falls back to existing valid zero");
     fixture(4,2,L"NaN",L"0"); check(Load().transfer_strength==0,"invalid active field falls back to valid zero");
-    fixture(4,2,nullptr,nullptr); check(Load().transfer_strength==1.2f,"new installation default strength");
-    check(Load().color_strength==.75f,"missing colour uses new installation default");
+    fixture(4,2,nullptr,nullptr); check(Load().transfer_strength==1.0f,"new installation default strength");
+    check(Load().color_strength==1.f,"missing colour uses current installation default");
     put(L"ColorStrength",L"0"); check(Load().color_strength==0,"saved zero colour is preserved");
     DeleteFileW(g_ini_path);
     std::printf("actual Win32 INI strength migration: %d checks / %d failures\n",checks,failures);

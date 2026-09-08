@@ -2,7 +2,7 @@
 
 Refs #110. The current 0.4 simplified overlay lost the older one-click reset. A button in the Picture tab restores the shipped picture defaults through the same pending configuration transaction used for ordinary edits.
 
-Targets: Before SR; final strength 1.2 in both modes; Quality work mode and saved custom ratio 0.75; colour request 0.75; maximum luma ratio 4; lighting/edge protection 0.20/0.25; hybrid proxy curve; model intensity/local tone/local structure 1; default style; automatic face mask off with skin preference -1; UI correction on; warmup 2; original-SR retry on. Diagnostic identity, detail/motion experiments, unverified HDR colour and peak-shoulder experiments are reset to their shipped defaults. Reset-frame suppression stays enabled.
+Targets: Before SR; final strength 1.0 in both modes; Quality work mode and saved custom ratio 0.75; colour request 1.0; maximum luma ratio 4; lighting/edge protection 0.20/0.25; hybrid proxy curve; model intensity/local tone/local structure 1; default style; automatic face mask off with skin preference -1; UI correction on; warmup 2; original-SR retry on. Diagnostic identity, detail/motion experiments, unverified HDR colour and peak-shoulder experiments are reset to their shipped defaults. Reset-frame suppression stays enabled.
 
 This is not a destructive factory reset: Enable/F6, provider-specific depth/jitter/R8 encoding and feedback preferences are preserved. Runtime hook/ownership/resource/queue/quarantine faults are never cleared. The tooltip states these boundaries. Colour 0.75 is a requested value; existing colour admission still applies. This PR does not implement #109's unverified-colour policy change.
 

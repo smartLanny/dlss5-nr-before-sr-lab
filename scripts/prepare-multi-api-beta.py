@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the merged 0.4.5 compatibility candidate without changing the checkout.
+"""Stage the merged 0.4.6 compatibility candidate without changing the checkout.
 
 Requires #131, #132 and the completed #134 merge. Generated-source availability
 is not game verification. MFG work is deferred for the current owner test batch.
@@ -14,28 +14,29 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.4.5-dx11-compat'
-DISPLAY_VERSION = '0.4.5-DX11-兼容增强'
+VERSION = 'beta0.4.6-hotfix.1'
+DISPLAY_VERSION = '0.4.6-hotfix.1'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
 PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
-STATE_CURRENT = 'ca61df92bb2d8c689648b12a35e7e1835d294748'
+STATE_CURRENT = 'f0f13b0a8ac243f01cdf0f93a517440ac65f1394'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137)
 INTEGRATION_CORE_PINS = {
-    'src/nr_feedback_core.inl': 'a14c75fb3ecf96f4d1e59a5aadda9d181dfae879',
+    'src/nr_feedback_core.inl': 'd0d3c4c09b2755ba7b7e89fb0fad9a124e996c48',
     'src/nr_feedback_text.h': '2eb84a38dca9c72243bc2a4a0aa84007ec75097f',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
-    'src/nr_f8_sequence.inl': '08b9da7342466382e95904b0ca585ce93c92ee43',
+    'src/nr_f8_sequence.inl': 'd6a017063570787a04b67562a5a67ed91d723921',
     'src/nr_command_state.inl': STATE_CURRENT,
-    'src/nr_feedback_capture.inl': '1ea44b68b5da07b018bc93eef13111d2f274601e',
-    'src/nr_settings_ui.inl': 'e18d389d952e9ccb97ba81704b1aed76333f0c2d',
-    'src/nr_before_sr.cpp': 'e2c5ff0facc80b84c1bea29df05974f87b910429',
+    'src/nr_feedback_capture.inl': '99328d273b964509e344bfdbcd7bbc85f230619b',
+    'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
+    'src/nr_settings_ui.inl': 'ddd24e8524d99f58520cbbebbe339613dbba0a9f',
+    'src/nr_before_sr.cpp': '9917b285a5e5c0810a7771451c43ce642be28f95',
     'src/nr_before_sr.rc': '25985f691b7f3104ba7c696f3da03eae709d4e52',
-    'src/nr_color_policy.inl': 'e52bbc78b15647e8947de88afdbccf6ac7591361',
+    'src/nr_color_policy.inl': '486c656eaf54af6c1d5b93bed3ce0f7bce9e1b60',
     'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
     'scripts/build.ps1': 'a3ba1f85da395602c83039b1542cc04db4ca9207',
@@ -119,7 +120,9 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         encoding='utf-8', newline='\n')
     names = stage / 'core/src/interop/nr_deployment_names.h'
     text = names.read_text(encoding='utf-8')
-    old = 'return Equal(name, L"dlss5-native-carrier-045-exp3.addon64");'
+    old = ('return Equal(name, L"dlss5-native-carrier-045-exp3.addon64") ||\n'
+           '        Equal(name, L"dlss5-native-carrier-multiapi-dev3.addon64") ||\n'
+           '        Equal(name, L"dlss5-native-carrier-045-dx11-compat.addon64");')
     if text.count(old) != 1:
         raise ValueError('Companion identity anchor changed')
     names.write_text(text.replace(old,
@@ -149,8 +152,8 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     resource_text = rc.read_text(encoding='utf-8')
     if '0.4.5-fix2 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
-    rc.write_text(resource_text.replace('0.4.5-fix2 beta', '0.4.5 DX11 compatibility beta')
-                  .replace('VERSION 0,4,5,2', 'VERSION 0,4,5,104'),
+    rc.write_text(resource_text.replace('0.4.5-fix2 beta', '0.4.6 hotfix.1 beta')
+                  .replace('VERSION 0,4,5,2', 'VERSION 0,4,6,1'),
                   encoding='utf-8', newline='\n')
     ini = stage / 'core/config/nr_before_sr.ini'
     with ini.open('a', encoding='utf-8', newline='\n') as stream:
@@ -159,6 +162,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
+        'core_pe_version': '0.4.6.1',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),
@@ -210,7 +214,7 @@ def prepare(core: Path, upstream: Path, output: Path) -> None:
             raise ValueError('Source changed during generation')
         if output.exists():
             raise ValueError('Output appeared during generation')
-        stage.rename(output)
+        m.legacy.publish_stage(stage, output)
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)

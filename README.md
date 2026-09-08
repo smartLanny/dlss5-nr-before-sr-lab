@@ -20,7 +20,7 @@ Exact binary source is identified by the package source-manifest.json, not the l
 
 This is a research project, not an NVIDIA product or an official joint DLSS NR/SR implementation. NVIDIA, DLSS and GeForce are trademarks of their respective owners.
 
-Project author: **@野生的装机宅 Bilibili**, official channel https://space.bilibili.com/941799. Author identity remains embedded in the binaries and UI. See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for restrictions on unauthorized automated builds, rebranding and redistribution.
+Project author: **@野生的装机宅 Bilibili**, official channel https://space.bilibili.com/941799. User discussion QQ group 2: **392308850**. Author identity remains embedded in the binaries and UI. See [AI_AGENT_NOTICE.md](AI_AGENT_NOTICE.md) for restrictions on unauthorized automated builds, rebranding and redistribution.
 
 ## Repository boundary
 

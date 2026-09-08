@@ -84,10 +84,11 @@ bool CopyRecord(HANDLE output,const wchar_t *path) {
 bool WriteChunk(const wchar_t *path,const Session &s,unsigned group,unsigned chunk) {
     if(group>=s.group_count || chunk>4)return false;
     const Group &g=s.groups[group];const unsigned begin=chunk*4;
-    const unsigned count=begin<g.count?std::min(chunk==4?1u:4u,g.count-begin):0;
+    const unsigned count=chunk==4?(g.overview_reserved?1u:0u):
+        (begin<g.count?std::min(4u,g.count-begin):0u);
     HANDLE h=CreateFileW(path,GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
     if(h==INVALID_HANDLE_VALUE)return false;
-    bool ok=WriteBytes(h,"F8CHK004",8) && U32(h,4) && U32(h,group) && U32(h,chunk) && U32(h,count) && U32(h,16) && U32(h,5);
+    bool ok=WriteBytes(h,"F8CHK004",8) && U32(h,4) && U32(h,group) && U32(h,chunk) && U32(h,count) && U32(h,g.roi_target) && U32(h,5);
     for(unsigned i=begin;ok && i<begin+count;++i) {
         const auto &f=g.frames[i];
         ok=f.valid?CopyRecord(h,f.spool):WriteRecord(h,{s.id,group,i},f.info,f.params,g.requested,g.actual,nullptr,0,false);

@@ -225,6 +225,20 @@ int main(int argc,char **argv) {
     check(std::strstr(nr_core_feedback::g_submission,"end.ngxHookFailure.entry=existing-short-hotpatch"),"actual ticket includes historical hook shape");
     save("valid-core.zip");
     check(nr_core_feedback::g_full_report && nr_core_feedback::g_report_path[0],"standalone TXT and cached content published");
+    wchar_t copied_path[1024]{};
+    check(nr_core_feedback::TakeReportPathForClipboard(copied_path) &&
+          std::filesystem::path(copied_path)==std::filesystem::path(nr_core_feedback::g_report_path),
+          "successful atomic TXT publication exposes exactly its path for automatic clipboard copy");
+    wchar_t claimed_path[1024]{};wcscpy_s(claimed_path,copied_path);
+    check(!nr_core_feedback::TakeReportPathForClipboard(copied_path) &&
+          nr_core_feedback::GetReportClipboardStatus()==nr_core_feedback::ReportClipboardStatus::Pending,
+          "automatic TXT path is claimed once while copier result remains pending");
+    nr_core_feedback::SetReportClipboardResult(L"C:\\stale-report.txt",true);
+    check(nr_core_feedback::GetReportClipboardStatus()==nr_core_feedback::ReportClipboardStatus::Pending,
+          "stale clipboard completion cannot mark a newer TXT copied");
+    nr_core_feedback::SetReportClipboardResult(claimed_path,true);
+    check(nr_core_feedback::GetReportClipboardStatus()==nr_core_feedback::ReportClipboardStatus::Copied,
+          "UI may claim copied only after the platform copier reports success");
     const auto &report=*nr_core_feedback::g_full_report;
     check(report.find(first.session)!=std::string::npos && report.find("null-pso-policy-disabled")!=std::string::npos,"TXT carries this session and first-error log");
     check(report.find("Private Tester")==std::string::npos && report.find("ABCDEF00")==std::string::npos,"TXT privacy matches sanitized ZIP");

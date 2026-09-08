@@ -305,12 +305,32 @@ def patch_diagnostics(text: str) -> str:
     return text
 
 def patch_ui(text: str) -> str:
+    # The refreshed base UI already owns the effective-route slider and RR
+    # protection presentation. Keep generation idempotent instead of layering
+    # the historical post placeholder transform over those controls.
+    refreshed = '    const bool rr_guarded = IsRayReconstructionRouteObserved();'
+    if refreshed in text:
+        for required in (
+                '"##nr-processing-precision", &precision, 50.0f, 100.0f',
+                'DrawSimpleFeedbackControls();',
+                'nr_f8::TakeSettingsFeedbackPageRequest()',
+                '"Feedback and diagnostics###nr-feedback-diagnostics"',
+                '"Developer options", "开发者选项"'):
+            if text.count(required) != 1:
+                raise PatchError(f'refreshed UI contract missing or duplicated: {required}')
+        for removed in ('"Experimental###nr-experimental"',
+                        '"Diagnostics###nr-diagnostics"',
+                        'NR_HAS_F8_SEQUENCE'):
+            if removed in text:
+                raise PatchError(f'refreshed UI retains removed tab: {removed}')
+        return text
+
     # Preserve #134's actual main-panel model controls and front precision
     # logic. Replace only its unimplemented post placeholder, in place.
     text=once(text,'    const bool before_sr = next.mode == 2;',
         '    const bool before_sr = next.mode == 2;\n'
         '    const bool effective_post = !before_sr ||\n'
-        '        (g_live_rr_handles.load(std::memory_order_acquire)!=0 && nr_post_settings::Read().rr);\n'
+        '        ShouldGuardFeature1ForRayReconstruction();\n'
         '    if (effective_post) {\n'
         '        DrawPostResolutionControl();\n'
         '    } else {')

@@ -104,7 +104,11 @@ int main() {
 
 
 def raster(source: str) -> str:
-    actual = definition(source, 'bool CanAutoRestoreRasterNull(')
+    # The boolean wrapper delegates to the same production reason predicate;
+    # extract that dependency too, rather than replacing it with a test stub.
+    helper = definition(source, 'bool CommandStateBlendFactorAdmissible(')
+    actual = definition(source, 'const char *RasterNullRejectionReason(') + '\n'
+    actual += definition(source, 'bool CanAutoRestoreRasterNull(')
     return COMMON + r'''
 using UINT=unsigned;using UINT64=unsigned long long;
 constexpr float D3D12_VIEWPORT_BOUNDS_MIN=-32768.f,D3D12_VIEWPORT_BOUNDS_MAX=32767.f;
@@ -116,6 +120,7 @@ struct NativeCommandState {
  void *pipeline=nullptr,*raytracing_pipeline=nullptr,*rtv_cache=nullptr,*dsv_cache=nullptr;UINT unknown_domains=0;
  struct {UINT target_count=0;bool contiguous_targets=false,has_depth_target=false;struct Handle{unsigned long long ptr=0;}targets[8],depth_target;UINT64 recorded=kDynamicViewport|kDynamicScissor;UINT vertex_mask=0,stream_mask=0,viewport_count=1,scissor_count=1;Viewport viewports[16];Rect scissors[16];float blend[4]={1,1,1,1};} dynamic;
 };
+HELPER
 ACTUAL
 int main() {
  NativeCommandState s;s.dynamic.viewports[0]={0,0,1920,1080,0,1};s.dynamic.scissors[0]={1,2,1919,1079};
@@ -139,9 +144,26 @@ int main() {
  {auto t=s;t.dynamic.scissors[0].right=-1;check(!CanAutoRestoreRasterNull(t),"inverted scissor rejected");}
  {auto t=s;t.dynamic.recorded=0;check(!CanAutoRestoreRasterNull(t),"pristine route remains distinct");}
  {auto t=s;t.dynamic.recorded=kDynamicBlend;check(CanAutoRestoreRasterNull(t),"blend-only reset subset admitted");}
- for(float bad:{-1.f,1.01f,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}) {
-   auto t=s;t.dynamic.recorded=kDynamicBlend;t.dynamic.blend[2]=bad;check(!CanAutoRestoreRasterNull(t),"unbounded or nonfinite blend rejected");
+ for(unsigned lane=0;lane<4;++lane) {
+   for(float ok:{-0.f,-1.f,-2.f,-3.f,1.01f,2.f,std::numeric_limits<float>::max(),
+                 std::numeric_limits<float>::lowest(),std::numeric_limits<float>::denorm_min(),
+                 -std::numeric_limits<float>::denorm_min()}) {
+     auto t=s;t.dynamic.recorded=kDynamicBlend;t.dynamic.blend[lane]=ok;
+     float before[4];std::memcpy(before,t.dynamic.blend,sizeof(before));
+     check(CanAutoRestoreRasterNull(t),"finite out-of-unit blend admitted");
+     check(std::memcmp(before,t.dynamic.blend,sizeof(before))==0,"admission preserves observed blend bits");
+   }
+   for(float bad:{std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity(),
+                  -std::numeric_limits<float>::infinity()}) {
+     auto t=s;t.dynamic.recorded=kDynamicBlend;t.dynamic.blend[lane]=bad;
+     check(!CanAutoRestoreRasterNull(t),"nonfinite blend rejected in every lane");
+   }
  }
+ {auto t=s;t.dynamic.recorded=kDynamicBlend;
+  const float observed[4]={-0.f,-1.f,-2.f,-3.f};
+  std::memcpy(t.dynamic.blend,observed,sizeof(observed));
+  check(CanAutoRestoreRasterNull(t),"issue99 dev3 simultaneous four-factor state admitted");
+  check(std::memcmp(observed,t.dynamic.blend,sizeof(observed))==0,"issue99 sample not clamped");}
  {auto t=s;t.dynamic.recorded=0x46;check(CanAutoRestoreRasterNull(t),"empty target set restores");
   t.dynamic.target_count=1;check(!CanAutoRestoreRasterNull(t),"raw RTV rejected");
   t.rtv_cache=&s;t.dynamic.contiguous_targets=true;t.dynamic.targets[0].ptr=1;
@@ -152,7 +174,7 @@ int main() {
   t.dynamic.target_count=8;t.dynamic.contiguous_targets=false;check(!CanAutoRestoreRasterNull(t),"cache contiguous"); }
  return finish("actual bounded null-raster policy");
 }
-'''.replace('ACTUAL',actual)
+'''.replace('HELPER', helper).replace('ACTUAL', actual)
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)

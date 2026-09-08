@@ -95,11 +95,11 @@ int main(){
     start=ui.index('ImGui::BeginTabItem(ui("Picture###nr-picture"')
     capture=ui.index('if (collecting) ImGui::BeginDisabled();',start)
     mode=ui.index('"Processing mode"',start)
-    precision=ui.index('"NR processing precision (%)"',mode)
+    precision=ui.index('"##nr-processing-precision"',mode)
     model=ui.index('"Model strength"',precision)
     end=ui.index('// END PRIMARY MODEL CONTROLS',model)
     advanced=ui.index('"Advanced picture controls"',end)
-    amp=ui.index('"Strength amplification"',advanced)
+    amp=ui.index('"Overall NR effect"',advanced)
     unlock=ui.index('if (collecting) ImGui::EndDisabled();',amp)
     assert start<capture<mode<precision<model<end<advanced<amp<unlock
     assert ui.count('"Face mask"')==1 and ui.count('"Model strength"')==1
