@@ -1,6 +1,67 @@
 # #167: official D3D12 FG-only sample, generation not yet verified
 
-## Diagnostic continuation: corrected observation contract, GPU run pending
+## 09:23 single development run: SDK interpolation and extra presents observed
+
+The owner-authorized final diagnostic ran exactly once, on the isolated official
+sample with adapter source `3d44af4470a20b07eebda0c488b69d1876286255` and the EXE
+hash recorded below. It retained 640x360, animated scene, Reflex 60, one requested
+generated frame, fixed 2.12 development components and no NR. All six actually
+loaded SDK module hashes matched the staged pins; the seventh pinned file is
+the PIX runtime dependency. The development binaries happened to report valid
+signatures in this archive; exact hashes remain the acceptance criterion.
+
+| Observation | Result |
+|---|---|
+| Source frames / state queries / focused frames | 121 / 121 / 121 |
+| SDK queries reporting two presents | 119 |
+| Summed SDK since-query present count | 238 |
+| One requested VRAM estimate | eOk, 85,425,950 bytes |
+| Input-processing fence maximum | 119 |
+| Samples whose input fence was already complete | 115 |
+| State queries / device health | all eOk / all S_OK |
+| Asynchronous DXGI callback errors | 0 |
+| Exit / watchdog / remaining sample processes | 0 / false / 0 |
+
+The verbose SDK log records `WAR4639162`, immediately followed by its
+interpolation state changing from disabled to enabled with mode On and one
+requested generated frame. Therefore the presence of that workaround message
+does **not** establish an interpolation blocker. Together with progressing input
+fences and 119 SDK multi-present observations, this establishes that this
+development run activated the SDK interpolation path and reported extra
+presentations. It is stronger evidence than capability/API success alone.
+
+No generated-pixel capture or display-cadence capture was made by this runner;
+there are no raw image frames to claim or discard. Correct intermediate pixels,
+HUD quality, timing, production-DLL behavior and game injection remain unverified.
+The total includes the bounded startup/query window, not a display-rate metric.
+The estimate is expected memory, not measured allocation; ordinary queries
+again report zero after the single explicit estimate, as permitted by the API.
+
+The log is not warning-free: it retains duplicate-hook startup warnings,
+present-thread synchronization reminders, a repeated SetOptions warning at
+startup frame 1, native swapchain refcount warning, and a missing optional
+backbuffer extent reset to the full size. NGX also logs failed cache/optional
+feature probes before loading the pinned local DLSS-G implementation. None
+produced a nonzero reported DLSS-G status or asynchronous DXGI callback error in
+this run; these warnings have not been relabelled as passing integration checks.
+
+This run changed the diagnostic query contract **and** used development DLLs;
+it does not isolate why the older production run reported at most one present.
+No A/B sweep or second run was performed. Next evidence work should independently
+capture generated images and display timing, with explicit provenance, before
+NR integration or a game-support claim. No further GPU work is implied here.
+
+Private evidence preserves the complete sample log, SDK log, actual module
+inventory, JSON settings, original build validation and source manifest, and a
+separate runtime validation. The source manifest still describes the original
+pre-run build; runtime validation records this one hardware run separately.
+The process exited and GPU access was released before this documentation update.
+
+- Sample log SHA256: `a1362d07a7daea1f89606190cedf919a9aceef9c7ff1be40fde3aee696df5b59`.
+- SDK log SHA256: `ee135baa561022f3d4b411b91e74bd992d1de8c192719d74c14f9a6dbd14566d`.
+- Run report SHA256: `1a92be8d1777069898002d4b6d3cab9cf5af7d973d78f3f71bfa266f2238f0e5`.
+
+## Diagnostic preparation completed before the single run above
 
 The fixed SDK 2.12 headers/documentation expose two concrete limitations in the
 original probe. Neither establishes the cause of suppressed interpolation:
@@ -50,7 +111,7 @@ using a separate official-source worktree. Remote refs checked before work:
 main `cd10d96b817d83ea4d84da4286c52cbdc0ca377a`, #173
 `a0143f29efa89ea384a6a435a384c3f204530e52`.
 
-Next single, bounded run after the owner coordinates GPU access:
+Command used for the single bounded run above:
 
 ```powershell
 ./scripts/run-fg-sample.ps1 -SampleRoot $DiagnosticSample -OutputRoot $NewEvidence `

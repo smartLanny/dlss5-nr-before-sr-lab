@@ -1,14 +1,23 @@
 # 统一开发与测试交接入口
 
-## 2026-09-08 FG #167 诊断续做（未运行新GPU批次）
+## 2026-09-08 FG #167 唯一集中诊断（SDK已报告插帧）
+
+09:23 按授权用隔离官方development 2.12样本只运行一次，源代码
+`3d44af4470a20b07eebda0c488b69d1876286255`。121源帧/121查询，119次
+SDK presented=2、总238；输入fence到119，显式VRAM估算85,425,950 bytes，
+状态/设备正常、异步DXGI错误0，exit0无watchdog，样本进程0、GPU已释放。
+WAR4639162之后日志明确interpolation disabled→enabled，故WAR本身不是
+阻断证据。已证明本次SDK插帧路径激活并报告额外present；未捕获生成像素或
+display cadence，不是游戏/NR+FG验收，也未隔离旧production与新development
+差异的根因。保留所有警告/原始日志/设置/模块与构建锁，不追加参数扫描。
 
 从 #173 独立接续，修正官方样本每源帧两次 GetState 分割计数的观测合同；
 现在一次查询并复用 fence/status，按实际 D3D12 描述符一次请求 VRAM 估算。
 旧 VRAM=0 是未请求估算，不能证明未分配；旧最大 presented=1 也不严格排除
 异步计数被分割。旧实测保留，未重标为 FG 成功。新增明确的 development
 SDK 2.12 哈希锁定隔离运行、verbose/NGX 日志与异步 DXGI 错误取证。
-MSVC Release 链接和无运行 staging 通过；未运行新GPU/游戏/CI，未推送合并。
-下一步同输入一次受控诊断，解释内部插帧决定；WAR4639162 根因仍未证明。
+MSVC Release 链接和无运行 staging 通过，后完成上述唯一硬件诊断；未运行
+游戏/CI，未推送合并。下一证据项是生成像素与显示节奏取证，不自动继续运行。
 具体 EXE/日志/补丁清单哈希与命令见
 [FG 诊断续做](FG_SAMPLE_PROBE_20260908.md)。
 
