@@ -68,6 +68,11 @@ function findFileCaseInsensitive(dir, wanted) {
   }
 }
 
+function hasXboxContentLayout(root) {
+  return Boolean(findFileCaseInsensitive(root, 'MicrosoftGame.config') ||
+    findFileCaseInsensitive(path.join(root, 'Content'), 'MicrosoftGame.config'));
+}
+
 // UnityPlayer.dll imports OpenGL on some builds even when the game selects a
 // DirectX renderer dynamically. When the same Unity module contains explicit
 // D3D markers and the game ships native DLSS, OpenGL is a false first match:
@@ -286,7 +291,11 @@ function createLibraryService(overrides = {}) {
         dx12: Boolean(evidence && evidence.apiLabel === 'DirectX 12')
       });
       existing.set(key, rows[rows.length - 1]);
-    }, 12, { includeContent: true });
+    // A normal Unreal/Unity Content tree contains assets rather than launch
+    // executables and may contain hundreds of thousands of entries. GDK is
+    // the bounded exception: MicrosoftGame.config can place the accessible
+    // executable below <root>/Content.
+    }, 12, { includeContent: hasXboxContentLayout(root) });
     return rows;
   }
 

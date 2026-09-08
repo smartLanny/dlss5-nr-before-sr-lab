@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { createLibraryService } = require('../src/product/library-service');
+const scanCore = require('../src/core/scan');
 
 function noDlss(exe) {
   const chosen = { path: exe, rel: path.basename(exe), name: path.basename(exe), bitness: 64, api: 'dxgi', apiLabel: 'DirectX 12' };
@@ -53,4 +54,34 @@ test('EXE selection still reaches a sibling Unreal Engine Plugins DLSS layout', 
     return result;
   } } });
   assert.equal((await library.findGameRoot(exe)).root, root);
+});
+
+test('manual candidate discovery skips ordinary Content assets but retains the GDK Content exception', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'manager-content-boundary-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const exe = path.join(root, 'Game.exe'); fs.writeFileSync(exe, 'synthetic');
+  const assets = path.join(root, 'Content', 'Assets'); fs.mkdirSync(assets, { recursive: true });
+  for (let index = 0; index < 200; index++) fs.writeFileSync(path.join(assets, `asset-${index}.bin`), 'asset');
+  const contentExe = path.join(root, 'Content', 'ChosenGame.exe'); fs.writeFileSync(contentExe, 'synthetic selected executable');
+  let callbacks = 0;
+  const chosen = noDlss(exe);
+  const library = createLibraryService({ scan: {
+    scanGame: async () => chosen,
+    walk: (dir, onFile, depth, options) => scanCore.walk(dir, async (...args) => { callbacks++; return onFile(...args); }, depth, options)
+  } });
+
+  const selected = await library.prepareSelection(root, contentExe);
+  assert.equal(callbacks, 1, 'ordinary Content asset files are not enumerated as executable candidates');
+  assert.equal(selected.chosen.path, contentExe, 'an explicitly selected Content EXE remains authoritative');
+
+  fs.writeFileSync(path.join(root, 'Content', 'MicrosoftGame.config'), '<Game></Game>');
+  callbacks = 0;
+  await library.prepareSelection(root);
+  assert.equal(callbacks, 203, 'Content/MicrosoftGame.config keeps the accessible Content layout in the candidate scan');
+
+  fs.unlinkSync(path.join(root, 'Content', 'MicrosoftGame.config'));
+  fs.writeFileSync(path.join(root, 'MicrosoftGame.config'), '<Game></Game>');
+  callbacks = 0;
+  await library.prepareSelection(root);
+  assert.equal(callbacks, 203, 'root MicrosoftGame.config also keeps the accessible Content layout in the candidate scan');
 });

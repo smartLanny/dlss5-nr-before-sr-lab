@@ -1,5 +1,22 @@
 # 现用 xiaofeng 管理器维护与待发布交接
 
+## 当前候选：Manager #180 性能旁路接入（dev.6）
+
+当前本机为 **Manager 0.4.6-hotfix.7-dev.6**，保持 dev.5 用户确认的顶部 API/核心、皮肤常显、画面设置/超分补帧两页签布局。#180 以独立性能修改提交和验证，不与 #179 界面验收混同。
+
+已核对 `b4d1d44` 的既有哈希/展示缓存、worker、封面索引及静默日志均在当前树，未找到更新但遗漏的可见性能旁路提交。本次另修复手动候选扫描无条件遍历普通 Content 素材树：只有根目录或直接 Content 目录的 MicrosoftGame.config 才启用 GDK 例外，显式选中的 Content EXE 保留。合成 9,600 素材的候选阶段由 9,601 文件回调/123 目录读取降为 1 文件回调/3 目录读取（含两次固定布局探测）。不是现场 IO 对照或普遍提速承诺。详细来源、25 项定向回归及 dev.5 本机短时进程观察见 [#180 独立验收记录](../performance/2026-09-08-manager-180-content-scan.md)。
+
+最终完整 **293 passed / 0 failed / 0 skipped**，UI 合同 71/67，包内实际 ASAR 在 900×620 / 1280×900 下交互通过。实际包中 library-service 和 UI 文件与已验源码逐字节匹配；所有核心、FG、NVAPI 与许可证通过。portable/内部 EXE 保持 requireAdministrator；external unpacked 仍不含 NR payload，保留 FG/NVAPI。完整 Setup 更新本机返回 0，安装 EXE/ASAR 匹配后重新启动。安装前 dev.5 ASAR/摘要保存在 `build/installed-before-dev6`，dev.5 Setup 仍在 dist 可回退。
+
+| 当前成品（`dist`） | SHA256 |
+| --- | --- |
+| `win-unpacked/resources/app.asar` | `c1dc5fc496c16e3b1dbc9924fd9819aab72ac4c8f09ec3317417263f1f06de35` |
+| `win-unpacked/DLSS 5 AI 超分管理器.exe` | `7c4ab088e97c2e8281773bc44886ce90438d7cb495c129a4caa030d67a25fec1` |
+| `DLSS5-Manager-Setup-0.4.6-hotfix.7-dev.6.exe` | `cce18a53d1c6d0f1bd0cdb83a348052e9ac525c0b5e4dda2a5efb709c2d9e20f` |
+| `DLSS5-Manager-0.4.6-hotfix.7-dev.6-portable.exe` | `6f22479a9fc19c91c6afbd1548dcbd2e15b5dadc4adfefdb0550f53140e45721` |
+
+Core 仍为 **0.4.6-hotfix.1 · Beta**，0.3.3.5 稳定基线保留；组件清单与此前安装相同，未引入未验收的 carrier。#180 原现场仍缺版本/发生阶段/CPU与Procmon采样，保持开放；兼容性支线正式运行时交付与公开发布继续等待，不能把本次本地 Manager 候选当成新核心公开 release。
+
 ## 最终界面选择与本机交付（dev.5）
 
 用户在看到 dev.4 后明确选择：**API 和核心版本回到顶部公共区域，皮肤结构保护直接显示，只保留「画面设置 / 超分补帧」两页签；安装状态与画面设置同页**。已按该选择实现并更新现用安装，当前 Manager 为 **0.4.6-hotfix.7-dev.5**，下面 dev.4 的三页签描述为已替代历史。核心/桥接发布门槛和公开发布等待不变。
