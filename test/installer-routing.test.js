@@ -10,7 +10,8 @@ const { createInstaller } = require('../src/product/installer');
 const journal = require('../src/core/file-journal');
 const { sha256 } = require('../src/product/payload');
 const { PAYLOAD_FILES, INSTALLED_NAMES, DX11_COMPAT_VERSION, DX11_COMPAT_CARRIER } = require('../src/product/constants');
-const { manifestPath } = require('../src/product/manifest');
+const { manifestPath, readManifest } = require('../src/product/manifest');
+const { normalizeError } = require('../src/product/errors');
 
 function fixture(t, api = 'dx12', options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-route-'));
@@ -53,7 +54,7 @@ function fixture(t, api = 'dx12', options = {}) {
   const installer = createInstaller({
     journal,
     scan: scanModule,
-    guards: { antiCheatPresent: () => false, assertGameClosed: async () => {} },
+    guards: options.guards || { antiCheatPresent: () => false, assertGameClosed: async () => {} },
     pe: { getBitness: () => 64 },
     ...(options.copyFile ? { copyFile: options.copyFile } : {})
   });
@@ -259,6 +260,121 @@ test('repairing a DX11 install on a resolved DX12 route retires carrier but reta
   assert.equal(repaired.routeMismatch, false);
   assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.carrier)), false);
   assert.equal(fs.readFileSync(bridge, 'utf8'), 'payload-bridge');
+});
+
+test('repair and OTA upgrade refuse to retarget an existing receipt to another EXE', async t => {
+  const f = fixture(t, 'dx12');
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  const otherDir = path.join(f.gameDir, 'other'), otherExe = path.join(otherDir, 'other.exe');
+  fs.mkdirSync(otherDir); fs.writeFileSync(otherExe, 'other');
+  const otherScan = structuredClone(f.scan); otherScan.chosen.path = otherExe; otherScan.chosen.rel = path.relative(f.gameDir, otherExe);
+  await assert.rejects(f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: otherScan }), error => {
+    assert.equal(error.code, 'ERR_INSTALL_EXE_CHANGED');
+    assert.equal(path.normalize(error.details.file), path.normalize('bin/game.exe'));
+    assert.match(normalizeError(error).message, /bin[\\/]game\.exe/);
+    return true;
+  });
+  await assert.rejects(f.installer.upgradeAddon({ gameDir: f.gameDir, version: 'imported-test', scan: otherScan,
+    addon: { file: f.payload.addon.file, addonSha256: f.payload.addon.actual } }), { code: 'ERR_INSTALL_EXE_CHANGED' });
+  assert.equal(fs.existsSync(path.join(otherDir, INSTALLED_NAMES.addon)), false);
+  const diagnosis = await f.installer.diagnose({ gameDir: f.gameDir, payload: f.payload, scan: otherScan });
+  assert.equal(diagnosis.executableMismatch, true); assert.equal(diagnosis.complete, false);
+  assert.match(diagnosis.components.find(row => row.key === 'executable').detail, /另一个游戏程序/);
+});
+
+test('D3D12 uninstall restores the receipt-bound directory when the selected and original EXEs are unavailable', async t => {
+  const checked = [];
+  const guards = { antiCheatPresent: () => false, assertGameClosed: async (_dir, exe) => { checked.push(exe); } };
+  const f = fixture(t, 'dx12', { guards });
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  await f.installer.toggleD3D12({ gameDir: f.gameDir, enabled: true, scan: f.scan });
+  const routeFile = path.join(f.exeDir, 'd3d12.dll'); assert.equal(fs.existsSync(routeFile), true);
+  fs.unlinkSync(f.exePath);
+  const otherDir = path.join(f.gameDir, 'other'), otherExe = path.join(otherDir, 'missing.exe'); fs.mkdirSync(otherDir);
+  const otherScan = structuredClone(f.scan); otherScan.chosen.path = otherExe; otherScan.chosen.rel = path.relative(f.gameDir, otherExe);
+  const result = await f.installer.uninstall({ gameDir: f.gameDir, scan: otherScan });
+  assert.equal(result.removed, true); assert.equal(fs.existsSync(routeFile), false); assert.equal(fs.existsSync(manifestPath(f.gameDir)), false);
+  assert.equal(checked.at(-1), f.exePath, 'process guard follows the receipt-bound EXE even when its file is missing');
+});
+
+test('uninstall restores a pre-existing ReShade proxy to dxgi with identical bytes', async t => {
+  const f = fixture(t, 'dx12'), proxy = path.join(f.exeDir, 'dxgi.dll');
+  const original = Buffer.from('original ReShade Searching for add-ons\0binary'); fs.writeFileSync(proxy, original);
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(readManifest(f.gameDir).files.some(row => row.kind === 'reshade'), false,
+    'an adopted proxy receives a receipt only when the route is changed');
+  await f.installer.toggleD3D12({ gameDir: f.gameDir, enabled: true, scan: f.scan });
+  const receipt = readManifest(f.gameDir).files.find(row => row.kind === 'reshade');
+  assert.equal(receipt.original.existed, true);
+  assert.equal(receipt.installedSha256, sha256(path.join(f.exeDir, 'd3d12.dll')));
+  assert.equal(fs.existsSync(proxy), false); assert.equal(fs.existsSync(path.join(f.exeDir, 'd3d12.dll')), true);
+  const result = await f.installer.uninstall({ gameDir: f.gameDir, scan: f.scan });
+  assert.equal(result.removed, true); assert.deepEqual(fs.readFileSync(proxy), original);
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'd3d12.dll')), false);
+});
+
+test('old route-only receipt refuses to move an externally replaced d3d12 proxy', async t => {
+  const f = fixture(t, 'dx12'), dxgi = path.join(f.exeDir, 'dxgi.dll'), d3d12 = path.join(f.exeDir, 'd3d12.dll');
+  fs.writeFileSync(dxgi, 'adopted ReShade Searching for add-ons');
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(readManifest(f.gameDir).files.some(row => row.kind === 'reshade'), false);
+  fs.renameSync(dxgi, d3d12);
+  fs.writeFileSync(d3d12, 'external replacement after the legacy route change');
+  const manifest = readManifest(f.gameDir); manifest.reshadeRoute = 'd3d12';
+  fs.writeFileSync(manifestPath(f.gameDir), JSON.stringify(manifest, null, 2));
+
+  const result = await f.installer.uninstall({ gameDir: f.gameDir, scan: f.scan });
+  assert.equal(result.removed, false);
+  assert.equal(result.warnings.some(row => row.code === 'ERR_BACKUP_INVALID' && row.reason === 'unverified-legacy-reshade-route'), true);
+  assert.equal(fs.readFileSync(d3d12, 'utf8'), 'external replacement after the legacy route change');
+  assert.equal(fs.existsSync(dxgi), false); assert.equal(fs.existsSync(manifestPath(f.gameDir)), true);
+});
+
+test('uninstall refuses an ambiguous proxy present at both recorded route locations', async t => {
+  const f = fixture(t, 'dx12');
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  await f.installer.toggleD3D12({ gameDir: f.gameDir, enabled: true, scan: f.scan });
+  const dxgi = path.join(f.exeDir, 'dxgi.dll'), d3d12 = path.join(f.exeDir, 'd3d12.dll');
+  fs.copyFileSync(d3d12, dxgi);
+
+  const result = await f.installer.uninstall({ gameDir: f.gameDir, scan: f.scan });
+  assert.equal(result.removed, false);
+  const warning = result.warnings.find(row => row.code === 'ERR_FILE_CHANGED' && Array.isArray(row.paths));
+  assert.deepEqual(warning.paths.map(item => path.normalize(item)).sort(),
+    [path.join('bin', 'd3d12.dll'), path.join('bin', 'dxgi.dll')].sort());
+  assert.equal(fs.existsSync(dxgi), true); assert.equal(fs.existsSync(d3d12), true);
+  assert.equal(fs.existsSync(manifestPath(f.gameDir)), true);
+});
+
+test('historical receipt that directly records d3d12 is one target rather than an ambiguous route', async t => {
+  const f = fixture(t, 'dx12');
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  const dxgi = path.join(f.exeDir, 'dxgi.dll'), d3d12 = path.join(f.exeDir, 'd3d12.dll');
+  fs.renameSync(dxgi, d3d12);
+  const manifest = readManifest(f.gameDir), row = manifest.files.find(item => item.kind === 'reshade');
+  row.rel = path.join('bin', 'd3d12.dll'); manifest.reshadeRoute = 'd3d12';
+  fs.writeFileSync(manifestPath(f.gameDir), JSON.stringify(manifest, null, 2));
+
+  const result = await f.installer.uninstall({ gameDir: f.gameDir, scan: f.scan });
+  assert.equal(result.removed, true); assert.equal(fs.existsSync(d3d12), false);
+  assert.equal(fs.existsSync(manifestPath(f.gameDir)), false);
+});
+
+test('uninstall cleans each recorded directory from a historical dual-EXE manifest', async t => {
+  const f = fixture(t, 'dx12'); await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  const secondDir = path.join(f.gameDir, 'other'), secondExe = path.join(secondDir, 'other.exe'); fs.mkdirSync(secondDir); fs.writeFileSync(secondExe, 'other');
+  const manifest = readManifest(f.gameDir), originalRows = [...manifest.files];
+  for (const row of originalRows) {
+    const source = path.join(f.gameDir, row.rel), rel = path.join('other', path.basename(row.rel));
+    fs.copyFileSync(source, path.join(f.gameDir, rel)); manifest.files.push({ ...structuredClone(row), rel });
+  }
+  fs.renameSync(path.join(secondDir, 'dxgi.dll'), path.join(secondDir, 'd3d12.dll'));
+  manifest.reshadeRoute = 'd3d12'; fs.writeFileSync(manifestPath(f.gameDir), JSON.stringify(manifest, null, 2));
+  const otherScan = structuredClone(f.scan); otherScan.chosen.path = secondExe; otherScan.chosen.rel = path.relative(f.gameDir, secondExe);
+  const result = await f.installer.uninstall({ gameDir: f.gameDir, scan: otherScan }); assert.equal(result.removed, true);
+  for (const dir of [f.exeDir, secondDir]) for (const name of [INSTALLED_NAMES.reshade, 'd3d12.dll', INSTALLED_NAMES.addon,
+    INSTALLED_NAMES.bridge, INSTALLED_NAMES.runtime]) assert.equal(fs.existsSync(path.join(dir, name)), false, `${dir}/${name}`);
+  assert.equal(fs.existsSync(manifestPath(f.gameDir)), false);
 });
 
 test('install cleans only the exact NR addon entry in [ADDON] and keeps a first ReShade backup', async t => {

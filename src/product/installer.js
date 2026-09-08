@@ -15,7 +15,8 @@ const coreVersionText = value => {
 };
 const { scanConflicts, moveConflicts, restoreConflicts } = require('./conflicts');
 const {
-  manifestPath, backupPath, readManifest, newManifest, findEntry, validateEntry
+  manifestPath, backupPath, readManifest, newManifest, findEntry, validateEntry,
+  manifestExecutable, assertManifestExecutable
 } = require('./manifest');
 
 function createInstaller(overrides = {}) {
@@ -164,6 +165,24 @@ function createInstaller(overrides = {}) {
     return path.join(exeDir, INSTALLED_NAMES[kind]);
   }
 
+  function managedTargetForRow(gameDir, manifest, row) {
+    const original = journal.safePath(gameDir, row.rel);
+    if (row.kind !== 'reshade' || manifest.reshadeRoute !== 'd3d12') return { target: original, original, routed: null, ambiguous: false };
+    const routed = journal.safePath(gameDir, path.relative(gameDir, path.join(path.dirname(original), 'd3d12.dll')));
+    if (path.resolve(original).toLowerCase() === path.resolve(routed).toLowerCase()) {
+      return { target: original, original, routed, ambiguous: false };
+    }
+    const matches = file => {
+      try { return fs.statSync(file).isFile() && row.installedSha256 && sha256(file) === row.installedSha256; }
+      catch { return false; }
+    };
+    const originalMatches = matches(original), routedMatches = matches(routed);
+    const ambiguous = fs.existsSync(original) && fs.existsSync(routed);
+    if (originalMatches !== routedMatches) return { target: originalMatches ? original : routed, original, routed, ambiguous };
+    const boundDir = path.dirname(manifestExecutable(gameDir, manifest)).toLowerCase();
+    return { target: path.dirname(original).toLowerCase() === boundDir ? routed : original, original, routed, ambiguous };
+  }
+
   function verifyTarget(scan, payload) {
     const carrierRequired = isDx11Only(scan && scan.chosen);
     const allowDx11 = Boolean(payload && payload.versionInfo && payload.versionInfo.compatibility === 'dx11');
@@ -292,6 +311,8 @@ function createInstaller(overrides = {}) {
 
   async function install({ gameDir, payload, scan: suppliedScan, allowAntiCheat = false }) {
     const scan = suppliedScan || await scanModule.scanGame(gameDir);
+    const priorManifest = readManifest(gameDir);
+    if (priorManifest) assertManifestExecutable(gameDir, priorManifest, scan?.chosen?.path);
     verifyTarget(scan, payload);
     const exePath = scan.chosen.path;
     const exeDir = path.dirname(exePath);
@@ -304,6 +325,7 @@ function createInstaller(overrides = {}) {
 
     return journal.transaction(gameDir, async () => {
       let manifest = readManifest(gameDir) || newManifest(gameDir, exePath, scan.chosen.api);
+      assertManifestExecutable(gameDir, manifest, exePath);
       try {
         const reshade = scanModule.inspectReShade(exeDir);
         if (existingProxyConflict(exeDir, reshade)) throw appError('ERR_RESHADER_CONFLICT');
@@ -420,13 +442,21 @@ function createInstaller(overrides = {}) {
         (manifest && (manifest.payloadVersion === DX11_COMPAT_VERSION || manifest.deploymentApi === 'dx11'))
       )
     });
-    const exeDir = scan && scan.chosen ? path.dirname(scan.chosen.path) : gameDir;
+    const selectedExecutable = scan?.chosen?.path || null;
+    const installedExecutable = manifest ? manifestExecutable(gameDir, manifest) : selectedExecutable;
+    const executableMismatch = Boolean(manifest && selectedExecutable &&
+      path.resolve(selectedExecutable).toLowerCase() !== installedExecutable.toLowerCase());
+    const exeDir = installedExecutable ? path.dirname(installedExecutable) : gameDir;
     const carrierRequired = isDx11Only(scan && scan.chosen);
     const selectedApi = classifyApi(scan && scan.chosen);
     const deploymentApi = manifest && (manifest.deploymentApi ||
       (manifest.files.some(row => row.kind === 'carrier') ? 'dx11' : 'dx12'));
-    const routeMismatch = Boolean(manifest && deploymentApi !== selectedApi);
+    const routeMismatch = Boolean(manifest && (deploymentApi !== selectedApi || executableMismatch));
     const components = [];
+    if (manifest) components.push({
+      key: 'executable', label: '安装目标程序', ok: !executableMismatch,
+      detail: executableMismatch ? '当前选择了另一个游戏程序；请重新选择原安装程序并恢复或卸载后，再切换目标。' : null
+    });
     const expected = payload || {};
     const reshadeIni = path.join(exeDir, 'ReShade.ini');
     const carrierDisabledState = carrierRequired && fs.existsSync(reshadeIni)
@@ -512,6 +542,7 @@ function createInstaller(overrides = {}) {
       selectedApi,
       deploymentApi: deploymentApi || null,
       routeMismatch,
+      executableMismatch,
       manifest: manifest ? { installedAt: manifest.installedAt, updatedAt: manifest.updatedAt } : null,
       components
     };
@@ -528,6 +559,7 @@ function createInstaller(overrides = {}) {
     if (!manifest) throw appError('ERR_NOT_INSTALLED');
     const scan = suppliedScan || await scanModule.scanGame(gameDir);
     if (!scan || !scan.chosen || !scan.chosen.path) throw appError('ERR_NO_GAME_EXE');
+    assertManifestExecutable(gameDir, manifest, scan.chosen.path);
     const exePath = scan.chosen.path;
     const exeDir = path.dirname(exePath);
     const dxgi = path.join(exeDir, INSTALLED_NAMES.reshade);
@@ -545,6 +577,11 @@ function createInstaller(overrides = {}) {
       if (want) {
         if (!fs.existsSync(dxgi)) throw appError('ERR_NOT_INSTALLED');
         if (fs.existsSync(d3d12)) throw appError('ERR_D3D12_CONFLICT');
+        if (!findEntry(manifest, path.relative(gameDir, dxgi))) {
+          const entry = await recordOriginal(gameDir, manifest, dxgi, 'reshade');
+          entry.installedSha256 = sha256(dxgi);
+          entry.sourceName = path.basename(dxgi);
+        }
         await sidecarBackup(gameDir, dxgi);
         await journal.capture(gameDir, dxgi);
         await journal.capture(gameDir, d3d12);
@@ -569,6 +606,7 @@ function createInstaller(overrides = {}) {
     const manifest = readManifest(gameDir);
     if (!manifest) throw appError('ERR_NOT_INSTALLED');
     const scan = suppliedScan || await scanModule.scanGame(gameDir);
+    assertManifestExecutable(gameDir, manifest, scan?.chosen?.path);
     const allowDx11 = addon.compatibility === 'dx11' ||
       (!addon.compatibility && manifest.payloadVersion === DX11_COMPAT_VERSION);
     const support = assess(scan, { allowDx11 });
@@ -635,12 +673,16 @@ function createInstaller(overrides = {}) {
   async function disableCarrier({ gameDir, scan: suppliedScan, allowAntiCheat = false, manual = true }) {
     const scan = suppliedScan || await scanModule.scanGame(gameDir);
     if (!scan || !scan.chosen || !scan.chosen.path) throw appError('ERR_NO_GAME_EXE');
+    const currentManifest = readManifest(gameDir);
+    if (!currentManifest) throw appError('ERR_NOT_INSTALLED');
+    assertManifestExecutable(gameDir, currentManifest, scan.chosen.path);
     if (!canWrite(path.dirname(scan.chosen.path))) throw appError('ERR_NO_WRITE_ACCESS');
     if (guards.antiCheatPresent(gameDir) && allowAntiCheat !== true) throw appError('ERR_ANTI_CHEAT_CONFIRM', { operation: 'disable-carrier' });
     await guards.assertGameClosed(gameDir, scan.chosen.path);
     return journal.transaction(gameDir, async () => {
       const manifest = readManifest(gameDir);
       if (!manifest) throw appError('ERR_NOT_INSTALLED');
+      assertManifestExecutable(gameDir, manifest, scan.chosen.path);
       await retireManagedCarriers(gameDir, manifest);
       const moved = await moveConflicts(gameDir, manifest.installId, {
         categories: ['native-carrier'],
@@ -659,13 +701,13 @@ function createInstaller(overrides = {}) {
   async function uninstall({ gameDir, removeSettings = false, scan: suppliedScan }) {
     const manifest = readManifest(gameDir);
     if (!manifest) throw appError('ERR_NOT_INSTALLED');
-    const scan = suppliedScan || await scanModule.scanGame(gameDir);
-    const exePath = scan.chosen ? scan.chosen.path : path.join(gameDir, manifest.game.exe);
+    const exePath = manifestExecutable(gameDir, manifest);
     await guards.assertGameClosed(gameDir, exePath);
 
     const warnings = [];
     return journal.transaction(gameDir, async () => {
       for (const row of manifest.files) validateEntry(gameDir, manifest, row, journal.safePath);
+      const rowTargets = new Map(manifest.files.map(row => [row, managedTargetForRow(gameDir, manifest, row)]));
       for (const row of manifest.files.filter(row => row.original.existed)) {
         const backup = journal.safePath(gameDir, row.original.backupRel);
         if (!row.original.sha256 || sha256(backup) !== row.original.sha256) throw appError('ERR_BACKUP_INVALID', { rel: row.rel });
@@ -680,10 +722,11 @@ function createInstaller(overrides = {}) {
       // a changed carrier with the pre-install backup.
       for (const row of manifest.files) {
         if (row.kind === 'config' && !removeSettings && !row.original.existed) continue;
-        const routeRel = row.kind === 'reshade' && manifest.reshadeRoute === 'd3d12'
-          ? path.relative(gameDir, path.join(path.dirname(exePath), 'd3d12.dll'))
-          : row.rel;
-        const target = journal.safePath(gameDir, routeRel);
+        const resolution = rowTargets.get(row), target = resolution.target;
+        if (resolution.ambiguous) {
+          warnings.push({ code: 'ERR_FILE_CHANGED', rel: row.rel, paths: [path.relative(gameDir, resolution.original), path.relative(gameDir, resolution.routed)] });
+          continue;
+        }
         if (!fs.existsSync(target)) continue;
         const current = fs.statSync(target).isFile() ? sha256(target) : null;
         const protectChange = row.original.existed || row.kind !== 'config';
@@ -692,10 +735,12 @@ function createInstaller(overrides = {}) {
         }
       }
       const managedTargets = new Set(manifest.files.map(row => path.normalize(
-        row.kind === 'reshade' && manifest.reshadeRoute === 'd3d12'
-          ? path.relative(gameDir, path.join(path.dirname(exePath), 'd3d12.dll'))
-          : row.rel
-      ).toLowerCase()));
+        path.relative(gameDir, rowTargets.get(row).target)).toLowerCase()));
+      const hasReshadeReceipt = manifest.files.some(row => row.kind === 'reshade');
+      const legacyRouteSource = path.join(path.dirname(exePath), 'd3d12.dll');
+      if (manifest.reshadeRoute === 'd3d12' && !hasReshadeReceipt && fs.existsSync(legacyRouteSource)) {
+        warnings.push({ code: 'ERR_BACKUP_INVALID', rel: path.relative(gameDir, legacyRouteSource), reason: 'unverified-legacy-reshade-route' });
+      }
       for (const row of manifest.conflicts || []) {
         const source = journal.safePath(gameDir, row.sourceRel);
         const backup = journal.safePath(gameDir, row.backupRel);
@@ -708,14 +753,15 @@ function createInstaller(overrides = {}) {
 
       for (const row of [...manifest.files].reverse()) {
         if (row.kind === 'config' && !removeSettings && !row.original.existed) continue;
-        const routeRel = row.kind === 'reshade' && manifest.reshadeRoute === 'd3d12'
-          ? path.relative(gameDir, path.join(path.dirname(exePath), 'd3d12.dll'))
-          : row.rel;
-        const target = journal.safePath(gameDir, routeRel);
+        const resolution = rowTargets.get(row), target = resolution.target;
         await journal.capture(gameDir, target);
         if (row.original.existed) {
           const backup = journal.safePath(gameDir, row.original.backupRel);
-          await copyFile(backup, target);
+          if (resolution.original !== target) {
+            await journal.capture(gameDir, resolution.original);
+            await copyFile(backup, resolution.original);
+            if (fs.existsSync(target)) await fs.promises.unlink(target);
+          } else await copyFile(backup, target);
         } else if (fs.existsSync(target)) {
           await fs.promises.unlink(target);
         }

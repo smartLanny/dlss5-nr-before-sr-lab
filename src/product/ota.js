@@ -229,6 +229,11 @@ function standardPackage(entries) {
 
 function dx11Package(entries) {
   const buildInfo = parseJson(entries.get('build-info.json'), 'build-info.json');
+  // Core acceptance archives share the metadata filenames, but are not a
+  // matched Manager update. Explain that distinction without widening admission.
+  if (buildInfo && buildInfo.scope === 'D3D12 Core-only manual acceptance; not Manager/multi-API OTA') {
+    throw Object.assign(new Error('这是仅供 D3D12 验收的核心测试包，不能作为 Manager OTA 导入。请使用配套的管理器更新包。'), { code: 'ERR_OTA_CORE_ONLY' });
+  }
   const hashes = parseJson(entries.get('SHA256.json'), 'SHA256.json');
   const profile = buildInfo && typeof buildInfo.version === 'string' &&
     Object.prototype.hasOwnProperty.call(PAIRED_OTA_PROFILES, buildInfo.version)

@@ -10,6 +10,7 @@ const { createLibraryService } = require('../src/product/library-service');
 const { createInstaller } = require('../src/product/installer');
 const { createCompactBundle } = require('../src/product/payload');
 const { sha256 } = require('../src/product/payload');
+const { normalizeError } = require('../src/product/errors');
 const { PAYLOAD_FILES, DX11_COMPAT_VERSION, DX11_COMPAT_CARRIER } = require('../src/product/constants');
 const journal = require('../src/core/file-journal');
 const { CARRIER, BRIDGE, zip, dx11Fixture } = require('./helpers/ota-fixture');
@@ -88,6 +89,38 @@ test('external source persists across restart and installs from selected files w
   const restarted=createAppService({userData:path.join(f.root,'user-data'),resourcesPath:path.join(f.root,'resources'),appDir:f.root,overrides:{library:f.library,installer:f.installer,detectGpu:()=>({family:'RTX40'})}});
   assert.equal((await restarted.boot()).payload.source.path,fs.realpathSync(f.external));await restarted.install(f.id,{version:'0.3.3.5'});
   assert.equal(fs.readFileSync(path.join(path.dirname(f.exe),PAYLOAD_FILES.addon),'utf8'),'external:stable:addon');
+});
+
+test('direct NR config and hotkey access cannot follow a newly selected EXE away from the install receipt', async t => {
+  const f = await externalFixture(t); await f.service.install(f.id, { version: '0.3.3.5' });
+  const other = path.join(f.gameDir, 'Binaries', 'Win64', 'Other.exe'); fs.writeFileSync(other, 'other exe');
+  f.scan.exeCandidates = [{ ...f.scan.chosen, path: other, rel: path.relative(f.gameDir, other), name: 'Other.exe' }];
+  f.scan.chosen = f.scan.exeCandidates[0];
+  await f.service.refresh();
+  for (const operation of [
+    () => f.service.readNrSettings(f.id),
+    () => f.service.writeNrSettings(f.id, { Style: 1 }),
+    () => f.service.readGameHotkeys(f.id),
+    () => f.service.writeGameHotkey(f.id, 'reshade', { key: 36 }),
+    () => f.service.applyDefault(f.id),
+    () => f.service.applyRecommended(f.id)
+  ]) await assert.rejects(operation, { code: 'ERR_INSTALL_EXE_CHANGED' });
+});
+
+test('Core-only acceptance ZIP keeps its specific message and creates no imported version', async t => {
+  const f = makeService(t), file = path.join(f.root, 'core-only.zip');
+  zip(file, [
+    { name: 'core.addon64', data: 'isolated-core' },
+    { name: BRIDGE, data: 'isolated-nrchain' },
+    { name: 'build-info.json', data: JSON.stringify({ version: 'beta0.5-dev10', scope: 'D3D12 Core-only manual acceptance; not Manager/multi-API OTA' }) },
+    { name: 'SHA256.json', data: '[]' }
+  ]);
+  await assert.rejects(f.service.importAddonFile(file), error => {
+    assert.equal(error.code, 'ERR_OTA_CORE_ONLY');
+    assert.match(normalizeError(error).message, /仅供 D3D12 验收.*不能作为 Manager OTA/);
+    return true;
+  });
+  assert.equal(fs.existsSync(path.join(f.root, 'user-data', 'addon-versions')), false);
 });
 
 test('bad source selection leaves active preferences intact and disconnected source cannot silently fall back',async t=>{

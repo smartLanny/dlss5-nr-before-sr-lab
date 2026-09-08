@@ -1,5 +1,28 @@
 # 现用 xiaofeng 管理器维护与待发布交接
 
+## 当前候选：#191 旧版升级与记录恢复修复（dev.7）
+
+用户明确继续等待任务 `01a080d0-f712-7f02-93b0-09cfc581d16f` 一起发布，要求核对旧版升级、换加载链路、冲突、bak 恢复及桥接。当前本机已通过完整 Setup 更新为 **Manager 0.4.6-hotfix.7-dev.7**，仍未公开发布。UI 保持用户确认的顶部 API/核心、皮肤常显、画面设置/超分补帧两页签。
+
+本轮一次正式审查发现并修复实际 P1：原来同根安装记录绑定 A，扫描选 B 后 repair 会重复部署，D3D12 uninstall 还可能漏掉 A 代理却删除收据。现在所有相关写入共用 EXE 绑定门禁；NR 文件卸载按收据逐行恢复，支持可验证的历史双目录记录和原 EXE 已缺失。新 D3D12 路由保留借用代理的原文件/摘要；只有路由标志、没有来源证明的旧文件，以及双入口歧义均保留现场并拒绝猜测。独立 SR/FG 恢复继续遵守自身 EXE 与所有权校验。
+
+同时修复旧 NR 保存回调抢先报成功；读取 NR/快捷键失败不再隐藏有效诊断，失败控件禁用，合法重读恢复；dev10 Core-only 包不再误报 DX11 OTA 元数据，而是给出专用中文包类型说明并拒绝导入。新包仍未进入信任 profile，不能用旧 carrier 补成“兼容包”。
+
+完整 **308 passed / 0 failed / 0 skipped**，UI 合同 71/67；P1 定向 96/96、OTA/保存专项 36/36。包内实际 ASAR 900×620 / 1280×900 的 124 条隔离交互断言通过，源码逐字节与打包文件匹配。所有内置核心、FG、NVAPI、许可证与管理员 manifest 通过；external unpacked 不含 NR payload，保留 FG/NVAPI。Setup 本机安装返回 0，安装 EXE/ASAR 与本次构建摘要一致并重新启动。`build/installed-before-dev7` 留有前版 ASAR/摘要，dev.6 Setup 保留可回退。
+
+| 当前成品（`dist`） | SHA256 |
+| --- | --- |
+| `win-unpacked/resources/app.asar` | `9d3bcdc8bd0f649e93a7c842297aebb99fc74a17b92c98f958cc28518cefcaa8` |
+| `win-unpacked/DLSS 5 AI 超分管理器.exe` | `6291e2bb37b0231e8691f0c58265f57dc6ad78ae9b27febfebf664e237762278` |
+| `DLSS5-Manager-Setup-0.4.6-hotfix.7-dev.7.exe` | `fb9998aa7f2d7db117d5af38783c5e94851ec05d1c6f331b5e5ad90dcb214164` |
+| `DLSS5-Manager-0.4.6-hotfix.7-dev.7-portable.exe` | `67867858d6555846a4aba4d6b898a1a05814f0a47a1513e82953069b5668f573` |
+
+发布前审查及修复证据见 [review](2026-09-08-manager-release-review.md)；问题单、升级矩阵及工作树归档候选见 [audit](2026-09-08-manager-issue-worktree-audit.md)。Manager 旧分支源码已包含在当前候选，但当前依赖联接经过 xiaofeng-sr-fg → xiaofeng-bridge-ui；移动旧树前必须先保全依赖和产物。Manager 与核心 main 根目录布局不同，应独立子目录迁移，不能原样合并。
+
+#191 继续开放：无收据手工/Opti 旧代理和任意 bak 的自动迁移、真正运行时外置加载/按引擎策略，以及新 Core/新 carrier 配套升级尚未完成。Vulkan layer/注册恢复/transport 仍未交付，管理器保持不支持。支线当前 dev10 `2f984d83` 是 D3D12 Core-only 验收包，包内没有 carrier，说明明确不是 Manager OTA；不因该包已编译就提前公开通用升级。
+
+Core 仍为 **0.4.6-hotfix.1 · Beta**，0.3.3.5 稳定基线保留，bundle.json 与此前本机安装相同；游戏兼容性没有由本轮单测/界面/文件操作回归证明。新交付到来后应先核对具体加载合同及旧→新→失败回滚→旧的配套验证，再打包公开测试版。
+
 ## 当前候选：Manager #180 性能旁路接入（dev.6）
 
 当前本机为 **Manager 0.4.6-hotfix.7-dev.6**，保持 dev.5 用户确认的顶部 API/核心、皮肤常显、画面设置/超分补帧两页签布局。#180 以独立性能修改提交和验证，不与 #179 界面验收混同。

@@ -10,6 +10,22 @@ const { CORE, CARRIER, BRIDGE, zip, tempZip, standardFixture, dx11Fixture } = re
 const CORE_046 = 'DLSS5-AI渲染超分版-beta0.4.6-@野生的装机宅-Bilibili.addon64';
 const CORE_046_HOTFIX1 = 'DLSS5-AI渲染超分版-beta0.4.6-hotfix.1-@野生的装机宅-Bilibili.addon64';
 
+test('a D3D12 Core-only acceptance archive is explained without mislabeling it as a DX11 OTA', async () => {
+  const file = zip(tempZip(), [
+    { name: 'core.addon64', data: 'isolated-core' },
+    { name: BRIDGE, data: 'isolated-nrchain' },
+    { name: 'build-info.json', data: JSON.stringify({ version: 'beta0.5-dev10', scope: 'D3D12 Core-only manual acceptance; not Manager/multi-API OTA', carrier_included: false }) },
+    { name: 'SHA256.json', data: '[]' }
+  ]);
+  await assert.rejects(readOtaPackage(file), error => {
+    assert.equal(error.code, 'ERR_OTA_CORE_ONLY');
+    assert.match(error.message, /D3D12.*核心测试包/);
+    assert.match(error.message, /不能作为 Manager OTA/);
+    assert.doesNotMatch(error.message, /DX11 OTA metadata/);
+    return true;
+  });
+});
+
 function release046Fixture(options = {}) {
   const source = '9087a9efbc7bb53a3c79e7766a174534f49c412c';
   const buildInfo = Buffer.from(JSON.stringify({

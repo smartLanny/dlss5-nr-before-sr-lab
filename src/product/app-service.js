@@ -11,7 +11,7 @@ const { createInstaller } = require('./installer');
 const { payloadRoot, readBundle, requirePayload, sha256 } = require('./payload');
 const { readConfig, writeConfig, defaultPatch } = require('./nr-config');
 const { readReShadeHotkey, writeReShadeHotkey } = require('./hotkeys');
-const { readManifest } = require('./manifest');
+const { readManifest, assertManifestExecutable } = require('./manifest');
 const { appError, normalizeError } = require('./errors');
 const { detectGpu: readGpu } = require('./gpu');
 const { createArtService } = require('./art-service');
@@ -312,6 +312,12 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     return game;
   }
 
+  function installedExecutable(game) {
+    const manifest = readManifest(game.dir);
+    if (!manifest) throw appError('ERR_NOT_INSTALLED');
+    return assertManifestExecutable(game.dir, manifest, game.scan?.chosen?.path);
+  }
+
   function refresh() {
     const state = store.read(), epoch = scanEpoch, key = JSON.stringify([state, epoch]);
     if (activeRefresh?.key === key) return activeRefresh.promise;
@@ -543,7 +549,10 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       if (/\.zip$/i.test(file)) {
         let ota;
         try { ota = await readOtaPackage(file); }
-        catch (error) { throw appError('ERR_ADDON_INVALID', { reason: error && error.message ? error.message : 'invalid-ota' }); }
+        catch (error) {
+          if (error?.code === 'ERR_OTA_CORE_ONLY') throw appError('ERR_OTA_CORE_ONLY');
+          throw appError('ERR_ADDON_INVALID', { reason: error && error.message ? error.message : 'invalid-ota' });
+        }
         const digest = sha256(file);
         const id = `imported-${digest.slice(0, 12)}`;
         const dir = path.join(addonVersionsDir, id);
@@ -700,20 +709,17 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     },
     readNrSettings: async id => {
       const game = findGame(id);
-      if (!readManifest(game.dir)) throw appError('ERR_NOT_INSTALLED');
-      const file = path.join(path.dirname(game.scan.chosen.path), 'nr_before_sr.ini');
+      const file = path.join(path.dirname(installedExecutable(game)), 'nr_before_sr.ini');
       return readConfig(file);
     },
     writeNrSettings: async (id, patch) => {
       const game = findGame(id);
-      if (!readManifest(game.dir)) throw appError('ERR_NOT_INSTALLED');
-      const file = path.join(path.dirname(game.scan.chosen.path), 'nr_before_sr.ini');
+      const file = path.join(path.dirname(installedExecutable(game)), 'nr_before_sr.ini');
       return writeConfig(file, patch);
     },
     readGameHotkeys: async id => {
       const game = findGame(id);
-      if (!readManifest(game.dir)) throw appError('ERR_NOT_INSTALLED');
-      const executableDir = path.dirname(game.scan.chosen.path);
+      const executableDir = path.dirname(installedExecutable(game));
       return {
         nr: { key: 117, label: 'F6', fixed: true, supported: false },
         reshade: readReShadeHotkey(path.join(executableDir, 'ReShade.ini'))
@@ -721,15 +727,13 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     },
     writeGameHotkey: async (id, target, binding) => {
       const game = findGame(id);
-      if (!readManifest(game.dir)) throw appError('ERR_NOT_INSTALLED');
+      const executableDir = path.dirname(installedExecutable(game));
       if (target !== 'reshade') throw appError('ERR_HOTKEY_UNSUPPORTED');
-      const executableDir = path.dirname(game.scan.chosen.path);
       return writeReShadeHotkey(path.join(executableDir, 'ReShade.ini'), binding);
     },
     applyDefault: async id => {
       const game = findGame(id);
-      if (!readManifest(game.dir)) throw appError('ERR_NOT_INSTALLED');
-      const file = path.join(path.dirname(game.scan.chosen.path), 'nr_before_sr.ini');
+      const file = path.join(path.dirname(installedExecutable(game)), 'nr_before_sr.ini');
       const patch = defaultPatch();
       let current = '';
       try { current = fs.readFileSync(file, 'utf8'); } catch {}
@@ -742,8 +746,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     },
     applyRecommended: async id => {
       const game = findGame(id);
-      if (!readManifest(game.dir)) throw appError('ERR_NOT_INSTALLED');
-      const file = path.join(path.dirname(game.scan.chosen.path), 'nr_before_sr.ini');
+      const file = path.join(path.dirname(installedExecutable(game)), 'nr_before_sr.ini');
       const patch = defaultPatch();
       let current = '';
       try { current = fs.readFileSync(file, 'utf8'); } catch {}

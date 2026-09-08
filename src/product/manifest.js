@@ -28,7 +28,31 @@ function readManifest(gameDir) {
     throw appError('ERR_BACKUP_INVALID');
   }
   if (!Array.isArray(data.conflicts)) data.conflicts = [];
+  manifestExecutable(gameDir, data);
   return data;
+}
+
+function manifestExecutable(gameDir, manifest) {
+  const root = path.resolve(gameDir);
+  const rel = manifest && manifest.game && manifest.game.exe;
+  if (typeof rel !== 'string' || !rel || path.isAbsolute(rel) || path.extname(rel).toLowerCase() !== '.exe') {
+    throw appError('ERR_BACKUP_INVALID');
+  }
+  const target = path.resolve(root, rel);
+  const back = path.relative(root, target);
+  if (!back || back === '..' || back.startsWith(`..${path.sep}`) || path.isAbsolute(back)) throw appError('ERR_BACKUP_INVALID');
+  return target;
+}
+
+function assertManifestExecutable(gameDir, manifest, selectedExecutable) {
+  const installed = manifestExecutable(gameDir, manifest);
+  if (selectedExecutable !== undefined && selectedExecutable !== null) {
+    if (typeof selectedExecutable !== 'string' || !path.isAbsolute(selectedExecutable) ||
+        path.resolve(selectedExecutable).toLowerCase() !== installed.toLowerCase()) {
+      throw appError('ERR_INSTALL_EXE_CHANGED', { file: manifest.game.exe });
+    }
+  }
+  return installed;
 }
 
 function newManifest(gameDir, exePath, api) {
@@ -76,5 +100,7 @@ module.exports = {
   readManifest,
   newManifest,
   findEntry,
-  validateEntry
+  validateEntry,
+  manifestExecutable,
+  assertManifestExecutable
 };

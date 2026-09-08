@@ -21,6 +21,7 @@ const state = {
   pendingModal: null,
   gameSelection: null,
   saveTimers: new Map(),
+  saveRevisions: new Map(),
   pendingPatches: new Map()
 };
 
@@ -479,22 +480,33 @@ async function loadExpanded(id) {
   state.expandedLoadToken = loadToken;
   const root = document.querySelector(`[data-game-detail="${id}"]`);
   if (!root || !root.querySelector('.nr-mask')) return;
-  try {
-    const [settings, diagnostic, hotkeys] = await Promise.all([
-      window.manager.readNr(id).then(unwrap),
-      window.manager.diagnose(id).then(unwrap),
-      window.manager.readHotkeys(id).then(unwrap)
-    ]);
-    if (state.expandedLoadToken !== loadToken || state.expanded !== id) return;
-    const versionSelect = root.querySelector('.game-version-select');
-    const game = state.games.find(row => row.id === id);
-    if (versionSelect) {
-      const requested = (game && game.addonVersion) || (state.payload && state.payload.selectedVersion);
-      if ([...versionSelect.options].some(option => option.value === requested)) versionSelect.value = requested;
-    }
+  const nrControls = root.querySelectorAll('.nr-mask, .style-segment button, .nr-model-strength, .nr-effect-strength, .nr-skin-strength, .default-btn');
+  const indicator = root.querySelector('.save-state');
+  const hotkeyButton = root.querySelector('.reshade-hotkey-btn');
+  nrControls.forEach(control => { control.disabled = true; });
+  indicator.textContent = '正在读取…'; indicator.classList.remove('error');
+  root.querySelector('.nr-read-error')?.remove();
+  hotkeyButton.disabled = true; hotkeyButton.textContent = '正在读取…'; hotkeyButton.title = '';
+  const [nrResult, diagnosticResult, hotkeyResult] = await Promise.allSettled([
+    () => window.manager.readNr(id), () => window.manager.diagnose(id), () => window.manager.readHotkeys(id)
+  ].map(read => Promise.resolve().then(read).then(unwrap)));
+  if (state.expandedLoadToken !== loadToken || state.expanded !== id || !root.isConnected) return;
+  const failureText = result => {
+    const error = result.reason || {};
+    return `${error.message || '返回的读取结果无效。'}${error.code ? ` [${error.code}]` : ''}`;
+  };
+  const versionSelect = root.querySelector('.game-version-select');
+  const game = state.games.find(row => row.id === id);
+  if (versionSelect) {
+    const requested = (game && game.addonVersion) || (state.payload && state.payload.selectedVersion);
+    if ([...versionSelect.options].some(option => option.value === requested)) versionSelect.value = requested;
+  }
+  if (nrResult.status === 'fulfilled' && nrResult.value && typeof nrResult.value === 'object') {
+    const settings = nrResult.value;
+    nrControls.forEach(control => { control.disabled = false; });
     root.querySelector('.nr-mask').checked = Boolean(settings.AutoMask);
     root.querySelector('.skin-summary').textContent = settings.AutoMask ? '已开启' : '已关闭';
-    root.querySelector('.save-state').textContent = '已读取设置';
+    indicator.textContent = '已读取设置'; indicator.classList.remove('error');
     root.querySelectorAll('.style-segment button').forEach(b => b.classList.toggle('active', Number(b.dataset.value) === Number(settings.Style)));
     const intensity = Number(settings.Intensity ?? 1);
     const model = root.querySelector('.nr-model-strength');
@@ -515,21 +527,37 @@ async function loadExpanded(id) {
     if (skin) skin.value = String(settings.SkinStructureStrength ?? -1);
     if (skinValue) skinValue.textContent = Number(settings.SkinStructureStrength ?? -1) < 0 ? '关闭' : Number(settings.SkinStructureStrength).toFixed(2);
     if (skin) skin.disabled = !settings.AutoMask;
-    root.querySelector('.reshade-hotkey-btn').textContent = hotkeyLabel(hotkeys && hotkeys.reshade);
-    root.querySelector('.nr-hotkey-btn').textContent = 'F6 开关';
+    bindNrControls(root, id);
+  } else {
+    indicator.textContent = '读取失败'; indicator.classList.add('error');
+    root.querySelector('.skin-summary').textContent = '未读取';
+    const notice = document.createElement('p');
+    notice.className = 'config-note launch-error nr-read-error'; notice.setAttribute('role', 'alert');
+    notice.textContent = `NR 设置读取失败：${failureText(nrResult)}`;
+    indicator.closest('.config-title').after(notice);
+  }
+  if (diagnosticResult.status === 'fulfilled' && Array.isArray(diagnosticResult.value?.components)) {
+    const diagnostic = diagnosticResult.value;
     root.querySelector('.component-body').innerHTML = diagnosticRows(diagnostic.components);
     const problems = diagnostic.components.filter(row => !row.ok).length;
     root.querySelector('.component-summary').textContent = problems ? `${problems} 项需要处理` : '文件检查通过';
-    bindNrControls(root, id);
-    bindHotkeyControls(root, id, hotkeys);
-  } catch (error) {
-    const indicator = root.querySelector('.save-state');
-    if (indicator) { indicator.textContent = '读取失败'; indicator.classList.add('error'); }
-    toast(error.message, true);
+  } else {
+    root.querySelector('.component-summary').textContent = '诊断读取失败';
+    root.querySelector('.component-body').innerHTML = `<p class="launch-error">${escapeHtml(failureText(diagnosticResult))}</p>`;
   }
+  if (hotkeyResult.status === 'fulfilled' && hotkeyResult.value && typeof hotkeyResult.value === 'object') {
+    hotkeyButton.textContent = hotkeyLabel(hotkeyResult.value.reshade);
+    hotkeyButton.disabled = false;
+    bindHotkeyControls(root, id, hotkeyResult.value);
+  } else {
+    hotkeyButton.textContent = '读取失败'; hotkeyButton.title = failureText(hotkeyResult);
+  }
+  root.querySelector('.nr-hotkey-btn').textContent = 'F6 开关';
 }
 
 function queueSetting(id, patch, root) {
+  const revision = (state.saveRevisions.get(id) || 0) + 1;
+  state.saveRevisions.set(id, revision);
   const indicator = root.querySelector('.save-state');
   if (indicator) { indicator.textContent = '正在保存…'; indicator.classList.remove('error'); }
   state.pendingPatches.set(id, { ...(state.pendingPatches.get(id) || {}), ...patch });
@@ -539,8 +567,14 @@ function queueSetting(id, patch, root) {
     state.pendingPatches.delete(id);
     try {
       unwrap(await window.manager.writeNr(id, pending));
-      if (indicator) indicator.textContent = '已保存';
-    } catch (error) { if (indicator) { indicator.textContent = '保存失败'; indicator.classList.add('error'); } toast(error.message, true); }
+      if (indicator && state.saveRevisions.get(id) === revision) {
+        indicator.textContent = '已保存'; indicator.classList.remove('error');
+      }
+    } catch (error) {
+      if (indicator && state.saveRevisions.get(id) === revision) { indicator.textContent = '保存失败'; indicator.classList.add('error'); }
+      // A newer patch can concern a different field; the earlier failure still matters.
+      toast(error.message, true);
+    }
   }, 180));
 }
 
