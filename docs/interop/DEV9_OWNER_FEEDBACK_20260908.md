@@ -77,3 +77,25 @@ upstream/toolchain/ReShade/baseline paths, a new OutputRoot, and RunWarp. ReShad
 headers remain at API18 `4a50d1e`; the existing tested game runtime does not need
 upgrading for this Core. BL3's separate Luma API20 requirement is unrelated.
 [Owner test instructions](../testing/DEV9_CORE_ACCEPTANCE.zh-CN.md).
+
+## Owner-confirmed regression reference and controlled comparison
+
+The owner identifies pre-upgrade 0.4.6 as the last version where the face
+control appeared effective. Its retained Chinese Core hashes to
+`b68f2709a131c9ce0513b6366dbcc2e7d551bef5bcd41934075407378a48c090`; its embedded
+source identity matches `9087a9efbc7bb53a3c79e7766a174534f49c412c` and the prior
+build record. The original post EncodeCS/CombineCS and CreateSignedNrFeature
+are identical to dev8; tuning-signature changes add input-filter identity,
+while the mask/skin parameter writes themselves are unchanged.
+
+The owner changed from original post mode / 0.66 final strength to front mode /
+4.0 strength / cinematic style, with independent colour and low-grid colour
+experiments enabled. This is a confounder, not a proven cause or dismissal of
+the regression. A private, reversible comparison now puts dev9 on the exact
+old post preferences with explicit experiments off and skin starting at zero.
+Windows' actual INI reader verifies the common profile. Both original 0.4.6
+and dev9 hashes are checked before each stopped-game switch; prior settings
+and Core are retained. The owner will compare skin 0/2 in one fixed RR-off
+scene, with F7/F8, then use the same profile on 0.4.6 as needed. No visual
+regression conclusion has been drawn yet. Both 2077 and NTE dev9 deployments
+are verified; NTE's temporary comparison configuration is separately recorded.
