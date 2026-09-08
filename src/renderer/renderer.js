@@ -275,19 +275,20 @@ function gameApiLabel(chosen) {
 }
 
 function gameDetail(game) {
+  const launchSettings = game.chosen ? '<section class="launch-settings-host" aria-label="SR 与 FG 启动设置"><p class="config-note">正在读取 SR / FG 设置…</p></section>' : '';
   if (!game.installed) {
     const title = game.supported ? '已检测到可用的普通 DLSS 游戏'
       : game.supportCode === 'ERR_API_SELECTION_REQUIRED' ? '请确认游戏实际启动 API' : '当前不满足基础版安装条件';
     const detail = game.supported
       ? (payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可以直接一键安装。` : '安装前检查已通过；请确认显卡型号并准备对应组件。')
       : game.supportText;
-    return `<div class="game-detail">${apiControls(game)}<div class="config-block"><h4>${escapeHtml(title)}</h4><p>${escapeHtml(detail)}</p>${addonVersionRow(game)}<div class="path-line">${escapeHtml(game.dir)}</div></div></div>`;
+    return `<div class="game-detail">${apiControls(game)}<div class="config-block"><h4>${escapeHtml(title)}</h4><p>${escapeHtml(detail)}</p>${addonVersionRow(game)}<div class="path-line">${escapeHtml(game.dir)}</div></div>${launchSettings}</div>`;
   }
   return `<div class="game-detail" data-game-detail="${game.id}">
     ${apiControls(game)}
     <div class="config-grid">
       <div class="config-block">
-        <h4>常用设置</h4>
+        <div class="config-title"><h4>常用设置</h4><button class="button subtle launch-jump-btn" type="button">SR / FG 设置 ↓</button></div>
         ${addonVersionRow(game, true)}
         <div class="control-row"><label>风格</label><div class="segmented style-segment"><button data-value="0">默认</button><button data-value="1">自然</button><button data-value="2">电影</button></div><span></span></div>
         <div class="control-row"><label title="模型内部的皮肤结构控制，不是最终合成的人脸遮罩，也不能单独调整脸部效果倍率。">皮肤结构保护</label><span></span><input class="switch nr-mask" type="checkbox"></div>
@@ -299,6 +300,7 @@ function gameDetail(game) {
       </div>
       <div class="config-block component-block"><h4>安装状态</h4><div class="component-body">正在检查…</div><div class="config-actions"><button class="button repair-inline-btn">一键修复</button><button class="button danger uninstall-inline-btn">卸载</button></div><div class="compat-actions"><button class="button subtle d3d12-btn">${game.d3d12Route ? '恢复 DXGI 入口' : '加载 D3D12 入口'}</button><span>${game.d3d12Route ? '当前已加载 D3D12 入口；如需恢复可点击“恢复 DXGI 入口”。' : '部分网游（异环、逆战）不兼容 DXGI，建议加载 D3D12。'}</span></div></div>
     </div>
+    ${launchSettings}
     <div class="path-line">${escapeHtml(game.dir)}</div>
   </div>`;
 }
@@ -315,6 +317,9 @@ function renderGames() {
     ${gameDetail(game)}
   </article>`).join('');
   bindGameCards();
+  const expandedCard = [...document.querySelectorAll('.game-card')].find(card => card.dataset.id === state.expanded);
+  const launchHost = expandedCard?.querySelector('.launch-settings-host');
+  if (launchHost && window.launchSettingsUi) window.launchSettingsUi.mount(launchHost, state.expanded);
   if (state.expanded) loadExpanded(state.expanded);
   renderRepairSelect();
   renderFeedbackSelect();
@@ -346,6 +351,15 @@ function updateGameListMeta(rows = visibleGames()) {
 }
 
 function bindGameCards() {
+  document.querySelectorAll('.launch-jump-btn').forEach(button => {
+    button.onclick = event => {
+      event.stopPropagation();
+      const host = button.closest('.game-card')?.querySelector('.launch-settings-host');
+      if (!host) return;
+      host.scrollIntoView({ block: 'start', behavior: 'auto' });
+      host.querySelector('select, button')?.focus({ preventScroll: true });
+    };
+  });
   document.querySelectorAll('.game-card').forEach(card => {
     const id = card.dataset.id;
     card.querySelector('.game-card-head').onclick = event => {
@@ -1053,5 +1067,13 @@ window.manager.onAddonImported(async () => {
     if (state.activeView === 'games') renderGames();
     toast('检测到新的 Addon，已加入版本库');
   } catch (error) { toast(error.message, true); }
+});
+if (window.manager.onLaunchSettingsApplied) window.manager.onLaunchSettingsApplied(async payload => {
+  if (payload?.id !== state.expanded) return;
+  const card = [...document.querySelectorAll('.game-card')].find(row => row.dataset.id === payload.id);
+  try { await card?.querySelector('.launch-settings-host')?.launchSettingsController?.refresh(); }
+  catch (error) { toast(`启动设置状态读取失败：${error.message}`, true); }
+  const failures = (payload.outcomes || []).filter(row => row.code || row.reason);
+  if (failures.length) toast(failures.map(row => `${String(row.domain || '').toUpperCase()}：${row.reason || row.code}`).join('；'), true);
 });
 boot();

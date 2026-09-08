@@ -293,11 +293,25 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     return refreshCollection(games);
   }
 
+  async function validateLaunch(id) {
+    const game = findGame(id);
+    if (!game.scan || !game.scan.chosen || !game.scan.chosen.path) throw appError('ERR_NO_GAME_EXE');
+    if (game.installed) {
+      const diagnostic = await installer.diagnose({ gameDir: game.dir, scan: game.scan });
+      if (['mixed', 'unknown'].includes(classifyApi(game.scan.chosen))) throw appError('ERR_API_SELECTION_REQUIRED');
+      if (diagnostic.routeMismatch) throw appError('ERR_API_ROUTE_PENDING');
+    }
+    const exe = game.scan.chosen.path;
+    if (typeof exe !== 'string' || !path.isAbsolute(exe) || path.extname(exe).toLowerCase() !== '.exe' || !fs.existsSync(exe)) throw appError('ERR_NO_GAME_EXE');
+    return exe;
+  }
+
   return {
     product: { ...PRODUCT, version },
     store,
     payloadDir,
     withError,
+    validateLaunch,
     boot: async () => ({
       product: { ...PRODUCT, version },
       settings: store.read(),
@@ -527,15 +541,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       return result;
     },
     launch: async id => {
-      const game = findGame(id);
-      if (!game.scan || !game.scan.chosen || !game.scan.chosen.path) throw appError('ERR_NO_GAME_EXE');
-      if (game.installed) {
-        const diagnostic = await installer.diagnose({ gameDir: game.dir, scan: game.scan });
-        if (['mixed', 'unknown'].includes(classifyApi(game.scan.chosen))) throw appError('ERR_API_SELECTION_REQUIRED');
-        if (diagnostic.routeMismatch) throw appError('ERR_API_ROUTE_PENDING');
-      }
-      const exe = game.scan.chosen.path;
-      if (typeof exe !== 'string' || !path.isAbsolute(exe) || path.extname(exe).toLowerCase() !== '.exe') throw appError('ERR_NO_GAME_EXE');
+      const exe = await validateLaunch(id);
       const { spawn } = require('child_process');
       await new Promise((resolve, reject) => {
         const child = spawn(exe, [], { cwd: path.dirname(exe), detached: true, stdio: 'ignore', windowsHide: false });

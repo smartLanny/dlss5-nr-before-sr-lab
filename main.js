@@ -6,10 +6,15 @@ const { spawn, execFileSync } = require('child_process');
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 const { createAppService } = require('./src/product/app-service');
 const { createSrModelService } = require('./src/product/sr-model-service');
+const { createLaunchSettingsService } = require('./src/product/launch-settings-service');
+const { createLaunchCoordinator } = require('./src/product/launch-coordinator');
+const installGuards = require('./src/core/install-guards');
 
 let win = null;
 let service = null;
 let srModel = null;
+let launchSettings = null;
+let launchCoordinator = null;
 
 function isWindowsAdministrator() {
   if (process.platform !== 'win32') return true;
@@ -101,10 +106,22 @@ function registerIpc() {
     'game-install', 'game-repair', 'game-upgrade-addon', 'game-uninstall',
     'game-toggle-d3d12', 'game-launch', 'game-diagnose', 'game-hotkeys-read',
     'game-hotkey-write', 'nr-read', 'nr-write', 'nr-default', 'nr-recommended',
-    'sr-model-read', 'sr-model-write', 'feedback-export'
+    'sr-model-read', 'sr-model-write', 'feedback-export', 'launch-settings-inspect',
+    'launch-settings-save', 'launch-settings-preview', 'launch-settings-restore', 'launch-settings-recover'
   ]);
+  const guardedActions = new Set(['game-install', 'game-repair', 'game-upgrade-addon', 'game-toggle-d3d12',
+    'game-api-set', 'game-carrier-set', 'nr-write', 'nr-default', 'nr-recommended', 'game-hotkey-write']);
+  const serializedActions = new Set([...guardedActions, 'game-launch', 'game-uninstall', 'game-dismiss',
+    'game-confirm', 'settings-update', 'sr-model-write', 'launch-settings-save', 'launch-settings-preview',
+    'launch-settings-apply', 'launch-settings-restore', 'launch-settings-recover']);
   const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => service.withError(
-    () => fn(...args),
+    () => {
+      const work = async () => {
+        if (guardedActions.has(name)) await launchCoordinator.assertMutationReady(args[0]);
+        return fn(...args);
+      };
+      return serializedActions.has(name) ? launchCoordinator.serialize(work) : work();
+    },
     { action: name, gameId: loggedGameActions.has(name) && typeof args[0] === 'string' ? args[0] : null }
   ));
   call('boot', () => service.boot());
@@ -116,18 +133,29 @@ function registerIpc() {
   call('game-api-set', (id, api, options) => service.setGameApi(id, api, options));
   call('game-carrier-set', (id, enabled, options) => service.setGameCarrier(id, enabled, options));
   call('game-toggle-d3d12', (id, enabled, options) => service.toggleD3D12(id, enabled === true, options));
-  call('game-uninstall', (id, removeSettings) => service.uninstall(id, removeSettings === true));
+  call('game-uninstall', async (id, removeSettings) => {
+    await launchCoordinator.restoreForUninstall(id);
+    return service.uninstall(id, removeSettings === true);
+  });
   call('game-launch', async id => {
-    const model = await srModel.applyBeforeLaunch(id);
-    const launched = await service.launch(id);
-    if (win && !win.isDestroyed()) win.webContents.send('sr-model-applied', { id, ...model });
-    return { launched, srModel: model };
+    const result = await launchCoordinator.launch(id);
+    if (win && !win.isDestroyed()) {
+      if (result.srModel) win.webContents.send('sr-model-applied', { id, ...result.srModel });
+      win.webContents.send('launch-settings-applied', { id, outcomes: result.launchSettings });
+    }
+    return result;
   });
   call('game-diagnose', id => service.diagnose(id));
   call('nr-read', id => service.readNrSettings(id));
   call('nr-write', (id, patch) => service.writeNrSettings(id, patch));
   call('sr-model-read', id => srModel.read(id));
-  call('sr-model-write', (id, selection) => srModel.write(id, selection));
+  call('sr-model-write', (id, selection) => launchCoordinator.writeLegacySr(id, selection));
+  call('launch-settings-inspect', id => launchSettings.inspect(id));
+  call('launch-settings-save', (id, domain, request) => launchSettings.save(id, domain, request));
+  call('launch-settings-preview', (id, domain, request) => launchSettings.preview(id, domain, request));
+  call('launch-settings-apply', (planId, consent) => launchSettings.apply(planId, { confirm: consent?.confirm === true }));
+  call('launch-settings-restore', (id, domain) => launchSettings.restore(id, domain));
+  call('launch-settings-recover', id => launchSettings.recover(id));
   call('game-hotkeys-read', id => service.readGameHotkeys(id));
   call('game-hotkey-write', (id, target, binding) => service.writeGameHotkey(id, target, binding));
   call('nr-default', id => service.applyDefault(id));
@@ -239,6 +267,12 @@ if (!shouldContinue) {
       gameDirectory: id => service.gameDirectory(id),
       gameExecutable: id => service.gameExecutable(id)
     });
+    launchSettings = createLaunchSettingsService({
+      userData, resourcesPath: process.resourcesPath, appDir: __dirname,
+      gameDirectory: id => service.gameDirectory(id),
+      gameExecutable: id => service.gameExecutable(id), legacySrModel: srModel
+    });
+    launchCoordinator = createLaunchCoordinator({ service, settings: launchSettings, legacySrModel: srModel, guards: installGuards });
     for (const file of addonArgs(process.argv)) {
       try { await service.importAddonFile(file); } catch {}
     }

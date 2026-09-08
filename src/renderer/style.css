@@ -28,6 +28,11 @@ nav { display: grid; gap: 7px; }
 .nav:hover { background: #171b1f; }
 .nav.active { background: var(--green-soft); color: var(--green); }
 .nav span { width: 20px; text-align: center; }
+.nav .nav-icon { width: 20px; height: 20px; flex: 0 0 20px; background: currentColor; mask: var(--nav-icon) center / contain no-repeat; }
+.nav-icon-games { --nav-icon: url('icons/gamepad-2.svg'); }
+.nav-icon-repair { --nav-icon: url('icons/wrench.svg'); }
+.nav-icon-addons { --nav-icon: url('icons/layers.svg'); }
+.nav-icon-settings { --nav-icon: url('icons/settings-2.svg'); }
 .sidebar-foot { margin-top: auto; border-top: 1px solid var(--line); padding: 16px 8px 0; }
 .sidebar-foot p { margin: 0 0 9px; font-size: 13px; color: #c9ced1; }
 .sidebar-foot small { display: block; margin-top: 13px; color: #68727a; }
@@ -82,6 +87,9 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .config-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; }
 .config-block { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 15px; }
 .config-block h4 { margin: 0 0 12px; font-size: 14px; }
+.config-title { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.config-title h4 { margin-bottom: 0; }
+.config-title .button { padding: 5px 8px; font-size: 12px; }
 .control-row { display: grid; grid-template-columns: minmax(88px, 112px) minmax(0, 1fr) auto; align-items: center; gap: 13px; min-height: 44px; border-top: 1px solid #222931; }
 .control-row:first-of-type { border-top: 0; }
 .control-row label { font-size: 13px; color: #cbd0d3; }
@@ -200,6 +208,54 @@ select { border: 1px solid var(--line); background: #171c20; color: var(--text);
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .check-line { display: flex; gap: 8px; color: #c0c7cb; font-size: 13px; }
 .hidden { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.launch-settings-host { margin-top: 16px; min-width: 0; }
+.launch-head { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px 18px; margin-bottom: 12px; }
+.launch-head h4 { margin: 0 0 5px; font-size: 15px; }
+.launch-head p, .launch-head > span { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.launch-head > span { max-width: 100%; }
+.launch-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.launch-panel { min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 15px; background: var(--panel); }
+.launch-panel-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding-bottom: 11px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.launch-panel-title h4 { margin: 0; font-size: 15px; }
+.launch-panel-title > span { color: var(--green); font-size: 11px; white-space: nowrap; }
+.launch-panel fieldset { min-width: 0; padding: 0; margin: 0; border: 0; }
+.launch-field { display: grid; grid-template-columns: minmax(95px, .7fr) minmax(0, 1.3fr); align-items: center; gap: 7px 12px; margin-top: 11px; font-size: 13px; color: #cbd0d3; }
+.launch-field:first-child { margin-top: 0; }
+.launch-field select { min-width: 0; width: 100%; font-size: 13px; padding: 9px 8px; }
+.launch-field small { grid-column: 2; color: var(--muted); line-height: 1.6; font-size: 11px; }
+.launch-number { display: flex; min-width: 0; align-items: center; gap: 8px; color: var(--muted); }
+.launch-number input { min-width: 0; width: 100%; color: var(--text); background: #171c20; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-variant-numeric: tabular-nums; }
+.launch-field select:focus-visible, .launch-number input:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.launch-check { display: flex; align-items: flex-start; gap: 7px; margin-top: 12px; font-size: 11px; color: #cbd0d3; line-height: 1.6; }
+.launch-check input { margin: 2px 0 0; accent-color: var(--green); }
+.launch-backend { color: #b2d49f; font-size: 12px; line-height: 1.5; }
+.launch-status { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 15px; }
+.launch-status .badge:not(.good):not(.warn) { background: #22282d; color: #a7b0b7; }
+.launch-saved, .launch-message, .launch-unavailable { font-size: 11px; color: var(--muted); margin: 9px 0 0; line-height: 1.65; overflow-wrap: anywhere; }
+.launch-message { color: #b6daa1; }
+.launch-unavailable { padding: 11px; border-radius: 8px; background: #20251d; color: #d7c495; margin-top: 0; }
+.launch-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; margin-top: 13px; }
+.launch-actions .button { font-size: 12px; padding: 8px 10px; max-width: 100%; white-space: normal; }
+.launch-actions > .subtle { margin-right: auto; }
+.launch-preview { border: 1px solid #456b34; background: #141d12; border-radius: 8px; padding: 12px; margin-top: 13px; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.launch-preview > strong { color: #b8dd9f; font-size: 12px; }
+.launch-preview p { margin: 7px 0; color: #c0c9bc; }
+.launch-preview details { margin: 9px 0; }
+.launch-preview summary { cursor: pointer; color: #b8c7b1; }
+.launch-preview ul { padding-left: 18px; }
+.launch-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 10px; color: #a8b4a2; }
+.launch-target { font-family: inherit; font-size: 10px; }
+.launch-error, .launch-preview .launch-error { color: #eea0a0; }
+.launch-recovery { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 12px; margin: 10px 0; border: 1px solid #6a5127; background: #241e13; border-radius: 8px; color: #e7cc91; font-size: 12px; }
+.launch-recovery > span { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 1180px) {
+  .launch-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .launch-panel { padding: 12px; }
+  .launch-field { grid-template-columns: minmax(80px, .7fr) minmax(0, 1.3fr); gap: 7px; }
+}
 @media (max-width: 980px) {
   .app-shell { grid-template-columns: 180px 1fr; }
   .config-grid { grid-template-columns: 1fr; }

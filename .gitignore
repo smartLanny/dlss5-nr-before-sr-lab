@@ -1,6 +1,7 @@
 node_modules/
 dist/
 out/
+output/
 build/
 *.log
 .demo-user-data-*/
