@@ -1,5 +1,10 @@
 # Feeder completion and current MSVC verification
 
+Follow-up: [the bounded production-consumer NVIDIA host experiment](EXTERNAL_CORE_NVIDIA_HOST_20260908.md)
+subsequently found and fixed official NGX bootstrap and zero work-extent defects,
+and verified actual Feature18/compositing at 100% and 50% on artificial inputs.
+The initial compile-only boundary below is retained as its original evidence.
+
 This is an opt-in development slice for #164, based on the complete #166
 hotfix source `c6389f7` and the recovered Feeder implementation. It does not
 change native DLSS routing, install OptiScaler, publish a player package, or

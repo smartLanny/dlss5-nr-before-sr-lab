@@ -7,8 +7,12 @@
 完整链接，旧“缺 MSVC/链接失败”不再是当前阻断。新增 Signal/Drain/同帧
 完成保护与 F8 provenance/recorded 状态；生产函数故障13断言、完成控制/WARP
 22、原准入46/Windows客户端23通过。原生热修40项统一门禁也通过。
-完整 consumer/F8 核心实际编译源码 `07c219c`；producer 实际构建 `48598dc`。
-NVIDIA Feature18 与无DLSS游戏尚未验收，不宣布新游戏支持、不覆盖 Release。
+后续真实宿主实验修复了纯非DLSS宿主NGX bootstrap和新增work尺寸未转发的
+0x0 Create错误。Core实际源码 `53fb7fb` 在RTX5090 Laptop、人工guides和
+ReShade注册stub下，100%/50%各完成4帧真实Feature18/自有合成与GPU读回；
+完整producer官方bootstrap实际MSVC构建 `aa0ac0d`。
+[真实硬件证据与边界](EXTERNAL_CORE_NVIDIA_HOST_20260908.md)。
+Feeder完整游戏回调/无DLSS游戏尚未验收，不宣布新游戏支持、不覆盖 Release。
 [实现、精确证据和剩余宿主接入](FEEDER_COMPLETION_20260908.md)。
 
 ## 2026-09-08 0.4.6 发布后界面补正（当前接续）
