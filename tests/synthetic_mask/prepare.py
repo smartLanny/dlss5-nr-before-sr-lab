@@ -1,7 +1,8 @@
 """Generate test-only CombineV2 injection. Never edits production source or runs GPU."""
-import hashlib, json, pathlib, re, sys
+import hashlib, json, os, pathlib, re, sys
 root=pathlib.Path(__file__).resolve().parents[2]
-out=pathlib.Path(sys.argv[1]); out.mkdir(parents=True,exist_ok=True)
+out=pathlib.Path(sys.argv[1])
+if out.exists(): raise FileExistsError('Evidence output directory already exists: '+str(out))
 src=(root/'src/nr_before_sr.cpp').read_text(encoding='utf-8')
 h=(root/'tests/codec_gpu_harness.cpp.in').read_text(encoding='utf-8')
 def one(s,a,b):
@@ -41,6 +42,11 @@ h=one(h,'roi.width, roi.height};','roi.width, roi.height, synthetic_face};')
 # Nonuniform channel gains exercise both luminance and chroma; not a pure luma fixture.
 h=one(h,'Float4{0.3f, 0.45f, 0.6f, 0.875f}','Float4{0.32f, 0.40f, 0.53f, 0.875f}')
 h=h[:h.index('int main()')]+(root/'tests/synthetic_mask/main.inl').read_text(encoding='utf-8')
-(out/'synthetic_mask.cpp').write_text(h,encoding='utf-8')
 files=['src/nr_before_sr.cpp','tests/codec_gpu_harness.cpp.in','tests/synthetic_mask/prepare.py','tests/synthetic_mask/main.inl']
-(out/'manifest.json').write_text(json.dumps({'synthetic':True,'production_modified':False,'inputs':{f:hashlib.sha256((root/f).read_bytes()).hexdigest() for f in files},'generated_sha256':hashlib.sha256((out/'synthetic_mask.cpp').read_bytes()).hexdigest()},indent=2))
+payload=h.replace('\n',os.linesep).encode('utf-8') # Preserve prior text writer bytes.
+manifest=json.dumps({'synthetic':True,'production_modified':False,'inputs':{f:hashlib.sha256((root/f).read_bytes()).hexdigest() for f in files},'generated_sha256':hashlib.sha256(payload).hexdigest()},indent=2)
+# All extraction/anchor/input validation precedes any output mutation. mkdir is
+# exclusive and files use exclusive creation, including concurrent invocations.
+out.mkdir(parents=True,exist_ok=False)
+with (out/'synthetic_mask.cpp').open('xb') as f: f.write(payload)
+with (out/'manifest.json').open('x',encoding='utf-8') as f: f.write(manifest)

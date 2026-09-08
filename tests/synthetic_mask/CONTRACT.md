@@ -73,3 +73,10 @@ Reproduction prepares source only: `python tests/synthetic_mask/prepare.py <priv
 The generated manifest locks the production source, harness, generator and test
 main. Preparation does not execute the GPU binary. This is test-local code and
 does not establish a ready production resource/lifecycle implementation.
+
+The later generator-only archival guard rejects an existing output directory,
+validates all inputs/anchors before writing, and exclusively creates new files.
+CPU checks confirmed refusal of the original evidence directory and new generation
+with the same `8d889ccc...` source hash. The first guard check exposed newline
+translation differences; these were corrected to retain the prior writer's bytes.
+Original `355e53d` evidence was untouched and no GPU verification was repeated.
