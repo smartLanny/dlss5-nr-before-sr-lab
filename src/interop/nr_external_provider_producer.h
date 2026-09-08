@@ -6,8 +6,9 @@
 
 // Producer-side client for jlrouzies-fr/DLSS5-Feeder (and host tests).
 // Discovers the unique NR consumer export set. On successful ClaimOwnership the
-// producer MUST disable its own NGX Feature1 create/evaluate for that process;
-// it must not install a second NR owner or spoof Feature1 for this core.
+// producer MUST disable its private Feature1-based NR implementation; a direct
+// SR feature may be created only after native-observer preflight. Never install
+// a second NR owner or spoof Feature1 for this core.
 namespace nr_external_provider_client {
 
 using QueryFn = std::int32_t (WINAPI *)(std::uint32_t, std::uint32_t,

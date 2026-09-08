@@ -72,6 +72,8 @@ struct NrExternalResourceV1 {
     NrExternalMotionUnit motion_unit = NrExternalMotionUnit::Pixels;
     float motion_scale_x = 1.0f;
     float motion_scale_y = 1.0f;
+    // Source pixels. Native/Extracted provenance declares a supplied value,
+    // including zero. Legacy Synthetic zero means unspecified camera jitter.
     float jitter_x = 0.0f;
     float jitter_y = 0.0f;
 };

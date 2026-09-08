@@ -5,6 +5,8 @@
 
 namespace nr_external_provider_core {
 
+#include "nr_external_jitter.inl"
+
 struct ProviderHandleSlot {
     std::uint64_t provider_id = 0;
     std::uint64_t view_id = 0;
@@ -252,22 +254,10 @@ inline bool ResolveExternalGuideBinding(const NrExternalFrameV1 &frame,
          static_cast<std::uint32_t>(NrExternalLeaseFlags::ResetTemporal)) != 0
             ? 1 : 0;
     binding.capture_params.reset_known = true;
-    binding.jitter = ResolveNrJitter(nullptr, g_config.jitter_mode,
-                                     guide_width, guide_height, width, height);
+    binding.jitter = ResolveExternalJitter(frame.color, g_config.jitter_mode,
+                                         guide_width, guide_height, width, height);
     binding.jitter_offset_x = binding.jitter.x;
     binding.jitter_offset_y = binding.jitter.y;
-    if (frame.color.jitter_x != 0.0f || frame.color.jitter_y != 0.0f) {
-        binding.jitter.known = std::isfinite(frame.color.jitter_x) &&
-            std::isfinite(frame.color.jitter_y);
-        if (binding.jitter.known) {
-            binding.jitter.x = frame.color.jitter_x;
-            binding.jitter.y = frame.color.jitter_y;
-            binding.jitter.valid_x = true;
-            binding.jitter.valid_y = true;
-            binding.jitter_offset_x = binding.jitter.x;
-            binding.jitter_offset_y = binding.jitter.y;
-        }
-    }
     return true;
 }
 
