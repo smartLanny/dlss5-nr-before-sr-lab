@@ -128,9 +128,17 @@ CPU log SHA256:
 Full build log SHA256:
 `5699a9c593c7b06bda59e1a255afc58bbb37066acd0b3821fa7d47e7da0d8cfd`.
 All warnings remain in the full log. No binary/private raw evidence is tracked.
+The coordinating task independently reviewed the production publication point,
+Signal gate, nonblocking fence observation and frozen F8 copy, including actual
+RR Feature 13 propagation and R from the resolved Color active rectangle.
+It independently rehashed all 117 manifest entries, all three artifacts and
+validation 7cdf828f; every value matched.
 
 Remaining #82 work includes pre/external coherent receipts, engine frame/view
 and independent resource generation if a real provider supplies them, live UI/F8
 and real queue behavior, 1–49% admission, game/DPI/stability and performance.
-This build does not complete those acceptance items and has not been pushed,
-merged, released or run on GPU in this slice.
+This build does not complete those acceptance items and has not been merged,
+released or run on GPU. After independent review, the coordinating task
+authorized this batch to extend existing draft #183, preserving the separate
+ed38ae9 DLL identity and previous 3411 configuration build identity. Publication
+of source is not additional execution evidence.
