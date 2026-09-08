@@ -82,7 +82,7 @@ class UiRefreshContract(unittest.TestCase):
         self.assertEqual(self.ui.count("nr_f8::RequestCore();"), 1)
 
     def test_labels_separate_overall_effect_from_tone_follow(self):
-        self.assertIn('ui("Overall NR effect", "NR 效果倍率")', self.ui)
+        self.assertIn('ui("Extra enhancement", "额外增强")', self.ui)
         self.assertIn('ui("AI colour amount", "AI 色彩强度")', self.ui)
         self.assertIn("including visible brightness and detail", self.ui)
         self.assertIn("only hue and saturation", self.ui)

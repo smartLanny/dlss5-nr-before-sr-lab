@@ -18,7 +18,7 @@ struct NgxParams { unsigned output_sentinel = 12345; };
 struct FeatureRecord { const NgxHandle* handle; int feature_id; ULONGLONG generation; int rr_depth_type=1; };
 void ObserveRrDepthProjection(const NgxParams*, const FeatureRecord&) {}
 using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList*, const NgxHandle*, const NgxParams*, void*);
-struct ChainConfig { bool enabled=true, identity_use_original=false; float post_transfer_strength=1; int mode=2; };
+struct ChainConfig { bool enabled=true, identity_use_original=false, color_protection=true; float post_transfer_strength=1; int mode=2; };
 ChainConfig g_config;
 int g_chain_cs = 0;
 wchar_t g_ini_path[] = L"";
