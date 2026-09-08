@@ -1,0 +1,138 @@
+01:13:48.019  DLSS 5 AI Rendering Perfect Chain beta0.4.5-dx11-compat attached | author=@野生的装机宅 Bilibili | official_release=https://space.bilibili.com/941799 | language=zh-CN | file=nr-before-sr.zh-CN.addon64 | build_id=beta0.4.5-dx11-compat | sourceCommit=dccb5b398ccc540723f84a6ef789dd70dbda5cd3 sourceDirty=1
+01:13:48.020  ShortFuse sidecar: loaded=0 enabledSetting=0 hookPoint=0 ownsNR=0; AI upscaling NR available.
+01:13:48.020  Generic RenoDX DLSS5 addon: loaded=0; AI upscaling NR available.
+01:13:48.021  Config: enabled=1 mode=2 identity=0 preTransfer=1.200 postTransfer=1.200 colorFollowRequested=1.000 preserveLighting=0 proxyScale=1.000 paperWhiteScale=1.000 peakShoulderRequested=0 warmup=2 intensity=1.000 localTone=1.000 localStructure=1.000 skinStructure=-1.000 autoMask=0 style=0 uiCorrection=1 r8OutputEncoding=0 perfEpoch=2 jitterMode=1 feature18Evals=0
+01:13:48.022  Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot hotkey (API 18).
+01:13:48.296  [command-state] device meta-command contract: known=1 initDirty=0x1020 executeDirty=0x1020 supportedMask=0x1038.
+01:13:48.296  [module] pinned hook owner name=D3D12 command state address=00007FFC757A3890 module=00007FFC75760000 until process exit.
+01:13:48.331  [module] pinned hook owner name=D3D12 command state address=00007FFC75938E20 module=00007FFC75760000 until process exit.
+01:13:48.366  [module] pinned hook owner name=D3D12 command state address=00007FFC75938E70 module=00007FFC75760000 until process exit.
+01:13:48.544  Found SR NGX module: D:\steam\steamapps\common\Crimson Desert\bin64\nvngx_dlss.dll
+01:13:48.544  [module] pinned hook owner name=nvngx_dlss.dll address=00007FFC287C0000 module=00007FFC287C0000 until process exit.
+01:13:48.544  [module] pinned hook owner name=_nvngx.dll address=00007FFCB2980000 module=00007FFCB2980000 until process exit.
+01:13:48.544  [module] pinned hook owner name=nvngx_dlssd.dll address=00007FFC57570000 module=00007FFC57570000 until process exit.
+01:13:48.547  [module] pinned hook owner name=D3D12_CreateFeature address=00007FFC287ED960 module=00007FFC287C0000 until process exit.
+01:13:48.547  MH_CreateHook D3D12_CreateFeature                    target=00007FFC287ED960 status=0 (MH_OK)
+01:13:48.547  [module] pinned hook owner name=D3D12_EvaluateFeature address=00007FFC287EDAD0 module=00007FFC287C0000 until process exit.
+01:13:48.547  MH_CreateHook D3D12_EvaluateFeature                  target=00007FFC287EDAD0 status=0 (MH_OK)
+01:13:48.547  [module] pinned hook owner name=D3D12_ReleaseFeature address=00007FFC287EDDB0 module=00007FFC287C0000 until process exit.
+01:13:48.548  MH_CreateHook D3D12_ReleaseFeature                   target=00007FFC287EDDB0 status=0 (MH_OK)
+01:13:48.548  [module] pinned hook owner name=core CreateFeature address=00007FFCB29E8540 module=00007FFCB2980000 until process exit.
+01:13:48.548  MH_CreateHook core CreateFeature                     target=00007FFCB29E8540 status=0 (MH_OK)
+01:13:48.548  [module] pinned hook owner name=core EvaluateFeature address=00007FFCB29E8740 module=00007FFCB2980000 until process exit.
+01:13:48.548  MH_CreateHook core EvaluateFeature                   target=00007FFCB29E8740 status=0 (MH_OK)
+01:13:48.548  [module] pinned hook owner name=core ReleaseFeature address=00007FFCB29E8640 module=00007FFCB2980000 until process exit.
+01:13:48.548  MH_CreateHook core ReleaseFeature                    target=00007FFCB29E8640 status=0 (MH_OK)
+01:13:48.548  [module] pinned hook owner name=DLSSD CreateFeature address=00007FFC57592E40 module=00007FFC57570000 until process exit.
+01:13:48.548  MH_CreateHook DLSSD CreateFeature                    target=00007FFC57592E40 status=0 (MH_OK)
+01:13:48.548  [module] pinned hook owner name=DLSSD EvaluateFeature address=00007FFC57592FB0 module=00007FFC57570000 until process exit.
+01:13:48.548  MH_CreateHook DLSSD EvaluateFeature                  target=00007FFC57592FB0 status=0 (MH_OK)
+01:13:48.549  [module] pinned hook owner name=DLSSD ReleaseFeature address=00007FFC57593290 module=00007FFC57570000 until process exit.
+01:13:48.549  MH_CreateHook DLSSD ReleaseFeature                   target=00007FFC57593290 status=0 (MH_OK)
+01:13:48.592  MH_EnableHook all status=0
+01:13:48.592  [module] late _nvngx coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+01:13:48.592  [module] late DLSSD coverage: create=1 evaluate=1 release=1; RR-lifecycle=covered.
+01:13:48.593  [module] initial scan complete: sr=00007FFC287C0000 core=00007FFCB2980000 dlssd=00007FFC57570000.
+01:13:48.593  NGX observer/AI-upscaling hooks active.
+01:13:51.241  [command-state] observed CreateCommandSignature: call=1 signature=00000000ED7C0D30 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[0] root=0000000000000000.
+01:13:51.241  [command-state] observed CreateCommandSignature: call=2 signature=00000000EDFE00C0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[1] root=0000000000000000.
+01:13:51.241  [command-state] observed CreateCommandSignature: call=3 signature=00000000EDC85D80 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[2] root=0000000000000000.
+01:13:51.242  [command-state] observed CreateCommandSignature: call=4 signature=00000000E7559AF0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=0 types=[9] root=0000000000000000.
+01:13:51.242  [command-state] observed CreateCommandSignature: call=5 signature=00000000E73B5540 result=0x00000000 metadataWrite=0x00000000 valid=1 count=1 stage=1 types=[10] root=0000000000000000.
+01:13:56.959  [command-state] observed CreateCommandSignature: call=6 signature=00000000F94C3920 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015FB03950.
+01:13:56.959  [command-state] observed CreateCommandSignature: call=7 signature=00000000F94C4840 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015FB03950.
+01:13:56.959  [command-state] observed CreateCommandSignature: call=8 signature=00000000F94C4FD0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015FB03950.
+01:13:56.959  [command-state] observed CreateCommandSignature: call=9 signature=00000000F94C1AE0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015FB03950.
+01:13:56.959  [command-state] observed CreateCommandSignature: call=10 signature=00000000F94C6E10 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015FB03950.
+01:13:56.959  [command-state] observed CreateCommandSignature: call=11 signature=00000000F94C5760 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015FB03950.
+01:13:56.960  [command-state] observed CreateCommandSignature: call=12 signature=00000000F94C6680 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015FB03950.
+01:13:56.960  [command-state] observed CreateCommandSignature: call=13 signature=00000000F94C7D30 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015FB03950.
+01:13:56.960  [command-state] observed CreateCommandSignature: call=14 signature=00000000F94C75A0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015FB03950.
+01:13:56.961  [command-state] observed CreateCommandSignature: call=15 signature=00000000F94C5EF0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015FB03950.
+01:13:56.961  [command-state] observed CreateCommandSignature: call=16 signature=000000016EFC3CE0 result=0x00000000 metadataWrite=0x00000000 valid=1 count=3 stage=1 types=[4,5,1] root=000000015FB03950.
+01:14:00.144  _nvngx core CreateFeature entered: call=1 id=13 (RayReconstruction)
+01:14:00.144  [module] nvngx_dlssd CreateFeature entered: call=1 id=13 (RayReconstruction)
+01:14:00.254  core CreateFeature id=13 (RayReconstruction) result=0x00000001(Success) handle=00000003ED1D26D0
+01:14:00.254      Width                                      = 1707
+01:14:00.255      Height                                     = 1067
+01:14:00.255      OutWidth                                   = 2560
+01:14:00.255      OutHeight                                  = 1600
+01:14:00.255      PerfQualityValue                           = 2
+01:14:00.255      DLSS.Feature.Create.Flags                  = 43
+01:14:00.255      CreationNodeMask                           = 1
+01:14:00.255      VisibilityNodeMask                         = 1
+01:14:00.256  _nvngx core EvaluateFeature reached: call=1 handle=00000003ED1D26D0
+01:14:00.256  [state] bypass transition #1: waiting-feature1 -> rr-safe-bypass.
+01:14:00.256  [module] nvngx_dlssd EvaluateFeature reached: call=1 handle=00000003ED1D26D0
+01:14:00.269  _nvngx core CreateFeature entered: call=2 id=11 (FrameGeneration)
+01:14:00.347  core CreateFeature id=11 (FrameGeneration) result=0x00000001(Success) handle=00000003ED811350
+01:14:00.355  [module] lazy rescan #1 core=00007FFCB2980000 coreLifecycle=1 dlssd=00007FFC57570000 dlssdLifecycle=1 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=0 observerFault=none.
+01:14:00.356  [post-compat] initial RR-post=1 Npost/O=100%; requested Mode=2 retained.
+01:14:00.357  [dx11-deployment] module snapshot complete=1 carriers=0 matching045=0; filename evidence only, not NR readiness or GPU completion.
+01:14:00.399  [render-scale] parameter-provider observer installed; engine re-query still required
+01:14:00.441  [render-scale] parameter-provider observer installed; engine re-query still required
+01:14:00.485  [render-scale] parameter-provider observer installed; engine re-query still required
+01:14:00.527  [render-scale] parameter-provider observer installed; engine re-query still required
+01:14:00.528  [perf] reset stage=A1-RR-owner-observed epoch=2 transfer=1.200; warming 180 frames
+01:14:00.540  [artifact-identity] sourceCommit=dccb5b398ccc540723f84a6ef789dd70dbda5cd3 sourceDirty=1 status=verified addonPath=D:\steam\steamapps\common\Crimson Desert\bin64\nr-before-sr.zh-CN.addon64 addonSha256=ffea8e3a92cf07388f71b1855f3157c9c959a7a094b6f1a35cb92c57bf2f06f9 measurement=loaded-path-file-once-worker.
+01:14:00.615  _nvngx core EvaluateFeature reached: call=2 handle=00000003ED1D26D0
+01:14:00.615  Per-Evaluate render subrect 1704x1064@0,0 overrides stale Feature 1 generation=1 Create scalars 1707x1067 -> 2560x1600.
+01:14:00.616  Pipeline diagnostic scope reset: epoch=1 Feature1 generation=1 mode=1.
+01:14:00.616  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F120 module=00007FFCE1A40000 until process exit.
+01:14:00.616  [module] pinned hook owner name=D3D12 command state address=00007FFC75A08DA0 module=00007FFC75760000 until process exit.
+01:14:00.616  [module] pinned hook owner name=D3D12 command state address=00007FFC75A0EE60 module=00007FFC75760000 until process exit.
+01:14:00.616  [module] pinned hook owner name=D3D12 command state address=00007FFC75A0C220 module=00007FFC75760000 until process exit.
+01:14:00.617  [module] pinned hook owner name=D3D12 command state address=00007FFC75A0C440 module=00007FFC75760000 until process exit.
+01:14:00.617  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F200 module=00007FFCE1A40000 until process exit.
+01:14:00.617  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F240 module=00007FFCE1A40000 until process exit.
+01:14:00.617  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F280 module=00007FFCE1A40000 until process exit.
+01:14:00.617  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F2C0 module=00007FFCE1A40000 until process exit.
+01:14:00.617  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F320 module=00007FFCE1A40000 until process exit.
+01:14:00.618  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F360 module=00007FFCE1A40000 until process exit.
+01:14:00.618  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F3A0 module=00007FFCE1A40000 until process exit.
+01:14:00.618  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F220 module=00007FFCE1A40000 until process exit.
+01:14:00.618  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F260 module=00007FFCE1A40000 until process exit.
+01:14:00.618  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F2A0 module=00007FFCE1A40000 until process exit.
+01:14:00.618  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F2F0 module=00007FFCE1A40000 until process exit.
+01:14:00.618  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F340 module=00007FFCE1A40000 until process exit.
+01:14:00.618  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F380 module=00007FFCE1A40000 until process exit.
+01:14:00.619  [module] pinned hook owner name=D3D12 command state address=00007FFCE223F3C0 module=00007FFCE1A40000 until process exit.
+01:14:00.619  [module] pinned hook owner name=D3D12 command state address=00007FFCE223FA70 module=00007FFCE1A40000 until process exit.
+01:14:00.619  [module] pinned hook owner name=D3D12 command state address=00007FFC75A0C950 module=00007FFC75760000 until process exit.
+01:14:00.619  [module] pinned hook owner name=D3D12 command state address=00007FFC75A0C530 module=00007FFC75760000 until process exit.
+01:14:00.705  D3D12 native Reset success-gate hook active: target=00007FFC75A0D660 slot=0.
+01:14:00.705  [command-state] NR bypass: reason=native-hooks-unavailable token=28 registered=1 installing=1 dirty=0x0 count=1 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+01:14:00.705  [state] bypass transition #2: rr-safe-bypass -> command-state-unverified.
+01:14:00.705  [module] nvngx_dlssd EvaluateFeature reached: call=2 handle=00000003ED1D26D0
+01:14:00.706  [RR-post] native=0x00000001 requestedMode=2 effectiveMode=1 stage=4 recorded=0; native RR Output retained on decline. F8 TXT for BUG feedback.
+01:14:00.707  Observed D3D12 graphics queue identity=1 native=0000000036CEC330 live=1. Feature 18 admission requires stable per-command-list affinity.
+01:14:00.709  Observed D3D12 graphics queue identity=2 native=000000016D8DE4C0 live=2. Feature 18 admission requires stable per-command-list affinity.
+01:14:00.779  _nvngx core EvaluateFeature reached: call=3 handle=00000003ED1D26D0
+01:14:00.779  Per-Evaluate render subrect 1704x1064@0,0 overrides stale Feature 1 generation=1 Create scalars 1707x1067 -> 2560x1600.
+01:14:00.779  [command-state] NR bypass: reason=native-hooks-unavailable token=20 registered=1 installing=1 dirty=0x0 count=2 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+01:14:00.779  [module] nvngx_dlssd EvaluateFeature reached: call=3 handle=00000003ED1D26D0
+01:14:00.780  [RR-post] native=0x00000001 requestedMode=2 effectiveMode=1 stage=4 recorded=0; native RR Output retained on decline. F8 TXT for BUG feedback.
+01:14:00.808  Per-Evaluate render subrect 1704x1064@0,0 overrides stale Feature 1 generation=1 Create scalars 1707x1067 -> 2560x1600.
+01:14:00.808  Post-SR FP16 color-follow contract: requested=1.000 effective=0.000 preExposure=1.000000 exposureScale=1.000000 exposureTexture=1. The current non-unity exposure contract remains luminance-only.
+01:14:00.808  Mode 1 accepted live ExposureTexture contract: 1x1 format=41; the red-channel exposure scale will be sampled symmetrically in Encode/Combine.
+01:14:00.816  signed DLSSNR D3D12 runtime initialized through nrchain_nvngx.dll (result=0x00000001).
+01:14:03.391  HDR proxy/source-domain delta composition codec created.
+01:14:03.391  [state] bypass transition #3: command-state-unverified -> queue-affinity-unverified.
+01:14:03.391  [command-state] restored native state: token=28 pso=00000003EBFBD740 raytracing=0000000000000000 computeRoot=00000000F8A6D600 graphicsRoot=00000000DEB14710 resourceHeap=000000002FF607C0 samplerHeap=000000002FF60340.
+01:14:03.391  [RR-post] native=0x00000001 requestedMode=2 effectiveMode=1 stage=4 recorded=0; native RR Output retained on decline. F8 TXT for BUG feedback.
+01:14:03.393  [module] lazy rescan #2 core=00007FFCB2980000 coreLifecycle=1 dlssd=00007FFC57570000 dlssdLifecycle=1 observerGap=0 startupCovered=0 feature1CreateAttempts=0 feature1CreateSuccess=0 feature1CreateInFlight=0 observerEpoch=0 nullEvals=0 carrierEvals=3 observerFault=none.
+01:14:03.411  Post-SR FP16 color-follow contract: requested=1.000 effective=0.000 preExposure=1.000000 exposureScale=1.000000 exposureTexture=1. The current non-unity exposure contract remains luminance-only.
+01:14:03.411  Mode 1 accepted live ExposureTexture contract: 1x1 format=41; the red-channel exposure scale will be sampled symmetrically in Encode/Combine.
+01:14:03.411  [command-state] restored native state: token=20 pso=00000003EBFBD740 raytracing=0000000000000000 computeRoot=00000000F8A6D600 graphicsRoot=00000000DEB14710 resourceHeap=000000002FF604C0 samplerHeap=000000002FFE2A10.
+01:14:03.432  [command-state] NR bypass: reason=native-hooks-unavailable token=32 registered=1 installing=1 dirty=0x0 count=3 baseline=unobserved resetSerial=0 pipelineWrites=0 nullBaseline=0 guard=0/0/0 tainted=0 dynamic=0x0 vb=0x0 so=0x0; unknown state remains native.
+01:14:03.432  [state] bypass transition #4: queue-affinity-unverified -> command-state-unverified.
+01:14:03.466  Post-SR FP16 color-follow contract: requested=1.000 effective=0.000 preExposure=1.000000 exposureScale=1.000000 exposureTexture=1. The current non-unity exposure contract remains luminance-only.
+01:14:03.466  Mode 1 accepted live ExposureTexture contract: 1x1 format=41; the red-channel exposure scale will be sampled symmetrically in Encode/Combine.
+01:14:03.470  Post-SR native FP16 Output retained: active=2560x1600 copied byte-exactly to owned snapshot; no SR target redirection.
+01:14:03.471  [state] bypass transition #5: command-state-unverified -> none/active.
+01:14:03.471  [command-state] restored native state: token=28 pso=00000003EBFBD740 raytracing=0000000000000000 computeRoot=00000000F8A6D600 graphicsRoot=00000000DEB14710 resourceHeap=000000002FF604C0 samplerHeap=000000002FFE2A10.
+01:14:03.472  NR jitter actual: mode=1 state=forwarded input=valid,valid source=2560x1600 work=2560x1600 scale=1.000000,1.000000 value=0.000000,0.000000.
+01:14:03.472  NR guide binding: mode=1 depth=1704x1064@0,0 mv=2560x1600@0,0 sourceMV=1704x1064 converted=1 scale=2560.000000,-1600.000000 flags=41 depthInverted=1 historyReset=1.
+01:14:03.472  NR create contract: mode=1 extent=2560x1600 depth=1704x1064 mv=2560x1600 gameFlags=43 normalizedFlags=41 perfQuality=5.
+01:14:03.472  HDR exposure contract adapted: source PreExposure=1.000000 scalarExposureScale=1.000000 scalarSourceToCanonical=1.000000 liveTexture=1; when present its 1x1 red channel overrides the scalar in the codec and the NR proxy uses canonical exposure 1.0.
+01:14:03.473  Feature 18 create-time tuning: mode=1 extent=2560x1600 intensity=1.000 style=0 autoMask=0 skin=-1.000 localTone=1.000 localStructure=1.000 uiCorrection=1 proxyMapping=existing.

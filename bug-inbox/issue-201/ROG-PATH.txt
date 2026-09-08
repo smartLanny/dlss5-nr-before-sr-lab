@@ -1,0 +1,10 @@
+Owner zip (source, ~13MB):
+  C:\Users\pc1\Downloads\红色沙漠0.3.3.5开启不变，0.4系列闪退.zip
+
+Box inbox (full extract + zip):
+  /workspace/napcat/bug-collector/bug-reports/_inbox/20260909-red-desert-0335-vs-04crash/
+  - red-desert-0335-vs-04crash.zip (13029681 B)
+  - extracted/ (logs, settings, screenshots current-0/1/2.png ~4MB each)
+
+Screenshots remain under inbox extracted/screenshots/ (not duplicated into pending).
+No F8 CoreText TXT in this pack (diagnostic feedback bundle only).
