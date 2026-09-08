@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 
@@ -129,6 +130,11 @@ def main() -> None:
     ap.add_argument('--output', type=Path, required=True)
     ap.add_argument('--self-test', action='store_true')
     args=ap.parse_args()
+    compiler=shutil.which(args.compiler)
+    if not compiler: ap.error('C++ compiler not found')
+    # llvm-mingw's host executable needs its adjacent C++ runtime DLLs. This
+    # process-local PATH affects only the CPU planner, never the user's setup.
+    os.environ['PATH']=str(Path(compiler).resolve().parent)+os.pathsep+os.environ.get('PATH','')
     if not (1<=args.width<=32768 and 1<=args.height<=32768):
         ap.error('planner extent must be 1..32768; this is a host bound, not a model capability')
     if len(args.percent)>101 or any(p<0 or p>100 for p in args.percent):
