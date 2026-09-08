@@ -2,15 +2,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn, execFileSync } = require('child_process');
+const { execFile } = require('child_process');
+const { createStartupDiagnostics, watchWindow } = require('./src/product/startup-diagnostics');
+const startup = createStartupDiagnostics();
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
-const { createAppService } = require('./src/product/app-service');
-const { createSrModelService } = require('./src/product/sr-model-service');
-const { createLaunchSettingsService } = require('./src/product/launch-settings-service');
-const { createLaunchCoordinator } = require('./src/product/launch-coordinator');
-const installGuards = require('./src/core/install-guards');
-const { createFgComponents } = require('./src/product/fg-components');
-const { classifyApi } = require('./src/product/game-support');
+let createAppService, createSrModelService, createLaunchSettingsService, createLaunchCoordinator, installGuards, createFgComponents, classifyApi;
 
 let win = null;
 let service = null;
@@ -18,19 +14,74 @@ let srModel = null;
 let launchSettings = null;
 let launchCoordinator = null;
 let fgComponents = null;
+let windowWatch = null;
+let failureVisible = false;
+let quitting = false;
+app.on('before-quit', () => { quitting = true; });
+startup.log('startup-options', { noSandbox: process.argv.includes('--no-sandbox'), disableGpu: process.argv.includes('--disable-gpu'),
+  nodeOptionsPresent: Boolean(process.env.NODE_OPTIONS), electronRunAsNodePresent: Boolean(process.env.ELECTRON_RUN_AS_NODE),
+  compatibilityLayerPresent: Boolean(process.env.__COMPAT_LAYER) });
+if (process.argv.includes('--software-rendering')) { app.disableHardwareAcceleration(); startup.log('software-rendering-requested'); }
 
-function isWindowsAdministrator() {
-  if (process.platform !== 'win32') return true;
+async function exportStartupReport() {
+  const selected = await dialog.showSaveDialog({ title: '保存精简启动诊断', defaultPath: 'DLSS5-启动诊断.txt', filters: [{ name: '文本诊断', extensions: ['txt'] }] });
+  if (!selected.canceled && selected.filePath) { startup.exportTo(selected.filePath); shell.showItemInFolder(selected.filePath); }
+}
+
+async function startupFailure(title, error, softwareRetry = false) {
+  startup.log('startup-failure', { title, code: error?.code || '', message: error?.message || String(error), stack: error?.stack || '' });
+  if (failureVisible) return;
+  failureVisible = true;
   try {
-    const result = execFileSync('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      '$id=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=New-Object Security.Principal.WindowsPrincipal($id); $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)'
-    ], { encoding: 'utf8', windowsHide: true });
-    return /^true$/i.test(String(result).trim());
-  } catch {
-    return false;
+    if (!app.isReady()) {
+      let saved = '';
+      try { if (startup.directory) saved = startup.exportTo(path.join(startup.directory, '启动失败诊断.txt')); } catch {}
+      dialog.showErrorBox('管理器启动失败', `${title}\n${error?.message || ''}\n${saved ? `诊断已保存：${saved}` : '请运行独立的“启动诊断.cmd”导出诊断。'}`);
+      app.exit(1);
+      return;
+    }
+    await app.whenReady();
+    const result = await dialog.showMessageBox({ type: 'error', title: '管理器未能正常启动', message: title,
+      detail: `${error?.message || '启动过程未完成。'}\n可以直接导出精简诊断。不会自动删除旧配置，也不能仅凭此判断缺少 VC++。`,
+      buttons: softwareRetry ? ['导出诊断', '使用软件渲染重启', '关闭'] : ['导出诊断', '关闭'], cancelId: softwareRetry ? 2 : 1 });
+    if (result.response === 0) { await exportStartupReport(); app.quit(); }
+    else if (softwareRetry && result.response === 1) { app.relaunch({ args: [...process.argv.slice(1).filter(arg => arg !== '--software-rendering'), '--software-rendering'] }); app.quit(); }
+    else app.quit();
+  } catch (failure) {
+    startup.log('error-dialog-failed', { message: failure.message });
+    try { dialog.showErrorBox('管理器启动失败', `${title}\n${error?.message || ''}\n请运行随包的“启动诊断.cmd”导出诊断。`); } catch {}
+    app.quit();
+  } finally { failureVisible = false; }
+}
+process.on('uncaughtException', error => { void startupFailure('启动过程发生异常', error); });
+process.on('unhandledRejection', error => { void startupFailure('启动过程未完成', error); });
+process.on('exit', code => startup.log('process-exit', { code }));
+app.on('child-process-gone', (_event, details) => {
+  startup.log('child-process-gone', { type: details.type, reason: details.reason, exitCode: details.exitCode, serviceName: details.serviceName, name: details.name });
+  if (!quitting && details.type === 'GPU' && ['launch-failed', 'integrity-failure'].includes(details.reason)) {
+    void startupFailure('图形子进程无法启动', new Error(`GPU process: ${details.reason} (${details.exitCode})。请导出诊断，核对系统对子进程的限制；不自动关闭沙箱。`));
+  }
+});
+
+const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+function runPowerShell(command, timeout = 15000) {
+  return new Promise((resolve, reject) => execFile(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command],
+    { encoding: 'utf8', windowsHide: true, timeout, maxBuffer: 16384 }, (error, stdout) => error ? reject(error) : resolve(String(stdout).trim())));
+}
+
+async function isWindowsAdministrator() {
+  if (process.platform !== 'win32') return true;
+  // Both shipped EXEs have a verified requireAdministrator PE manifest.
+  // Windows applies it before JS starts; invoking PowerShell again here can
+  // itself be blocked by application-control policy and hide an otherwise usable UI.
+  if (app.isPackaged && !process.env.__COMPAT_LAYER) { startup.log('elevation-enforced-by-manifest'); return true; }
+  try {
+    const result = await runPowerShell('$id=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=New-Object Security.Principal.WindowsPrincipal($id); $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)');
+    if (!/^(?:true|false)$/i.test(result)) throw new Error('无法确认当前进程权限。');
+    return /^true$/i.test(result);
+  } catch (error) {
+    startup.log('administrator-check-failed', { message: error.message });
+    throw new Error('无法检查管理员权限，已停止重复提权。请导出启动诊断。');
   }
 }
 
@@ -38,24 +89,20 @@ function quotePowerShell(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-function relaunchAsAdministrator() {
-  if (isWindowsAdministrator()) return true;
-  const args = process.argv.slice(1).filter(value => typeof value === 'string');
-  const argumentList = args.length
-    ? ` -ArgumentList @(${args.map(quotePowerShell).join(', ')})`
-    : '';
-  const command = `Start-Process -FilePath ${quotePowerShell(process.execPath)}${argumentList} -Verb RunAs`;
-  try {
-    const child = spawn('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-WindowStyle',
-      'Hidden',
-      '-Command',
-      command
-    ], { detached: true, stdio: 'ignore', windowsHide: true });
-    child.unref();
-  } catch {}
+async function relaunchAsAdministrator() {
+  if (await isWindowsAdministrator()) { startup.log('administrator-confirmed'); return true; }
+  if (process.argv.includes('--elevation-attempted')) throw new Error('提权后的进程仍未取得管理员权限，已停止重启循环。');
+  const args = [...process.argv.slice(1).filter(value => typeof value === 'string'), '--elevation-attempted'];
+  const quoteArgument = value => `"${String(value).replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1')}"`;
+  const argumentList = ` -ArgumentList ${quotePowerShell(args.map(quoteArgument).join(' '))}`;
+  // Relaunch the portable shell, not its temporary inner EXE: the first shell
+  // may remove its extraction folder as soon as this process exits.
+  const portable = process.env.PORTABLE_EXECUTABLE_FILE;
+  const target = portable && path.isAbsolute(portable) && /[.]exe$/i.test(portable) && fs.existsSync(portable) ? portable : process.execPath;
+  const command = `$ErrorActionPreference='Stop'; $p=Start-Process -FilePath ${quotePowerShell(target)} -WorkingDirectory ${quotePowerShell(path.dirname(target))}${argumentList} -Verb RunAs -PassThru; Start-Sleep -Milliseconds 700; if($p.HasExited){throw '管理员进程启动后立即退出'}; $p.Id`;
+  startup.log('elevation-requested');
+  try { const childPid = await runPowerShell(command, 60000); startup.log('elevation-child-started', { pid: childPid }); }
+  catch (error) { startup.log('elevation-failed', { message: error.message }); throw new Error('未能启动管理员进程：可能取消了提权、被系统阻止，或程序启动后立即退出。请导出启动诊断。'); }
   app.quit();
   return false;
 }
@@ -78,9 +125,6 @@ async function iconDataFor(file) {
   return null;
 }
 
-const shouldContinue = relaunchAsAdministrator();
-const hasSingleInstance = shouldContinue && app.requestSingleInstanceLock();
-
 function createWindow() {
   win = new BrowserWindow({
     width: 1180,
@@ -99,26 +143,32 @@ function createWindow() {
       sandbox: true
     }
   });
-  win.loadFile(path.join(__dirname, 'src', 'renderer', 'index.html'));
-  win.once('ready-to-show', () => win.show());
+  startup.log('window-created');
+  windowWatch = watchWindow(win, { log: startup.log, fail: (...args) => { if (!quitting) void startupFailure(...args); } });
+  win.loadFile(path.join(__dirname, 'src', 'renderer', 'index.html')).catch(error => { void startupFailure('界面文件加载失败', error); });
   win.on('closed', () => { win = null; });
 }
 
 function registerIpc() {
+  ipcMain.on('startup-renderer-ready', event => { if (event.sender === win?.webContents) windowWatch?.ready(); });
+  ipcMain.on('startup-renderer-failed', (event, message) => {
+    if (event.sender === win?.webContents) windowWatch?.failed(new Error(String(message || '界面初始化失败').slice(0, 500)));
+  });
+  ipcMain.handle('startup-export', () => exportStartupReport());
   const loggedGameActions = new Set([
     'game-install', 'game-repair', 'game-upgrade-addon', 'game-uninstall',
-    'game-toggle-d3d12', 'game-launch', 'game-diagnose', 'game-hotkeys-read',
+    'game-toggle-d3d12', 'game-launch', 'game-diagnose', 'game-rename', 'game-hotkeys-read',
     'game-hotkey-write', 'nr-read', 'nr-write', 'nr-default', 'nr-recommended',
     'sr-model-read', 'sr-model-write', 'feedback-export', 'launch-settings-inspect',
     'launch-settings-save', 'launch-settings-preview', 'launch-settings-restore', 'launch-settings-recover',
-    'fg-components-prepare', 'fg-components-restore'
+    'fg-components-prepare', 'fg-components-restore', 'launch-settings-update', 'launch-settings-reset-all'
   ]);
   const guardedActions = new Set(['game-install', 'game-repair', 'game-upgrade-addon', 'game-toggle-d3d12',
     'game-api-set', 'nr-write', 'nr-default', 'nr-recommended', 'game-hotkey-write']);
   const serializedActions = new Set([...guardedActions, 'game-launch', 'game-uninstall', 'game-dismiss',
-    'game-confirm', 'settings-update', 'sr-model-write', 'launch-settings-save', 'launch-settings-preview',
+    'game-confirm', 'game-rename', 'settings-update', 'sr-model-write', 'launch-settings-save', 'launch-settings-preview',
     'launch-settings-apply', 'launch-settings-restore', 'launch-settings-recover', 'fg-components-prepare', 'fg-components-restore',
-    'payload-source-pick', 'payload-source-reset', 'payload-source-recheck']);
+    'payload-source-pick', 'payload-source-reset', 'payload-source-recheck', 'launch-settings-update', 'launch-settings-reset-all']);
   const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => service.withError(
     () => {
       const work = async () => {
@@ -129,13 +179,18 @@ function registerIpc() {
     },
     { action: name, gameId: loggedGameActions.has(name) && typeof args[0] === 'string' ? args[0] : null }
   ));
-  call('boot', () => service.boot());
+  call('boot', async () => {
+    const data = await service.boot();
+    for (const warning of data.discoveryWarnings || []) startup.log('launcher-discovery-warning', { code: warning.code, message: warning.message });
+    return data;
+  });
   call('games-refresh', () => service.refresh());
   call('games-list', () => service.listGames());
   call('game-install', (id, options) => service.install(id, options));
   call('game-repair', (id, options) => service.repair(id, options));
   call('game-upgrade-addon', (id, version, options) => service.upgradeAddon(id, version, options));
   call('game-dismiss', id => launchCoordinator.dismiss(id));
+  call('game-rename', (id, name) => service.renameGame(id, name));
   call('game-api-set', (id, api, options) => service.setGameApi(id, api, options));
   call('game-toggle-d3d12', (id, enabled, options) => service.toggleD3D12(id, enabled === true, options));
   call('game-uninstall', async (id, removeSettings) => {
@@ -173,6 +228,34 @@ function registerIpc() {
   call('launch-settings-apply', (planId, consent) => launchSettings.apply(planId, { confirm: consent?.confirm === true }));
   call('launch-settings-restore', (id, domain) => launchSettings.restore(id, domain));
   call('launch-settings-recover', id => launchSettings.recover(id));
+  call('launch-settings-update', async (id, domain, input, options = {}) => {
+    const request = require('./src/product/launch-settings-policy').validateRequest(domain, input);
+    await launchSettings.assertReady(id);
+    if (domain === 'fg' && request.mode !== 'restore') {
+      const components = await fgComponents.inspect(id);
+      const expectedRoute = request.backend === 'rtx40' ? 'compatibility' : 'native';
+      if (components.route !== expectedRoute) throw Object.assign(new Error('所选补帧路线与当前显卡不一致，未准备或修改组件。'), { code: 'SETTINGS_FG_ROUTE_MISMATCH' });
+      if (components.needsCleanup) {
+        await launchSettings.restore(id, 'fg');
+        await fgComponents.restore(id);
+      } else if (!components.ready) await fgComponents.prepare(id, { allowAntiCheat: options.allowAntiCheat === true });
+    }
+    const plan = await launchSettings.preview(id, domain, request);
+    const result = await launchSettings.apply(plan.id, { confirm: true, automatic: true });
+    try { await launchSettings.save(id, domain, request); }
+    catch (error) { throw Object.assign(new Error(`设置已应用，但未能记住选择：${error.message}`), { code: error.code || 'SETTINGS_SAVE_FAILED', details: { applied: true } }); }
+    return { ...result, saved: true };
+  });
+  call('launch-settings-reset-all', async id => {
+    const outcomes = [];
+    for (const domain of ['fg', 'sr']) {
+      try { const result = await launchSettings.restore(id, domain); outcomes.push({ domain, ok: true, result }); }
+      catch (error) { outcomes.push({ domain, ok: false, code: error.code, message: error.message }); }
+    }
+    if (outcomes.some(row => !row.ok)) throw Object.assign(new Error(outcomes.filter(row => !row.ok).map(row => `${row.domain.toUpperCase()}：${row.message}`).join('；')),
+      { code: 'SETTINGS_RESTORE_INCOMPLETE', details: { outcomes } });
+    return { restored: true, outcomes };
+  });
   call('fg-components-prepare', async (id, options) => {
     await launchSettings.assertReady(id);
     const result = await fgComponents.prepare(id, { allowAntiCheat: options?.allowAntiCheat === true });
@@ -274,13 +357,27 @@ function registerIpc() {
   ipcMain.on('window-close', () => win && win.close());
 }
 
-if (!shouldContinue) {
-  // The non-elevated process has handed off to a UAC-elevated child.
-} else if (!hasSingleInstance) {
-  app.quit();
-} else {
-  app.on('second-instance', async (_event, argv) => {
-    if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
+async function startApplication() {
+  startup.log('electron-entry', { version: app.getVersion(), packaged: app.isPackaged });
+  const reportIndex = process.argv.indexOf('--diagnostics-output');
+  if (reportIndex >= 0) {
+    const target = process.argv[reportIndex + 1];
+    if (!target || !path.isAbsolute(target)) throw new Error('诊断输出需要指定完整文件路径。');
+    await app.whenReady(); startup.exportTo(target); app.quit(); return;
+  }
+  if (process.argv.includes('--diagnostics')) { await app.whenReady(); await exportStartupReport(); app.quit(); return; }
+  if (!await relaunchAsAdministrator()) return;
+  if (!app.requestSingleInstanceLock({ startupNonce: startup.sessionId })) {
+    startup.log('existing-instance-detected');
+    if (await startup.waitForAcknowledgement()) { startup.log('existing-instance-focused'); app.quit(); }
+    else await startupFailure('已有管理器进程，但没有确认窗口已显示', new Error('已有进程可能尚未完成启动或没有响应。请先导出诊断，再从任务管理器核对；不会自动结束进程或删除单实例文件。'));
+    return;
+  }
+  startup.log('single-instance-acquired');
+  app.on('second-instance', async (_event, argv, _cwd, additional) => {
+    if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
+    startup.acknowledge(additional?.startupNonce);
+    startup.log('second-instance-focus', { windowAvailable: Boolean(win) });
     if (!service) return;
     for (const file of addonArgs(argv)) {
       try { await service.importAddonFile(file); } catch {}
@@ -289,7 +386,17 @@ if (!shouldContinue) {
   });
 
   app.setAppUserModelId('com.xiaofeng.dlss5.manager');
-  app.whenReady().then(async () => {
+  await app.whenReady();
+  startup.log('electron-ready');
+  {
+    ({ createAppService } = require('./src/product/app-service'));
+    ({ createSrModelService } = require('./src/product/sr-model-service'));
+    ({ createLaunchSettingsService } = require('./src/product/launch-settings-service'));
+    ({ createLaunchCoordinator } = require('./src/product/launch-coordinator'));
+    installGuards = require('./src/core/install-guards');
+    ({ createFgComponents } = require('./src/product/fg-components'));
+    ({ classifyApi } = require('./src/product/game-support'));
+    startup.log('business-modules-loaded');
     const userData = app.getPath('userData');
     service = createAppService({
       userData,
@@ -297,6 +404,13 @@ if (!shouldContinue) {
       appDir: __dirname,
       version: app.getVersion()
     });
+    startup.log('state-store-opened');
+    const configRecovery = service.store.readRecoveryStatus?.();
+    if (configRecovery && !['ok', 'missing', 'unread'].includes(configRecovery.state)) {
+      startup.log('settings-recovery', { state: configRecovery.state, reason: configRecovery.reason, message: configRecovery.message });
+      void dialog.showMessageBox({ type: 'warning', title: '已保留旧配置', message: configRecovery.message,
+        detail: '原配置和游戏备份没有被删除。需要协助时，可通过启动诊断导出当前状态。', buttons: ['知道了'] });
+    }
     srModel = createSrModelService({
       userData,
       resourcesPath: process.resourcesPath,
@@ -337,7 +451,8 @@ if (!shouldContinue) {
     }
     registerIpc();
     createWindow();
-  });
+  }
   app.on('window-all-closed', () => app.quit());
-  app.on('before-quit', () => { service?.dispose?.(); });
+  app.on('before-quit', () => { startup.log('app-quitting'); service?.dispose?.(); });
 }
+void startApplication().catch(error => startupFailure('管理器初始化失败', error));

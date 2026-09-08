@@ -1,5 +1,7 @@
 # Manager 发布前问题单与工作树核对
 
+2026-09-09 更新：当前 Manager dev.8 见 [最新交接](2026-09-09-manager-dev8.md)。#180 已由维护者关闭，保留已合入的性能修复；下表“保留开放”为早期状态。#179 已改为 SR/FG 自动应用/总恢复；#165 已有部署事务和 registry adapter，但缺正式 recipe/activation/transport/实际 Vulkan 验收。核心正式新交接为 #206 dev12，仍是 D3D12 Core-only，不是 Manager OTA。
+
 核对基点：Manager `8fa5b3d` / 0.4.6-hotfix.7-dev.6；远端核心 main `e1f5885`。用户明确继续等待任务 `01a080d0-f712-7f02-93b0-09cfc581d16f` 一起交付，优先做好 #191 的旧版升级、链路识别、冲突检查和备份恢复。不得由“希望尽快测试”推导提前公开发布或自动删除证据。
 
 ## 问题单分类

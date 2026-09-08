@@ -1,6 +1,13 @@
 'use strict';
 
 const $ = id => document.getElementById(id);
+let startupFinished = false;
+window.addEventListener('error', event => {
+  if (!startupFinished) window.manager?.startupFailed?.(event.message || '界面脚本执行失败');
+});
+window.addEventListener('unhandledrejection', event => {
+  if (!startupFinished) window.manager?.startupFailed?.(event.reason?.message || '界面初始化请求失败');
+});
 const state = {
   product: null,
   settings: null,
@@ -22,7 +29,8 @@ const state = {
   gameSelection: null,
   saveTimers: new Map(),
   saveRevisions: new Map(),
-  pendingPatches: new Map()
+  pendingPatches: new Map(),
+  installing: new Set()
 };
 
 function unwrap(result) {
@@ -40,7 +48,16 @@ function escapeHtml(value) {
 const KEY_NAMES = Object.freeze({
   8: 'Backspace', 9: 'Tab', 13: 'Enter', 27: 'Esc', 32: 'Space',
   33: 'PageUp', 34: 'PageDown', 35: 'End', 36: 'Home', 37: 'Left',
-  38: 'Up', 39: 'Right', 40: 'Down', 45: 'Insert', 46: 'Delete'
+  38: 'Up', 39: 'Right', 40: 'Down', 45: 'Insert', 46: 'Delete',
+  0xBA: ';', 0xBB: '=', 0xBC: ',', 0xBD: '-', 0xBE: '.', 0xBF: '/',
+  0xC0: '`', 0xDB: '[', 0xDC: '\\', 0xDD: ']', 0xDE: "'"
+});
+
+// ReShade uses Windows VK_OEM codes, not the Unicode character produced by
+// the current input method. Keep Shift/Ctrl/Alt separate from the physical key.
+const OEM_KEY_CODES = Object.freeze({
+  Semicolon: 0xBA, Equal: 0xBB, Comma: 0xBC, Minus: 0xBD, Period: 0xBE, Slash: 0xBF,
+  Backquote: 0xC0, BracketLeft: 0xDB, Backslash: 0xDC, BracketRight: 0xDD, Quote: 0xDE
 });
 
 function hotkeyLabel(binding) {
@@ -75,6 +92,7 @@ function keyBindingFromEvent(event) {
   else if (code === 'Space') key = 32;
   else if (code === 'Tab') key = 9;
   else if (code === 'Enter') key = 13;
+  else if (Object.hasOwn(OEM_KEY_CODES, code)) key = OEM_KEY_CODES[code];
   if (!key) return null;
   return { key, ctrl: event.ctrlKey, shift: event.shiftKey, alt: event.altKey };
 }
@@ -90,6 +108,21 @@ function toast(message, error = false) {
 function setBusy(value) {
   state.busy = value;
   document.body.classList.toggle('is-busy', value);
+}
+
+function setInstallBusy(id, value) {
+  if (value) state.installing.add(id);
+  else state.installing.delete(id);
+  const card = [...document.querySelectorAll('.game-card')].find(row => row.dataset.id === id);
+  const button = card && card.querySelector('.install-btn');
+  if (!button) return;
+  button.disabled = value;
+  button.classList.toggle('is-busy', value);
+  button.setAttribute('aria-busy', String(value));
+  button.setAttribute('aria-live', 'polite');
+  button.innerHTML = value
+    ? '<span class="button-spinner" aria-hidden="true"></span><span>正在安装…</span>'
+    : '一键安装';
 }
 
 function supportBadge(game) {
@@ -201,6 +234,11 @@ function catalogReplacement(id) {
 }
 
 function actionSuccessMessage(success, value) {
+  if (value?.removed === false) throw Object.assign(new Error('卸载未完成，请核对保留的恢复记录并保存反馈。'), { code: 'ERR_BACKUP_INVALID' });
+  if (value?.removed === true && typeof value.historyRel === 'string' && value.historyRel) {
+    const retained = Array.isArray(value.retainedSidecars) ? value.retainedSidecars.length : Number(value.retainedSidecars) || 0;
+    return `卸载完成；备份已集中保存在 _DLSS5_Backup${retained > 0 ? '；被外部改动的备份已原位保留' : ''}`;
+  }
   const replacement = value?.payloadReplacement;
   return replacement?.from && replacement?.to && replacement.from !== replacement.to
     ? `${success}；已应用替代核心 ${coreVersionLabel(replacement.to)}（原选择 ${coreVersionLabel(replacement.from)} 已退出常规分发）`
@@ -208,7 +246,8 @@ function actionSuccessMessage(success, value) {
 }
 
 function versionOptionsMarkup(selected = state.payload && state.payload.selectedVersion, includeImported = true) {
-  const versions = state.payload && state.payload.versions ? Object.entries(state.payload.versions).map(([id, item]) => [id, item]) : [];
+  const versions = state.payload && state.payload.versions ? Object.entries(state.payload.versions)
+    .sort(([left], [right]) => left.localeCompare(right, 'en', { numeric: true })) : [];
   const imported = includeImported ? (state.addons || []).filter(item => item.addonOnly).map(item => [item.id, item]) : [];
   const all = [...versions, ...imported];
   if (!all.length) return '<option value="">当前组件</option>';
@@ -248,12 +287,15 @@ function visibleGames() {
 }
 
 function cardAction(game) {
+  const installBusy = Boolean(state.installing && state.installing.has(game.id));
+  const installButton = `<button class="button primary install-btn${installBusy ? ' is-busy' : ''}" aria-live="polite" aria-busy="${installBusy}"${installBusy ? ' disabled' : ''}>${installBusy ? '<span class="button-spinner" aria-hidden="true"></span><span>正在安装…</span>' : '一键安装'}</button>`;
+  const rename = '<button class="button subtle rename-game-btn" type="button" title="修改游戏名称">改名</button>';
   const dismiss = '<button class="icon-button dismiss-game-btn" title="移除这个游戏" aria-label="移除这个游戏">×</button>';
-  if (game.installed) return `<button class="button primary launch-btn">启动游戏</button><button class="button subtle card-open">设置</button>${dismiss}`;
-  if (game.supported && payloadReadyForHardware()) return `<button class="button primary install-btn">一键安装</button>${dismiss}`;
-  if (game.supported) return `<button class="button subtle payload-open-btn">检查安装组件</button>${dismiss}`;
-  if (game.supportCode === 'ERR_API_SELECTION_REQUIRED') return `<button class="button subtle">请选择游戏 API</button>${dismiss}`;
-  return `<button class="button" disabled>无法安装</button>${dismiss}`;
+  if (game.installed) return `<button class="button primary launch-btn">启动游戏</button><button class="button subtle card-open">设置</button>${rename}${dismiss}`;
+  if (game.supported && payloadReadyForHardware()) return `${installButton}${rename}${dismiss}`;
+  if (game.supported) return `<button class="button subtle payload-open-btn">检查安装组件</button>${rename}${dismiss}`;
+  if (game.supportCode === 'ERR_API_SELECTION_REQUIRED') return `<button class="button subtle">请选择游戏 API</button>${rename}${dismiss}`;
+  return `<button class="button" disabled>无法安装</button>${rename}${dismiss}`;
 }
 
 const API_LABELS = { dx9: 'DirectX 9', dx10: 'DirectX 10', dx11: 'DirectX 11', dx12: 'DirectX 12',
@@ -314,7 +356,7 @@ function gameDetail(game) {
   const installDetail = game.supported
     ? (payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可使用上方“一键安装”。` : '请到“组件管理”选择完整安装组件，再返回安装。')
     : game.supportText || '请先选择游戏实际运行的 EXE。';
-  const installationStatus = game.installed ? `<div class="config-block component-block"><div class="config-title"><div><h4>安装状态</h4><p class="section-caption">文件与安装记录</p></div><span class="component-summary" role="status">检查中</span></div><div class="component-body">正在检查…</div><div class="diagnostic-actions"><button class="button primary repair-inline-btn">一键修复</button><button class="button subtle feedback-inline-btn">保存反馈</button><button class="button danger uninstall-inline-btn">卸载插件</button></div><details class="advanced-settings route-advanced"><summary>高级加载入口</summary><div class="compat-actions"><button class="button subtle d3d12-btn">${game.d3d12Route ? '恢复 DXGI 入口' : '使用 D3D12 入口'}</button><span>仅在 DX12 游戏存在加载入口冲突时调整；保留原始文件和恢复记录。</span></div></details></div>` : '';
+  const installationStatus = game.installed ? `<div class="config-block component-block"><div class="config-title"><div><h4>安装状态</h4><p class="section-caption">文件与安装记录</p></div><span class="component-summary" role="status">检查中</span></div><div class="component-body">正在检查…</div><div class="diagnostic-actions"><button class="button primary repair-inline-btn">一键修复</button><button class="button subtle feedback-inline-btn">保存反馈</button><button class="button danger uninstall-inline-btn">卸载插件</button></div><div class="route-advanced"><h4>兼容修复</h4><div class="compat-actions"><button class="button subtle d3d12-btn">${game.d3d12Route ? '撤销 D3D12 兼容修复' : '使用 D3D12 兼容修复'}</button><span>针对异环等部分 DX12 网游的加载报错、DXGI 入口冲突，可尝试此修复。只适用于 DX12，保留原文件，可随时撤销。</span></div></div></div>` : '';
   const nr = game.installed ? `<div class="enhancement-layout">
     <div class="config-block enhancement-controls">
       <div class="config-title"><div><h4>画面设置</h4><p class="section-caption">调整后自动保存到这个游戏</p></div><span class="save-state" role="status">正在读取…</span></div>
@@ -427,12 +469,19 @@ function bindGameCards() {
       if (detail.detailTabController.active() === 'graphics') mountGraphics();
     }
     card.querySelector('.game-card-head').onclick = event => {
-      if (event.target.closest('.install-btn') || event.target.closest('.launch-btn') || event.target.closest('.dismiss-game-btn')) return;
+      if (event.target.closest('.install-btn') || event.target.closest('.launch-btn') || event.target.closest('.rename-game-btn') || event.target.closest('.dismiss-game-btn')) return;
       state.expanded = state.expanded === id ? null : id;
       renderGames();
     };
     const install = card.querySelector('.install-btn');
-    if (install) install.onclick = event => { event.stopPropagation(); const version = card.querySelector('.game-version-select')?.value; runConfirmedAction(allowAntiCheat => window.manager.install(id, { allowAntiCheat, version }), '安装完成', true, id); };
+    if (install) install.onclick = event => {
+      event.stopPropagation();
+      if (state.installing.has(id)) return;
+      setInstallBusy(id, true);
+      const version = card.querySelector('.game-version-select')?.value;
+      void runConfirmedAction(allowAntiCheat => window.manager.install(id, { allowAntiCheat, version }), '安装完成', true, id)
+        .finally(() => setInstallBusy(id, false));
+    };
     const sourceButton = card.querySelector('.payload-open-btn');
     if (sourceButton) sourceButton.onclick = event => { event.stopPropagation(); switchView('addons'); $('choosePayloadSourceBtn').focus(); };
     const saveApi = card.querySelector('.api-save-btn');
@@ -444,6 +493,8 @@ function bindGameCards() {
     };
     const launch = card.querySelector('.launch-btn');
     if (launch) launch.onclick = event => { event.stopPropagation(); runAction(() => window.manager.launch(id), '游戏已启动', false, id); };
+    const rename = card.querySelector('.rename-game-btn');
+    if (rename) rename.onclick = event => { event.stopPropagation(); confirmRenameGame(id); };
     const dismiss = card.querySelector('.dismiss-game-btn');
     if (dismiss) dismiss.onclick = event => { event.stopPropagation(); confirmDismissGame(id); };
     const openFolder = card.querySelector('.open-folder-btn');
@@ -836,6 +887,22 @@ function confirmDismissGame(id) {
   $('modal').classList.remove('hidden');
 }
 
+function confirmRenameGame(id) {
+  const game = state.games.find(row => row.id === id);
+  if (!game) return;
+  const input = $('renameGameInput');
+  state.pendingModal = { type: 'rename-game', id, originalName: String(game.name || '').trim() };
+  $('modalTitle').textContent = '修改游戏名称';
+  $('modalBody').textContent = '只修改列表显示名称，不会改变游戏文件、安装路径或 API/EXE 绑定。';
+  input.value = state.pendingModal.originalName;
+  $('renameGameLine').classList.remove('hidden');
+  $('removeSettingsLine').classList.add('hidden');
+  $('modalConfirm').textContent = '保存名称';
+  $('modal').classList.remove('hidden');
+  const focus = () => { input.focus(); input.select(); };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focus); else focus();
+}
+
 async function dismissGameFromList(id) {
   if (state.busy) return;
   setBusy(true);
@@ -856,10 +923,10 @@ function confirmD3D12(id) {
   const game = state.games.find(row => row.id === id);
   const enabled = !(game && game.d3d12Route);
   state.pendingModal = { type: 'd3d12', id, enabled };
-  $('modalTitle').textContent = enabled ? '加载 D3D12 入口' : '恢复 DXGI 入口';
+  $('modalTitle').textContent = enabled ? '应用 D3D12 兼容修复' : '撤销 D3D12 兼容修复';
   $('modalBody').textContent = enabled
-    ? '会把管理器的 ReShade 入口从 dxgi.dll 切换为 d3d12.dll，并保留 .bak。部分网游有反作弊或自带保护，若仍无法启动请恢复 DXGI 或卸载插件。'
-    : '会把管理器的 ReShade 入口恢复为 dxgi.dll。游戏必须先完全退出。';
+    ? '请先完全退出游戏。此操作会切换加载入口并保留原始文件，可用于异环等部分 DX12 网游的加载报错。只适用于 DX12；修复无效时可撤销。'
+    : '请先完全退出游戏。会撤销本次兼容修复，恢复原来的加载入口。';
   $('removeSettingsLine').classList.add('hidden');
   $('modal').classList.remove('hidden');
 }
@@ -890,6 +957,8 @@ function closeModal(result = false) {
   const pending = state.pendingModal;
   state.pendingModal = null;
   $('modal').classList.add('hidden');
+  $('renameGameLine').classList.add('hidden');
+  $('renameGameInput').value = '';
   $('removeSettingsLine').classList.add('hidden');
   $('modalConfirm').textContent = '确认';
   $('modalConfirm').disabled = false;
@@ -945,8 +1014,11 @@ async function boot() {
     $('hardwareNotice').classList.remove('hidden');
     renderGames();
     renderAddonVersions();
+    startupFinished = true;
+    window.manager.startupReady?.();
+    if (data.discoveryWarnings?.length) toast(data.discoveryWarnings.map(row => row.message).join('；'), true);
     setTimeout(enrichMissingArtwork, 80);
-  } catch (error) { toast(error.message, true); }
+  } catch (error) { window.manager.startupFailed?.(error.message); toast(error.message, true); }
 }
 
 async function enrichMissingArtwork() {
@@ -1166,6 +1238,9 @@ $('updateBtn').onclick = () => window.manager.openExternal('releaseUrl');
 $('repairGameSelect').onchange = event => { state.repairGame = event.target.value; loadRepairDiagnostic(); };
 $('repairBtn').onclick = () => state.repairGame && runConfirmedAction(allowAntiCheat => window.manager.repair(state.repairGame, { allowAntiCheat }), '修复完成', true, state.repairGame).then(loadRepairDiagnostic);
 $('uninstallBtn').onclick = () => state.repairGame && confirmUninstall(state.repairGame);
+$('exportStartupBtn').onclick = async () => {
+  try { await window.manager.exportStartupDiagnostic(); } catch (error) { toast(`无法保存启动诊断：${error.message}`, true); }
+};
 $('copyDiagBtn').onclick = async () => { const text = diagnosticText(); if (text) { await window.manager.copyText(text); toast('诊断信息已复制'); } };
 $('feedbackGameSelect').onchange = event => {
   state.feedbackGame = event.target.value;
@@ -1193,6 +1268,11 @@ $('exportFeedbackBtn').onclick = async () => {
   finally { setBusy(false); }
 };
 $('modalCancel').onclick = closeModal;
+$('renameGameInput').onkeydown = event => {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  $('modalConfirm').click();
+};
 document.addEventListener('keydown', event => {
   const pending = state.pendingModal;
   if (!pending || pending.type !== 'hotkey') return;
@@ -1218,9 +1298,16 @@ $('modalConfirm').onclick = async () => {
     await loadExpanded(pending.id);
     return;
   }
+  if (pending.type === 'rename-game') {
+    const name = String($('renameGameInput').value || '').trim().slice(0, 160);
+    if (!name) { toast('游戏名称不能为空', true); $('renameGameInput').focus(); return; }
+    closeModal();
+    if (name !== pending.originalName) await runAction(() => window.manager.renameGame(pending.id, name), '游戏名称已保存', true, pending.id);
+    return;
+  }
   closeModal();
   if (pending.type === 'uninstall') {
-    await runAction(() => window.manager.uninstall(pending.id, $('removeSettingsCheck').checked), '卸载完成');
+    await runAction(() => window.manager.uninstall(pending.id, $('removeSettingsCheck').checked), '卸载完成', true, pending.id);
     await loadRepairDiagnostic();
   }
   if (pending.type === 'remove-addon') {

@@ -43,60 +43,60 @@ test('an installation family alone never grants FG capability', () => {
   assert.equal(ui.hardwareFacts({ family: 'RTX50', series: ['RTX50'] }).fgBackend, 'nvidia');
 });
 
-test('saving, previewing and confirming are separate IPC operations; errors remain errors', async () => {
+test('settings apply through one update operation; errors stay dirty and global reset clears both domains', async () => {
   const calls = [];
   const data = { hardware: { series: ['RTX40'] }, requests: {}, applied: {}, pending: [] };
   const host = { isConnected: true, innerHTML: '', querySelector: () => null };
-  let failSave = false;
+  let failUpdate = false;
   const manager = {
     inspectLaunchSettings: async () => ({ ok: true, value: structuredClone(data) }),
-    saveLaunchSettings: async (id, domain, request) => {
-      calls.push(['save', id, domain, request]);
-      if (failSave) return { ok: false, error: { code: 'SETTINGS_DISK', message: '写入失败' } };
+    updateLaunchSettings: async (id, domain, request, options) => {
+      calls.push(['update', id, domain, request, options]);
+      if (failUpdate) return { ok: false, error: { code: 'SETTINGS_DISK', message: '写入失败' } };
       data.requests[domain] = { exe: 'C:\\Games\\A.exe', request };
-      return { ok: true, value: { saved: true, applied: false } };
+      data.applied[domain] = { request, readbackVerified: true };
+      return { ok: true, value: { applied: true } };
     },
-    previewLaunchSettings: async (id, domain, request) => { calls.push(['preview', id, domain, request]); return { ok: true, value: { id: 'plan-1', domain, request, blockers: [] } }; },
-    applyLaunchSettings: async (id, confirm) => { calls.push(['apply', id, confirm]); return { ok: true, value: { applied: true } }; },
-    restoreLaunchSettings: async (id, domain) => { calls.push(['restore', id, domain]); delete data.requests[domain]; delete data.applied[domain]; return { ok: true, value: { restored: true } }; }
+    resetAllLaunchSettings: async id => {
+      calls.push(['reset-all', id]);
+      data.requests = {}; data.applied = {};
+      return { ok: true, value: { restored: true } };
+    }
   };
   const controller = ui.mount(host, 'game-1', { manager });
   await controller.ready;
+  assert.deepEqual(calls, [], 'initial inspection never writes settings');
   Object.assign(controller.getState().drafts.sr, { quality: 'custom', renderPercent: 75, preset: 'M' });
-  await controller.perform('save', 'sr');
-  assert.deepEqual(calls.map(row => row[0]), ['save']);
-  assert.match(host.innerHTML, /请求已保存/);
-  assert.doesNotMatch(host.innerHTML, /配置已读回/);
-  await controller.perform('preview', 'sr');
-  assert.deepEqual(calls.map(row => row[0]), ['save', 'preview']);
-  assert.match(host.innerHTML, /确认应用/);
-  await controller.perform('confirm', 'sr');
-  assert.deepEqual(calls.at(-1), ['apply', 'plan-1', { confirm: true }]);
-  await controller.perform('preview', 'sr');
+  controller.getState().dirty.sr = true;
+  await controller.perform('auto', 'sr');
+  assert.deepEqual(calls[0], ['update', 'game-1', 'sr', { backend: 'native', quality: 'custom', renderPercent: 75, preset: 'M' }, { allowAntiCheat: false }]);
+  assert.match(host.innerHTML, /设置已应用/);
+  assert.doesNotMatch(host.innerHTML, /预览|确认应用/);
+  failUpdate = true;
   controller.getState().drafts.sr.renderPercent = 76;
-  await controller.perform('confirm', 'sr');
-  assert.equal(calls.filter(row => row[0] === 'apply').length, 1);
-  assert.match(host.innerHTML, /设置已改变/);
-  failSave = true;
-  await controller.perform('save', 'sr');
+  controller.getState().dirty.sr = true;
+  await controller.perform('auto', 'sr');
   assert.match(host.innerHTML, /写入失败 \[SETTINGS_DISK\]/);
-  assert.doesNotMatch(host.innerHTML, /请求已保存，下次从管理器启动/);
-  await controller.perform('restore', 'sr');
+  assert.equal(controller.getState().dirty.sr, true);
+  failUpdate = false;
+  await controller.perform('auto', 'sr');
+  assert.equal(controller.getState().dirty.sr, false);
+  await controller.perform('restore-all');
   assert.equal(data.requests.sr, undefined);
   assert.equal(controller.getState().drafts.sr.quality, 'quality');
-  assert.match(host.innerHTML, /取消下次启动覆盖/);
+  assert.deepEqual(calls.filter(row => row[0] === 'reset-all'), [['reset-all', 'game-1']]);
+  assert.match(host.innerHTML, /恢复原有设置/);
 });
 
-test('readback and runtime are distinct and backend text is escaped', () => {
+test('readback state and component messages are escaped', () => {
   const applied = { sr: { request: { backend: 'native', quality: 'quality' }, runtimeVerified: true } };
-  assert.doesNotMatch(ui.statusMarkup('sr', { applied }, false), /配置已读回/);
+  assert.doesNotMatch(ui.statusMarkup('sr', { applied }, false), /配置已校验/);
   applied.sr.readbackVerified = true;
   const status = ui.statusMarkup('sr', { applied }, false);
-  assert.match(status, /配置已读回/);
-  assert.match(status, /游戏未验证/);
-  const preview = ui.previewMarkup({ domain: 'sr', plan: { id: '1', request: { backend: 'native', quality: 'game' }, warnings: ['<img src=x onerror=1>'], blockers: ['不能应用'] } });
-  assert.match(preview, /&lt;img/);
-  assert.match(preview, /data-ls-action="confirm" disabled/);
+  assert.match(status, /配置已校验/);
+  const components = ui.fgComponentMarkup({ hardware: { series: ['RTX40'] }, fgComponents: { route: 'compatibility', ready: false, canPrepare: false, missing: ['<img src=x onerror=1>'], blockers: ['<script>bad()</script>'] } }, false);
+  assert.match(components, /&lt;img/);
+  assert.match(components, /&lt;script&gt;bad/);
 });
 
 test('legacy SR choices stay visible until this editor takes ownership', () => {
@@ -105,8 +105,7 @@ test('legacy SR choices stay visible until this editor takes ownership', () => {
   assert.equal(ui.initialFields('sr', data).preset, 'M');
   const status = ui.statusMarkup('sr', data, false);
   assert.match(status, /沿用原模型设置：自动 → 模型 M/);
-  assert.match(status, /保存后由本页接管/);
-  assert.doesNotMatch(status, /未设启动覆盖|配置已读回/);
+  assert.doesNotMatch(status, /未设启动覆盖|配置已校验/);
   data.legacy.managed = true;
   assert.equal(ui.initialFields('sr', data).quality, 'quality');
   assert.doesNotMatch(ui.statusMarkup('sr', data, false), /沿用原模型设置/);
@@ -118,7 +117,7 @@ test('legacy SR choices stay visible until this editor takes ownership', () => {
   data.legacy.effective = 'default';
   assert.equal(ui.initialFields('sr', data).quality, 'quality');
   data.legacy.error = { message: '读取失败' };
-  assert.match(ui.statusMarkup('sr', data, false), /启动覆盖状态未确认/);
+  assert.match(ui.statusMarkup('sr', data, false), /状态未确认/);
 });
 
 test('the new module replaces the legacy writable SR widget and preserves core controls', () => {
@@ -148,21 +147,19 @@ test('new SR controls expose presets and ratios without offering a legacy OptiSc
   }
   const data = { requests: { sr: { request: { backend: 'optiscaler', quality: 'custom', renderPercent: 75 } } }, applied: {}, hardware: {}, pending: [] };
   const host = { isConnected: true, innerHTML: '', querySelector: () => null };
-  let writes = 0;
   const controller = ui.mount(host, 'legacy', { manager: {
     inspectLaunchSettings: async () => ({ ok: true, value: data }),
-    saveLaunchSettings: async () => { writes++; return { ok: true, value: { saved: true } }; }
+    updateLaunchSettings: async () => { throw new Error('must not write a legacy OptiScaler request'); }
   } });
   await controller.ready;
   assert.doesNotMatch(host.innerHTML, /data-ls-field="backend"/);
   assert.match(host.innerHTML, /旧 OptiScaler 设置/);
-  assert.match(host.innerHTML, /data-ls-action="restore"[^>]*>撤销本页设置/);
-  await controller.perform('save', 'sr');
-  assert.equal(writes, 0);
+  assert.match(host.innerHTML, /data-ls-action="restore-all"[^>]*>恢复默认/);
+  assert.doesNotMatch(host.innerHTML, /data-ls-action="(?:save|preview|confirm|restore)"/);
   assert.equal(data.requests.sr.request.backend, 'optiscaler', 'legacy receipt is not discarded by rendering or rejected save');
 });
 
-test('RTX40 preparation is an explicit usable action and RTX50 selects the native route', async () => {
+test('RTX40 fields remain selectable while components await automatic preparation and RTX50 selects native', async () => {
   const data = { hardware: { family: 'RTX40', series: ['RTX40'] }, requests: {}, applied: {}, pending: [],
     fgComponents: { route: 'compatibility', ready: false, canPrepare: true, missing: ['兼容插件', '加载器'], blockers: [] } };
   const host = { innerHTML: '', isConnected: true, querySelector: () => null };
@@ -170,8 +167,8 @@ test('RTX40 preparation is an explicit usable action and RTX50 selects the nativ
   const manager = { inspectLaunchSettings: async () => ({ ok: true, value: structuredClone(data) }),
     prepareFgComponents: async (id, options) => { calls.push([id, options]); data.fgComponents.ready = true; return { ok: true, value: { prepared: true } }; } };
   const controller = ui.mount(host, 'game', { manager }); await controller.ready;
-  assert.match(host.innerHTML, /准备兼容组件/);
-  assert.doesNotMatch(host.innerHTML, /data-ls-field="mode"/);
+  assert.match(host.innerHTML, /更改补帧选项时会自动准备配套组件/);
+  assert.match(host.innerHTML, /data-ls-field="mode"/);
   await controller.perform('prepare', 'fg');
   assert.deepEqual(calls, [['game', { allowAntiCheat: false }]]);
   assert.match(host.innerHTML, /data-ls-field="mode"/);

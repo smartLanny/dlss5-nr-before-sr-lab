@@ -78,9 +78,7 @@ function Copy-Reviewed([string]$source, [string]$target, [string]$expected, [str
 
 function Copy-CompatibilityVersion() {
   $target = Assert-PlainDirectory (Join-Path $versions '0.4.5-ota') $versions
-  $oldDx11 = Assert-PlainDirectory (Join-Path $versions '0.4.2-dx11-native-bridge-exp1-r1') $versions
   if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
-  if (Test-Path -LiteralPath $oldDx11) { Remove-Item -LiteralPath $oldDx11 -Recurse -Force }
   New-Item -ItemType Directory -Path $target | Out-Null
   Copy-Reviewed $CompatAddon (Join-Path $target 'nr-before-sr.zh-CN.addon64') $reviewed[0][1] $reviewed[0][2]
   Copy-Reviewed $CompatBridge (Join-Path $target 'nrchain_nvngx.dll') $reviewed[1][1] $reviewed[1][2]
@@ -103,6 +101,6 @@ Copy-Version '0.2.0-beta.2' $Legacy02
 Copy-Version '0.3.3.5' $Legacy40
 Copy-CompatibilityVersion
 
-node (Join-Path $PSScriptRoot 'verify-payload.js') --write
+node (Join-Path $PSScriptRoot 'verify-payload.js') --write --dir $payload
 if ($LASTEXITCODE -ne 0) { throw 'Versioned payload verification failed.' }
 Write-Host "Matched 0.4.5 DX11 compatibility payload prepared under $payload"

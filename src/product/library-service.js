@@ -491,11 +491,14 @@ function createLibraryService(overrides = {}) {
       };
     });
 
-    return rows.filter(Boolean).sort((a, b) =>
+    const sorted = rows.filter(Boolean).sort((a, b) =>
       Number(b.installed) - Number(a.installed) ||
       Number(b.supported) - Number(a.supported) ||
       a.name.localeCompare(b.name, 'zh-CN', { numeric: true })
     );
+    if (discovered.warnings?.length) sorted.discoveryWarnings = discovered.warnings.slice(0, 8)
+      .map(row => ({ code: String(row.code || 'LAUNCHER_DISCOVERY_FAILED').slice(0, 80), message: String(row.message || '自动扫描部分来源失败').slice(0, 300) }));
+    return sorted;
   }
 
   return { scanAll, idFor, prepareSelection, findGameRoot, choosePreferred };

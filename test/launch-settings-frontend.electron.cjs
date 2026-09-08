@@ -14,7 +14,7 @@ function installMock() {
   const ok = value => ({ ok: true, value: structuredClone(value) });
   const mock = window.__launchMock = {
     data: { hardware: { family: 'RTX40', series: ['RTX40'], names: ['NVIDIA GeForce RTX 4090'], source: 'fixture' }, requests: {}, applied: {}, pending: [], fgComponents: { ready: true, canPrepare: false, missing: [], blockers: [] } },
-    calls: [], plans: {}, failSave: false, failApply: false, blockPreview: false, listener: null
+    calls: [], failUpdate: false, listener: null
   };
   const game = { id: 'ui-fixture', name: 'SR / FG 界面验证', dir: 'C:\\UI-fixture\\游戏目录', installed: true, supported: true, launcher: '手动添加',
     chosen: { apiResolution: { api: 'dx12', evidence: [] }, detectedApiResolution: { api: 'dx12', evidence: [] }, bitness: 64 }, components: { dx11Carrier: false }, addonVersion: '0.4.6-hotfix.1' };
@@ -38,30 +38,21 @@ function installMock() {
     inspectLaunchSettings: async id => { mock.calls.push(['inspect', id]); return ok(mock.data); },
     prepareFgComponents: async (id, options) => { mock.calls.push(['prepare-components', id, options]); mock.data.fgComponents = { route: 'compatibility', ready: true, managed: true, missing: [], blockers: [] }; return ok({ prepared: true }); },
     restoreFgComponents: async id => { mock.calls.push(['restore-components', id]); delete mock.data.requests.fg; delete mock.data.applied.fg; mock.data.fgComponents = { route: 'native', ready: true, missing: [], blockers: [] }; return ok({ restored: true }); },
-    saveLaunchSettings: async (id, domain, request) => {
-      mock.calls.push(['save', id, domain, request]);
-      if (mock.failSave) return { ok: false, error: { code: 'SETTINGS_TEST_SAVE', message: '模拟保存失败' } };
+    updateLaunchSettings: async (id, domain, request, options) => {
+      mock.calls.push(['update', id, domain, request, options]);
+      if (mock.failUpdate) return { ok: false, error: { code: 'SETTINGS_TEST_UPDATE', message: '模拟自动应用失败' } };
+      if (domain === 'fg' && request.backend === 'rtx40' && mock.data.fgComponents?.ready !== true) {
+        mock.calls.push(['auto-prepare-components', id]);
+        mock.data.fgComponents = { route: 'compatibility', ready: true, managed: true, missing: [], blockers: [] };
+      }
       mock.data.requests[domain] = { exe: game.dir + '\\game.exe', request, savedAt: new Date().toISOString() };
-      return ok({ saved: true, nextLaunch: true, applied: false });
-    },
-    previewLaunchSettings: async (id, domain, request) => {
-      mock.calls.push(['preview', id, domain, request]);
-      const plan = { id: 'plan-' + mock.calls.length, domain, request, backend: request.backend, exe: game.dir + '\\game.exe', destination: request.backend === 'native' || request.backend === 'nvidia' ? '每游戏驱动配置' : '现有后端配置文件', operations: [{ action: 'set-dword', id: 123, value: 1 }], warnings: [], blockers: mock.blockPreview ? ['模拟硬件阻止'] : [], runtimeVerified: false };
-      mock.plans[plan.id] = plan;
-      return ok(plan);
-    },
-    applyLaunchSettings: async (id, consent) => {
-      mock.calls.push(['apply', id, consent]);
-      if (mock.failApply) return { ok: false, error: { code: 'WRITE_VERIFY_FAILED', message: '模拟配置读回失败' } };
-      const plan = mock.plans[id];
-      if (!plan || consent.confirm !== true || plan.blockers.length) throw new Error('unconfirmed or blocked plan');
-      mock.data.applied[plan.domain] = { request: plan.request, backend: plan.backend, readbackVerified: true, runtimeVerified: false };
+      mock.data.applied[domain] = { request, backend: request.backend, readbackVerified: true, runtimeVerified: false };
       return ok({ applied: true, runtimeVerified: false });
     },
-    restoreLaunchSettings: async (id, domain) => {
-      mock.calls.push(['restore', id, domain]); delete mock.data.requests[domain]; delete mock.data.applied[domain];
-      if (domain === 'sr' && mock.data.legacy) Object.assign(mock.data.legacy, { managed: true, baselineCaptured: false });
-      return ok({ applied: true });
+    resetAllLaunchSettings: async id => {
+      mock.calls.push(['reset-all', id]); mock.data.requests = {}; mock.data.applied = {};
+      if (mock.data.legacy) Object.assign(mock.data.legacy, { managed: true, baselineCaptured: false });
+      return ok({ restored: true });
     },
     recoverLaunchSettings: async id => { mock.calls.push(['recover', id]); mock.data.pending = []; return ok({ recovered: true }); },
     minimize: () => {}, close: () => {}
@@ -121,6 +112,12 @@ async function smoke() {
   };
   const count = action => mock.calls.filter(row => row[0] === action).length;
   const saved = domain => mock.data.requests[domain]?.request;
+  const waitForAuto = async before => {
+    await waitUntil(() => count('update') > before);
+    await waitUntil(() => !controller.getState().busy);
+  };
+  await new Promise(resolve => setTimeout(resolve, 560));
+  assert(count('update') === 0 && count('reset-all') === 0, 'Initialization inspects settings without writing them');
   const readsBeforeFilter = count('inspect');
   document.querySelector('#searchInput').value = 'SR';
   document.querySelector('#searchInput').dispatchEvent(new Event('input', { bubbles: true }));
@@ -141,15 +138,16 @@ async function smoke() {
   assert(document.querySelector('.game-version-select').textContent.includes('Beta'), 'Core Beta choice remains visible');
   assert(!document.querySelector('.carrier-component-check'), 'API route owns compatibility bridging without a separate checkbox');
   assert(field('sr', 'renderPercent').value === '67', 'Input percentage is visible before any interaction');
-  for (const [quality, percent] of Object.entries({ dlaa: 100, quality: 67, balanced: 59, performance: 50, ultraPerformance: 33 })) {
-    set('sr', 'quality', quality);
-    assert(field('sr', 'renderPercent').value === String(percent), quality + ' updates the displayed percentage');
-    await click('sr', 'save');
-    assert(saved('sr').quality === quality && saved('sr').renderPercent === undefined, quality + ' submits its driver preset without a rounded custom override');
-  }
+  const beforeMerged = count('update');
+  set('sr', 'quality', 'dlaa'); set('sr', 'quality', 'balanced'); set('sr', 'quality', 'performance');
+  assert(field('sr', 'renderPercent').value === '50', 'Rapid preset changes update the displayed percentage immediately');
+  await waitForAuto(beforeMerged);
+  assert(count('update') === beforeMerged + 1 && saved('sr').quality === 'performance' && saved('sr').renderPercent === undefined, 'Rapid changes merge into one automatic update with the final driver preset');
+  assert(!host.querySelector('[data-ls-action="save"]') && !host.querySelector('[data-ls-action="preview"]') && !host.querySelector('[data-ls-action="confirm"]'), 'The automatic editor exposes no save, preview or confirmation controls');
   const ratioInput = field('sr', 'renderPercent'); ratioInput.focus(); set('sr', 'renderPercent', 75);
   assert(field('sr', 'quality').value === 'custom' && document.activeElement === ratioInput, 'Editing ratio selects custom without losing focus');
-  await click('sr', 'restore');
+  const beforeRatio = count('update'); await waitForAuto(beforeRatio);
+  assert(saved('sr').quality === 'custom' && saved('sr').renderPercent === 75, 'A numeric ratio automatically applies as a custom request');
   tabs.select('enhance');
   const modelStrength = document.querySelector('.nr-model-strength');
   const effectStrength = document.querySelector('.nr-effect-strength');
@@ -192,44 +190,36 @@ async function smoke() {
   assert(!effectStrength.disabled && !detail.querySelector('.nr-skin-strength').disabled && detail.querySelector('.save-state').textContent === '已读取设置', 'The latest legal reread restores effect and skin controls without a stale NR rejection disabling them');
   assert(!detail.querySelector('.component-body').textContent.includes('过期 EXE 诊断') && !detail.querySelector('.nr-read-error') && detail.querySelector('.reshade-hotkey-btn').textContent === 'Home', 'A superseded allSettled load cannot overwrite current diagnostics, errors or hotkeys');
   tabs.select('graphics');
+  mock.data.requests = {}; mock.data.applied = {};
   mock.data.legacy = { selection: 'auto', effective: 'm', managed: false, baselineCaptured: true };
   await controller.refresh(true);
   assert(field('sr', 'quality').value === 'quality' && field('sr', 'preset').value === 'M', 'Legacy M remains visible alongside a proposed quality preset');
   assert(panel('sr').textContent.includes('沿用原模型设置：自动 → 模型 M') && !panel('sr').textContent.includes('未设启动覆盖'), 'Legacy launch behavior stays visible before ownership migration');
-  await click('sr', 'restore');
+  await click(null, 'restore-all');
   assert(field('sr', 'quality').value === 'quality' && field('sr', 'preset').value === '' && !panel('sr').textContent.includes('沿用原模型设置'), 'A restored and managed legacy policy cannot silently re-enable M');
   set('sr', 'quality', 'custom'); set('sr', 'renderPercent', 75); set('sr', 'preset', 'M');
-  const beforeApply = count('apply');
-  await click('sr', 'save');
-  assert(saved('sr').renderPercent === 75 && saved('sr').preset === 'M', 'Native SR saves custom 75 percent and model M');
-  assert(count('apply') === beforeApply, 'Save does not immediately apply');
-  assert(!panel('sr').textContent.includes('配置已读回'), 'Save alone does not claim readback');
-  set('sr', 'preset', 'K'); await click('sr', 'save');
-  assert(saved('sr').preset === 'K', 'The same SR model control saves K');
-  await click('sr', 'preview');
-  assert(count('apply') === beforeApply && panel('sr').textContent.includes('目标 EXE'), 'Preview shows target and waits for confirmation');
-  await click('sr', 'confirm');
-  assert(count('apply') === beforeApply + 1, 'Confirmation applies exactly one preview');
-  assert(mock.calls.filter(row => row[0] === 'apply').at(-1)[2].confirm === true, 'Application sends explicit confirmation');
-  assert(panel('sr').textContent.includes('配置已读回') && panel('sr').textContent.includes('游戏未验证'), 'Readback and runtime status remain separate');
-  await click('sr', 'preview'); set('sr', 'renderPercent', 76);
-  assert(!panel('sr').querySelector('[data-ls-action="confirm"]'), 'Editing a number immediately invalidates the preview');
-  set('sr', 'renderPercent', 75); await click('sr', 'restore');
-  assert(!saved('sr') && field('sr', 'quality').value === 'quality', 'Restore clears the saved request without applying the visible proposed preset');
+  const beforeSrAuto = count('update'); await waitForAuto(beforeSrAuto);
+  assert(saved('sr').renderPercent === 75 && saved('sr').preset === 'M' && mock.data.applied.sr.readbackVerified, 'Native SR automatically saves, applies and reads back custom 75 percent with model M');
+  assert(panel('sr').textContent.includes('配置已校验') && panel('sr').textContent.includes('游戏内实际表现'), 'Readback remains distinct from the stated need for in-game verification');
+  const applyScrollOwner = document.querySelector('.view.active'); applyScrollOwner.scrollTop = Math.max(120, applyScrollOwner.scrollTop);
+  const scrollBeforeAuto = applyScrollOwner.scrollTop;
+  const beforeK = count('update'); set('sr', 'preset', 'K'); await waitForAuto(beforeK);
+  assert(saved('sr').preset === 'K', 'Changing the SR model automatically applies K without confirmation');
+  assert(applyScrollOwner.scrollTop === scrollBeforeAuto, 'Busy rendering and automatic apply refresh preserve the game view scroll position');
 
   mock.data.requests.sr = { request: { backend: 'optiscaler', quality: 'custom', renderPercent: 75 } };
   await controller.refresh(true);
-  assert(!field('sr', 'backend') && panel('sr').querySelector('[data-ls-action="save"]').disabled && saved('sr').backend === 'optiscaler', 'Legacy OptiScaler requests are preserved for restoration without an editable backend');
-  await click('sr', 'restore');
+  assert(!field('sr', 'backend') && panel('sr').querySelector('fieldset').disabled && saved('sr').backend === 'optiscaler', 'Legacy OptiScaler requests are preserved for restoration without an editable backend');
+  await click(null, 'restore-all');
   assert(!saved('sr') && field('sr', 'renderPercent'), 'Restoring legacy OptiScaler unlocks native SR editing');
   const preparesBeforeRuntime = count('prepare-components');
   mock.data.fgComponents = { route: 'compatibility', ready: false, canPrepare: false, missing: [], blockers: ['缺少 VC++ x64 运行库：vcruntime140.dll'], runtime: { status: 'missing', ready: false } };
   await controller.refresh();
-  assert(panel('fg').querySelector('[data-ls-action="runtime-help"]') && !panel('fg').querySelector('[data-ls-action="prepare"]') && !field('fg', 'mode'), 'Missing VC runtime exposes an official repair path without claiming FG readiness');
+  assert(panel('fg').querySelector('[data-ls-action="runtime-help"]') && !panel('fg').querySelector('[data-ls-action="prepare"]') && field('fg', 'mode'), 'Missing VC runtime exposes repair guidance while keeping the intended FG choice editable');
   await click('fg', 'runtime-help');
   assert(mock.calls.some(row => row[0] === 'open-external' && row[1] === 'vcRuntimeUrl') && count('prepare-components') === preparesBeforeRuntime, 'Runtime help opens the fixed official link without writing game files');
   await click('fg', 'runtime-check');
-  assert(panel('fg').textContent.includes('运行库检查尚未通过') && !field('fg', 'mode'), 'An unsuccessful runtime recheck keeps FG blocked');
+  assert(panel('fg').textContent.includes('运行库检查尚未通过') && field('fg', 'mode'), 'An unsuccessful runtime recheck remains explicit without discarding the intended FG choice');
   mock.data.fgComponents.runtime.repair = 'game-files'; await controller.refresh();
   assert(!panel('fg').querySelector('[data-ls-action="runtime-help"]') && panel('fg').textContent.includes('验证游戏文件'), 'A broken game-local DLL is not misrepresented as fixable by installing a system runtime');
   mock.data.fgComponents = { route: 'compatibility', ready: false, canPrepare: true, missing: ['兼容插件'], blockers: [], runtime: { status: 'available', ready: true } };
@@ -237,64 +227,58 @@ async function smoke() {
   assert(panel('fg').querySelector('[data-ls-action="prepare"]') && panel('fg').textContent.includes('游戏内加载与帧生成仍需验证'), 'Runtime recovery unlocks preparation while keeping game verification separate');
   mock.data.fgComponents = { route: 'compatibility', ready: false, canPrepare: true, missing: ['兼容插件', '加载器'], blockers: [] };
   await controller.refresh();
-  assert(panel('fg').querySelector('[data-ls-action="prepare"]') && !field('fg', 'mode'), 'Missing RTX40 components expose preparation instead of unusable controls');
-  await click('fg', 'prepare');
-  assert(mock.data.fgComponents.ready && field('fg', 'mode'), 'Preparing the compatibility package enables FG settings');
+  assert(panel('fg').querySelector('[data-ls-action="prepare"]') && field('fg', 'mode') && !field('fg', 'mode').disabled, 'Missing RTX40 components leave FG choices selectable for the automatic backend transaction');
+  const beforeCompat = count('update'); set('fg', 'mode', 'fixed'); set('fg', 'multiplier', 6); await waitForAuto(beforeCompat);
+  assert(mock.data.fgComponents.ready && saved('fg').backend === 'rtx40' && saved('fg').multiplier === 6 && count('auto-prepare-components') === 1, 'RTX40 selection automatically prepares compatibility components and applies the request');
+  assert(panel('fg').textContent.includes('1 帧渲染 + 5 帧生成'), 'RTX40 multiplier includes the rendered frame');
   for (const series of ['RTX40', 'RTX50']) {
     await hardware(series);
     const expected = series === 'RTX40' ? 'rtx40' : 'nvidia';
-    set('fg', 'mode', 'fixed'); set('fg', 'multiplier', 6); await click('fg', 'save');
-    assert(saved('fg').backend === expected && saved('fg').multiplier === 6, `${series} fixed 6x uses the correct backend`);
+    assert(controller.getState().drafts.fg.backend === expected, `${series} starts with the correct ${expected} backend`);
+    const beforeFixed = count('update'); set('fg', 'mode', 'fixed'); set('fg', 'multiplier', 6); await waitForAuto(beforeFixed);
+    assert(saved('fg').backend === expected && saved('fg').multiplier === 6, `${series} fixed 6x automatically uses the correct backend`);
     assert(panel('fg').textContent.includes('1 帧渲染 + 5 帧生成'), `${series} multiplier includes the rendered frame`);
-    await click('fg', 'preview'); await click('fg', 'confirm');
-    assert(mock.data.applied.fg.request.multiplier === 6, `${series} fixed request applies after preview`);
+    assert(mock.data.applied.fg.request.multiplier === 6, `${series} fixed request is applied without a preview or confirmation`);
     set('fg', 'mode', 'dynamic'); set('fg', 'targetFps', 144);
     if (series === 'RTX40') set('fg', 'experimental56', true);
-    await click('fg', 'save'); await click('fg', 'preview'); await click('fg', 'confirm');
+    const beforeDynamic = count('update'); await waitForAuto(beforeDynamic);
     assert(saved('fg').mode === 'dynamic' && saved('fg').targetFps === 144 && !('multiplier' in saved('fg')), `${series} dynamic mode omits dormant fixed multiplier`);
     assert(series === 'RTX40' ? saved('fg').experimental56 === true : !('experimental56' in saved('fg')), `${series} experimental option follows its backend schema`);
-    await click('fg', 'restore');
-    assert(!saved('fg') && !mock.data.applied.fg, `${series} restore clears the next launch request`);
     if (series === 'RTX50') {
-      set('fg', 'mode', 'off'); await click('fg', 'save');
+      const beforeOff = count('update'); set('fg', 'mode', 'off'); await waitForAuto(beforeOff);
       assert(saved('fg').mode === 'off' && panel('fg').textContent.includes('游戏菜单可能不变'), 'Native FG off has a driver-disable request and honest game-state explanation');
       set('fg', 'mode', 'restore');
       assert(panel('fg').textContent.includes('不会关闭 FG'), 'Restore is explicitly distinguished from FG off');
-      await click('fg', 'restore');
+      const beforeRestoreMode = count('update'); await waitForAuto(beforeRestoreMode);
     }
   }
   await hardware('RTX30');
-  assert(panel('fg').querySelector('[data-ls-action="save"]').disabled, 'RTX30 is not inferred as RTX40 from payload family');
+  assert(panel('fg').querySelector('fieldset').disabled, 'RTX30 is not inferred as RTX40 from payload family');
   await hardware(null, 'unknown');
-  assert(panel('fg').querySelector('[data-ls-action="preview"]').disabled && panel('fg').textContent.includes('未确认'), 'Unknown hardware cannot request FG');
+  assert(panel('fg').querySelector('fieldset').disabled && panel('fg').textContent.includes('未确认'), 'Unknown hardware cannot request FG');
   await hardware('RTX40');
   mock.data.requests.fg = { request: { backend: 'nvidia', mode: 'fixed', multiplier: 3 } };
   await controller.refresh(true);
-  assert(panel('fg').querySelector('[data-ls-action="save"]').disabled && panel('fg').textContent.includes('不符'), 'A saved FG backend for another GPU cannot be resubmitted');
-  await click('fg', 'restore');
-  set('sr', 'quality', 'quality');
-  mock.failSave = true; await click('sr', 'save');
-  assert(panel('sr').textContent.includes('模拟保存失败') && !saved('sr'), 'A failed save remains an error without a fake saved state');
-  mock.failSave = false;
-  mock.blockPreview = true; await click('sr', 'preview');
-  assert(panel('sr').querySelector('[data-ls-action="confirm"]').disabled, 'Backend blockers disable application confirmation');
-  mock.blockPreview = false; await click('sr', 'cancel');
-  await click('sr', 'preview'); mock.failApply = true; await click('sr', 'confirm');
-  assert(panel('sr').textContent.includes('模拟配置读回失败') && !mock.data.applied.sr, 'Readback failure is not reported as successful application');
-  mock.failApply = false;
+  assert(panel('fg').querySelector('fieldset').disabled && panel('fg').textContent.includes('不符'), 'A saved FG backend for another GPU cannot be resubmitted');
+  await click(null, 'restore-all');
+  mock.failUpdate = true;
+  const beforeFailure = count('update'); set('sr', 'quality', 'balanced'); await waitForAuto(beforeFailure);
+  assert(panel('sr').textContent.includes('模拟自动应用失败') && controller.getState().dirty.sr && panel('sr').querySelector('[data-ls-action="auto"]'), 'A failed automatic update stays dirty and exposes a retry');
+  mock.failUpdate = false; await click('sr', 'auto');
+  assert(!controller.getState().dirty.sr && saved('sr').quality === 'balanced', 'Retry applies the retained dirty draft');
   mock.data.pending = [{ kind: 'file-journal' }]; await controller.refresh();
   assert(panel('sr').querySelector('fieldset').disabled && host.querySelector('[data-ls-action="recover"]'), 'An unfinished transaction exposes recovery and locks editing');
   await click(null, 'recover');
   assert(!panel('sr').querySelector('fieldset').disabled && mock.data.pending.length === 0, 'Recovery reloads and unlocks settings');
   mock.data.applied.sr = { request: { backend: 'native', quality: 'quality' }, readbackVerified: true };
   await mock.listener({ id: 'ui-fixture', outcomes: [{ domain: 'sr', applied: true }] });
-  assert(panel('sr').textContent.includes('配置已读回'), 'Launch IPC completion refreshes the visible settings');
+  assert(panel('sr').textContent.includes('配置已校验'), 'Launch IPC completion refreshes the visible settings');
   await mock.listener({ id: 'ui-fixture', outcomes: [{ domain: 'sr', applied: false, skipped: true }], launchFailed: true });
-  assert(panel('sr').textContent.includes('配置已读回') && panel('sr').textContent.includes('游戏未验证'), 'Failed launch refreshes the retained receipt without claiming game verification');
+  assert(panel('sr').textContent.includes('配置已校验') && panel('sr').textContent.includes('不代表游戏当前档位'), 'Failed launch refreshes the retained receipt without claiming game verification');
 
   set('sr', 'quality', 'custom'); set('sr', 'renderPercent', 75); set('sr', 'preset', 'M');
   set('fg', 'mode', 'dynamic'); set('fg', 'targetFps', 144);
-  const beforeTabWrites = mock.calls.filter(row => ['save', 'apply', 'write-nr'].includes(row[0])).length;
+  const beforeTabUpdates = count('update');
   const graphicsTab = detail.querySelector('[data-detail-tab="graphics"]'); graphicsTab.focus();
   graphicsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
   assert(tabs.active() === 'enhance' && detail.querySelector('[data-detail-panel="graphics"]').hidden && detail.querySelector('[data-detail-panel="graphics"]').inert, 'Right arrow wraps from graphics to enhancement and removes hidden controls from keyboard interaction');
@@ -309,7 +293,14 @@ async function smoke() {
   assert(tabs.select('invalid') === false && tabs.active() === 'enhance', 'Invalid tab selection is refused');
   detail.querySelector('.launch-jump-btn').click();
   assert(tabs.active() === 'graphics' && host.launchSettingsController === controller && field('sr', 'renderPercent').value === '75' && field('fg', 'targetFps').value === '144', 'Returning to graphics preserves both unsaved drafts and the existing controller');
-  assert(mock.calls.filter(row => ['save', 'apply', 'write-nr'].includes(row[0])).length === beforeTabWrites, 'Tab navigation performs no settings writes');
+  const viewBeforeApply = document.querySelector('.view.active'); viewBeforeApply.scrollTop = Math.max(80, viewBeforeApply.scrollTop);
+  const preservedScroll = viewBeforeApply.scrollTop;
+  const resetsBeforeGlobal = count('reset-all');
+  await click(null, 'restore-all');
+  await new Promise(resolve => setTimeout(resolve, 560));
+  assert(count('reset-all') === resetsBeforeGlobal + 1 && count('update') === beforeTabUpdates, 'Global reset runs once for both domains and cancels pending draft timers without a later rewrite');
+  assert(!saved('sr') && !saved('fg') && !mock.data.applied.sr && !mock.data.applied.fg, 'Global reset restores both SR and FG domains');
+  assert(viewBeforeApply.scrollTop === preservedScroll, 'Busy rendering and reset refresh preserve the game view scroll position');
   for (const node of document.querySelectorAll('.app-shell, main, .view.active, .game-card, .game-detail, .launch-settings-host, .launch-panel, .launch-field select, .launch-number input')) {
     const rect = node.getBoundingClientRect();
     assert(rect.left >= -1 && rect.right <= innerWidth + 1 && node.scrollWidth <= node.clientWidth + 1, `900px width contains ${node.className || node.tagName}`);

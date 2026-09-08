@@ -3,7 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 const { INSTALLED_NAMES, DX11_COMPAT_VERSION } = require('./constants');
-const { appError } = require('./errors');
+const { appError, MESSAGES } = require('./errors');
+const { inspectAddonLayout, requireAddonLayout } = require('./reshade-layout');
 const { assess, classifyApi, isDx11Only } = require('./game-support');
 const { sha256 } = require('./payload');
 const coreVersionText = value => {
@@ -46,7 +47,7 @@ function createInstaller(overrides = {}) {
     await copy(src, dest);
   }
 
-  async function sidecarBackup(gameDir, target) {
+  async function sidecarBackup(gameDir, target, manifest) {
     if (!fs.existsSync(target) || !fs.statSync(target).isFile()) return null;
     const originalHash = sha256(target);
     for (let index = 0; index < 16; index += 1) {
@@ -59,6 +60,12 @@ function createInstaller(overrides = {}) {
       await journal.capture(gameDir, candidate);
       await copyFile(target, candidate);
       if (sha256(candidate) !== originalHash) throw appError('ERR_BACKUP_INVALID');
+      // Only a newly created sidecar is ours. Equal bytes in a pre-existing
+      // .bak do not confer ownership (older managers also reused these).
+      manifest.sidecars = [...(manifest.sidecars || []), {
+        rel: path.relative(gameDir, candidate), sha256: originalHash,
+        sourceRel: path.relative(gameDir, target)
+      }];
       return path.basename(candidate);
     }
     throw appError('ERR_BACKUP_INVALID');
@@ -103,7 +110,9 @@ function createInstaller(overrides = {}) {
         throw appError('ERR_FILE_CHANGED', { rel: existing.rel });
       }
     }
-    const sidecar = await sidecarBackup(gameDir, target);
+    // Repeated repair of an unchanged owned file needs no extra disk writes.
+    if (existing && fs.existsSync(target) && sha256(target) === expected) return existing;
+    const sidecar = await sidecarBackup(gameDir, target, manifest);
     await journal.capture(gameDir, target);
     const entry = await recordOriginal(gameDir, manifest, target, kind);
     await copyFile(source, target);
@@ -266,12 +275,12 @@ function createInstaller(overrides = {}) {
     return { found, nameOnly, changed, text: lines.join('\n') };
   }
 
-  async function enableCarrier(gameDir, exeDir) {
+  async function enableCarrier(gameDir, exeDir, manifest) {
     const file = path.join(exeDir, 'ReShade.ini');
     if (!fs.existsSync(file)) return;
     const edited = editCarrierDisabled(fs.readFileSync(file, 'utf8'), true);
     if (!edited.changed) return;
-    await sidecarBackup(gameDir, file);
+    await sidecarBackup(gameDir, file, manifest);
     await journal.capture(gameDir, file);
     await fs.promises.writeFile(file, edited.text, 'utf8');
   }
@@ -330,6 +339,7 @@ function createInstaller(overrides = {}) {
         const reshade = scanModule.inspectReShade(exeDir);
         if (existingProxyConflict(exeDir, reshade)) throw appError('ERR_RESHADER_CONFLICT');
         if (reshade.installed && !reshade.addonSupport) throw appError('ERR_RESHADER_NO_ADDON');
+        requireAddonLayout(exeDir);
 
         // Retire a carrier managed under an older filename first. If that
         // restores a pre-existing carrier, the conflict pass below moves it
@@ -341,6 +351,7 @@ function createInstaller(overrides = {}) {
         // ReShade itself, game DLSS DLLs and ordinary RenoDX add-ons are never
         // part of this list.
         const movedConflicts = await moveConflicts(gameDir, manifest.installId, {
+          addonDir: exeDir,
           exclude: manifest.files.map(row => row.rel),
           capture: target => journal.capture(gameDir, target)
         });
@@ -378,12 +389,12 @@ function createInstaller(overrides = {}) {
         if (fs.existsSync(reshadeIni)) {
           const edited = editAddonDisabled(fs.readFileSync(reshadeIni, 'utf8'), true);
           if (edited.changed) {
-            await sidecarBackup(gameDir, reshadeIni);
+            await sidecarBackup(gameDir, reshadeIni, manifest);
             await journal.capture(gameDir, reshadeIni);
             await fs.promises.writeFile(reshadeIni, edited.text, 'utf8');
           }
         }
-        if (carrierRequired) await enableCarrier(gameDir, exeDir);
+        if (carrierRequired) await enableCarrier(gameDir, exeDir, manifest);
 
         await saveManifest(gameDir, manifest);
         return diagnose({ gameDir, payload, scan, payloadVersion: payload.version });
@@ -459,6 +470,9 @@ function createInstaller(overrides = {}) {
     });
     const expected = payload || {};
     const reshadeIni = path.join(exeDir, 'ReShade.ini');
+    const addonLayout = inspectAddonLayout(exeDir);
+    components.push({ key: 'addon-layout', label: '插件加载位置', ok: addonLayout.ok,
+      detail: addonLayout.ok ? null : MESSAGES[addonLayout.code] });
     const carrierDisabledState = carrierRequired && fs.existsSync(reshadeIni)
       ? editCarrierDisabled(fs.readFileSync(reshadeIni, 'utf8'))
       : { found: false, nameOnly: false };
@@ -481,7 +495,7 @@ function createInstaller(overrides = {}) {
         (row.kind === 'carrier' && path.normalize(row.rel).toLowerCase() === currentCarrierRel))
         .map(row => row.rel)
       : [];
-    const activeConflicts = scanConflicts(gameDir, { exclude: managedAddons });
+    const activeConflicts = scanConflicts(gameDir, { exclude: managedAddons, addonDir: exeDir });
     const activeManagedCarriers = activeConflicts.filter(conflict => managedCarrierRows.some(row =>
       path.normalize(row.rel).toLowerCase() === path.normalize(conflict.rel).toLowerCase()));
     const activeExternalConflicts = activeConflicts.length - activeManagedCarriers.length;
@@ -559,6 +573,7 @@ function createInstaller(overrides = {}) {
     if (!manifest) throw appError('ERR_NOT_INSTALLED');
     const scan = suppliedScan || await scanModule.scanGame(gameDir);
     if (!scan || !scan.chosen || !scan.chosen.path) throw appError('ERR_NO_GAME_EXE');
+    if (enabled === true && classifyApi(scan.chosen) !== 'dx12') throw appError('ERR_UNSUPPORTED_API');
     assertManifestExecutable(gameDir, manifest, scan.chosen.path);
     const exePath = scan.chosen.path;
     const exeDir = path.dirname(exePath);
@@ -582,7 +597,7 @@ function createInstaller(overrides = {}) {
           entry.installedSha256 = sha256(dxgi);
           entry.sourceName = path.basename(dxgi);
         }
-        await sidecarBackup(gameDir, dxgi);
+        await sidecarBackup(gameDir, dxgi, manifest);
         await journal.capture(gameDir, dxgi);
         await journal.capture(gameDir, d3d12);
         await fs.promises.rename(dxgi, d3d12);
@@ -590,7 +605,7 @@ function createInstaller(overrides = {}) {
       } else {
         if (!fs.existsSync(d3d12)) throw appError('ERR_NOT_INSTALLED');
         if (fs.existsSync(dxgi)) throw appError('ERR_D3D12_CONFLICT');
-        await sidecarBackup(gameDir, d3d12);
+        await sidecarBackup(gameDir, d3d12, manifest);
         await journal.capture(gameDir, d3d12);
         await journal.capture(gameDir, dxgi);
         await fs.promises.rename(d3d12, dxgi);
@@ -627,8 +642,10 @@ function createInstaller(overrides = {}) {
 
     return journal.transaction(gameDir, async () => {
       try {
+        requireAddonLayout(exeDir);
         await retireManagedCarriers(gameDir, manifest, carrierRequired ? carrierTarget : null);
         const found = await moveConflicts(gameDir, manifest.installId, {
+          addonDir: exeDir,
           exclude: manifest.files.map(row => row.rel),
           capture: conflictTarget => journal.capture(gameDir, conflictTarget)
         });
@@ -640,7 +657,7 @@ function createInstaller(overrides = {}) {
         }
         if (carrierRequired) {
           await writeManaged(gameDir, manifest, addon.carrierFile, carrierTarget, 'carrier', addon.carrierSha256);
-          await enableCarrier(gameDir, exeDir);
+          await enableCarrier(gameDir, exeDir, manifest);
         }
         manifest.payloadVersion = version || addon.id || null;
         manifest.deploymentApi = classifyApi(scan.chosen);
@@ -685,6 +702,7 @@ function createInstaller(overrides = {}) {
       assertManifestExecutable(gameDir, manifest, scan.chosen.path);
       await retireManagedCarriers(gameDir, manifest);
       const moved = await moveConflicts(gameDir, manifest.installId, {
+        addonDir: path.dirname(scan.chosen.path),
         categories: ['native-carrier'],
         exclude: manifest.files.map(row => row.rel),
         capture: target => journal.capture(gameDir, target)
@@ -707,6 +725,23 @@ function createInstaller(overrides = {}) {
     const warnings = [];
     return journal.transaction(gameDir, async () => {
       for (const row of manifest.files) validateEntry(gameDir, manifest, row, journal.safePath);
+      // Restoring a filename twice cannot restore both versions. The first
+      // quarantine contains the pre-install state; later copies remain in the
+      // indexed history instead of producing a half-completed uninstall.
+      const conflictRestores = [...new Map([...(manifest.conflicts || [])].reverse()
+        .map(row => [path.normalize(row.sourceRel).toLowerCase(), row])).values()];
+      const ownedSidecars = [], retainedSidecars = [], archivedSidecars = [];
+      for (const row of manifest.sidecars || []) {
+        if (!row || typeof row.rel !== 'string' || typeof row.sourceRel !== 'string' ||
+            !/^[a-f0-9]{64}$/i.test(row.sha256 || '') ||
+            !row.rel.startsWith(`${row.sourceRel}.bak`) ||
+            !/^[.]bak(?:[.]\d+)?$/.test(row.rel.slice(row.sourceRel.length))) throw appError('ERR_BACKUP_INVALID');
+        journal.safePath(gameDir, row.sourceRel);
+        const file = journal.safePath(gameDir, row.rel);
+        if (!fs.existsSync(file)) continue;
+        if (fs.statSync(file).isFile() && sha256(file) === row.sha256) ownedSidecars.push({ ...row, file });
+        else retainedSidecars.push(row.rel);
+      }
       const rowTargets = new Map(manifest.files.map(row => [row, managedTargetForRow(gameDir, manifest, row)]));
       for (const row of manifest.files.filter(row => row.original.existed)) {
         const backup = journal.safePath(gameDir, row.original.backupRel);
@@ -741,11 +776,12 @@ function createInstaller(overrides = {}) {
       if (manifest.reshadeRoute === 'd3d12' && !hasReshadeReceipt && fs.existsSync(legacyRouteSource)) {
         warnings.push({ code: 'ERR_BACKUP_INVALID', rel: path.relative(gameDir, legacyRouteSource), reason: 'unverified-legacy-reshade-route' });
       }
-      for (const row of manifest.conflicts || []) {
+      for (const row of conflictRestores) {
         const source = journal.safePath(gameDir, row.sourceRel);
         const backup = journal.safePath(gameDir, row.backupRel);
         if (fs.existsSync(source) && fs.existsSync(backup) &&
-            !managedTargets.has(path.normalize(row.sourceRel).toLowerCase())) {
+            !managedTargets.has(path.normalize(row.sourceRel).toLowerCase()) &&
+            (!fs.statSync(source).isFile() || sha256(source) !== row.sha256)) {
           warnings.push({ code: 'ERR_FILE_CHANGED', rel: row.sourceRel });
         }
       }
@@ -766,17 +802,35 @@ function createInstaller(overrides = {}) {
           await fs.promises.unlink(target);
         }
       }
-      warnings.push(...await restoreConflicts(gameDir, manifest.conflicts, {
+      const restoreWarnings = await restoreConflicts(gameDir, conflictRestores, {
         capture: target => journal.capture(gameDir, target)
-      }));
-      if (!warnings.length) {
-        const file = manifestPath(gameDir);
-        await journal.capture(gameDir, file);
-        if (fs.existsSync(file)) await fs.promises.unlink(file);
-      } else {
-        await saveManifest(gameDir, manifest);
+      });
+      if (restoreWarnings.length) throw appError(restoreWarnings[0].code, { warnings: restoreWarnings });
+      for (const row of ownedSidecars) {
+        // Recheck after asynchronous restore operations. A changed sidecar is
+        // retained; it must never prevent restoring the active game files.
+        if (!fs.existsSync(row.file)) continue;
+        if (!fs.statSync(row.file).isFile() || sha256(row.file) !== row.sha256) { retainedSidecars.push(row.rel); continue; }
+        const backupRel = path.join('_DLSS5_Backup', 'xiaofeng-sidecars', manifest.installId, row.rel);
+        const backup = journal.safePath(gameDir, backupRel);
+        if (fs.existsSync(backup)) throw appError('ERR_FILE_CHANGED', { rel: backupRel });
+        await journal.capture(gameDir, row.file);
+        await journal.capture(gameDir, backup);
+        await fs.promises.mkdir(path.dirname(backup), { recursive: true });
+        await fs.promises.rename(row.file, backup);
+        archivedSidecars.push({ sourceRel: row.rel, backupRel, sha256: row.sha256 });
       }
-      return { removed: warnings.length === 0, settingsKept: !removeSettings, warnings };
+      const historyRel = path.join('_DLSS5_Backup', 'xiaofeng-history', `${manifest.installId}.json`);
+      const history = journal.safePath(gameDir, historyRel);
+      if (fs.existsSync(history)) throw appError('ERR_FILE_CHANGED', { rel: historyRel });
+      await journal.capture(gameDir, history);
+      await journal.atomicJson(history, { ...manifest, restoredAt: new Date().toISOString(),
+        restoration: { conflictSources: conflictRestores.map(row => row.sourceRel), retainedSidecars, archivedSidecars } });
+      const file = manifestPath(gameDir);
+      await journal.capture(gameDir, file);
+      if (fs.existsSync(file)) await fs.promises.unlink(file);
+      return { removed: true, settingsKept: !removeSettings, warnings,
+        historyRel, retainedSidecars, archivedConflictCopies: (manifest.conflicts || []).length - conflictRestores.length };
     });
   }
 

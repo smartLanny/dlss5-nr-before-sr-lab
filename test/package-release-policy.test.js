@@ -37,7 +37,7 @@ test('portable outer launcher and inner executable use their distinct supported 
   assert.ok(portable.enum.includes(pkg.build.portable.requestExecutionLevel));
   assert.equal(pkg.build.portable.requestExecutionLevel, 'admin');
   assert.equal(pkg.build.win.requestedExecutionLevel, 'requireAdministrator');
-  assert.equal(pkg.version, '0.4.6-hotfix.7-dev.7'); assert.equal(pkg.build.buildVersion, '0.4.6.7');
+  assert.equal(pkg.version, '0.4.6-hotfix.7-dev.8'); assert.equal(pkg.build.buildVersion, '0.4.6.8');
   assert.equal(lock.version, pkg.version); assert.equal(lock.packages[''].version, pkg.version);
   const target = fs.readFileSync(require.resolve('app-builder-lib/out/targets/nsis/NsisTarget'), 'utf8');
   const template = fs.readFileSync(path.join(path.dirname(require.resolve('app-builder-lib/package.json')), 'templates/nsis/portable.nsi'), 'utf8');
@@ -46,11 +46,14 @@ test('portable outer launcher and inner executable use their distinct supported 
 });
 
 test('hotfix supersedes original release IDs without changing binary metadata or historical IDs', () => {
-  const versions = Object.fromEntries(['0.2.0-beta.2', '0.3.3.5', '0.4.5-ota', '0.4.6', '0.4.6-ota', '0.4.6-hotfix.1'].map(id => [id, { label: id, files: { 'core.addon64': id }, source: id }]));
+  const versions = Object.fromEntries(['0.2.0-beta.2', '0.3.3.5', '0.4.2', '0.4.2-dx11-native-bridge-exp1-r1', '0.4.5-ota', '0.4.6', '0.4.6-ota', '0.4.6-hotfix.1'].map(id => [id, { label: id, files: { 'core.addon64': id }, source: id }]));
   const original = { version: 4, defaultVersion: '0.4.6', fixed: { fixture: true }, versions };
   const result = prepareCoreCatalog(original);
   assert.deepEqual(result.removed, ['0.4.5-ota', '0.4.6', '0.4.6-ota']);
-  assert.deepEqual(Object.keys(result.bundle.versions), ['0.2.0-beta.2', '0.3.3.5', '0.4.6-hotfix.1']);
+  assert.deepEqual(Object.keys(result.bundle.versions), ['0.2.0-beta.2', '0.3.3.5', '0.4.2', '0.4.2-dx11-native-bridge-exp1-r1', '0.4.6-hotfix.1']);
+  assert.deepEqual(result.bundle.versions['0.4.2'].files, versions['0.4.2'].files);
+  assert.equal(result.bundle.versions['0.4.2'].source, '0.4.2');
+  assert.equal(result.bundle.versions['0.4.2-dx11-native-bridge-exp1-r1'].source, '0.4.2-dx11-native-bridge-exp1-r1');
   assert.equal(result.bundle.defaultVersion, '0.4.6-hotfix.1');
   assert.equal(result.bundle.supersededVersions['0.4.6'], '0.4.6-hotfix.1');
   assert.doesNotMatch(result.bundle.versions['0.2.0-beta.2'].label, /beta/i);
@@ -73,7 +76,7 @@ test('release resources exclude superseded 0.4.5 and original 0.4.6 while retain
     !filters.some(pattern => pattern.startsWith('!') && matches(file, pattern.slice(1)));
   for (const version of ['0.4.5', '0.4.5-ota', '0.4.6', '0.4.6-ota'])
     assert.equal(included(`nr-before-sr/versions/${version}/nr-before-sr.zh-CN.addon64`), false, `${version} is retired`);
-  for (const version of ['0.2.0-beta.2', '0.3.3.5', '0.4.6-hotfix.1'])
+  for (const version of ['0.2.0-beta.2', '0.3.3.5', '0.4.2', '0.4.6-hotfix.1'])
     assert.equal(included(`nr-before-sr/versions/${version}/nr-before-sr.zh-CN.addon64`), true, `${version} remains distributable`);
   assert.equal(included('nr-before-sr/bundle.json'), true);
 });

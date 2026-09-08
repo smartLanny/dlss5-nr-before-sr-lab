@@ -4,6 +4,9 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const invoke = (name, ...args) => ipcRenderer.invoke(name, ...args);
 contextBridge.exposeInMainWorld('manager', Object.freeze({
+  startupReady: () => ipcRenderer.send('startup-renderer-ready'),
+  startupFailed: message => ipcRenderer.send('startup-renderer-failed', String(message || '').slice(0, 500)),
+  exportStartupDiagnostic: () => invoke('startup-export'),
   boot: () => invoke('boot'),
   refresh: () => invoke('games-refresh'),
   listGames: () => invoke('games-list'),
@@ -16,6 +19,7 @@ contextBridge.exposeInMainWorld('manager', Object.freeze({
   repair: (id, options) => invoke('game-repair', id, options),
   upgradeAddon: (id, version, options) => invoke('game-upgrade-addon', id, version, options),
   dismissGame: id => invoke('game-dismiss', id),
+  renameGame: (id, name) => invoke('game-rename', id, name),
   setGameApi: (id, api, options) => invoke('game-api-set', id, api, options),
   toggleD3D12: (id, enabled, options) => invoke('game-toggle-d3d12', id, enabled, options),
   uninstall: (id, removeSettings = false) => invoke('game-uninstall', id, removeSettings),
@@ -27,6 +31,8 @@ contextBridge.exposeInMainWorld('manager', Object.freeze({
   readSrModel: id => invoke('sr-model-read', id),
   writeSrModel: (id, selection) => invoke('sr-model-write', id, selection),
   inspectLaunchSettings: id => invoke('launch-settings-inspect', id),
+  updateLaunchSettings: (id, domain, request, options) => invoke('launch-settings-update', id, domain, request, options),
+  resetAllLaunchSettings: id => invoke('launch-settings-reset-all', id),
   saveLaunchSettings: (id, domain, request) => invoke('launch-settings-save', id, domain, request),
   previewLaunchSettings: (id, domain, request) => invoke('launch-settings-preview', id, domain, request),
   applyLaunchSettings: (planId, consent) => invoke('launch-settings-apply', planId, consent),

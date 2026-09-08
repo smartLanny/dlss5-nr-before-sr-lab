@@ -74,6 +74,7 @@
             <button class="button" id="copyFeedbackBtn">复制反馈日志</button>
             <button class="button primary" id="exportFeedbackBtn">保存反馈日志</button>
           </div>
+          <div class="diagnostic-actions"><button class="button subtle" id="exportStartupBtn">导出管理器启动诊断</button><span class="section-caption">用于打不开窗口、启动失败或界面异常；无需选择游戏。</span></div>
         </div>
       </section>
 
@@ -170,6 +171,7 @@
     <div class="modal-card">
       <h3 id="modalTitle"></h3>
       <p id="modalBody"></p>
+      <label class="modal-input-line hidden" id="renameGameLine"><span>游戏名称</span><input id="renameGameInput" maxlength="160" autocomplete="off" spellcheck="false"></label>
       <label class="check-line hidden" id="removeSettingsLine"><input type="checkbox" id="removeSettingsCheck"> 同时删除个人参数设置</label>
       <div class="modal-actions"><button class="button" id="modalCancel">取消</button><button class="button danger" id="modalConfirm">确认</button></div>
     </div>

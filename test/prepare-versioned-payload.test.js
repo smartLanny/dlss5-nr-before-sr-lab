@@ -50,5 +50,6 @@ test('recursive replacement is scoped and rejects reparse-point directories', ()
   assert.match(source, /StartsWith\(\$prefix, \[StringComparison\]::OrdinalIgnoreCase\)/);
   assert.match(source, /\[IO\.FileAttributes\]::ReparsePoint/);
   assert.match(source, /Assert-PlainDirectory \(Join-Path \$versions '0\.4\.5-ota'\) \$versions/);
-  assert.match(source, /Assert-PlainDirectory \(Join-Path \$versions '0\.4\.2-dx11-native-bridge-exp1-r1'\) \$versions/);
+  assert.doesNotMatch(source, /0\.4\.2-dx11-native-bridge-exp1-r1|\$oldDx11/);
+  assert.match(source, /verify-payload\.js'\) --write --dir \$payload/);
 });

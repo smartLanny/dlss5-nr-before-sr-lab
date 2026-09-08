@@ -243,7 +243,7 @@ function createLaunchSettingsService(options = {}) {
       let plan = plans.get(planId); plans.delete(planId);
       if (!plan || plan.expires < Date.now()) fail('PLAN_EXPIRED', '预览已过期。');
       if (consent.confirm !== true) fail('CONFIRM_REQUIRED', '请确认预览后再应用。');
-      if (consent.automatic === true && plan.requiresReview && !plan.noOp) fail('SETTINGS_REVIEW_REQUIRED', '现有配置含仅生成帧调试输出，需要手动预览确认。');
+      if (consent.automatic === true && plan.requiresReview && !plan.noOp) fail('SETTINGS_REVIEW_REQUIRED', '兼容补帧组件已启用“仅显示生成帧”调试模式。请先在组件中关闭此模式，再重试；当前配置与备份已保留。');
       if (plan.blockers.length) fail('SETTINGS_BLOCKED', plan.blockers.join('\n'));
       await assertReady(plan.gameId); const t = target(plan.gameId);
       if (!samePath(t.exe, plan.target.exe)) fail('SETTINGS_EXE_CHANGED', '游戏 EXE 已改变。');

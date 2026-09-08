@@ -84,6 +84,96 @@ test('saving each API calls the current game route without replacing its selecte
   }
 });
 
+test('game cards keep rename available and show a real pending install state', () => {
+  const context = { state: { installing: new Set() }, payloadReadyForHardware: () => true };
+  vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('function cardAction('), source.indexOf('const API_LABELS')), context);
+  context.game = { id: 'game-1', installed: false, supported: true };
+  let html = vm.runInContext('cardAction(game)', context);
+  assert.match(html, /rename-game-btn/);
+  assert.match(html, /一键安装/);
+  assert.doesNotMatch(html, /正在安装/);
+  context.state.installing.add('game-1');
+  html = vm.runInContext('cardAction(game)', context);
+  assert.match(html, /rename-game-btn/);
+  assert.match(html, /disabled/);
+  assert.match(html, /aria-busy="true"/);
+  assert.match(html, /button-spinner/);
+  assert.match(html, /正在安装/);
+  assert.doesNotMatch(html, /\d+%/);
+  assert.doesNotMatch(source, /window\.prompt/);
+  const markup = fs.readFileSync(path.join(__dirname, '../src/renderer/index.html'), 'utf8');
+  assert.match(markup, /id="renameGameInput"/);
+});
+
+test('install busy state updates only the existing button and restores it', () => {
+  const button = {
+    disabled: false,
+    innerHTML: '一键安装',
+    attributes: {},
+    classList: { values: new Map(), toggle(name, value) { this.values.set(name, value); } },
+    setAttribute(name, value) { this.attributes[name] = value; }
+  };
+  const card = { dataset: { id: 'game-1' }, querySelector: selector => selector === '.install-btn' ? button : null };
+  const context = {
+    state: { installing: new Set() },
+    document: { querySelectorAll: selector => selector === '.game-card' ? [card] : [] }
+  };
+  vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('function setInstallBusy('), source.indexOf('function supportBadge(')), context);
+  vm.runInContext("setInstallBusy('game-1', true)", context);
+  assert.equal(button.disabled, true);
+  assert.match(button.innerHTML, /button-spinner/);
+  assert.match(button.innerHTML, /正在安装/);
+  assert.equal(button.attributes['aria-busy'], 'true');
+  vm.runInContext("setInstallBusy('game-1', false)", context);
+  assert.equal(button.disabled, false);
+  assert.equal(button.innerHTML, '一键安装');
+  assert.equal(button.attributes['aria-busy'], 'false');
+  assert.equal(context.state.installing.has('game-1'), false);
+});
+
+test('rename modal saves entered names and cancel leaves the manager untouched', async () => {
+  const classList = () => ({ hidden: true, add() { this.hidden = true; }, remove() { this.hidden = false; } });
+  const elements = {
+    modal: { classList: classList() }, modalTitle: { textContent: '' }, modalBody: { textContent: '' },
+    renameGameLine: { classList: classList() }, renameGameInput: { value: '', focus() {}, select() {} },
+    removeSettingsLine: { classList: classList() }, removeSettingsCheck: { checked: false },
+    modalConfirm: { textContent: '', disabled: false, onclick: null, click() { return this.onclick?.(); } },
+    modalCancel: { onclick: null }
+  };
+  const calls = [], notices = [];
+  const context = {
+    state: { pendingModal: null, games: [{ id: 'game-1', name: '旧名称', chosen: { path: 'C:/Games/Game.exe' } }] },
+    $: id => elements[id], requestAnimationFrame: callback => callback(), toast: (message, error) => notices.push({ message, error }),
+    document: { addEventListener() {} },
+    window: { manager: { renameGame: async (...args) => { calls.push(args); return { ok: true, value: [] }; } } },
+    runAction: async work => work()
+  };
+  vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('function confirmRenameGame('), source.indexOf('async function dismissGameFromList(')), context);
+  vm.runInContext(source.slice(source.indexOf('function closeModal('), source.indexOf('function switchView(')), context);
+  vm.runInContext(source.slice(source.indexOf("$('modalCancel').onclick = closeModal;"), source.indexOf("$('minBtn').onclick")), context);
+
+  vm.runInContext("confirmRenameGame('game-1')", context);
+  assert.equal(context.state.pendingModal.type, 'rename-game');
+  assert.equal(elements.renameGameInput.value, '旧名称');
+  assert.equal(elements.renameGameLine.classList.hidden, false);
+  assert.match(elements.modalBody.textContent, /API\/EXE/);
+  elements.renameGameInput.value = '新名称';
+  await elements.modalConfirm.onclick();
+  assert.deepEqual(calls, [['game-1', '新名称']]);
+  assert.equal(context.state.pendingModal, null);
+  assert.equal(elements.renameGameLine.classList.hidden, true);
+
+  vm.runInContext("confirmRenameGame('game-1')", context);
+  elements.renameGameInput.value = '取消后的名称';
+  elements.modalCancel.onclick();
+  assert.deepEqual(calls, [['game-1', '新名称']]);
+  assert.equal(context.state.pendingModal, null);
+  assert.equal(notices.length, 0);
+});
+
 test('retired catalog selection offers its replacement while preserving the actual installed version', () => {
   const context = uiContext();
   assert.equal(vm.runInContext("coreVersionLabel('0.2.0-beta.2')", context), '0.2.0');

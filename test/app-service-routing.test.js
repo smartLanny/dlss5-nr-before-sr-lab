@@ -82,6 +82,47 @@ async function externalFixture(t) {
   return {...f,id,external,addon,bundleFile};
 }
 
+test('incomplete uninstall returns a failed IPC envelope and keeps the original receipt and changed file', async t => {
+  const f = await externalFixture(t); await f.service.install(f.id, { version: '0.3.3.5' });
+  const receipt = path.join(f.gameDir, '_DLSS5_Backup', 'xiaofeng-manager.json');
+  const before = fs.readFileSync(receipt), changed = path.join(path.dirname(f.exe), PAYLOAD_FILES.bridge);
+  fs.writeFileSync(changed, 'external changed bridge');
+  const result = await f.service.withError(() => f.service.uninstall(f.id), { action: 'game-uninstall', gameId: f.id });
+  assert.equal(result.ok, false); assert.equal(result.error.code, 'ERR_FILE_CHANGED');
+  assert.equal(result.error.details.removed, false); assert.equal(result.error.details.operation, 'uninstall');
+  assert.ok(result.error.details.warnings.some(row => row.code === 'ERR_FILE_CHANGED' && row.rel.endsWith(PAYLOAD_FILES.bridge)));
+  assert.match(result.error.message, /nrchain_nvngx\.dll/); assert.doesNotMatch(result.error.message, /卸载完成/);
+  assert.deepEqual(fs.readFileSync(receipt), before);
+  assert.equal(fs.readFileSync(changed, 'utf8'), 'external changed bridge');
+  assert.equal((await f.service.listGames()).find(game => game.id === f.id).installed, true);
+});
+
+test('uninstall chooses the first recognized warning and fails closed when no warning is recognized', async t => {
+  const f = await externalFixture(t);
+  for (const [warnings, code] of [
+    [[{ code: 'ERR_FUTURE_WARNING', rel: 'unknown.dll' }, { code: 'ERR_FILE_CHANGED', rel: 'kept.dll' }, { code: 'ERR_BACKUP_INVALID' }], 'ERR_FILE_CHANGED'],
+    [[{ code: 'ERR_FUTURE_WARNING', rel: 'unknown.dll' }], 'ERR_BACKUP_INVALID'],
+    [[], 'ERR_BACKUP_INVALID']
+  ]) {
+    f.installer.uninstall = async () => ({ removed: false, warnings });
+    const result = await f.service.withError(() => f.service.uninstall(f.id));
+    assert.equal(result.ok, false); assert.equal(result.error.code, code);
+    assert.deepEqual(result.error.details.warnings, warnings);
+    assert.equal(result.error.details.removed, false);
+  }
+});
+
+test('successful uninstall preserves archive metadata and refreshes the real installed state', async t => {
+  const f = await externalFixture(t); await f.service.install(f.id, { version: '0.3.3.5' });
+  const result = await f.service.withError(() => f.service.uninstall(f.id));
+  assert.equal(result.ok, true); assert.equal(result.value.removed, true);
+  assert.match(result.value.historyRel, /^_DLSS5_Backup[\\/]xiaofeng-history[\\/]/);
+  assert.equal(fs.existsSync(path.join(f.gameDir, result.value.historyRel)), true);
+  assert.ok(Array.isArray(result.value.retainedSidecars)); assert.equal(typeof result.value.archivedConflictCopies, 'number');
+  assert.equal(fs.existsSync(path.join(f.gameDir, '_DLSS5_Backup', 'xiaofeng-manager.json')), false);
+  assert.equal((await f.service.listGames()).find(game => game.id === f.id).installed, false);
+});
+
 test('external source persists across restart and installs from selected files while preserving game paths',async t=>{
   const f=await externalFixture(t),before=f.service.store.read();
   const result=await f.service.selectPayloadSource(path.dirname(f.external));assert.equal(result.payload.source.mode,'external');assert.equal(result.addons[0].source,'external');
@@ -240,6 +281,27 @@ test('historical carrier preference fields are ignored by the automatic API rout
   await f.service.store.write({ gameOverrides: { ...state.gameOverrides, [key]: { api: 'dx11', apiExecutable: f.exe, carrierEnabled: false, carrierExecutable: f.exe } } });
   const game = (await f.service.boot()).games[0]; assert.equal(game.apiOverride, 'dx11'); assert.equal(game.components.dx11Carrier, true);
   assert.equal(Object.hasOwn(f.service.store.read().gameOverrides[key], 'carrierEnabled'), false);
+});
+
+test('renaming a game changes only its display name and preserves route bindings', async t => {
+  const f = makeService(t);
+  await f.service.addManualSelection({ root: f.gameDir, executable: f.exe, name: '旧名称', icon: 'data:image/png;base64,icon' });
+  const id = (await f.service.boot()).games[0].id;
+  await f.service.setGameApi(id, 'dx11');
+  const before = f.service.store.read();
+  const key = path.resolve(f.gameDir).toLowerCase();
+  const beforeOverride = before.gameOverrides[key];
+  const beforeManualGames = before.manualGames;
+  const beforeManualExecutables = before.manualExecutables;
+  const rows = await f.service.renameGame(id, '新名称');
+  const after = f.service.store.read();
+  assert.equal(rows[0].name, '新名称');
+  assert.equal(after.gameOverrides[key].name, '新名称');
+  assert.equal(after.gameOverrides[key].icon, beforeOverride.icon);
+  assert.equal(after.gameOverrides[key].api, beforeOverride.api);
+  assert.equal(after.gameOverrides[key].apiExecutable, beforeOverride.apiExecutable);
+  assert.deepEqual(after.manualGames, beforeManualGames);
+  assert.deepEqual(after.manualExecutables, beforeManualExecutables);
 });
 
 test('imported compatibility OTA follows the selected API without mixing package generations', async t => {

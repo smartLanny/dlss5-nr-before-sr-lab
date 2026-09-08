@@ -12,7 +12,7 @@ const { payloadRoot, readBundle, requirePayload, sha256 } = require('./payload')
 const { readConfig, writeConfig, defaultPatch } = require('./nr-config');
 const { readReShadeHotkey, writeReShadeHotkey } = require('./hotkeys');
 const { readManifest, assertManifestExecutable } = require('./manifest');
-const { appError, normalizeError } = require('./errors');
+const { appError, normalizeError, MESSAGES } = require('./errors');
 const { detectGpu: readGpu } = require('./gpu');
 const { createArtService } = require('./art-service');
 const { readOtaPackage } = require('./ota');
@@ -36,6 +36,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   let payloadDir = store.read().payloadSourcePath || bundledPayloadDir;
   const addonVersionsDir = path.join(userData, 'addon-versions');
   let games = [];
+  let latestScanWarnings = [];
   let collectionFresh = false;
   let activeRefresh = null, refreshGeneration = 0, scanEpoch = 0;
   let hardware = detectGpu();
@@ -324,6 +325,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     const generation = ++refreshGeneration;
     const promise = Promise.resolve().then(() => library.scanAll(state, epoch)).then(rows => {
       if (generation !== refreshGeneration) return activeRefresh ? activeRefresh.promise : games.map(publicGame);
+      latestScanWarnings = Array.isArray(rows.discoveryWarnings) ? rows.discoveryWarnings : [];
       games = rows; collectionFresh = true;
       return games.map(publicGame);
     }, error => {
@@ -422,7 +424,9 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     },
     withError,
     validateLaunch,
-    boot: async () => ({
+    boot: async () => {
+      const loadedGames = await refresh();
+      return {
       product: { ...PRODUCT, version },
       settings: store.read(),
       hardware,
@@ -432,8 +436,9 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
         version: selectedVersion()
       }),
       addons: listAddonVersions(),
-      games: await refresh()
-    }),
+      games: loadedGames,
+      discoveryWarnings: latestScanWarnings
+    }; },
     refresh,
     refreshAfterMutation,
     listGames: () => collectionFresh ? games.map(publicGame) : refresh(),
@@ -496,6 +501,19 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
         manualExecutables: state.manualExecutables.filter(row => pathKey(row.root) !== key),
         gameOverrides: Object.fromEntries(Object.entries(state.gameOverrides).filter(([dir]) => dir !== key))
       });
+      return refreshCollection(games);
+    },
+    renameGame: async (id, name) => {
+      const game = findGame(id);
+      if (typeof name !== 'string') throw appError('ERR_BAD_REQUEST');
+      const nextName = name.trim().slice(0, 160);
+      if (!nextName) throw appError('ERR_BAD_REQUEST');
+      const state = store.read();
+      const key = pathKey(game.dir);
+      await store.write({ gameOverrides: {
+        ...state.gameOverrides,
+        [key]: { ...state.gameOverrides[key], name: nextName }
+      } });
       return refreshCollection(games);
     },
     updateSettings: async patch => {
@@ -649,6 +667,11 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     uninstall: async (id, removeSettings = false) => {
       const game = findGame(id);
       const result = await installer.uninstall({ gameDir: game.dir, removeSettings, scan: game.scan });
+      if (result?.removed !== true) {
+        const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
+        const warning = warnings.find(row => row && typeof row.code === 'string' && Object.hasOwn(MESSAGES, row.code));
+        throw appError(warning?.code || 'ERR_BACKUP_INVALID', { ...warning, operation: 'uninstall', removed: false, warnings });
+      }
       return refreshAfterMutation(result);
     },
     diagnose: async id => {

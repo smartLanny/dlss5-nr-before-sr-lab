@@ -28,6 +28,7 @@ function readManifest(gameDir) {
     throw appError('ERR_BACKUP_INVALID');
   }
   if (!Array.isArray(data.conflicts)) data.conflicts = [];
+  if (data.sidecars !== undefined && !Array.isArray(data.sidecars)) throw appError('ERR_BACKUP_INVALID');
   manifestExecutable(gameDir, data);
   return data;
 }

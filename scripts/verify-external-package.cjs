@@ -9,12 +9,17 @@ const FORBIDDEN = new Set([
   'dlss5-native-carrier-045-dx11-compat.addon64'
 ]);
 const REQUIRED_RESOURCES = [
-  'nvapi-drs.ps1', 'nvapi-profile.ps1',
+  'nvapi-drs.ps1', 'nvapi-profile.ps1', 'windows-registry-values.ps1', 'launcher-locations.ps1',
   'fg-components/manifest.json', 'fg-components/LICENSE', 'fg-components/MINHOOK-LICENSE.txt',
   'fg-components/UAL-LICENSE', 'fg-components/global.ini'
 ];
+const REQUIRED_ROOT_FILES = ['启动诊断.cmd', 'startup-diagnostics.ps1'];
 
 function fail(message, details = {}) { throw Object.assign(new Error(message), { code: 'ERR_EXTERNAL_PACKAGE_INVALID', details }); }
+
+function isNonemptyFile(file) {
+  try { const stat = fs.lstatSync(file); return stat.isFile() && stat.size > 0; } catch { return false; }
+}
 
 function resourcesDirectory(selected) {
   const absolute = path.resolve(selected || ''); let stat;
@@ -56,15 +61,17 @@ function verifyExternalPackage(selected) {
   const resourceFiles = walkNames(resources).filter(name => path.resolve(resources, name) !== path.resolve(archive));
   const forbiddenResources = resourceFiles.filter(name => FORBIDDEN.has(path.basename(name).toLowerCase()));
   if (forbiddenResources.length) fail('外部组件版 resources 中包含专有 NR 文件。', { files: forbiddenResources.slice(0, 20) });
-  const missing = REQUIRED_RESOURCES.filter(name => !fs.existsSync(path.join(resources, name)));
-  if (missing.length) fail('外部组件版缺少开源组件、许可证或 NVAPI 脚本。', { files: missing });
+  const missing = REQUIRED_RESOURCES.filter(name => !isNonemptyFile(path.join(resources, name)));
+  if (missing.length) fail('外部组件版缺少有效的开源组件、许可证或系统辅助脚本。', { files: missing });
+  const missingRoot = REQUIRED_ROOT_FILES.filter(name => !isNonemptyFile(path.join(path.dirname(resources), name)));
+  if (missingRoot.length) fail('外部组件版根目录缺少有效的启动诊断文件。', { files: missingRoot });
   const fgManifest = JSON.parse(fs.readFileSync(path.join(resources, 'fg-components', 'manifest.json'), 'utf8'));
   for (const row of Object.values(fgManifest.files || {})) {
     if (!row || typeof row.file !== 'string' || path.basename(row.file) !== row.file || !fs.existsSync(path.join(resources, 'fg-components', row.file)))
       fail('外部组件版 FG 资源不完整。', { file: row && row.file });
   }
   return { ok: true, resources, asarEntries: asarEntries.length, payloadBundled: false,
-    retained: REQUIRED_RESOURCES, forbiddenFiles: [] };
+    retained: REQUIRED_RESOURCES, retainedRootFiles: REQUIRED_ROOT_FILES, forbiddenFiles: [] };
 }
 
 if (require.main === module) {
@@ -72,4 +79,4 @@ if (require.main === module) {
   catch (error) { console.error(JSON.stringify({ ok: false, error: error.message, details: error.details || {} }, null, 2)); process.exitCode = 1; }
 }
 
-module.exports = { verifyExternalPackage, resourcesDirectory, FORBIDDEN, REQUIRED_RESOURCES };
+module.exports = { verifyExternalPackage, resourcesDirectory, FORBIDDEN, REQUIRED_RESOURCES, REQUIRED_ROOT_FILES };

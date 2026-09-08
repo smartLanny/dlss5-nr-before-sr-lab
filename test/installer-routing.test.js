@@ -13,6 +13,113 @@ const { PAYLOAD_FILES, INSTALLED_NAMES, DX11_COMPAT_VERSION, DX11_COMPAT_CARRIER
 const { manifestPath, readManifest } = require('../src/product/manifest');
 const { normalizeError } = require('../src/product/errors');
 
+test('installation does not quarantine inactive subdirectory addons', async t => {
+  const f = fixture(t), nested = path.join(f.exeDir, 'unused-addon-archive');
+  fs.mkdirSync(nested); const file = path.join(nested, 'renodx-dlss5.addon64'); fs.writeFileSync(file, 'inactive old addon');
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(fs.readFileSync(file, 'utf8'), 'inactive old addon');
+  assert.deepEqual(readManifest(f.gameDir).conflicts, []);
+});
+
+test('custom or bypassed ReShade loading is diagnosed and refuses install or repair before file changes', async t => {
+  const f = fixture(t), ini = path.join(f.exeDir, 'ReShade.ini');
+  fs.writeFileSync(ini, '[ADDON]\nAddonPath=custom-addons\n');
+  await assert.rejects(f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan }), { code: 'ERR_ADDON_SEARCH_PATH' });
+  assert.equal(readManifest(f.gameDir), null);
+  assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.addon)), false);
+  fs.writeFileSync(ini, '[ADDON]\nAddonPath=.\n');
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  fs.appendFileSync(ini, 'LoadFromDllMain=dlss5-bridge.addon64\n');
+  const receipt = fs.readFileSync(manifestPath(f.gameDir));
+  const diagnostic = await f.installer.diagnose({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(diagnostic.complete, false);
+  assert.match(diagnostic.components.find(row => row.key === 'addon-layout').detail, /直接加载/);
+  await assert.rejects(f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan }), { code: 'ERR_ADDON_DIRECT_LOAD' });
+  assert.deepEqual(fs.readFileSync(manifestPath(f.gameDir)), receipt);
+  assert.equal((await f.installer.uninstall({ gameDir: f.gameDir })).removed, true, 'a deployment gate cannot trap restoration');
+});
+
+test('repeated conflict quarantine restores the pre-install addon and indexes later copies', async t => {
+  const f = fixture(t), name = path.join(f.exeDir, 'renodx-dlss5.addon64');
+  fs.writeFileSync(name, 'original addon');
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  fs.writeFileSync(name, 'later manually copied addon');
+  await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  const before = readManifest(f.gameDir);
+  assert.equal(before.conflicts.length, 2);
+  const result = await f.installer.uninstall({ gameDir: f.gameDir });
+  assert.equal(result.removed, true); assert.equal(result.archivedConflictCopies, 1);
+  assert.equal(fs.readFileSync(name, 'utf8'), 'original addon');
+  assert.equal(fs.readFileSync(path.join(f.gameDir, before.conflicts[1].backupRel), 'utf8'), 'later manually copied addon');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.gameDir, result.historyRel))).conflicts.length, 2);
+  assert.equal(readManifest(f.gameDir), null);
+});
+
+test('uninstall accepts an already restored identical external addon', async t => {
+  const f = fixture(t), name = path.join(f.exeDir, 'old-nr-before-sr.addon64');
+  fs.writeFileSync(name, 'old addon');
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  fs.writeFileSync(name, 'old addon');
+  const result = await f.installer.uninstall({ gameDir: f.gameDir });
+  assert.equal(result.removed, true); assert.equal(fs.readFileSync(name, 'utf8'), 'old addon');
+});
+
+test('uninstall archives only newly owned sidecars and preserves unrelated or reused bak files', async t => {
+  const f = fixture(t), runtime = path.join(f.exeDir, INSTALLED_NAMES.runtime), bridge = path.join(f.exeDir, INSTALLED_NAMES.bridge);
+  fs.writeFileSync(runtime, 'old runtime'); fs.writeFileSync(`${runtime}.bak`, 'user backup');
+  fs.writeFileSync(bridge, 'old bridge'); fs.writeFileSync(`${bridge}.bak`, 'old bridge');
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(readManifest(f.gameDir).sidecars.length, 1, 'matching pre-existing bak is reused without adopting ownership');
+  const result = await f.installer.uninstall({ gameDir: f.gameDir });
+  assert.equal(result.removed, true);
+  assert.equal(fs.readFileSync(runtime, 'utf8'), 'old runtime');
+  assert.equal(fs.readFileSync(`${runtime}.bak`, 'utf8'), 'user backup');
+  assert.equal(fs.readFileSync(`${bridge}.bak`, 'utf8'), 'old bridge');
+  assert.equal(fs.existsSync(`${runtime}.bak.1`), false);
+  const history = JSON.parse(fs.readFileSync(path.join(f.gameDir, result.historyRel)));
+  assert.equal(fs.readFileSync(path.join(f.gameDir, history.restoration.archivedSidecars[0].backupRel), 'utf8'), 'old runtime');
+});
+
+test('externally changed sidecar is retained and reported without blocking active-file restoration', async t => {
+  const f = fixture(t), runtime = path.join(f.exeDir, INSTALLED_NAMES.runtime);
+  fs.writeFileSync(runtime, 'original runtime');
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  fs.writeFileSync(`${runtime}.bak`, 'external change');
+  const result = await f.installer.uninstall({ gameDir: f.gameDir });
+  assert.equal(result.removed, true); assert.equal(result.retainedSidecars.length, 1);
+  assert.equal(fs.readFileSync(runtime, 'utf8'), 'original runtime');
+  assert.equal(fs.readFileSync(`${runtime}.bak`, 'utf8'), 'external change');
+});
+
+test('late conflict restoration failure rolls all removed manager files and receipt back', async t => {
+  const f = fixture(t), name = path.join(f.exeDir, 'renodx-dlss5.addon64');
+  fs.writeFileSync(name, 'old addon');
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  const receipt = fs.readFileSync(manifestPath(f.gameDir));
+  const rename = fs.promises.rename; let failed = false;
+  fs.promises.rename = async (source, target) => {
+    if (!failed && path.resolve(target) === path.resolve(name)) { failed = true; throw Object.assign(new Error('restore locked'), { code: 'EBUSY' }); }
+    return rename(source, target);
+  };
+  try { await assert.rejects(f.installer.uninstall({ gameDir: f.gameDir }), /restore locked/); }
+  finally { fs.promises.rename = rename; }
+  assert.equal(failed, true); assert.deepEqual(fs.readFileSync(manifestPath(f.gameDir)), receipt);
+  assert.equal(fs.existsSync(name), false);
+  for (const kind of ['addon', 'bridge', 'runtime', 'reshade']) assert.equal(sha256(path.join(f.exeDir, INSTALLED_NAMES[kind])), f.payload[kind].actual);
+  assert.equal(fs.existsSync(journal.pendingPath(f.gameDir)), false);
+  assert.equal((await f.installer.uninstall({ gameDir: f.gameDir })).removed, true);
+});
+
+test('repair does not recopy unchanged owned payload files or accumulate bak files', async t => {
+  let copies = 0;
+  const f = fixture(t, 'dx12', { copyFile: async (source, target) => { copies++; return fs.promises.copyFile(source, target); } });
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  copies = 0;
+  assert.equal((await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan })).complete, true);
+  assert.equal(copies, 0);
+  assert.equal(fs.readdirSync(f.exeDir).some(name => /[.]bak/.test(name)), false);
+});
+
 function fixture(t, api = 'dx12', options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-route-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

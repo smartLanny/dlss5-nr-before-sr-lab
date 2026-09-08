@@ -5,6 +5,9 @@ const path = require('path');
 const { appError } = require('./errors');
 
 const DEFAULT_RESHADE_KEY = 36;
+// KeyOverlay stores [Windows virtual key, Ctrl, Shift, Alt]. OEM punctuation
+// stays numeric here (e.g. '=' is VK_OEM_PLUS 0xBB, not character code 0x3D).
+// Reference: https://github.com/crosire/reshade/blob/main/source/input.hpp
 const DEFAULT_RESHADE_VALUES = [DEFAULT_RESHADE_KEY, 0, 0, 0];
 
 function normalizeBinding(binding) {

@@ -67,6 +67,8 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .button.subtle { background: transparent; }
 .button.danger { color: #f19b9b; border-color: rgba(225,106,106,.36); background: rgba(225,106,106,.08); }
 .button:disabled { opacity: .42; cursor: not-allowed; }
+.button-spinner { display: inline-block; width: 12px; height: 12px; margin-right: 7px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; vertical-align: -2px; animation: button-spin .72s linear infinite; }
+@keyframes button-spin { to { transform: rotate(360deg); } }
 .notice { margin-bottom: 16px; border: 1px solid #6a5127; background: #241e13; color: #e7cc91; border-radius: 9px; padding: 12px 14px; font-size: 13px; }
 .game-list { display: grid; gap: 10px; }
 .game-card { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); overflow: hidden; }
@@ -227,6 +229,9 @@ select { border: 1px solid var(--line); background: #171c20; color: var(--text);
 .game-icon-editor p { margin: 4px 0 9px; color: var(--muted); font-size: 11px; }
 .modal-card h3 { margin: 0 0 9px; }
 .modal-card p { color: var(--muted); line-height: 1.65; }
+.modal-input-line { display: grid; gap: 7px; margin-top: 14px; color: #cbd0d3; font-size: 13px; }
+.modal-input-line input { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #111519; color: var(--text); padding: 10px 12px; outline: 0; box-sizing: border-box; }
+.modal-input-line input:focus { border-color: var(--green); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .check-line { display: flex; gap: 8px; color: #c0c7cb; font-size: 13px; }
 .hidden { display: none !important; }

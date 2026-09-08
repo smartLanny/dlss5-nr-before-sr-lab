@@ -7,6 +7,34 @@ const os = require('os');
 const path = require('path');
 const { classifyAddon, scanConflicts, moveConflicts } = require('../src/product/conflicts');
 
+test('ordinary addon names and DLSS/NGX mentions do not prove a competing NR implementation', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-coexist-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const name of ['sunrise.addon64', 'frame-monitor.addon64', 'renodx-hdr.addon64']) {
+    const file = path.join(root, name); fs.writeFileSync(file, 'DLSS NVNGX nvngx_dlss.dll');
+    assert.equal(classifyAddon(name, file), null);
+  }
+  const identified = path.join(root, 'neutral.addon64');
+  fs.writeFileSync(identified, Buffer.concat([Buffer.alloc(65532), Buffer.from('NRBeforeSR')]));
+  assert.equal(classifyAddon('neutral.addon64', identified).category, 'other-dlss-nr-ngx');
+  assert.deepEqual(scanConflicts(root).map(row => row.name), ['neutral.addon64']);
+});
+
+test('content inspection has an 8 MiB read budget and ignores case-varied backup directories', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-coexist-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, 'neutral.addon64');
+  fs.writeFileSync(file, ''); fs.truncateSync(file, 20 * 1024 * 1024);
+  let bytesRead = 0; const read = fs.readSync;
+  fs.readSync = (...args) => { const count = read(...args); bytesRead += count; return count; };
+  try { assert.equal(classifyAddon('neutral.addon64', file), null); }
+  finally { fs.readSync = read; }
+  assert.equal(bytesRead, 8 * 1024 * 1024);
+  fs.mkdirSync(path.join(root, '_dlss5_backup'));
+  fs.writeFileSync(path.join(root, '_dlss5_backup', 'old-nr-before-sr.addon64'), 'old');
+  assert.deepEqual(scanConflicts(root), []);
+});
+
 test('known native carrier names are conflicts while nrchain remains outside addon cleanup', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-conflicts-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
