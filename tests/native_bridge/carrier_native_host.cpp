@@ -146,6 +146,21 @@ int wmain(int argc, wchar_t **argv) {
     CHECK(SUCCEEDED(g_bridge.dev12->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&g_bridge.queue))));
     CHECK(SUCCEEDED(g_bridge.dev12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_bridge.fence12))));
     CHECK(SUCCEEDED(g_bridge.dev12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_bridge.fence_progress))));
+    CHECK(BridgeMakeDepthShader(d1) && BridgeMakeMVShader(d1));
+    for (unsigned i = 0; i < 2; ++i) {
+        CHECK(SUCCEEDED(g_bridge.dev12->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                             IID_PPV_ARGS(&g_bridge.pq.alloc[i]))));
+        CHECK(SUCCEEDED(g_bridge.dev12->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+             g_bridge.pq.alloc[i], nullptr, IID_PPV_ARGS(&g_bridge.pq.list[i]))));
+        CHECK(SUCCEEDED(g_bridge.pq.list[i]->Close()));
+    }
+    D3D12_DESCRIPTOR_HEAP_DESC heap_desc{};
+    heap_desc.NumDescriptors = 8;
+    heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    CHECK(SUCCEEDED(g_bridge.dev12->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&g_bridge.pq.heap))));
+    CHECK(SUCCEEDED(g_bridge.dev12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_bridge.pq.fence))));
+    HANDLE pq_event = g_bridge.pq.ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    CHECK(pq_event != nullptr);
     ID3D12Device *external_device = g_bridge.dev12;
     external_device->AddRef();
     g_carrier_bridge_owner = device1.native;
@@ -158,7 +173,16 @@ int wmain(int argc, wchar_t **argv) {
         CHECK(!g_bridge.dev12 && !g_bridge.queue && !g_bridge.fence12 && !g_bridge.fence_progress);
         CHECK(!g_nr_carrier_quarantined && g_carrier_bridge_owner == 0);
         CHECK(g_probe_done == 0); // The next eligible frame can bootstrap again.
+        CHECK(!g_bridge.depth_cs && !g_bridge.mv_cs && !g_bridge.pq.heap && !g_bridge.pq.fence && !g_bridge.pq.ev);
+        CHECK(!g_bridge.pq.list[0] && !g_bridge.pq.list[1] && !g_bridge.pq.alloc[0] && !g_bridge.pq.alloc[1]);
     }
+    DWORD event_flags = 0;
+    CHECK(!GetHandleInformation(pq_event, &event_flags));
+    CHECK(BridgeMakeDepthShader(d2) && BridgeMakeMVShader(d2));
+    ID3D11Device *shader_owner = nullptr;
+    g_bridge.depth_cs->GetDevice(&shader_owner); CHECK(shader_owner == d2); shader_owner->Release();
+    g_bridge.mv_cs->GetDevice(&shader_owner); CHECK(shader_owner == d2); shader_owner->Release();
+    CHECK(BridgeReleaseSession() && !g_bridge.depth_cs && !g_bridge.mv_cs);
     CHECK(SUCCEEDED(external_device->GetDeviceRemovedReason()));
     // Missing completion proof keeps the owner, bootstrap latch and resources.
     g_bridge.dev12 = external_device;

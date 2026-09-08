@@ -98,6 +98,26 @@ class CarrierCompletion(unittest.TestCase):
             result=subprocess.run([str(exe)],capture_output=True,text=True,check=True)
             print(result.stdout.strip())
 
+    @unittest.skipUnless(os.environ.get('CXX'),'requires host C++ compiler')
+    def test_frame_unlock_and_mv_failure_after_session_retirement(self):
+        frame=extract(self.bridge,'static void BridgeFrame(')
+        inner=extract(self.bridge,'static void BridgeFrameInner(')
+        start=inner.index('    ctx->CopyResource(g_bridge.tex11[SLOT_COLOR], g[SLOT_COLOR]);')
+        stop=inner.index('    // Mirrored per frame like the rest:',start)
+        segment=inner[start:stop]
+        source=FRAME_HARNESS.replace('// FRAME_FUNCTION',frame).replace('// MV_SEGMENT',segment)
+        with tempfile.TemporaryDirectory(prefix='nr-carrier-frame-') as temp:
+            cpp=Path(temp)/'frame.cpp';exe=Path(temp)/'frame.exe'
+            cpp.write_text(source,encoding='utf-8')
+            subprocess.run([os.environ['CXX'],'-std=c++17','-O2','-static',str(cpp),'-o',str(exe)],check=True)
+            failures=[]
+            for mode in ('frame','mv'):
+                result=subprocess.run([str(exe),mode],capture_output=True,text=True,timeout=10)
+                if result.returncode:
+                    failures.append(mode+': exit='+str(result.returncode)+' '+result.stdout+result.stderr)
+                print(result.stdout.strip())
+            self.assertFalse(failures,'\n'.join(failures))
+
 WARP_HARNESS=r'''
 #include <windows.h>
 #include <d3d12.h>
@@ -252,6 +272,10 @@ static bool quarantine_on_textures=false;static int destroy_result=NGX_SUCCESS,s
 struct Obj {void Release(){++releases;}};
 struct NVSDK_NGX_Parameter {};
 struct ID3D12Device {void Release(){++releases;}};
+struct PqPass {
+    Obj *list[2]={},*alloc[2]={},*pso=nullptr,*rs=nullptr,*heap=nullptr,*fence=nullptr;
+    HANDLE ev=nullptr;ID3D12Device *dev=nullptr;
+};
 using PFN_DestroyParameters=NVSDK_NGX_Result(*)(NVSDK_NGX_Parameter*);
 using PFN_Shutdown1=NVSDK_NGX_Result(*)(ID3D12Device*);
 NVSDK_NGX_Result Destroy(NVSDK_NGX_Parameter*){++destroys;return destroy_result;}
@@ -261,6 +285,7 @@ struct Bridge {
     NVSDK_NGX_Parameter *params=nullptr;ID3D12Device *dev12=nullptr;
     Obj *mt=nullptr,*ctx4=nullptr,*fence11=nullptr,*fence12=nullptr,*fence_progress=nullptr,*stall_fence=nullptr;
     Obj *list=nullptr,*alloc[kFrames]={},*queue=nullptr,*adapter3=nullptr;
+    Obj *depth_cs=nullptr,*mv_cs=nullptr;PqPass pq;
     HANDLE fence_event=nullptr;bool session_ready=false,frame_ready=false,disabled=false;
     UINT64 alloc_fence[kFrames]={},pending_out=0,fence_value=0,last_submitted=0;
     int frame_slot=0;void *alloc_params=nullptr,*create_feature=nullptr,*eval_feature=nullptr,*release_feature=nullptr;
@@ -273,7 +298,7 @@ void NrCarrierQuarantine(const char*){g_nr_carrier_quarantined=true;g_bridge.dis
 void BridgeReleaseTextures(){++textures;if(quarantine_on_textures)NrCarrierQuarantine("texture retirement");}
 void CloseHandle(HANDLE){++closes;}
 // PRODUCTION
-Obj objects[12];NVSDK_NGX_Parameter params,capabilities;ID3D12Device device;
+Obj objects[22];NVSDK_NGX_Parameter params,capabilities;ID3D12Device device;
 void Reset(){
     releases=closes=textures=destroys=shutdowns=0;quarantine_on_textures=false;
     destroy_result=shutdown_result=NGX_SUCCESS;g_nr_carrier_quarantined=false;g_nr_ngx_initialized=true;
@@ -283,19 +308,74 @@ void Reset(){
     g_bridge.stall_fence=&objects[5];g_bridge.list=&objects[6];
     for(int i=0;i<Bridge::kFrames;++i){g_bridge.alloc[i]=&objects[7+i];g_bridge.alloc_fence[i]=10+i;}
     g_bridge.queue=&objects[10];g_bridge.adapter3=&objects[11];g_bridge.fence_event=&objects[0];
+    g_bridge.depth_cs=&objects[12];g_bridge.mv_cs=&objects[13];
+    for(int i=0;i<2;++i){g_bridge.pq.list[i]=&objects[14+i];g_bridge.pq.alloc[i]=&objects[16+i];}
+    g_bridge.pq.pso=&objects[18];g_bridge.pq.rs=&objects[19];g_bridge.pq.heap=&objects[20];g_bridge.pq.fence=&objects[21];
+    g_bridge.pq.ev=&objects[1];g_bridge.pq.dev=&device;
     g_bridge.session_ready=g_bridge.frame_ready=true;g_bridge.pending_out=9;g_bridge.fence_value=8;
     g_bridge.last_submitted=7;g_bridge.frame_slot=2;g_bridge.alloc_params=g_bridge.create_feature=(void*)1;
     g_bridge.eval_feature=g_bridge.release_feature=(void*)1;
 }
 int main(){
     Reset();CHECK(BridgeReleaseSession());CHECK(textures==1&&destroys==2&&shutdowns==1);
-    CHECK(releases==13&&closes==1&&!g_nr_ngx_initialized&&!g_bridge.session_ready&&!g_bridge.frame_ready);
+    CHECK(releases==23&&closes==2&&!g_nr_ngx_initialized&&!g_bridge.session_ready&&!g_bridge.frame_ready);
+    CHECK(!g_bridge.depth_cs&&!g_bridge.mv_cs&&!g_bridge.pq.heap&&!g_bridge.pq.rs&&!g_bridge.pq.pso&&!g_bridge.pq.fence&&!g_bridge.pq.ev&&!g_bridge.pq.dev);
+    CHECK(!g_bridge.pq.list[0]&&!g_bridge.pq.list[1]&&!g_bridge.pq.alloc[0]&&!g_bridge.pq.alloc[1]);
     CHECK(g_bridge.params==nullptr&&g_bridge.dev12==nullptr&&g_bridge.ctx4==nullptr&&g_bridge.queue==nullptr);
     CHECK(g_bridge.alloc_params==nullptr&&g_bridge.create_feature==nullptr&&g_bridge.eval_feature==nullptr&&g_bridge.release_feature==nullptr);
     Reset();quarantine_on_textures=true;CHECK(!BridgeReleaseSession());CHECK(releases==0&&destroys==0&&g_bridge.dev12==&device);
     Reset();destroy_result=-1;CHECK(!BridgeReleaseSession());CHECK(g_nr_carrier_quarantined&&releases==0&&shutdowns==0&&g_bridge.params==&params);
     Reset();shutdown_result=-1;CHECK(!BridgeReleaseSession());CHECK(g_nr_carrier_quarantined&&releases==0&&destroys==2&&shutdowns==1&&g_bridge.params==nullptr&&g_nr_capability_parameters==nullptr&&g_bridge.dev12==&device);
     std::printf("PASS %u complete-session retirement/quarantine checks (CPU doubles, no GPU claim)\n",checks);
+}
+'''
+
+FRAME_HARNESS=r'''
+#include <windows.h>
+#include <cstdio>
+#include <cstring>
+struct ID3D11Multithread {
+    unsigned refs=1,enters=0,leaves=0;
+    virtual void AddRef(){++refs;}
+    virtual void Release(){--refs;}
+    virtual BOOL GetMultithreadProtected(){return TRUE;}
+    virtual void Enter(){++enters;}
+    virtual void Leave(){++leaves;}
+};
+struct Resource {unsigned releases=0;void Release(){++releases;}};
+struct ID3D11DeviceContext {void CopyResource(Resource*,Resource*){}};
+struct NVSDK_NGX_Parameter {};
+constexpr int SLOT_COLOR=0,SLOT_MV=3,SLOT_COUNT=4;
+struct Bridge {ID3D11Multithread *mt=nullptr;bool mv_converted=true;Resource *tex11[4]={};} g_bridge;
+void TimingTick(LONGLONG,LONGLONG){}
+void BridgeFrameInner(ID3D11DeviceContext*,const NVSDK_NGX_Parameter*){
+    g_bridge.mt->Release();g_bridge.mt=nullptr;
+}
+// FRAME_FUNCTION
+Resource resources[4],device;
+Resource *g[]={&resources[0],&resources[1],&resources[2],&resources[3]};
+Resource *dev11=&device;
+ID3D11DeviceContext context,*ctx=&context;
+unsigned exposure_touches=0;
+bool BridgeBlitMV(ID3D11DeviceContext*,Resource*,Resource*){return false;}
+void MvThenExposure(){
+// MV_SEGMENT
+    ++exposure_touches;
+}
+int main(int argc,char**argv){
+    SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
+    if(argc!=2)return 2;
+    if(std::strcmp(argv[1],"frame")==0){
+        ID3D11Multithread mt;g_bridge.mt=&mt;
+        BridgeFrame(nullptr,nullptr);
+        if(mt.refs||mt.enters!=1||mt.leaves!=1||g_bridge.mt)return 3;
+        std::puts("PASS actual BridgeFrame unlocks its retained interface after inner teardown");
+    }else{
+        MvThenExposure();
+        if(exposure_touches||device.releases!=1)return 4;
+        for(auto&r:resources)if(r.releases!=1)return 5;
+        std::puts("PASS actual MV failure segment releases locals and returns before exposure");
+    }
 }
 '''
 

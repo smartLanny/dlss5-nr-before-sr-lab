@@ -40,7 +40,18 @@ static bool CarrierDeviceOf(ID3D11DeviceContext *ctx, std::uintptr_t *value)
     ID3D11Device *device = nullptr;
     ctx->GetDevice(&device);
     if (device == nullptr) return false;
-    *value = reinterpret_cast<std::uintptr_t>(device);
+    // ReShade get_native() supplies the original device, whereas its context's
+    // GetDevice returns the proxy. Use its pinned IID_UnwrappedObject contract
+    // for identity only; the native NGX call keeps the caller's original context.
+    static const GUID unwrapped_object =
+        {0x7f2c9a11, 0x3b4e, 0x4d6a, {0x81, 0x2f, 0x5e, 0x9c, 0xd3, 0x7a, 0x1b, 0x42}};
+    ID3D11Device *raw = nullptr;
+    if (SUCCEEDED(device->QueryInterface(unwrapped_object, reinterpret_cast<void **>(&raw))) && raw != nullptr) {
+        *value = reinterpret_cast<std::uintptr_t>(raw);
+        raw->Release();
+    } else {
+        *value = reinterpret_cast<std::uintptr_t>(device);
+    }
     device->Release();
     return true;
 }

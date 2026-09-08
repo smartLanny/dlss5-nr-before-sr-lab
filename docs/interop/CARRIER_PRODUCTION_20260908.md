@@ -1,5 +1,9 @@
 # A carrier production handoff (local, not published)
 
+Historical interrupted-worktree record. For the subsequent fixes and committed
+canonical build, see [A continuation validation](CARRIER_A_VALIDATION_20260908.md).
+The hashes and earlier limitations below describe that earlier working copy.
+
 ## Source identity and scope
 
 - Worktree: `codex/carrier-production-20260908-cloud` at

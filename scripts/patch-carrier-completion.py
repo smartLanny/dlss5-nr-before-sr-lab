@@ -101,6 +101,20 @@ SESSION='''static bool BridgeReleaseSession()
         }
     }
 
+    if (g_bridge.depth_cs != nullptr) { g_bridge.depth_cs->Release(); g_bridge.depth_cs = nullptr; }
+    if (g_bridge.mv_cs != nullptr) { g_bridge.mv_cs->Release(); g_bridge.mv_cs = nullptr; }
+    // PqPassRelease retires only textures during size changes. Session teardown
+    // also retires every cached object tied to this device, after its fence wait.
+    for (int i = 0; i < 2; ++i) {
+        if (g_bridge.pq.list[i] != nullptr) g_bridge.pq.list[i]->Release();
+        if (g_bridge.pq.alloc[i] != nullptr) g_bridge.pq.alloc[i]->Release();
+    }
+    if (g_bridge.pq.pso != nullptr) g_bridge.pq.pso->Release();
+    if (g_bridge.pq.rs != nullptr) g_bridge.pq.rs->Release();
+    if (g_bridge.pq.heap != nullptr) g_bridge.pq.heap->Release();
+    if (g_bridge.pq.fence != nullptr) g_bridge.pq.fence->Release();
+    if (g_bridge.pq.ev != nullptr) CloseHandle(g_bridge.pq.ev);
+    g_bridge.pq = {}; // dev/colour/output are borrowed, never Release'd here.
     if (g_bridge.mt != nullptr) { g_bridge.mt->Release(); g_bridge.mt = nullptr; }
     if (g_bridge.ctx4 != nullptr) { g_bridge.ctx4->Release(); g_bridge.ctx4 = nullptr; }
     if (g_bridge.fence11 != nullptr) { g_bridge.fence11->Release(); g_bridge.fence11 = nullptr; }
@@ -231,6 +245,42 @@ def patch_bridge(text):
     if (g_bridge.adapter3 != nullptr)
     { g_bridge.adapter3->Release(); g_bridge.adapter3 = nullptr; }''',
         '    BridgeReleaseSession();\n    g_bridge.disabled = true;'))
+    text=edit(text,'static void BridgeFrame(',lambda s:once(s,
+        '''    const bool lock = g_bridge.mt != nullptr && g_bridge.mt->GetMultithreadProtected();
+    if (lock) g_bridge.mt->Enter();
+    BridgeFrameInner(ctx, gp);
+    if (lock) g_bridge.mt->Leave();''',
+        '''    // Inner failures can retire the global session. Keep this exact
+    // interface alive until its matching Leave, even if g_bridge.mt is cleared.
+    struct FrameContextGuard {
+        ID3D11Multithread *mt;
+        bool locked;
+        explicit FrameContextGuard(ID3D11Multithread *value) : mt(value), locked(false) {
+            if (mt != nullptr) {
+                mt->AddRef();
+                locked = mt->GetMultithreadProtected() != FALSE;
+                if (locked) mt->Enter();
+            }
+        }
+        ~FrameContextGuard() {
+            if (mt != nullptr) {
+                if (locked) mt->Leave();
+                mt->Release();
+            }
+        }
+    };
+    {
+        FrameContextGuard context(g_bridge.mt);
+        BridgeFrameInner(ctx, gp);
+    }'''))
+    text=once(text, '    if (g_bridge.mv_converted) BridgeBlitMV(ctx, dev11, g[SLOT_MV]);',
+        '''    if (g_bridge.mv_converted && !BridgeBlitMV(ctx, dev11, g[SLOT_MV])) {
+        // Conversion failure may have retired the session. Do not touch exposure
+        // or any other device-owned object after that ordinary native fallback.
+        for (int i = 0; i < SLOT_COUNT; ++i) g[i]->Release();
+        dev11->Release();
+        return;
+    }''')
     text=once(text,'    BridgeReleaseExposureFwd();',
         '    BridgeReleaseExposureFwd();\n    if (g_nr_carrier_quarantined) return;')
     text=edit(text,'static bool BridgeBuildResources(',lambda s:once(s,

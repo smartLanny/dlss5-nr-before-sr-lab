@@ -1,5 +1,15 @@
 # 统一开发与测试交接入口
 
+## 2026-09-08 A carrier 生产化接续
+
+沿 #185 `d35fe47` 保留上轮未提交实现，修正扫描模块引用/同址重载、partial-hook
+锁与槽位、Create 标志及正常退役后 bootstrap 未重启的问题。实际构建源
+`4a564a3` 已通过正式 43 组门禁、LLVM/MSVC、真实 DLL/MinHook、WARP 设备及队列
+退役检查；ReShade 身份和 NGX 入口由测试夹具提供，未执行 NVIDIA 或游戏验收。
+[精确源码、成品哈希与剩余工作](CARRIER_A_VALIDATION_20260908.md)。
+BL3 已完成下载及只读安装指纹核对；真实 DX11 输入和 NR 接线仍待推进。
+本批独立于 B/dev8 和 Manager，不合 main，不替换已发布载荷。
+
 ## 本次后续代码批次：最终实验构建 e7df0fc
 
 启动协议之后又补齐 external单一NR/RR事务隔离、jitter工作网格缩放、FFX→NR帧合同和
