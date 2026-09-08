@@ -62,8 +62,9 @@ different post defaults and attribute every change solely to independent chroma.
 - The extended production comparison harness compiled with `-CompileOnly`.
   EXE SHA256 `100ac03a4e35f260e30c3adfca745a08e53996059186b18df4dcaae03b9a8750`.
   At this compilation stage, before the separately authorized centralized
-  validation below, no WARP/GPU dispatch had run. No NVIDIA/game dispatch or
-  linked Core DLL followed; no CI, push/merge/release was performed.
+  validation below, no WARP/GPU dispatch or Core DLL link had run. Subsequent
+  WARP and complete linking are recorded separately below. No NVIDIA/game
+  dispatch, CI or release was performed in this slice.
 
 Private generated files, four compile/scalar logs and `validation.json` remain
 under this worktree's ignored `build/` directory. They are not exported source.
@@ -120,6 +121,34 @@ Baseline validation SHA256:
 `9fd6a544b4cd326a4bee6f530335b0b61e77725e00df023a97d2724ce86c2995`.
 The private `legacy-byte-equivalence.json` records both source/fixture identities
 and manifest hashes. No old evidence was rewritten or copied into source.
+
+## Frozen-source bilingual DLL build
+
+The coordinating task subsequently authorized full Core/nrchain linking from
+the same frozen generated source `e084a5247d26eaf8fd60a741d131db7908829a7f`.
+The original generated `core/scripts/build.ps1` already embeds this exact source
+identity and `SourceDirty=1` to identify transformed experimental source; it
+does not read the later documentation HEAD. All original manifest-listed files
+were hash-checked before and after linking, and both Core binaries were checked
+for the embedded e084 source identity. Their PE versions are 0.5.0.5.
+
+| Output | Bytes | SHA256 |
+| --- | ---: | --- |
+| English Core | 1,364,992 | `1572a1395ddd2e15ff73eb135bf8ee465d74439778791f9b4705f4d727496b16` |
+| Chinese Core | 1,388,544 | `4e1cc78c324476fcd09b98bc1f3b2a2fb064b1cdc1c6454712b1edee4816d025` |
+| nrchain_nvngx.dll | 8,192 | `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb` |
+
+The standard generated build script completed both languages and nrchain with
+the cached LLVM-MinGW/ReShade inputs. Existing compiler warnings are retained
+in the full log, SHA256
+`aa9d43fa07e52db87e8f569af382b5bc8696e4df4bb96a8ec482bbd044270d97`.
+An earlier preparatory adapter assertion stopped before compilation because
+the generated script was already pinned; that preparation log is retained too.
+The original script/source/manifest were not rewritten. Private outputs remain
+under the frozen generated `core/build`; the build record is
+`full-core-build-validation.json`. No additional GPU test or packaging/release
+was performed. The earlier WARP executes the same production shader source,
+not these newly linked DLLs inside a game.
 
 ## Reproduction and remaining work
 
