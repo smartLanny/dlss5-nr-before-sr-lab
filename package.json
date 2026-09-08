@@ -14,8 +14,8 @@
     "verify:vendor": "node scripts/verify-vendor.js",
     "verify:payload": "node scripts/verify-payload.js",
     "icon": "electron scripts/build-icon.js",
-    "build": "npm run verify:vendor && npm run verify:payload && electron-builder --win",
-    "build:portable": "npm run verify:vendor && npm run verify:payload && electron-builder --win portable"
+    "build": "node scripts/prepare-core-catalog.js && npm run verify:vendor && npm run verify:payload && electron-builder --win",
+    "build:portable": "node scripts/prepare-core-catalog.js && npm run verify:vendor && npm run verify:payload && electron-builder --win portable"
   },
   "dependencies": {
     "yauzl": "^2.10.0"
@@ -56,7 +56,8 @@
           "nr-before-sr/bundle.json",
           "nr-before-sr/fixed/**/*",
           "nr-before-sr/versions/*/*",
-          "nr-before-sr/README.md"
+          "nr-before-sr/README.md",
+          "!nr-before-sr/versions/0.4.5-ota/**/*"
         ]
       },
       {

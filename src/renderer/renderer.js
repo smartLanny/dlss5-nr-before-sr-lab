@@ -178,6 +178,8 @@ function renderVersionSelector() {
 
 function coreVersionLabel(id, item) {
   const raw = String(item && item.label || id);
+  const version = raw.match(/^(0\.[34]\.\d+(?:\.\d+)?(?:-hotfix\.\d+)?)/);
+  if (version) return `${version[1]} · ${version[1].startsWith('0.3.') ? '稳定基线' : 'Beta'}`;
   return raw.replace(/(?:\s*[-–—]\s*|\s*[（(])(?:DXGI|DX11|DX12|DirectX\s*11|DirectX\s*12)\b.*$/i, '').trim() || String(id);
 }
 
@@ -186,6 +188,7 @@ function versionOptionsMarkup(selected = state.payload && state.payload.selected
   const imported = includeImported ? (state.addons || []).filter(item => item.addonOnly).map(item => [item.id, item]) : [];
   const all = [...versions, ...imported];
   if (!all.length) return '<option value="">当前组件</option>';
+  if (!all.some(([id]) => id === selected)) selected = state.payload && state.payload.selectedVersion;
   return all.map(([id, item]) => `<option value="${escapeHtml(id)}"${id === selected ? ' selected' : ''}>${escapeHtml(coreVersionLabel(id, item))}${item.addonOnly ? '（导入）' : ''}</option>`).join('');
 }
 
@@ -416,7 +419,10 @@ async function loadExpanded(id) {
     if (state.expandedLoadToken !== loadToken || state.expanded !== id) return;
     const versionSelect = root.querySelector('.game-version-select');
     const game = state.games.find(row => row.id === id);
-    if (versionSelect) versionSelect.value = (game && game.addonVersion) || (state.payload && state.payload.selectedVersion) || versionSelect.value;
+    if (versionSelect) {
+      const requested = (game && game.addonVersion) || (state.payload && state.payload.selectedVersion);
+      if ([...versionSelect.options].some(option => option.value === requested)) versionSelect.value = requested;
+    }
     root.querySelector('.nr-mask').checked = Boolean(settings.AutoMask);
     root.querySelectorAll('.style-segment button').forEach(b => b.classList.toggle('active', Number(b.dataset.value) === Number(settings.Style)));
     const color = root.querySelector('.nr-color-strength');

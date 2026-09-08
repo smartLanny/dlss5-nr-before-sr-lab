@@ -21,7 +21,7 @@ test('upgrade with removed saved DX11 slot preserves verified RTX40 readiness',(
 });
 test('existing explicit selection is retained',()=>{
  const f=fixture('0.4.5-ota');f.render();assert.equal(f.payload.selectedVersion,'0.4.5-ota');assert.equal(f.enabled(),true);
- assert.match(f.nodes.addonVersionSelect.innerHTML,/>0\.4\.5<\/option>/);assert.doesNotMatch(f.nodes.addonVersionSelect.innerHTML,/DX11|兼容增强/);
+ assert.match(f.nodes.addonVersionSelect.innerHTML,/>0\.4\.5 · Beta<\/option>/);assert.doesNotMatch(f.nodes.addonVersionSelect.innerHTML,/DX11|兼容增强/);assert.match(f.nodes.addonVersionSelect.innerHTML,/0\.3\.3\.5 · 稳定基线/);
 });
 test('invalid direct refresh never destroys a valid backend selection',()=>{
  const f=fixture();vm.runInContext("refreshSelectedPayload('removed-version')",f.context);assert.equal(f.payload.ready,true);assert.equal(f.payload.selectedVersion,'0.3.3.5');
