@@ -17,6 +17,34 @@ struct NgxHandle {};
 struct NgxParams { unsigned output_sentinel = 12345; };
 struct FeatureRecord { const NgxHandle* handle; int feature_id; ULONGLONG generation; int rr_depth_type=1; };
 void ObserveRrDepthProjection(const NgxParams*, const FeatureRecord&) {}
+// Portable stubs for the production RR-depth adapter's latest F8 fields.
+// Keep the enum values/names aligned with nr_rr_depth_adapter.inl; this
+// harness does not construct a D3D device or execute the adapter.
+enum class RrDepthReject : unsigned {
+    None, Projection, Storage, SlotBusy, Pipeline, DeviceQuery, DeviceIdentity,
+    OutputSupport, InputSupport, Budget, Texture, Heap, SlotShape, DispatchBinding
+};
+std::atomic<RrDepthReject> g_rr_depth_last_reject{RrDepthReject::None};
+std::atomic<unsigned long long> g_rr_depth_proxy_matches{0};
+const char *RrDepthRejectName(RrDepthReject reason) {
+    switch (reason) {
+    case RrDepthReject::None: return "none";
+    case RrDepthReject::Projection: return "current-projection";
+    case RrDepthReject::Storage: return "linear-storage";
+    case RrDepthReject::SlotBusy: return "slot-not-retired";
+    case RrDepthReject::Pipeline: return "conversion-pipeline";
+    case RrDepthReject::DeviceQuery: return "depth-device-query";
+    case RrDepthReject::DeviceIdentity: return "different-or-unproven-device";
+    case RrDepthReject::OutputSupport: return "r32-typed-store";
+    case RrDepthReject::InputSupport: return "depth-shader-load";
+    case RrDepthReject::Budget: return "private-depth-budget";
+    case RrDepthReject::Texture: return "private-depth-allocation";
+    case RrDepthReject::Heap: return "private-depth-descriptors";
+    case RrDepthReject::SlotShape: return "private-depth-shape";
+    case RrDepthReject::DispatchBinding: return "dispatch-binding";
+    }
+    return "unknown";
+}
 using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList*, const NgxHandle*, const NgxParams*, void*);
 struct ChainConfig { bool enabled=true, identity_use_original=false, color_protection=true; float post_transfer_strength=1; int mode=2; };
 ChainConfig g_config;
@@ -126,6 +154,14 @@ ULONGLONG Value(const std::string& text, const char* key, const char* prefix) {
     Require(offset!=std::string::npos, ("missing F8 key: "+needle).c_str());
     return std::stoull(text.substr(offset+needle.size()));
 }
+std::string TextValue(const std::string& text, const char* key, const char* prefix) {
+    const std::string needle=std::string(prefix)+".post.rr."+key+"=";
+    const auto offset=text.find(needle);
+    Require(offset!=std::string::npos, ("missing F8 key: "+needle).c_str());
+    const auto begin=offset+needle.size();
+    const auto end=text.find('\n',begin);
+    return text.substr(begin,end==std::string::npos?std::string::npos:end-begin);
+}
 struct Case {
     Fault fault; const char* name;
     unsigned before, prepare, after, finish, gate, recordings, failures, quarantine;
@@ -199,5 +235,12 @@ int main() {
             std::cerr<<c.name<<" mode="<<requested_mode<<": "<<e.what()<<'\n'; return 1;
         }
     }
+    g_rr_depth_last_reject.store(RrDepthReject::DeviceIdentity, std::memory_order_relaxed);
+    g_rr_depth_proxy_matches.store(7, std::memory_order_relaxed);
+    const auto depth_feedback=Feedback("depth");
+    Require(TextValue(depth_feedback,"depthAdapter.lastReject","depth") ==
+            "different-or-unproven-device", "F8 depth reject reason changed");
+    Require(Value(depth_feedback,"depthAdapter.proxyDeviceMatches","depth") == 7,
+            "F8 proxy-device match count missing or changed");
     std::cout<<"PASS 50 RR diagnostic/control-flow cases (test doubles; no D3D12/NGX/game execution)\n";
 }

@@ -28,7 +28,7 @@ REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dd
 INTEGRATION_CORE_PINS = {
     'src/nr_f8_stream.inl': '8bf90f5ee2e32566428ee07c8fd9ac80491eeac7',
     'src/nr_guide_contract.h': '19c2af89af734af998e63e3f6251679c4b22ce38',
-    'src/nr_rr_depth_adapter.inl': '049eba8f1f9c6b482636836ba603910d6d57e3f2',
+    'src/nr_rr_depth_adapter.inl': 'b606205e654bdcc9107a7266e71af23724377a86',
     'src/nr_rr_depth_shader.h': '2ea485b7cc58c3a1a17fbf636b8d3cbf2607690b',
     'src/nr_rr_depth_projection.h': '8cb9c11b7750935f425e6c1dc2d6786fa804c9ad',
     'src/nr_command_creation_observer.inl': 'ee931fabd9cb88b699f0224f9f9b748f3bbdc077',
@@ -55,7 +55,7 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '85e6364d1fa357c19bceb97830375ba86142d98d',
-    'src/interop/nr_post_feedback.inl': '10ba537b6c8ad47aacbf08af25de8474eeeb5d78',
+    'src/interop/nr_post_feedback.inl': '2522f983d536f2ee6fcdfe070778c9bce0d80092',
     'src/interop/nr_rr_post_runtime.inl': '6f8c98ca7943233f57e10276dbe9943631c9dd05',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
 }
