@@ -45,5 +45,45 @@ changed. A fixed-view effective/ineffective pair after one model/picture edit
 is the next useful image discriminator. Shader checks remain synthetic; game
 output, face stability and performance must be reported separately.
 
-Candidate identity is beta0.5-dline3 / PE0.5.1.3. Validation and delivery are
-pending at this source preparation step; exact frozen results will be appended.
+Candidate identity is beta0.5-dline3 / PE0.5.1.3. Frozen production source is
+`9e171fb40f7937cec48f2e7553db85e62ba94a3b`. Its 28 required local acceptance
+checks passed, including canonical staging, all production SM5 entries,
+bilingual Core/bridge linking, actual Windows feedback collection and WARP.
+Source manifest SHA256:
+`432a7a32896fbb884dbdfe559c85559a1423278e2d30c8fe65df3f494a05b812`.
+
+The post WARP fixture now includes 24 added groups isolating reflection and
+dark-structure 0-to-2 responses, wide-region preservation and non-target sign
+preservation at LightingLock 0/.2/1. All 86 post groups passed. All 170 existing
+front light groups and the existing combined low-grid fixture also passed.
+No real NR model or game scene is exercised by these tests; they show that
+the two controls can affect their synthetic target regions, not that their
+visible strength is satisfactory in the owner's scene.
+
+The actual Windows core-feedback fixture passed 301 assertions and independent
+archive parsing. It verifies frozen D requests, differing requested/applied
+generations and modes, no invented parameters for busy/missing snapshots, and
+unchanged picture configuration. Separate existing stability (33), parser (32)
+and report (15) checks also passed on these source changes.
+
+Actual English and Chinese DLL menu hosts each completed 40 frames and six
+overlay events, with three captures and no INI mutation. The final capture
+from each language was visually inspected: original style is near the top,
+model details precede the complete light group, advanced picture follows it,
+and labels/notes remain readable. These are pre-SR fixture snapshots without
+injected preset clicks, not a game interaction result.
+
+| Artifact | Bytes | SHA256 |
+| --- | ---: | --- |
+| Chinese Core | 1498112 | `3ca4bd6f20ab51809e722cdd14b16604a5263a84ec3331ba3c43fb26e869fd0d` |
+| English Core | 1468416 | `7cc157dbe664fb1d2ce59b5830a5e9dad34f9ea7aa306f7766008260300ce617` |
+| nrchain | 8192 | `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb` |
+
+The Chinese D3 Core was installed into the owner's closed NTE installation.
+Only the Core was replaced: the latest personal INI, ReShade and owned bridge
+were verified byte-for-byte unchanged. D2 and settings were backed up; the D2
+rollback preflight passed without performing a rollback. No game was launched,
+no RR setting was edited, and no ABC/main/release integration was performed.
+Private install/menu/validation receipts are retained. NVIDIA, D3 game output,
+face behaviour and performance remain unverified; hosted CI is not counted
+as passed and known billing-blocked jobs are not rerun.
