@@ -7,6 +7,14 @@
 08:31 再次 fetch 的 main 为 `cd10d96b817d83ea4d84da4286c52cbdc0ca377a`，
 相对前者仅新增反馈归档，生产源码未变，本轮未将新原始反馈复制到实验分支。
 
+**08:46 维护者最终指定：全部 Manager 需求，包括本轮已实现的 SR/FG 逻辑，
+都在本仓的现用 xiaofeng 产品和 UI 中完成；独立 Manager 仓库开发冻结。**
+公共 #21/#23 是保留的源码材料，不是可交付给现用软件的功能。现用 UI 小片
+见本仓 [#178](https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/178)，
+完整 SR/FG、事务及其它能力的迁入仍未完成，接续本仓
+[#179](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/179)。
+此决定覆盖旧文档/聊天中“Manager 最终归独立仓”或本批合并其聚合 PR 的安排。
+
 ## 已交付与验收范围
 
 | 工作 | PR / 源码 | 实际验证 | 尚未完成 |
@@ -14,7 +22,7 @@
 | A：Feeder 与自有 Core | [#171](https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/171)，`3758ee58060145ed9d987313a9fd7996288a6aa8` | MSVC 链接；生产 Signal/Drain 故障检查；真实 NVIDIA Core 在 N=100%/50% 各成功 4 帧，含真实 fence 和读回 | ReShade 注册使用测试替身；完整游戏 Feeder/Present 与跨 API 验收未完成 |
 | B：公开 FFX 描述直接映射 DLSS SR | [#174](https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/174)，实现 `5ca02fdf6e5448e7886ae12979a920e65b9dd350` | 16 类真实 WARP 资源边界；RTX 5090 Laptop 上 SR-only 640×360→1280×720，3 次真实 NGX Evaluate、GPU 完成及全量读回 | 不是 AMD FFX DLL 游戏拦截；没有通用 TAA/TSR 提取或游戏部署 |
 | A+B：自有 NR→直接 SR | [#175](https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/175)，`b59c818c742d53f0735512874182bee6b003c706` | NR 关：8 次 SR；NR 开：8 次 SR，其中 5 帧真实 Feature 18→SR，其余为训练/预热；均有真实完成与有效输出 | 产品启动 hooks-ready 协议仍缺失；宿主等待已观察的就绪信号后才创建 SR。非游戏验收 |
-| C：Manager 启动前 SR/FG 设置 | [公共 Manager #23](https://github.com/smartLanny/dlss5-manager/pull/23)，修复 HEAD `0b386eb2de1cc392cf69a8b6fb809800f9e1cc62`，按维护者最新决定冻结 | 已实现实际设置事务、NVAPI/指定 RTX40 v11 配置写入及恢复；185 项源测试、合成 Electron 流程和专用合成 EXE profile 实测 | **这是旧测试 UI 候选，不推荐合入或当作现用软件升级。** 现用 xiaofeng 产品仅接续版本/桥接 UI 小切片；SR/FG 有效逻辑的后续选择性迁移需独立记录 |
+| C：现用 Manager UI 与版本渠道 | [本仓 #178](https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/178)，最终 `d4b251dd498cff53e90fe5127d21b2805d7e96e7` | 151/151 测试、UI contract、37 份打包源码与载荷哈希核对、实际打包 renderer/preload 夹具通过；NSIS 构建成功 | 未运行 NSIS 安装/卸载，未覆盖现用安装/用户状态；完整 SR/FG 迁入未完成，见 #179。公共 #23 已关闭冻结 |
 | D：0.5 追平与保留研究 | [#170](https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/170)，`cd0fce687b06abaebec62db53694f7bca2dfa792` | 46 项本地门禁、双语 Core/nrchain/carrier 构建、生产 HLSL/WARP；504 个中性场景与 hotfix 生产 shader 输出逐字节相同 | 无新 0.5 游戏画质/性能验收；新核、EditField 与真实多次 NR 仍未完成 |
 | D：前后置色彩合同 | [#172](https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/172)，`6ee5494110677044f6c11fd697e6608e6e852326` | 72 组生产前/后置成对 WARP 对照，保留原始 N 平面与独立数值校验，40 组确有不同输出 | 是测量合同，不是新增画质算法，也不是游戏 F7 采集或多次 NR 性能证明 |
 | FG：官方真实 renderer 样本 | [#173](https://github.com/smartLanny/dlss5-nr-before-sr-lab/pull/173)，`a0143f29efa89ea384a6a435a384c3f204530e52` | 官方 Streamline 样本与本地固定 2.12 插件；121 个动画源帧，焦点/Reflex/设备状态正常 | Presented 最大为 1，输入 fence/VRAM 为 0；**没有证明生成任何中间帧**，#167 继续开放 |
@@ -46,6 +54,22 @@ Lab 托管 CI 因付款/额度未启动，不计通过也不重跑；公共 Mana
 独立运行，须以其最终 HEAD 的实际 checks 为准。本地 compile、WARP、
 NVIDIA 推理、官方 renderer、真实游戏验收是不同证据层次。
 
+Manager 最终在 08:49 停止，Setup 为 `0.4.6-hotfix.2` / PE 0.4.6.2，生产源
+`9ea4fc14b517551e54ebb4c71b13581f4e0c8663`；最终 `d4b251d` 只隔离历史
+0.4.5 回退夹具，不改变生产载荷。Setup 314283567 bytes，SHA256
+`10c9173553bcc84340b3100799d6d50e00171240eb468eac4028af150f7b32b0`，
+已由主线程独立回查。app.asar SHA256
+`83199b8561dc072efb15aed6fc490d698d0e5cf6750f237d3e4f726abd73751e`。
+此锁替代早先 `d2df2a23…` 候选。内置 Core 保持 hotfix.1；0.3 为稳定基线，
+全部 0.4（含 0.4.6）标 Beta，0.4.5 移出常规目录和新包，既有备份/收据保留。
+所有测试/构建/GPU 子任务均已停止；没有把本轮界面验证写成游戏兼容验收。
+
+冻结公共 #23@`0b386eb2de1cc392cf69a8b6fb809800f9e1cc62` 的185项测试与CI
+仅证明旧参考候选；#21@`1a1c5e935acca0386e634286ca98c0b1ed8eee74` 的只读
+编译器虽有可复用实现，本批依照仓库冻结决定不推进其合并。现用产品已有
+sr-model-service，#179 已补充唯一 DRS writer、启动失败恢复与现有 journal
+接点，避免重复接入两个会互相覆盖的设置服务。
+
 ## 合并关系
 
 1. 维护线继续现有候选：#149（有限 blend 与 reason，#154 已去重关闭）→#150；
@@ -58,8 +82,8 @@ NVIDIA 推理、官方 renderer、真实游戏验收是不同证据层次。
 4. #173 是以 #166 为基底的独立探针，不是可安装 FG 产品。
 5. 公共 Manager #23 已包含 #16/#21 的有效增量，但维护者在 Manager session
    最新明确该组为旧测试 UI，**冻结归档，不在本批合入 #23**。这一决定替代
-   早先“聚合一次合入”的建议；#21 的只读编译器可合判断另以 Manager owner
-   最终审查为准。现用 xiaofeng 的后续迁移不能混用两套产品的版本、安装目录
+   早先“聚合一次合入”的建议；#21 只读编译器保留供本仓迁入，本批不推进
+   独立仓合并。现用 xiaofeng 的后续迁移不能混用两套产品的版本、安装目录
    或状态格式，也不因冻结测试 UI 丢弃已实现事务代码。
 
 上述实验 PR 提供可审查源码，不表示所有产品功能可发布。未擅自合并 main/
@@ -72,7 +96,7 @@ next、覆盖已发布 tag 或发布实验包。既有 0.4.6 与独立 hotfix.1 
 - [#167](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/167)：保持同一官方 renderer，以 SDK 开发诊断解释 backend 的插帧条件及 `WAR4639162`；先证明生成像素/显示节奏，再接本项目 NR/SR。不要把 121 个源帧当插帧成功。
 - [#168](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/168) / [#169](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/169)：以追平后的 0.5 和已实现的原始 N 测量合同接续算法与成本实验；游戏画质、EditField/新核、多次 NR 尚未验收。
 - [#162](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/162)：**人脸遮罩反复开关后视觉保护失效是维护者已报告的当前 BUG，等待维护修复与后续专门测试。** 参数重建/继续提交不能否定此问题，也不能冒充独立最终脸部倍率已修。
-- Manager #18/#19 及现用产品迁移、Vulkan layer/shared refs 由指定 Manager session 继续记录；本轮不能完成的部分以其最终 issue 清单为准。
+- 本仓 [#179](https://github.com/smartLanny/dlss5-nr-before-sr-lab/issues/179) 接全部现用 Manager 的 SR/FG、恢复、HDR 与组件配方迁入；公共 #18/#19/#20/#22 仅保留为需求参考，Vulkan layer/shared refs 仍关联本仓 #165。不得继续在独立 UI 开发，也不并列两个 SR writer 或恢复 journal。
 
 细项证据：[#171/#175 文档](https://github.com/smartLanny/dlss5-nr-before-sr-lab/blob/codex/core-sr-combined-20260908/docs/interop/COMBINED_NR_SR_HOST_20260908.md)、
 [B 直接 SR](DIRECT_SR_20260908.md)、[#173 FG 样本](https://github.com/smartLanny/dlss5-nr-before-sr-lab/blob/codex/fg-sample-20260908/docs/interop/FG_SAMPLE_PROBE_20260908.md)。
