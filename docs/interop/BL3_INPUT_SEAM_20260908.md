@@ -1,5 +1,74 @@
 # #14 Borderlands 3: read-only input investigation, no game support claim
 
+## Follow-up: bounded input receipt prepared, full add-on not built
+
+The fixed upstream already provides a Development-only **Frame Capture** button
+(`Source/Core/core.hpp:10847`), followed by **Captured Commands** (`:11087`).
+Its existing display includes shader/SRV/RTV/UAV state and CB index/hash/range
+(`:13010`). **Auto Dump Shaders** / **Force Dump Shaders** (`:11041/:11055`)
+preserve shader bytecode. Use those existing facilities for resource binding
+inspection; no duplicate draw-capture or shader-dump framework was added.
+
+The generic UE custom entries at `main.cpp:1039–1049` and `:1087–1097` record
+decoded-motion/SR output resources, while the normal log reports TAA detection.
+They do not serialize the final DrawData jitter/reset/exposure/MV scales
+together with inferred CB indices. The new
+`scripts/prepare-luma-ue-input-receipt.py` fills only that missing receipt.
+It accepts exactly the upstream main.cpp SHA256
+`34a750a7ccbe373b2ab5e8bd690b122c6782c2003e3def864c05edc80fb8a935`, checks
+unique include/Draw anchors, and writes a fresh external directory. Original
+input is never edited. No Luma file is committed in this repository.
+
+The inserted `#if DEVELOPMENT` call runs immediately before the existing SR Draw,
+after confirmed inputs and decoded motion are available. It logs first four
+eligible calls, structural changes/reset rising edges and every 120th call,
+capped at 32 rows per process. Rows contain actual TAA hash/stage, source/depth/
+velocity slots, global-CB slot/size and inferred indices, final resource formats
+and extents, pixel jitter, MV scale, reset/camera-cut/output-change flags and
+all scalar DrawData values. `evaluated=0` explicitly means a pre-call receipt,
+not success. No line appears for failed detection that never reaches SR Draw;
+retain upstream detection logs and original-TAA capture for that case.
+
+Resources/context use bounded session IDs instead of addresses or game paths.
+IDs describe observed addresses only, not independently verified view ownership
+or object generations; pointer reuse can reuse an ID. No buffer contents are
+dumped by the receipt. It only queries texture descriptors, emits the log and
+returns; the original call/fallback/resources/settings remain unchanged.
+Logging exceptions are contained. Logging overhead is not performance evidence.
+
+Actual verification: the staged helper was compiled and linked with MSVC
+14.44.35207/C++20, Windows D3D11 headers and the **real fixed upstream**
+`super_resolution.h` (SHA256
+`4a138f7faa4b94a73d8433f09fc9264c7e323354c91beb9df2d553566b3a2939`).
+`tests/interop/luma_receipt_header_check.cpp` executed 5,000 CPU-only calls using
+null resources, verified the 32-row cap, field formatting, address concealment
+and unchanged input values; exit 0. It creates no GPU device. Check EXE SHA256:
+`cd26f8229c133d25703c90480007db3ce35ba1c3cb809e21ec09af960d912a15`;
+compile log SHA256:
+`25184aef2c72da2275c7d47472d8855ed2ec9ecb357ce3f2929f69bb407f07c0`.
+Upstream header unused-parameter warnings remain.
+
+This is a genuine minimum **helper/header** compile and CPU check, not a full
+Luma add-on compile or proof the patched generic UE translation unit links.
+The selected-text cache lacks the full Luma build tree, its pinned ReShade
+submodule and other core dependencies/assets. Those were not downloaded to
+inflate this input-observation slice. No loadable add-on is delivered here,
+and no game/real texture/input receipt has been captured.
+
+Prepare source with:
+
+```powershell
+python scripts/prepare-luma-ue-input-receipt.py --source $PinnedUpstreamMain `
+  --output $NewExternalStage
+```
+
+For a later complete external source build, the two staged files belong in
+`Source/Games/Unreal Engine/`, using the upstream Development configuration.
+The receipt logs automatically at the real SR seam; its prefix is
+`NR_UE_INPUT_RECEIPT`. This is an integration instruction, not authorization to
+install or launch now. Generic SR remains DLAA/R=O, with Core NR absent for the
+first actual input observation. The original TAA fallback is preserved.
+
 The smallest existing executable seam is the generic UE adapter's completed
 `SR::SuperResolutionImpl::DrawData`, immediately before the official D3D11 DLSS
 evaluation. It is not the backbuffer or a new synthetic provider. No DLL was
