@@ -146,7 +146,7 @@ function renderPayloadNotice(removedSelection = false) {
     message = `安装组件缺失或校验未通过${problems.length ? `：${problems.join('、')}` : ''}。请重新下载完整的一键安装包；若仍有问题，请在“修复”页保存反馈日志。`;
   } else if (removedSelection) {
     const item = payload.versions[payload.selectedVersion];
-    message = `上次选择的版本已不在此安装包中，当前使用 ${item.label || payload.selectedVersion}。可在“插件版本”中重新选择。`;
+    message = `上次选择的版本已不在此安装包中，当前使用 ${coreVersionLabel(payload.selectedVersion, item)}。可在“插件版本”中重新选择。`;
   }
   notice.textContent = message;
   notice.classList.toggle('hidden', !message);
@@ -166,7 +166,7 @@ function renderVersionSelector() {
   const removedSelection = Boolean(saved && !Object.prototype.hasOwnProperty.call(versions, saved));
   refreshSelectedPayload(saved);
   const selected = state.payload.selectedVersion;
-  select.innerHTML = Object.entries(versions).map(([id, item]) => `<option value="${escapeHtml(id)}">${escapeHtml(item.label || id)}</option>`).join('');
+  select.innerHTML = Object.entries(versions).map(([id, item]) => `<option value="${escapeHtml(id)}">${escapeHtml(coreVersionLabel(id, item))}</option>`).join('');
   select.value = selected;
   const item = versions[selected];
   $('addonVersionNote').textContent = item && item.notes
@@ -176,12 +176,17 @@ function renderVersionSelector() {
   renderPayloadNotice(removedSelection);
 }
 
+function coreVersionLabel(id, item) {
+  const raw = String(item && item.label || id);
+  return raw.replace(/(?:\s*[-–—]\s*|\s*[（(])(?:DXGI|DX11|DX12|DirectX\s*11|DirectX\s*12)\b.*$/i, '').trim() || String(id);
+}
+
 function versionOptionsMarkup(selected = state.payload && state.payload.selectedVersion, includeImported = true) {
   const versions = state.payload && state.payload.versions ? Object.entries(state.payload.versions).map(([id, item]) => [id, item]) : [];
   const imported = includeImported ? (state.addons || []).filter(item => item.addonOnly).map(item => [item.id, item]) : [];
   const all = [...versions, ...imported];
   if (!all.length) return '<option value="">当前组件</option>';
-  return all.map(([id, item]) => `<option value="${escapeHtml(id)}"${id === selected ? ' selected' : ''}>${escapeHtml(item.label || id)}${item.addonOnly ? '（导入）' : ''}</option>`).join('');
+  return all.map(([id, item]) => `<option value="${escapeHtml(id)}"${id === selected ? ' selected' : ''}>${escapeHtml(coreVersionLabel(id, item))}${item.addonOnly ? '（导入）' : ''}</option>`).join('');
 }
 
 function poster(game) {
@@ -224,7 +229,7 @@ function cardAction(game) {
   return `<button class="button" disabled>无法安装</button>${dismiss}`;
 }
 
-const CARRIER_TOOLTIP = '当前仅支持 DX11；需要完整配套的兼容核心、nrchain 与 DX11 carrier。关闭后 NR 路线不可用。此选项不修改游戏启动 API，需要自行在游戏或启动器中切换。DX12、API 未确认或 Vulkan 不部署 DX11 carrier。';
+const CARRIER_TOOLTIP = '兼容桥接目前只用于 DirectX 11，并且需要当前核心、nrchain 和配套桥接文件完整匹配。关闭后这条 NR 路线不可用。这里不会替你切换游戏的启动 API；DirectX 12、API 待确认和 Vulkan 都不会启用 DX11 桥接。';
 
 function carrierControl(game) {
   if (!game.chosen) return '';
@@ -232,7 +237,10 @@ function carrierControl(game) {
   const selectable = resolution.api === 'dx11';
   const enabled = selectable && (game.components ? game.components.dx11Carrier === true : true);
   const title = escapeHtml(CARRIER_TOOLTIP);
-  return `<span class="carrier-option" title="${title}"><label class="check-line"><input class="carrier-component-check" type="checkbox" aria-label="兼容桥接（自动）"${enabled ? ' checked' : ''}${selectable ? '' : ' disabled'}>兼容桥接（自动）</label><button class="button subtle carrier-save-btn" type="button" title="${escapeHtml(selectable ? '应用兼容桥接选择' : '当前路线不部署 DX11 carrier')}"${selectable ? '' : ' disabled'}>应用桥接</button></span>`;
+  const status = selectable ? (enabled ? '已开启' : '已关闭')
+    : resolution.api === 'dx12' ? 'DX12 无需开启'
+      : resolution.api === 'unsupported' ? '当前 API 没有配套桥接' : '确认 API 后可用';
+  return `<div class="control-row carrier-control-row" title="${title}"><label title="${title}">兼容桥接 <span class="help-dot" aria-hidden="true">?</span></label><label class="carrier-option"><input class="carrier-component-check" type="checkbox" aria-label="启用兼容桥接"${enabled ? ' checked' : ''}${selectable ? '' : ' disabled'}><span>${escapeHtml(status)}</span></label><button class="button subtle carrier-save-btn" type="button" title="${escapeHtml(selectable ? '保存兼容桥接选择' : status)}"${selectable ? '' : ' disabled'}>保存</button></div>`;
 }
 
 function apiControls(game) {
@@ -242,10 +250,10 @@ function apiControls(game) {
   const selected = game.apiOverride || 'auto';
   const options = [['auto', '自动（综合证据）'], ['dx11', 'DirectX 11'], ['dx12', 'DirectX 12']]
     .map(([id, label]) => `<option value="${id}"${id === selected ? ' selected' : ''}>${label}</option>`).join('');
-  const deployment = resolution.api === 'dx11' ? 'DX11 需要所选核心的完整配套 nrchain 与 DX11 carrier；兼容桥接关闭时该 NR 路线不可用。'
-    : resolution.api === 'dx12' ? 'DX12 不使用 DX11 carrier；保存 API 时移出旧桥接，核心与 nrchain 保留。'
-    : 'API 未确认或为 Vulkan 时不部署 DX11 carrier；请在游戏或启动器中确认实际启动 API。';
-  return `<div class="config-block"><h4>游戏 API 与部署</h4><div class="control-row"><label>实际启动 API</label><select class="game-api-select">${options}</select><button class="button subtle api-save-btn">保存 API</button></div><p>${escapeHtml(labels[resolution.api] || 'API 未确认')} · ${escapeHtml(deployment)}</p><p class="config-note">这里保存管理器的 API 路线，不会修改游戏启动 API；实际启动 API 需自行在游戏或启动器中切换。DX12 保存后会移出 DX11 桥接，其余配套在安装或修复时应用。</p><p class="config-note">${escapeHtml((resolution.evidence || []).join('；'))}</p></div>`;
+  const deployment = resolution.api === 'dx11' ? 'DX11 可使用下方兼容桥接。'
+    : resolution.api === 'dx12' ? 'DX12 不启用兼容桥接。' : '确认 API 后再选择配套组件。';
+  const evidence = (resolution.evidence || []).join('；');
+  return `<div class="config-block api-config-block"><h4>游戏图形 API</h4><div class="control-row"><label>启动 API</label><select class="game-api-select">${options}</select><button class="button subtle api-save-btn">保存</button></div><p class="api-route-status">${escapeHtml(labels[resolution.api] || 'API 未确认')} · ${escapeHtml(deployment)}</p><details class="api-help"><summary>API 与桥接说明</summary><p>这里记录管理器应采用的安装路线，不会修改游戏或启动器里的 API。DX11 只有在核心、nrchain 和配套桥接完整匹配时可用；DX12 保留核心与 nrchain，不部署 DX11 桥接；API 待确认或 Vulkan 时不会猜装。</p>${evidence ? `<p>${escapeHtml(evidence)}</p>` : ''}</details></div>`;
 }
 
 function addonVersionRow(game, applyVersion = false) {
@@ -253,7 +261,7 @@ function addonVersionRow(game, applyVersion = false) {
     : (game.recommendedAddonVersion || (state.payload && state.payload.selectedVersion));
   const options = versionOptionsMarkup(selected, Boolean(game.installed));
   const apply = applyVersion ? '<button class="button subtle version-apply-btn">应用版本</button>' : '';
-  return `<div class="control-row addon-version-row"><label>${game.installed ? 'Addon 版本' : '核心版本'}</label><div class="addon-version-control"><select class="game-version-select">${options}</select>${carrierControl(game)}</div>${apply}</div>`;
+  return `<div class="control-row addon-version-row"><label>核心版本</label><select class="game-version-select">${options}</select>${apply || '<span></span>'}</div>${carrierControl(game)}`;
 }
 
 function gameApiLabel(chosen) {
@@ -575,7 +583,7 @@ function renderAddonVersions() {
   $('addonListHint').textContent = rows.length ? `${rows.length} 个版本 · 内置版本不可删除` : '还没有可用版本';
   root.innerHTML = rows.length ? rows.map(item => `<div class="addon-row">
     <div class="addon-symbol">${item.addonOnly ? '↓' : '◆'}</div>
-    <div><div class="addon-name">${escapeHtml(item.label || item.id)}</div><div class="addon-meta">${item.addonOnly ? `导入文件：${escapeHtml(item.sourceName || '')} · ${item.ota ? '标准 OTA，校验后只替换 Addon' : '只替换 Addon'}` : escapeHtml(item.notes || '完整安装组件')}</div></div>
+    <div><div class="addon-name">${escapeHtml(coreVersionLabel(item.id, item))}</div><div class="addon-meta">${item.addonOnly ? `导入文件：${escapeHtml(item.sourceName || '')} · ${item.ota ? '标准 OTA，校验后只替换 Addon' : '只替换 Addon'}` : escapeHtml(item.notes || '完整安装组件')}</div></div>
     <span class="addon-tag">${item.ready ? '可用' : '组件未准备'}</span>
     ${item.deletable ? `<button class="button danger addon-remove-btn" data-id="${escapeHtml(item.id)}">删除</button>` : '<span class="addon-tag">内置</span>'}
   </div>`).join('') : '<p class="muted">点击上面的“选择 addon 文件”，或把 .addon64 拖进来。</p>';
@@ -586,7 +594,7 @@ function confirmRemoveAddon(id) {
   const item = (state.addons || []).find(row => row.id === id);
   state.pendingModal = { type: 'remove-addon', id };
   $('modalTitle').textContent = '删除导入的 Addon';
-  $('modalBody').textContent = `将从管理器版本库移除“${item ? item.label : id}”。不会删除已经安装到游戏目录的文件。`;
+  $('modalBody').textContent = `将从管理器版本库移除“${coreVersionLabel(id, item)}”。不会删除已经安装到游戏目录的文件。`;
   $('removeSettingsLine').classList.add('hidden');
   $('modal').classList.remove('hidden');
 }

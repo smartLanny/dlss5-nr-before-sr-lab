@@ -6,6 +6,7 @@ const { INSTALLED_NAMES, DX11_COMPAT_VERSION } = require('./constants');
 const { appError } = require('./errors');
 const { assess, classifyApi, isDx11Only } = require('./game-support');
 const { sha256 } = require('./payload');
+const coreVersionText = value => String(value || '').replace(/(?:\s*[-–—]\s*|\s*[（(])(?:DXGI|DX11|DX12|DirectX\s*11|DirectX\s*12)\b.*$/i, '').replace(/-ota$/i, '').trim();
 const { scanConflicts, moveConflicts, restoreConflicts } = require('./conflicts');
 const {
   manifestPath, backupPath, readManifest, newManifest, findEntry, validateEntry
@@ -419,11 +420,11 @@ function createInstaller(overrides = {}) {
 
     if (manifest && payloadVersion) {
       components.push({
-        key: 'version', label: 'Addon 版本',
+        key: 'version', label: '核心版本',
         ok: manifest.payloadVersion === payloadVersion,
         detail: manifest.payloadVersion === payloadVersion
-          ? `当前为 ${payloadVersionLabel || payloadVersion}`
-          : `已安装 ${manifest.payloadVersion || '旧版本'}，当前选择 ${payloadVersionLabel || payloadVersion}；点击修复切换`
+          ? `当前为 ${coreVersionText(payloadVersionLabel || payloadVersion)}`
+          : `已安装 ${coreVersionText(manifest.payloadVersion || '旧版本')}，当前选择 ${coreVersionText(payloadVersionLabel || payloadVersion)}；点击修复切换`
       });
     }
 
@@ -436,9 +437,11 @@ function createInstaller(overrides = {}) {
       const routeOk = kind === 'carrier' && !carrierRequired ? !exists : exists && !(kind === 'carrier' && carrierDisabled);
       components.push({
         key: kind,
-        label: { addon: 'NR→SR 插件', bridge: 'NR Bridge', carrier: 'DX11 Native Carrier', runtime: 'AI Runtime', config: '配置文件' }[kind],
+        label: { addon: 'NR→SR 插件', bridge: '共用运行组件', carrier: '兼容桥接', runtime: 'AI Runtime', config: '配置文件' }[kind],
         ok: routeOk && (kind === 'config' || !expectedHash || actual === expectedHash),
-        detail: kind === 'carrier' && carrierOffByChoice && !exists
+        detail: kind === 'carrier' && !carrierRequired && !exists
+          ? (selectedApi === 'dx12' ? '无需启用（DirectX 12）' : '未部署，需先确认 API 与配套组件')
+          : kind === 'carrier' && carrierOffByChoice && !exists
           ? '桥接已关闭，该 NR 路线不可用；核心与 nrchain 保留，请在游戏/启动器中自行切换 API'
           : kind === 'carrier' && !carrierRequired && exists
           ? 'DX12 路线不应部署 DX11 Carrier，点击修复移出并备份'

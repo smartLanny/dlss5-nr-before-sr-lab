@@ -1,6 +1,6 @@
 {
   "name": "xiaofeng-dlss5-manager",
-  "version": "0.4.6-hotfix.1",
+  "version": "0.4.6-hotfix.2",
   "private": true,
   "description": "A beginner-friendly desktop manager for the DLSS 5 NR-before-SR add-on.",
   "main": "main.js",
@@ -25,7 +25,7 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "buildVersion": "0.4.6.1",
+    "buildVersion": "0.4.6.2",
     "appId": "com.xiaofeng.dlss5.manager",
     "productName": "DLSS 5 AI 超分管理器",
     "files": [

@@ -69,6 +69,8 @@ test('DX12 keeps nrchain, never deploys carrier, and restores an unmanaged old c
   assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.bridge)), true);
   assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.carrier)), false);
   assert.equal(fs.existsSync(oldCarrier), false);
+  assert.equal(result.components.find(row=>row.key==='carrier').label,'兼容桥接');
+  assert.equal(result.components.find(row=>row.key==='carrier').detail,'无需启用（DirectX 12）');
 
   const removed = await f.installer.uninstall({ gameDir: f.gameDir, scan: f.scan });
   assert.equal(removed.removed, true);

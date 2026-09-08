@@ -85,11 +85,15 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .control-row { display: grid; grid-template-columns: minmax(88px, 112px) minmax(0, 1fr) auto; align-items: center; gap: 13px; min-height: 44px; border-top: 1px solid #222931; }
 .control-row:first-of-type { border-top: 0; }
 .control-row label { font-size: 13px; color: #cbd0d3; }
-.addon-version-control { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
-.addon-version-control .game-version-select { min-width: 120px; flex: 1 1 150px; }
-.carrier-option { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 8px; color: #cbd0d3; font-size: 12px; white-space: nowrap; }
-.carrier-option .check-line { gap: 6px; }
-.carrier-option .button { padding: 7px 9px; }
+.addon-version-row .game-version-select { min-width: 120px; width: 100%; }
+.carrier-control-row { grid-template-columns: minmax(88px, 112px) minmax(0, 1fr) auto; }
+.carrier-option { display: inline-flex; align-items: center; gap: 9px; color: #cbd0d3; font-size: 12px; white-space: nowrap; }
+.carrier-option input { margin: 0; }
+.help-dot { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-left: 4px; border: 1px solid #56616a; border-radius: 50%; color: var(--muted); font-size: 10px; }
+.api-route-status { margin: 10px 0 0; color: #cbd0d3; font-size: 12px; }
+.api-help { margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.api-help summary { width: max-content; cursor: pointer; color: #8f9aa2; }
+.api-help p { margin: 7px 0 0; }
 .segmented { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .segmented button { flex: 1; border: 0; border-right: 1px solid var(--line); background: #171c20; padding: 8px 12px; color: #aeb6bc; cursor: pointer; }
 .segmented button:last-child { border-right: 0; }
