@@ -61,6 +61,7 @@ if ($FirstRecordingOnly -or $FirstRecordingNegativeControl) {
     $output=& $binary '--first-recording' 2>&1
     $code=$LASTEXITCODE
     $output | ForEach-Object { Write-Host $_ }
+    Write-Host "Native gate --first-recording exit=$code"
     if ($FirstRecordingNegativeControl) {
         if ($code -ne 41 -or ($output -join "`n") -notmatch 'FIRST_RECORDING_NATIVE_ORACLE') { throw 'Wrong first-recording negative failure' }
         Write-Output 'Negative control passed: no Create-boundary baseline misses the first carrier.'
@@ -68,29 +69,50 @@ if ($FirstRecordingOnly -or $FirstRecordingNegativeControl) {
     exit 0
 }
 if ($NativeRecordOnly) {
-    & $binary '--native-record'
-    if ($LASTEXITCODE -ne 0) { throw "Native record gate failed (exit=$LASTEXITCODE)." }
+    $output=& $binary '--native-record' 2>&1
+    $code=$LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+    Write-Host "Native gate --native-record exit=$code"
+    if ($code -ne 0) { throw "Native record gate failed (exit=$code)." }
     exit 0
 }
 if ($PoolNegativeControl) {
     $output=& $binary '--pristine-null' 2>&1
     $code=$LASTEXITCODE
     $output | ForEach-Object { Write-Host $_ }
+    Write-Host "Native gate --pristine-null (pool negative) exit=$code"
     if ($code -ne 41 -or ($output -join "`n") -notmatch 'POOL_FIRST_CAPTURE_ORACLE') { throw 'Wrong pool negative failure' }
     Write-Output 'Negative control passed: old lazy-only observation misses first carrier.'
     exit 0
 }
-& $binary '--pristine-null'
-
-if ($LASTEXITCODE -ne 0) { throw 'Default pristine-null native/GPU validation failed.' }
-& $binary '--pristine-null-negative'
-if ($LASTEXITCODE -ne 42) { throw "Pristine-null negative control did not detect the deliberately omitted restore (exit=$LASTEXITCODE)." }
-& $binary '--default-enabled'
-if ($LASTEXITCODE -ne 0) { throw "Default-enabled command-state startup validation failed (exit=$LASTEXITCODE)." }
-& $binary
-if ($LASTEXITCODE -ne 0) { throw "Native command-state validation failed (exit=$LASTEXITCODE)." }
-& $binary '--native-record'
-if ($LASTEXITCODE -ne 0) { throw "Native record lifecycle validation failed (exit=$LASTEXITCODE)." }
+# Route native stdout/stderr through the host so the acceptance transcript
+# retains every assertion, including failures. Store the real exit code before
+# formatting; failure predicates below are unchanged.
+$output=& $binary '--pristine-null' 2>&1
+$code=$LASTEXITCODE
+$output | ForEach-Object { Write-Host $_ }
+Write-Host "Native gate --pristine-null exit=$code"
+if ($code -ne 0) { throw 'Default pristine-null native/GPU validation failed.' }
+$output=& $binary '--pristine-null-negative' 2>&1
+$code=$LASTEXITCODE
+$output | ForEach-Object { Write-Host $_ }
+Write-Host "Native gate --pristine-null-negative exit=$code"
+if ($code -ne 42) { throw "Pristine-null negative control did not detect the deliberately omitted restore (exit=$code)." }
+$output=& $binary '--default-enabled' 2>&1
+$code=$LASTEXITCODE
+$output | ForEach-Object { Write-Host $_ }
+Write-Host "Native gate --default-enabled exit=$code"
+if ($code -ne 0) { throw "Default-enabled command-state startup validation failed (exit=$code)." }
+$output=& $binary 2>&1
+$code=$LASTEXITCODE
+$output | ForEach-Object { Write-Host $_ }
+Write-Host "Native gate default exit=$code"
+if ($code -ne 0) { throw "Native command-state validation failed (exit=$code)." }
+$output=& $binary '--native-record' 2>&1
+$code=$LASTEXITCODE
+$output | ForEach-Object { Write-Host $_ }
+Write-Host "Native gate --native-record exit=$code"
+if ($code -ne 0) { throw "Native record lifecycle validation failed (exit=$code)." }
 $stackFiles = Get-ChildItem -LiteralPath $build -Filter '*.su'
 $critical = @()
 foreach ($stackFile in $stackFiles) {

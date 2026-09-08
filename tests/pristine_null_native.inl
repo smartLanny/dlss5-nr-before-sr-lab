@@ -18,6 +18,15 @@ int RunPristineNullGate(bool negative) {
     // Keep this legacy recovery case genuinely unobserved: its native Create
     // predates hook publication. Post-publication native records are tested
     // separately and must not be made artificially unregistered here.
+    // Both lists in this missed-init fixture genuinely predate native Create
+    // observation. The separate first-recording gate starts enabled and proves
+    // new-list coverage; it must not pre-publish full guards for this legacy case.
+    ID3D12CommandAllocator *other_allocator=nullptr;
+    Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,
+        IID_ID3D12CommandAllocator,reinterpret_cast<void **>(&other_allocator)),"unrelated allocator");
+    ID3D12GraphicsCommandList *other=nullptr;
+    Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,other_allocator,nullptr,
+        IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&other)),"unrelated known list");
     OnCommandStateInitDevice(&od);
     Check(g_state_RSSetViewports.count==0 && g_state_OMSetRenderTargets.count==0,
           "default device startup does not install wide graphics hooks");
@@ -25,12 +34,6 @@ int RunPristineNullGate(bool negative) {
     auto *snapshot=new NativeCommandState;
     Check(!CaptureNativeCommandState(list,*snapshot),"missed init is not inferred from native pointer");
     Check(std::strcmp(SnapshotCommandStateEvidence().reason,"unregistered-list")==0,"unregistered reason retained");
-    ID3D12CommandAllocator *other_allocator=nullptr;
-    Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,
-        IID_ID3D12CommandAllocator,reinterpret_cast<void **>(&other_allocator)),"unrelated allocator");
-    ID3D12GraphicsCommandList *other=nullptr;
-    Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,other_allocator,nullptr,
-        IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&other)),"unrelated known list");
     reshade::api::command_list other_owner{&od,other}; OnCommandStateInitList(&other_owner);
     Check(!CaptureNativeCommandState(other,*snapshot),"unrelated known list still awaits its own baseline");
     Check(g_command_state_registration_repair_needed.load(),"known carrier does not cancel missing-list recovery");
