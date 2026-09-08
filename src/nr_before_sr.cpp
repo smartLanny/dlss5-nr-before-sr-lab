@@ -50,11 +50,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dev5";
+constexpr const char *kAddonVersion = "beta0.5-dev6";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dev5";
+constexpr const char *kBuildIdentity = "beta0.5-dev6";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -872,6 +872,7 @@ struct ChainConfig {
     bool high_strength_protection = true; // Mode 2 composition only; does not reset NR history.
     bool layered_enhancement = false; // One NR inference; independent composite contributions.
     bool independent_chroma_composition = false; // 0.5 opt-in shared pre/post candidate.
+    bool low_grid_edit_field = false; // #11 luma-only Mode2 experiment; defaults to A.
     float layer_tone = 1.0f;
     float layer_structure = 1.0f;
     float layer_bright = 1.0f;
@@ -1301,6 +1302,7 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.high_strength_protection == b.high_strength_protection &&
            a.layered_enhancement == b.layered_enhancement &&
            a.independent_chroma_composition == b.independent_chroma_composition &&
+           a.low_grid_edit_field == b.low_grid_edit_field &&
            a.layer_tone == b.layer_tone && a.layer_structure == b.layer_structure &&
            a.layer_bright == b.layer_bright && a.layer_shadow == b.layer_shadow &&
            a.motion_stability == b.motion_stability &&
@@ -1388,6 +1390,7 @@ void ReloadConfig(bool force = false) {
     next.detail_stability = ReadIniFloat(L"DetailStability", 0.0f);
     next.layered_enhancement = GetPrivateProfileIntW(L"NRBeforeSR", L"LayeredEnhancement", 0, g_ini_path) != 0;
     next.independent_chroma_composition = GetPrivateProfileIntW(L"NRBeforeSR", L"IndependentChromaComposition", 0, g_ini_path) != 0;
+    next.low_grid_edit_field = GetPrivateProfileIntW(L"NRBeforeSR", L"LowGridEditField", 0, g_ini_path) != 0;
     next.layer_tone = ReadIniFloat(L"LayerTone", 1.0f);
     next.layer_structure = ReadIniFloat(L"LayerStructure", 1.0f);
     next.layer_bright = ReadIniFloat(L"LayerBright", 1.0f);
@@ -1488,6 +1491,7 @@ void ReloadConfig(bool force = false) {
         Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
             g_config.layered_enhancement, g_config.mode, g_config.layer_tone, g_config.layer_structure, g_config.layer_bright, g_config.layer_shadow);
         Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", g_config.independent_chroma_composition);
+        Log("LowGridEditField requested=%d; only Mode2 and colour zero; recorded flag=8192; unavailable optional resources retain composition A.", g_config.low_grid_edit_field);
         Log("HighStrengthProtection requested=%d; effective on V2/candidate luminance above 1x; legacy V2 also protects chroma; codec flag=1024.",
             g_config.high_strength_protection ? 1 : 0);
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
@@ -1561,6 +1565,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniFloat(L"DetailStability", config.detail_stability));
     record_write(WriteIniInt(L"LayeredEnhancement", config.layered_enhancement ? 1 : 0));
     record_write(WriteIniInt(L"IndependentChromaComposition", config.independent_chroma_composition ? 1 : 0));
+    record_write(WriteIniInt(L"LowGridEditField", config.low_grid_edit_field ? 1 : 0));
     record_write(WriteIniFloat(L"LayerTone", config.layer_tone));
     record_write(WriteIniFloat(L"LayerStructure", config.layer_structure));
     record_write(WriteIniFloat(L"LayerBright", config.layer_bright));
@@ -1666,6 +1671,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
     Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
         applied.layered_enhancement, applied.mode, applied.layer_tone, applied.layer_structure, applied.layer_bright, applied.layer_shadow);
     Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", applied.independent_chroma_composition);
+    Log("LowGridEditField requested=%d; only Mode2 and colour zero; recorded flag=8192; unavailable optional resources retain composition A.", applied.low_grid_edit_field);
     Log("HighStrengthProtection requested=%d; effective on V2/candidate luminance above 1x; legacy V2 also protects chroma; codec flag=1024.",
         applied.high_strength_protection ? 1 : 0);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
@@ -2048,16 +2054,20 @@ struct Codec {
     ID3D12PipelineState *combine_v2 = nullptr;
     ID3D12PipelineState *copy = nullptr;
     ID3D12PipelineState *motion_resample = nullptr;
+    ID3D12PipelineState *build_edit_field = nullptr;
+    bool edit_field_pipeline_failed = false;
     UINT descriptor_size = 0;
     bool failed = false;
 };
 
 Codec g_codec = {};
 
-constexpr UINT kCodecSrvCount = 5;
-constexpr UINT kCodecUavCount = 5;
+constexpr UINT kCodecSrvCount = 6;
+constexpr UINT kCodecUavCount = 6;
 constexpr UINT kCodecDescriptorCount = kCodecSrvCount + kCodecUavCount;
 constexpr UINT kCodecExposureSrvIndex = 4;
+constexpr UINT kCodecEditFieldSrvIndex = 5;
+constexpr UINT kCodecEditFieldUavIndex = kCodecSrvCount + 5;
 constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
 constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
 constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
@@ -2076,11 +2086,13 @@ Texture2D<float4> ProxyColor    : register(t1);
 Texture2D<float4> NeuralColor   : register(t2);
 Texture2D<float2> MotionSource  : register(t3);
 Texture2D<float4> ExposureScaleTexture : register(t4);
+Texture2D<float2> EditField : register(t5);
 RWTexture2D<float4> ProxyOut    : register(u0);
 RWTexture2D<float4> ResultOut   : register(u1);
 RWTexture2D<float2> MotionOut   : register(u2);
 RWByteAddressBuffer DeltaStats  : register(u3);
 RWByteAddressBuffer StageCapture : register(u4);
+RWTexture2D<float2> EditFieldOut : register(u5);
 
 cbuffer Constants : register(b0) {
     uint Width;
@@ -2472,6 +2484,42 @@ float3 SampleProxyStoredV2(float2 fullPixelCenter) {
 float3 SampleNeuralStoredV2(float2 fullPixelCenter) {
     float3 linearValue = SampleNeuralLinearV2(fullPixelCenter);
     return (Passthrough & 1u) != 0u ? linearValue : LinearToSRGB(linearValue);
+}
+
+// #11: the model-grid field stores bounded signed log-luminance and validity.
+// No lighting/detail/source-edge protection is moved into this pass.
+[numthreads(8, 8, 1)]
+void BuildEditFieldCS(uint3 tid : SV_DispatchThreadID) {
+    if (tid.x >= ModelWidth || tid.y >= ModelHeight) return;
+    float3 pStored = ProxyColor.Load(int3(tid.xy, 0)).rgb;
+    float3 nStored = NeuralColor.Load(int3(tid.xy, 0)).rgb;
+    if (!IsFiniteModelStoredV2(pStored) || !IsFiniteModelStoredV2(nStored)) {
+        EditFieldOut[tid.xy] = float2(0.0, 0.0);
+        return;
+    }
+    float3 p = LoadProxyLinearV2(int2(tid.xy));
+    float3 n = LoadNeuralLinearV2(int2(tid.xy));
+    float pl = max(dot(p, kLuma), 1.0 / 4096.0);
+    float nl = max(dot(n, kLuma), 1.0 / 4096.0);
+    float edit = clamp(log2(nl / pl), -8.0, 8.0);
+    EditFieldOut[tid.xy] = isfinite(edit) ? float2(edit,1.0) : float2(0.0,0.0);
+}
+
+float2 SampleEditFieldV5(float2 fullPixelCenter) {
+    float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
+        float2(max(Width, 1u), max(Height, 1u)) - 0.5;
+    int2 base = int2(floor(mapped));
+    int2 upper = int2(max(ModelWidth, 1u)-1u, max(ModelHeight, 1u)-1u);
+    float2 a = EditField.Load(int3(clamp(base,int2(0,0),upper),0));
+    float2 b = EditField.Load(int3(clamp(base+int2(1,0),int2(0,0),upper),0));
+    float2 c = EditField.Load(int3(clamp(base+int2(0,1),int2(0,0),upper),0));
+    float2 d = EditField.Load(int3(clamp(base+int2(1,1),int2(0,0),upper),0));
+    // Strict footprint: never renormalize across an invalid neighbour, even
+    // when its interpolation weight is zero. Match the existing finite gate.
+    if (a.y != 1.0 || b.y != 1.0 || c.y != 1.0 || d.y != 1.0 ||
+        !all(isfinite(float4(a.x,b.x,c.x,d.x)))) return float2(0.0,0.0);
+    float2 f = frac(mapped);
+    return float2(lerp(lerp(a.x,b.x,f.x),lerp(c.x,d.x,f.x),f.y),1.0);
 }
 
 float ModelLumaRatioV2(float2 fullPixelCenter) {
@@ -2930,6 +2978,7 @@ void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result) {
         if(ModelNeighborhoodFiniteV2(center) && all(p==p) && all(n==n)) {
             float pl=max(dot(p,kLuma),1.0/4096.0), nl=max(dot(n,kLuma),1.0/4096.0);
             float raw=clamp(log2(nl/pl),-8.0,8.0);
+            if ((Passthrough & 8192u) != 0u) raw=SampleEditFieldV5(center).x;
             decision=DetailDecisionV2(center,raw,pl);
             if(TransferStrength<=0.000001)decision=float4(1.0,64.0,raw,raw);
             else if(FrameConfidence<=0.000001)decision=float4(1.0,128.0,raw,raw);
@@ -3030,6 +3079,16 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float fullProxyLuma = max(dot(fullProxy, kLuma), 1.0 / 4096.0);
     float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
     float rawModelLumaLog = log2(neuralLuma / proxyLuma);
+    if ((Passthrough & 8192u) != 0u) {
+        float2 edit = SampleEditFieldV5(center);
+        if (edit.y != 1.0) {
+            WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
+            RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+                diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0, true);
+            return;
+        }
+        logRatio = edit.x;
+    }
     logRatio = StabilizeDetailLogV2(center, logRatio, proxyLuma);
     const bool layeredActive = (Passthrough & 2048u) != 0u;
     float layerMean = 0.0;
@@ -3512,6 +3571,11 @@ struct NrSlot {
     ID3D12Resource *source = nullptr;
     ID3D12Resource *proxy = nullptr;
     ID3D12Resource *neural = nullptr;
+    ID3D12Resource *edit_field = nullptr;
+    D3D12_RESOURCE_STATES edit_field_state = D3D12_RESOURCE_STATE_COMMON;
+    unsigned long long edit_field_bytes = 0;
+    bool edit_field_allocation_failed = false;
+    bool edit_field_recorded = false; // Cleared per before-SR attempt, set after real build recording.
     ID3D12Resource *result = nullptr;
     ID3D12Resource *motion_source = nullptr;
     ID3D12Resource *motion_proxy = nullptr;
@@ -3814,6 +3878,10 @@ void MarkLifecycleUncertain(const char *reason) {
 }
 
 void DestroyStageCapture(NrSlot &slot);
+// Accessed under the same Core context/slot lock as creation and retirement.
+unsigned long long g_edit_field_allocated_bytes = 0;
+constexpr unsigned long long kEditFieldSlotBudget = 64ull * 1024ull * 1024ull;
+constexpr unsigned long long kEditFieldTotalBudget = 256ull * 1024ull * 1024ull;
 
 void DestroySlot(NrSlot &slot) {
     DestroyStageCapture(slot);
@@ -3825,6 +3893,8 @@ void DestroySlot(NrSlot &slot) {
     ReleaseCom(slot.heap);
     ReleaseCom(slot.result);
     ReleaseCom(slot.neural);
+    ReleaseCom(slot.edit_field);
+    g_edit_field_allocated_bytes -= slot.edit_field_bytes;
     ReleaseCom(slot.proxy);
     ReleaseCom(slot.motion_source);
     ReleaseCom(slot.motion_proxy);
@@ -5712,6 +5782,9 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
             slot.stats_clear_heap);
     ID3D12Device_CreateUnorderedAccessView(
         device, slot.delta_stats, nullptr, &stats_uav, stats_clear_cpu);
+    // Populate the expanded table through the shared writer, including typed
+    // null EditField descriptors when the optional experiment is unavailable.
+    WriteCodecDescriptorSet(device, slot, slot.heap);
     BindStageCaptureDescriptor(slot, nullptr, 0);
     if (slot.snapshots_native_output &&
         slot.result_format != DXGI_FORMAT_R16G16B16A16_FLOAT) {
@@ -5809,6 +5882,67 @@ void RebindExposureSource(ID3D12Device *device, ID3D12Resource *exposure,
     slot.exposure_source = exposure;
     WriteExposureSrv(device, exposure, slot.heap);
     WriteExposureSrv(device, exposure, slot.snapshot_heap);
+}
+
+bool EnsureEditField(ID3D12Device *device, NrSlot &slot,
+                     unsigned int width, unsigned int height) {
+    if (!device || !slot.heap || !width || !height || slot.snapshots_native_output)
+        return false;
+    if (slot.edit_field) {
+        const auto desc = ID3D12Resource_GetDesc(slot.edit_field);
+        return desc.Width == width && desc.Height == height;
+    }
+    // No descriptor mutation on a recorded/in-flight slot. Wait for the
+    // existing retirement contract; absence of this optional plane keeps A.
+    if (slot.edit_field_allocation_failed || !CanMutateSlotLocked(slot) ||
+        g_codec.edit_field_pipeline_failed) return false;
+    if (!g_codec.build_edit_field) {
+        ID3DBlob *code = CompileCodecShader("BuildEditFieldCS");
+        HRESULT hr = E_FAIL;
+        if (code) {
+            D3D12_COMPUTE_PIPELINE_STATE_DESC desc={}; desc.pRootSignature=g_codec.root;
+            desc.CS.pShaderBytecode=code->lpVtbl->GetBufferPointer(code);
+            desc.CS.BytecodeLength=code->lpVtbl->GetBufferSize(code);
+            hr=ID3D12Device_CreateComputePipelineState(device,&desc,IID_ID3D12PipelineState,
+                reinterpret_cast<void **>(&g_codec.build_edit_field));
+            ReleaseCom(code);
+        }
+        if (FAILED(hr)) {
+            g_codec.edit_field_pipeline_failed=true;
+            Log("LowGridEditField optional PSO unavailable; existing composition A retained.");
+            return false;
+        }
+    }
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support={}; support.Format=DXGI_FORMAT_R32G32_FLOAT;
+    if (FAILED(ID3D12Device_CheckFeatureSupport(device,D3D12_FEATURE_FORMAT_SUPPORT,
+            &support,sizeof(support))) ||
+        (support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD)==0 ||
+        (support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE)==0) {
+        slot.edit_field_allocation_failed=true;
+        Log("LowGridEditField R32G32_FLOAT load/store unavailable; composition A retained.");
+        return false;
+    }
+    D3D12_RESOURCE_DESC desc={}; desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    desc.Width=width; desc.Height=height; desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
+    desc.Format=DXGI_FORMAT_R32G32_FLOAT; desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    const auto allocation=ID3D12Device_GetResourceAllocationInfo(device,0,1,&desc);
+    if (!allocation.SizeInBytes || allocation.SizeInBytes > kEditFieldSlotBudget ||
+        allocation.SizeInBytes > kEditFieldTotalBudget - g_edit_field_allocated_bytes) {
+        slot.edit_field_allocation_failed=true;
+        Log("LowGridEditField allocation exceeds 64MiB/slot or 256MiB/Core budget; composition A retained.");
+        return false;
+    }
+    if (!CreateTexture(device,width,height,L"NRChain.LogLumaEditField",&slot.edit_field,
+                       DXGI_FORMAT_R32G32_FLOAT)) {
+        slot.edit_field_allocation_failed=true;
+        return false;
+    }
+    slot.edit_field_bytes=allocation.SizeInBytes;
+    g_edit_field_allocated_bytes+=slot.edit_field_bytes;
+    WriteEditFieldDescriptors(device,slot);
+    Log("LowGridEditField allocated N=%ux%u bytes=%llu total=%llu; same-slot retirement, no additional NR call.",
+        width,height,slot.edit_field_bytes,g_edit_field_allocated_bytes);
+    return true;
 }
 
 bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
@@ -6168,6 +6302,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,
         g_config.color_strength);
     const unsigned int base_codec_flags = source_flags |
+        ((v2_combine && g_config.mode == 2 && g_config.low_grid_edit_field &&
+          g_config.color_strength <= 0.000001f && slot.edit_field_recorded) ? 8192u : 0u) |
         (independent_chroma ? 4096u : 0u) |
         ((v2_combine && g_config.high_strength_protection) ? 1024u : 0u) |
         ((v2_combine && g_config.layered_enhancement) ? 2048u : 0u) |
@@ -7598,6 +7734,12 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
     slot->active_render_width = render_width;
     slot->active_render_height = render_height;
+    slot->edit_field_recorded = false;
+    const bool edit_field_ready = g_config.low_grid_edit_field && g_config.mode == 2 &&
+        g_config.color_strength <= 0.000001f && g_config.transfer_strength > 0.000001f &&
+        !g_config.identity_use_original &&
+        context->successful_evaluations_since_reset >= g_config.warmup_after_create &&
+        EnsureEditField(device,*slot,width,height);
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
     if (context->retired) {
         ReleaseCom(device);
@@ -7745,6 +7887,17 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
     Transition(command_list, slot->result, slot->result_state,
                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    if (edit_field_ready) {
+        Transition(command_list, slot->edit_field, slot->edit_field_state,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        DispatchCodec(command_list,*slot,g_codec.build_edit_field,width,height,color_contract,
+            (feature.create_flags & 1) != 0,0,0,0,0,slot->codec_color_mode,
+            render_width,render_height,width,height);
+        UavBarrier(command_list,slot->edit_field);
+        Transition(command_list,slot->edit_field,slot->edit_field_state,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        slot->edit_field_recorded = true;
+    }
     DispatchCodec(command_list, *slot, g_codec.combine_v2,
                   render_width, render_height, color_contract,
                   (feature.create_flags & 1) != 0, color_x, color_y, 0, 0,
@@ -11572,13 +11725,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dev5 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dev6 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev5 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev6 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

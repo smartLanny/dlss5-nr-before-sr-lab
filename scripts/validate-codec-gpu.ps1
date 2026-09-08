@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -41,7 +41,12 @@ $boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_stren
 $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
 $layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
-if (![string]::IsNullOrWhiteSpace($ComparisonOutput)) {
+if (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
+    if ($NegativeControl -or $LayerNegativeControl -or $BaselineSource -or $ComparisonOutput) { throw 'Run EditField export independently.' }
+    $editTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/edit_field_gpu.inl') -Raw -Encoding UTF8
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $editTests)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 3 && std::strcmp(argv[1], "--edit-field-contract") == 0) { ExportEditFieldContract(gpu, argv[2]); return 0; }')
+} elseif (![string]::IsNullOrWhiteSpace($ComparisonOutput)) {
     if ($NegativeControl -or $LayerNegativeControl -or $BaselineSource) { throw 'Run composition export independently from negative/baseline controls.' }
     $comparisonTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/composition_contract_gpu.inl') -Raw -Encoding UTF8
     $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $comparisonTests)
@@ -88,7 +93,12 @@ if ($CompileOnly) {
     Write-Host 'Production codec fixture compiled only; no WARP/GPU dispatch executed.'
     return
 }
-if (![string]::IsNullOrWhiteSpace($ComparisonOutput)) {
+if (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
+    & $binary '--edit-field-contract' ([IO.Path]::GetFullPath($EditFieldOutput))
+    if ($LASTEXITCODE -ne 0) { throw 'Production EditField export failed.' }
+    & python (Join-Path $projectRoot 'scripts/validate-edit-field.py') --capture $EditFieldOutput --source (Join-Path $SourceRoot 'src/nr_before_sr.cpp')
+    if ($LASTEXITCODE -ne 0) { throw 'Independent EditField contract validation failed.' }
+} elseif (![string]::IsNullOrWhiteSpace($ComparisonOutput)) {
     & $binary '--composition-contract' ([IO.Path]::GetFullPath($ComparisonOutput))
     if ($LASTEXITCODE -ne 0) { throw 'Production pre/post composition export failed.' }
     & python (Join-Path $projectRoot 'scripts/validate-composition-contract.py') --capture $ComparisonOutput --source (Join-Path $SourceRoot 'src/nr_before_sr.cpp')
