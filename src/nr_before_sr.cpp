@@ -27,6 +27,7 @@
 #define ImTextureID ImU64
 #include <imgui.h>
 #include <reshade.hpp>
+#include "nr_imgui_abi.h"
 
 #include "MinHook.h"
 #include "interop/nr_post_compat.h"
@@ -874,6 +875,7 @@ struct ChainConfig {
     float edge_guard = 0.25f;
     float detail_stability = 0.0f; // Experimental spatial residual protection; 0 preserves old output.
     bool high_strength_protection = true; // Mode 2 composition only; does not reset NR history.
+    bool color_protection = true; // Additional enhancement chroma budget; composition only.
     bool layered_enhancement = false; // One NR inference; independent composite contributions.
     bool independent_chroma_composition = false; // 0.5 opt-in shared pre/post candidate.
     bool low_grid_edit_field = false; // #11 luma-only Mode2 experiment; defaults to A.
@@ -901,7 +903,7 @@ struct ChainConfig {
     unsigned int warmup_after_create = 2;
     bool retry_original_on_sr_failure = true;
     int depth_mode = -1;
-    float intensity = 1.0f;
+    float intensity = 1.2f;
     float local_tone = 1.0f;
     float local_structure = 1.0f;
     float skin_structure = -1.0f;
@@ -1353,7 +1355,7 @@ void NormalizeConfig(ChainConfig &config) {
     config.warmup_after_create = std::min(config.warmup_after_create, 60u);
     config.depth_mode = std::clamp(config.depth_mode, -1, 1);
     config.intensity = std::clamp(
-        FiniteOr(config.intensity, 1.0f), 0.0f, 2.0f);
+        FiniteOr(config.intensity, 1.2f), 0.0f, 2.0f);
     config.local_tone = std::clamp(
         FiniteOr(config.local_tone, 1.0f), 0.0f, 2.0f);
     config.local_structure = std::clamp(
@@ -1385,6 +1387,7 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.edge_guard == b.edge_guard &&
            a.detail_stability == b.detail_stability &&
            a.high_strength_protection == b.high_strength_protection &&
+           a.color_protection == b.color_protection &&
            a.layered_enhancement == b.layered_enhancement &&
            a.independent_chroma_composition == b.independent_chroma_composition &&
            a.low_grid_edit_field == b.low_grid_edit_field &&
@@ -1514,6 +1517,8 @@ void ReloadConfig(bool force = false) {
     next.light_preview = g_config.light_preview;
     next.high_strength_protection = GetPrivateProfileIntW(
         L"NRBeforeSR", L"HighStrengthProtection", 1, g_ini_path) != 0;
+    next.color_protection = GetPrivateProfileIntW(
+        L"NRBeforeSR", L"ColorProtection", 1, g_ini_path) != 0;
     next.motion_stability = GetPrivateProfileIntW(L"NRBeforeSR", L"MotionStability", 0, g_ini_path) != 0;
     next.proxy_curve = static_cast<unsigned int>(GetPrivateProfileIntW(
         L"NRBeforeSR", L"ProxyCurve", 1, g_ini_path));
@@ -1535,7 +1540,7 @@ void ReloadConfig(bool force = false) {
     next.retry_original_on_sr_failure = GetPrivateProfileIntW(
         L"NRBeforeSR", L"RetryOriginalOnSRFailure", 1, g_ini_path) != 0;
     next.depth_mode = GetPrivateProfileIntW(L"NRBeforeSR", L"DepthMode", -1, g_ini_path);
-    next.intensity = ReadIniFloat(L"Intensity", 1.0f);
+    next.intensity = ReadIniFloat(L"Intensity", 1.2f);
     next.local_tone = ReadIniFloat(L"LocalToneStrength", 1.0f);
     next.local_structure = ReadIniFloat(L"LocalStructureStrength", 1.0f);
     next.skin_structure = ReadIniFloat(L"SkinStructureStrength", -1.0f);
@@ -1702,6 +1707,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"LightPreset", static_cast<int>(config.light_preset)));
     record_write(WriteIniFloat(L"LightPresetColor", config.light_preset_color));
     record_write(WriteIniInt(L"HighStrengthProtection", config.high_strength_protection ? 1 : 0));
+    record_write(WriteIniInt(L"ColorProtection", config.color_protection ? 1 : 0));
     record_write(WriteIniInt(L"MotionStability", config.motion_stability ? 1 : 0));
     record_write(WriteIniInt(L"ProxyCurve", static_cast<int>(config.proxy_curve)));
     record_write(WriteIniInt(L"AllowUnverifiedHdrColor",
@@ -3876,7 +3882,7 @@ bool UsePeakShoulder(CodecColorMode color_mode, bool hdr_input, bool requested) 
 }
 
 struct NrTuningSignature {
-    float intensity = 1.0f;
+    float intensity = 1.2f;
     float local_tone = 1.0f;
     float local_structure = 1.0f;
     float skin_structure = -1.0f;
@@ -6877,7 +6883,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     if (any_combine)
         ApplyLightingLockPolicy(color_policy, g_config.mode, g_config.lighting_lock);
     ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,
-        g_config.color_strength);
+        g_config.color_strength, ActiveTransferStrength(g_config), g_config.color_protection);
     const float effective_color_strength = color_policy.effective_color_strength;
     const unsigned int base_codec_flags = source_flags |
         ((v2_combine && slot.edit_field_recorded && slot.edit_horizontal_recorded &&
@@ -11406,7 +11412,7 @@ bool FormatScreenshotPostfix(char *postfix, std::size_t capacity,
     const int written = std::snprintf(postfix, capacity,
         "DLSS5_%.16s_%s_%s_REQ-G%u_I%.2f_S%u_B%.2f_C%.2f_HP%d",
         kBuildIdentity, mode, state, requested_generation,
-        static_cast<double>(std::clamp(FiniteOr(config.intensity, 1.0f),
+        static_cast<double>(std::clamp(FiniteOr(config.intensity, 1.2f),
                                       0.0f, 2.0f)),
         std::min(config.style, 2u),
         static_cast<double>(std::clamp(std::isfinite(blend) ? blend : 0.0f, 0.0f, 4.0f)),

@@ -2,6 +2,7 @@
 // Keep one named TXT and the established bounded FeedbackAppend writer.
 {
     const auto post = nr_post_settings::Read();
+    FeedbackAppend(s,"%s.settings.colorProtection=%d\n",prefix,g_config.color_protection?1:0);
     const auto now = GetTickCount64();
     const auto attempted = nr_post_settings::last_rr_tick.load(std::memory_order_acquire);
     const bool recent = attempted != 0 && now >= attempted && now - attempted <= 2000;

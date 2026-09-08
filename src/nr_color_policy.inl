@@ -85,14 +85,14 @@ void ApplyLightingLockPolicy(NrColorPolicy &policy, int mode, float strength) {
 // as TransferStrength. This finalization runs for BOTH verified colour and the
 // explicit unverified-HDR opt-in, not just for the latter.
 void ApplyRequestedUnverifiedHdrColor(NrColorPolicy &policy, bool allow, float strength,
-    float amplification = ActiveTransferStrength(g_config)) {
+    float amplification = ActiveTransferStrength(g_config), bool protect_color = true) {
     if (allow && policy.color_reason == NrColorReason::UnverifiedHdr) {
         policy.color_allowed = true;
         policy.effective_color_strength = std::isfinite(strength) ? std::clamp(strength, 0.0f, 2.0f) : 0.0f;
         policy.color_reason = NrColorReason::ExperimentalUnverifiedHdr;
     }
     const auto budget = nr_color_amplification::Resolve(
-        policy.effective_color_strength, amplification);
+        policy.effective_color_strength, amplification, protect_color);
     policy.effective_color_strength = policy.color_allowed ? budget.coefficient : 0.0f;
     policy.amplification = budget.amplification;
     policy.amplification_color_limited = policy.color_allowed && budget.limited;
