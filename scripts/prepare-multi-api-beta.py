@@ -36,7 +36,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_command_state.inl': 'f0f13b0a8ac243f01cdf0f93a517440ac65f1394',
     'src/nr_feedback_capture.inl': 'f96ccb29b148d1325f11b02e32ad0dcd1b0097d6',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': '048155e7ae2bff64fba29fddea415557f1528c42',
+    'src/nr_settings_ui.inl': '0e8ef7895630f088447eace881fc224386c723e9',
     'src/nr_before_sr.cpp': '1d53538ed13517690c0380185880b569246ba921',
     'src/nr_recommended_picture.inl': '35afc07bf8af81590e952002a3bc5e60f75f4c8c',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
@@ -54,7 +54,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_f8_stream.inl': 'ec9c92e98bb7aa1853710f4245d2ec85163e4368',
     'src/nr_imgui_abi.h': 'd52148f7dc9999c8090947243b9fe6167f457240',
     'src/nr_light_style.h': 'e2bccf165841f512e97e88080273762cdf7f8548',
-    'src/nr_light_style_ui.inl': '63cdabb18647b68d5b3cb2cca3d4ca1c599522fa',
+    'src/nr_light_style_ui.inl': '4e1dc69cf290bd52297d220f2ace5cede527dc27',
     'src/nr_skin_protection.h': 'b09ae7909e8c06452406ecc49e174c6ba8eda4a3',
     'src/nr_stage_capture.inl': '0352ab55a9e40834c89fc60b00d83d976228a2d1',
 }

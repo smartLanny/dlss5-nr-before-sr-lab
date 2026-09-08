@@ -53,7 +53,7 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
         ImGui::PopID();
     }
     ImGui::PopID();
-    ImGui::TextDisabled("%s",next.light_preset==nr_light_style::Custom
+    SettingsNote(next.light_preset==nr_light_style::Custom
         ? ui("Custom: values or colour were edited.","自定义：本组数值或颜色已手动调整。")
         : ui("Candidate preset; game quality is still being validated.","候选预设，游戏画质仍在验证。"));
     SettingsTooltip(ui("Presets change only this group's five coefficients and AI colour amount. Original effect and Less glow keep the current colour; Natural uses 80%. Model, mode and other experiments stay as requested.",

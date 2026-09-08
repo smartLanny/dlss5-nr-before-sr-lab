@@ -87,7 +87,7 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_light_style_ui.inl',
             'src/nr_skin_protection.h',
             'src/nr_stage_capture.inl',        })
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '048155e7ae2bff64fba29fddea415557f1528c42')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '0e8ef7895630f088447eace881fc224386c723e9')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
         self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '7056c18af239dbe97888e26ffa08f6d12ed163c4')
 

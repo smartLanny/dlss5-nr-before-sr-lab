@@ -103,7 +103,7 @@ void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
             "The saved request can differ from the effective bounded coefficient. Above 1x, colour amplification is budgeted separately from luminance; this status is not a measured visible-strength result.",
             "保存的请求值可能与受限后的实际系数不同。强度超过 1 倍时，颜色放大会与明暗分开限制；此状态不是实测画面强度。"));
     } else {
-        ImGui::TextDisabled("%s", NrColorPolicyStatusText(
+        ImGui::TextWrapped("%s", NrColorPolicyStatusText(
             color_policy_snapshot.status, use_chinese_ui));
     }
 #if !NR_HAS_DETAIL_STABILITY
