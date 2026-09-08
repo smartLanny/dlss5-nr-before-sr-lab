@@ -137,3 +137,32 @@ Omit NR/FG switches for their controls; `-PrepareOnly` stages without execution.
 This is a controlled renderer with Core registration stubs, not a game/release
 package, full ReShade integration, multi-view or cross-API FG support. #167/#16
 remain open for generated-pixel/cadence, recovery and actual game integration.
+
+## Subsequent OS display capture preparation
+
+`scripts/capture-fg-display.ps1` at `202ab380a53a146bd008ca763c87b2716d32cc23`
+prepares a separate, fixed PresentMon 2.5.1 capture around the already frozen
+sample executable. It uses a unique owned session, excludes input tracking,
+keeps logs/CSV private and stops before launching the renderer if the collector
+fails at startup. It never requests elevation or changes account membership.
+The launcher records its own hash separately from the old sample build identity.
+
+The cached Intel-signed tool's SHA256 is
+`9bec3083069f58f911e6a512f4806db51a27bd096103087bc1d05ef54c80a191`.
+The one standalone collector preflight exited **6 / access denied before trace
+startup**, with no GPU sample started. Stderr SHA256:
+`3bec4df2ce8a9880475dfff83efb4bb5b616f929ddbd74edd6eb30de984cb34e`;
+process result SHA256:
+`17dd2ab5a08a6712e0b06d064b851e8a8c8481e3326ecf966a206ce10ff47935`.
+The final wrapper passed parsing and PrepareOnly; prepared plan SHA256:
+`85a7d16b423288f8d19cbc8add94e40845261d89cc856b6b73fb39e13999b755`.
+Its actual capture/flush path remains unexecuted, not a passing display test.
+
+PresentMon requires administrator access or membership in Performance Log Users
+to start this trace. Its frame-type field also requires application/driver
+instrumentation. See the fixed official [access requirements](https://github.com/GameTechDev/PresentMon/blob/v2.5.1/README.md#user-access-denied)
+and [console metrics](https://github.com/GameTechDev/PresentMon/blob/v2.5.1/README-ConsoleApplication.md).
+Once run in an authorized tracing session, CSV rows must be correlated by PID,
+swapchain and time with the source receipts; unknown frame types stay unknown.
+OS display events would still not be generated-pixel captures or a physical
+screen/latency measurement. No additional renderer matrix was run after denial.
