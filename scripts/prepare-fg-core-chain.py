@@ -15,6 +15,14 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+SDK_CMAKE = '''# Explicit existing SDK cache; no SDK download or source import.
+if(NOT STREAMLINE_SDK_ROOT OR NOT EXISTS "${STREAMLINE_SDK_ROOT}/CMakeLists.txt")
+    message(FATAL_ERROR "Pass STREAMLINE_SDK_ROOT for the fixed existing SDK cache")
+endif()
+add_subdirectory("${STREAMLINE_SDK_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/sdk")
+'''
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--sample', type=Path, required=True)
@@ -60,7 +68,8 @@ def main():
     for name in ('nr_external_provider_producer.h', 'nr_external_provider_abi.h', 'nr_external_provider_completion.h'):
         owned[name] = scripts.parent/'src'/'interop'/name
     destination = a.sample/'src/nr-fg-sample'
-    if destination.exists():
+    sdk_cmake_path = a.sample/'streamline/CMakeLists.txt'
+    if destination.exists() or sdk_cmake_path.exists():
         raise ValueError('Owned adapter stage must not exist')
     payloads = {name: source.read_bytes() for name, source in owned.items()}
     # All validation/read checks precede the first mutation.
@@ -69,12 +78,14 @@ def main():
         (destination/name).write_bytes(content)
     for name, (_, content) in patches.items():
         (a.sample/name).write_bytes(content)
+    sdk_cmake_path.write_text(SDK_CMAKE, encoding='utf-8', newline='\n')
     source_commit = subprocess.check_output(['git', '-C', str(scripts.parent), 'rev-parse', 'HEAD'], text=True).strip()
     source_dirty = bool(subprocess.check_output(['git', '-C', str(scripts.parent), 'status', '--porcelain']))
     manifest = {'sample_commit': head, 'adapter_commit': source_commit, 'adapter_dirty': source_dirty,
                 'core_path_environment': 'NR_FG_SAMPLE_CORE', 'nr_opt_in': True,
                 'single_view_only': True, 'completion': 'serial actual graphics queue fence',
                 'game_runtime': False, 'compiled': False,
+                'sdk_cmake_sha256': digest(SDK_CMAKE.encode()),
                 'patches': {name: {'upstream_sha256': digest(raw), 'patched_sha256': digest(out)}
                             for name, (raw, out) in patches.items()},
                 'owned_headers': {name: digest(content) for name, content in payloads.items()}}

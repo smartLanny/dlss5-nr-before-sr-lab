@@ -1,5 +1,17 @@
 # 统一开发与测试交接入口
 
+## 2026-09-08 下一代码批次继续；Manager 状态更新
+
+维护者授权的完整队列继续，分批交接不代表全部任务结束。独立推进 #84 输入核、
+#85 编辑场恢复、#86 色彩场，默认参考与维护版本保留；主任务继续官方受控 renderer
+的 Core NR→SR→FG 接线。新源码没有继承旧构建的 GPU/game 结论。
+
+协调任务已核对现用 Manager #181 `b4d1d441260314f1ae521da004ccfeaf24bf5c18`，
+base #178：SR/FG、RTX40组件准备、RTX50原生设置、逐域事务/恢复已交付，234项
+及打包 UI/worker/合成 EXE 的 NVAPI 恢复验证已记录；owner报告完成 NSIS 升级。
+其 Core 载荷仍为 hotfix.1 Beta。HDR、Own-Core正式配方、Vulkan与扫描性能现场
+复核仍按原归属保留。下方旧批次“尚未迁入”文字是历史，不分配重复 Manager 工作。
+
 ## 本次后续代码批次：最终实验构建 e7df0fc
 
 启动协议之后又补齐 external单一NR/RR事务隔离、jitter工作网格缩放、FFX→NR帧合同和
