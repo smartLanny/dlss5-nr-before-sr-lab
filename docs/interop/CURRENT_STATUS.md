@@ -1,5 +1,15 @@
 # 统一开发与测试交接入口
 
+## 本次后续代码批次：最终实验构建 e7df0fc
+
+启动协议之后又补齐 external单一NR/RR事务隔离、jitter工作网格缩放、FFX→NR帧合同和
+carrier模块枚举越界修复，加入真实GPU分段时间戳。双语Core/nrchain/carrier与宿主从
+`e7df0fc`重建，最终off/on各8帧SR、on5帧NR通过；[最终身份与集中结果](CORE_RUNTIME_CONTINUATION_RESULTS_20260908.md)。
+下方`492f802`是之前已冻结启动切片，不能替代本次最终构建。
+独立#172已推进0.5-dev5合成候选及72组三路WARP/完整链接，#173已观察SDK插帧路径
+启用和额外呈现；均非游戏验收，未混入维护默认或Manager。#11低网格EditField与
+#14实际游戏输入接点继续，详见[完整代码队列](CORE_CONTINUATION_QUEUE_20260908.md)。
+
 ## 2026-09-08 新授权接续：Core native-observer 启动协议
 
 维护者明确授权新 Astra session 在原 09:00 批次之后继续开发；旧截止记录保留为历史。
