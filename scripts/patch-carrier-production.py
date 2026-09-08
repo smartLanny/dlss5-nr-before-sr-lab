@@ -511,7 +511,12 @@ static void CarrierRetireLocked(std::uintptr_t device)
     if (g_carrier_bridge_owner != device) return;
     EnterCriticalSection(&g_bridge_cs);
     const bool released = BridgeReleaseSession();
-    if (released) g_carrier_bridge_owner = 0;
+    if (released) {
+        g_carrier_bridge_owner = 0;
+        // A later feature/device may open a new session after proven retirement.
+        // Quarantine deliberately retains both the owner and bootstrap latch.
+        InterlockedExchange(&g_probe_done, 0);
+    }
     LeaveCriticalSection(&g_bridge_cs);
     if (released)
         Log("[native-carrier] retired the complete bridge session for D3D11 device %p.", reinterpret_cast<void *>(device));

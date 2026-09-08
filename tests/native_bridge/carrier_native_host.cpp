@@ -80,8 +80,11 @@ int wmain(int argc, wchar_t **argv) {
     swap1.native = 0x100; swap1.owner = &device1;
     swap2.native = 0x200; swap2.owner = &device2;
     extra.native = 0x300; extra.owner = &device1;
+    // A saturated slot ledger must still promote its previously installed pair.
+    g_layer_count = kMaxLayers;
     OnCarrierInitSwapchain(&swap2, false);
     CHECK(g_layer[0].eval.active && !g_bridge.dev12);
+    g_layer_count = 1;
     CHECK(eval(ctx1, handle, &params, nullptr) == 1 && count(1) == 1);
     CHECK(!g_bridge.dev12);
     OnCarrierInitSwapchain(&swap1, false);
@@ -131,12 +134,50 @@ int wmain(int argc, wchar_t **argv) {
     CHECK(!g_carrier_registry.Allows(reinterpret_cast<std::uintptr_t>(handle), device1.native));
     CHECK(release(handle) == 1 && count(2) == 2);
     OnCarrierDestroySwapchain(&swap1, false); OnCarrierDestroyDevice(&device1);
+
+    // Real WARP queue/fence retirement, without creating any NVIDIA feature.
+    IDXGIFactory4 *factory = nullptr;
+    IDXGIAdapter *warp = nullptr;
+    CHECK(SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))));
+    CHECK(SUCCEEDED(factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))));
+    CHECK(SUCCEEDED(D3D12CreateDevice(warp, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&g_bridge.dev12))));
+    warp->Release(); factory->Release();
+    D3D12_COMMAND_QUEUE_DESC queue_desc{};
+    CHECK(SUCCEEDED(g_bridge.dev12->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&g_bridge.queue))));
+    CHECK(SUCCEEDED(g_bridge.dev12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_bridge.fence12))));
+    CHECK(SUCCEEDED(g_bridge.dev12->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_bridge.fence_progress))));
+    ID3D12Device *external_device = g_bridge.dev12;
+    external_device->AddRef();
+    g_carrier_bridge_owner = device1.native;
+    InterlockedExchange(&g_probe_done, 1);
+    {
+        CarrierOperationGuard operation;
+        CarrierRetireLocked(device2.native);
+        CHECK(g_bridge.dev12 == external_device && g_probe_done == 1);
+        CarrierRetireLocked(device1.native);
+        CHECK(!g_bridge.dev12 && !g_bridge.queue && !g_bridge.fence12 && !g_bridge.fence_progress);
+        CHECK(!g_nr_carrier_quarantined && g_carrier_bridge_owner == 0);
+        CHECK(g_probe_done == 0); // The next eligible frame can bootstrap again.
+    }
+    CHECK(SUCCEEDED(external_device->GetDeviceRemovedReason()));
+    // Missing completion proof keeps the owner, bootstrap latch and resources.
+    g_bridge.dev12 = external_device;
+    CHECK(SUCCEEDED(g_bridge.dev12->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&g_bridge.queue))));
+    g_carrier_bridge_owner = device1.native;
+    InterlockedExchange(&g_probe_done, 1);
+    {
+        CarrierOperationGuard operation;
+        CarrierRetireLocked(device1.native);
+        CHECK(g_nr_carrier_quarantined && g_bridge.dev12 == external_device && g_bridge.queue);
+        CHECK(g_carrier_bridge_owner == device1.native && g_probe_done == 1);
+    }
     ctx1->Release(); ctx2->Release(); d1->Release(); d2->Release();
     CHECK(FreeLibrary(native));
     CHECK(GetModuleHandleW(L"carrier-native-fixture.dll") == native);
     CHECK(!HookUninstall(g_layer[0].create));
     std::puts("PASS: real DLL/MinHook Create/Evaluate/Release exactly once; WARP D3D11 devices;");
     std::puts("controlled ReShade identities, resize/multiswapchain, unknown flags and concurrent release/destroy.");
+    std::puts("Real WARP D3D12 queue/fence retirement releases owned resources and rearms; missing proof quarantines.");
     std::puts("No NVIDIA model, private bridge frame, real ReShade dispatch, or game claim.");
     return 0;
 }

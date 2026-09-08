@@ -100,6 +100,7 @@ def main():
                     generated_bridge_sha256=sha(carrier / 'bridge.inc'),
                     host_sha256=sha(exe), fixture_sha256=sha(fixture),
                     real_detours=True, d3d11_device='WARP',
+                    d3d12_queue_retirement='WARP; normal rearm and missing-fence quarantine',
                     reshade_callback_identities='test wrappers',
                     nvidia_inference=False, private_bridge_frame=False, game_verified=False)
     (out / 'native-host-validation.json').write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
