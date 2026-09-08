@@ -42,6 +42,22 @@ and `nrchain_nvngx.dll`
 These are source, WARP and build facts, not NVIDIA inference, game-quality or
 performance acceptance. #85 colour Catmull was not tested or enabled.
 
+The ordinary #85 + #86 merge source is
+`8982733ce456934c884c64255e6788901cc594e1`. Its generated tree is
+`C:\Users\pc1\Documents\ChatGPT\DLSS5\beta050-085-086-integration-20260908`.
+The source manifest SHA-256 is
+`e6cbc65c7590c5122059c5a064a6ababc7ff3514c4739f1cb8b5c3d674e16eef`;
+all 103 listed files matched and the transformed Core source SHA-256 is
+`8b8e6cb2a907c098cafac57d1ddb019d9be9f8df0c10a692675a6c0e66664556`.
+All nine production shader entry points and both focused GPU fixtures compiled
+without dispatch. Bilingual integration links passed: English Core
+`124b88339a19666ea97415dd3205483a5677c12e29cfed603d935c3112327432`,
+Chinese Core `81a8937b21bf212359c8afd3faf97b7b16fb246d24c3a0327eaeb6055b13844e`,
+and `nrchain_nvngx.dll`
+`46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb`.
+The merge reused the already completed #85 and #86 WARP evidence; it did not
+repeat either GPU run or claim that Catmull reconstructs colour.
+
 When #84 is integrated, its `t7/u7` plane should remain outside the present
 `t5/u5` field and `t6/u6` restore descriptors. The allocator must then replace
 the separate family totals with one extra-resource total and one per-slot sum:
