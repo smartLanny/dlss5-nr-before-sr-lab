@@ -247,7 +247,10 @@ int main() {
 '''.replace("BLOCK", block))
 
     def test_native_hook_enable_failure_retries_its_own_trampoline(self) -> None:
-        functions = definition(source, "bool EnsureNativeQueueExecuteHook(") + "\n" + definition(source, "bool EnsureNativeCommandListResetHook(")
+        functions = "\n".join(definition(source, marker) for marker in (
+            "bool EnsureNativeQueueExecuteHook(",
+            "bool EnsureNativeCommandListResetHookForNative(",
+            "bool EnsureNativeCommandListResetHook("))
         self.run_cpp("native-hook-retry", r'''
 #include <cstdint>
 #include <vector>
