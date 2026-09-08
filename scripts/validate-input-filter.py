@@ -31,15 +31,24 @@ def encode(v,flags):
             e=(peak-.75)/.25;mapped=.75+.25*e/math.sqrt(e*e+1)
             v=[x*mapped/peak for x in v]
     return [unit(x) for x in v] if flags==1 else [srgb(x) for x in v]
+def f32(x):return struct.unpack('<f',struct.pack('<f',x))[0]
 def weights(destination,source_extent,target_extent):
     if source_extent==target_extent:return [(destination,1.)]
-    scale=target_extent/source_extent;center=(destination+.5)/scale-.5
+    # Support decisions must use the actual FP32 mapping. A double-only centre
+    # can put a mathematical endpoint infinitesimally inside the support and
+    # invent a nonzero NaN tap that the production float x>=2 branch excludes.
+    # Do not threshold away small nonzero weights inside that actual support.
+    scale=f32(target_extent/source_extent);center=f32(f32(f32(destination+.5)/scale)-.5)
+    radius=f32(2/scale);pi=f32(math.pi)
     result=[]
-    for p in range(math.ceil(center-2/scale),math.floor(center+2/scale)+1):
-        x=abs((p-center)*scale)
-        w=0 if x>=2 else 1 if x<1e-6 else math.sin(math.pi*x)/(math.pi*x)*math.sin(.5*math.pi*x)/(.5*math.pi*x)
+    for p in range(math.ceil(f32(center-radius)),math.floor(f32(center+radius))+1):
+        x=abs(f32(f32(p-center)*scale))
+        px=f32(pi*x);half=f32(f32(.5*pi)*x)
+        w=0 if x>=2 else 1 if x<1e-6 else f32(f32(f32(math.sin(px))/px)*f32(f32(math.sin(half))/half))
         if w:result.append((max(0,min(source_extent-1,p)),w))
-    norm=sum(w for _,w in result);assert norm>1e-6
+    norm=0.
+    for _,w in result:norm=f32(norm+w)
+    assert norm>1e-6
     return [(p,w/norm) for p,w in result]
 
 def verify(root,negative=None):
@@ -111,7 +120,9 @@ def verify(root,negative=None):
 
 def main():
     ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--capture',type=Path,required=True);ap.add_argument('--source',type=Path,required=True)
-    ap.add_argument('--negative-control',choices=('coordinate','normalization'));a=ap.parse_args()
+    ap.add_argument('--negative-control',choices=('coordinate','normalization'))
+    ap.add_argument('--gpu-fixture-commit',help='Verified source commit at the earlier GPU execution, when rechecking preserved raw data')
+    a=ap.parse_args()
     if a.negative_control:
         label='area_oracle' if a.negative_control=='coordinate' else 'horizontal_oracle'
         try:verify(a.capture,a.negative_control)
@@ -121,9 +132,12 @@ def main():
         raise AssertionError('Input oracle negative control was not detected')
     m,hashes,counts=verify(a.capture);mf=a.source.parents[2]/'source-manifest.json';manifest=json.loads(mf.read_text())
     sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();assert sha(a.source)==manifest['files']['core/src/nr_before_sr.cpp']
+    validator_commit=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip()
+    gpu_commit=a.gpu_fixture_commit or validator_commit
+    assert len(gpu_commit)==40 and all(c in '0123456789abcdef' for c in gpu_commit)
     report={'source_commit':manifest['source_commit'],'source_sha256':sha(a.source),'manifest_sha256':sha(mf),'contract_sha256':sha(a.capture/'input-filter-contract.json'),
-        'fixture_commit':subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip(),
-        'fixture_dirty':bool(subprocess.check_output(['git','-C',str(ROOT),'status','--porcelain','--untracked-files=no'],text=True).strip()),
+        'fixture_commit':gpu_commit,'validator_commit':validator_commit,'validator_sha256':sha(Path(__file__)),
+        'validator_dirty':bool(subprocess.check_output(['git','-C',str(ROOT),'status','--porcelain','--untracked-files=no'],text=True).strip()),
         'planes':hashes,'counts':counts,'NR_calls':0,'SR_calls':0,'old_neural_reused':False,'nvidia_verified':False,'game_verified':False}
     (a.capture/'validation.json').write_text(json.dumps(report,indent=2)+'\n');print('PASS 200 input-filter pairs:',counts)
 
