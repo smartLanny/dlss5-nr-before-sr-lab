@@ -1,0 +1,91 @@
+// Test-only exact-size admission, one Feature and one frame per process.
+#define NR_CASCADE_FAIL_CLOSED
+#define wmain unused_direct_sr_wmain
+#include "// @DIRECT_SR@"
+#undef wmain
+#include <array>
+#include <fstream>
+#include <bcrypt.h>
+// @FROZEN_HELPERS@
+namespace {
+void Save(const std::wstring& file,const std::vector<uint16_t>& words,const char* label) {
+    HANDLE h=CreateFileW(file.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if(h==INVALID_HANDLE_VALUE)Stop("exclusive raw file create");
+    DWORD written=0;const DWORD bytes=DWORD(words.size()*2);
+    if(!WriteFile(h,words.data(),bytes,&written,nullptr)||written!=bytes)Stop("raw write");CloseHandle(h);
+    BCRYPT_ALG_HANDLE alg=nullptr;BCRYPT_HASH_HANDLE hash=nullptr;DWORD object_bytes=0,got=0;unsigned char digest[32]{};
+    if(BCryptOpenAlgorithmProvider(&alg,BCRYPT_SHA256_ALGORITHM,nullptr,0)<0||BCryptGetProperty(alg,BCRYPT_OBJECT_LENGTH,reinterpret_cast<PUCHAR>(&object_bytes),sizeof(object_bytes),&got,0)<0)Stop("SHA256 init");
+    std::vector<unsigned char> object(object_bytes);
+    if(BCryptCreateHash(alg,&hash,object.data(),object_bytes,nullptr,0,0)<0||BCryptHashData(hash,reinterpret_cast<PUCHAR>(const_cast<uint16_t*>(words.data())),bytes,0)<0||BCryptFinishHash(hash,digest,32,0)<0)Stop("SHA256");
+    std::cout<<label<<" bytes="<<bytes<<" sha256=";for(auto v:digest){char text[3];sprintf_s(text,"%02x",v);std::cout<<text;}std::cout<<std::endl;
+    BCryptDestroyHash(hash);BCryptCloseAlgorithmProvider(alg,0);
+}
+std::vector<uint16_t> Read(DeviceContext& c,ID3D12Resource* texture,D3D12_RESOURCE_STATES state) {
+    const auto d=texture->GetDesc();D3D12_PLACED_SUBRESOURCE_FOOTPRINT fp{};UINT rows=0;UINT64 row_bytes=0,total=0;
+    c.device->GetCopyableFootprints(&d,0,1,0,&fp,&rows,&row_bytes,&total);
+    auto rb=Buffer(c.device.Get(),total,D3D12_HEAP_TYPE_READBACK,D3D12_RESOURCE_STATE_COPY_DEST);
+    Barrier(c,texture,state,D3D12_RESOURCE_STATE_COPY_SOURCE);
+    D3D12_TEXTURE_COPY_LOCATION src{},dst{};src.pResource=texture;src.Type=D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    dst.pResource=rb.Get();dst.Type=D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;dst.PlacedFootprint=fp;
+    c.list->CopyTextureRegion(&dst,0,0,0,&src,nullptr);Barrier(c,texture,D3D12_RESOURCE_STATE_COPY_SOURCE,state);
+    c.SubmitAndWait();c.Reset();void* p=nullptr;Check(rb->Map(0,nullptr,&p),"dynamic readback map");
+    std::vector<uint16_t> bits(size_t(d.Width)*d.Height*4);
+    for(UINT y=0;y<rows;++y)memcpy(bits.data()+size_t(y)*d.Width*4,static_cast<unsigned char*>(p)+fp.Offset+size_t(y)*fp.Footprint.RowPitch,size_t(d.Width)*8);
+    rb->Unmap(0,nullptr);return bits;
+}
+void Inspect(const std::vector<uint16_t>& bits,const char* name) {
+    size_t finite=0;float amin=INFINITY,amax=-INFINITY;
+    for(size_t i=0;i<bits.size();++i){const float v=FloatFromHalf(bits[i]);finite+=std::isfinite(v);if(i%4==3){amin=std::min(amin,v);amax=std::max(amax,v);}}
+    std::cout<<name<<" finite="<<finite<<" nonfinite="<<bits.size()-finite<<" alpha_min="<<amin<<" alpha_max="<<amax<<std::endl;
+    if(finite!=bits.size())Stop("nonfinite plane");
+}
+void RunSize(UINT w,UINT h,const std::wstring& sdk,const std::wstring& nrdir,const std::wstring& output_dir) {
+    auto* c=new DeviceContext(MakeDevice(false));
+    std::vector<uint16_t> source(640*360*4),input(size_t(w)*h*4),mv(size_t(w)*h*2,0);std::vector<float> z(size_t(w)*h,0.5f);
+    for(UINT y=0;y<360;++y)for(UINT x=0;x<640;++x){auto i=(y*640+x)*4;source[i]=Half(0.1f+0.6f*x/639.f);source[i+1]=Half(0.2f+0.4f*y/359.f);source[i+2]=Half(((x/32+y/32)&1)?0.4f:0.3f);source[i+3]=Half(1);}
+    // Exact integer overlap areas in scaled coordinate units, no negative taps.
+    // Sum(wx)=640 and sum(wy)=360 per N pixel, hence normalization 640*360.
+    for(UINT y=0;y<h;++y)for(UINT x=0;x<w;++x)for(UINT k=0;k<4;++k){double sum=0;
+        for(UINT sy=y*360/h;sy<((y+1)*360+h-1)/h;++sy)for(UINT sx=x*640/w;sx<((x+1)*640+w-1)/w;++sx){
+            UINT wx=std::min((sx+1)*w,(x+1)*640)-std::max(sx*w,x*640),wy=std::min((sy+1)*h,(y+1)*360)-std::max(sy*h,y*360);
+            sum+=double(wx)*wy*FloatFromHalf(source[(sy*640+sx)*4+k]);}
+        input[(size_t(y)*w+x)*4+k]=Half(float(sum/(640.0*360.0)));}
+    Save(output_dir+L"/source-640x360.rgba16f",source,"source");Save(output_dir+L"/input.rgba16f",input,"input");Inspect(input,"input");
+    constexpr auto read=D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+    auto p0=Texture(c->device.Get(),w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,D3D12_RESOURCE_FLAG_NONE,D3D12_RESOURCE_STATE_COPY_DEST);
+    auto out=Texture(c->device.Get(),w,h,DXGI_FORMAT_R16G16B16A16_FLOAT,D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_DEST);
+    auto depth=Texture(c->device.Get(),w,h,DXGI_FORMAT_R32_FLOAT,D3D12_RESOURCE_FLAG_NONE,D3D12_RESOURCE_STATE_COPY_DEST);
+    auto motion=Texture(c->device.Get(),w,h,DXGI_FORMAT_R16G16_FLOAT,D3D12_RESOURCE_FLAG_NONE,D3D12_RESOURCE_STATE_COPY_DEST);
+    std::vector<ComPtr<ID3D12Resource>> uploads;
+    Upload(*c,p0.Get(),input.data(),w*8,read,uploads);Upload(*c,out.Get(),input.data(),w*8,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,uploads);
+    Upload(*c,depth.Get(),z.data(),w*4,read,uploads);Upload(*c,motion.Get(),mv.data(),w*4,read,uploads);c->SubmitAndWait();c->Reset();
+    const wchar_t* paths[]={sdk.c_str()};NVSDK_NGX_FeatureCommonInfo common{};common.PathListInfo.Path=paths;common.PathListInfo.Length=1;
+    Ngx(NVSDK_NGX_D3D12_Init_with_ProjectID("7a94da60-f8c9-4b8b-9d8a-22f0293c4801",NVSDK_NGX_ENGINE_TYPE_CUSTOM,"synthetic-size-admission",sdk.c_str(),c->device.Get(),&common,NVSDK_NGX_Version_API),"bootstrap_init");
+    auto core=GetModuleHandleW(L"_nvngx.dll");if(!core)Stop("official factory unavailable");wchar_t path[32768]{};GetModuleFileNameW(core,path,32768);std::wcout<<L"factory="<<path<<std::endl;
+    auto nr=Module(nrdir+L"/nvngx_dlssnr.dll"),bridge=Module(nrdir+L"/nrchain_nvngx.dll");
+    auto init=reinterpret_cast<Result(*)(void*,unsigned long long,const wchar_t*,ID3D12Device*,uint32_t,const void*)>(Symbol(bridge,"NRChain_Init"));
+    auto create=reinterpret_cast<Result(*)(void*,ID3D12GraphicsCommandList*,int,void*,void**)>(Symbol(bridge,"NRChain_Create"));
+    auto eval=reinterpret_cast<Result(*)(void*,ID3D12GraphicsCommandList*,const void*,const void*,void*)>(Symbol(bridge,"NRChain_Evaluate"));
+    auto release=reinterpret_cast<Result(*)(void*,void*)>(Symbol(bridge,"NRChain_Release"));
+    auto alloc=reinterpret_cast<Result(*)(NVSDK_NGX_Parameter**)>(Symbol(core,"NVSDK_NGX_D3D12_AllocateParameters"));
+    auto destroy=reinterpret_cast<Result(*)(NVSDK_NGX_Parameter*)>(Symbol(core,"NVSDK_NGX_D3D12_DestroyParameters"));
+    Ngx(init(Symbol(nr,"NVSDK_NGX_D3D12_Init_Ext"),0xE658703ull,nrdir.c_str(),c->device.Get(),19,nullptr),"nr_init");
+    NVSDK_NGX_Parameter* params=nullptr;void* feature=nullptr;Ngx(alloc(&params),"allocate");if(!params)Stop("null parameters");
+    Bind(params,p0.Get(),out.Get(),depth.Get(),motion.Get(),0,w,h);params->Set("DLSS.Feature.Create.Flags",0); // SDR, same-size ordinary depth/MV.
+    Ngx(create(Symbol(nr,"NVSDK_NGX_D3D12_CreateFeature"),c->list.Get(),18,params,&feature),"create");if(!feature)Stop("null feature");c->SubmitAndWait();c->Reset();
+    Ngx(eval(Symbol(nr,"NVSDK_NGX_D3D12_EvaluateFeature"),c->list.Get(),feature,params,nullptr),"evaluate");c->SubmitAndWait();c->Reset();
+    const auto result=Read(*c,out.Get(),D3D12_RESOURCE_STATE_UNORDERED_ACCESS);Save(output_dir+L"/output.rgba16f",result,"output");Inspect(result,"output");
+    const auto preserved=Read(*c,p0.Get(),read);Save(output_dir+L"/input-after.rgba16f",preserved,"input_after");if(preserved!=input)Stop("input changed");
+    Ngx(release(Symbol(nr,"NVSDK_NGX_D3D12_ReleaseFeature"),feature),"release");Ngx(destroy(params),"destroy");Ngx(NVSDK_NGX_D3D12_Shutdown1(c->device.Get()),"shutdown");
+    std::cout<<"PASS extent="<<w<<"x"<<h<<" synthetic=true SDR=true NR=1 frame=1 reset=1 phase=known-static-zero fence="<<c->next_fence-1<<" quality_claim=false product_admission=false"<<std::endl;ExitProcess(0);
+}
+}
+int wmain(int argc,wchar_t** argv){
+    if(argc!=7||wcscmp(argv[1],L"--fixed-size")!=0)return 1;
+    UINT w=0,h=0;
+    if(wcscmp(argv[2],L"320x184")==0){w=320;h=184;}else if(wcscmp(argv[2],L"320x176")==0){w=320;h=176;}
+    else if(wcscmp(argv[2],L"256x144")==0){w=256;h=144;}else if(wcscmp(argv[2],L"160x88")==0){w=160;h=88;}else return 1;
+    // Last argument is an explicit fixed-contract token, preventing accidental old CLI use.
+    if(wcscmp(argv[6],L"SyntheticAreaReset1")!=0||!CreateDirectoryW(argv[5],nullptr))return 1;
+    std::set_terminate([]{Stop("unexpected exception");});RunSize(w,h,argv[3],argv[4],argv[5]);
+}
