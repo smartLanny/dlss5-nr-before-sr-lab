@@ -73,7 +73,8 @@ class Patches(unittest.TestCase):
         import hashlib
         source=Path(os.environ['MULTIAPI_CORE_SOURCE']).read_bytes()
         digest=hashlib.sha1(b'blob '+str(len(source)).encode()+b'\0'+source).hexdigest()
-        self.assertEqual(digest,'9917b285a5e5c0810a7771451c43ce642be28f95')
+        # Exact integrated #175 input also pinned by prepare-multi-api-beta.py.
+        self.assertEqual(digest,'c0a3cc0c3ad0463c4096d29e2c77a82d18730aad')
         text=source.decode('utf-8')
         result=m.patch_core(text)
         # Production shader remains byte-for-byte unchanged.

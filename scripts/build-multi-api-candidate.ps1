@@ -161,6 +161,9 @@ try {
     & $LoaderTest $LoaderStub $Carrier
     if ($LASTEXITCODE) { throw 'Carrier AddonInit loader contract failed.' }
     $Checks.Add('actual carrier AddonInit: minimal DllMain, failed registration unload/reload, synchronous success and idempotence')
+    & python (Join-Path $PSScriptRoot 'validate-carrier-native-host.py') --source $Stage --toolchain $Toolchain --math $Math --output (Join-Path $TestBuild 'carrier-native-host')
+    if ($LASTEXITCODE) { throw 'Carrier actual detours and concurrent lifecycle failed.' }
+    $Checks.Add('actual generated carrier real DLL/MinHook Create/Evaluate/Release; WARP D3D11; controlled ReShade identities, concurrent release/destroy; no NVIDIA/private-frame/game claim')
     $Manifest = Get-Content -LiteralPath (Join-Path $Stage 'source-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($Entry in $Manifest.files.PSObject.Properties) {
         $Actual = (Get-FileHash -LiteralPath (Join-Path $Stage $Entry.Name) -Algorithm SHA256).Hash

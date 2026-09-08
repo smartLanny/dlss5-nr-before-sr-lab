@@ -189,7 +189,7 @@ public:
                 FeatureRecord *record = nullptr) const noexcept {
         if (!HasSwapchain(device)) return false;
         for (const auto &feature : features_)
-            if (feature.handle == handle && feature.device == device) {
+            if (feature.handle == handle && feature.device == device && feature.flags_known) {
                 if (record != nullptr) *record = feature;
                 return true;
             }

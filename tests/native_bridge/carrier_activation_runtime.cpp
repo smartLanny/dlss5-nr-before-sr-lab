@@ -21,6 +21,8 @@ int main() {
     CHECK(registry.Allows(first, game, &observed) && observed.flags == 37 && observed.flags_known);
     CHECK(!registry.Allows(first, auxiliary));
     CHECK(registry.Created(reused, game, 0, false) != 0);
+    CHECK(!registry.Allows(reused, game));
+    CHECK(registry.Created(reused, game, 0, true) != 0);
     CHECK(registry.Allows(reused, game));
     const auto old = observed;
     CHECK(registry.Created(first, game, 41, true) != old.generation);

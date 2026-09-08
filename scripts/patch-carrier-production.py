@@ -18,6 +18,7 @@ static CRITICAL_SECTION g_carrier_cs;
 static std::atomic<bool> g_carrier_observer_armed{false};
 static std::atomic<bool> g_carrier_bridge_armed{false};
 static std::atomic<LONG> g_carrier_initialized{0};
+static std::atomic<bool> g_carrier_notifications_ready{false};
 static std::uintptr_t g_carrier_bridge_owner;
 static std::uint64_t g_carrier_rejection_epoch;
 static void CarrierRetireLocked(std::uintptr_t device);
@@ -225,7 +226,7 @@ def patch_release_and_admission(text: str) -> str:
                 reinterpret_cast<std::uintptr_t>(*out), carrier_create_device,
                 carrier_create_flags, carrier_create_flags_known);
             LeaveCriticalSection(&g_carrier_cs);
-            if (generation != 0) BridgeNoteCreate(*out, p);
+            if (generation != 0) BridgeNoteCreate(*out, p, carrier_create_flags, carrier_create_flags_known);
             else Log("[native-carrier] successful Create could not be admitted; native path retained. Use F8 BUG feedback.");
         }
     }'''
@@ -393,7 +394,10 @@ def patch_discovery(text: str) -> str:
     text = text[:start] + scan + text[stop:]
     text = once(text, 'static void TryInstallHooks()\n{', '''static void TryInstallHooks()
 {
-    if (!g_carrier_observer_armed.load(std::memory_order_acquire)) return;''')
+    if (!g_carrier_observer_armed.load(std::memory_order_acquire) ||
+        !g_carrier_notifications_ready.load(std::memory_order_acquire)) return;''')
+    text = once(text, '    if (g_layer_count >= kMaxLayers) return;',
+                '    // A full table still needs to promote its existing observer layers.')
     text = once(text, '''    if (!TryEnterCriticalSection(&g_hook_cs)) return;
     const int added = HookNewNgxModules();''', '''    if (!TryEnterCriticalSection(&g_hook_cs)) {
         g_scan_pending.store(true, std::memory_order_release);
@@ -463,7 +467,11 @@ static void StartWatchingForNgx()
         GetProcAddress(nt, "LdrRegisterDllNotification")) : nullptr;
     g_ldr_unregister = nt != nullptr ? reinterpret_cast<PFN_LdrUnregisterDllNotification>(
         GetProcAddress(nt, "LdrUnregisterDllNotification")) : nullptr;
-    if (reg != nullptr) reg(0, &OnDllLoaded, nullptr, &g_ldr_cookie);
+    const bool registered = reg != nullptr &&
+        reg(0, &OnDllLoaded, nullptr, &g_ldr_cookie) >= 0 && g_ldr_cookie != nullptr;
+    g_carrier_notifications_ready.store(registered, std::memory_order_release);
+    if (!registered)
+        Log("[native-carrier] loader generation notifications unavailable; native path retained. Use F8 BUG feedback.");
     g_carrier_modules.BeginFullRescan();
     g_scan_pending.store(true, std::memory_order_release);
 }
@@ -664,3 +672,12 @@ def patch_host(text: str) -> str:
 def apply(stage) -> None:
     path = Path(stage) / 'carrier/src/dlss5-bridge.cpp'
     path.write_text(patch_host(path.read_text(encoding='utf-8')), encoding='utf-8', newline='\n')
+    bridge = Path(stage) / 'carrier/src/bridge.inc'
+    text = once(bridge.read_text(encoding='utf-8'),
+        'static void BridgeNoteCreate(const NVSDK_NGX_Handle *handle, const NVSDK_NGX_Parameter *p)',
+        'static void BridgeNoteCreate(const NVSDK_NGX_Handle *handle, const NVSDK_NGX_Parameter *p,\n'
+        '                             unsigned int native_flags, bool flags_known)')
+    text = once(text, '    unsigned int native_flags = 0;\n'
+        '    const bool flags_known = p != nullptr && p->Get("DLSS.Feature.Create.Flags", &native_flags) == NGX_SUCCESS;\n',
+        '    // Use flags captured before the native Create can mutate its parameter object.\n')
+    bridge.write_text(text, encoding='utf-8', newline='\n')
