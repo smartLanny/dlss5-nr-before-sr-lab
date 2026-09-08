@@ -38,6 +38,7 @@ HARNESS = r'''
 #include <thread>
 #include <utility>
 #include <vector>
+#include "nr_light_style.h"
 
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 CHAIN_CONFIG
@@ -343,7 +344,7 @@ def main() -> None:
         command = [compiler, "-std=c++17", "-O0", "-Wall", "-Wextra", "-Werror"]
         if os.name == "nt":
             command.append("-static")
-        subprocess.run(command + [str(source), "-o", str(executable)], check=True)
+        subprocess.run(command + ["-I", str(ROOT / "src"), str(source), "-o", str(executable)], check=True)
         result = subprocess.run([str(executable)], capture_output=True,
                                 text=True, timeout=20)
         print(result.stdout, end="")

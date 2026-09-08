@@ -40,6 +40,7 @@ harness = r'''
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include "nr_light_style.h"
 enum DXGI_FORMAT { DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_R16G16B16A16_FLOAT,
                    DXGI_FORMAT_R11G11B10_FLOAT };
 struct ID3D12Resource {};
@@ -54,6 +55,8 @@ struct Config {
     float lighting_lock=0;
     int mode=2;
     float transfer_strength=1, color_strength=1;
+    unsigned light_preset=0,light_style_version=1;
+    float light_preset_color=1.f;
 } g_config;
 float ActiveTransferStrength(const Config& c) { return c.transfer_strength; }
 enum class BypassReason { None, Guard };

@@ -1330,7 +1330,6 @@ float ReadConfiguredTransferStrength(int configured_mode) {
 }
 
 void NormalizeConfig(ChainConfig &config) {
-    nr_light_style::Normalize(config);
     config.mode = config.mode == 2 ? 2 : 1;
     config.layer_tone = std::clamp(FiniteOr(config.layer_tone, 1.0f), 0.0f, 2.0f);
     config.layer_structure = std::clamp(FiniteOr(config.layer_structure, 1.0f), 0.0f, 2.0f);
@@ -1350,6 +1349,7 @@ void NormalizeConfig(ChainConfig &config) {
     config.proxy_curve = std::min(config.proxy_curve, 2u);
     if (config.nr_input_filter > 1u) config.nr_input_filter = 0u;
     config.color_strength = std::clamp(FiniteOr(config.color_strength, 0.0f), 0.0f, 2.0f);
+    nr_light_style::Normalize(config);
     config.max_luma_ratio = std::clamp(FiniteOr(config.max_luma_ratio, 4.0f), 1.0f, 16.0f);
     config.proxy_scale = std::clamp(FiniteOr(config.proxy_scale, 1.0f), 0.25f, 2.0f);
     config.warmup_after_create = std::min(config.warmup_after_create, 60u);
@@ -1512,7 +1512,7 @@ void ReloadConfig(bool force = false) {
     next.light_reflection = ReadIniFloat(L"LightReflection", 1.f);
     next.light_structure = ReadIniFloat(L"LightStructure", 1.f);
     next.light_glow = ReadIniFloat(L"LightGlow", 0.f);
-    next.light_style_version = GetPrivateProfileIntW(L"NRBeforeSR", L"LightStyleVersion", 1, g_ini_path);
+    next.light_style_version = GetPrivateProfileIntW(L"NRBeforeSR", L"LightStyleVersion", 0, g_ini_path);
     next.light_preset = GetPrivateProfileIntW(L"NRBeforeSR", L"LightPreset", 0, g_ini_path);
     next.light_preview = g_config.light_preview;
     next.high_strength_protection = GetPrivateProfileIntW(
@@ -1698,14 +1698,20 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniFloat(L"LayerStructure", config.layer_structure));
     record_write(WriteIniFloat(L"LayerBright", config.layer_bright));
     record_write(WriteIniFloat(L"LayerShadow", config.layer_shadow));
-    record_write(WriteIniFloat(L"LightBroad", config.light_broad));
-    record_write(WriteIniFloat(L"LightDark", config.light_dark));
-    record_write(WriteIniFloat(L"LightReflection", config.light_reflection));
-    record_write(WriteIniFloat(L"LightStructure", config.light_structure));
-    record_write(WriteIniFloat(L"LightGlow", config.light_glow));
-    record_write(WriteIniInt(L"LightStyleVersion", static_cast<int>(config.light_style_version)));
-    record_write(WriteIniInt(L"LightPreset", static_cast<int>(config.light_preset)));
-    record_write(WriteIniFloat(L"LightPresetColor", config.light_preset_color));
+    // BEGIN LIGHT STYLE SAVE: publish its version only after the full resolved snapshot.
+    bool light_saved=true;
+    const auto record_light=[&](bool succeeded) { light_saved=succeeded&&light_saved; record_write(succeeded); };
+    record_light(WriteIniInt(L"LightStyleVersion",0));
+    record_light(WriteIniFloat(L"LightBroad", config.light_broad));
+    record_light(WriteIniFloat(L"LightDark", config.light_dark));
+    record_light(WriteIniFloat(L"LightReflection", config.light_reflection));
+    record_light(WriteIniFloat(L"LightStructure", config.light_structure));
+    record_light(WriteIniFloat(L"LightGlow", config.light_glow));
+    record_light(WriteIniInt(L"LightPreset", static_cast<int>(config.light_preset)));
+    record_light(WriteIniFloat(L"LightPresetColor", config.light_preset_color));
+    record_light(WriteIniFloat(L"ColorStrength", config.color_strength));
+    if (light_saved) record_write(WriteIniInt(L"LightStyleVersion",static_cast<int>(config.light_style_version)));
+    // END LIGHT STYLE SAVE
     record_write(WriteIniInt(L"HighStrengthProtection", config.high_strength_protection ? 1 : 0));
     record_write(WriteIniInt(L"ColorProtection", config.color_protection ? 1 : 0));
     record_write(WriteIniInt(L"MotionStability", config.motion_stability ? 1 : 0));
@@ -1714,7 +1720,6 @@ bool SaveConfig(const ChainConfig &config) {
                              config.allow_unverified_hdr_color ? 1 : 0));
     record_write(WriteIniInt(L"SuppressResetFrame",
                              config.suppress_reset_frame ? 1 : 0));
-    record_write(WriteIniFloat(L"ColorStrength", config.color_strength));
     record_write(WriteIniFloat(L"MaxLumaRatio", config.max_luma_ratio));
     record_write(WriteIniInt(L"PreserveLighting", config.preserve_lighting ? 1 : 0));
     record_write(WriteIniFloat(L"ProxyScale", config.proxy_scale));
@@ -1797,6 +1802,9 @@ bool ApplyConfig(ChainConfig next, const char *source,
         LeaveCriticalSection(&g_chain_cs);
         return false;
     }
+    ChainConfig persisted_next=next;
+    persisted_next.light_preview=g_config.light_preview;
+    const bool preview_only=next.light_preview!=g_config.light_preview && SameConfig(persisted_next,g_config);
     const bool history_changed = !SameHistoryConfig(next, g_config);
     next.perf_epoch = g_config.perf_epoch + 1;
     g_config = next;
@@ -1810,7 +1818,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
     SetBypassReason(g_config.enabled
         ? BypassReason::WaitingForFeature1
         : BypassReason::MasterDisabled);
-    const bool persisted = persist_to_ini ? SaveConfig(g_config) : true;
+    const bool persisted = persist_to_ini && !preview_only ? SaveConfig(g_config) : true;
     const ChainConfig applied = g_config;
     LeaveCriticalSection(&g_chain_cs);
     Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
