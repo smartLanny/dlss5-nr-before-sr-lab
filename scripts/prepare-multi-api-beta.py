@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dev7'
-DISPLAY_VERSION = '0.5-dev7'
+VERSION = 'beta0.5-dev8'
+DISPLAY_VERSION = '0.5-dev8'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -26,7 +26,7 @@ STATE_CURRENT = 'f0f13b0a8ac243f01cdf0f93a517440ac65f1394'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd')
 INTEGRATION_CORE_PINS = {
-    'config/nr_before_sr.ini': '21afbc59e858f57b2f987fa57bb728a7f67b55b1',
+    'config/nr_before_sr.ini': '4324bab8be0b48792b1a001077b1517335d1715a',
     'scripts/patch-post-compat.py': 'ed59244e6d8515a8d92a1f125bcc84e70af19e21',
     'src/nr_codec_descriptors.inl': '353c97c74bde56c72cda349fca2e50118000cbcb',
     'src/nr_feedback_core.inl': '2e2b54d62c09befdd3ba76cdc75f087225d38d5d',
@@ -37,14 +37,14 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_capture.inl': '99328d273b964509e344bfdbcd7bbc85f230619b',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
     'src/nr_settings_ui.inl': '84dfe33a21bd0dd88a37fd66084b7bf7d7f4f923',
-    'src/nr_before_sr.cpp': '8cfa13ec90a8b8ea8843efa89aa3ac5017987e4d',
+    'src/nr_before_sr.cpp': 'd4182ee0fb7884256730d8b52408d8c2ac57ae50',
     'src/nr_recommended_picture.inl': '76cb0b36303366350ac2c85e26de850697ae27de',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': 'ae4e463b1489e04382413ce272e61b368eb93e1f',
+    'src/nr_before_sr.rc': 'ea8cb3fada6ffc8813d4d714a2ffc5e1339a2d1a',
     'src/nr_color_policy.inl': '486c656eaf54af6c1d5b93bed3ce0f7bce9e1b60',
     'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': '2fb62b32c3817e91777b6b77f8360a44d069ff27',
+    'scripts/build.ps1': '38c6f0fa625a7f3fde323540be0c6bda51dd027d',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
 }
 BRIDGE_BLOBS = {
@@ -83,7 +83,7 @@ def configure(core: Path):
     fmt = load('format_patch', core / 'scripts/patch-format-access.py')
     post = load('post_patch', core / 'scripts/patch-post-compat.py')
     m.EXPERIMENT = m.legacy.EXPERIMENT = VERSION
-    m.VERSION = 'beta0.5-dev7'
+    m.VERSION = VERSION
     m.legacy.UPSTREAM = UPSTREAM
     m.legacy.UPSTREAM_BLOBS = dict(BRIDGE_BLOBS)
     m.legacy.CORE_BLOBS.update(INTEGRATION_CORE_PINS)
@@ -155,7 +155,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.0 dev7 beta' not in resource_text:
+    if '0.5.0 dev8 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -166,7 +166,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.0.7',
+        'core_pe_version': '0.5.0.8',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),
@@ -191,7 +191,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'rr_linear_depth': 'not converted; native RR output retained with F8 feedback reason',
         'jitter': 'resolved post color zero jitter; native guide phase requires runtime validation',
         'fg_control': 'not implemented', 'getdesc_spoof': 'not implemented',
-        'mfg_scope': 'deferred by owner; not a gate for this compatibility development round',
+        'mfg_scope': 'Manager FG/MFG is independent under plan 0838ffb; this 0.5 candidate adds no FG backend',
         'game_validation': 'owner will test final batch; old BG3 result retained separately',
     }
     manifest['files'] = file_hashes(stage)
