@@ -35,6 +35,9 @@ function historicalPayloadFixture(root) {
   const versionDir = path.join(payload, 'versions', '0.4.5-ota');
   const bundleFile = path.join(payload, 'bundle.json');
   const bundle = JSON.parse(fs.readFileSync(bundleFile, 'utf8'));
+  // This is an isolated historical deployment fixture. Current production
+  // catalog supersession is covered by app-service-routing.test.js.
+  delete bundle.supersededVersions;
   const names = ['nr-before-sr.zh-CN.addon64', 'nr_before_sr.ini', 'nrchain_nvngx.dll',
     'dlss5-native-carrier-045-dx11-compat.addon64'];
   bundle.versions['0.4.5-ota'] = {
@@ -42,6 +45,12 @@ function historicalPayloadFixture(root) {
     notes: 'Test-only historical catalog entry.',
     source: 'isolated test fixture', compatibility: 'dx11', ota: true,
     files: Object.fromEntries(names.map(name => [name, sha256(path.join(versionDir, name))]))
+  };
+  const releaseDir = path.join(payload, 'versions', '0.4.6');
+  bundle.versions['0.4.6'] = {
+    label: '0.4.6 historical release fixture', notes: 'Test-only historical catalog entry.',
+    source: 'isolated test fixture', compatibility: 'dx11', ota: true,
+    files: Object.fromEntries(names.map(name => [name, sha256(path.join(releaseDir, name))]))
   };
   fs.writeFileSync(bundleFile, `${JSON.stringify(bundle, null, 2)}\n`);
   return resources;
@@ -133,11 +142,11 @@ test('real 0.4.6 payload and OTA deploy as an API-routed set and journal rollbac
     await f.service.setGameApi(id, 'dx11');
     await f.service.repair(id, { version: '0.4.6' });
     assert.equal(sha256(files.carrier), HASHES.carrier046);
-    await f.service.setGameCarrier(id, false);
+    await f.service.setGameApi(id, 'dx12');
     assert.equal(fs.existsSync(files.carrier), false);
     assert.equal(sha256(files.core), HASHES.core046);
     assert.equal(sha256(files.bridge), HASHES.bridge);
-    await f.service.setGameCarrier(id, true);
+    await f.service.setGameApi(id, 'dx11');
     assert.equal(sha256(files.carrier), HASHES.carrier046);
 
     await f.service.repair(id, { version: '0.4.5-ota' });

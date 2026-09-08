@@ -384,13 +384,13 @@ test('corrupt original or conflict backups stop uninstall before altering the in
   assert.equal(fs.readFileSync(runtime, 'utf8'), 'payload-runtime');
 });
 
-test('direct repair honors a saved carrier-off choice until explicitly re-enabled', async t => {
+test('direct DX11 repair reinstates the carrier regardless of a historical manual-off flag', async t => {
   const f = fixture(t, 'dx11');
   await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   await f.installer.disableCarrier({ gameDir: f.gameDir, scan: f.scan });
   assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.carrier)), false);
-  await assert.rejects(f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan }), { code: 'ERR_CARRIER_NOT_SELECTED' });
-  f.scan.componentSelection = { dx11Carrier: true };
+  const disabled = await f.installer.diagnose({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(disabled.components.find(row => row.key === 'carrier').detail, '文件缺失');
   await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.carrier)), true);
 });

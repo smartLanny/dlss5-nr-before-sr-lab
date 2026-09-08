@@ -83,7 +83,7 @@ test('saving, previewing and confirming are separate IPC operations; errors rema
   assert.doesNotMatch(host.innerHTML, /请求已保存，下次从管理器启动/);
   await controller.perform('restore', 'sr');
   assert.equal(data.requests.sr, undefined);
-  assert.equal(controller.getState().drafts.sr.quality, 'game');
+  assert.equal(controller.getState().drafts.sr.quality, 'quality');
   assert.match(host.innerHTML, /取消下次启动覆盖/);
 });
 
@@ -101,14 +101,14 @@ test('readback and runtime are distinct and backend text is escaped', () => {
 
 test('legacy SR choices stay visible until this editor takes ownership', () => {
   const data = { requests: {}, applied: {}, legacy: { selection: 'auto', effective: 'm', managed: false, baselineCaptured: true } };
-  assert.equal(ui.initialFields('sr', data).quality, 'preserve');
+  assert.equal(ui.initialFields('sr', data).quality, 'quality');
   assert.equal(ui.initialFields('sr', data).preset, 'M');
   const status = ui.statusMarkup('sr', data, false);
   assert.match(status, /沿用原模型设置：自动 → 模型 M/);
   assert.match(status, /保存本页后接管/);
   assert.doesNotMatch(status, /未设启动覆盖|配置已读回/);
   data.legacy.managed = true;
-  assert.equal(ui.initialFields('sr', data).quality, 'game');
+  assert.equal(ui.initialFields('sr', data).quality, 'quality');
   assert.doesNotMatch(ui.statusMarkup('sr', data, false), /沿用原模型设置/);
   data.legacy.managed = false;
   data.requests.sr = { request: { backend: 'native', quality: 'custom', renderPercent: 75, preset: 'K' } };
@@ -116,7 +116,7 @@ test('legacy SR choices stay visible until this editor takes ownership', () => {
   assert.doesNotMatch(ui.statusMarkup('sr', data, false), /沿用原模型设置/);
   delete data.requests.sr;
   data.legacy.effective = 'default';
-  assert.equal(ui.initialFields('sr', data).quality, 'game');
+  assert.equal(ui.initialFields('sr', data).quality, 'quality');
   data.legacy.error = { message: '读取失败' };
   assert.match(ui.statusMarkup('sr', data, false), /启动覆盖状态未确认/);
 });
@@ -127,8 +127,30 @@ test('the new module replaces the legacy writable SR widget and preserves core c
   assert.match(html, /src="launch-settings-ui.js"/);
   assert.doesNotMatch(html, /src="sr-model-ui.js"/);
   assert.match(renderer, /launchSettingsUi.mount/);
-  assert.match(renderer, /carrier-component-check/);
+  assert.doesNotMatch(renderer, /carrier-component-check/);
   assert.match(renderer, /核心版本/);
+});
+
+test('new SR controls expose presets and ratios without offering a legacy OptiScaler backend', async () => {
+  for (const [quality, percent] of Object.entries({ dlaa: 100, quality: 67, balanced: 59, performance: 50, ultraPerformance: 33 })) {
+    const fields = ui.initialFields('sr', { requests: { sr: { request: { backend: 'native', quality } } } });
+    assert.equal(fields.renderPercent, percent);
+    assert.equal(ui.createRequest('sr', fields).renderPercent, undefined, 'named presets must retain their driver mode rather than override a rounded ratio');
+  }
+  const data = { requests: { sr: { request: { backend: 'optiscaler', quality: 'custom', renderPercent: 75 } } }, applied: {}, hardware: {}, pending: [] };
+  const host = { isConnected: true, innerHTML: '', querySelector: () => null };
+  let writes = 0;
+  const controller = ui.mount(host, 'legacy', { manager: {
+    inspectLaunchSettings: async () => ({ ok: true, value: data }),
+    saveLaunchSettings: async () => { writes++; return { ok: true, value: { saved: true } }; }
+  } });
+  await controller.ready;
+  assert.doesNotMatch(host.innerHTML, /data-ls-field="backend"/);
+  assert.match(host.innerHTML, /旧 OptiScaler 设置/);
+  assert.match(host.innerHTML, /data-ls-action="restore"[^>]*>撤销本页设置/);
+  await controller.perform('save', 'sr');
+  assert.equal(writes, 0);
+  assert.equal(data.requests.sr.request.backend, 'optiscaler', 'legacy receipt is not discarded by rendering or rejected save');
 });
 
 test('RTX40 preparation is an explicit usable action and RTX50 selects the native route', async () => {

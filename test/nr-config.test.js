@@ -8,7 +8,7 @@ const { parseSection, updateSection, writeConfig, readConfig } = require('../src
 
 test('parses and normalizes public NR settings', () => {
   const value = parseSection('[NRBeforeSR]\nEnabled=1\nMode=9\nIntensity=9\nWorkMode=7\nCustomWorkScale=0.1\nStyle=2\nAutoMask=0\nColorStrength=2\nSkinStructureStrength=3\n');
-  assert.deepEqual(value, { Enabled: 1, Mode: 2, Intensity: 8, WorkMode: 5, CustomWorkScale: 0.25, Style: 2, AutoMask: 0, ColorStrength: 1, SkinStructureStrength: 2 });
+  assert.deepEqual(value, { Enabled: 1, Mode: 2, Intensity: 2, WorkMode: 5, CustomWorkScale: 0.25, Style: 2, AutoMask: 0, ColorStrength: 1, SkinStructureStrength: 2 });
 });
 
 test('updates only the target section and preserves comments/other sections', () => {
@@ -21,12 +21,50 @@ test('updates only the target section and preserves comments/other sections', ()
 test('atomically writes and reads a new config', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-ini-'));
   const file = path.join(dir, 'nr_before_sr.ini');
-  await writeConfig(file, { Enabled: 1, Intensity: 1.2, WorkMode: 2, CustomWorkScale: 0.75, Style: 1, AutoMask: 1, ColorStrength: 0.5, SkinStructureStrength: 0.8 });
+  await writeConfig(file, { Enabled: 1, Intensity: 1.2, WorkMode: 2, CustomWorkScale: 0.75, Style: 1, AutoMask: 1, ColorStrength: 0.5, SkinStructureStrength: 0.8, TransferStrength: 2.5, PostTransferStrength: 0.66 });
   assert.deepEqual(readConfig(file), {
     Enabled: 1, Intensity: 1.2, WorkMode: 2, CustomWorkScale: 0.75,
     Style: 1, AutoMask: 1, ColorStrength: 0.5, SkinStructureStrength: 0.8,
-    capabilities: { WorkMode: true, CustomWorkScale: true, ColorStrength: true, SkinStructureStrength: true }
+    TransferStrength: 2.5, PostTransferStrength: 0.66,
+    capabilities: {
+      WorkMode: true, CustomWorkScale: true, ColorStrength: true,
+      SkinStructureStrength: true, TransferStrength: true, PostTransferStrength: true
+    }
   });
+});
+
+test('keeps legacy 0.2 and 0.3 configs readable while clamping old intensity above the current core range', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-legacy-ini-'));
+  const file = path.join(dir, 'nr_before_sr.ini');
+  fs.writeFileSync(file, '[NRBeforeSR]\nMode=2\nIntensity=2.75\nTransferStrength=1\nPostTransferStrength=1\nColorStrength=0\n');
+
+  const value = readConfig(file);
+  assert.equal(value.Intensity, 2);
+  assert.equal(value.TransferStrength, 1);
+  assert.equal(value.PostTransferStrength, 1);
+  assert.deepEqual(value.capabilities, {
+    WorkMode: false,
+    CustomWorkScale: false,
+    ColorStrength: true,
+    SkinStructureStrength: false,
+    TransferStrength: true,
+    PostTransferStrength: true
+  });
+});
+
+test('writing model strength or shared effect strength preserves color strength', () => {
+  const original = '[NRBeforeSR]\nIntensity=1.25\nTransferStrength=3.25\nPostTransferStrength=0.66\nColorStrength=0.2\n';
+  const edited = updateSection(original, {
+    Intensity: 1.75,
+    TransferStrength: 2.5,
+    PostTransferStrength: 2.5
+  });
+  const value = parseSection(edited);
+
+  assert.equal(value.Intensity, 1.75);
+  assert.equal(value.TransferStrength, 2.5);
+  assert.equal(value.PostTransferStrength, 2.5);
+  assert.equal(value.ColorStrength, 0.2);
 });
 
 

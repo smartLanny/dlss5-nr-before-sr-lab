@@ -17,11 +17,12 @@ function installMock() {
     calls: [], plans: {}, failSave: false, failApply: false, blockPreview: false, listener: null
   };
   const game = { id: 'ui-fixture', name: 'SR / FG 界面验证', dir: 'C:\\UI-fixture\\游戏目录', installed: true, supported: true, launcher: '手动添加',
-    chosen: { apiResolution: { api: 'dx11', evidence: [] }, bitness: 64 }, components: { dx11Carrier: true }, addonVersion: '0.4.6-hotfix.1' };
+    chosen: { apiResolution: { api: 'dx11', evidence: [] }, detectedApiResolution: { api: 'dx11', evidence: [] }, bitness: 64 }, components: { dx11Carrier: true }, addonVersion: '0.4.6-hotfix.1' };
   const manager = window.manager = {
     boot: async () => ok({ product: { name: 'DLSS 5 AI 超分管理器', edition: '装机宅版', author: '野生的装机宅', version: 'UI smoke' }, settings: {}, hardware: mock.data.hardware,
       payload: { ready: true, selectedVersion: '0.4.6-hotfix.1', versions: { '0.4.6-hotfix.1': { label: '0.4.6-hotfix.1', variants: { RTX40: { ready: true, files: [] }, RTX50: { ready: true, files: [] } } } } }, games: [game], addons: [] }),
-    readNr: async () => ok({ AutoMask: 1, Style: 0, ColorStrength: 0.75, SkinStructureStrength: 1 }),
+    readNr: async () => ok({ AutoMask: 1, Style: 0, Intensity: 1, TransferStrength: 1, PostTransferStrength: 1, capabilities: { TransferStrength: true, PostTransferStrength: true }, ColorStrength: 0.75, SkinStructureStrength: 1 }),
+    writeNr: async (id, patch) => { mock.calls.push(['write-nr', id, patch]); return ok(patch); },
     diagnose: async () => ok({ components: [{ ok: true, label: '核心组件', detail: '测试桩' }] }),
     readHotkeys: async () => ok({ reshade: { key: 36 } }),
     fetchGameIcon: async () => ok(null), fetchGameArt: async () => ok(null),
@@ -102,15 +103,34 @@ async function smoke() {
   };
 
   assert(document.querySelectorAll('.sr-model-select').length === 0, 'Legacy SR selector is absent');
-  assert(document.querySelectorAll('[aria-label="DLSS SR 模型"]').length === 0, 'Game-control default does not expose a duplicate model override');
+  assert(document.querySelectorAll('[aria-label="DLSS SR 模型"]').length === 1, 'There is exactly one SR model selector');
+  assert(!field('sr', 'backend'), 'SR has no backend selector');
   assert(document.querySelector('.game-version-select').textContent.includes('Beta'), 'Core Beta choice remains visible');
-  assert(document.querySelector('.carrier-component-check').checked, 'DX11 compatibility bridge remains independent and enabled');
+  assert(!document.querySelector('.carrier-component-check'), 'API route owns compatibility bridging without a separate checkbox');
+  assert(field('sr', 'renderPercent').value === '67', 'Input percentage is visible before any interaction');
+  for (const [quality, percent] of Object.entries({ dlaa: 100, quality: 67, balanced: 59, performance: 50, ultraPerformance: 33 })) {
+    set('sr', 'quality', quality);
+    assert(field('sr', 'renderPercent').value === String(percent), quality + ' updates the displayed percentage');
+    await click('sr', 'save');
+    assert(saved('sr').quality === quality && saved('sr').renderPercent === undefined, quality + ' submits its driver preset without a rounded custom override');
+  }
+  const ratioInput = field('sr', 'renderPercent'); ratioInput.focus(); set('sr', 'renderPercent', 75);
+  assert(field('sr', 'quality').value === 'custom' && document.activeElement === ratioInput, 'Editing ratio selects custom without losing focus');
+  await click('sr', 'restore');
+  const modelStrength = document.querySelector('.nr-model-strength');
+  const effectStrength = document.querySelector('.nr-effect-strength');
+  await waitUntil(() => modelStrength.oninput && effectStrength.oninput);
+  modelStrength.value = '1.2'; modelStrength.dispatchEvent(new Event('input', { bubbles: true }));
+  effectStrength.value = '1.4'; effectStrength.dispatchEvent(new Event('input', { bubbles: true }));
+  await waitUntil(() => mock.calls.some(row => row[0] === 'write-nr'));
+  const nrPatch = mock.calls.find(row => row[0] === 'write-nr')[2];
+  assert(nrPatch.Intensity === 1.2 && nrPatch.TransferStrength === 1.4 && nrPatch.PostTransferStrength === 1.4 && !('ColorStrength' in nrPatch), 'Strength controls write the correct paired core values without changing hue follow');
   mock.data.legacy = { selection: 'auto', effective: 'm', managed: false, baselineCaptured: true };
   await controller.refresh(true);
-  assert(field('sr', 'quality').value === 'preserve' && field('sr', 'preset').value === 'M', 'Legacy automatic M populates the single SR editor without changing quality');
+  assert(field('sr', 'quality').value === 'quality' && field('sr', 'preset').value === 'M', 'Legacy M remains visible alongside a proposed quality preset');
   assert(panel('sr').textContent.includes('沿用原模型设置：自动 → 模型 M') && !panel('sr').textContent.includes('未设启动覆盖'), 'Legacy launch behavior stays visible before ownership migration');
   await click('sr', 'restore');
-  assert(field('sr', 'quality').value === 'game' && !panel('sr').textContent.includes('沿用原模型设置'), 'A restored and managed legacy policy cannot silently re-enable M');
+  assert(field('sr', 'quality').value === 'quality' && field('sr', 'preset').value === '' && !panel('sr').textContent.includes('沿用原模型设置'), 'A restored and managed legacy policy cannot silently re-enable M');
   set('sr', 'quality', 'custom'); set('sr', 'renderPercent', 75); set('sr', 'preset', 'M');
   const beforeApply = count('apply');
   await click('sr', 'save');
@@ -128,12 +148,13 @@ async function smoke() {
   await click('sr', 'preview'); set('sr', 'renderPercent', 76);
   assert(!panel('sr').querySelector('[data-ls-action="confirm"]'), 'Editing a number immediately invalidates the preview');
   set('sr', 'renderPercent', 75); await click('sr', 'restore');
-  assert(!saved('sr') && field('sr', 'quality').value === 'game', 'Restore clears the saved request and returns SR to game control');
+  assert(!saved('sr') && field('sr', 'quality').value === 'quality', 'Restore clears the saved request without applying the visible proposed preset');
 
-  set('sr', 'backend', 'optiscaler'); set('sr', 'quality', 'custom'); set('sr', 'renderPercent', 75);
-  await click('sr', 'save');
-  assert(saved('sr').backend === 'optiscaler' && saved('sr').renderPercent === 75 && !('preset' in saved('sr')), 'OptiScaler uses only its owned ratio fields');
+  mock.data.requests.sr = { request: { backend: 'optiscaler', quality: 'custom', renderPercent: 75 } };
+  await controller.refresh(true);
+  assert(!field('sr', 'backend') && panel('sr').querySelector('[data-ls-action="save"]').disabled && saved('sr').backend === 'optiscaler', 'Legacy OptiScaler requests are preserved for restoration without an editable backend');
   await click('sr', 'restore');
+  assert(!saved('sr') && field('sr', 'renderPercent'), 'Restoring legacy OptiScaler unlocks native SR editing');
   mock.data.fgComponents = { route: 'compatibility', ready: false, canPrepare: true, missing: ['兼容插件', '加载器'], blockers: [] };
   await controller.refresh();
   assert(panel('fg').querySelector('[data-ls-action="prepare"]') && !field('fg', 'mode'), 'Missing RTX40 components expose preparation instead of unusable controls');
@@ -154,6 +175,13 @@ async function smoke() {
     assert(series === 'RTX40' ? saved('fg').experimental56 === true : !('experimental56' in saved('fg')), `${series} experimental option follows its backend schema`);
     await click('fg', 'restore');
     assert(!saved('fg') && !mock.data.applied.fg, `${series} restore clears the next launch request`);
+    if (series === 'RTX50') {
+      set('fg', 'mode', 'off'); await click('fg', 'save');
+      assert(saved('fg').mode === 'off' && panel('fg').textContent.includes('游戏菜单中的开关可能不变'), 'Native FG off has a driver-disable request and honest game-state explanation');
+      set('fg', 'mode', 'restore');
+      assert(panel('fg').textContent.includes('这不会关闭帧生成'), 'Restore is explicitly distinguished from FG off');
+      await click('fg', 'restore');
+    }
   }
   await hardware('RTX30');
   assert(panel('fg').querySelector('[data-ls-action="save"]').disabled, 'RTX30 is not inferred as RTX40 from payload family');
@@ -215,7 +243,7 @@ app.whenReady().then(async () => {
         const view=document.querySelector('.view.active');view.scrollTop+=host.getBoundingClientRect().top-view.getBoundingClientRect().top-12;
       })()`);
     }
-    if (process.env.SRFG_UI_STATE === 'bridge') await win.webContents.executeJavaScript("(()=>{const row=document.querySelector('.addon-version-row'),view=row.closest('.view');view.scrollTop+=row.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()");
+    if (process.env.SRFG_UI_STATE === 'bridge') await win.webContents.executeJavaScript("(()=>{const row=document.querySelector('.api-config-block'),view=row.closest('.view');view.scrollTop+=row.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()");
     win.webContents.invalidate();
     await new Promise(resolve => setTimeout(resolve, 150));
     const screenshot = process.argv[2];

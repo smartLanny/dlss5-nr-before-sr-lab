@@ -53,14 +53,11 @@ function normalizeGameOverrides(value) {
     const dir = path.resolve(rawDir).toLowerCase();
     const name = typeof row.name === 'string' ? row.name.trim().slice(0, 160) : '';
     const icon = typeof row.icon === 'string' && row.icon.length <= 1024 * 1024 ? row.icon : null;
-    const api = ['dx11', 'dx12'].includes(row.api) ? row.api : 'auto';
+    const api = ['dx9', 'dx10', 'dx11', 'dx12', 'vulkan', 'opengl'].includes(row.api) ? row.api : 'auto';
     const apiExecutable = typeof row.apiExecutable === 'string' && path.isAbsolute(row.apiExecutable)
       ? path.resolve(row.apiExecutable) : null;
-    const carrierExecutable = typeof row.carrierExecutable === 'string' && path.isAbsolute(row.carrierExecutable)
-      ? path.resolve(row.carrierExecutable) : null;
-    const carrierEnabled = typeof row.carrierEnabled === 'boolean' && carrierExecutable ? row.carrierEnabled : null;
-    if (!name && !icon && (api === 'auto' || !apiExecutable) && carrierEnabled === null) continue;
-    out[dir] = { name, icon, api, apiExecutable, carrierEnabled, carrierExecutable };
+    if (!name && !icon && (api === 'auto' || !apiExecutable)) continue;
+    out[dir] = { name, icon, api, apiExecutable };
   }
   return out;
 }

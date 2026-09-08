@@ -72,23 +72,43 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     return DX11_COMPAT_VERSION;
   }
 
-  function selectedVersionForGame(game, requestedVersion = null) {
-    // API chooses the deployment route; it does not override an explicit core
-    // selection. The compatibility bundle is only a default recommendation.
-    return resolveVersion({
+  function versionChoice(game, requestedVersion = null) {
+    const selected = resolveVersion({
       game,
       requestedVersion,
       globalVersion: selectedVersion(),
       dx11Version: recommendedCompatVersion(),
       dx11Only: Boolean(game && game.scan && isDx11Only(game.scan.chosen))
     });
+    if (!selected || /^imported-/i.test(selected)) return { version: selected, replacement: null };
+    const bundle = readBundle(payloadDir), map = bundle.supersededVersions;
+    if (map === undefined) return { version: selected, replacement: null };
+    if (!map || typeof map !== 'object' || Array.isArray(map) || Object.keys(map).length > 64 ||
+        Object.entries(map).some(([from, to]) => !from || typeof to !== 'string' || !to || !bundle.versions?.[to])) throw appError('ERR_PAYLOAD_HASH', { file: 'bundle.json' });
+    let current = selected; const seen = new Set();
+    while (Object.hasOwn(map, current)) {
+      if (seen.has(current) || seen.size >= 16) throw appError('ERR_PAYLOAD_HASH', { file: 'bundle.json' });
+      seen.add(current); current = map[current];
+    }
+    if (current === selected) return { version: selected, replacement: null };
+    const replacement = { from: selected, to: current, reason: 'superseded' };
+    if (requestedVersion) throw appError('ERR_ADDON_NOT_FOUND', { reason: 'superseded', requestedVersion: selected, replacementVersion: current });
+    return { version: current, replacement };
+  }
+
+  function selectedVersionForGame(game, requestedVersion = null) {
+    // API chooses the deployment route; it does not override an explicit core
+    // selection. Superseded implicit selections move to the reviewed replacement;
+    // an explicit request is rejected above instead of silently changing versions.
+    return versionChoice(game, requestedVersion).version;
   }
 
   function selectedPayload(game, requestedVersion = null) {
-    const version = selectedVersionForGame(game, requestedVersion);
+    const choice = versionChoice(game, requestedVersion), version = choice.version;
     if (/^imported-/i.test(version || '')) throw appError('ERR_ADDON_NOT_FOUND', { reason: 'Install a bundled base before applying an imported update.' });
     const result = requirePayload(payloadDir, (hardware = detectGpu()).family, version);
     if (requestedVersion && result.version !== requestedVersion) throw appError('ERR_ADDON_NOT_FOUND');
+    result.replacement = choice.replacement;
     return result;
   }
 
@@ -165,7 +185,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
 
   function inspectGamePayload(game, requestedVersion = null) {
     const family = hardware.family;
-    const version = selectedVersionForGame(game, requestedVersion);
+    const choice = versionChoice(game, requestedVersion), version = choice.version;
     const imported = importedAddon(version);
     if (/^imported-/i.test(version || '') && !imported) throw appError('ERR_ADDON_NOT_FOUND');
     if (!imported) {
@@ -177,6 +197,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       return {
         payload,
         payloadVersion: payload.selectedVersion,
+        payloadVersionReplacement: choice.replacement,
         payloadVersionLabel: payload.versions && payload.selectedVersion
           ? payload.versions[payload.selectedVersion] && payload.versions[payload.selectedVersion].label
           : null
@@ -222,7 +243,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       }
       const payload = selectedPayload(game, requestedVersion);
       const result = await installer.repair({ gameDir: game.dir, payload, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
-      return result;
+      return payload.replacement ? { ...result, payloadReplacement: payload.replacement } : result;
   }
 
   function publicGame(game) {
@@ -424,7 +445,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       return store.write(patch);
     },
     setGameApi: async (id, api, options = {}) => {
-      if (!['auto', 'dx11', 'dx12'].includes(api)) throw appError('ERR_BAD_REQUEST');
+      if (!['auto', 'dx9', 'dx10', 'dx11', 'dx12', 'vulkan', 'opengl'].includes(api)) throw appError('ERR_BAD_REQUEST');
       const game = findGame(id);
       if (!game.scan || !game.scan.chosen) throw appError('ERR_NO_GAME_EXE');
       const state = store.read();
@@ -432,14 +453,19 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       await store.write({ gameOverrides: { ...state.gameOverrides,
         [key]: { ...state.gameOverrides[key], api, apiExecutable: game.scan.chosen.path } } });
       try {
-        // DX12 never needs the DX11 carrier. Retire it using the same journal
-        // operation as manual-off; this does not alter game launch arguments.
-        if (api === 'dx12' && readManifest(game.dir)) {
-          const scan = { ...game.scan, chosen: { ...game.scan.chosen,
-            apiResolution: { api: 'dx12', source: 'override', evidence: [] } },
-            componentSelection: { dx11Carrier: false } };
-          await installer.disableCarrier({ gameDir: game.dir, scan, manual: false,
-            allowAntiCheat: options && options.allowAntiCheat === true });
+        if (readManifest(game.dir)) {
+          const effectiveApi = api === 'auto' ? game.scan.chosen.detectedApi || 'unknown' : api;
+          const routedScan = { ...game.scan, chosen: { ...game.scan.chosen,
+            apiResolution: { api: effectiveApi, source: api === 'auto' ? 'detected' : 'override', evidence: [] } },
+            componentSelection: { dx11Carrier: effectiveApi === 'dx11' } };
+          if (effectiveApi === 'dx11') {
+            await repairGame({ ...game, scan: routedScan }, options);
+          } else {
+            // Every non-DX11 route retires only the managed carrier through the
+            // existing journal. Core, nrchain and their backups remain intact.
+            await installer.disableCarrier({ gameDir: game.dir, scan: routedScan, manual: false,
+              allowAntiCheat: options && options.allowAntiCheat === true });
+          }
         }
       } catch (error) {
         const current = store.read(), previous = state.gameOverrides[key] || {};
@@ -451,36 +477,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       }
       return refreshCollection(games);
     },
-    setGameCarrier: async (id, enabled, options = {}) => {
-      if (typeof enabled !== 'boolean') throw appError('ERR_BAD_REQUEST');
-      const game = findGame(id);
-      if (!game.scan || !game.scan.chosen) throw appError('ERR_NO_GAME_EXE');
-      if (enabled && !isDx11Only(game.scan.chosen)) throw appError('ERR_UNSUPPORTED_API', { reason: 'carrier-only-for-dx11' });
-      const installed = readManifest(game.dir);
-      const state = store.read();
-      const key = pathKey(game.dir);
-      const previous = state.gameOverrides[key] || {};
-      await store.write({ gameOverrides: { ...state.gameOverrides,
-        [key]: { ...previous, carrierEnabled: enabled, carrierExecutable: game.scan.chosen.path } } });
-      try {
-        if (installed) {
-          if (!enabled) await installer.disableCarrier({ gameDir: game.dir, scan: game.scan,
-            allowAntiCheat: options && options.allowAntiCheat === true });
-          else await repairGame({ ...game, scan: { ...game.scan,
-            componentSelection: { dx11Carrier: true } } }, options);
-        }
-      } catch (error) {
-        // A refused file operation must not leave the UI claiming the active
-        // carrier was disabled. Restore just this preference, preserving peers.
-        const current = store.read();
-        try { await store.write({ gameOverrides: { ...current.gameOverrides,
-          [key]: { ...current.gameOverrides[key], carrierEnabled: previous.carrierEnabled ?? null,
-            carrierExecutable: previous.carrierExecutable ?? null } } }); }
-        catch { error.details = { ...error.details, preferenceRollbackFailed: true }; }
-        throw error;
-      }
-      return refreshCollection(games);
-    },
+    setGameCarrier: async () => { throw appError('ERR_BAD_REQUEST', { reason: 'carrier-follows-api' }); },
     listAddonVersions,
     importAddonFile: async file => {
       if (typeof file !== 'string' || !path.isAbsolute(file) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
@@ -558,7 +555,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       const game = findGame(id);
       const payload = selectedPayload(game, options && typeof options.version === 'string' ? options.version : null);
       const result = await installer.install({ gameDir: game.dir, payload, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
-      return refreshAfterMutation(result);
+      return refreshAfterMutation(payload.replacement ? { ...result, payloadReplacement: payload.replacement } : result);
     },
     repair: async (id, options = {}) => refreshAfterMutation(await repairGame(findGame(id), options)),
     upgradeAddon: async (id, version, options = {}) => {
@@ -594,13 +591,14 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       const payload = inspected.payload;
       const mapped = Object.fromEntries(payload.files.map(row => [row.kind, row]));
       mapped.versionInfo = payload.versionInfo || (payload.versions && payload.versions[payload.selectedVersion]);
-      return installer.diagnose({
+      const result = await installer.diagnose({
         gameDir: game.dir,
         payload: mapped,
         payloadVersion: inspected.payloadVersion,
         payloadVersionLabel: inspected.payloadVersionLabel,
         scan: game.scan
       });
+      return inspected.payloadVersionReplacement ? { ...result, payloadReplacement: inspected.payloadVersionReplacement } : result;
     },
     collectFeedback: async (id, options = {}) => {
       const game = findGame(id);

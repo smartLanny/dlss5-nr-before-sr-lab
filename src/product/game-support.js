@@ -1,15 +1,25 @@
 'use strict';
 
+const ROUTES = new Set(['dx9', 'dx10', 'dx11', 'dx12', 'vulkan', 'opengl', 'mixed', 'unknown', 'unsupported']);
+function normalizeApi(value) {
+  const compact = String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return ({ d3d9: 'dx9', directx9: 'dx9', dx9: 'dx9', d3d10: 'dx10', directx10: 'dx10', dx10: 'dx10',
+    d3d11: 'dx11', directx11: 'dx11', dx11: 'dx11', d3d12: 'dx12', directx12: 'dx12', dx12: 'dx12',
+    vulkan: 'vulkan', opengl: 'opengl', ogl: 'opengl' })[compact] || null;
+}
+
 function classifyApi(chosen) {
   if (!chosen) return 'unknown';
   const resolved = chosen.apiResolution && chosen.apiResolution.api;
-  if (['dx11', 'dx12', 'mixed', 'unknown', 'unsupported'].includes(resolved)) return resolved;
+  if (ROUTES.has(resolved)) return resolved;
   const label = String(chosen.apiLabel || '');
+  const direct = normalizeApi(chosen.api);
   const compactMixed = /(?:DirectX|D3D|DX)\s*11\s*[/&,或-]\s*(?:(?:DirectX|D3D|DX)\s*)?12\b/i.test(label);
-  const dx11 = chosen.dx11 === true || /(?:DirectX|D3D|DX)\s*11\b/i.test(label);
-  const dx12 = chosen.dx12 === true || /(?:DirectX|D3D|DX)\s*12\b/i.test(label) || compactMixed;
+  const dx11 = direct === 'dx11' || chosen.dx11 === true || /(?:DirectX|D3D|DX)\s*11\b/i.test(label);
+  const dx12 = direct === 'dx12' || chosen.dx12 === true || /(?:DirectX|D3D|DX)\s*12\b/i.test(label) || compactMixed;
   if (dx11 && dx12) return 'mixed';
-  if (chosen.api && !['dxgi', 'unknown'].includes(String(chosen.api).toLowerCase())) return 'unsupported';
+  if (direct && !['dx11', 'dx12'].includes(direct)) return direct;
+  if (chosen.api && !direct && !['dxgi', 'unknown'].includes(String(chosen.api).toLowerCase())) return 'unsupported';
   if (dx12) return 'dx12';
   // A scanner's import/string result is a capability hint, not a runtime
   // choice. In particular, a D3D11 bootstrapper may load a D3D12 engine.
@@ -38,9 +48,6 @@ function assess(scan, options = {}) {
   if (!apiSupported(scan.chosen, options)) return { supported: false, code: 'ERR_UNSUPPORTED_API' };
   if (!scan.primaryDlss || !/^nvngx_dlss\.dll$/i.test(scan.primaryDlss.name || '')) {
     return { supported: false, code: 'ERR_NO_DLSS' };
-  }
-  if (isDx11Only(scan.chosen) && scan.componentSelection && scan.componentSelection.dx11Carrier === false) {
-    return { supported: false, code: 'ERR_CARRIER_NOT_SELECTED' };
   }
   return { supported: true, code: null };
 }

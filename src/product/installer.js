@@ -6,7 +6,13 @@ const { INSTALLED_NAMES, DX11_COMPAT_VERSION } = require('./constants');
 const { appError } = require('./errors');
 const { assess, classifyApi, isDx11Only } = require('./game-support');
 const { sha256 } = require('./payload');
-const coreVersionText = value => { const raw=String(value || '');const version=raw.match(/^(0\.\d+\.\d+(?:\.\d+)?(?:-(?:hotfix|beta)\.\d+)?)/);return version ? version[1]+' · '+(version[1].startsWith('0.3.')?'稳定基线':'Beta') : raw; };
+const coreVersionText = value => {
+  const raw = String(value || ''), version = raw.match(/^(0\.\d+\.\d+(?:\.\d+)?(?:-(?:hotfix|beta)\.\d+)?)/)?.[1];
+  if (!version) return raw;
+  if (version.startsWith('0.2.')) return version.replace(/-beta\.\d+$/i, '');
+  if (version.startsWith('0.3.')) return `${version} · 稳定基线`;
+  return version.startsWith('0.4.') ? `${version} · Beta` : version;
+};
 const { scanConflicts, moveConflicts, restoreConflicts } = require('./conflicts');
 const {
   manifestPath, backupPath, readManifest, newManifest, findEntry, validateEntry
@@ -244,16 +250,8 @@ function createInstaller(overrides = {}) {
     await fs.promises.writeFile(file, edited.text, 'utf8');
   }
 
-  function applySavedComponentChoice(gameDir, scan) {
-    if (!scan || scan.componentSelection) return scan;
-    const manifest = readManifest(gameDir);
-    if (!manifest || manifest.carrierDisabledByUser !== true || !scan.chosen ||
-        path.resolve(gameDir, manifest.game.exe).toLowerCase() !== path.resolve(scan.chosen.path).toLowerCase()) return scan;
-    return { ...scan, componentSelection: { dx11Carrier: false } };
-  }
-
   async function install({ gameDir, payload, scan: suppliedScan, allowAntiCheat = false }) {
-    const scan = applySavedComponentChoice(gameDir, suppliedScan || await scanModule.scanGame(gameDir));
+    const scan = suppliedScan || await scanModule.scanGame(gameDir);
     verifyTarget(scan, payload);
     const exePath = scan.chosen.path;
     const exeDir = path.dirname(exePath);
@@ -385,7 +383,6 @@ function createInstaller(overrides = {}) {
     });
     const exeDir = scan && scan.chosen ? path.dirname(scan.chosen.path) : gameDir;
     const carrierRequired = isDx11Only(scan && scan.chosen);
-    const carrierOffByChoice = carrierRequired && manifest && manifest.carrierDisabledByUser === true;
     const selectedApi = classifyApi(scan && scan.chosen);
     const deploymentApi = manifest && (manifest.deploymentApi ||
       (manifest.files.some(row => row.kind === 'carrier') ? 'dx11' : 'dx12'));
@@ -441,8 +438,6 @@ function createInstaller(overrides = {}) {
         ok: routeOk && (kind === 'config' || !expectedHash || actual === expectedHash),
         detail: kind === 'carrier' && !carrierRequired && !exists
           ? (selectedApi === 'dx12' ? '无需启用（DirectX 12）' : '未部署，需先确认 API 与配套组件')
-          : kind === 'carrier' && carrierOffByChoice && !exists
-          ? '桥接已关闭，该 NR 路线不可用；核心与 nrchain 保留，请在游戏/启动器中自行切换 API'
           : kind === 'carrier' && !carrierRequired && exists
           ? 'DX12 路线不应部署 DX11 Carrier，点击修复移出并备份'
           : (kind === 'carrier' && carrierDisabled
@@ -517,7 +512,7 @@ function createInstaller(overrides = {}) {
   async function upgradeAddon({ gameDir, addon, version, scan: suppliedScan, allowAntiCheat = false }) {
     const manifest = readManifest(gameDir);
     if (!manifest) throw appError('ERR_NOT_INSTALLED');
-    const scan = applySavedComponentChoice(gameDir, suppliedScan || await scanModule.scanGame(gameDir));
+    const scan = suppliedScan || await scanModule.scanGame(gameDir);
     const allowDx11 = addon.compatibility === 'dx11' ||
       (!addon.compatibility && manifest.payloadVersion === DX11_COMPAT_VERSION);
     const support = assess(scan, { allowDx11 });

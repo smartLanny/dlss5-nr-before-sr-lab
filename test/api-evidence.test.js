@@ -72,9 +72,26 @@ test('only rigorously bound runtime log can resolve DX12', () => {
   assert.equal(out.chosen.apiResolution.source, 'runtime-log');
 });
 
-test('unsupported existing API remains unsupported', () => {
+test('known incompatible API remains explicit and separate from install support', () => {
   const out = annotateApi(scan('vulkan'), 'C:/games/demo', { pe: fakePe({}) });
-  assert.equal(out.chosen.apiResolution.api, 'unsupported');
+  assert.equal(out.chosen.apiResolution.api, 'vulkan');
+  assert.equal(out.chosen.detectedApi, 'vulkan');
+});
+
+test('raw API names and flags cannot hide mixed evidence or prove a DX11 import route', () => {
+  for (const fields of [{ api: 'dx11', dx12: true }, { api: 'dx12', dx11: true }, { apiLabel: 'DX11 / DX12' }]) {
+    const input = scan(); Object.assign(input.chosen, fields);
+    const out = annotateApi(input, 'C:/games/demo', { pe: fakePe({}) });
+    assert.equal(out.chosen.apiResolution.api, 'mixed');
+  }
+  const out = annotateApi(scan('dx11'), 'C:/games/demo', { pe: fakePe({}) });
+  assert.equal(out.chosen.apiResolution.api, 'unknown');
+});
+
+test('manual route keeps the independently detected API evidence', () => {
+  const out = annotateApi(scan(), 'C:/games/demo', { apiOverride: 'opengl', pe: fakePe({ 'C:/games/demo/game.exe': { imports: ['d3d12.dll'] } }) });
+  assert.equal(out.chosen.apiResolution.api, 'opengl'); assert.equal(out.chosen.detectedApiResolution.api, 'dx12');
+  assert.equal(out.chosen.detectedApi, 'dx12'); assert.equal(out.chosen.apiResolution.source, 'override');
 });
 
 test('default PE reader handles a real bounded temporary fixture', () => {

@@ -442,12 +442,7 @@ function createLibraryService(overrides = {}) {
       scan = annotateApi(scan, game.dir, { ...launchContext(game), apiOverride });
       let manifest = null;
       try { manifest = readManifest(game.dir); } catch {}
-      const carrierOverride = override && override.carrierExecutable && scan.chosen &&
-        samePath(override.carrierExecutable, scan.chosen.path) && typeof override.carrierEnabled === 'boolean'
-        ? override.carrierEnabled : null;
-      const sameInstalledExe = manifest && scan.chosen && samePath(path.resolve(game.dir, manifest.game.exe), scan.chosen.path);
-      const carrierEnabled = isDx11Only(scan.chosen) && (carrierOverride !== null
-        ? carrierOverride : !(sameInstalledExe && manifest.carrierDisabledByUser === true));
+      const carrierEnabled = isDx11Only(scan.chosen);
       scan.componentSelection = { dx11Carrier: carrierEnabled };
       // Pure DX11 uses the unified 0.4.5 compatibility payload. A remembered
       // historical selection must not hide an otherwise eligible DX11 game;
@@ -469,6 +464,8 @@ function createLibraryService(overrides = {}) {
           api: scan.chosen.api,
           apiLabel: scan.chosen.apiLabel,
           apiResolution: scan.chosen.apiResolution,
+          detectedApi: scan.chosen.detectedApi,
+          detectedApiResolution: scan.chosen.detectedApiResolution,
           via: scan.chosen.via || null,
           bitness: scan.chosen.bitness
         } : null,
@@ -476,7 +473,7 @@ function createLibraryService(overrides = {}) {
         supportCode: support.code,
         supportText: support.code ? MESSAGES[support.code] : '支持安装',
         installed: Boolean(manifest),
-        apiOverride: ['dx11', 'dx12'].includes(apiOverride) ? apiOverride : 'auto',
+        apiOverride: ['dx9', 'dx10', 'dx11', 'dx12', 'vulkan', 'opengl'].includes(apiOverride) ? apiOverride : 'auto',
         components: { dx11Carrier: carrierEnabled },
         addonVersion: manifest && manifest.payloadVersion ? manifest.payloadVersion : null,
         recommendedAddonVersion: !manifest && !state.addonVersion && isDx11Only(scan.chosen) ? DX11_COMPAT_VERSION : null,

@@ -123,11 +123,11 @@ test('real hotfix.1 payload and OTA preserve explicit INI values across API rout
     await f.service.setGameApi(id, 'dx11');
     await f.service.repair(id);
     assert.equal(sha256(files.carrier), HASHES.carrierHotfix);
-    await f.service.setGameCarrier(id, false);
+    await f.service.setGameApi(id, 'dx12');
     assert.equal(fs.existsSync(files.carrier), false);
     assert.equal(sha256(files.core), HASHES.coreHotfix);
     assert.equal(sha256(files.bridge), HASHES.bridge);
-    await f.service.setGameCarrier(id, true);
+    await f.service.setGameApi(id, 'dx11');
     assert.equal(sha256(files.carrier), HASHES.carrierHotfix);
 
     const versions = await f.service.importAddonFile(REAL_HOTFIX_OTA);
@@ -140,10 +140,11 @@ test('real hotfix.1 payload and OTA preserve explicit INI values across API rout
     assert.equal(iniValue(files.config, 'TransferStrength'), 3.25);
     assert.equal(iniValue(files.config, 'PostTransferStrength'), 0.66);
 
-    await f.service.repair(id, { version: '0.4.6' });
-    assert.equal(sha256(files.core), HASHES.core046);
+    await assert.rejects(f.service.repair(id, { version: '0.4.6' }), error =>
+      error.code === 'ERR_ADDON_NOT_FOUND' && error.details?.replacementVersion === '0.4.6-hotfix.1');
+    assert.equal(sha256(files.core), HASHES.coreHotfix);
     assert.equal(sha256(files.bridge), HASHES.bridge);
-    assert.equal(sha256(files.carrier), HASHES.carrier046);
+    assert.equal(sha256(files.carrier), HASHES.carrierHotfix);
     assert.equal(iniValue(files.config, 'TransferStrength'), 3.25);
     assert.equal(iniValue(files.config, 'PostTransferStrength'), 0.66);
 

@@ -121,7 +121,7 @@ function refreshSelectedPayload(version) {
   const versions = state.payload.versions;
   // Saved selections can outlive a bundled version after an upgrade. Keep the
   // backend's verified fallback instead of treating an absent key as bad files.
-  const selectedVersion = [version, state.payload.selectedVersion, ...Object.keys(versions)]
+  const selectedVersion = [catalogReplacement(version), version, state.payload.selectedVersion, ...Object.keys(versions)]
     .find(id => Object.prototype.hasOwnProperty.call(versions, id));
   const item = versions[selectedVersion];
   const family = state.hardware && state.hardware.family;
@@ -146,7 +146,7 @@ function renderPayloadNotice(removedSelection = false) {
     message = `安装组件缺失或校验未通过${problems.length ? `：${problems.join('、')}` : ''}。请重新下载完整的一键安装包；若仍有问题，请在“修复”页保存反馈日志。`;
   } else if (removedSelection) {
     const item = payload.versions[payload.selectedVersion];
-    message = `上次选择的版本已不在此安装包中，当前使用 ${coreVersionLabel(payload.selectedVersion, item)}。可在“插件版本”中重新选择。`;
+    message = `上次选择的版本已退出常规分发，本安装包提供 ${coreVersionLabel(payload.selectedVersion, item)}。已安装核心不会因此自动更换；可在游戏设置中选择并应用新版本。`;
   }
   notice.textContent = message;
   notice.classList.toggle('hidden', !message);
@@ -179,8 +179,32 @@ function renderVersionSelector() {
 function coreVersionLabel(id, item) {
   const raw = String(item && item.label || id);
   const version = raw.match(/^(0\.\d+\.\d+(?:\.\d+)?(?:-(?:hotfix|beta)\.\d+)?)/);
-  if (version) return `${version[1]} · ${version[1].startsWith('0.3.') ? '稳定基线' : 'Beta'}`;
+  if (version) {
+    const value = version[1];
+    if (value.startsWith('0.2.')) return value.replace(/-beta\.\d+$/i, '');
+    if (value.startsWith('0.3.')) return `${value} · 稳定基线`;
+    if (value.startsWith('0.4.')) return `${value} · Beta`;
+    return value;
+  }
   return raw.replace(/(?:\s*[-–—]\s*|\s*[（(])(?:DXGI|DX11|DX12|DirectX\s*11|DirectX\s*12)\b.*$/i, '').trim() || String(id);
+}
+
+function catalogReplacement(id) {
+  const map = state.payload?.bundle?.supersededVersions || state.payload?.supersededVersions;
+  if (!id || !map || typeof map !== 'object') return null;
+  const seen = new Set(); let current = id;
+  while (Object.prototype.hasOwnProperty.call(map, current)) {
+    if (seen.has(current) || seen.size >= 16 || typeof map[current] !== 'string') return null;
+    seen.add(current); current = map[current];
+  }
+  return current !== id && Object.prototype.hasOwnProperty.call(state.payload?.versions || {}, current) ? current : null;
+}
+
+function actionSuccessMessage(success, value) {
+  const replacement = value?.payloadReplacement;
+  return replacement?.from && replacement?.to && replacement.from !== replacement.to
+    ? `${success}；已应用替代核心 ${coreVersionLabel(replacement.to)}（原选择 ${coreVersionLabel(replacement.from)} 已退出常规分发）`
+    : success;
 }
 
 function versionOptionsMarkup(selected = state.payload && state.payload.selectedVersion, includeImported = true) {
@@ -188,7 +212,7 @@ function versionOptionsMarkup(selected = state.payload && state.payload.selected
   const imported = includeImported ? (state.addons || []).filter(item => item.addonOnly).map(item => [item.id, item]) : [];
   const all = [...versions, ...imported];
   if (!all.length) return '<option value="">当前组件</option>';
-  if (!all.some(([id]) => id === selected)) selected = state.payload && state.payload.selectedVersion;
+  if (!all.some(([id]) => id === selected)) selected = catalogReplacement(selected) || (state.payload && state.payload.selectedVersion);
   return all.map(([id, item]) => `<option value="${escapeHtml(id)}"${id === selected ? ' selected' : ''}>${escapeHtml(coreVersionLabel(id, item))}${item.addonOnly ? '（导入）' : ''}</option>`).join('');
 }
 
@@ -232,31 +256,31 @@ function cardAction(game) {
   return `<button class="button" disabled>无法安装</button>${dismiss}`;
 }
 
-const CARRIER_TOOLTIP = '兼容桥接目前只用于 DirectX 11，并且需要当前核心、nrchain 和配套桥接文件完整匹配。关闭后这条 NR 路线不可用。这里不会替你切换游戏的启动 API；DirectX 12、API 待确认和 Vulkan 都不会启用 DX11 桥接。';
+const API_LABELS = { dx9: 'DirectX 9', dx10: 'DirectX 10', dx11: 'DirectX 11', dx12: 'DirectX 12',
+  vulkan: 'Vulkan', opengl: 'OpenGL', mixed: '多条 API 线索，待确认', unknown: 'API 待确认', unsupported: '不支持的 API' };
 
-function carrierControl(game) {
-  if (!game.chosen) return '';
-  const resolution = game.chosen.apiResolution || {};
-  const selectable = resolution.api === 'dx11';
-  const enabled = selectable && (game.components ? game.components.dx11Carrier === true : true);
-  const title = escapeHtml(CARRIER_TOOLTIP);
-  const status = selectable ? (enabled ? '已开启' : '已关闭')
-    : resolution.api === 'dx12' ? 'DX12 无需开启'
-      : resolution.api === 'unsupported' ? '当前 API 没有配套桥接' : '确认 API 后可用';
-  return `<div class="control-row carrier-control-row" title="${title}"><label title="${title}">兼容桥接 <span class="help-dot" aria-hidden="true">?</span></label><label class="carrier-option"><input class="carrier-component-check" type="checkbox" aria-label="启用兼容桥接"${enabled ? ' checked' : ''}${selectable ? '' : ' disabled'}><span>${escapeHtml(status)}</span></label><button class="button subtle carrier-save-btn" type="button" title="${escapeHtml(selectable ? '保存兼容桥接选择' : status)}"${selectable ? '' : ' disabled'}>保存</button></div>`;
+function detectedApiResolution(chosen) {
+  if (chosen?.detectedApiResolution) return chosen.detectedApiResolution;
+  if (chosen?.detectedApi) return { api: chosen.detectedApi };
+  // A manual override is not an automatic detection result.
+  return chosen?.apiResolution?.source !== 'override' ? chosen?.apiResolution || { api: 'unknown' } : { api: 'unknown' };
 }
 
 function apiControls(game) {
   if (!game.chosen) return '';
   const resolution = game.chosen.apiResolution || {};
-  const labels = { dx11: 'DirectX 11', dx12: 'DirectX 12', mixed: '多条 API 线索，待选择', unknown: 'API 未确认', unsupported: '当前路线不支持' };
+  const detected = detectedApiResolution(game.chosen);
   const selected = game.apiOverride || 'auto';
-  const options = [['auto', '自动（综合证据）'], ['dx11', 'DirectX 11'], ['dx12', 'DirectX 12']]
-    .map(([id, label]) => `<option value="${id}"${id === selected ? ' selected' : ''}>${label}</option>`).join('');
-  const deployment = resolution.api === 'dx11' ? 'DX11 可使用下方兼容桥接。'
-    : resolution.api === 'dx12' ? 'DX12 不启用兼容桥接。' : '确认 API 后再选择配套组件。';
-  const evidence = (resolution.evidence || []).join('；');
-  return `<div class="config-block api-config-block"><h4>游戏图形 API</h4><div class="control-row"><label>启动 API</label><select class="game-api-select">${options}</select><button class="button subtle api-save-btn">保存</button></div><p class="api-route-status">${escapeHtml(labels[resolution.api] || 'API 未确认')} · ${escapeHtml(deployment)}</p><details class="api-help"><summary>API 与桥接说明</summary><p>这里记录管理器应采用的安装路线，不会修改游戏或启动器里的 API。DX11 只有在核心、nrchain 和配套桥接完整匹配时可用；DX12 保留核心与 nrchain，不部署 DX11 桥接；API 待确认或 Vulkan 时不会猜装。</p>${evidence ? `<p>${escapeHtml(evidence)}</p>` : ''}</details></div>`;
+  const options = [['auto', `${API_LABELS[detected.api] || 'API 待确认'}（自动）`],
+    ['dx9', 'DirectX 9（暂不支持 NR）'], ['dx10', 'DirectX 10（暂不支持 NR）'],
+    ['dx11', 'DirectX 11（自动兼容桥接）'], ['dx12', 'DirectX 12（无需兼容桥接）'],
+    ['vulkan', 'Vulkan（暂不支持 NR）'], ['opengl', 'OpenGL（暂不支持 NR）']]
+    .map(([id, label]) => `<option value="${id}"${id === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
+  const deployment = resolution.api === 'dx11' ? '兼容桥接随 DirectX 11 自动部署。'
+    : resolution.api === 'dx12' ? 'DirectX 12 无需兼容桥接。'
+      : ['dx9', 'dx10', 'vulkan', 'opengl', 'unsupported'].includes(resolution.api) ? '当前 API 暂不支持 NR，不部署兼容桥接。' : 'API 待确认，暂不部署兼容桥接。';
+  const evidence = (detected.evidence || []).join('；');
+  return `<div class="config-block api-config-block"><h4>游戏图形 API</h4><div class="control-row"><label>API 选择</label><select class="game-api-select" aria-label="游戏图形 API">${options}</select><button class="button subtle api-save-btn">保存</button></div><p class="api-route-status">${escapeHtml(API_LABELS[resolution.api] || 'API 待确认')} · ${escapeHtml(deployment)}</p><details class="api-help"><summary>API 与桥接说明</summary><p>自动项展示检测结果；手动选择只记录当前 EXE 的安装路线，不会更换游戏程序或修改启动器参数。只有 DX11 自动配置完整兼容桥接；其他 API 不部署该桥接。已有安装会在保存 API 时同步，未安装游戏在安装时应用。</p>${evidence ? `<p>检测线索：${escapeHtml(evidence)}</p>` : ''}</details></div>`;
 }
 
 function addonVersionRow(game, applyVersion = false) {
@@ -264,14 +288,16 @@ function addonVersionRow(game, applyVersion = false) {
     : (game.recommendedAddonVersion || (state.payload && state.payload.selectedVersion));
   const options = versionOptionsMarkup(selected, Boolean(game.installed));
   const apply = applyVersion ? '<button class="button subtle version-apply-btn">应用版本</button>' : '';
-  return `<div class="control-row addon-version-row"><label>核心版本</label><select class="game-version-select">${options}</select>${apply || '<span></span>'}</div>${carrierControl(game)}`;
+  const installed = game.installed && game.addonVersion;
+  const replacement = installed ? catalogReplacement(installed) : null;
+  const installedNote = installed ? `<p class="config-note installed-version-note">已安装：${escapeHtml(coreVersionLabel(installed))}${replacement ? `；可更新为 ${escapeHtml(coreVersionLabel(replacement))}。点击“应用版本”或“修复”后才会更换核心。` : '。下拉框用于选择要应用的版本。'}</p>` : '';
+  return `<div class="control-row addon-version-row"><label>${installed ? '应用核心版本' : '核心版本'}</label><select class="game-version-select">${options}</select>${apply || '<span></span>'}</div>${installedNote}`;
 }
 
 function gameApiLabel(chosen) {
   const resolution = chosen && chosen.apiResolution;
   if (!resolution) return chosen && chosen.apiLabel || 'API 未确认';
-  const labels = { dx11: 'DirectX 11', dx12: 'DirectX 12', mixed: 'API 混合线索', unknown: 'API 待确认', unsupported: '不支持的 API' };
-  return `${labels[resolution.api] || 'API 待确认'}${resolution.source === 'override' ? '（已指定）' : ''}`;
+  return `${API_LABELS[resolution.api] || 'API 待确认'}${resolution.source === 'override' ? '（已指定）' : ''}`;
 }
 
 function gameDetail(game) {
@@ -292,9 +318,10 @@ function gameDetail(game) {
         ${addonVersionRow(game, true)}
         <div class="control-row"><label>风格</label><div class="segmented style-segment"><button data-value="0">默认</button><button data-value="1">自然</button><button data-value="2">电影</button></div><span></span></div>
         <div class="control-row"><label title="模型内部的皮肤结构控制，不是最终合成的人脸遮罩，也不能单独调整脸部效果倍率。">皮肤结构保护</label><span></span><input class="switch nr-mask" type="checkbox"></div>
-        <div class="control-row"><label title="控制模型色相与饱和度修改的跟随程度，不是整体 NR 效果倍率。">NR 色调跟随</label><div class="range-wrap"><input class="nr-color-strength" type="range" min="0" max="1" step="0.01"><span class="value-pill nr-color-value">0.75</span></div><span></span></div>
+        <div class="control-row"><label title="模型内部强度，默认 1.00，范围 0–2。">模型强度</label><div class="range-wrap"><input class="nr-model-strength" aria-label="NR 模型强度" type="range" min="0" max="2" step="0.01"><span class="value-pill nr-model-value">1.00</span></div><span></span></div>
+        <div class="control-row"><label title="核心面板中的 NR 效果倍率，控制最终效果混合，默认 1.00，范围 0–4。">额外强度</label><div class="range-wrap"><input class="nr-effect-strength" aria-label="NR 额外强度" type="range" min="0" max="4" step="0.01"><span class="value-pill nr-effect-value">1.00</span></div><span></span></div>
         <div class="control-row skin-strength-row"><label>皮肤结构强度</label><div class="range-wrap"><input class="nr-skin-strength" type="range" min="-1" max="2" step="0.01"><span class="value-pill nr-skin-value">关闭</span></div><span></span></div>
-        <p class="config-note">皮肤结构保护属于模型内部控制，不是最终人脸遮罩。整体 NR 效果倍率和工作分辨率在游戏内面板调整；这里的色调跟随只控制色相与饱和度修改。</p>
+        <p class="config-note">模型强度影响模型内部处理；额外强度对应核心面板的 NR 效果倍率，默认均为 1.00。NR 工作分辨率和色调跟随可在游戏内面板调整。</p>
         <div class="shortcut-block"><div class="shortcut-head"><h4>快捷键</h4><span>按游戏单独保存</span></div><div class="shortcut-row"><label>NR 效果切换</label><button class="button subtle nr-hotkey-btn" disabled>F6 开关</button></div><div class="shortcut-row"><label>ReShade 菜单</label><button class="button subtle reshade-hotkey-btn">Home</button></div><p class="config-note">NR 效果切换使用 F6 开关；ReShade 菜单键可以在这里改，下一次启动游戏时生效。</p></div>
         <div class="config-actions"><button class="button default-btn">恢复默认</button><button class="button open-folder-btn">打开目录</button></div>
       </div>
@@ -381,20 +408,8 @@ function bindGameCards() {
     if (saveApi) saveApi.onclick = event => {
       event.stopPropagation();
       const api = card.querySelector('.game-api-select').value;
-      const success = api === 'dx12'
-        ? 'API 路线已保存；DX12 已移出桥接，其他组件请通过安装或修复应用'
-        : 'API 路线已保存；其他组件请通过安装或修复应用';
+      const success = 'API 选择已保存；兼容桥接已按当前路线处理';
       runConfirmedAction(allowAntiCheat => window.manager.setGameApi(id, api, { allowAntiCheat }), success, true, id);
-    };
-    const saveCarrier = card.querySelector('.carrier-save-btn');
-    if (saveCarrier) saveCarrier.onclick = event => {
-      event.stopPropagation();
-      const enabled = card.querySelector('.carrier-component-check').checked;
-      const installed = state.games.some(game => game.id === id && game.installed);
-      runConfirmedAction(allowAntiCheat => window.manager.setGameCarrier(id, enabled, { allowAntiCheat }),
-        enabled
-          ? (installed ? '兼容桥接选择已应用；请查看安装状态确认组件是否可用' : '兼容桥接已设为自动；安装时应用完整配套')
-          : '兼容桥接已关闭；核心与 nrchain 保留，NR 路线不可用', true, id);
     };
     const launch = card.querySelector('.launch-btn');
     if (launch) launch.onclick = event => { event.stopPropagation(); runAction(() => window.manager.launch(id), '游戏已启动', false); };
@@ -422,7 +437,7 @@ function bindGameCards() {
       runConfirmedAction(async allowAntiCheat => {
         if (imported) return window.manager.upgradeAddon(id, version, { allowAntiCheat });
         return window.manager.repair(id, { allowAntiCheat, version });
-      }, `已切换到 ${version}`, true, id);
+      }, `已应用核心 ${coreVersionLabel(version, imported)}`, true, id);
     };
   });
 }
@@ -447,10 +462,20 @@ async function loadExpanded(id) {
     }
     root.querySelector('.nr-mask').checked = Boolean(settings.AutoMask);
     root.querySelectorAll('.style-segment button').forEach(b => b.classList.toggle('active', Number(b.dataset.value) === Number(settings.Style)));
-    const color = root.querySelector('.nr-color-strength');
-    const colorValue = root.querySelector('.nr-color-value');
-    if (color) color.value = String(settings.ColorStrength ?? 0.75);
-    if (colorValue) colorValue.textContent = Number(settings.ColorStrength ?? 0.75).toFixed(2);
+    const intensity = Number(settings.Intensity ?? 1);
+    const model = root.querySelector('.nr-model-strength');
+    const modelValue = root.querySelector('.nr-model-value');
+    if (model) model.value = String(intensity);
+    if (modelValue) modelValue.textContent = intensity.toFixed(2);
+    const effect = root.querySelector('.nr-effect-strength');
+    const effectValue = root.querySelector('.nr-effect-value');
+    const effectSupported = settings.capabilities?.TransferStrength === true && settings.capabilities?.PostTransferStrength === true;
+    if (effect) {
+      effect.value = String(settings.TransferStrength ?? 1);
+      effect.disabled = !effectSupported;
+      effect.title = effectSupported ? 'NR 效果倍率；调整时同步最终混合强度。' : '当前核心配置未提供额外强度参数。';
+    }
+    if (effectValue) effectValue.textContent = effectSupported ? Number(settings.TransferStrength ?? 1).toFixed(2) : '未提供';
     const skin = root.querySelector('.nr-skin-strength');
     const skinValue = root.querySelector('.nr-skin-value');
     if (skin) skin.value = String(settings.SkinStructureStrength ?? -1);
@@ -488,11 +513,19 @@ function bindNrControls(root, id) {
     root.querySelectorAll('.style-segment button').forEach(b => b.classList.toggle('active', b === button));
     queueSetting(id, { Style: Number(button.dataset.value) }, root);
   });
-  const color = root.querySelector('.nr-color-strength');
-  const colorValue = root.querySelector('.nr-color-value');
-  if (color) color.oninput = () => {
-    if (colorValue) colorValue.textContent = Number(color.value).toFixed(2);
-    queueSetting(id, { ColorStrength: Number(color.value) }, root);
+  const model = root.querySelector('.nr-model-strength');
+  const modelValue = root.querySelector('.nr-model-value');
+  if (model) model.oninput = () => {
+    if (modelValue) modelValue.textContent = Number(model.value).toFixed(2);
+    queueSetting(id, { Intensity: Number(model.value) }, root);
+  };
+  const effect = root.querySelector('.nr-effect-strength');
+  const effectValue = root.querySelector('.nr-effect-value');
+  if (effect) effect.oninput = () => {
+    if (effect.disabled) return;
+    const value = Number(effect.value);
+    if (effectValue) effectValue.textContent = value.toFixed(2);
+    queueSetting(id, { TransferStrength: value, PostTransferStrength: value }, root);
   };
   const skin = root.querySelector('.nr-skin-strength');
   const skinValue = root.querySelector('.nr-skin-value');
@@ -521,7 +554,7 @@ async function runAction(work, success, refresh = true, gameId = null) {
       refresh ? refreshGames : null
     );
     if (!outcome.completed) throw outcome.error;
-    toast(success);
+    toast(actionSuccessMessage(success, outcome.value));
     if (outcome.refreshError) queueRefreshRetry();
   } catch (error) {
     if (!error.silent) {

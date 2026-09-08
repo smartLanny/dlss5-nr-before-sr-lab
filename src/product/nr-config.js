@@ -17,7 +17,7 @@ function normalizeValue(key, value) {
   if (key === 'WorkMode') return Math.round(clamp(Number(value) || 0, 0, 5));
   if (key === 'CustomWorkScale') return Number(clamp(Number(value) || 0, 0.25, 1).toFixed(2));
   if (key === 'Style') return Math.round(clamp(Number(value) || 0, 0, 2));
-  if (key === 'Intensity') return Number(clamp(Number(value) || 0, 0, 8).toFixed(2));
+  if (key === 'Intensity') return Number(clamp(Number(value) || 0, 0, 2).toFixed(2));
   if (key === 'SkinStructureStrength') return Number(clamp(Number(value), -1, 2).toFixed(2));
   if (key === 'LocalToneStrength' || key === 'LocalStructureStrength') {
     return Number(clamp(Number(value) || 0, 0, 2).toFixed(2));
@@ -65,11 +65,15 @@ function readConfig(file) {
     AutoMask: full.AutoMask,
     ColorStrength: full.ColorStrength,
     SkinStructureStrength: full.SkinStructureStrength,
+    TransferStrength: full.TransferStrength,
+    PostTransferStrength: full.PostTransferStrength,
     capabilities: {
       WorkMode: Object.prototype.hasOwnProperty.call(parsed, 'WorkMode'),
       CustomWorkScale: Object.prototype.hasOwnProperty.call(parsed, 'CustomWorkScale'),
       ColorStrength: Object.prototype.hasOwnProperty.call(parsed, 'ColorStrength'),
-      SkinStructureStrength: Object.prototype.hasOwnProperty.call(parsed, 'SkinStructureStrength')
+      SkinStructureStrength: Object.prototype.hasOwnProperty.call(parsed, 'SkinStructureStrength'),
+      TransferStrength: Object.prototype.hasOwnProperty.call(parsed, 'TransferStrength'),
+      PostTransferStrength: Object.prototype.hasOwnProperty.call(parsed, 'PostTransferStrength')
     }
   };
 }

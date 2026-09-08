@@ -13,8 +13,12 @@ function text(value) { return String(value == null ? '' : value); }
 
 function normalizeApi(value) {
   const v = text(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (v === 'dx9' || v === 'directx9' || v === 'd3d9') return 'dx9';
+  if (v === 'dx10' || v === 'directx10' || v === 'd3d10' || v === 'd3d101') return 'dx10';
   if (v === 'dx11' || v === 'directx11' || v === 'd3d11') return 'dx11';
   if (v === 'dx12' || v === 'directx12' || v === 'd3d12') return 'dx12';
+  if (v === 'vulkan' || v === 'vulkan1') return 'vulkan';
+  if (v === 'opengl' || v === 'ogl' || v === 'opengl32') return 'opengl';
   return null;
 }
 
@@ -34,28 +38,37 @@ function inspectFile(file, pe, source, signals, options = {}) {
   let imports = [];
   try { imports = typeof pe.getImports === 'function' ? pe.getImports(file) : []; } catch {}
   const names = new Set((Array.isArray(imports) ? imports : []).map(value => path.basename(text(value)).toLowerCase()));
+  if (names.has('d3d9.dll')) addSignal(signals, 'dx9', source, `${path.basename(file)} imports d3d9.dll`);
+  if (names.has('d3d10.dll') || names.has('d3d10_1.dll')) addSignal(signals, 'dx10', source, `${path.basename(file)} imports DirectX 10`);
   if (names.has('d3d12.dll')) addSignal(signals, 'dx12', source, `${path.basename(file)} imports d3d12.dll`);
   if (names.has('d3d11.dll')) addSignal(signals, 'dx11', source, `${path.basename(file)} imports d3d11.dll`);
+  if (names.has('vulkan-1.dll')) addSignal(signals, 'vulkan', source, `${path.basename(file)} imports vulkan-1.dll`);
+  if (names.has('opengl32.dll')) addSignal(signals, 'opengl', source, `${path.basename(file)} imports opengl32.dll`);
   let markers = new Set();
   if (!options.skipMarkers && (!stat || stat.size <= MAX_MARKER_BYTES)) try {
     const found = typeof pe.findMarkers === 'function'
-      ? pe.findMarkers(file, ['D3D12CreateDevice', 'D3D11CreateDevice', 'CreateDXGIFactory']) : [];
+      ? pe.findMarkers(file, ['D3D12CreateDevice', 'D3D11CreateDevice', 'Direct3DCreate9', 'vkCreateInstance', 'wglCreateContext', 'CreateDXGIFactory']) : [];
     markers = found instanceof Set ? found : new Set(found || []);
   } catch {}
   if (markers.has('D3D12CreateDevice')) addSignal(signals, 'dx12', `${source}-markers`, `${path.basename(file)} contains D3D12CreateDevice`);
   if (markers.has('D3D11CreateDevice')) addSignal(signals, 'dx11', `${source}-markers`, `${path.basename(file)} contains D3D11CreateDevice (route unproven)`);
+  if (markers.has('Direct3DCreate9')) addSignal(signals, 'dx9', `${source}-markers`, `${path.basename(file)} contains Direct3DCreate9`);
+  if (markers.has('vkCreateInstance')) addSignal(signals, 'vulkan', `${source}-markers`, `${path.basename(file)} contains vkCreateInstance`);
+  if (markers.has('wglCreateContext')) addSignal(signals, 'opengl', `${source}-markers`, `${path.basename(file)} contains wglCreateContext`);
   if (markers.has('CreateDXGIFactory') && !markers.has('D3D12CreateDevice') && !markers.has('D3D11CreateDevice'))
     signals.push({ api: null, source: `${source}-markers`, evidence: `${path.basename(file)} contains CreateDXGIFactory` });
 }
 
 function classify(signals, chosen) {
   const apis = new Set(signals.map(row => row.api).filter(Boolean));
-  const chosenApi = text(chosen && chosen.api).toLowerCase();
-  if (chosenApi && !['dxgi', 'dx11', 'dx12', 'unknown'].includes(chosenApi)) return 'unsupported';
-  if (apis.has('dx11') && apis.has('dx12')) return 'mixed';
-  if (apis.has('dx12')) return 'dx12';
+  const chosenRaw = text(chosen && chosen.api).toLowerCase(), chosenApi = normalizeApi(chosenRaw);
+  if (apis.size > 1) return 'mixed';
+  if (apis.size === 1 && !apis.has('dx11')) return [...apis][0];
   // A lone DX11 binary is deliberately unresolved: carrier presence and
   // D3D11 markers do not prove that the supported bridge route is active.
+  if (apis.has('dx11') || chosenApi === 'dx11') return 'unknown';
+  if (chosenApi) return chosenApi;
+  if (chosenRaw && !['dxgi', 'unknown'].includes(chosenRaw)) return 'unsupported';
   return 'unknown';
 }
 
@@ -64,21 +77,22 @@ function annotateApi(scan, root, context = {}) {
   const chosen = scan.chosen;
   const signals = [];
   const override = normalizeApi(context.apiOverride);
-  if (override) {
-    return { ...scan, chosen: { ...chosen, apiResolution: {
-      api: override, source: 'override', evidence: [`用户显式选择 ${override === 'dx11' ? 'DirectX 11' : 'DirectX 12'}`]
-    } } };
-  }
 
   const pe = context.pe || require('../core/pe');
   const exe = text(chosen.path);
   inspectFile(exe, pe, 'exe-imports', signals, { maxBytes: MAX_EXE_BYTES });
   const chosenLabel = text(chosen.apiLabel);
   if (chosen.dx12 === true || /(?:DirectX|DX|D3D)\s*12\b|(?:DirectX|DX|D3D)\s*11\s*\/\s*12\b/i.test(chosenLabel)) addSignal(signals, 'dx12', 'chosen-static', '扫描结果含 DirectX 12 静态线索');
-  if (/DirectX\s*11/i.test(chosenLabel)) addSignal(signals, 'dx11', 'chosen-static', '扫描结果已标记 DirectX 11（实际桥接仍未证明）');
+  if (chosen.dx11 === true || /(?:DirectX|DX|D3D)\s*11\b/i.test(chosenLabel)) addSignal(signals, 'dx11', 'chosen-static', '扫描结果已标记 DirectX 11（实际桥接仍未证明）');
   if (chosenLabel && /DirectX\s*11.*DirectX\s*12|DirectX\s*12.*DirectX\s*11/i.test(chosenLabel)) {
     addSignal(signals, 'dx11', 'chosen-static', '扫描结果标记 DirectX 11/12');
   }
+  const chosenApi = normalizeApi(chosen.api);
+  if (chosenApi) addSignal(signals, chosenApi, 'chosen-static', `扫描结果标记 ${chosenLabel || chosenApi}`);
+  if (/(?:DirectX|DX|D3D)\s*9\b/i.test(chosenLabel)) addSignal(signals, 'dx9', 'chosen-static', '扫描结果标记 DirectX 9');
+  if (/(?:DirectX|DX|D3D)\s*10\b/i.test(chosenLabel)) addSignal(signals, 'dx10', 'chosen-static', '扫描结果标记 DirectX 10');
+  if (/Vulkan/i.test(chosenLabel)) addSignal(signals, 'vulkan', 'chosen-static', '扫描结果标记 Vulkan');
+  if (/OpenGL/i.test(chosenLabel)) addSignal(signals, 'opengl', 'chosen-static', '扫描结果标记 OpenGL');
 
   // The PE reader's import pass is cheap enough to permit large executables;
   // marker scans are deliberately skipped above 32 MiB. Large files retain
@@ -118,7 +132,12 @@ function annotateApi(scan, root, context = {}) {
   const decisive = signals.filter(row => row.api === api);
   const evidence = [...new Set(signals.map(row => row.evidence))].slice(-8);
   const source = decisive.length ? decisive[0].source : (signals[0] ? signals[0].source : 'none');
-  return { ...scan, chosen: { ...chosen, apiResolution: { api, source, evidence } } };
+  const detectedApiResolution = { api, source, evidence };
+  const labels = { dx9: 'DirectX 9', dx10: 'DirectX 10', dx11: 'DirectX 11', dx12: 'DirectX 12', vulkan: 'Vulkan', opengl: 'OpenGL' };
+  const apiResolution = override
+    ? { api: override, source: 'override', evidence: [`用户显式选择 ${labels[override]}`] }
+    : detectedApiResolution;
+  return { ...scan, chosen: { ...chosen, detectedApi: api, detectedApiResolution, apiResolution } };
 }
 
 function discoverEngineModules(exe, root, pe) {
@@ -176,4 +195,4 @@ function samePath(left, right, root) {
   return a === b;
 }
 
-module.exports = { annotateApi };
+module.exports = { annotateApi, normalizeApi };
