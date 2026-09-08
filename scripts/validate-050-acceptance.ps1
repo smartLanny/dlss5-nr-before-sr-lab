@@ -33,6 +33,8 @@ $Failure = $null
 $OldToolchain = $env:DLSS5_LLVM_MINGW_ROOT
 $OldCxx = $env:CXX
 $OldPostSource = $env:POST_COMPAT_CORE_SOURCE
+$OldReShadeRoot = $env:NR_RESHADE_ROOT
+$OldLlvmBin = $env:NR_LLVM_BIN
 New-Item -ItemType Directory -Path $Output | Out-Null
 Start-Transcript -LiteralPath (Join-Path $Output 'validation.log') | Out-Null
 Push-Location $Root
@@ -40,6 +42,8 @@ try {
     $env:DLSS5_LLVM_MINGW_ROOT = $Toolchain
     $env:CXX = $Compiler
     $env:POST_COMPAT_CORE_SOURCE = Join-Path $Root 'src/nr_before_sr.cpp'
+    $env:NR_RESHADE_ROOT = $ReShade
+    $env:NR_LLVM_BIN = Join-Path $Toolchain 'bin'
     & python (Join-Path $PSScriptRoot 'prepare-multi-api-beta.py') --core $Root --upstream $UpstreamRoot --output $Stage
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
@@ -51,7 +55,7 @@ try {
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
         $Checks.Add($Test)
     }
-    foreach ($Test in @('tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py')) {
+    foreach ($Test in @('tests/test_ui_refresh.py', 'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py', 'tests/multi_api/test_rr_post_diagnostics.py')) {
         & python (Join-Path $Root $Test)
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
         $Checks.Add($Test)
@@ -84,6 +88,9 @@ try {
         if ($LASTEXITCODE) { throw "EditField host gate failed: $Test" }
         $Checks.Add($Test)
     }
+    & python (Join-Path $PSScriptRoot 'validate-four-region.py') --compiler $Compiler --negative-control
+    if ($LASTEXITCODE) { throw 'Four-region production scalar contract failed.' }
+    $Checks.Add('four-region production scalar and three negative controls')
     & (Join-Path $PSScriptRoot 'validate-codec-shader.ps1') -Source (Join-Path $Stage 'core/src/nr_before_sr.cpp')
     $Checks.Add('all staged production SM5 entries compiled')
     & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade
@@ -93,6 +100,8 @@ try {
         # frozen reference source, never a synthetic replacement of the model.
         & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -CombinedLowGrid
         $Checks.Add('combined low-grid WARP fixture; constructed neural planes, no NVIDIA NR')
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -LightStyle
+        $Checks.Add('four-region light controls production WARP; synthetic Neural only')
     }
     foreach ($Entry in $Manifest.files.PSObject.Properties) {
         $Hash = (Get-FileHash -LiteralPath (Join-Path $Stage $Entry.Name) -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -117,6 +126,8 @@ try {
     $env:DLSS5_LLVM_MINGW_ROOT = $OldToolchain
     $env:CXX = $OldCxx
     $env:POST_COMPAT_CORE_SOURCE = $OldPostSource
+    $env:NR_RESHADE_ROOT = $OldReShadeRoot
+    $env:NR_LLVM_BIN = $OldLlvmBin
     Stop-Transcript | Out-Null
     $Result = [ordered]@{
         schema='nr050-focused-acceptance-v1'; source_commit=$Commit;

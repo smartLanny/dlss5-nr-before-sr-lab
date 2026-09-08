@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include "nr_f8_budget.h"
+#include "nr_light_style.h"
 #include "nr_diagnostic_bundle.inl"
 namespace reshade { namespace api {
 struct effect_runtime { unsigned shots=0; std::string tag; bool save_screenshot(const char *p){++shots;tag=p;return true;} };

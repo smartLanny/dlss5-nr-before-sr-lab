@@ -7,8 +7,15 @@ bool LightEqual(const RunResult &a,const RunResult &b) {
 }
 RunResult LightRun(Gpu &gpu, int variant, LightCase controls={}, UINT extra=0,
         UINT nw=0, UINT nh=0,float strength=1.f,float color=0.f,bool active=true,bool before=true) {
-    return Run(gpu,25,23,1,1,1u|extra|(active?kLightFlag:0u),variant,before,nw,nh,
-        {},0.f,{},strength,{1.f,1.f,1.f,1.f},false,color,controls);
+    try {
+        // The old capture oracle cannot compare reconstructed NaN payloads;
+        // invalid-input cases still validate output, alpha and subrect guards.
+        return Run(gpu,25,23,variant==3?0u:1u,1,1u|extra|(active?kLightFlag:0u),variant,before,nw,nh,
+            {},0.f,{},strength,{1.f,1.f,1.f,1.f},false,color,controls);
+    } catch (...) {
+        std::fprintf(stderr,"Light case variant=%d flags=%u N=%ux%u strength=%g color=%g active=%d before=%d preview=%u\n",variant,extra,nw,nh,strength,color,active,before,controls.preview);
+        throw;
+    }
 }
 Float4 LightCenter(const RunResult &r) { return r.output[(23/2+1)*(25+4)+(25/2+2)]; }
 void ValidateLightStyle(Gpu &gpu) {
@@ -43,6 +50,18 @@ void ValidateLightStyle(Gpu &gpu) {
     Require(std::memcmp(&wrong,&fs,sizeof(f))!=0,"LIGHT_GLOBAL_DIM_NEGATIVE_ORACLE");
     Require(LightLuma(fs)>LightLuma(f)*.8f,"LIGHT_ALL_POSITIVE_NEGATIVE_ORACLE");
     groups+=6;
+    for(UINT storage : {0u,16u,32u,64u,128u,192u})
+        for(float strength : {0.f,1.f,4.f}) for(int variant : {0,18}) {
+            auto invoke=[&](Gpu &target, bool active) {
+                return Run(target,25,23,0,1,storage|(active?kLightFlag:0u),variant,true,
+                    13,12,{},0.f,{},strength,{1.f,1.f,1.f,1.f},false,.8f,
+                    active?LightCase{1.f,.85f,1.10f,1.05f,.30f,0u,.2f}:LightCase{});
+            };
+            Require(LightEqual(invoke(baseline,false),invoke(gpu,false)),"LIGHT_HDR_NEUTRAL_BYTES");
+            auto r=invoke(gpu,true);
+            for(const auto &p:r.output) Require(std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z)&&std::isfinite(p.w),"LIGHT_HDR_FINITE");
+            Require(LightCenter(r).w==.625f,"LIGHT_HDR_ALPHA");++groups;
+        }
     for(UINT field : {0u,8192u,8192u|16384u,8192u|32768u})
         for(float lighting : {0.f,.2f,1.f}) for(int variant : {0,3,30,31,34,35}) {
             LightCase natural{1.f,.85f,1.10f,1.05f,.30f,0u,lighting};

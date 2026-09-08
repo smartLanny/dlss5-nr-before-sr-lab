@@ -29,6 +29,7 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.allow_unverified_hdr_color = false;
     next.suppress_reset_frame = true;
     next.color_strength = 1.0f;
+    nr_light_style::Reset(next);
     next.max_luma_ratio = 4.0f;
     next.preserve_lighting = false;
     next.proxy_scale = 1.0f;

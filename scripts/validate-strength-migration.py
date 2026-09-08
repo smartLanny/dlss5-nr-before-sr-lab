@@ -38,6 +38,9 @@ harness = r'''
 #include "nr_work_config.h"
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 CONFIG
+// ReloadConfig retains the current process's transient diagnostic preview.
+// Use the actual config type; a disk key must never activate this state.
+ChainConfig g_config;
 const nr_work_config::Request work_request{};
 bool new_work_file=false, g_work_config_loaded=false;
 void PersistWorkControl(nr_work_config::Work, bool) {}
@@ -81,6 +84,10 @@ int main() {
     check(Load().mode==2 && Load().enabled,"missing configuration defaults enabled NR before SR");
     put(L"Enabled",L"0"); check(!Load().enabled && !Load().enabled,"saved disabled choice survives reload");
     put(L"Mode",L"0"); check(Load().mode==2,"invalid processing mode defaults before SR");
+    g_config.light_preview=2;
+    check(Load().light_preview==2,"INI reload preserves current process preview");
+    put(L"LightPreview",L"2"); g_config={};
+    check(Load().light_preview==0,"INI key cannot activate preview in a new process");
     DeleteFileW(g_ini_path);
     std::printf("actual Win32 INI strength migration: %d checks / %d failures\n",checks,failures);
     return failures?1:0;
