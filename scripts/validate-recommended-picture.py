@@ -32,7 +32,12 @@ FIELDS = {
  'intensity':'Intensity', 'local_tone':'LocalToneStrength',
  'local_structure':'LocalStructureStrength', 'skin_structure':'SkinStructureStrength',
  'auto_mask':'AutoMask', 'style':'Style', 'ui_correction':'UICorrection',
+ 'light_broad':'LightBroad', 'light_dark':'LightDark',
+ 'light_reflection':'LightReflection', 'light_structure':'LightStructure', 'light_glow':'LightGlow',
+ 'light_style_version':'LightStyleVersion','light_preset':'LightPreset','light_preset_color':'LightPresetColor',
+ 'light_preview':None,
 }
+LIGHT_FIELDS={k for k in FIELDS if k.startswith('light_')}
 PRESERVED={'enabled','depth_mode','r8_output_encoding','jitter_mode','perf_epoch'}
 # These are deliberate recommendation contracts, independent of an accidentally
 # stale shipped INI.  The reset is the exact N=R/default work path, with the
@@ -56,7 +61,7 @@ def check_wiring(cpp,ui,helper):
  assert picture < draw.index('if (collecting) ImGui::BeginDisabled();',picture) < call
  assert call < draw.index('if (collecting) ImGui::EndDisabled();',picture)
  assert 'changed = true;' in draw[call:call+100]
- assert 'ApplyOverlayConfig(pending, pending_generation)' in draw
+ assert 'ApplyLightStyleOverlay(pending,pending_generation,' in draw
  apply=definition(cpp,'bool ApplyConfig(')
  assert apply.index('NormalizeConfig(next);') < apply.index('g_config = next;') < apply.index('SaveConfig(g_config)')
  assert 'SameHistoryConfig(next, g_config)' in apply
@@ -64,7 +69,8 @@ def check_wiring(cpp,ui,helper):
  assert 'expected_generation' in overlay and 'nr_f8::g_config_hold' in overlay
  assert 'ApplyConfig(next, "ReShade simplified settings")' in overlay
  reset=definition(helper,'void RestoreRecommendedPictureSettings(')
- assert set(re.findall(r'next\.('+IDENTIFIER+r')\s*=',reset))==set(FIELDS)
+ assert 'nr_light_style::Reset(next);' in reset
+ assert set(re.findall(r'next\.('+IDENTIFIER+r')\s*=',reset))==set(FIELDS)-LIGHT_FIELDS
  for forbidden in ['g_config','SaveConfig(','ApplyConfig(','Release','.store(','CreateFeature']:
   assert forbidden not in reset,forbidden
 
@@ -81,7 +87,9 @@ def main():
  check_wiring(cpp,ui,helper)
  config=configparser.ConfigParser();config.read(root/'config/nr_before_sr.ini',encoding='utf-8-sig')
  values=config['NRBeforeSR'];struct=definition(cpp,'struct ChainConfig {')+';'
- declared=set(re.findall(r'^\s*(?:bool|int|float|unsigned int|NrJitterMode)\s+('+IDENTIFIER+r')\s*=',struct,re.M))
+ declared=set()
+ for declaration in re.findall(r'^\s*(?:bool|int|float|unsigned(?: int)?|NrJitterMode)\s+([^;]+);',struct,re.M):
+  declared.update(re.findall(r'\b('+IDENTIFIER+r')\s*=',declaration))
  expected_fields=set(FIELDS)|PRESERVED
  assert declared==expected_fields,f'Unclassified fields: {declared^expected_fields}'
  if a.negative_control:
@@ -89,12 +97,13 @@ def main():
   helper=helper.replace(marker,'next.color_strength = 0.5f;',1)
  dirty=[];checks=[]
  for field,key in FIELDS.items():
-  number=values[key];recommended=RECOMMENDED_OVERRIDES.get(field,number)
+  number=values[key] if key else '0';recommended=RECOMMENDED_OVERRIDES.get(field,number)
   expected=f'static_cast<decltype(c.{field})>({recommended})'
   dirty.append(f'c.{field}=static_cast<decltype(c.{field})>(({number})==0?1:0);')
   checks.append(f'check(c.{field}=={expected},"INI default {key}");')
  code=r'''#include <cstdio>
 #include <initializer_list>
+#include "nr_light_style.h"
 enum class NrJitterMode {Legacy=0,GameInputPixel=1};
 int count=0,failures=0;
 void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAIL %s\n",name);}}
@@ -111,7 +120,7 @@ void check(bool ok,const char* name){++count;if(!ok){++failures;std::printf("FAI
  with context as td:
   src=Path(td)/'test.cpp';exe=Path(td)/('test.exe' if os.name=='nt' else 'test');src.write_text(code,encoding='utf-8')
   flags=['-std=c++20','-O0','-Wall','-Wextra','-Werror']+(['-static'] if os.name=='nt' else [])
-  subprocess.run([compiler,*flags,str(src),'-o',str(exe)],check=True)
+  subprocess.run([compiler,*flags,'-I'+str(root/'src'),str(src),'-o',str(exe)],check=True)
   result=subprocess.run([str(exe)],capture_output=True,text=True);print(result.stdout,end='');print(result.stderr,end='')
   if a.negative_control:
    if result.returncode!=1 or 'FAIL INI default ColorStrength' not in result.stdout:raise SystemExit('Wrong-default negative oracle was not rejected')
