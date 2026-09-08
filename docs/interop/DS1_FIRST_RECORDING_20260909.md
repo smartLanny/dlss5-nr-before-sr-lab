@@ -82,3 +82,38 @@ explicitly unexecuted without RunWarp; the packager continues to require it.
 Real game acceptance remains a fresh `ds.exe` F8 showing first-recording origin,
 Feature18/NR successes and protected submission progress in both requested
 modes. Neither the old F8 nor CPU checks establish compatibility or image quality.
+
+## Final local validation and owner deployment
+
+Build source `3580e8d35531e47ecf55d9452c987068303fc253` passed all 36 acceptance
+checks, including bilingual compilation, the complete native state/lifetime
+matrix, wrong-restore controls, eight production RR depth WARP cases and the
+existing composition WARP fixture. The first-recording API fixture itself does
+not submit GPU commands; the separate WARP fixtures provide GPU execution checks
+using constructed neural planes, not NVIDIA NR inference.
+
+The previous full run at `da3b048` failed its legacy native fixture. An unrelated
+post-publication Create in the missed-init case now legitimately published full
+guards, invalidating five old timing assumptions; cold-pool and missing-reset-
+notification cases were also no longer cold after enabled Create observation.
+The fix changes only real fixture event order: both legacy missed-init objects
+are created before observation, and cold Reset cases create while NR is off then
+enable before the real Reset. All 65 original safety Check expressions remain
+unchanged; no production admission was relaxed. Native stdout/stderr and actual
+exit codes are now captured explicitly. The failed run is retained, not relabeled.
+
+| Final artifact | SHA256 |
+| --- | --- |
+| Source manifest | `35b50a13767029941cfa40d0d4418cbea0c57e1ef0593ba90110308547b21cf6` |
+| Validation record | `bc8b6282f5c1b0796cddcf6a7d8b1d383ad72bcb76c5b44bdd0d28ea90d4ded0` |
+| Chinese Core | `49fea7d7922d4f91dcd6f2b69652147434cfda9c5c28523839c58ab117ef2a0a` |
+| English Core | `e2a72a76c9566462738dbe35288a452649db16b6e13ff8c61f9775ed07cac070` |
+| Owned companion | `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb` |
+
+Only the verified Core was deployed to the owner's Death Stranding Director's
+Cut (the first game, `ds.exe`). Existing settings, ReShade, vendor runtimes and
+other DLLs were checked unchanged; the previous Core and restore receipt remain.
+Owner game acceptance, NVIDIA inference and performance remain unverified.
+The frozen production diff received one runtime-safety and functional-contract
+review; the fixture/logging correction received a targeted recheck. No P0/P1
+finding remains from those reviews. No main merge or stable release is implied.
