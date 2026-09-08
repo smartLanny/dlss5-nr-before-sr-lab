@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Package a focused, verified 0.5 D3D12 Core acceptance build, without carrier.
+
+This is NOT the multi-API/Manager OTA packager. It never changes games or INI,
+includes no runtime/model/private log, and will not overwrite existing output.
+"""
+from __future__ import annotations
+import argparse
+import hashlib
+import json
+import subprocess
+import zipfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+VERSION = 'beta0.5-dev8'
+
+def sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+def load(path: Path) -> dict:
+    return json.loads(path.read_text(encoding='utf-8-sig'))
+
+def checked_file(root: Path, name: str, expected: str) -> bytes:
+    candidate = root / name
+    path = candidate.resolve(strict=True)
+    if not path.is_relative_to(root.resolve()) or candidate.is_symlink() or not path.is_file():
+        raise ValueError(f'Unsafe manifest file: {name}')
+    data = path.read_bytes()
+    if len(expected) != 64 or sha(data) != expected.lower():
+        raise ValueError(f'Hash mismatch: {name}')
+    return data
+
+def git(*args: str) -> str:
+    return subprocess.check_output(['git', '-C', str(ROOT), *args], text=True).strip()
+
+def package(build: Path, output: Path) -> dict:
+    if output.exists():
+        raise ValueError('Output already exists; preserve all previous packages.')
+    build = build.resolve(strict=True)
+    stage = build / 'source'
+    result = load(build / 'validation.json')
+    manifest_bytes = checked_file(stage, 'source-manifest.json', result['source_manifest_sha256'])
+    manifest = json.loads(manifest_bytes.decode('utf-8-sig'))
+    commit = result['source_commit']
+    if (result.get('schema') != 'nr050-focused-acceptance-v1' or result.get('success') is not True
+            or result.get('warp_verified') is not True or result.get('carrier_compiled') is not False
+            or result.get('nvidia_feature18_verified') is not False
+            or result.get('game_runtime_verified') is not False
+            or result.get('five_percent_performance_gate') != 'unmeasured'
+            or manifest.get('source_commit') != commit
+            or manifest['integration'].get('source_commit') != commit
+            or manifest['integration'].get('version') != VERSION):
+        raise ValueError('Exact-source focused acceptance evidence required; no capability promotion.')
+    required = {'canonical pinned full-source staging', 'validate-work-config.py',
+                'validate-recommended-picture.py', 'recommended independent negative control',
+                'test_post_patch.py', 'test_picture_integration.py',
+                'validate-edit-field.py', 'validate-color-edit-field.py',
+                'all staged production SM5 entries compiled',
+                'full staged bilingual Core and nrchain compile/link',
+                'combined low-grid WARP fixture; constructed neural planes, no NVIDIA NR',
+                'manifest source hashes and actual numeric PE identities'}
+    if not required.issubset(result.get('checks', [])):
+        raise ValueError('Focused required gate missing.')
+    checked_file(build, 'validation.log', result['log_sha256'])
+    for name, digest in manifest['files'].items():
+        checked_file(stage, name, digest)
+    if git('status', '--porcelain', '--untracked-files=no'):
+        raise ValueError('Packaging source must be committed and clean.')
+    packaging_commit = git('rev-parse', 'HEAD')
+    git('merge-base', '--is-ancestor', commit, packaging_commit)
+    for changed in git('diff', '--name-only', commit, packaging_commit).splitlines():
+        if not (changed.startswith('docs/') or changed in {
+                'scripts/package-050-core-acceptance.py',
+                'tests/multi_api/test_050_core_package.py'}):
+            raise ValueError(f'Build inputs changed since validation: {changed}')
+    binary_root = stage / 'core' / 'build'
+    artifacts = result['artifacts']
+    addons = sorted(n for n in artifacts if n.endswith('.addon64') and VERSION in n)
+    if len(addons) != 2 or set(artifacts) != set(addons + ['nrchain_nvngx.dll']):
+        raise ValueError('Expected two dev8 language cores and only the owned bridge.')
+    binaries = {name: checked_file(binary_root, name, entry['sha256']) for name, entry in artifacts.items()}
+    for name, data in binaries.items():
+        if len(data) != artifacts[name]['bytes']:
+            raise ValueError(f'Binary length mismatch: {name}')
+    notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
+    guide = (ROOT / 'docs/testing/DEV8_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
+    output.mkdir(parents=True, exist_ok=False)
+    packages = []
+    for addon in addons:
+        language = 'en' if addon.endswith('.en.addon64') else 'zh-CN'
+        provenance = {
+            'schema': 'nr050-core-only-acceptance-v1', 'version': VERSION,
+            'source_commit': commit, 'packaging_commit': packaging_commit, 'language': language,
+            'source_manifest_sha256': sha(manifest_bytes),
+            'validation_sha256': sha((build / 'validation.json').read_bytes()),
+            'scope': 'D3D12 Core-only manual acceptance; not Manager/multi-API OTA',
+            'single_nr': True, 'experimental_algorithms_default_off': True,
+            'source_verified': True, 'compile_verified': True, 'warp_verified': True,
+            'nvidia_feature18_verified': False, 'game_runtime_verified': False,
+            'five_percent_performance_gate': 'unmeasured', 'carrier_included': False,
+            'ini_included': False, 'vendor_runtime_included': False,
+            'binaries': {name: artifacts[name] for name in (addon, 'nrchain_nvngx.dll')},
+        }
+        entries = {addon: binaries[addon], 'nrchain_nvngx.dll': binaries['nrchain_nvngx.dll'],
+                   'README.zh-CN.md': guide, 'LICENSES.txt': notice,
+                   'build-info.json': json.dumps(provenance, ensure_ascii=False, indent=2).encode('utf-8')}
+        entries['SHA256.json'] = json.dumps({n: sha(v) for n, v in entries.items()}, ensure_ascii=False, indent=2).encode('utf-8')
+        target = output / f'DLSS5-{VERSION}-{language}-D3D12-Core-Acceptance.zip'
+        with zipfile.ZipFile(target, 'x', compression=zipfile.ZIP_DEFLATED) as archive:
+            for name, data in entries.items():
+                archive.writestr(name, data)
+        with zipfile.ZipFile(target) as archive:
+            if len(archive.namelist()) != len(entries) or archive.testzip() is not None:
+                raise ValueError('ZIP verification failed.')
+            for name, data in entries.items():
+                if archive.read(name) != data:
+                    raise ValueError(f'ZIP changed bytes: {name}')
+        packages.append({'file': target.name, 'bytes': target.stat().st_size, 'sha256': sha(target.read_bytes())})
+    index = {'version': VERSION, 'source_commit': commit, 'packaging_commit': packaging_commit, 'packages': packages}
+    (output / 'packages.json').write_text(json.dumps(index, indent=2), encoding='utf-8')
+    return index
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--build', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    print(json.dumps(package(args.build, args.output), ensure_ascii=False, indent=2))
