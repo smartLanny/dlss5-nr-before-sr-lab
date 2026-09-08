@@ -1,3 +1,14 @@
+# DLSS5 0.4.7beta
+
+当前候选按维护者要求由已过测的beta0.5-dev16改名为 **0.4.7beta**。
+本次只统一版本标识、文件名与包说明，画质算法、双路线菜单和默认设置保持一致。
+当前来源与验证见 [交接入口](docs/interop/CURRENT_STATUS.md)，
+使用说明见 [0.4.7beta测试包](docs/testing/CORE_047BETA_ACCEPTANCE.zh-CN.md)。
+
+以下保留历史开发记录，其旧版本名称对应当时的提交和测试包。
+
+---
+
 # beta0.5-dev4 experimental layered composition
 
 单次 NR 分层强化与最终强度 0–4；并非 PR26 的多次模型推理。默认分层关闭，游戏与性能仍待验证。

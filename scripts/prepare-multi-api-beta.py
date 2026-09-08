@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the merged 0.4.6 compatibility candidate without changing the checkout.
+"""Stage the renamed 0.4.7beta compatibility candidate without changing the checkout.
 
 Requires #131, #132 and the completed #134 merge. Generated-source availability
 is not game verification. MFG work is deferred for the current owner test batch.
@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dev16'
-DISPLAY_VERSION = '0.5-dev16'
+VERSION = '0.4.7beta'
+DISPLAY_VERSION = '0.4.7beta'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -34,7 +34,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_rr_depth_projection.h': '8cb9c11b7750935f425e6c1dc2d6786fa804c9ad',
     'src/nr_command_creation_observer.inl': 'fd5d0f4adf50cb1ea3becb6fa9e51f61bf79c828',
     'src/nr_native_command_record.inl': '91b4cf6b2c77396b464b2e28ae0093efd5558a68',
-    'config/nr_before_sr.ini': '950091e3af7336498a3cfdd36ce86d0ae29e89cb',
+    'config/nr_before_sr.ini': 'd9c75f6f8d01e768a32712b744668d7afbc53c93',
     'scripts/patch-post-compat.py': '035040cc833053f938afbcdb99521a48551ee5e1',
     'src/nr_codec_descriptors.inl': '353c97c74bde56c72cda349fca2e50118000cbcb',
     'src/nr_feedback_core.inl': '2e2b54d62c09befdd3ba76cdc75f087225d38d5d',
@@ -45,14 +45,14 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_capture.inl': '8b13b3705c0e2ea2f33fe3806f825e5af3355558',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
     'src/nr_settings_ui.inl': '5488fea123a49c5c44282281fc5998065e588c78',
-    'src/nr_before_sr.cpp': '2c20c485283876f42af63c17268c4a948ff3db36',
+    'src/nr_before_sr.cpp': 'de502e8f7e0265991955c69d19db73a3130770e7',
     'src/nr_recommended_picture.inl': '32af97de137866a303eb5db8484c8116745fb8f0',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': '5725173cb34cb45ba13722230349106bbb4b5ccc',
+    'src/nr_before_sr.rc': '9128c2e7c2ca79e44c6b876d0ed89b59c3f6a720',
     'src/nr_color_policy.inl': '7a7453d479ebf8a9666468d0e287a3c3310697b7',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': '70ec7140e054997e9eec188e6d9e33c723d9c4c2',
+    'scripts/build.ps1': '900eba2e7031df50507c49bc86561c96b9389592',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '85e6364d1fa357c19bceb97830375ba86142d98d',
@@ -168,7 +168,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.0 dev16 beta' not in resource_text:
+    if '0.4.7beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -179,7 +179,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.0.16',
+        'core_pe_version': '0.4.7.0',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),
@@ -204,7 +204,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'rr_linear_depth': 'positive view-Z standard perspective to private R32 HW depth; matrix-derived inversion; unknown projection stays native with F8',
         'jitter': 'resolved post color zero jitter; native guide phase requires runtime validation',
         'fg_control': 'not implemented', 'getdesc_spoof': 'not implemented',
-        'mfg_scope': 'Manager FG/MFG is independent under plan 0838ffb; this 0.5 candidate adds no FG backend',
+        'mfg_scope': 'Manager FG/MFG is independent under plan 0838ffb; this Core candidate adds no FG backend',
         'game_validation': 'owner will test final batch; old BG3 result retained separately',
     }
     manifest['files'] = file_hashes(stage)
