@@ -61,7 +61,7 @@ shlwapi, ole32, advapi32, user32. Private build command and artifact are retaine
 in the owner's evidence directory. At this initial preparation stage no process,
 GPU or NGX test had run.
 
-After owner review and an exclusive GPU window, the single proposed invocation is:
+The single invocation reviewed by the parent task was:
 
 ```text
 two_feature_gpu.exe --synthetic-static-two-feature <absolute NGX runtime dir> <absolute NR bundle dir>
@@ -109,3 +109,18 @@ Final lock (all six pre-run module/executable hashes matched after the run):
 | actual loaded nrchain_nvngx.dll | `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb` |
 | stdout.txt | `cb7f2aed7d090723b52a80d10a0c8c7a10ae22712e47b2277fc9b813a022f020` |
 | validation.json | `6212af3981e3ddb0f1de662a9a3eb89348cabc5d003885b9e067b36563ea1fab` |
+
+The parent task independently rehashed all eight recorded artifacts and all six
+module/executable prelocks after the run, and matched the source, executable,
+stdout and validation identities above. The later integration/documentation
+commit is not a new GPU build. No host process remains.
+
+## Next decision boundary
+
+The two-instance runtime and failure boundary is now demonstrated for this exact
+synthetic reset case. A production 2–3 layer implementation still needs a proven
+downstream sampling/guide/history contract. It must not infer valid zero jitter
+from the finite reset result or treat the last completed image as safe recovery
+after an opaque recording failure. The independent CPU ledger remains in the
+0.5 candidate; its fake-provider cases are a separate evidence class. No cascade
+control is exposed in Core or Manager by this test-only change.
