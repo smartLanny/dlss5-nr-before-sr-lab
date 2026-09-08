@@ -23,7 +23,24 @@ from this project's frozen public Manager implementation at
 `0b386eb2de1cc392cf69a8b6fb809800f9e1cc62`. Public configuration contracts are
 documented in the compiler's `SOURCES` object. This code manages existing
 OptiScaler/RTX40 control configuration and public NVIDIA profile settings;
-it does not include those projects' rendering or frame-generation implementations.
+The configuration code itself does not implement rendering or frame generation.
+
+## RTX 40 frame-generation compatibility components
+
+Release resources include the original MIT-licensed components from
+[RTX40MFG-Unlock v1.2](https://github.com/dashdogy/RTX40MFG-Unlock/releases/tag/v1.2):
+RTX40MFGCore.dll, RTX40MFG.asi and RTX40MFG-UI.addon64. The full copyright and
+permission notice and MinHook license are retained in `resources/fg-components/LICENSE`
+and `resources/fg-components/MINHOOK-LICENSE.txt` and included in packaged resources.
+
+[Ultimate ASI Loader v9.7.4](https://github.com/ThirteenAG/Ultimate-ASI-Loader/releases/tag/v9.7.4)
+provides the x64 early-load proxy. Its full MIT license is retained as
+`resources/fg-components/UAL-LICENSE`. Fixed source archive URLs and SHA-256 hashes
+are recorded in `resources/fg-components/manifest.json`.
+
+These components require a game that already provides compatible Streamline DLSS
+Frame Generation. The manager does not distribute or replace NVIDIA or Streamline
+frame-generation DLLs as part of this compatibility package.
 
 ## Lucide navigation icons
 

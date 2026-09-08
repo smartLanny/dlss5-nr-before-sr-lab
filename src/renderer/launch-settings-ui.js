@@ -121,11 +121,26 @@
     if (!available) return `<p class="launch-unavailable">${facts.series === 'RTX20' || facts.series === 'RTX30' ? '当前识别为 RTX 20 / 30；本页未确认可用的 FG 控制路线。' : !facts.fgBackend ? '未确认单一 RTX 40 / 50 显卡，暂不提供 FG 覆盖。' : '已保存的 FG 后端与当前显卡不一致，请先还原本工具设置。'}</p><p class="config-note">这里仅管理已有 FG 后端，不为没有 FG 的游戏注入帧生成。已保存请求仍显示在下方。</p>`;
     const community = fields.backend === 'rtx40';
     const modes = community ? ['restore', 'follow', 'fixed', 'dynamic'] : ['restore', 'off', 'fixed', 'dynamic'];
-    return `<div class="launch-backend">${community ? '社区 RTX40 MFG · control v11' : 'NVIDIA 官方 FG · RTX 50'}</div>
-      <label class="launch-field"><span>控制模式</span><select data-ls-field="mode" aria-label="FG 控制模式">${modes.map(key => option(key, MODES[key], fields.mode)).join('')}</select></label>
+    return `<label class="launch-field"><span>控制模式</span><select data-ls-field="mode" aria-label="FG 控制模式">${modes.map(key => option(key, MODES[key], fields.mode)).join('')}</select></label>
       ${fields.mode === 'fixed' ? `<label class="launch-field"><span>总帧倍率</span><select data-ls-field="multiplier" aria-label="FG 总帧倍率">${[2, 3, 4, 5, 6].map(value => option(String(value), `${value}× · 1 帧渲染 + ${value - 1} 帧生成`, String(fields.multiplier))).join('')}</select><small>这是请求范围，实际可用倍率需游戏运行后确认。</small></label>` : ''}
       ${fields.mode === 'dynamic' ? `<label class="launch-field"><span>动态目标</span><div class="launch-number"><input data-ls-field="targetFps" type="number" min="0" max="1000" step="1" value="${esc(fields.targetFps)}" aria-label="FG 动态目标帧率"><span>FPS</span></div><small>0 为自动，或填写 1–1000 FPS。</small></label>${community ? `<label class="launch-check"><input data-ls-field="experimental56" type="checkbox"${fields.experimental56 ? ' checked' : ''}> 允许动态模式实验性 5/6×</label>` : ''}` : ''}
-      <p class="config-note">${community ? '需已有可用 Streamline FG 和匹配的社区后端。跟随游戏不等于关闭 FG。' : '需游戏已有 DLSS FG；驱动请求不证明游戏已采用。'}本页不会安装或注入 FG。</p>`;
+      <p class="config-note">${community ? '兼容组件用于游戏已有的帧生成能力。跟随游戏不等于关闭 FG。' : '使用 RTX 50 原生帧生成；需在游戏中开启 DLSS FG。'}设置写入后，实际效果以游戏内表现为准。</p>`;
+  }
+
+  function fgComponentMarkup(data, busy) {
+    const info = data.fgComponents;
+    const facts = hardwareFacts(data.hardware);
+    if (!info) return '<div class="launch-components"><p>正在确认帧生成组件状态；请重新读取后再操作。</p></div>';
+    const native = info.route === 'native' || facts.fgBackend === 'nvidia';
+    const blockers = Array.isArray(info.blockers) ? info.blockers : [];
+    const missing = Array.isArray(info.missing) ? info.missing : [];
+    return `<div class="launch-components"><strong>${native ? 'RTX 50 · 原生帧生成' : info.route === 'compatibility' ? 'RTX 40 · 兼容帧生成' : '帧生成路线待确认'}</strong>
+      <p>${native ? info.needsCleanup ? '需要先移除原来的兼容组件，再使用原生路线。' : '使用游戏和 NVIDIA 驱动的原生帧生成，无需另装兼容组件。' : info.ready ? '兼容组件已就绪，可以设置倍率。首次使用请在游戏内开启帧生成。' : '由管理器准备兼容插件、加载器和所需运行环境，完成后再开放设置。'}</p>
+      ${blockers.length ? `<p class="launch-error">${blockers.map(esc).join('<br>')}</p>` : ''}
+      ${missing.length ? `<details><summary>待准备的组件（${missing.length}）</summary><ul>${missing.map(item => `<li>${esc(typeof item === 'string' ? item : item.label || item.name || item.role)}</li>`).join('')}</ul></details>` : ''}
+      ${info.needsCleanup ? `<button class="button primary" type="button" data-ls-action="native-route"${busy ? ' disabled' : ''}>切换为原生帧生成</button>` : !info.ready && info.canPrepare ? `<button class="button primary" type="button" data-ls-action="prepare"${busy ? ' disabled' : ''}>准备兼容组件</button>` : ''}
+      ${!native && info.managed ? `<button class="button subtle" type="button" data-ls-action="remove-components"${busy ? ' disabled' : ''}>移除兼容组件</button>` : ''}
+    </div>`;
   }
 
   function previewMarkup(preview, fields) {
@@ -157,13 +172,14 @@
       host.innerHTML = `<div class="launch-head"><div><h4>下次启动的图像设置</h4><p>保存请求后，从管理器启动游戏时应用；也可预览后立即应用。</p></div><span>${esc(facts.label)}</span><button class="button subtle" type="button" data-ls-action="reload"${busy ? ' disabled' : ''}>重新读取</button></div>${pending ? `<div class="launch-recovery" role="alert"><span>${esc(data.notice || '上次设置事务未完成，请先恢复。')}</span><button class="button" type="button" data-ls-action="recover">恢复未完成操作</button></div>` : data.notice ? `<p class="launch-message launch-error" role="alert">${esc(data.notice)}</p>` : ''}${data.legacy?.baselineCaptured ? '<p class="config-note">检测到旧 SR 模型设置；应用新 SR 请求时会由服务迁移原始记录。</p>' : ''}${data.legacy?.error ? `<p class="launch-message launch-error">旧 SR 模型记录读取失败：${esc(data.legacy.error.message)}。恢复记录已保留。</p>` : ''}
         <div class="launch-grid">${['sr', 'fg'].map(domain => {
           const fields = drafts[domain];
-          const available = domain === 'sr' || facts.fgBackend && fields.backend === facts.fgBackend;
+          const available = domain === 'sr' || facts.fgBackend && fields.backend === facts.fgBackend && data.fgComponents?.ready === true;
           const canRestore = Boolean(data.applied?.[domain] || data.requests?.[domain] || domain === 'sr' && (data.legacy?.baselineCaptured || legacyState(data)));
           const message = messages[domain];
           return `<section class="launch-panel" data-ls-domain="${domain}" aria-label="${domain === 'sr' ? 'SR 超分辨率' : 'FG 帧生成'}"><div class="launch-panel-title"><h4>${domain === 'sr' ? 'SR 超分辨率' : 'FG 帧生成'}</h4><span>${domain === 'sr' ? '输入画质' : '显示帧率'}</span></div>
-            <fieldset${busy || pending ? ' disabled' : ''}><legend class="sr-only">${domain.toUpperCase()} 设置</legend>${domain === 'sr' ? srFields(fields) : fgFields(fields, data.hardware)}
+            ${domain === 'fg' ? fgComponentMarkup(data, busy || pending) : ''}
+            <fieldset${busy || pending ? ' disabled' : ''}><legend class="sr-only">${domain.toUpperCase()} 设置</legend>${domain === 'sr' ? srFields(fields) : data.fgComponents?.ready ? fgFields(fields, data.hardware) : ''}
             ${statusMarkup(domain, data, dirty[domain])}${message ? `<p class="launch-message${message.error ? ' launch-error' : ''}" role="${message.error ? 'alert' : 'status'}">${esc(message.text)}</p>` : ''}
-            <div class="launch-actions"><button class="button subtle" type="button" data-ls-action="restore"${canRestore ? '' : ' disabled'}>还原本工具设置</button><button class="button" type="button" data-ls-action="save"${available ? '' : ' disabled'}>保存到下次启动</button><button class="button primary" type="button" data-ls-action="preview"${available ? '' : ' disabled'}>预览并应用</button></div>
+            <div class="launch-actions">${canRestore || domain === 'sr' ? `<button class="button subtle" type="button" data-ls-action="restore"${canRestore ? '' : ' disabled'}>还原本工具设置</button>` : ''}${domain === 'sr' || data.fgComponents?.ready ? `<button class="button" type="button" data-ls-action="save"${available ? '' : ' disabled'}>保存到下次启动</button><button class="button primary" type="button" data-ls-action="preview"${available ? '' : ' disabled'}>预览并应用</button>` : ''}</div>
             ${previewMarkup(previews[domain], fields)}</fieldset></section>`;
         }).join('')}</div>`;
       const recover = host.querySelector('[data-ls-action="recover"]');
@@ -183,7 +199,22 @@
       let succeeded = false;
       try {
         if (domain) delete messages[domain];
-        if (action === 'recover') {
+        if (action === 'prepare') {
+          render();
+          let response = await manager.prepareFgComponents(id, { allowAntiCheat: false });
+          if (response?.ok === false && response.error?.code === 'ERR_ANTI_CHEAT_CONFIRM') {
+            if (typeof scope.confirmAntiCheat !== 'function' || !await scope.confirmAntiCheat(id)) throw new Error('已取消组件安装。');
+            response = await manager.prepareFgComponents(id, { allowAntiCheat: true });
+          }
+          unwrap(response);
+          delete previews.fg;
+          setMessage('fg', '兼容组件准备完成；请在游戏内开启帧生成。');
+        } else if (action === 'native-route' || action === 'remove-components') {
+          render();
+          unwrap(await manager.restoreFgComponents(id));
+          delete previews.fg;
+          setMessage('fg', action === 'native-route' ? '已切换为原生帧生成路线。' : '已移除本工具安装的兼容组件。');
+        } else if (action === 'recover') {
           render();
           unwrap(await manager.recoverLaunchSettings(id));
           for (const key of ['sr', 'fg']) { delete previews[key]; setMessage(key, '未完成操作已恢复；游戏未验证。'); }
@@ -226,6 +257,8 @@
         try { await refresh(false); }
         catch (error) { setMessage(domain || 'sr', `${succeeded ? '操作已完成；' : ''}状态读取失败：${error.message}。请重新读取。`, true); }
         if (succeeded && action === 'restore' && data) { drafts[domain] = initialFields(domain, data); dirty[domain] = false; }
+        if (succeeded && ['native-route', 'remove-components'].includes(action) && data) { drafts.fg = initialFields('fg', data); dirty.fg = false; }
+        if (succeeded && action === 'prepare' && data?.fgComponents?.ready !== true) setMessage('fg', '组件检查尚未通过，请处理上方提示后重试。', true);
       }
       busy = false;
       render();
@@ -281,7 +314,7 @@
     return controller;
   }
 
-  const api = { mount, createRequest, hardwareFacts, initialFields, requestLabel, statusMarkup, previewMarkup };
+  const api = { mount, createRequest, hardwareFacts, initialFields, requestLabel, statusMarkup, previewMarkup, fgComponentMarkup };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else scope.launchSettingsUi = api;
 })(typeof window === 'object' ? window : globalThis);

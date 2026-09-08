@@ -6,7 +6,7 @@ const { INSTALLED_NAMES, DX11_COMPAT_VERSION } = require('./constants');
 const { appError } = require('./errors');
 const { assess, classifyApi, isDx11Only } = require('./game-support');
 const { sha256 } = require('./payload');
-const coreVersionText = value => { const raw=String(value || '');const version=raw.match(/^(0\.[34]\.\d+(?:\.\d+)?(?:-hotfix\.\d+)?)/);return version ? version[1]+' · '+(version[1].startsWith('0.3.')?'稳定基线':'Beta') : raw; };
+const coreVersionText = value => { const raw=String(value || '');const version=raw.match(/^(0\.\d+\.\d+(?:\.\d+)?(?:-(?:hotfix|beta)\.\d+)?)/);return version ? version[1]+' · '+(version[1].startsWith('0.3.')?'稳定基线':'Beta') : raw; };
 const { scanConflicts, moveConflicts, restoreConflicts } = require('./conflicts');
 const {
   manifestPath, backupPath, readManifest, newManifest, findEntry, validateEntry

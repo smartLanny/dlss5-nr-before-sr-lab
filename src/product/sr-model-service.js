@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { appError } = require('./errors');
 const { detectGpu } = require('./gpu');
 const { createNvapiDrs } = require('./nvapi-drs');
+const { atomicJson } = require('./launch-safety');
 const {
   CHOICES,
   normalizeChoice,
@@ -39,10 +40,7 @@ function loadPolicies(file) {
 }
 
 async function savePolicies(file, games) {
-  await fs.promises.mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.tmp`;
-  await fs.promises.writeFile(temp, JSON.stringify({ version: 2, games }, null, 2), 'utf8');
-  await fs.promises.rename(temp, file);
+  await atomicJson(file, { version: 2, games });
 }
 
 function resolveHelperPath(resourcesPath, appDir) {
@@ -71,6 +69,7 @@ function createSrModelService(options) {
   }
 
   async function read(id) {
+    assertPoliciesReadable();
     const hardware = detectHardware();
     const entry = entryForGame(id);
     const selection = entry.selection;
@@ -89,6 +88,7 @@ function createSrModelService(options) {
   }
 
   async function write(id, selection) {
+    assertPoliciesReadable();
     const normalized = String(selection || '').trim().toLowerCase();
     if (!CHOICES.includes(normalized)) throw appError('ERR_BAD_REQUEST', { selection });
     const games = loadPolicies(policyFile);

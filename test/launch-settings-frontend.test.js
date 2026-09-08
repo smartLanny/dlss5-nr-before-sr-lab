@@ -130,3 +130,21 @@ test('the new module replaces the legacy writable SR widget and preserves core c
   assert.match(renderer, /carrier-component-check/);
   assert.match(renderer, /核心版本/);
 });
+
+test('RTX40 preparation is an explicit usable action and RTX50 selects the native route', async () => {
+  const data = { hardware: { family: 'RTX40', series: ['RTX40'] }, requests: {}, applied: {}, pending: [],
+    fgComponents: { route: 'compatibility', ready: false, canPrepare: true, missing: ['兼容插件', '加载器'], blockers: [] } };
+  const host = { innerHTML: '', isConnected: true, querySelector: () => null };
+  const calls = [];
+  const manager = { inspectLaunchSettings: async () => ({ ok: true, value: structuredClone(data) }),
+    prepareFgComponents: async (id, options) => { calls.push([id, options]); data.fgComponents.ready = true; return { ok: true, value: { prepared: true } }; } };
+  const controller = ui.mount(host, 'game', { manager }); await controller.ready;
+  assert.match(host.innerHTML, /准备兼容组件/);
+  assert.doesNotMatch(host.innerHTML, /data-ls-field="mode"/);
+  await controller.perform('prepare', 'fg');
+  assert.deepEqual(calls, [['game', { allowAntiCheat: false }]]);
+  assert.match(host.innerHTML, /data-ls-field="mode"/);
+  const native = ui.fgComponentMarkup({ hardware: { family: 'RTX50', series: ['RTX50'] }, fgComponents: { route: 'native', ready: true } }, false);
+  assert.match(native, /RTX 50 · 原生帧生成/);
+  assert.doesNotMatch(native, /准备兼容组件/);
+});

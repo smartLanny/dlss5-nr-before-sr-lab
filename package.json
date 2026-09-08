@@ -14,8 +14,9 @@
     "verify:vendor": "node scripts/verify-vendor.js",
     "verify:payload": "node scripts/verify-payload.js",
     "icon": "electron scripts/build-icon.js",
-    "build": "node scripts/prepare-core-catalog.js && npm run icon && npm run verify:vendor && npm run verify:payload && electron-builder --win",
-    "build:portable": "node scripts/prepare-core-catalog.js && npm run icon && npm run verify:vendor && npm run verify:payload && electron-builder --win portable"
+    "build": "node scripts/prepare-core-catalog.js && npm run icon && npm run verify:vendor && npm run verify:payload && npm run verify:fg-components && electron-builder --win",
+    "build:portable": "node scripts/prepare-core-catalog.js && npm run icon && npm run verify:vendor && npm run verify:payload && npm run verify:fg-components && electron-builder --win portable",
+    "verify:fg-components": "node scripts/verify-fg-components.js"
   },
   "dependencies": {
     "yauzl": "^2.10.0"
@@ -67,6 +68,20 @@
       {
         "from": "src/product/nvapi-profile.ps1",
         "to": "nvapi-profile.ps1"
+      },
+      {
+        "from": "resources/fg-components",
+        "to": "fg-components",
+        "filter": [
+          "manifest.json",
+          "*.dll",
+          "*.asi",
+          "*.addon64",
+          "global.ini",
+          "LICENSE",
+          "MINHOOK-LICENSE.txt",
+          "UAL-LICENSE"
+        ]
       }
     ],
     "win": {

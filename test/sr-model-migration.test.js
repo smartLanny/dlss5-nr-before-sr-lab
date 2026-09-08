@@ -61,5 +61,8 @@ test('corrupt legacy receipts fail closed instead of treating the game as unowne
   fs.writeFileSync(f.service.policyFile, '{broken');
   await assert.rejects(f.service.migrationInfo('a'), { code: 'SETTINGS_LEGACY_MIGRATION' });
   await assert.rejects(f.service.prepareMigration('a'), { code: 'SETTINGS_LEGACY_MIGRATION' });
+  await assert.rejects(f.service.applyBeforeLaunch('a'), { code: 'SETTINGS_LEGACY_MIGRATION' });
+  await assert.rejects(f.service.write('a', 'k'), { code: 'SETTINGS_LEGACY_MIGRATION' });
+  assert.equal(fs.readFileSync(f.service.policyFile, 'utf8'), '{broken');
   assert.equal(f.restored(), 0);
 });

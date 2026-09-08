@@ -59,11 +59,16 @@ function createLaunchSettingsService(options = {}) {
     (value.kind === 'absent' ? value.value === null && value.location === null && value.predefined === null : Number.isInteger(value.value) && value.value >= 0 && value.value <= 0xffffffff && Number.isInteger(value.location) && value.location >= 0 && value.location <= 3 && typeof value.predefined === 'boolean' && (value.kind !== 'explicit' || value.location === 0 && value.predefined === false)); }
   function validSnapshot(value, t) { return value && typeof value === 'object' && validProfile(value.profile, t) && value.settings &&
     Object.keys(value.settings).length === DRIVER_IDS.length && DRIVER_IDS.every(id => validSetting(value.settings[id])); }
-  function receipt(t) {
+  function receipt(t, { allowEmptyRebind = false } = {}) {
     const file = receiptFile(t); journal.safePath(t.dir, path.relative(t.dir, file));
     let value;
     if (!fs.existsSync(file)) return { version: 1, exe: t.exe, applied: {}, driverOriginalProfile: null, lastTransaction: null };
     try { value = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { fail('SETTINGS_RECEIPT_INVALID', '启动设置恢复记录无法解析。'); }
+    if (value?.version === 1 && typeof value.exe === 'string' && path.isAbsolute(value.exe) && !samePath(value.exe, t.exe) &&
+        value.applied && typeof value.applied === 'object' && !Array.isArray(value.applied) && Object.keys(value.applied).length === 0 &&
+        (allowEmptyRebind || !fs.existsSync(journal.pendingPath(t.dir))) && !fs.existsSync(driverPendingFile(t))) {
+      return { version: 1, exe: t.exe, applied: {}, driverOriginalProfile: null, lastTransaction: null };
+    }
     if (value.version !== 1 || !samePath(value.exe, t.exe) || !value.applied || typeof value.applied !== 'object' || !validProfile(value.driverOriginalProfile ?? null, t) || Object.keys(value.applied).some(domain => !['sr', 'fg'].includes(domain)) ||
         value.lastTransaction != null && (!value.lastTransaction || !/^[a-f0-9-]{36}$/.test(value.lastTransaction.id || '') || !['sr', 'fg'].includes(value.lastTransaction.domain) || typeof value.lastTransaction.restoring !== 'boolean'))
       fail('SETTINGS_RECEIPT_INVALID', '启动设置恢复记录与当前 EXE 不一致。');
@@ -91,8 +96,20 @@ function createLaunchSettingsService(options = {}) {
     return rows;
   }
   async function assertReady(id) { const rows = await pending(id); if (rows.length) fail('SETTINGS_RECOVERY_FIRST', '上次文件或驱动设置尚未恢复，请先完成恢复。', { pending: rows }); return true; }
+  async function hasOwnedState(id) {
+    const dir = options.gameDirectory(id);
+    if (typeof dir !== 'string' || !path.isAbsolute(dir)) fail('ERR_UNKNOWN_GAME', '游戏目录无效。');
+    const meta = journal.safePath(dir, '_DLSS5_Backup/xiaofeng-launch-settings.json');
+    if (fs.existsSync(journal.pendingPath(dir)) || fs.existsSync(path.join(dir, '_DLSS5_Backup/launch-driver-pending.json'))) return true;
+    if (!fs.existsSync(meta)) return false;
+    let value; try { value = JSON.parse(fs.readFileSync(meta, 'utf8')); } catch { fail('SETTINGS_RECEIPT_INVALID', '启动设置恢复记录无法解析。'); }
+    if (!value || value.version !== 1 || !value.applied || typeof value.applied !== 'object') fail('SETTINGS_RECEIPT_INVALID', '启动设置恢复记录无效。');
+    return Object.keys(value.applied).length > 0;
+  }
   function requestRow(id, domain) { const t = target(id), state = requests(), row = state.games[t.key]?.[domain]; return row && samePath(row.exe, t.exe) ? row : null; }
-  async function hasSrRequest(id) { const t = target(id), row = requests().games[t.key]; return Boolean(requestRow(id, 'sr') || row?._srManaged && samePath(row._srManaged.exe, t.exe)); }
+  // Once the new editor owns a game directory, never revive the old directory-
+  // based model writer, including after a safe EXE change. Requests stay EXE-bound.
+  async function hasSrRequest(id) { const t = target(id), row = requests().games[t.key]; return Boolean(row?.sr || row?._srManaged); }
   async function markSrManaged(t) { const state = requests(); state.games[t.key] = { ...(state.games[t.key] || {}), _srManaged: { exe: t.exe, managedAt: new Date().toISOString() } }; await saveRequests(state); }
   async function save(id, domain, input) {
     return serialize(async () => { const t = target(id), request = policy.validateRequest(domain, input), state = requests();
@@ -138,6 +155,7 @@ function createLaunchSettingsService(options = {}) {
     const t = target(id); await assertReady(id); await noLinks(t.exe);
     const saved = requestRow(id, domain), request = policy.validateRequest(domain, input || saved?.request);
     const currentReceipt = receipt(t), old = currentReceipt.applied[domain] || null, restoring = policy.isRestore(domain, request);
+    if (domain === 'fg' && !restoring && options.assertComponents) await options.assertComponents(id);
     if (old && !samePath(old.exe, t.exe)) fail('SETTINGS_EXE_CHANGED', '请先恢复原 EXE 的启动设置。');
     if (old && old.backend !== request.backend && !restoring) fail('SETTINGS_RESTORE_FIRST', '请先恢复当前设置后端。');
     const plan = { id: crypto.randomUUID(), expires: Date.now() + 120000, gameId: id, domain, request, backend: restoring && old ? old.backend : request.backend,
@@ -233,6 +251,7 @@ function createLaunchSettingsService(options = {}) {
       if (!plan.restoring && peBitness(t.exe) !== 64) fail('SETTINGS_EXE_INVALID', '启动设置只支持当前绑定的 Windows x64 游戏 EXE。');
       if (!plan.restoring && (!plan.exeHash || await digestFile(t.exe) !== plan.exeHash)) fail('SETTINGS_EXE_CHANGED', '游戏 EXE 在预览后改变。');
       await assertStopped(t);
+      if (plan.domain === 'fg' && !plan.restoring && options.assertComponents) await options.assertComponents(plan.gameId);
       if (plan.domain === 'sr' && legacySrModel?.migrationInfo) {
         const info = await legacySrModel.migrationInfo(plan.gameId);
         if (info?.baselineCaptured) {
@@ -246,7 +265,7 @@ function createLaunchSettingsService(options = {}) {
       const transactionId = crypto.randomUUID(); let result;
       try { result = await journal.transaction(t.dir, async () => {
         const metaFile = receiptFile(t); await journal.capture(t.dir, metaFile);
-        const currentReceipt = receipt(t);
+        const currentReceipt = receipt(t, { allowEmptyRebind: !plan.old && Object.keys(plan.receipt.applied).length === 0 });
         if (plan.change) {
           await journal.capture(t.dir, plan.change.file);
           if (await digestFile(plan.change.file) !== plan.change.beforeHash) fail('FILE_CHANGED', '配置在预览后改变。');
@@ -305,7 +324,7 @@ function createLaunchSettingsService(options = {}) {
     }
     return outcomes;
   }
-  return Object.freeze({ inspect, save, preview, apply, beforeLaunch, recover, restore, pending, assertReady, hasSrRequest,
+  return Object.freeze({ inspect, save, preview, apply, beforeLaunch, recover, restore, pending, assertReady, hasSrRequest, hasOwnedState,
     requestFile, receiptFile: id => receiptFile(target(id)), driverPendingFile: id => driverPendingFile(target(id)) });
 }
 

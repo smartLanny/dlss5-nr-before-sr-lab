@@ -40,7 +40,7 @@ function appError(code, details = {}) {
 
 function normalizeError(error) {
   const incoming = error && typeof error === 'object' ? error : {};
-  const launchError = /^(SETTINGS_|NVAPI_)[A-Z_]+$/.test(incoming.code || '') ||
+  const launchError = /^(SETTINGS_|NVAPI_|FG_)[A-Z_]+$/.test(incoming.code || '') ||
     ['EXE_REQUIRED', 'RECOVERY_FIRST', 'PLAN_EXPIRED', 'CONFIRM_REQUIRED', 'GAME_RUNNING', 'PROCESS_UNKNOWN',
       'FILE_CHANGED', 'WRITE_VERIFY_FAILED', 'BACKUP_INVALID', 'BACKUP_DAMAGED', 'STAGE_CHANGED', 'JOURNAL_INVALID',
       'AMBIGUOUS_INI', 'CONFLICTING_REQUEST', 'DUPLICATE_JSON_KEY', 'INVALID_INPUT', 'INVALID_JSON',

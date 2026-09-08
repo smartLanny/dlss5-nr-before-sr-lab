@@ -178,7 +178,7 @@ function renderVersionSelector() {
 
 function coreVersionLabel(id, item) {
   const raw = String(item && item.label || id);
-  const version = raw.match(/^(0\.[34]\.\d+(?:\.\d+)?(?:-hotfix\.\d+)?)/);
+  const version = raw.match(/^(0\.\d+\.\d+(?:\.\d+)?(?:-(?:hotfix|beta)\.\d+)?)/);
   if (version) return `${version[1]} · ${version[1].startsWith('0.3.') ? '稳定基线' : 'Beta'}`;
   return raw.replace(/(?:\s*[-–—]\s*|\s*[（(])(?:DXGI|DX11|DX12|DirectX\s*11|DirectX\s*12)\b.*$/i, '').trim() || String(id);
 }

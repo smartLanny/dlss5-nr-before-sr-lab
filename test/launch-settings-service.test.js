@@ -97,6 +97,21 @@ test('restore without an applied domain is a no-op and never probes a missing ba
   const f = fixture(t, { family: 'unknown' });
   assert.deepEqual(await f.service.restore('g', 'fg'), { applied: false, skipped: true, noOp: true, runtimeVerified: false });
 });
+test('after restore an EXE change can use the new editor without reviving the legacy writer', async t => {
+  const f = fixture(t);
+  await f.service.save('g', 'sr', { backend: 'native', quality: 'quality', preset: 'M' });
+  const plan = await f.service.preview('g', 'sr'); await f.service.apply(plan.id, { confirm: true });
+  await f.service.restore('g', 'sr');
+  const nextExe = path.join(f.exeDir, 'Other.exe'); fs.writeFileSync(nextExe, 'synthetic');
+  const next = createLaunchSettingsService({ userData: path.join(f.root, 'user'), appDir: f.root,
+    gameDirectory: () => f.game, gameExecutable: () => nextExe, driver: f.driver,
+    detectHardware: () => ({ family: 'RTX50', series: ['RTX50'] }), environment: async () => ({ verified: true, running: [] }), peBitness: () => 64 });
+  assert.deepEqual((await next.inspect('g')).applied, {});
+  assert.equal(await next.hasSrRequest('g'), true);
+  assert.deepEqual(await next.beforeLaunch('g'), []);
+  await next.save('g', 'sr', { backend: 'native', quality: 'balanced' });
+  assert.equal((await next.apply((await next.preview('g', 'sr')).id, { confirm: true })).applied, true);
+});
 
 test('official fixed and dynamic FG share the profile without overwriting native SR', async t => {
   const f = fixture(t);

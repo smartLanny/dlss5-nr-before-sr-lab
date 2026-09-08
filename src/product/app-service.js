@@ -326,6 +326,10 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     }),
     refresh,
     gameDirectory: id => findGame(id).dir,
+    gameScan: id => structuredClone(findGame(id).scan),
+    gamesInDirectory: dir => games.filter(game => pathKey(game.dir) === pathKey(dir)).map(game => ({
+      id: game.id, executable: game.scan?.chosen?.path || null
+    })),
     gameExecutable: id => {
       const game = findGame(id);
       return game.scan && game.scan.chosen ? game.scan.chosen.path : null;

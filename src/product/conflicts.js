@@ -13,6 +13,11 @@ function isProtectedName(name) {
 
 function classifyAddon(name, file) {
   const lower = name.toLowerCase();
+  // A pinned, separately managed FG menu is not an NR/NGX conflict. A name
+  // alone is never sufficient to exempt another DLL from conflict checks.
+  if (lower === 'rtx40mfg-ui.addon64' && file) {
+    try { if (sha256(file) === 'caec2ec46bba6fdae9ce0f525028e55d54df3b86d3bbffae820007ae9c26b010') return null; } catch {}
+  }
   if (/^(?:dlss5-native-carrier|r3-nr-native-neutral)(?:[-_.].*)?\.addon(?:32|64)?$/i.test(lower)) {
     return { category: 'native-carrier', reason: '旧版 DX11 Native Carrier' };
   }

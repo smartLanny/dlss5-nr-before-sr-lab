@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('manager', Object.freeze({
   applyLaunchSettings: (planId, consent) => invoke('launch-settings-apply', planId, consent),
   restoreLaunchSettings: (id, domain) => invoke('launch-settings-restore', id, domain),
   recoverLaunchSettings: id => invoke('launch-settings-recover', id),
+  prepareFgComponents: (id, options) => invoke('fg-components-prepare', id, options),
+  restoreFgComponents: id => invoke('fg-components-restore', id),
   readHotkeys: id => invoke('game-hotkeys-read', id),
   writeHotkey: (id, target, binding) => invoke('game-hotkey-write', id, target, binding),
   restoreDefault: id => invoke('nr-default', id),

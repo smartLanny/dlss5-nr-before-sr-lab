@@ -13,7 +13,7 @@ app.disableHardwareAcceleration();
 function installMock() {
   const ok = value => ({ ok: true, value: structuredClone(value) });
   const mock = window.__launchMock = {
-    data: { hardware: { family: 'RTX40', series: ['RTX40'], names: ['NVIDIA GeForce RTX 4090'], source: 'fixture' }, requests: {}, applied: {}, pending: [] },
+    data: { hardware: { family: 'RTX40', series: ['RTX40'], names: ['NVIDIA GeForce RTX 4090'], source: 'fixture' }, requests: {}, applied: {}, pending: [], fgComponents: { ready: true, canPrepare: false, missing: [], blockers: [] } },
     calls: [], plans: {}, failSave: false, failApply: false, blockPreview: false, listener: null
   };
   const game = { id: 'ui-fixture', name: 'SR / FG 界面验证', dir: 'C:\\UI-fixture\\游戏目录', installed: true, supported: true, launcher: '手动添加',
@@ -27,6 +27,8 @@ function installMock() {
     fetchGameIcon: async () => ok(null), fetchGameArt: async () => ok(null),
     onAddonImported: () => {}, onLaunchSettingsApplied: callback => { mock.listener = callback; },
     inspectLaunchSettings: async id => { mock.calls.push(['inspect', id]); return ok(mock.data); },
+    prepareFgComponents: async (id, options) => { mock.calls.push(['prepare-components', id, options]); mock.data.fgComponents = { route: 'compatibility', ready: true, managed: true, missing: [], blockers: [] }; return ok({ prepared: true }); },
+    restoreFgComponents: async id => { mock.calls.push(['restore-components', id]); delete mock.data.requests.fg; delete mock.data.applied.fg; mock.data.fgComponents = { route: 'native', ready: true, missing: [], blockers: [] }; return ok({ restored: true }); },
     saveLaunchSettings: async (id, domain, request) => {
       mock.calls.push(['save', id, domain, request]);
       if (mock.failSave) return { ok: false, error: { code: 'SETTINGS_TEST_SAVE', message: '模拟保存失败' } };
@@ -123,6 +125,11 @@ async function smoke() {
   await click('sr', 'save');
   assert(saved('sr').backend === 'optiscaler' && saved('sr').renderPercent === 75 && !('preset' in saved('sr')), 'OptiScaler uses only its owned ratio fields');
   await click('sr', 'restore');
+  mock.data.fgComponents = { route: 'compatibility', ready: false, canPrepare: true, missing: ['兼容插件', '加载器'], blockers: [] };
+  await controller.refresh();
+  assert(panel('fg').querySelector('[data-ls-action="prepare"]') && !field('fg', 'mode'), 'Missing RTX40 components expose preparation instead of unusable controls');
+  await click('fg', 'prepare');
+  assert(mock.data.fgComponents.ready && field('fg', 'mode'), 'Preparing the compatibility package enables FG settings');
   for (const series of ['RTX40', 'RTX50']) {
     await hardware(series);
     const expected = series === 'RTX40' ? 'rtx40' : 'nvidia';
@@ -186,6 +193,17 @@ app.whenReady().then(async () => {
   try {
     await win.loadFile(path.join(__dirname, '../src/renderer/index.html'));
     const result = await win.webContents.executeJavaScript(`(${smoke.toString()})()`);
+    if (['rtx50', 'rtx40-prepare'].includes(process.env.SRFG_UI_STATE)) {
+      const native = process.env.SRFG_UI_STATE === 'rtx50';
+      await win.webContents.executeJavaScript(`(async()=>{
+        const mock=window.__launchMock, host=document.querySelector('.launch-settings-host');
+        mock.data.hardware={family:${JSON.stringify(native ? 'RTX50' : 'RTX40')},series:[${JSON.stringify(native ? 'RTX50' : 'RTX40')}],names:[${JSON.stringify(native ? 'NVIDIA GeForce RTX 5090' : 'NVIDIA GeForce RTX 4090')}]};
+        mock.data.requests={}; mock.data.applied={};
+        mock.data.fgComponents=${JSON.stringify(native ? { route: 'native', ready: true, missing: [], blockers: [] } : { route: 'compatibility', ready: false, canPrepare: true, missing: ['RTX40MFGCore.dll', 'RTX40MFG.asi', 'RTX40MFG-UI.addon64', 'version.dll'], blockers: [] })};
+        await host.launchSettingsController.refresh(true);
+        const view=document.querySelector('.view.active');view.scrollTop+=host.getBoundingClientRect().top-view.getBoundingClientRect().top-12;
+      })()`);
+    }
     win.webContents.invalidate();
     await new Promise(resolve => setTimeout(resolve, 150));
     const screenshot = process.argv[2];

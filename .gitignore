@@ -10,3 +10,6 @@ Thumbs.db
 payload/nr-before-sr/*
 !payload/nr-before-sr/README.md
 !payload/nr-before-sr/bundle.example.json
+resources/fg-components/*.dll
+resources/fg-components/*.asi
+resources/fg-components/*.addon64

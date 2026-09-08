@@ -25,9 +25,21 @@ async function digestFile(file) {
   try { return sha256(await fs.readFile(file)); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
 async function atomicJson(file, value) {
+  await noLinks(file);
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.tmp`;
-  await fs.writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-  await fs.rename(temp, file);
+  const temp = `${file}.${crypto.randomUUID()}.tmp`;
+  let handle, created = false;
+  try {
+    handle = await fs.open(temp, 'wx', 0o600);
+    created = true;
+    await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    await handle.sync();
+    await handle.close(); handle = null;
+    await noLinks(file);
+    await fs.rename(temp, file);
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+    if (created) await fs.unlink(temp).catch(error => { if (error.code !== 'ENOENT') throw error; });
+  }
 }
 module.exports = { fail, sha256, inside, noLinks, digestFile, atomicJson };

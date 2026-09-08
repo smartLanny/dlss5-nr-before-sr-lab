@@ -9,12 +9,16 @@ const { createSrModelService } = require('./src/product/sr-model-service');
 const { createLaunchSettingsService } = require('./src/product/launch-settings-service');
 const { createLaunchCoordinator } = require('./src/product/launch-coordinator');
 const installGuards = require('./src/core/install-guards');
+const { createFgComponents } = require('./src/product/fg-components');
+const { classifyApi } = require('./src/product/game-support');
+const { requirePayload } = require('./src/product/payload');
 
 let win = null;
 let service = null;
 let srModel = null;
 let launchSettings = null;
 let launchCoordinator = null;
+let fgComponents = null;
 
 function isWindowsAdministrator() {
   if (process.platform !== 'win32') return true;
@@ -107,13 +111,14 @@ function registerIpc() {
     'game-toggle-d3d12', 'game-launch', 'game-diagnose', 'game-hotkeys-read',
     'game-hotkey-write', 'nr-read', 'nr-write', 'nr-default', 'nr-recommended',
     'sr-model-read', 'sr-model-write', 'feedback-export', 'launch-settings-inspect',
-    'launch-settings-save', 'launch-settings-preview', 'launch-settings-restore', 'launch-settings-recover'
+    'launch-settings-save', 'launch-settings-preview', 'launch-settings-restore', 'launch-settings-recover',
+    'fg-components-prepare', 'fg-components-restore'
   ]);
   const guardedActions = new Set(['game-install', 'game-repair', 'game-upgrade-addon', 'game-toggle-d3d12',
     'game-api-set', 'game-carrier-set', 'nr-write', 'nr-default', 'nr-recommended', 'game-hotkey-write']);
   const serializedActions = new Set([...guardedActions, 'game-launch', 'game-uninstall', 'game-dismiss',
     'game-confirm', 'settings-update', 'sr-model-write', 'launch-settings-save', 'launch-settings-preview',
-    'launch-settings-apply', 'launch-settings-restore', 'launch-settings-recover']);
+    'launch-settings-apply', 'launch-settings-restore', 'launch-settings-recover', 'fg-components-prepare', 'fg-components-restore']);
   const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => service.withError(
     () => {
       const work = async () => {
@@ -129,7 +134,7 @@ function registerIpc() {
   call('game-install', (id, options) => service.install(id, options));
   call('game-repair', (id, options) => service.repair(id, options));
   call('game-upgrade-addon', (id, version, options) => service.upgradeAddon(id, version, options));
-  call('game-dismiss', id => service.dismissGame(id));
+  call('game-dismiss', id => launchCoordinator.dismiss(id));
   call('game-api-set', (id, api, options) => service.setGameApi(id, api, options));
   call('game-carrier-set', (id, enabled, options) => service.setGameCarrier(id, enabled, options));
   call('game-toggle-d3d12', (id, enabled, options) => service.toggleD3D12(id, enabled === true, options));
@@ -150,12 +155,25 @@ function registerIpc() {
   call('nr-write', (id, patch) => service.writeNrSettings(id, patch));
   call('sr-model-read', id => srModel.read(id));
   call('sr-model-write', (id, selection) => launchCoordinator.writeLegacySr(id, selection));
-  call('launch-settings-inspect', id => launchSettings.inspect(id));
+  call('launch-settings-inspect', id => launchCoordinator.inspect(id));
   call('launch-settings-save', (id, domain, request) => launchSettings.save(id, domain, request));
   call('launch-settings-preview', (id, domain, request) => launchSettings.preview(id, domain, request));
   call('launch-settings-apply', (planId, consent) => launchSettings.apply(planId, { confirm: consent?.confirm === true }));
   call('launch-settings-restore', (id, domain) => launchSettings.restore(id, domain));
   call('launch-settings-recover', id => launchSettings.recover(id));
+  call('fg-components-prepare', async (id, options) => {
+    await launchSettings.assertReady(id);
+    const result = await fgComponents.prepare(id, { allowAntiCheat: options?.allowAntiCheat === true });
+    await service.refresh();
+    return result;
+  });
+  call('fg-components-restore', async id => {
+    await launchSettings.assertReady(id);
+    await launchSettings.restore(id, 'fg');
+    const result = await fgComponents.restore(id);
+    await service.refresh();
+    return result;
+  });
   call('game-hotkeys-read', id => service.readGameHotkeys(id));
   call('game-hotkey-write', (id, target, binding) => service.writeGameHotkey(id, target, binding));
   call('nr-default', id => service.applyDefault(id));
@@ -181,7 +199,7 @@ function registerIpc() {
     if (result.canceled || !result.filePaths[0]) return null;
     return service.prepareGameSelection(result.filePaths[0], result.filePaths[0]);
   });
-  call('game-confirm', selection => service.addManualSelection(selection));
+  call('game-confirm', selection => launchCoordinator.confirmSelection(selection));
   call('pick-game-icon', async () => {
     const result = await dialog.showOpenDialog(win, {
       properties: ['openFile'],
@@ -270,9 +288,34 @@ if (!shouldContinue) {
     launchSettings = createLaunchSettingsService({
       userData, resourcesPath: process.resourcesPath, appDir: __dirname,
       gameDirectory: id => service.gameDirectory(id),
-      gameExecutable: id => service.gameExecutable(id), legacySrModel: srModel
+      gameExecutable: id => service.gameExecutable(id), legacySrModel: srModel,
+      assertComponents: async id => {
+        const state = await fgComponents.inspect(id);
+        if (!state.ready) throw Object.assign(new Error(state.needsCleanup
+          ? '请先切换为原生帧生成路线，处理旧兼容组件。'
+          : '请先准备完整的帧生成兼容组件，再应用设置。'), { code: 'SETTINGS_COMPONENTS_NOT_READY' });
+      }
     });
-    launchCoordinator = createLaunchCoordinator({ service, settings: launchSettings, legacySrModel: srModel, guards: installGuards });
+    fgComponents = createFgComponents({
+      resourcesPath: process.resourcesPath, appDir: __dirname,
+      gameDirectory: id => service.gameDirectory(id), gameExecutable: id => service.gameExecutable(id),
+      scan: id => {
+        const scan = service.gameScan(id);
+        const live = rows => (rows || []).filter(row => row.bitness === 64 && fs.existsSync(row.path));
+        const streamline = live(scan.streamlineFiles).map(row => row.name.toLowerCase());
+        return { api: classifyApi(scan.chosen),
+          streamlineFg: streamline.includes('sl.dlss_g.dll') && streamline.some(name => ['sl.interposer.dll', 'sl.common.dll'].includes(name)),
+          reshadeAddon: Boolean(scan.reshade?.installed && scan.reshade?.addonSupport)
+        };
+      },
+      getReShadeSource: () => {
+        try {
+          const payload = requirePayload(service.payloadDir, 'RTX40');
+          return { file: payload.reshade.file, sha256: payload.reshade.expected };
+        } catch { return null; }
+      }
+    });
+    launchCoordinator = createLaunchCoordinator({ service, settings: launchSettings, legacySrModel: srModel, guards: installGuards, components: fgComponents });
     for (const file of addonArgs(process.argv)) {
       try { await service.importAddonFile(file); } catch {}
     }
