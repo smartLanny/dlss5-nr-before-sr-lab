@@ -102,6 +102,10 @@ bool FinishAfterSr(ID3D12GraphicsCommandList*, const NgxParams*, const FeatureRe
     return fault!=Fault::Finish;
 }
 void QuarantineAbortedRrTransactionLocked(ID3D12GraphicsCommandList*) { ++quarantines; }
+#define NR_EXTERNAL_PROVIDER_ENABLED 1
+namespace nr_external_provider_feedback {
+std::atomic<unsigned long long> owner_provider_id{0};
+}
 #include "../../src/interop/nr_rr_post_runtime.inl"
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -198,5 +202,19 @@ int main() {
             std::cerr<<c.name<<" mode="<<requested_mode<<": "<<e.what()<<'\n'; return 1;
         }
     }
-    std::cout<<"PASS 50 RR diagnostic/control-flow cases (test doubles; no D3D12/NGX/game execution)\n";
+    for (const auto next_fault : {Fault::None, Fault::Native}) {
+        fault=next_fault;
+        native_calls=scope_calls=prepare_calls=finish_calls=restores=quarantines=0;
+        lock_held=before_live=after_live=owner_released=false;
+        g_config={}; g_feature_tracking_uncertain=false; g_lifecycle_tracking_uncertain=false;
+        nr_external_provider_feedback::owner_provider_id=42;
+        ID3D12GraphicsCommandList list; NgxHandle handle; NgxParams params;
+        const auto result=ProcessRrPost(Original,&list,&handle,&params,nullptr,{&handle,13,7});
+        Require(native_calls==1 && result==(next_fault==Fault::Native ? -7 : 1),
+                "external owner must preserve exactly one native RR and its status");
+        Require(prepare_calls==0 && finish_calls==0 && scope_calls==0 && !lock_held,
+                "external owner must suppress second native NR before resource work");
+    }
+    nr_external_provider_feedback::owner_provider_id=0;
+    std::cout<<"PASS 50 RR diagnostic/control-flow cases plus external owner passthrough (test doubles; no D3D12/NGX/game execution)\n";
 }

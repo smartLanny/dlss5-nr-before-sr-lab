@@ -16,7 +16,8 @@ def once(text: str, old: str, new: str) -> str:
 
 def patch_core(text: str, feedback_text: str | None = None) -> str:
     text = once(text, '#include "MinHook.h"',
-                '#include "MinHook.h"\n#include "interop/nr_external_provider_feedback.h"')
+                '#include "MinHook.h"\n#define NR_EXTERNAL_PROVIDER_ENABLED 1\n'
+                '#include "interop/nr_external_provider_feedback.h"')
     text = once(text,
         '    // A disabled add-on must be indistinguishable from an unloaded add-on on\n',
         '    if (nr_external_provider_feedback::owner_provider_id.load(\n'

@@ -30,6 +30,16 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
         SetBypassReason(BypassReason::Feature1TransactionBusy);
         return original(command_list,handle,params,callback);
     }
+#if defined(NR_EXTERNAL_PROVIDER_ENABLED)
+    // Claim publishes under g_chain_cs. Recheck here, not only before locking:
+    // external ownership suppresses native NR for RR just as it does for SR.
+    // Native RR itself still executes exactly once and retains its return code.
+    if (nr_external_provider_feedback::owner_provider_id.load(
+            std::memory_order_acquire) != 0) {
+        LeaveCriticalSection(&g_chain_cs); ownership.Release();
+        return original(command_list,handle,params,callback);
+    }
+#endif
     const bool eligible=g_config.enabled && nr_post_settings::Read().rr &&
         !OtherNrOwnerActive() && !g_feature_tracking_uncertain.load(std::memory_order_acquire) &&
         !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) &&

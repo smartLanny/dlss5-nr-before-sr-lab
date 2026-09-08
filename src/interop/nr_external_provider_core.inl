@@ -518,6 +518,13 @@ inline EvaluateResult EvaluateExternalFrame(const NrExternalFrameV1 &frame,
     feature.handle = handle;
     feature.generation = generation;
 
+    // Use the existing native transaction gate before the chain lock. This
+    // serializes real RR Create/Evaluate with external NR recording as well.
+    ScopedRrOwnershipGate ownership(true, true, true);
+    if (!ownership.acquired() || ownership.is_nested()) {
+        result.reason = NrExternalProviderReason::Busy;
+        return result;
+    }
     EnterCriticalSection(&g_chain_cs);
     // Recheck mutable controls under the same lock used by native NR admission.
     if (!g_config.enabled || ActiveTransferStrength(g_config) <= 0.000001f ||
@@ -657,7 +664,27 @@ inline EvaluateResult EvaluateExternalFrame(const NrExternalFrameV1 &frame,
     substitution.native_output_snapshot = slot->snapshots_native_output;
     slot->result_state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 
+    if (ownership.transaction_aborted() ||
+        g_feature_tracking_uncertain.load(std::memory_order_acquire) ||
+        g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+        QuarantineAbortedRrTransactionLocked(list);
+        RestoreOutputState(list, frame, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        LeaveCriticalSection(&g_chain_cs);
+        result.reason = NrExternalProviderReason::ObserverUncertain;
+        return result;
+    }
     const bool transferred = FinishAfterSr(list, nullptr, feature, substitution);
+    if (ownership.transaction_aborted() ||
+        g_feature_tracking_uncertain.load(std::memory_order_acquire) ||
+        g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+        // Preserve recorded resources until their real completion; do not
+        // report an interrupted transaction as usable NR output.
+        QuarantineAbortedRrTransactionLocked(list);
+        RestoreOutputState(list, frame, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        LeaveCriticalSection(&g_chain_cs);
+        result.reason = NrExternalProviderReason::ObserverUncertain;
+        return result;
+    }
     if (transferred) {
         RestoreOutputState(list, frame, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         LeaveCriticalSection(&g_chain_cs);
