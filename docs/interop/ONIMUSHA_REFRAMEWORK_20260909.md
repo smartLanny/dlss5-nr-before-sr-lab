@@ -67,3 +67,8 @@ configuration locations and updates both verified Core copies; its restore
 returns to the owner-tested 0.4.6 combination while retaining the framework.
 The owner subsequently confirmed dev15 scene entry, menu and F6 all pass. The observed counters show 26,981 NR successes and 26,953 submissions with zero lifecycle bypasses or actual queue mismatches;
 both recorded routes retired through completed fences on normal exit. This remains one owner/game configuration rather than a wider performance matrix.
+
+The owner also reported dev16 testing passed after the route-block/defaults update.
+Both installed Core copies match `d38400472424cc52883a154e0995a4ddd552ab3d90afa4aa5ccf19693c34e8af`
+and the framework identity is unchanged. No new per-route counters or performance
+measurements were supplied with that report; see the [dev16 record](DEV16_ROUTES_DEFAULTS_20260909.md).
