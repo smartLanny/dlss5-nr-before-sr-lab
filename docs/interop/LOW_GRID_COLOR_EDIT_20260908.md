@@ -63,3 +63,26 @@ repeat either GPU run or claim that Catmull reconstructs colour.
 and one per-slot sum for field + horizontal restore + Lanczos input, including
 create-before-release overlap. The resulting 64 MiB slot and 256 MiB Core caps
 therefore cover all three optional planes together.
+
+The three-slice production merge is
+`bab376699fb609f35c615c1333917e2a6e540d6a`. Its generated dev7 source is
+`C:\Users\pc1\Documents\ChatGPT\DLSS5\beta050-084-086-integration-20260908`;
+the 103-entry manifest has SHA-256
+`375722b279322eb5e1fff3d7b17b1895894a7c225ec5fdf11761b68834f91d1e`
+with zero mismatches, and its transformed Core source SHA-256 is
+`32c6fa500806f6867d50b83e7c8afa3bd8a6a0f87d39053cfb9f80b26b67eab9`.
+All eleven SM5 entries and bilingual Core linked. English Core SHA-256 is
+`4af2c4b2543bb6ece599a56035cad6c512edfb14dc2877a1b7cbeda1e10519d4`;
+Chinese Core is
+`4442e8fa20a3f9bb2c7389ec77c372581a1657dd646af40c98e695dc1d6fcb4b`.
+
+One combined WARP fixture passed 13 groups: eight all-off byte comparisons to
+dev6, one RG luma field, one colour-zero RG + Catmull path, one RGBA opponent
+colour path, one finite Lanczos input/prefix test, and one unknown-domain
+invalid-input protection test. The Lanczos fixture stops at Proxy and does not
+read old Neural or represent a real NR result. The runner then unintentionally
+fell through into its existing default matrix because the new branch lacked a
+`return`; that additional descriptor/motion/boost/layer/codec matrix also
+passed. Commit `96057b355d6675533aec195c1e05e4617ab9e87e` fixes the runner without
+another GPU execution. No 200/80/30 raw export was repeated. Private logs are
+under `evidence\low-grid-integration-bab3766-20260908`.
