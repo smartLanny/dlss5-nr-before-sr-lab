@@ -5,7 +5,7 @@ constexpr unsigned kFrames = 16, kSlots = 17, kGroups = 7;
 constexpr unsigned kCurrentRoiFrames = 3, kMatrixRoiFrames = 2, kRoiSide = 512;
 enum class Status { Idle, Requested, Running, Packaging, Complete, Partial, Failed };
 enum class Comparison { ShareMatrix, Current, Strength, Protection, Jitter };
-struct Options { Comparison comparison = Comparison::Current; bool custom_roi = false; unsigned x = 0, y = 0; };
+struct Options { Comparison comparison = Comparison::Current; bool custom_roi = false; unsigned x = 0, y = 0; bool full_screen = false; };
 struct Frame {
     NrStageCaptureInfo info = {};
     NrCaptureParams params = {};
@@ -101,6 +101,9 @@ bool RequestWithOptions(const Options &options) {
     ReleaseSRWLockExclusive(&g_control);
     return accepted;
 }
+bool RequestFullscreen(Comparison kind = Comparison::Current) {
+    return RequestWithOptions({kind, false, 0, 0, true});
+}
 ChainConfig GroupConfig(const ChainConfig &base, Comparison kind, unsigned index) {
     ChainConfig c=base;
     if (kind==Comparison::ShareMatrix) {
@@ -141,7 +144,7 @@ bool ReserveFrame(NrStageCaptureInfo &info, const NrCaptureParams &params, Frame
     if (g_status.load()!=Status::Running || !TryAcquireSRWLockExclusive(&g_lock)) return false;
     Session *s=g_session;
     bool accepted=false;
-    if (s && s->group<s->group_count) {
+    if (s && !s->options.full_screen && s->group<s->group_count) {
         Group &g=s->groups[s->group];
         if (g.applied && g.requested.enabled && !g.sealed &&
             GetTickCount64()-g.started>=3000 && info.identity.warmed_up &&
@@ -312,6 +315,8 @@ DWORD WINAPI PackageWorker(void *opaque) {
     for(unsigned i=0;i<s->group_count;++i)complete=Complete(s->groups[i]) && complete;
     FeedbackAppend(s->activity,"format=DLSS5-F8-v4\nsession=%llu\ncomparison=%u\ngroups=%u\ncapture.complete=%d\nconfig.restored=%d\npostConfig.restored=%d\nconfig.writesToIni=0\ncapture.order=sequential; keep the scene and camera fixed\ncapture.sameFrameClaim=0\nnativeSrOutput=not-obtained\nmvDepthPixels=not-obtained; resource read contract unavailable\nmotionProtection=unavailable\npayloadBytes=%llu\ngpuBudgetBytes=%llu\ncpuBudgetBytes=%llu\n",
         s->id,static_cast<unsigned>(s->options.comparison),s->group_count,complete,s->restored,s->post_restored,s->payload_bytes,nr_f8_budget::kGpuLimit,nr_f8_budget::kCpuLimit);
+    FeedbackAppend(s->activity,"capture.fullScreen=%d\ncapture.displayFile=original-runtime-screenshot; no crop or resize\ncapture.gpuPlanes=%s\n",
+        s->options.full_screen, s->options.full_screen?"not-requested":"bounded-ROI-and-optional-overview");
     auto *job=nr_bundle::CreateJob(s->directory,s->activity.report);
     if(job) {
         nr_bundle::AddFile(*job,g_log_path,"logs/nr-current.log",nr_bundle::FileKind::LogTail,true);
@@ -336,7 +341,8 @@ DWORD WINAPI PackageWorker(void *opaque) {
             std::fprintf(file,"DLSS5 %s 本地采集 / local capture\n完整采集=%d；原设置恢复=%d；不自动上传。\n默认仅采当前状态，不启用NR也不切换模式。只有用户选择对比时临时切换。\n\n",kBuildIdentity,complete,s->restored);
             for(unsigned i=0;i<s->group_count;++i){const auto &g=s->groups[i];unsigned valid=0;for(unsigned f=0;f<g.count;++f)valid+=g.frames[f].valid;
                 std::fprintf(file,"Group %u: requestedMode=%d expectedCaptureMode=%d rrAtStart=%d enabled=%d requestedStrength=%.4g actualStrength=%.4g requestedPostPercent=%u actualPostPercent=%u ROI=%u/%u roiSide=%u overview=%d screenshotPresent=%llu complete=%d reason=%s\n",i,g.requested.mode,g.expected_mode,g.rr_at_start,g.requested.enabled,ActiveTransferStrength(g.requested),ActiveTransferStrength(g.actual),g.requested_post_percent,g.actual_post_percent,valid,g.roi_target,kRoiSide,g.overview_reserved&&g.frames[kFrames].valid,g.shot_present,Complete(g),g.reason);}
-            std::fprintf(file,"\n分块格式 F8CHK004：头中的roiTarget记录本组目标（当前采集3帧，分享矩阵2帧）；ROI索引从0连续，16仅供当前采集的独立概览。原图/代理/NR/合成/保护五平面是同一次Combine dispatch的512原像素ROI；曝光尾部写入每条JSON。代理/NR按合成时工作网格映射采样。缺失帧保留元数据而不是拼接。\n截图是之后的独立Present，各组也是顺序采集；它们不是同一帧最终SR证据。采集期间需保持场景与镜头。原生最终SR纹理、MV/Depth像素未取得，不能验证时域重投影。\n保护数据RGBA=权重、原因位、原始log残差、空间保护后log残差；原因1低采样/2细碎不一致/4近黑/8极端比值/16关闭/32输入无效/64零强度/128历史抑制/256无残差/512后置细节/边缘空间权重不可用（lightingLock按独立亮度保护生效）。这是空间保护，不是人脸/HUD识别，也不证明运动保护。\n每帧JSON含完整请求/实际参数、codecFlags、曝光有效性、jitter、MV比例与实际模型tuning；请在相同颜色域分析，不独立归一化或用均值替代画质。部分包请检查manifest缺失原因。\n");
+            if(!s->options.full_screen)std::fprintf(file,"\n分块格式 F8CHK004：头中的roiTarget记录本组目标（当前采集3帧，分享矩阵2帧）；ROI索引从0连续，16仅供当前采集的独立概览。原图/代理/NR/合成/保护五平面是同一次Combine dispatch的512原像素ROI；曝光尾部写入每条JSON。代理/NR按合成时工作网格映射采样。缺失帧保留元数据而不是拼接。\n截图是之后的独立Present，各组也是顺序采集；它们不是同一帧最终SR证据。采集期间需保持场景与镜头。原生最终SR纹理、MV/Depth像素未取得，不能验证时域重投影。\n保护数据RGBA=权重、原因位、原始log残差、空间保护后log残差；原因1低采样/2细碎不一致/4近黑/8极端比值/16关闭/32输入无效/64零强度/128历史抑制/256无残差/512后置细节/边缘空间权重不可用（lightingLock按独立亮度保护生效）。这是空间保护，不是人脸/HUD识别，也不证明运动保护。\n每帧JSON含完整请求/实际参数、codecFlags、曝光有效性、jitter、MV比例与实际模型tuning；请在相同颜色域分析，不独立归一化或用均值替代画质。部分包请检查manifest缺失原因。\n");
+            if(s->options.full_screen)std::fprintf(file,"\n全屏原图：每组保存 ReShade 提供的完整截图文件，不裁切、不缩小。配置快照见各组 settings.json；actual 是已应用设置，不代表模型已执行。截图按顺序取得，各组不是同一帧。没有采集内部 GPU 平面，不能据此证明人脸遮罩或 NR 已执行。\nFull-screen display screenshots retain their original bytes; no GPU planes or same-frame comparison.\n");
             const bool ok=std::ferror(file)==0;std::fclose(file);
             if(ok){nr_bundle::AddFile(*job,path,"capture-analysis.txt",nr_bundle::FileKind::Copy,true);
                 nr_bundle::AddFile(*job,path,"分析说明.txt",nr_bundle::FileKind::Copy,true);}
@@ -353,6 +359,16 @@ DWORD WINAPI PackageWorker(void *opaque) {
                 if(WriteChunk(path,*s,i,chunk))nr_bundle::AddFile(*job,path,name,nr_bundle::FileKind::Copy,true);
                 else nr_bundle::AddMissing(*job,name,"chunk stream failed or exceeded 64 MiB",true);
             }
+            JsonBuffer settings;
+            settings.Append("{\"schema\":1,\"group\":%u,\"configGeneration\":%u,\"expectedMode\":%d,\"rrAtStart\":%d,\"requestedPostPercent\":%u,\"actualPostPercent\":%u,\"snapshotMeaning\":\"applied-settings-at-group-start; not execution proof\"",i,g.generation,g.expected_mode,g.rr_at_start,g.requested_post_percent,g.actual_post_percent);
+            ConfigJson(settings,"requested",g.requested);ConfigJson(settings,"actual",g.actual);settings.Append("}\n");
+            swprintf_s(path,L"%ls\\group-%u-settings.json",s->directory,i);
+            std::snprintf(name,sizeof(name),"groups/%u/settings.json",i);
+            file=nullptr;_wfopen_s(&file,path,L"wb");
+            bool settings_ok=false;
+            if(file){settings_ok=settings.ok && std::fwrite(settings.data,1,settings.used,file)==settings.used;settings_ok=std::fclose(file)==0 && settings_ok;}
+            if(settings_ok)nr_bundle::AddFile(*job,path,name,nr_bundle::FileKind::Copy,true);
+            else nr_bundle::AddMissing(*job,name,"group settings write failed",true);
             const wchar_t *extension=wcsrchr(g.screenshot,L'.');char ext[16]={};
             if(extension)WideToUtf8(extension,ext,sizeof(ext));
             std::snprintf(name,sizeof(name),"groups/%u/display%s",i,ext[0]?ext:".missing");
@@ -389,8 +405,9 @@ void StartGroup(Session &s) {
     g.requested_post_percent=requested_post;g.actual_post_percent=actual_post.percent;
     g.rr_at_start=IsRayReconstructionRouteObserved();
     g.expected_mode=s.options.comparison==Comparison::Current && g.rr_at_start?1:requested.mode;
-    g.roi_target=s.options.comparison==Comparison::Current?kCurrentRoiFrames:kMatrixRoiFrames;
-    g.overview_target=s.options.comparison==Comparison::Current;
+    g.roi_target=s.options.full_screen?0:s.options.comparison==Comparison::Current?kCurrentRoiFrames:kMatrixRoiFrames;
+    g.overview_target=!s.options.full_screen && s.options.comparison==Comparison::Current;
+    g.sealed=s.options.full_screen; // Full display images do not request raw GPU planes.
     g.applied=rr_pre_skip || (post_applied && SameConfig(requested,actual) &&
         (!requested.enabled || !group_uses_post || actual_post.percent==requested_post));g.started=GetTickCount64();
     if(rr_pre_skip)Break(g,"NR -> SR comparison skipped: Ray Reconstruction is active; only post-RR ordering may be sampled");
@@ -546,17 +563,11 @@ void DrawControls() {
     F8Tooltip(use_chinese_ui?"用于不生效、旁路和兼容性。成功写完一个带时间、游戏、版本名的 TXT 后自动复制文件路径；不复制正文、不生成 ZIP、不采图片、不改设置。TXT 上限 192 KiB。":"For bypass and compatibility issues. After one named TXT is written successfully, its file path is copied automatically. No report text, ZIP, images or setting changes. Bounded report ceiling: 192 KiB.");
     ImGui::EndDisabled();
     if(!busy) {
-        static int x=0,y=0,key=VK_F8;static bool custom=false;
-        if(ImGui::Button(use_chinese_ui?"采集图像补充包（F7，仅画面异常）":"Capture image supplement (F7, visual issues only)"))RequestWithOptions({Comparison::Current,false,0,0});
-        F8Tooltip(use_chinese_ui?"当前设置采集使用三个连续 512×512 ROI、一个概览和一张独立显示截图；不改变设置。":"Current-state capture uses three consecutive 512x512 ROIs, one overview and a separate display screenshot without changing settings.");
-        if(ImGui::TreeNode(use_chinese_ui?"顺序画面对比与区域设置":"Sequential picture comparison and region")) {
-        ImGui::Checkbox(use_chinese_ui?"指定问题位置（原图像素）":"Custom source-pixel region",&custom);
-        if(custom){ImGui::InputInt("X",&x);ImGui::InputInt("Y",&y);}else ImGui::TextDisabled("%s",use_chinese_ui?"默认中央 512×512 原像素区域":"Default: central 512 x 512 native pixels");
-        if(ImGui::Button(use_chinese_ui?"当前设置 512 对照":"Current 512 capture"))RequestWithOptions({Comparison::Current,custom,static_cast<unsigned>(std::max(x,0)),static_cast<unsigned>(std::max(y,0))});
-        if(ImGui::Button(use_chinese_ui?"一键分享七组对比":"Capture seven-group share matrix"))RequestWithOptions({Comparison::ShareMatrix,custom,static_cast<unsigned>(std::max(x,0)),static_cast<unsigned>(std::max(y,0))});
-        F8Tooltip(use_chinese_ui?"依次采原生、NR→SR 50/75/100、SR→NR 50/75/100；每组两个 512 ROI 和一张独立截图。它们不是同一帧，采集期间请保持场景与镜头。RR 活跃时跳过所有前置组。结束、取消或失败都会恢复原设置。":"Sequentially captures native, NR-to-SR 50/75/100, and SR-to-NR 50/75/100 with two 512 ROIs and a separate screenshot per group. These are not the same frame; keep the scene and camera fixed. Active RR skips every pre-SR group. Completion, cancellation and failure restore the original settings.");
-        ImGui::TreePop();
-        }
+        static int key=VK_F8;
+        if(ImGui::Button(use_chinese_ui?"采集全屏原图（F7）":"Capture full-screen original (F7)"))RequestFullscreen();
+        F8Tooltip(use_chinese_ui?"保存当前完整游戏画面，不裁切、不缩小。":"Save the entire game view without cropping or resizing.");
+        if(ImGui::Button(use_chinese_ui?"七组画面对比：全屏原图":"Seven-group full-screen comparison"))RequestFullscreen(Comparison::ShareMatrix);
+        F8Tooltip(use_chinese_ui?"依次保存关闭 NR、NR→SR 50/75/100、SR→NR 50/75/100。保持镜头不动，完成或取消后恢复设置。开启 RR 时跳过 NR→SR。":"Capture NR off, NR-before-SR 50/75/100 and SR-before-NR 50/75/100 in order. Keep the camera still. Original settings are restored. RR skips NR-before-SR groups.");
         if(ImGui::TreeNode(use_chinese_ui?"快捷键设置":"Shortcut")) {
             key=static_cast<int>(g_hotkey.load());
             if(ImGui::SliderInt(use_chinese_ui?"功能键":"Function key",&key,VK_F1,VK_F12,"%d"))g_hotkey.store(nr_feedback_text::CoreHotkey(static_cast<unsigned>(key)));
@@ -568,7 +579,7 @@ void DrawControls() {
         }
     } else {
         AcquireSRWLockShared(&g_lock);
-        if(g_session){const auto &s=*g_session;const auto &g=s.groups[s.group];ImGui::Text(use_chinese_ui?"第 %u/%u 组，已记录 %u/%u 个 512 ROI，后台取得 %u 项":"Group %u/%u, recorded %u/%u 512 ROIs, delivered %u items",s.group+1,s.group_count,g.count,g.roi_target,g.delivered);}
+        if(g_session){const auto &s=*g_session;const auto &g=s.groups[s.group];ImGui::Text(use_chinese_ui?"第 %u/%u 组，截图%s":"Group %u/%u, screenshot %s",s.group+1,s.group_count,g.shot_received?(use_chinese_ui?"已保存":"saved"):(use_chinese_ui?"等待中":"pending"));}
         ReleaseSRWLockShared(&g_lock);
         if(IsActive() && ImGui::Button(use_chinese_ui?"取消并恢复设置":"Cancel and restore"))Cancel();
     }

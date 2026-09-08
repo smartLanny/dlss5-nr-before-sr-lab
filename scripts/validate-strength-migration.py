@@ -35,8 +35,12 @@ harness = r'''
 #include <cstdio>
 #include <cwchar>
 #include <iterator>
+#include "nr_work_config.h"
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 CONFIG
+const nr_work_config::Request work_request{};
+bool new_work_file=false, g_work_config_loaded=false;
+void PersistWorkControl(nr_work_config::Work, bool) {}
 wchar_t g_ini_path[MAX_PATH]{};
 std::atomic<unsigned long> g_config_persistence_error{0};
 std::atomic<bool> g_config_persistence_failed{false};
@@ -59,9 +63,9 @@ int main() {
         fixture(version,mode,mode==2?L"0":L"1",mode==1?L"0":L"1");
         auto c=Load(); check(c.transfer_strength==0,"legacy active mode preserves zero");
         check(c.post_transfer_strength==0,"canonical mirror preserves zero");
-        check(c.mode==(version<4?2:mode),"mode migration remains independent");
+        check(c.mode==mode,"saved front/post preference survives legacy metadata upgrade");
         check(GetPrivateProfileIntW(L"NRBeforeSR",L"StrengthConfigVersion",0,g_ini_path)==1,"independent marker persisted");
-        c=Load(); check(c.transfer_strength==0,"restart retains migrated zero after mode migration");
+        c=Load(); check(c.mode==mode,"restart preserves chosen processing order"); check(c.transfer_strength==0,"restart retains migrated zero after mode migration");
     }
     fixture(4,1,L"0",L"1",L"1"); check(Load().transfer_strength==0,"canonical zero wins over stale post field");
     fixture(4,1,L"1.6",L"0.3",L"1"); check(Load().transfer_strength==1.6f,"canonical wins regardless of mode");
@@ -74,6 +78,10 @@ int main() {
     check(Load().color_strength==1.f,"missing colour uses current installation default");
     put(L"ColorStrength",L"0"); check(Load().color_strength==0,"saved zero colour is preserved");
     DeleteFileW(g_ini_path);
+    check(Load().mode==2 && Load().enabled,"missing configuration defaults enabled NR before SR");
+    put(L"Enabled",L"0"); check(!Load().enabled && !Load().enabled,"saved disabled choice survives reload");
+    put(L"Mode",L"0"); check(Load().mode==2,"invalid processing mode defaults before SR");
+    DeleteFileW(g_ini_path);
     std::printf("actual Win32 INI strength migration: %d checks / %d failures\n",checks,failures);
     return failures?1:0;
 }
@@ -81,5 +89,5 @@ int main() {
 with tempfile.TemporaryDirectory(prefix='nr-strength-ini-') as td:
     cpp, exe = Path(td)/'migration.cpp', Path(td)/'migration.exe'
     cpp.write_text(harness,encoding='utf-8')
-    subprocess.run([a.compiler,'-std=c++20','-O0','-static',str(cpp),'-o',str(exe)],check=True)
+    subprocess.run([a.compiler,'-std=c++20','-O0','-static','-I',str(root/'src'),str(cpp),'-o',str(exe)],check=True)
     subprocess.run([str(exe)],check=True)

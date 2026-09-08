@@ -56,7 +56,7 @@ const ModuleIdentity &EnsureRuntimeIdentityOnWorker(){static ModuleIdentity valu
 unsigned StageCaptureStatus(){return stage_status;}
 bool IsRayReconstructionRouteObserved(){return rr;}
 bool ApplyConfig(ChainConfig c,const char *,bool persist){if(persist)std::abort();++config_calls;if(SameConfig(c,config))return false;config=c;++g_config_generation;return true;}
-ChainConfig SnapshotConfig(){return config;}
+
 bool FeedbackCreateDirectory(wchar_t (&p)[1024]){swprintf_s(p,L"%ls\\session-%u",output_root.c_str(),++dir_count);return CreateDirectoryW(p,nullptr)!=FALSE;}
 void FeedbackAddLogBeside(nr_bundle::Job &j,const wchar_t *,const wchar_t *,const char *name,bool required){nr_bundle::AddFile(j,g_log_path,name,nr_bundle::FileKind::LogTail,required);}
 void FeedbackAddModules(nr_bundle::Job &,FeedbackSession &s){FeedbackAppend(s,"fixture.modules=unavailable\n");}
@@ -65,6 +65,23 @@ struct Work{DWORD (WINAPI *fn)(void *);void *arg;};std::vector<Work> queued;
 BOOL TestQueue(DWORD (WINAPI *fn)(void *),void *arg,ULONG){if(queue_fail){queue_fail=false;return FALSE;}queued.push_back({fn,arg});return TRUE;}
 BOOL TestPin(DWORD,LPCWSTR,HMODULE *p){*p=GetModuleHandleW(nullptr);return !pin_fail;}
 #define GetTickCount64() test_clock
+// Keep the production ReloadConfig entrance and both snapshot callers. Only
+// the INI backend is a controlled disk value, making 500-ms overwrites visible.
+namespace nr_f8 { extern std::atomic<bool> g_config_hold; }
+ChainConfig &g_config=config;
+ChainConfig disk_config{};
+bool simulate_disk_poll=false;
+std::atomic<bool> g_config_persistence_failed{false};
+ULONGLONG g_config_read_tick=0;
+std::atomic<ULONGLONG> g_next_config_poll_tick{0};
+CRITICAL_SECTION g_chain_cs;
+struct ChainLockInit { ChainLockInit(){InitializeCriticalSection(&g_chain_cs);} ~ChainLockInit(){DeleteCriticalSection(&g_chain_cs);} } chain_lock_init;
+RELOAD_ENTRY
+    if(simulate_disk_poll && !SameConfig(config,disk_config)) {config=disk_config;++g_config_generation;}
+}
+CONFIG_SNAPSHOT
+OVERLAY_SNAPSHOT_TYPE
+OVERLAY_SNAPSHOT
 #define QueueUserWorkItem TestQueue
 #define GetModuleHandleExW TestPin
 #include "nr_feedback_text.h"
@@ -84,7 +101,7 @@ using namespace nr_f8;
 unsigned checks=0;
 void Check(bool ok,const char *why){++checks;if(!ok){std::fprintf(stderr,"FAIL: %s\n",why);std::exit(1);}}
 void Drain(){while(!queued.empty()){auto w=queued.front();queued.erase(queued.begin());if(w.fn!=Watchdog)w.fn(w.arg);}}
-void Reset(){Drain();Check(!g_session,"previous session is detached");g_status.store(Status::Idle);g_cancel=false;g_config_hold=false;stage_status=0;rr=false;g_shortfuse_nr_enabled=false;config_calls=0;nr_post_settings::capture_calls=0;nr_post_settings::current={true,100};nr_core_feedback::cancel_calls=0;config={};NormalizeConfig(config);g_config_generation=1;test_clock+=100000;}
+void Reset(){simulate_disk_poll=false;g_config_read_tick=0;Drain();Check(!g_session,"previous session is detached");g_status.store(Status::Idle);g_cancel=false;g_config_hold=false;stage_status=0;rr=false;g_shortfuse_nr_enabled=false;config_calls=0;nr_post_settings::capture_calls=0;nr_post_settings::current={true,100};nr_core_feedback::cancel_calls=0;config={};NormalizeConfig(config);g_config_generation=1;test_clock+=100000;}
 void Start(reshade::api::effect_runtime &r,Comparison kind=Comparison::Current){Check(RequestWithOptions({kind,false,0,0}),"request accepted");Present(&r);Check(g_session && g_status==Status::Running,"production Present starts session");}
 void Shot(reshade::api::effect_runtime &r){
     std::wstring path=output_root+L"\\shot_"+std::wstring(r.tag.begin(),r.tag.end())+L".png";
@@ -107,6 +124,37 @@ void DeliverFrame(unsigned long long frame,unsigned width=3840,unsigned height=2
     RawReady(t,n,resource,bytes,true);Drain();
 }
 void FinishOff(reshade::api::effect_runtime &r){test_clock+=3100;Present(&r);Shot(r);Present(&r);Drain();}
+void TestFullscreen(){
+    for(const auto kind:{Comparison::Current,Comparison::ShareMatrix})for(float skin:{0.f,2.f}) {
+        Reset();config.enabled=true;config.mode=1;config.auto_mask=true;config.skin_structure=skin;
+        disk_config=config;simulate_disk_poll=true;const auto original=config;
+        reshade::api::effect_runtime r;
+        Check(RequestFullscreen(kind),"public full-screen request accepted");Present(&r);
+        const unsigned groups=kind==Comparison::Current?1:7;
+        for(unsigned i=0;i<groups;++i) {
+            Check(g_session&&g_session->group==i,"full-screen group order");
+            Check(g_session->options.full_screen&&g_session->groups[i].roi_target==0&&
+                  !g_session->groups[i].overview_target,"full screen requires no center ROI or small overview");
+            test_clock+=3100;
+            const auto before=config;const auto generation=g_config_generation.load();
+            Check(SameConfig(SnapshotConfig(),before)&&SameConfig(SnapshotOverlayConfig().config,before)&&
+                  g_config_generation==generation,"overlay cannot reload disk during full-screen comparison");
+            Check(config.skin_structure==skin&&config.auto_mask,"full-screen groups retain requested face setting");
+            auto info=Info(100+i,3840,2160);NrCaptureParams params{};FrameTicket ticket{};
+            Check(!ReserveFrame(info,params,ticket),"full-screen path cannot allocate raw ROI readback");
+            Present(&r);
+            const std::wstring path=output_root+L"\\full_"+std::wstring(r.tag.begin(),r.tag.end())+L".png";
+            Check(CopyFileW((output_root+L"\\..\\native-display.png").c_str(),path.c_str(),TRUE)!=FALSE,"copy original full-resolution runtime fixture");
+            char utf8[4096]{};WideToUtf8(path.c_str(),utf8,sizeof(utf8));Screenshot(&r,utf8);
+            Check(g_session->groups[i].shot_received,"full-screen callback accepted");Present(&r);
+        }
+        Drain();Check(g_status==Status::Complete&&SameConfig(config,original)&&!g_config_hold,
+                      "full-screen complete restores settings and releases hold");
+        Check(!nr_f8_budget::gpu_bytes&&!nr_f8_budget::cpu_bytes,"full-screen path has zero raw GPU and CPU allocation");
+        const auto dest=output_root+L"\\fullscreen-"+std::to_wstring(groups)+L"-"+std::to_wstring(static_cast<int>(skin))+L".zip";
+        Check(CopyFileW(g_last_zip,dest.c_str(),TRUE)!=FALSE,"publish full-screen archive fixture");
+    }
+}
 void TestDefaultsAndPictures(){
     Reset();Check(Options{}.comparison==Comparison::Current,"default is current");config.enabled=false;reshade::api::effect_runtime r;
     Check(RequestWithOptions({}),"request accepted before Present");Cancel();
@@ -139,11 +187,19 @@ void TestContinuous(unsigned width,unsigned height){
 void CompleteMatrixGroup(reshade::api::effect_runtime &r,unsigned expected_group,bool pixels=true){
     Check(g_session&&g_session->group==expected_group,"expected matrix group active");
     test_clock+=3100;
+    if(simulate_disk_poll) {
+        const auto expected=config; const auto generation=g_config_generation.load();
+        const auto plain=SnapshotConfig(); const auto overlay=SnapshotOverlayConfig();
+        Check(SameConfig(plain,expected)&&SameConfig(overlay.config,expected)&&g_config_generation==generation,
+              "open overlay and ordinary snapshots preserve the transient capture generation after 500 ms");
+    }
+
     if(pixels){DeliverFrame(1000+expected_group*10,64,64);DeliverFrame(1001+expected_group*10,64,64);}
     Present(&r);Shot(r);Present(&r);
 }
 void TestShareMatrix(){
     Reset();config.enabled=true;config.mode=1;config.transfer_strength=config.post_transfer_strength=.7f;
+    disk_config=config;simulate_disk_poll=true;
     const auto original=config;reshade::api::effect_runtime r;Start(r,Comparison::ShareMatrix);
     Check(g_session->group_count==7&&g_session->groups[0].roi_target==2,"share matrix owns seven bounded two-ROI groups");
     CompleteMatrixGroup(r,0,false);
@@ -161,6 +217,11 @@ void TestShareMatrix(){
     Drain();
     Check(g_status==Status::Complete&&SameConfig(config,original)&&nr_post_settings::current.percent==100,
         "complete matrix restores chain and post settings");
+    disk_config.skin_structure=1.5f;test_clock+=600;
+    Check(SnapshotOverlayConfig().config.skin_structure==1.5f,
+          "disk polling resumes after capture releases its hold");
+    simulate_disk_poll=false;
+
 
     Reset();config.enabled=true;config.mode=1;const auto rr_original=config;rr=true;Start(r,Comparison::ShareMatrix);
     CompleteMatrixGroup(r,0,false);
@@ -228,6 +289,7 @@ void TestBudgetAndLegacyFailure(){
 }
 int main(int argc,char **argv){Check(argc==2,"output argument");wchar_t wide[1024]={};MultiByteToWideChar(CP_UTF8,0,argv[1],-1,wide,1024);output_root=wide;output_root+=L"\\run-"+std::to_wstring(GetCurrentProcessId());Check(CreateDirectoryW(output_root.c_str(),nullptr)!=FALSE,"unique fixture directory");
     const std::wstring log=output_root+L"\\fixture.log";wcscpy_s(g_log_path,log.c_str());wcscpy_s(g_ini_path,log.c_str());wcscpy_s(g_reshade_ini_path,log.c_str());FILE *f=nullptr;_wfopen_s(&f,log.c_str(),L"wb");std::fputs("fixture-only=true\n",f);std::fclose(f);
+    TestFullscreen();
     TestDefaultsAndPictures();TestContinuous(3840,2160);TestContinuous(3840,2400);TestShareMatrix();TestCurrentRrRoute();TestPartialAndRestore();TestFailuresAndLateDelivery();TestBudgetAndLegacyFailure();
     std::printf("PASS production F8 controller/stream/ZIP: %u checks\n",checks);return 0;
 }

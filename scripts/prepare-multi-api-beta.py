@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dev9'
-DISPLAY_VERSION = '0.5-dev9'
+VERSION = 'beta0.5-dev10'
+DISPLAY_VERSION = '0.5-dev10'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -32,19 +32,19 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_core.inl': '2e2b54d62c09befdd3ba76cdc75f087225d38d5d',
     'src/nr_feedback_text.h': '2eb84a38dca9c72243bc2a4a0aa84007ec75097f',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
-    'src/nr_f8_sequence.inl': 'd6a017063570787a04b67562a5a67ed91d723921',
+    'src/nr_f8_sequence.inl': 'f4b2cd5ca77ea273c5f1dd92c6853a68980a2114',
     'src/nr_command_state.inl': 'f0f13b0a8ac243f01cdf0f93a517440ac65f1394',
     'src/nr_feedback_capture.inl': '99328d273b964509e344bfdbcd7bbc85f230619b',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': 'fd3daeecf0fdeed55f8b6ae3c009b82706a5742f',
-    'src/nr_before_sr.cpp': '6a8caaed0baa3437e0ab42e0366d537d66bb557b',
+    'src/nr_settings_ui.inl': '3787740b9c6ff167aa4dc52c618a3abdb56b109c',
+    'src/nr_before_sr.cpp': '48fc105b2d3febc91b7763bc0386dd9668b4c799',
     'src/nr_recommended_picture.inl': '76cb0b36303366350ac2c85e26de850697ae27de',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': '1017d76958f311f7e25b2362946c6eb85a73aaf7',
+    'src/nr_before_sr.rc': 'e6826983fc616bef9151a9c7ae17ae234e555bb1',
     'src/nr_color_policy.inl': '84d550d4ac39ae42f82abbabb2f46de7eebf144e',
     'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': 'cdc2864eae2ca546cf8dabb2ba4d982ef3d0f49a',
+    'scripts/build.ps1': 'b66c8f620ece93181d369b938b36970175ade0a7',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '250a7df38eb17a3ac36cc1055c5b4d134ed89d8f',
@@ -160,7 +160,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.0 dev9 beta' not in resource_text:
+    if '0.5.0 dev10 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')

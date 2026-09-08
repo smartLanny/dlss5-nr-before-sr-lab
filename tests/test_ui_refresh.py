@@ -44,10 +44,10 @@ class UiRefreshContract(unittest.TestCase):
             self.assertNotIn(removed, self.ui)
 
     def test_f7_submenu_uses_fixed_backend_contracts(self):
-        self.assertIn("nr_f8::Comparison::Current", self.ui)
+        self.assertIn("nr_f8::RequestFullscreen();", self.ui)
         self.assertIn("nr_f8::Comparison::ShareMatrix", self.ui)
-        self.assertIn("Current view: 512 x 512, 3 frames", self.ui)
-        self.assertIn("One-click share matrix: 7 groups, 2 frames each", self.ui)
+        self.assertIn("Current view: full screen, original resolution", self.ui)
+        self.assertIn("Seven-group comparison: full-screen originals", self.ui)
         self.assertIn("nr_f8::Cancel();", self.ui)
         self.assertNotIn("nr_f8::Comparison::Strength", self.ui)
         self.assertNotIn("nr_f8::Comparison::Protection", self.ui)

@@ -52,11 +52,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dev9";
+constexpr const char *kAddonVersion = "beta0.5-dev10";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dev9";
+constexpr const char *kBuildIdentity = "beta0.5-dev10";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -1212,7 +1212,8 @@ bool SameHistoryConfig(const ChainConfig &a, const ChainConfig &b) {
 }
 
 int MigrateConfigMode(int config_version, int configured_mode) {
-    return config_version < 4 ? 2 : configured_mode;
+    (void)config_version;
+    return configured_mode == 1 ? 1 : 2;
 }
 
 bool WriteIniInt(const wchar_t *key, int value);
@@ -1409,6 +1410,9 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
 }
 
 void ReloadConfig(bool force = false) {
+    // Every reader, including the overlay and SnapshotConfig, must respect
+    // temporary capture settings. Guard the shared entrance under g_chain_cs.
+    if (nr_f8::g_config_hold.load(std::memory_order_acquire)) return;
     const ULONGLONG now = GetTickCount64();
     // If the game directory is read-only, keep the user's live overlay edits
     // for this process instead of reloading stale defaults every 500 ms. A
@@ -1424,7 +1428,7 @@ void ReloadConfig(bool force = false) {
     const bool new_work_file = IsNewWorkConfigFile();
     const auto work_request = ReadWorkRequest(new_work_file);
     ChainConfig next = {};
-    next.enabled = GetPrivateProfileIntW(L"NRBeforeSR", L"Enabled", 0, g_ini_path) != 0;
+    next.enabled = GetPrivateProfileIntW(L"NRBeforeSR", L"Enabled", 1, g_ini_path) != 0;
     const int config_version = GetPrivateProfileIntW(
         L"NRBeforeSR", L"ConfigVersion", 0, g_ini_path);
     const int configured_mode = GetPrivateProfileIntW(L"NRBeforeSR", L"Mode", 2, g_ini_path);
@@ -1432,12 +1436,10 @@ void ReloadConfig(bool force = false) {
     next.post_transfer_strength = next.transfer_strength;
     next.mode = MigrateConfigMode(config_version, configured_mode);
     if (config_version < 4 && !g_config_persistence_failed.load(std::memory_order_acquire)) {
-        // beta0.2 shipped Mode 1 as the default.  Migrate that persisted value
-        // once so installing the beta0.3 series cannot silently keep users on the
-        // comparison-only full-resolution path.
+        // Upgrade metadata without changing a saved front/post preference.
+        // Missing/invalid modes use the NR -> SR installation default.
         SetLastError(ERROR_SUCCESS);
-        const bool mode_written = WritePrivateProfileStringW(
-            L"NRBeforeSR", L"Mode", L"2", g_ini_path) != FALSE;
+        const bool mode_written = WriteIniInt(L"Mode", next.mode);
         const bool version_written = WritePrivateProfileStringW(
             L"NRBeforeSR", L"ConfigVersion", L"4", g_ini_path) != FALSE;
         // Per the Win32 contract, the all-null cache-flush form returns zero
@@ -1459,7 +1461,7 @@ void ReloadConfig(bool force = false) {
         if (!migration_logged) {
             migration_logged = true;
             Log("Migrated legacy configuration to beta0.4.3 in memory: "
-                "default mode is now render-resolution NR -> SR; persisted=%d.",
+                "saved processing order preserved; persisted=%d.",
                 migration_persisted ? 1 : 0);
         }
     }
@@ -11468,12 +11470,12 @@ void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     const bool stage_pressed = nr_shortcut::Pressed(f7_state, stage_key_was_down);
     if (stage_pressed && !nr_f8::IsActive() && now_ms - last_stage_request_ms >= 350) {
         last_stage_request_ms = now_ms;
-        const bool accepted = nr_f8::RequestWithOptions({nr_f8::Comparison::Current,false,0,0});
+        const bool accepted = nr_f8::RequestFullscreen();
         if (accepted) {
             nr_f8::OpenWindow();
             runtime->open_overlay(true, reshade::api::input_source::keyboard);
         }
-        Log("[feedback] F7 image supplement request=%s; a fresh paired core package precedes exact-fence images.",
+        Log("[feedback] F7 image supplement request=%s; paired report plus original-resolution display screenshot; no raw ROI planes.",
             accepted ? "accepted" : "busy");
     }
     stage_key_was_down = stage_key_is_down;
@@ -12333,13 +12335,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dev9 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dev10 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev9 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev10 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

@@ -125,8 +125,8 @@ int main() {
 ''')
 
     def test_face_controls_round_trip(self) -> None:
-        start = ui_source.index('        if (ImGui::Checkbox(ui("Separate skin detail"')
-        end = ui_source.index('    changed |= ImGui::Checkbox(ui("Independent luma', start)
+        start = ui_source.index('        if (ImGui::Checkbox(ui("Face adjustment"')
+        end = ui_source.index('        changed |= ImGui::Checkbox(ui("UI correction"', start)
         controls = ui_source[start:end]
         self.run_cpp("face-ui", config_code() + r'''
 int toggle = -1, sliders = 0;
@@ -137,7 +137,7 @@ void SettingsNote(const char *) {}
 namespace ImGui {
 bool Checkbox(const char *label, bool *value) {
     const std::string text(label);
-    if (text == "Separate skin detail" || text == "单独调整皮肤细节（实验）") {
+    if (text == "Face adjustment" || text == "人脸调节") {
         if (toggle >= 0) { bool old = *value; *value = toggle != 0; return old != *value; }
     }
     return false;
