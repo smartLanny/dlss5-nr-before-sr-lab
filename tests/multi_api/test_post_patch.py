@@ -180,7 +180,10 @@ class SourcePatch(unittest.TestCase):
     def test_ui_is_real_control_not_global_mode_write(self):
         ui=(ROOT/'src/interop/nr_post_ui.inl').read_text(encoding='utf-8')
         self.assertIn('nr_post_settings::Request',ui)
-        self.assertIn('100,75,67,50',ui)
+        self.assertIn('SliderInt("##post-nr-working-scale",&edit,50,100',ui)
+        self.assertNotIn('for(int percent',ui)
+        self.assertNotIn('Use RR -> NR when Ray Reconstruction is active',ui)
+        self.assertIn('IsRayReconstructionRouteObserved()',ui)
         self.assertNotIn('g_config.mode =',ui)
         self.assertIn('No recent RR-post attempt',ui)
     def test_settings_do_not_enable_before_reading_ini(self):
@@ -193,14 +196,18 @@ class SourcePatch(unittest.TestCase):
     def test_actual_panel_keeps_pr134_controls_and_replaces_post_placeholder(self):
         source=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8')
         out=m.patch_ui(source)
-        self.assertEqual(out.count('DrawPostResolutionControl();'),1)
-        self.assertLess(out.index('DrawPostResolutionControl();'),out.index('int style ='))
+        self.assertEqual(out,source)
         self.assertNotIn('Reduced post-SR precision is not implemented',out)
-        self.assertIn('next.enabled = false; // F6 can re-enable the previous precision.',out)
-        self.assertIn('nr_precision_ui::Resolve(precision, before_sr)',out)
+        self.assertIn('"##nr-processing-precision", &precision, 50.0f, 100.0f',out)
+        self.assertIn('IsRayReconstructionRouteObserved()',out)
+        self.assertIn('DrawSimpleFeedbackControls();',out)
+        self.assertIn('"Feedback and diagnostics###nr-feedback-diagnostics"',out)
+        self.assertNotIn('"Experimental###nr-experimental"',out)
+        self.assertNotIn('"Diagnostics###nr-diagnostics"',out)
+        self.assertNotIn('nr_f8::DrawControls();',out)
         for label in ('Model strength','Local tone','Local structure','Advanced picture controls'):
             self.assertEqual(out.count('"'+label+'"'),source.count('"'+label+'"'))
-        with self.assertRaises(ValueError):m.patch_ui(out)
+        self.assertEqual(m.patch_ui(out),out)
 
     @unittest.skipUnless(os.environ.get('POST_COMPAT_CORE_SOURCE'),'requires actual complete core; minimal fixture is not full integration')
     def test_actual_core(self):

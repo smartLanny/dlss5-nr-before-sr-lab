@@ -1,4 +1,8 @@
-"""Run the production UICorrection binding against typed mock setters."""
+"""Check our explicit UICorrection writer with mocks, not the vendor getter.
+
+This verifies writer shape and 0/1 values only. It does not prove that a real
+consumer requires unsigned storage or that UI/face-mask correction is visual.
+"""
 
 from pathlib import Path
 import os
@@ -20,7 +24,7 @@ line = next((item.strip() for item in binding.splitlines()
 if line is None:
     raise SystemExit("UICorrection binding is missing")
 if not line.startswith("SetUInt("):
-    raise SystemExit(f"UICorrection must use the unsigned NGX slot: {line}")
+    raise SystemExit(f"UICorrection writer convention changed; review boolean encoding: {line}")
 
 harness = r'''
 #include <cstdio>

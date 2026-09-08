@@ -44,6 +44,8 @@ inline bool Carrier(const wchar_t* name) noexcept {
         (n > 8 && Prefix(name, L"dlss5-native-carrier-") && Equal(name + n - 8, L".addon64"));
 }
 inline bool MatchingCarrier(const wchar_t* name) noexcept {
-    return Equal(name, L"dlss5-native-carrier-045-exp3.addon64");
+    return Equal(name, L"dlss5-native-carrier-045-exp3.addon64") ||
+        Equal(name, L"dlss5-native-carrier-multiapi-dev3.addon64") ||
+        Equal(name, L"dlss5-native-carrier-045-dx11-compat.addon64");
 }
 } // namespace nr_deployment_names

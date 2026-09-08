@@ -18,6 +18,9 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
     FeedbackObserveEvaluate(params,feature,carrier);
     ScopedRrOwnershipGate ownership(true,false,true);
     if(!ownership.acquired() || ownership.is_nested()) {
+        if(!ownership.acquired() &&
+           g_rr_ownership_gate_owner.load(std::memory_order_acquire)==1)
+            LatchConcurrentRrOwnershipChange("Feature 13 Evaluate");
         ownership.Release();
         SetBypassReason(BypassReason::Feature1TransactionBusy);
         return original(command_list,handle,params,callback);
@@ -27,6 +30,16 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
         SetBypassReason(BypassReason::Feature1TransactionBusy);
         return original(command_list,handle,params,callback);
     }
+#if defined(NR_EXTERNAL_PROVIDER_ENABLED)
+    // Claim publishes under g_chain_cs. Recheck here, not only before locking:
+    // external ownership suppresses native NR for RR just as it does for SR.
+    // Native RR itself still executes exactly once and retains its return code.
+    if (nr_external_provider_feedback::owner_provider_id.load(
+            std::memory_order_acquire) != 0) {
+        LeaveCriticalSection(&g_chain_cs); ownership.Release();
+        return original(command_list,handle,params,callback);
+    }
+#endif
     const bool eligible=g_config.enabled && nr_post_settings::Read().rr &&
         !OtherNrOwnerActive() && !g_feature_tracking_uncertain.load(std::memory_order_acquire) &&
         !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) &&
@@ -47,7 +60,9 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
         // exposure before the opaque native call using the ordinary post path.
         prepared=PrepareAfterSr(before.command_list,handle,params,feature);
         before.Restore();
-    }
+        if(!prepared.active)
+            nr_post_settings::rr_prepare_declined.fetch_add(1,std::memory_order_relaxed);
+    } else nr_post_settings::rr_before_state_rejected.fetch_add(1,std::memory_order_relaxed);
     if(prepared.active) nr_post_settings::last_rr_stage.store(1,std::memory_order_relaxed);
     // Exactly one original RR invocation on EVERY branch. Its HRESULT/status
     // is returned unchanged; NR failure never retries an already run denoiser.
@@ -63,13 +78,25 @@ NgxResult ProcessRrPost(EvaluateFeatureFn original,
             if(FinishAfterSr(after.command_list,params,feature,prepared)) {
                 ++nr_post_settings::rr_recorded;
                 nr_post_settings::last_rr_stage.store(2,std::memory_order_relaxed);
-            } else nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
+            } else {
+                nr_post_settings::rr_finish_declined.fetch_add(1,std::memory_order_relaxed);
+                nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
+            }
             after.Restore();
-        } else nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
+        } else {
+            nr_post_settings::rr_after_state_rejected.fetch_add(1,std::memory_order_relaxed);
+            nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
+        }
     } else if(native_result!=kNgxSuccess) {
         ++nr_post_settings::rr_native_failures;
         nr_post_settings::last_rr_stage.store(3,std::memory_order_relaxed);
-    } else nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
+    } else {
+        // Only count this gate after successful preparation AND native RR.
+        // Otherwise a before/prepare decline would be misleadingly counted twice.
+        if(prepared.active)
+            nr_post_settings::rr_finish_gate_rejected.fetch_add(1,std::memory_order_relaxed);
+        nr_post_settings::last_rr_stage.store(4,std::memory_order_relaxed);
+    }
     if((uncertain || g_feature_tracking_uncertain.load(std::memory_order_acquire) ||
         g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) && prepared.active)
         QuarantineAbortedRrTransactionLocked(command_list);

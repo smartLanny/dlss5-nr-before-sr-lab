@@ -31,6 +31,8 @@ class PrepareTests(unittest.TestCase):
 
     def test_forward_patch_and_native_only(self):
         source = '''prefix
+    HMODULE mods[1024];
+    const DWORD count = needed / sizeof(HMODULE);
     Breadcrumb("forwarding the game's DLSS evaluate");
     bool old_prediction = true;
     return r;
@@ -38,6 +40,8 @@ class PrepareTests(unittest.TestCase):
 
 static NVSDK_NGX_Result ForwardCreate(Hook &h, ID3D11DeviceContext *ctx, int feature_id,
     dummy);
+    HMODULE mods[1024];
+    const DWORD count = needed / sizeof(HMODULE);
 g_vk_mirror = CfgKeyInt("vk_mirror", 1) != 0 ? 1 : 0;
 '''
         forward = (ROOT / "src/interop/nr_native_bridge_forward.inl").read_text()
@@ -46,6 +50,8 @@ g_vk_mirror = CfgKeyInt("vk_mirror", 1) != 0 ? 1 : 0;
         self.assertIn("g_nr_native_delivery && !g_bridge.partial_output", result)
         self.assertIn('writable->Set("Reset", original_reset)', result)
         self.assertIn("g_vk_mirror = 0", result)
+        self.assertEqual(result.count("needed < sizeof(mods)"), 2)
+        self.assertNotIn("count = needed / sizeof(HMODULE)", result)
         self.assertLess(result.index("BridgeFrame(ctx, p)"), result.index("if (g_nr_native_delivery"))
         self.assertIn("if (!fast) r = native();", result)
         with self.assertRaises(ValueError): m.patch_host(result, forward)

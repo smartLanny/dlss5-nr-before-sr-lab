@@ -133,6 +133,8 @@ int main() {
 int toggle = -1, sliders = 0;
 float slider_value = -100.f;
 void SettingsTooltip(const char *) {}
+void SettingsField(const char *) {} // Layout only; controls below remain production code.
+void SettingsNote(const char *) {}
 namespace ImGui {
 bool Checkbox(const char *label, bool *value) {
     const std::string text(label);
@@ -186,11 +188,21 @@ float max(double a, double b) { return static_cast<float>(std::max(a, b)); }
 float min(double a, double b) { return static_cast<float>(std::min(a, b)); }
 float saturate(float x) { return clamp(x, 0, 1); }
 float lerp(float a, float b, float t) { return a + (b-a)*t; }
-struct float2 { float x, y; float2(float a, float b) : x(a), y(b) {} };
+struct float2 {
+    float x, y; float2(float a, float b) : x(a), y(b) {}
+    float2& operator+=(float2 b) { x+=b.x; y+=b.y; return *this; }
+};
 float2 operator+(float2 a, float2 b) { return {a.x+b.x, a.y+b.y}; }
 float2 operator-(float2 a, float2 b) { return {a.x-b.x, a.y-b.y}; }
-float taps[4];
+float2 operator*(float a, float2 b) { return {a*b.x, a*b.y}; }
+float taps[4], weights[4] = {1,1,1,1};
 float ModelLumaRatioV2(float2 p) { return taps[p.x > 0 ? 0 : p.x < 0 ? 1 : p.y > 0 ? 2 : 3]; }
+// The actual luma-guidance helper is covered by test_lighting_edge_weights.py.
+// This older oracle isolates the final attenuation bound for arbitrary weights.
+float2 ModelLightingTapV2(float2 p, float) {
+    const unsigned i=p.x > 0 ? 0 : p.x < 0 ? 1 : p.y > 0 ? 2 : 3;
+    return {taps[i]*weights[i],weights[i]};
+}
 float apply(float logRatio, float rawLog, float LightingLock) {
     const float proxyLuma = 1.f, neuralLuma = std::exp2(rawLog);
     const float2 center(0, 0);
@@ -213,6 +225,7 @@ int main() {
     for (int i = 0; i < 10000; ++i) {
         const float raw = log(rng), residual = raw * unit(rng);
         for (float &t : taps) t = std::exp2(log(rng));
+        for (float &w : weights) w = unit(rng);
         const float result = apply(residual, raw, unit(rng));
         check(std::isfinite(result), "finite output");
         check(result >= std::min(residual, 0.f)-1e-6f && result <= std::max(residual, 0.f)+1e-6f,
