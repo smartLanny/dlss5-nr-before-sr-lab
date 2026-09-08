@@ -1,7 +1,8 @@
 // Picture preferences only. Keep the user's master switch and game-specific
 // depth/jitter/R8 contracts. Never clear runtime fault/quarantine latches here.
-// Defaults intentionally match config/nr_before_sr.ini, not ChainConfig{}:
-// the aggregate retains legacy luminance and UI-correction defaults.
+// This explicit button retains the historical recommended preset, including
+// Quality / 0.75. It differs from the new-install Reference / 1.0 work default.
+// Other fields remain the established recommendation, not ChainConfig{}.
 void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.mode = 2;
     next.identity_use_original = false;
