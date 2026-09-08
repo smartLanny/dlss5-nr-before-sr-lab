@@ -46,3 +46,49 @@ base 传给 `is_loaded`，无法区分相同 base 的加载 generation；它还�
 前由测试传入预设 handle。后续修正加入 A 卸载、B 同址重载的反例，并让真实测试 DLL
 通过 Create 的 out 参数写回 handle，观察层仅在成功返回后读取并记录。初始提交不能
 作为这两项合同的通过证据。
+
+## 最终源码、构建与验证身份
+
+修正后的原型源码提交为 `4dc614409e4c367d302ff375a026f5ffefcdf5ea`。该提交只含
+本文件和以下两个测试源码；没有 carrier 生成器或生产文件：
+
+| 文件 | SHA256 |
+|---|---|
+| `tests/native_bridge/carrier_activation_contract.h` | `901af918c3e16372f2c3262717e4d7a4b6d088c6920d1e2da38ba231786f089a` |
+| `tests/native_bridge/carrier_activation_contract.cpp` | `4fa3a28721fa4ca3ca4af3a2e546389b6e2dfb3c1c001cd4f7111df335079ab0` |
+
+普通 Windows DLL stub 和程序只保存在忽略的 `build/carrier-activation-prototype/`，
+不会随 PR 发布：
+
+| 本地验证产物 | SHA256 |
+|---|---|
+| `carrier_activation_contract.exe` | `d0c457879e7560d5b2f04d0e701064242815ff472117467e7b7e8860295fac95` |
+| `ngx_stub.dll` | `4785cb16f05b508dc5b6fc223eea0aa677b3b5618fd8f9fecd43aec5e0e8384d` |
+| `forward.exe` | `4649e3e01c0bf229ff5e41e12d214984ffeff3e16948342f71b5c1b0438d5fac` |
+| `verification-output.txt` | `2376e337d863ccc0accb4153c3cc94a392bc16899c54d8b4d8968400d741b1c6` |
+
+使用已安装的 VS Build Tools 2022 x64 环境。以下是实际的编译和最终执行形状，`Repo`
+为本隔离工作树，`Build` 为上述忽略目录：
+
+```powershell
+call "C:\BuildTools\VS2022\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
+cl /nologo /EHsc /O2 /LD "$Build\ngx_stub.cpp" /link /OUT:"$Build\ngx_stub.dll"
+cl /nologo /std:c++17 /EHsc /O2 /I"$Repo" "$Repo\tests\native_bridge\carrier_activation_contract.cpp" /Fe:"$Build\carrier_activation_contract.exe"
+cl /nologo /std:c++17 /EHsc /O2 /I"$Repo" "$Repo\tests\native_bridge\forward.cpp" /Fe:"$Build\forward.exe"
+& "$Build\carrier_activation_contract.exe" "$Build\ngx_stub.dll"
+& "$Build\forward.exe"
+```
+
+最终控制台输出为：
+
+```text
+carrier_activation_contract.cpp
+carrier two-stage activation contract: passed (prototype only, no GPU)
+native bridge exact forward body: passed (CPU doubles, no GPU)
+```
+
+原执行没有把 stdout 同步重定向到文件；`verification-output.txt` 是随后逐字保存的上述
+三行终端输出，哈希证明这份转录，不能冒充同时生成的原始日志。DLL stub 确实经
+`LoadLibrary` 加载，并通过真实 out 指针返回测试 handle；它没有真实 NGX、14-byte
+Hook、ReShade callback 或 GPU。`forward.exe` 验证现有生产 Forward fixture，但不是
+B 原型已经接入生产的证明。没有 NVIDIA/game 结果，也没有 #153 或 #106 的 fault PC。
