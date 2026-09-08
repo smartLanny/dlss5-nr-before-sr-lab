@@ -23,9 +23,11 @@ full Feeder game integration, temporal game quality or FG presentation.
   `230614cf224e6161905ea16e006bec023ebcac1cc51bc425aad5ce89c572bc95`.
 - B fixture snapshot SHA256:
   `4b7f6880f8424d2b1f064fe1910a06fee49352bc3bbe5a5cb0bb32989f244486`.
-  These exact files were copied read-only into the private evidence snapshot
-  before compilation. Their later repository commit does not alter this
-  original byte identity.
+  Both files are now committed at B source
+  `5ca02fdf6e5448e7886ae12979a920e65b9dd350`, ordinarily merged into this
+  combined branch. Their hashes were checked identical to the read-only private
+  compilation snapshot. The experiment reuses the integrated source; it does
+  not maintain another mapping implementation.
 - SDKs remain fixed at AMD FidelityFX `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`
   and NVIDIA DLSS `a291cc7d2cc642a51566f3dfd5376f635cd1b284`.
 - SR runtime SHA256:
@@ -99,8 +101,8 @@ gap is solved. NR-off/on are separate startup runs, not a live F6 toggle test.
 
 ## Reproduction
 
-Build `tests/multi_api/combined_nr_sr_gpu.cpp` with MSVC and the frozen B test
-directory on the include path; it reuses `direct_sr_gpu.cpp` helpers and the
+Build `tests/multi_api/combined_nr_sr_gpu.cpp` with MSVC and the repository's
+`tests` directory on the include path; it reuses `direct_sr_gpu.cpp` helpers and the
 production mapping without duplicating their implementation. Use the same
 official SDK includes/library as B and this repository's provider ABI header.
 Prepare a new private directory per scenario containing the frozen Core,
