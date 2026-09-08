@@ -873,6 +873,7 @@ struct ChainConfig {
     bool layered_enhancement = false; // One NR inference; independent composite contributions.
     bool independent_chroma_composition = false; // 0.5 opt-in shared pre/post candidate.
     bool low_grid_edit_field = false; // #11 luma-only Mode2 experiment; defaults to A.
+    bool catmull_edit_restore = false; // #85: off = existing BilinearSafe.
     float layer_tone = 1.0f;
     float layer_structure = 1.0f;
     float layer_bright = 1.0f;
@@ -1303,6 +1304,7 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.layered_enhancement == b.layered_enhancement &&
            a.independent_chroma_composition == b.independent_chroma_composition &&
            a.low_grid_edit_field == b.low_grid_edit_field &&
+           a.catmull_edit_restore == b.catmull_edit_restore &&
            a.layer_tone == b.layer_tone && a.layer_structure == b.layer_structure &&
            a.layer_bright == b.layer_bright && a.layer_shadow == b.layer_shadow &&
            a.motion_stability == b.motion_stability &&
@@ -1391,6 +1393,7 @@ void ReloadConfig(bool force = false) {
     next.layered_enhancement = GetPrivateProfileIntW(L"NRBeforeSR", L"LayeredEnhancement", 0, g_ini_path) != 0;
     next.independent_chroma_composition = GetPrivateProfileIntW(L"NRBeforeSR", L"IndependentChromaComposition", 0, g_ini_path) != 0;
     next.low_grid_edit_field = GetPrivateProfileIntW(L"NRBeforeSR", L"LowGridEditField", 0, g_ini_path) != 0;
+    next.catmull_edit_restore = GetPrivateProfileIntW(L"NRBeforeSR", L"CatmullRomEditRestore", 0, g_ini_path) != 0;
     next.layer_tone = ReadIniFloat(L"LayerTone", 1.0f);
     next.layer_structure = ReadIniFloat(L"LayerStructure", 1.0f);
     next.layer_bright = ReadIniFloat(L"LayerBright", 1.0f);
@@ -1566,6 +1569,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"LayeredEnhancement", config.layered_enhancement ? 1 : 0));
     record_write(WriteIniInt(L"IndependentChromaComposition", config.independent_chroma_composition ? 1 : 0));
     record_write(WriteIniInt(L"LowGridEditField", config.low_grid_edit_field ? 1 : 0));
+    record_write(WriteIniInt(L"CatmullRomEditRestore", config.catmull_edit_restore ? 1 : 0));
     record_write(WriteIniFloat(L"LayerTone", config.layer_tone));
     record_write(WriteIniFloat(L"LayerStructure", config.layer_structure));
     record_write(WriteIniFloat(L"LayerBright", config.layer_bright));
@@ -2055,6 +2059,8 @@ struct Codec {
     ID3D12PipelineState *copy = nullptr;
     ID3D12PipelineState *motion_resample = nullptr;
     ID3D12PipelineState *build_edit_field = nullptr;
+    ID3D12PipelineState *restore_edit_horizontal = nullptr;
+    bool edit_restore_pipeline_failed = false;
     bool edit_field_pipeline_failed = false;
     UINT descriptor_size = 0;
     bool failed = false;
@@ -2062,12 +2068,14 @@ struct Codec {
 
 Codec g_codec = {};
 
-constexpr UINT kCodecSrvCount = 6;
-constexpr UINT kCodecUavCount = 6;
+constexpr UINT kCodecSrvCount = 7;
+constexpr UINT kCodecUavCount = 7;
 constexpr UINT kCodecDescriptorCount = kCodecSrvCount + kCodecUavCount;
 constexpr UINT kCodecExposureSrvIndex = 4;
 constexpr UINT kCodecEditFieldSrvIndex = 5;
 constexpr UINT kCodecEditFieldUavIndex = kCodecSrvCount + 5;
+constexpr UINT kCodecEditRestoreSrvIndex = 6;
+constexpr UINT kCodecEditRestoreUavIndex = kCodecSrvCount + 6;
 constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
 constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
 constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
@@ -2087,12 +2095,14 @@ Texture2D<float4> NeuralColor   : register(t2);
 Texture2D<float2> MotionSource  : register(t3);
 Texture2D<float4> ExposureScaleTexture : register(t4);
 Texture2D<float2> EditField : register(t5);
+Texture2D<float2> EditHorizontal : register(t6);
 RWTexture2D<float4> ProxyOut    : register(u0);
 RWTexture2D<float4> ResultOut   : register(u1);
 RWTexture2D<float2> MotionOut   : register(u2);
 RWByteAddressBuffer DeltaStats  : register(u3);
 RWByteAddressBuffer StageCapture : register(u4);
 RWTexture2D<float2> EditFieldOut : register(u5);
+RWTexture2D<float2> EditHorizontalOut : register(u6);
 
 cbuffer Constants : register(b0) {
     uint Width;
@@ -2505,21 +2515,65 @@ void BuildEditFieldCS(uint3 tid : SV_DispatchThreadID) {
     EditFieldOut[tid.xy] = isfinite(edit) ? float2(edit,1.0) : float2(0.0,0.0);
 }
 
+float2 ReadLumaEditV6(int2 p) { return EditField.Load(int3(p,0)).xy; }
+
 float2 SampleEditFieldV5(float2 fullPixelCenter) {
     float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
         float2(max(Width, 1u), max(Height, 1u)) - 0.5;
     int2 base = int2(floor(mapped));
     int2 upper = int2(max(ModelWidth, 1u)-1u, max(ModelHeight, 1u)-1u);
-    float2 a = EditField.Load(int3(clamp(base,int2(0,0),upper),0));
-    float2 b = EditField.Load(int3(clamp(base+int2(1,0),int2(0,0),upper),0));
-    float2 c = EditField.Load(int3(clamp(base+int2(0,1),int2(0,0),upper),0));
-    float2 d = EditField.Load(int3(clamp(base+int2(1,1),int2(0,0),upper),0));
+    float2 a = ReadLumaEditV6(clamp(base,int2(0,0),upper));
+    float2 b = ReadLumaEditV6(clamp(base+int2(1,0),int2(0,0),upper));
+    float2 c = ReadLumaEditV6(clamp(base+int2(0,1),int2(0,0),upper));
+    float2 d = ReadLumaEditV6(clamp(base+int2(1,1),int2(0,0),upper));
     // Strict footprint: never renormalize across an invalid neighbour, even
     // when its interpolation weight is zero. Match the existing finite gate.
     if (a.y != 1.0 || b.y != 1.0 || c.y != 1.0 || d.y != 1.0 ||
         !all(isfinite(float4(a.x,b.x,c.x,d.x)))) return float2(0.0,0.0);
     float2 f = frac(mapped);
     return float2(lerp(lerp(a.x,b.x,f.x),lerp(c.x,d.x,f.x),f.y),1.0);
+}
+
+// #85 independent Catmull-Rom, tension a=-1/2. Pixel centres map as
+// (j+1/2)*N/R-1/2; floor gives i, taps i-1..i+2, each clamped separately.
+// Signed weights sum to 1; explicit normalization also covers FP rounding.
+float4 CatmullWeights(float t) {
+    float t2=t*t, t3=t2*t;
+    float4 w=float4(-0.5*t+t2-0.5*t3,1.0-2.5*t2+1.5*t3,
+                   0.5*t+2.0*t2-1.5*t3,-0.5*t2+0.5*t3);
+    return w / dot(w,float4(1.0,1.0,1.0,1.0));
+}
+
+[numthreads(8,8,1)]
+void RestoreEditHorizontalCS(uint3 tid : SV_DispatchThreadID) {
+    if (tid.x >= Width || tid.y >= ModelHeight) return;
+    float mapped=(tid.x+0.5)*ModelWidth/max(Width,1u)-0.5;
+    int base=int(floor(mapped)); float4 w=CatmullWeights(frac(mapped));
+    float value=0.0; bool valid=true;
+    [unroll] for(int i=0;i<4;++i) {
+        float2 e=ReadLumaEditV6(int2(clamp(base+i-1,0,int(ModelWidth)-1),tid.y));
+        valid=valid && e.y==1.0 && isfinite(e.x);
+        value+=w[i]*e.x;
+    }
+    // Validity is boolean intersection, never a negative-lobe probability.
+    EditHorizontalOut[tid.xy]=valid && isfinite(value) ? float2(value,1.0) : float2(0.0,0.0);
+}
+
+float2 SampleRestoredEdit(float2 center) {
+    if ((Passthrough & 16384u)==0u || (Width==ModelWidth && Height==ModelHeight))
+        return SampleEditFieldV5(center); // Exact original 1:1/BilinearSafe path.
+    float mapped=center.y*ModelHeight/max(Height,1u)-0.5;
+    int base=int(floor(mapped)); float4 w=CatmullWeights(frac(mapped));
+    int x=clamp(int(center.x),0,int(Width)-1);
+    float value=0.0; bool valid=true;
+    [unroll] for(int i=0;i<4;++i) {
+        float2 e=EditHorizontal.Load(int3(x,clamp(base+i-1,0,int(ModelHeight)-1),0));
+        valid=valid && e.y==1.0 && isfinite(e.x);
+        value+=w[i]*e.x;
+    }
+    // Invalid Catmull footprint may still have a valid narrower bilinear one.
+    // If both fail, the existing final compositor retains the stored source.
+    return valid && isfinite(value) ? float2(value,1.0) : SampleEditFieldV5(center);
 }
 
 float ModelLumaRatioV2(float2 fullPixelCenter) {
@@ -2978,7 +3032,7 @@ void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result) {
         if(ModelNeighborhoodFiniteV2(center) && all(p==p) && all(n==n)) {
             float pl=max(dot(p,kLuma),1.0/4096.0), nl=max(dot(n,kLuma),1.0/4096.0);
             float raw=clamp(log2(nl/pl),-8.0,8.0);
-            if ((Passthrough & 8192u) != 0u) raw=SampleEditFieldV5(center).x;
+            if ((Passthrough & 8192u) != 0u) raw=SampleRestoredEdit(center).x;
             decision=DetailDecisionV2(center,raw,pl);
             if(TransferStrength<=0.000001)decision=float4(1.0,64.0,raw,raw);
             else if(FrameConfidence<=0.000001)decision=float4(1.0,128.0,raw,raw);
@@ -3080,7 +3134,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
     float rawModelLumaLog = log2(neuralLuma / proxyLuma);
     if ((Passthrough & 8192u) != 0u) {
-        float2 edit = SampleEditFieldV5(center);
+        float2 edit = SampleRestoredEdit(center);
         if (edit.y != 1.0) {
             WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
             RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
@@ -3576,6 +3630,11 @@ struct NrSlot {
     unsigned long long edit_field_bytes = 0;
     bool edit_field_allocation_failed = false;
     bool edit_field_recorded = false; // Cleared per before-SR attempt, set after real build recording.
+    ID3D12Resource *edit_horizontal = nullptr;
+    D3D12_RESOURCE_STATES edit_horizontal_state = D3D12_RESOURCE_STATE_COMMON;
+    unsigned long long edit_horizontal_bytes = 0;
+    bool edit_horizontal_allocation_failed = false;
+    bool edit_horizontal_recorded = false;
     ID3D12Resource *result = nullptr;
     ID3D12Resource *motion_source = nullptr;
     ID3D12Resource *motion_proxy = nullptr;
@@ -3895,6 +3954,8 @@ void DestroySlot(NrSlot &slot) {
     ReleaseCom(slot.neural);
     ReleaseCom(slot.edit_field);
     g_edit_field_allocated_bytes -= slot.edit_field_bytes;
+    ReleaseCom(slot.edit_horizontal);
+    g_edit_field_allocated_bytes -= slot.edit_horizontal_bytes;
     ReleaseCom(slot.proxy);
     ReleaseCom(slot.motion_source);
     ReleaseCom(slot.motion_proxy);
@@ -5945,6 +6006,49 @@ bool EnsureEditField(ID3D12Device *device, NrSlot &slot,
     return true;
 }
 
+bool EnsureEditRestore(ID3D12Device *device, NrSlot &slot, UINT width, UINT height) {
+    if (!device || !slot.heap || !slot.edit_field || !width || !height) return false;
+    if (slot.edit_horizontal) {
+        const auto d=ID3D12Resource_GetDesc(slot.edit_horizontal);
+        return d.Width==width && d.Height==height && g_codec.restore_edit_horizontal;
+    }
+    if (slot.edit_horizontal_allocation_failed || !CanMutateSlotLocked(slot) ||
+        g_codec.edit_restore_pipeline_failed) return false;
+    if (!g_codec.restore_edit_horizontal) {
+        ID3DBlob *code=CompileCodecShader("RestoreEditHorizontalCS"); HRESULT hr=E_FAIL;
+        if(code) {
+            D3D12_COMPUTE_PIPELINE_STATE_DESC d={}; d.pRootSignature=g_codec.root;
+            d.CS.pShaderBytecode=code->lpVtbl->GetBufferPointer(code);
+            d.CS.BytecodeLength=code->lpVtbl->GetBufferSize(code);
+            hr=ID3D12Device_CreateComputePipelineState(device,&d,IID_ID3D12PipelineState,
+                reinterpret_cast<void **>(&g_codec.restore_edit_horizontal));
+            ReleaseCom(code);
+        }
+        if(FAILED(hr)) { g_codec.edit_restore_pipeline_failed=true; return false; }
+    }
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support={}; support.Format=DXGI_FORMAT_R16G16_FLOAT;
+    if(FAILED(ID3D12Device_CheckFeatureSupport(device,D3D12_FEATURE_FORMAT_SUPPORT,&support,sizeof(support))) ||
+        !(support.Support1&D3D12_FORMAT_SUPPORT1_SHADER_LOAD) ||
+        !(support.Support2&D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE)) {
+        slot.edit_horizontal_allocation_failed=true; return false;
+    }
+    D3D12_RESOURCE_DESC d={}; d.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    d.Width=width; d.Height=height; d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;
+    d.Format=DXGI_FORMAT_R16G16_FLOAT; d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    const auto allocation=ID3D12Device_GetResourceAllocationInfo(device,0,1,&d);
+    if(!allocation.SizeInBytes || allocation.SizeInBytes>kEditFieldSlotBudget-slot.edit_field_bytes ||
+        allocation.SizeInBytes>kEditFieldTotalBudget-g_edit_field_allocated_bytes ||
+        !CreateTexture(device,width,height,L"NRChain.EditHorizontal",&slot.edit_horizontal,DXGI_FORMAT_R16G16_FLOAT)) {
+        slot.edit_horizontal_allocation_failed=true; return false;
+    }
+    slot.edit_horizontal_bytes=allocation.SizeInBytes;
+    g_edit_field_allocated_bytes+=allocation.SizeInBytes;
+    WriteEditRestoreDescriptors(device,slot);
+    Log("CatmullRomEditRestore allocated RxN=%ux%u FP16 bytes=%llu; valid BilinearSafe fallback remains.",
+        width,height,allocation.SizeInBytes);
+    return true;
+}
+
 bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
                         bool post_sr, ID3D12Resource *exposure, NrSlot &slot,
                         CodecColorMode pre_sr_color_mode =
@@ -6304,6 +6408,9 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     const unsigned int base_codec_flags = source_flags |
         ((v2_combine && g_config.mode == 2 && g_config.low_grid_edit_field &&
           g_config.color_strength <= 0.000001f && slot.edit_field_recorded) ? 8192u : 0u) |
+        ((v2_combine && slot.edit_field_recorded && slot.edit_horizontal_recorded &&
+          g_config.low_grid_edit_field && g_config.catmull_edit_restore &&
+          g_config.mode==2 && g_config.color_strength<=0.000001f) ? 16384u : 0u) |
         (independent_chroma ? 4096u : 0u) |
         ((v2_combine && g_config.high_strength_protection) ? 1024u : 0u) |
         ((v2_combine && g_config.layered_enhancement) ? 2048u : 0u) |
@@ -6474,7 +6581,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
     ID3D12GraphicsCommandList_Dispatch(
-        command_list, (width + 7) / 8, (height + 7) / 8, 1);
+        command_list, (width + 7) / 8,
+        ((pipeline==g_codec.restore_edit_horizontal ? model_height : height)+7)/8, 1);
     if(f8_armed)g_f8_gpu.FinishDispatch(command_list,f8_capture.slot,f8_token);
     if (capture_stages) {
         UavBarrier(command_list, slot.stage_capture.buffer);
@@ -7735,11 +7843,15 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     slot->active_render_width = render_width;
     slot->active_render_height = render_height;
     slot->edit_field_recorded = false;
+    slot->edit_horizontal_recorded = false;
     const bool edit_field_ready = g_config.low_grid_edit_field && g_config.mode == 2 &&
         g_config.color_strength <= 0.000001f && g_config.transfer_strength > 0.000001f &&
         !g_config.identity_use_original &&
         context->successful_evaluations_since_reset >= g_config.warmup_after_create &&
         EnsureEditField(device,*slot,width,height);
+    const bool edit_restore_ready = edit_field_ready && g_config.catmull_edit_restore &&
+        (render_width!=width || render_height!=height) &&
+        EnsureEditRestore(device,*slot,render_width,height);
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
     if (context->retired) {
         ReleaseCom(device);
@@ -7897,6 +8009,17 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         Transition(command_list,slot->edit_field,slot->edit_field_state,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
         slot->edit_field_recorded = true;
+        if(edit_restore_ready) {
+            Transition(command_list,slot->edit_horizontal,slot->edit_horizontal_state,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            DispatchCodec(command_list,*slot,g_codec.restore_edit_horizontal,render_width,render_height,
+                color_contract,(feature.create_flags&1)!=0,0,0,0,0,slot->codec_color_mode,
+                render_width,render_height,width,height);
+            UavBarrier(command_list,slot->edit_horizontal);
+            Transition(command_list,slot->edit_horizontal,slot->edit_horizontal_state,
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            slot->edit_horizontal_recorded=true;
+        }
     }
     DispatchCodec(command_list, *slot, g_codec.combine_v2,
                   render_width, render_height, color_contract,

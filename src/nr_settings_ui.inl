@@ -440,6 +440,10 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         "低网格亮度编辑场（实验）"), &next.low_grid_edit_field);
     SettingsTooltip(ui("Effective only before SR with Colour follow zero. Computes a luma edit at NR size, then restores it; this changes the interpolation order and may change edges. Source protection remains at full resolution. Adds one optional pass and bounded storage; unavailable resources retain the existing composition. GPU benefit and game quality are unverified.",
         "仅前置且颜色跟随为零时生效。在 NR 尺寸计算亮度编辑后恢复，会改变插值顺序及可能的边缘观感。原图保护仍在全分辨率。增加一次可选处理和有界存储，资源不可用则保留原合成；GPU 收益和游戏画质未验证。"));
+    changed |= ImGui::Checkbox(ui("Catmull-Rom edit restore (experimental; off = BilinearSafe)",
+        "Catmull-Rom编辑恢复（实验，关闭为BilinearSafe）"), &next.catmull_edit_restore);
+    SettingsTooltip(ui("Requires low-grid luminance editing and zero colour follow. Uses a bounded FP16 horizontal plane; vertical restoration stays in final composition. Invalid footprints or unavailable resources retain valid BilinearSafe. No speed or quality claim.",
+        "需低网格亮度编辑且颜色跟随为零。使用有界FP16横向中间面，纵向恢复在最终合成内完成。无效邻域或资源不可用则退有效双线性；不保证速度或画质收益。"));
     changed |= ImGui::Checkbox(ui("High-strength protection (experimental)",
         "高强度保护（实验）"), &next.high_strength_protection);
     SettingsTooltip(ui("Above 1x effective strength, soft-limits extra luminance; SDR uses remaining headroom. Applies before SR and to the optional shared post candidate. Legacy pre composition also soft-limits extra chroma; independent chroma uses its own colour budget. This does not fix an already clipped 1x result or guarantee stable pictures at 4x.",
