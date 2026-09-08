@@ -455,8 +455,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             next.layer_tone = next.layer_structure = next.layer_bright = next.layer_shadow = 1.f;
             changed = true;
         }
-        ImGui::TextWrapped("%s", ui("Experimental Before-SR composition, not repeated model inference. 1 is neutral. Combined luminance strength cannot exceed 4. Colour follow remains independent under HDR and colour. The split is not a face/material mask and cannot recover detail absent from the model. No extra NR pass; GPU cost still needs measurement.",
-            "实验前置合成，不是多次运行模型。1 为中性，组合后的有效明暗强度最多 4。颜色跟随仍在 HDR 与颜色中独立控制。这不是人脸或材质遮罩，不能恢复模型没有的细节。不增加 NR 次数；实际 GPU 开销仍需测量。"));
+        ImGui::TextWrapped("%s", ui("Experimental pre-SR or shared post-candidate composition, not repeated model inference. 1 is neutral. Combined luminance strength cannot exceed 4. Colour follow remains independent under HDR and colour. The split is not a face/material mask and cannot recover detail absent from the model. No extra NR pass; GPU cost still needs measurement.",
+            "实验前置或共用后置候选的合成，不是多次运行模型。1 为中性，组合后的有效明暗强度最多 4。颜色跟随仍在 HDR 与颜色中独立控制。这不是人脸或材质遮罩，不能恢复模型没有的细节。不增加 NR 次数；实际 GPU 开销仍需测量。"));
         ImGui::EndDisabled();
     }
     int style = static_cast<int>(next.style);

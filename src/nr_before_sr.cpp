@@ -1488,7 +1488,7 @@ void ReloadConfig(bool force = false) {
         Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
             g_config.layered_enhancement, g_config.mode, g_config.layer_tone, g_config.layer_structure, g_config.layer_bright, g_config.layer_shadow);
         Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", g_config.independent_chroma_composition);
-        Log("HighStrengthProtection requested=%d; effective only in Mode 2 above 1x; codec flag=1024.",
+        Log("HighStrengthProtection requested=%d; effective on V2/candidate luminance above 1x; legacy V2 also protects chroma; codec flag=1024.",
             g_config.high_strength_protection ? 1 : 0);
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
             "postTransfer=%.3f colorFollowRequested=%.3f preserveLighting=%d proxyScale=%.3f "
@@ -1666,7 +1666,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
     Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
         applied.layered_enhancement, applied.mode, applied.layer_tone, applied.layer_structure, applied.layer_bright, applied.layer_shadow);
     Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", applied.independent_chroma_composition);
-    Log("HighStrengthProtection requested=%d; effective only in Mode 2 above 1x; codec flag=1024.",
+    Log("HighStrengthProtection requested=%d; effective on V2/candidate luminance above 1x; legacy V2 also protects chroma; codec flag=1024.",
         applied.high_strength_protection ? 1 : 0);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
         "colorFollowRequested=%.3f intensity=%.3f style=%u autoMask=%d skin=%.3f localTone=%.3f "
