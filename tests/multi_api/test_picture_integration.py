@@ -22,8 +22,8 @@ class PictureIntegration(unittest.TestCase):
         self.assertEqual(args[0], 'rev-parse')
         return m.INTEGRATION_CORE_PINS[args[1].removeprefix('HEAD:')].encode()
 
-    def test_all_three_ancestors_required(self):
-        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd'))
+    def test_all_dline2_ancestors_required(self):
+        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5'))
         for missing in m.REQUIRED_ANCESTORS:
             with self.subTest(missing=missing), patch.object(m, 'is_ancestor', side_effect=lambda r, c: c != missing), patch.object(m, 'load') as load:
                 with self.assertRaisesRegex(ValueError, 'Missing integration ancestor'):
@@ -89,6 +89,6 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_stage_capture.inl',        })
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '0e8ef7895630f088447eace881fc224386c723e9')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '7056c18af239dbe97888e26ffa08f6d12ed163c4')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '516571efc8888e7cb8d0506e34ac8780653ee2fc')
 
 if __name__ == '__main__': unittest.main()

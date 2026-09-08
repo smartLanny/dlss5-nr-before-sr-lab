@@ -26,7 +26,7 @@ STATE_CURRENT = 'f0f13b0a8ac243f01cdf0f93a517440ac65f1394'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5')
 INTEGRATION_CORE_PINS = {
-    'config/nr_before_sr.ini': 'aa084265adfea7946baa0ad4264b47519228fe6b',
+    'config/nr_before_sr.ini': '4ac5f14dd8d3d832e61f83dda2b3ac62c62198d8',
     'scripts/patch-post-compat.py': '0542d143584a8eb56364a54c2ad8daae46fcc9c3',
     'src/nr_codec_descriptors.inl': '353c97c74bde56c72cda349fca2e50118000cbcb',
     'src/nr_feedback_core.inl': '2e2b54d62c09befdd3ba76cdc75f087225d38d5d',
