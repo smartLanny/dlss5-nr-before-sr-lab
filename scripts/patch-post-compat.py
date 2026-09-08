@@ -134,12 +134,12 @@ def patch_core(text: str) -> str:
         '    unsigned int height = 0;\n    unsigned int work_width = 0, work_height = 0;'))
 
     def prepare(s):
-        s=once(s,'!g_config.enabled || g_config.mode != 1 || feature.feature_id != 1 ||',
-            '!g_config.enabled || !nr_post_compat::IsPost(feature.feature_id, g_config.mode, nr_post_settings::Read().rr) ||')
+        s=once(s,'!((g_config.mode == 1 || (compatibility_fallback && g_config.mode == 2)) && feature.feature_id == 1)',
+            '!(nr_post_compat::IsPost(feature.feature_id, g_config.mode, nr_post_settings::Read().rr) || (compatibility_fallback && g_config.mode == 2 && feature.feature_id == 1))')
         s=once(s,'    ID3D12Resource *output = nullptr;',
-            '    if (feature.feature_id == 13 && feature.rr_depth_type != 1) {\n'
+            '    if (feature.feature_id == 13 && feature.rr_depth_type != 1 && feature.rr_depth_type != 0) {\n'
             '        static unsigned depth_declines = 0;\n'
-            '        if (++depth_declines <= 3) Log("RR post depth type=%d needs an explicit linear/projection adapter; native RR retained. F8 TXT for BUG feedback.", feature.rr_depth_type);\n'
+            '        if (++depth_declines <= 3) Log("RR post depth type=%d has an unknown depth declaration; native RR retained. F8 TXT for BUG feedback.", feature.rr_depth_type);\n'
             '        SetBypassReason(BypassReason::RayReconstructionGuard);\n'
             '        return substitution;\n'
             '    }\n'

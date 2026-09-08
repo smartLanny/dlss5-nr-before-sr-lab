@@ -2,6 +2,15 @@
 // Keep one named TXT and the established bounded FeedbackAppend writer.
 {
     const auto post = nr_post_settings::Read();
+    FeedbackAppend(s,"%s.compat.requestedMode=%d\n%s.compat.effectiveMode=%d\n%s.compat.preInputFallback.recent=%d\n%s.compat.preInputFallback.reason=%d\n%s.compat.preInputFallback.attempts=%llu\n%s.compat.preInputFallback.recorded=%llu\n%s.compat.note=Evaluate only; post admission remains required; recording is not GPU completion; no Present NR provider\n",
+        prefix,g_config.mode,prefix,EffectivePictureMode(g_config.mode),
+        prefix,IsCompatibilityPostObserved()?1:0,prefix,g_compat_fallback_reason.load(),
+        prefix,g_compat_fallback_attempts.load(),prefix,g_compat_fallback_recorded.load(),prefix);
+    FeedbackAppend(s,"%s.commandState.nativeCreated=%llu\n%s.commandState.nativeRetired=%llu\n%s.commandState.nativeRecordFailures=%llu\n",
+        prefix,g_native_command_records.load(),prefix,g_native_command_retirements.load(),prefix,g_native_command_record_failures.load());
+    FeedbackAppend(s, "%s.post.rr.depthAdapter.recorded=%llu\n%s.post.rr.depthAdapter.declined=%llu\n%s.post.rr.depthAdapter.note=standard positive view-Z projection; dispatch is not GPU completion\n",
+        prefix,g_rr_depth_conversions.load(std::memory_order_relaxed),
+        prefix,g_rr_depth_declines.load(std::memory_order_relaxed),prefix);
     const auto now = GetTickCount64();
     const auto attempted = nr_post_settings::last_rr_tick.load(std::memory_order_acquire);
     const bool recent = attempted != 0 && now >= attempted && now - attempted <= 2000;
@@ -21,7 +30,7 @@
         FeedbackAppend(s, "%s.post.rr.projection.coherent=%d\n", prefix, coherent ? 1 : 0);
         if (coherent) {
             FeedbackAppend(s, "%s.post.rr.projection.state=%d\n%s.post.rr.projection.generation=%llu\n"
-                "%s.post.rr.projection.ageMs=%lld\n%s.post.rr.projection.note=CPU copy only; layout, units and conversion not validated\n",
+                "%s.post.rr.projection.ageMs=%lld\n%s.post.rr.projection.note=CPU copy only; adapter admission and recordings reported separately; game depth semantics require runtime validation\n",
                 prefix, state, prefix, generation,
                 prefix, now >= tick ? static_cast<long long>(now-tick) : -1LL, prefix);
             if (state == 4) for (unsigned i = 0; i != 16; ++i)

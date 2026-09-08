@@ -54,13 +54,14 @@ HRESULT STDMETHODCALLTYPE ResetDetour(ID3D12GraphicsCommandList *list, ID3D12Com
     OnCommandStateResetResult(list, result, pipeline);
     return result;
 }
-bool EnsureNativeCommandListResetHook(reshade::api::command_list *owner) {
-    void *target = reinterpret_cast<void *>(owner->native->lpVtbl->Reset);
+bool EnsureNativeCommandListResetHookForNative(ID3D12GraphicsCommandList *native) {
+    void *target = reinterpret_cast<void *>(native->lpVtbl->Reset);
     if (reset_target != nullptr) return reset_target == target;
     if (MH_CreateHook(target, reinterpret_cast<void *>(&ResetDetour), reinterpret_cast<void **>(&reset_original)) != MH_OK) return false;
     if (MH_EnableHook(target) != MH_OK) return false;
     reset_target = target; return true;
 }
+bool EnsureNativeCommandListResetHook(reshade::api::command_list *owner) { return owner && EnsureNativeCommandListResetHookForNative(owner->native); }
 int checks = 0, failures = 0;
 void Check(bool ok, const char *label) { ++checks; if (!ok) { ++failures; printf("FAIL %s\n", label); } }
 void Hr(HRESULT result, const char *label) { if (FAILED(result)) { printf("HRESULT %s 0x%08lX\n", label, result); ExitProcess(2); } }
@@ -226,7 +227,9 @@ int RunDefaultEnabledStartupGate() {
     return failures == 0 ? 0 : 1;
 }
 // @PRISTINE_NULL_TEST@
+// @NATIVE_RECORD_TEST@
 int main(int argc, char **argv) {
+    if(argc>1 && std::strcmp(argv[1],"--native-record")==0) return RunNativeCommandRecordGate();
     if (argc>1 && std::strcmp(argv[1],"--pristine-null")==0) return RunPristineNullGate(false);
     if (argc>1 && std::strcmp(argv[1],"--pristine-null-negative")==0) return RunPristineNullGate(true);
     if (argc > 1 && strcmp(argv[1], "--default-enabled") == 0)

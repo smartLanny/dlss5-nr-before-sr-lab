@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dev11'
+VERSION = 'beta0.5-dev12'
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -57,6 +57,10 @@ def package(build: Path, output: Path) -> dict:
                 'validate-strength-migration.py', 'validate-f8-controller.py',
                 'tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py',
                 'bounded RR projection CPU copy',
+                'validate-command-creation.py', 'tests/test_rr_depth_projection.py',
+                'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py',
+                'native command creation and lifecycle; full state and negative restore WARP',
+                'production RR depth cs_5_0 and private R32 WARP readback',
                 'validate-recommended-picture.py', 'recommended independent negative control',
                 'test_post_patch.py', 'test_picture_integration.py',
                 'validate-edit-field.py', 'validate-color-edit-field.py',
@@ -82,13 +86,13 @@ def package(build: Path, output: Path) -> dict:
     artifacts = result['artifacts']
     addons = sorted(n for n in artifacts if n.endswith('.addon64') and VERSION in n)
     if len(addons) != 2 or set(artifacts) != set(addons + ['nrchain_nvngx.dll']):
-        raise ValueError('Expected two dev11 language cores and only the owned bridge.')
+        raise ValueError('Expected two dev12 language cores and only the owned bridge.')
     binaries = {name: checked_file(binary_root, name, entry['sha256']) for name, entry in artifacts.items()}
     for name, data in binaries.items():
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/DEV11_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
+    guide = (ROOT / 'docs/testing/DEV12_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     packages = []
     for addon in addons:

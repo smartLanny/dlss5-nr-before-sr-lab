@@ -24,6 +24,27 @@ class RrPostDiagnosticsTest(unittest.TestCase):
             self.skipTest("clang++/g++ unavailable; portable RR test was not run")
         with tempfile.TemporaryDirectory(prefix="nr-rr-diagnostic-") as directory:
             source = ROOT / "tests/multi_api/rr_post_diagnostics_harness.cpp"
+            # The feedback include is extracted from the current production
+            # boundary. Keep this CPU fixture's new observability symbols
+            # explicit here; they are recording stubs, never runtime logic.
+            stubs = r'''
+#include <atomic>
+std::atomic<bool> g_compatibility_post_observed{false};
+bool IsCompatibilityPostObserved() { return g_compatibility_post_observed.load(); }
+bool IsRayReconstructionRouteObserved() { return false; }
+int EffectivePictureMode(int requested_mode) {
+    return IsRayReconstructionRouteObserved() ||
+        (requested_mode==2 && IsCompatibilityPostObserved()) ? 1 : requested_mode;
+}
+std::atomic<unsigned long long> g_compat_fallback_attempts{0}, g_compat_fallback_recorded{0};
+std::atomic<int> g_compat_fallback_reason{0};
+std::atomic<unsigned long long> g_native_command_records{0}, g_native_command_retirements{0}, g_native_command_record_failures{0};
+std::atomic<unsigned long long> g_rr_depth_conversions{0}, g_rr_depth_declines{0};
+'''
+            fixture = Path(directory) / "rr_post_diagnostics_fixture.cpp"
+            source_text = source.read_text(encoding="utf-8").replace(
+                "../../src/", (ROOT / "src").as_posix() + "/")
+            fixture.write_text(stubs + source_text, encoding="utf-8")
             for optimization in ("-O0", "-O2"):
                 suffix = ".exe" if os.name == "nt" else ""
                 exe = Path(directory) / ("rr-test-" + optimization[1:] + suffix)
@@ -33,7 +54,7 @@ class RrPostDiagnosticsTest(unittest.TestCase):
                 if os.name == "nt":
                     command.append("-static")
                 result = subprocess.run(
-                    command + [str(source), "-o", str(exe)],
+                    command + [str(fixture), "-o", str(exe)],
                     capture_output=True, text=True, timeout=60,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

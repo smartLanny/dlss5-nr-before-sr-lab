@@ -21,6 +21,8 @@ struct NrGuideSignature {
     float motion_scale_x = 1.0f, motion_scale_y = 1.0f;
     int normalized_create_flags = 0;
     int depth_inverted = 0;
+    bool linear_depth = false;
+    float depth_projection_a = 0, depth_projection_b = 0;
     bool resample_motion = false;
 };
 
@@ -52,7 +54,10 @@ inline bool SameNrGuideMappingContract(const NrGuideSignature &a,
            a.color_x == b.color_x && a.color_y == b.color_y &&
            a.motion_scale_x == b.motion_scale_x &&
            a.motion_scale_y == b.motion_scale_y &&
-           a.depth_inverted == b.depth_inverted;
+           a.depth_inverted == b.depth_inverted &&
+           a.linear_depth == b.linear_depth &&
+           a.depth_projection_a == b.depth_projection_a &&
+           a.depth_projection_b == b.depth_projection_b;
 }
 
 // Commit only successful temporal evaluations. In particular a failed Reset

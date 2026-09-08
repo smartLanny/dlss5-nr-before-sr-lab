@@ -44,14 +44,14 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dev11') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dev12') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
-    foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py')) {
+    foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-command-creation.py')) {
         & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
         $Checks.Add($Test)
     }
-    foreach ($Test in @('tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py')) {
+    foreach ($Test in @('tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py', 'tests/test_rr_depth_projection.py', 'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py')) {
         & python (Join-Path $Root $Test)
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
         $Checks.Add($Test)
@@ -89,6 +89,10 @@ try {
     & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade
     $Checks.Add('full staged bilingual Core and nrchain compile/link')
     if ($RunWarp) {
+        & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain
+        $Checks.Add('native command creation and lifecycle; full state and negative restore WARP')
+        & (Join-Path $PSScriptRoot 'validate-rr-depth-gpu.ps1') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $Output 'rr-depth-warp') -RunWarp
+        $Checks.Add('production RR depth cs_5_0 and private R32 WARP readback')
         # The caller owns the serial GPU/WARP slot. Baseline must be the actual
         # frozen reference source, never a synthetic replacement of the model.
         & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -CombinedLowGrid
@@ -99,12 +103,12 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dev11*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dev11 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dev12*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dev12 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 0 -or $Version.FilePrivatePart -ne 11) { throw 'Wrong numeric PE version.' }
+            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 0 -or $Version.FilePrivatePart -ne 12) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }

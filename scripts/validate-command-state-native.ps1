@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$PoolNegativeControl)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$PoolNegativeControl, [switch]$NativeRecordOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) { throw 'Provide -ToolchainRoot.' }
@@ -6,6 +6,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $production = Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_state.inl') -Raw
 $production = $production.Replace('#include "nr_command_pool_observation.inl"', (Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_pool_observation.inl') -Raw))
 $production = $production.Replace('#include "nr_command_creation_observer.inl"', (Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_command_creation_observer.inl') -Raw))
+$production = $production.Replace('#include "nr_native_command_record.inl"', (Get-Content -LiteralPath (Join-Path $projectRoot 'src\nr_native_command_record.inl') -Raw))
 if ($PoolNegativeControl) {
     $needle='PrimeCommandListBeforeResetLocked(*record, native);' # Removes both pre-notification and native-result recovery to reproduce old lazy-only policy
     if (!$production.Contains($needle)) { throw 'Pool negative anchor missing' }
@@ -26,6 +27,7 @@ $harness = $harness.Replace('// @PRODUCTION_COMMAND_STATE@', $production)
 $pristine = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\pristine_null_native.inl') -Raw
 $pristine = (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\command_pool_native.inl') -Raw) + "`n" + $pristine
 $harness = $harness.Replace('// @PRISTINE_NULL_TEST@', $pristine)
+$harness = $harness.Replace('// @NATIVE_RECORD_TEST@', (Get-Content -LiteralPath (Join-Path $projectRoot 'tests\native_command_record.inl') -Raw))
 # Preserve existing checkpoints if a native test process terminates before flushing.
 # This affects the test executable only, never the extracted production source.
 $entry = 'int main(int argc, char **argv) {'
@@ -48,6 +50,11 @@ foreach ($source in @('buffer', 'hook', 'trampoline', 'hde\hde64')) {
 }
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' '-fstack-usage' "-I$(Join-Path $minHook 'include')" $generated @objects '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'Native command-state harness compilation failed.' }
+if ($NativeRecordOnly) {
+    & $binary '--native-record'
+    if ($LASTEXITCODE -ne 0) { throw "Native record gate failed (exit=$LASTEXITCODE)." }
+    exit 0
+}
 if ($PoolNegativeControl) {
     $output=& $binary '--pristine-null' 2>&1
     $code=$LASTEXITCODE
@@ -65,6 +72,8 @@ if ($LASTEXITCODE -ne 42) { throw "Pristine-null negative control did not detect
 if ($LASTEXITCODE -ne 0) { throw "Default-enabled command-state startup validation failed (exit=$LASTEXITCODE)." }
 & $binary
 if ($LASTEXITCODE -ne 0) { throw "Native command-state validation failed (exit=$LASTEXITCODE)." }
+& $binary '--native-record'
+if ($LASTEXITCODE -ne 0) { throw "Native record lifecycle validation failed (exit=$LASTEXITCODE)." }
 $stackFiles = Get-ChildItem -LiteralPath $build -Filter '*.su'
 $critical = @()
 foreach ($stackFile in $stackFiles) {

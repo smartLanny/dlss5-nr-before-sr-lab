@@ -24,6 +24,8 @@ using D3D12_COMMAND_LIST_FLAGS=unsigned;
 struct ID3D12CommandAllocator{};struct ID3D12PipelineState{};
 struct CommandCreationInfo{UINT64 serial=0,tick=0,device_identity=0;unsigned method=0;UINT node_mask=0,flags=0;bool initial_pso=false;};
 struct CommandStateMetaContract{bool known=false;UINT initialization_dirty=0,execution_dirty=0;UINT64 device_identity=0;};
+struct ID3D12GraphicsCommandList;
+bool RegisterCreatedCommandStateList(ID3D12GraphicsCommandList*,const CommandStateMetaContract&,const CommandCreationInfo&){return true;}
 struct ID3D12Device;using ID3D12Device4=ID3D12Device;
 struct ID3D12GraphicsCommandList {CommandCreationInfo receipt;unsigned adds=0,releases=0;bool qi_fail=false,set_fail=false;};
 using IUnknown=ID3D12GraphicsCommandList;

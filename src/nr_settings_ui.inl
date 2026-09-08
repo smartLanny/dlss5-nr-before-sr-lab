@@ -368,7 +368,9 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsTooltip(ui("Before SR usually costs less. After SR processes the reconstructed output. The game controls its own DLSS render scale; this selector does not force DLAA.",
         "前置：先做 AI 渲染，再放大画面，通常更省性能。后置：先由游戏放大画面，再做 AI 渲染，通常更耗性能。开启光线重建（RR）时自动选择后置。"));
     if (rr_guarded) DrawPostRouteStatus();
-    const bool before_sr = !rr_guarded && next.mode == 2;
+    const bool compatibility_post = !rr_guarded && next.mode==2 && IsCompatibilityPostObserved();
+    if (compatibility_post) DrawGenericCompatibilityStatus();
+    const bool before_sr = !rr_guarded && !compatibility_post && next.mode == 2;
 #if NR_HAS_DETAIL_STABILITY
     const bool effective_post = !before_sr;
     // These atomics are historical observations, NOT a coherent frame tuple.

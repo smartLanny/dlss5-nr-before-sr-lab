@@ -29,6 +29,7 @@ void ObserveCommandCreation(ID3D12Device *device, D3D12_COMMAND_LIST_TYPE type,
         info.device_identity = meta.device_identity;
     if (FAILED(ID3D12GraphicsCommandList_SetPrivateData(list, kCommandCreationReceipt, sizeof(info), &info)))
         g_command_create_receipt_failures.fetch_add(1, std::memory_order_relaxed);
+    else RegisterCreatedCommandStateList(list,meta,info);
     ID3D12GraphicsCommandList_Release(list);
 }
 CommandStateHookFamily g_state_CreateCommandList, g_state_CreateCommandList1;
