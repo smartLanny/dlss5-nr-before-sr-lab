@@ -151,7 +151,8 @@ function createLaunchSettingsService(options = {}) {
       const operations = restoring ? [] : (plan.backend === 'native' ? policy.nativeSr(request) : policy.nativeFg(request)).operations;
       plan.operations = clone(operations);
       const ids = restoring ? old.ids : [...new Set([...(old?.ids || []), ...operations.map(row => row.id)])];
-      if (old && !policy.same(subset(before, old.ids), old.lastValues)) fail('SETTINGS_EXTERNAL_CHANGE', '驱动设置已被其他工具改变。');
+      if (old && (!policy.same(before.profile, old.profile) || !policy.same(subset(before, old.ids), old.lastValues)))
+        fail('SETTINGS_EXTERNAL_CHANGE', '驱动配置身份或设置已被其他工具改变。');
       const baseline = clone(old?.baseline || before);
       for (const settingId of ids) if (!old?.ids.includes(settingId)) baseline.settings[settingId] = clone(before.settings[settingId]);
       if (restoring) {
@@ -173,6 +174,16 @@ function createLaunchSettingsService(options = {}) {
       if (restoring) content = policy.restoreText(before, baselineText, old.lastValues, plan.backend);
       else { const result = policy.compileFile(before, request); content = result.content; plan.warnings.push(...result.warnings); plan.requiresReview = result.requiresReview === true; }
       const afterValues = policy.values(content, plan.backend), keys = Object.keys(afterValues).filter(key => !policy.same(currentValues[key], afterValues[key]));
+      if (old && !restoring) {
+        const newlyOwned = keys.filter(key => !Object.hasOwn(old.lastValues, key));
+        if (newlyOwned.length) {
+          // A key first changed by this request belongs to its current value,
+          // not to an unrelated value captured when another key was acquired.
+          const baselineValues = policy.values(baselineText, plan.backend);
+          baselineText = policy.restoreText(baselineText, before,
+            Object.fromEntries(newlyOwned.map(key => [key, baselineValues[key]])), plan.backend);
+        }
+      }
       plan.operations = keys.map(key => ({ action: restoring ? 'restore-config-key' : 'set-config-key', key }));
       const owned = [...new Set([...Object.keys(old?.lastValues || {}), ...keys])];
       plan.change = { name, file, beforeHash: policy.hash(before), afterHash: policy.hash(content), content, baselineText,

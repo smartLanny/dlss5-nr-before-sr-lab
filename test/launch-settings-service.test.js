@@ -120,6 +120,42 @@ test('OptiScaler ratio restore preserves unrelated later INI edits', async t => 
   const restored = fs.readFileSync(file, 'utf8'); assert.match(restored, /UpscaleRatioOverrideEnabled=false/); assert.doesNotMatch(restored, /UpscaleRatioOverrideValue/); assert.match(restored, /Enabled=true/); assert.match(restored, /UserKey=keep/);
 });
 
+test('newly acquired file keys restore to their latest unowned values', async t => {
+  const mfg = fixture(t, { family: 'RTX40' }), mfgFile = path.join(mfg.exeDir, policy.FILES.rtx40);
+  fs.writeFileSync(mfgFile, JSON.stringify({ version: 11, followGame: true, mode: 'follow', multiplier: 2, dynamicTargetFrameRate: 60, dynamicExperimental56: false }));
+  let plan = await mfg.service.preview('g', 'fg', { backend: 'rtx40', mode: 'fixed', multiplier: 3 });
+  await mfg.service.apply(plan.id, { confirm: true });
+  const external = JSON.parse(fs.readFileSync(mfgFile, 'utf8')); external.dynamicTargetFrameRate = 144;
+  fs.writeFileSync(mfgFile, JSON.stringify(external));
+  plan = await mfg.service.preview('g', 'fg', { backend: 'rtx40', mode: 'dynamic', targetFps: 120 });
+  await mfg.service.apply(plan.id, { confirm: true }); await mfg.service.restore('g', 'fg');
+  const restored = JSON.parse(fs.readFileSync(mfgFile, 'utf8'));
+  assert.equal(restored.dynamicTargetFrameRate, 144, 'target baseline starts when the target key is first acquired');
+  assert.equal(restored.mode, 'follow'); assert.equal(restored.multiplier, 2, 'previously acquired keys retain their original baselines');
+
+  const sr = fixture(t), iniFile = path.join(sr.exeDir, policy.FILES.optiscaler);
+  fs.writeFileSync(iniFile, '[UpscaleRatio]\nUpscaleRatioOverrideEnabled=false\nUpscaleRatioOverrideValue=1.5\n');
+  plan = await sr.service.preview('g', 'sr', { backend: 'optiscaler', quality: 'quality' });
+  await sr.service.apply(plan.id, { confirm: true });
+  fs.writeFileSync(iniFile, fs.readFileSync(iniFile, 'utf8').replace('Value=1.5', 'Value=1.7'));
+  plan = await sr.service.preview('g', 'sr', { backend: 'optiscaler', quality: 'custom', renderPercent: 75 });
+  await sr.service.apply(plan.id, { confirm: true }); await sr.service.restore('g', 'sr');
+  assert.match(fs.readFileSync(iniFile, 'utf8'), /UpscaleRatioOverrideValue=1\.7/);
+  assert.match(fs.readFileSync(iniFile, 'utf8'), /UpscaleRatioOverrideEnabled=false/);
+});
+
+test('replacing an exclusive driver profile cannot reuse another profile recovery baseline', async t => {
+  const f = fixture(t), request = { backend: 'native', quality: 'quality', preset: 'M' };
+  const plan = await f.service.preview('g', 'sr', request); await f.service.apply(plan.id, { confirm: true });
+  const replacement = f.driver.peek(); replacement.profile = { ...replacement.profile, name: 'Another exclusive user profile', owned: false };
+  f.driver.set(replacement);
+  assert.equal((await f.service.inspect('g')).applied.sr.readbackVerified, false);
+  await assert.rejects(f.service.preview('g', 'sr', request), { code: 'SETTINGS_EXTERNAL_CHANGE' }, 'even an otherwise no-op request must reject changed profile identity');
+  await assert.rejects(f.service.restore('g', 'sr'), { code: 'SETTINGS_EXTERNAL_CHANGE' });
+  assert.deepEqual(f.driver.peek(), replacement, 'new profile and its values remain intact');
+  assert.ok((await f.service.inspect('g')).applied.sr, 'original recovery record remains intact');
+});
+
 test('damaged or target-injecting applied receipt is rejected before any write', async t => {
   const f = fixture(t), file = f.service.receiptFile('g'); fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, '{bad'); await assert.rejects(f.service.inspect('g'), { code: 'SETTINGS_RECEIPT_INVALID' });
