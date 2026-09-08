@@ -1,6 +1,8 @@
 # Independent D legacy-post extension
 
-Base: first-batch D integration `c237ac969ef1baa576bf3bff6204850fe7c718d0`.
+Initial scalar slice base: D integration `c237ac969ef1baa576bf3bff6204850fe7c718d0`.
+Final D2 build source: `e071c778d10cb4f079857f128aad3093defb7b9e`, including
+the ordinary merge of final D1 source `59ab029614df6fad6ea1e95df18a0a986be58962`.
 This is a second candidate and does not alter the frozen pre-SR-only package.
 
 Legacy `CombineCS` retains its linear relative luminance edit
@@ -54,16 +56,42 @@ Completed locally, without GPU dispatch:
   `validate-codec-shader.ps1`; existing exposure/finite/optional-restore
   warnings were retained. No shader compile error was suppressed.
 
-`tests/post_light_style_gpu.inl` is an optional unexecuted coordinator hook.
-Insert it after common `Run`, `LightCase`, `Gpu`, and frozen `kMaintenanceShader`
-definitions, then call `ValidatePostLightStyle(gpu)`. It uses the current
-41-constant harness interface and tests legacy post directly (`v2=false`).
-The baseline and candidate must both be actual generated post-compatible
-sources so scaled sampling is present. The checked-in main harness/runner were
-not changed. CPU mutants above remain the executable negative-control gates.
+Final focused acceptance completed with `success=true` and 27 required checks.
+`tests/post_light_style_gpu.inl` is now included by the production fixture;
+`validate-codec-gpu.ps1 -PostLightStyle` verifies both generated-source
+manifests and runs legacy post directly (`v2=false`). Final D1's full generated
+source is the WARP reference, including scaled post sampling, rather than the
+raw original shader. Its recorded source SHA256 is
+`54f58cecc6e3cb7343f5901cfd5c60d25a8e1049b458bbf820562f48a1f8893f`.
+The full run includes front/post light groups, existing combined low-grid WARP,
+SM5 compilation and full bilingual Core/owned bridge linking. A separate
+post-only confirmation captured native output for all 62 WARP groups: neutral
+legacy bytes, independent broad/fine signs, LightingLock 0/.2/1, scaled
+colour/finite/alpha and previews. All model planes are synthetic.
 
-Before integration: compile and run the optional hook in the coordinated WARP
-slot, check the runtime route/receipt contract, update player support wording,
-then perform the separate frozen generated-source Core build and actual-game
-acceptance. This slice did not perform GPU, NVIDIA, game, timing, hosted CI,
-push, package or deployment work.
+Frozen build identity:
+
+| Artifact | Bytes | SHA256 |
+| --- | ---: | --- |
+| Source manifest | — | `e6987637948070319168ad098ebc57d1cbb582673dfb77cbb03adf50d0591e20` |
+| Chinese Core | 1496064 | `ea43c49a81cd5d30a97ab2ada4b0d57a172c23accbeb4ad6a0a2753801c231d7` |
+| English Core | 1467392 | `934265b9c2953f96061fb9d9a9ccbcc27fd9069f9d959347879ba356c685040a` |
+| nrchain | 8192 | `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb` |
+
+Actual DLL menu validation used ReShade SDK
+`4a50d1eddace85734871d91792ff214f13f66c01` and hash-locked ReShade 6.8.0.
+Both languages ran 40 frames and six overlay events, exited successfully,
+preserved fixture INI and verified all 109 source files before/after. Three
+screenshots per language were visually inspected: controls, presets and face
+settings are readable. These are pre-SR menu snapshots without injected
+preset clicks; they do not validate post-mode UI interaction or game output.
+Machine receipts and separate visual-review receipt remain private.
+
+The owner requested independent D testing in Neverness To Everness with RR
+off, and deferred ABC integration. Chinese D2 was installed with a verified
+dev14 backup, exactly one live Core, Mode1, LightingLock=.2 and neutral light
+controls; other saved settings and ReShade were preserved. The installer did
+not edit encrypted game settings or launch the game. Owner-reported facial
+darkening in a previous post candidate is recorded, not claimed fixed.
+NVIDIA feature18, game output, motion and performance remain unverified.
+No new RR adapter, ABC merge, main/release merge or stable release is implied.
