@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -21,7 +21,7 @@ if($CatmullOutput) {
     # Test-only non-fused oracle materializes one R-sized field. No production
     # resource/flag or full-resolution EditField allocation is introduced.
     $harness=$harness.Replace('float2 SampleRestoredEdit(float2 center) {',
-        'float2 SampleRestoredEdit(float2 center) { if ((Passthrough & 32768u)!=0u) return EditHorizontal.Load(int3(int2(center),0));')
+        'float2 SampleRestoredEdit(float2 center) { if ((Passthrough & 65536u)!=0u) return EditHorizontal.Load(int3(int2(center),0));')
     $referenceEntry=@'
 [numthreads(8,8,1)] void RestoreEditReferenceCS(uint3 tid:SV_DispatchThreadID) {
     if(tid.x>=Width || tid.y>=Height) return;
@@ -35,7 +35,7 @@ if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
     $baselineShader = [regex]::Match($baseline, 'const char kCodecShader\[\] = R"HLSL\([\s\S]*?\)HLSL";')
     if (!$baselineShader.Success -or !$baseline.Contains('ModelLightingTapV2')) { throw 'Expected actual maintenance shader with edge-aware LightingLock.' }
     $harness = $harness.Replace('// @MAINTENANCE_SHADER@', $baselineShader.Value.Replace('kCodecShader', 'kMaintenanceShader'))
-    $comparison = @'
+    $comparison = if ($ColorEditField) { '' } else { @'
         Gpu baseline(kMaintenanceShader);
         unsigned comparison_count = 0;
         for (bool before : {false,true}) for (UINT flags : {0u,1u,16u,32u,64u,128u,192u})
@@ -48,7 +48,7 @@ if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
             ++comparison_count;
         }
         std::printf("Actual maintenance vs 0.5 disabled protection/layers: %u byte-identical WARP outputs.\n",comparison_count);
-'@
+'@ }
     $harness = $harness.Replace('// @MAINTENANCE_COMPARISON@', $comparison)
 }
 $boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_strength_gpu.inl') -Raw -Encoding UTF8
@@ -59,6 +59,15 @@ if($CatmullOutput) {
     $catTests=Get-Content (Join-Path $projectRoot 'tests/catmull_edit_gpu.inl') -Raw -Encoding UTF8
     $harness=$harness.Replace('// @COMPOSITION_CONTRACT_TESTS@',$catTests)
     $harness=$harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@','if (argc==3 && std::strcmp(argv[1],"--catmull-contract")==0) { ExportCatmullContract(gpu,argv[2]); return 0; }')
+} elseif ($ColorEditField) {
+    if ($NegativeControl -or $LayerNegativeControl -or $ComparisonOutput -or $EditFieldOutput) { throw 'Run colour EditField independently.' }
+    if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
+        $baselineHash = (Get-FileHash -LiteralPath $BaselineSource -Algorithm SHA256).Hash.ToLowerInvariant()
+        $harness = '#define NR_EDIT_FIELD_BASELINE_SOURCE_SHA "' + $baselineHash + '"' + "`n" + $harness
+    }
+    $colorTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/color_edit_field_gpu.inl') -Raw -Encoding UTF8
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $colorTests)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 2 && std::strcmp(argv[1], "--color-edit-field") == 0) { ValidateColorEditField(gpu); return 0; }')
 } elseif (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
     if ($NegativeControl -or $LayerNegativeControl -or $ComparisonOutput) { throw 'Run EditField export independently.' }
     if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
@@ -122,7 +131,10 @@ if($CatmullOutput) {
     if($LASTEXITCODE -ne 0){throw 'Independent Catmull validation failed; evidence retained.'}
     return
 }
-if (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
+if ($ColorEditField) {
+    & $binary '--color-edit-field'
+    if ($LASTEXITCODE -ne 0) { throw 'Production colour EditField validation failed.' }
+} elseif (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
     & $binary '--edit-field-contract' ([IO.Path]::GetFullPath($EditFieldOutput))
     if ($LASTEXITCODE -ne 0) { throw 'Production EditField export failed.' }
     & python (Join-Path $projectRoot 'scripts/validate-edit-field.py') --capture $EditFieldOutput --source (Join-Path $SourceRoot 'src/nr_before_sr.cpp')

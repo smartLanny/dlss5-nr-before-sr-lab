@@ -58,6 +58,7 @@ $entryPoints = @('EncodeCS', 'CombineCS', 'EncodeV2CS', 'CombineV2CS', 'CopyCS',
 if ($sourceText.Contains('void BuildEditFieldCS(')) { $entryPoints += 'BuildEditFieldCS' }
 if ($sourceText.Contains('void RestoreEditHorizontalCS(')) { $entryPoints += 'RestoreEditHorizontalCS' }
 if ($sourceText.Contains('void RestoreEditReferenceCS(')) { $entryPoints += 'RestoreEditReferenceCS' }
+if ($sourceText.Contains('void BuildColorEditFieldCS(')) { $entryPoints += 'BuildColorEditFieldCS' }
 foreach ($entryPoint in $entryPoints) {
     $code = [IntPtr]::Zero
     $errors = [IntPtr]::Zero

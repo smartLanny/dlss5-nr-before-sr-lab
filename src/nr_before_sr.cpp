@@ -874,6 +874,7 @@ struct ChainConfig {
     bool independent_chroma_composition = false; // 0.5 opt-in shared pre/post candidate.
     bool low_grid_edit_field = false; // #11 luma-only Mode2 experiment; defaults to A.
     bool catmull_edit_restore = false; // #85: off = existing BilinearSafe.
+    bool low_grid_color_edit_field = false; // #86 normalized opponent-colour field; defaults to A.
     float layer_tone = 1.0f;
     float layer_structure = 1.0f;
     float layer_bright = 1.0f;
@@ -1305,6 +1306,7 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.independent_chroma_composition == b.independent_chroma_composition &&
            a.low_grid_edit_field == b.low_grid_edit_field &&
            a.catmull_edit_restore == b.catmull_edit_restore &&
+           a.low_grid_color_edit_field == b.low_grid_color_edit_field &&
            a.layer_tone == b.layer_tone && a.layer_structure == b.layer_structure &&
            a.layer_bright == b.layer_bright && a.layer_shadow == b.layer_shadow &&
            a.motion_stability == b.motion_stability &&
@@ -1394,6 +1396,7 @@ void ReloadConfig(bool force = false) {
     next.independent_chroma_composition = GetPrivateProfileIntW(L"NRBeforeSR", L"IndependentChromaComposition", 0, g_ini_path) != 0;
     next.low_grid_edit_field = GetPrivateProfileIntW(L"NRBeforeSR", L"LowGridEditField", 0, g_ini_path) != 0;
     next.catmull_edit_restore = GetPrivateProfileIntW(L"NRBeforeSR", L"CatmullRomEditRestore", 0, g_ini_path) != 0;
+    next.low_grid_color_edit_field = GetPrivateProfileIntW(L"NRBeforeSR", L"LowGridColorEditField", 0, g_ini_path) != 0;
     next.layer_tone = ReadIniFloat(L"LayerTone", 1.0f);
     next.layer_structure = ReadIniFloat(L"LayerStructure", 1.0f);
     next.layer_bright = ReadIniFloat(L"LayerBright", 1.0f);
@@ -1495,6 +1498,7 @@ void ReloadConfig(bool force = false) {
             g_config.layered_enhancement, g_config.mode, g_config.layer_tone, g_config.layer_structure, g_config.layer_bright, g_config.layer_shadow);
         Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", g_config.independent_chroma_composition);
         Log("LowGridEditField requested=%d; only Mode2 and colour zero; recorded flag=8192; unavailable optional resources retain composition A.", g_config.low_grid_edit_field);
+        Log("LowGridColorEditField requested=%d; Mode2 normalized-opponent candidate flag=32768; actual colour remains policy-gated.", g_config.low_grid_color_edit_field);
         Log("HighStrengthProtection requested=%d; effective on V2/candidate luminance above 1x; legacy V2 also protects chroma; codec flag=1024.",
             g_config.high_strength_protection ? 1 : 0);
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
@@ -1570,6 +1574,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"IndependentChromaComposition", config.independent_chroma_composition ? 1 : 0));
     record_write(WriteIniInt(L"LowGridEditField", config.low_grid_edit_field ? 1 : 0));
     record_write(WriteIniInt(L"CatmullRomEditRestore", config.catmull_edit_restore ? 1 : 0));
+    record_write(WriteIniInt(L"LowGridColorEditField", config.low_grid_color_edit_field ? 1 : 0));
     record_write(WriteIniFloat(L"LayerTone", config.layer_tone));
     record_write(WriteIniFloat(L"LayerStructure", config.layer_structure));
     record_write(WriteIniFloat(L"LayerBright", config.layer_bright));
@@ -1676,6 +1681,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
         applied.layered_enhancement, applied.mode, applied.layer_tone, applied.layer_structure, applied.layer_bright, applied.layer_shadow);
     Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", applied.independent_chroma_composition);
     Log("LowGridEditField requested=%d; only Mode2 and colour zero; recorded flag=8192; unavailable optional resources retain composition A.", applied.low_grid_edit_field);
+    Log("LowGridColorEditField requested=%d; Mode2 normalized-opponent candidate flag=32768; actual colour remains policy-gated.", applied.low_grid_color_edit_field);
     Log("HighStrengthProtection requested=%d; effective on V2/candidate luminance above 1x; legacy V2 also protects chroma; codec flag=1024.",
         applied.high_strength_protection ? 1 : 0);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
@@ -2061,7 +2067,9 @@ struct Codec {
     ID3D12PipelineState *build_edit_field = nullptr;
     ID3D12PipelineState *restore_edit_horizontal = nullptr;
     bool edit_restore_pipeline_failed = false;
+    ID3D12PipelineState *build_color_edit_field = nullptr;
     bool edit_field_pipeline_failed = false;
+    bool color_edit_field_pipeline_failed = false;
     UINT descriptor_size = 0;
     bool failed = false;
 };
@@ -2094,7 +2102,7 @@ Texture2D<float4> ProxyColor    : register(t1);
 Texture2D<float4> NeuralColor   : register(t2);
 Texture2D<float2> MotionSource  : register(t3);
 Texture2D<float4> ExposureScaleTexture : register(t4);
-Texture2D<float2> EditField : register(t5);
+Texture2D<float4> EditField : register(t5);
 Texture2D<float2> EditHorizontal : register(t6);
 RWTexture2D<float4> ProxyOut    : register(u0);
 RWTexture2D<float4> ResultOut   : register(u1);
@@ -2102,6 +2110,7 @@ RWTexture2D<float2> MotionOut   : register(u2);
 RWByteAddressBuffer DeltaStats  : register(u3);
 RWByteAddressBuffer StageCapture : register(u4);
 RWTexture2D<float2> EditFieldOut : register(u5);
+RWTexture2D<float4> ColorEditFieldOut : register(u5);
 RWTexture2D<float2> EditHorizontalOut : register(u6);
 
 cbuffer Constants : register(b0) {
@@ -2515,7 +2524,56 @@ void BuildEditFieldCS(uint3 tid : SV_DispatchThreadID) {
     EditFieldOut[tid.xy] = isfinite(edit) ? float2(edit,1.0) : float2(0.0,0.0);
 }
 
-float2 ReadLumaEditV6(int2 p) { return EditField.Load(int3(p,0)).xy; }
+// #86 stores chroma as a bounded difference of normalized opponent axes.
+// It deliberately does not store per-channel log RGB: interpolation, exp2
+// and gamut projection are not interchangeable operations.  Luma validity is
+// bit 0 and chroma validity is bit 1 in the exactly represented w component.
+[numthreads(8, 8, 1)]
+void BuildColorEditFieldCS(uint3 tid : SV_DispatchThreadID) {
+    if (tid.x >= ModelWidth || tid.y >= ModelHeight) return;
+    float3 pStored = ProxyColor.Load(int3(tid.xy, 0)).rgb;
+    float3 nStored = NeuralColor.Load(int3(tid.xy, 0)).rgb;
+    if (!IsFiniteModelStoredV2(pStored) || !IsFiniteModelStoredV2(nStored)) {
+        ColorEditFieldOut[tid.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
+    float3 p = LoadProxyLinearV2(int2(tid.xy));
+    float3 n = LoadNeuralLinearV2(int2(tid.xy));
+    float pRawLuma = dot(p, kLuma);
+    float nRawLuma = dot(n, kLuma);
+    float pl = max(pRawLuma, 1.0 / 4096.0);
+    float nl = max(nRawLuma, 1.0 / 4096.0);
+    float edit = clamp(log2(nl / pl), -8.0, 8.0);
+    if (!isfinite(edit)) {
+        ColorEditFieldOut[tid.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        return;
+    }
+    float2 opponentDelta = 0.0.xx;
+    float valid = 1.0;
+    if (pRawLuma >= 1.0 / 4096.0 && nRawLuma >= 1.0 / 4096.0 &&
+        all(p >= 0.0.xxx) && all(n >= 0.0.xxx)) {
+        float3 pn = p / pRawLuma;
+        float3 nn = n / nRawLuma;
+        opponentDelta = float2(nn.r - nn.g, nn.b - nn.g) -
+                        float2(pn.r - pn.g, pn.b - pn.g);
+        if (all(isfinite(opponentDelta))) {
+            opponentDelta = clamp(opponentDelta, -32.0.xx, 32.0.xx);
+            valid = 3.0;
+        } else {
+            opponentDelta = 0.0.xx;
+        }
+    }
+    ColorEditFieldOut[tid.xy] = float4(edit, opponentDelta, valid);
+}
+
+// Shared with the low-grid stability candidate.  RG32F keeps its original
+// (log,valid) meaning; RGBA32F decodes luma validity from w bit 0.
+float2 ReadLumaEditV6(int2 p) {
+    float4 raw = EditField.Load(int3(p, 0));
+    if ((Passthrough & 32768u) == 0u) return raw.xy;
+    uint validity = uint(raw.w + 0.5);
+    return float2(raw.x, (validity & 1u) != 0u ? 1.0 : 0.0);
+}
 
 float2 SampleEditFieldV5(float2 fullPixelCenter) {
     float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
@@ -2574,6 +2632,24 @@ float2 SampleRestoredEdit(float2 center) {
     // Invalid Catmull footprint may still have a valid narrower bilinear one.
     // If both fail, the existing final compositor retains the stored source.
     return valid && isfinite(value) ? float2(value,1.0) : SampleEditFieldV5(center);
+}
+
+float4 SampleColorEditFieldV6(float2 fullPixelCenter) {
+    float2 mapped = fullPixelCenter * float2(ModelWidth, ModelHeight) /
+        float2(max(Width, 1u), max(Height, 1u)) - 0.5;
+    int2 base = int2(floor(mapped));
+    int2 upper = int2(max(ModelWidth, 1u)-1u, max(ModelHeight, 1u)-1u);
+    float4 a = EditField.Load(int3(clamp(base,int2(0,0),upper),0));
+    float4 b = EditField.Load(int3(clamp(base+int2(1,0),int2(0,0),upper),0));
+    float4 c = EditField.Load(int3(clamp(base+int2(0,1),int2(0,0),upper),0));
+    float4 d = EditField.Load(int3(clamp(base+int2(1,1),int2(0,0),upper),0));
+    uint av=uint(a.w+0.5), bv=uint(b.w+0.5), cv=uint(c.w+0.5), dv=uint(d.w+0.5);
+    if ((av&2u)==0u || (bv&2u)==0u || (cv&2u)==0u || (dv&2u)==0u ||
+        !all(isfinite(float4(a.yz,b.yz))) || !all(isfinite(float4(c.yz,d.yz))))
+        return float4(0.0,0.0,0.0,0.0);
+    float2 f = frac(mapped);
+    float2 delta = lerp(lerp(a.yz,b.yz,f.x),lerp(c.yz,d.yz,f.x),f.y);
+    return float4(0.0,delta,1.0);
 }
 
 float ModelLumaRatioV2(float2 fullPixelCenter) {
@@ -3090,6 +3166,26 @@ float IndependentChromaScaleV4(float peak, float strength, float confidence, flo
 }
 // INDEPENDENT_CHROMA_SCALAR_END
 
+// Convert a luminance-normalized opponent delta back to RGB while preserving
+// unit luminance.  A single scalar is bounded against every full-resolution
+// source channel, so interpolation cannot rotate the requested colour edit.
+float3 OpponentDeltaToRgbV6(float2 delta) {
+    float dg = -kLuma.r * delta.x - kLuma.b * delta.y;
+    return float3(dg + delta.x, dg, dg + delta.y);
+}
+
+float OpponentRatioLimitV6(float3 base, float3 delta, float ratio) {
+    float limit = 2.0;
+    ratio = max(ratio, 1.0);
+    [unroll] for (uint i=0u; i<3u; ++i) {
+        if (delta[i] > 0.0)
+            limit = min(limit, max(base[i] * (ratio - 1.0), 0.0) / delta[i]);
+        else if (delta[i] < 0.0)
+            limit = min(limit, max(base[i] * (1.0 - rcp(ratio)), 0.0) / -delta[i]);
+    }
+    return max(limit, 0.0);
+}
+
 [numthreads(8, 8, 1)]
 void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height ||
@@ -3103,6 +3199,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float3 neural = SampleNeuralLinearV2(center);
     float3 fullProxy = EncodeProxyLinearV2(source);
     const bool independentChroma = (Passthrough & 4096u) != 0u;
+    const bool lowGridColor = (Passthrough & 32768u) != 0u;
 
     bool finiteInputs = ModelNeighborhoodFiniteV2(center) &&
         all(storedOriginal.rgb == storedOriginal.rgb) &&
@@ -3111,8 +3208,10 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         all(abs(neural) <= 65504.0.xxx);
     // The candidate's logarithmic chromaticity has no signed-colour contract.
     // Retain the exact source for such samples; do not silently rectify them.
-    const bool unsupportedSignedSource = independentChroma && any(storedOriginal.rgb < 0.0.xxx);
-    if (independentChroma && any(abs(storedOriginal.rgb) > 65504.0.xxx)) finiteInputs = false;
+    const bool unsupportedSignedSource = (independentChroma || lowGridColor) &&
+        any(storedOriginal.rgb < 0.0.xxx);
+    if ((independentChroma || lowGridColor) &&
+        any(abs(storedOriginal.rgb) > 65504.0.xxx)) finiteInputs = false;
     float3 diagnosticOriginal = SourceToDiagnosticLinear(storedOriginal.rgb);
     float3 diagnosticProxy = proxy;
     float3 diagnosticNeural = neural;
@@ -3246,7 +3345,28 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         float3 poweredChromaLog = clamp(chromaLog *
             (TransferStrength * ColorStrength * confidence),
             -logLimit.xxx, logLimit.xxx);
-        if (independentChroma) {
+        if (lowGridColor) {
+            // Interpolate the normalized opponent edit directly.  exp2 and
+            // gamut projection remain full-resolution operations because
+            // neither commutes with interpolation.  Invalid/near-black field
+            // footprints retain the already protected luminance-only result.
+            float4 field = SampleColorEditFieldV6(center);
+            if (field.w == 1.0 && sourceLuma > 1.0 / 65536.0 &&
+                all(source >= 0.0.xxx)) {
+                float3 sourceNorm = source / sourceLuma;
+                float3 opponentRgbDelta = OpponentDeltaToRgbV6(field.yz);
+                float requested = clamp(ColorStrength, 0.0, 2.0) * confidence;
+                float scale = min(requested,
+                    OpponentRatioLimitV6(sourceNorm, opponentRgbDelta, maxRatio));
+                float3 colouredNorm = sourceNorm + opponentRgbDelta * scale;
+                float3 coloured = max(colouredNorm, 0.0.xxx) * targetLuma;
+                float colouredLuma = dot(coloured, kLuma);
+                if (colouredLuma > 1.0 / 65536.0) {
+                    result = coloured * (targetLuma / colouredLuma);
+                    candidateChromaApplied = scale > 0.0;
+                }
+            }
+        } else if (independentChroma) {
             // Extract colour before luminance-only detail/lighting protection.
             // TransferStrength remains the master zero gate, but nonzero luma
             // strength/layers do not amplify or rotate this independent edit.
@@ -3268,16 +3388,19 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
                 peakLog, TransferStrength - 1.0, logLimit) / peakLog : 1.0;
             poweredChromaLog = baseChroma * scale;
         }
-        float3 chromaGain = exp2(poweredChromaLog);
-        float3 coloured = max(source, 0.0.xxx) * chromaGain;
-        float colouredLuma = dot(coloured, kLuma);
-        if (colouredLuma > 1.0 / 65536.0)
-            coloured *= targetLuma / colouredLuma;
-        else
-            coloured = lumaOnly;
-        result = coloured;
+        if (!lowGridColor) {
+            float3 chromaGain = exp2(poweredChromaLog);
+            float3 coloured = max(source, 0.0.xxx) * chromaGain;
+            float colouredLuma = dot(coloured, kLuma);
+            if (colouredLuma > 1.0 / 65536.0)
+                coloured *= targetLuma / colouredLuma;
+            else
+                coloured = lumaOnly;
+            result = coloured;
+        }
     }
-    if (independentChroma && poweredLog == 0.0 && !candidateChromaApplied) {
+    if ((independentChroma || lowGridColor) && poweredLog == 0.0 &&
+        !candidateChromaApplied) {
         WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
             diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0, false);
@@ -5946,63 +6069,88 @@ void RebindExposureSource(ID3D12Device *device, ID3D12Resource *exposure,
 }
 
 bool EnsureEditField(ID3D12Device *device, NrSlot &slot,
-                     unsigned int width, unsigned int height) {
+                     unsigned int width, unsigned int height,
+                     bool color_variant) {
     if (!device || !slot.heap || !width || !height || slot.snapshots_native_output)
         return false;
+    const DXGI_FORMAT field_format = color_variant
+        ? DXGI_FORMAT_R32G32B32A32_FLOAT : DXGI_FORMAT_R32G32_FLOAT;
     if (slot.edit_field) {
         const auto desc = ID3D12Resource_GetDesc(slot.edit_field);
-        return desc.Width == width && desc.Height == height;
+        if (desc.Width == width && desc.Height == height &&
+            desc.Format == field_format) return true;
     }
     // No descriptor mutation on a recorded/in-flight slot. Wait for the
     // existing retirement contract; absence of this optional plane keeps A.
     if (slot.edit_field_allocation_failed || !CanMutateSlotLocked(slot) ||
-        g_codec.edit_field_pipeline_failed) return false;
-    if (!g_codec.build_edit_field) {
-        ID3DBlob *code = CompileCodecShader("BuildEditFieldCS");
+        (color_variant ? g_codec.color_edit_field_pipeline_failed
+                       : g_codec.edit_field_pipeline_failed)) return false;
+    ID3D12PipelineState *&field_pipeline = color_variant
+        ? g_codec.build_color_edit_field : g_codec.build_edit_field;
+    if (!field_pipeline) {
+        ID3DBlob *code = CompileCodecShader(color_variant
+            ? "BuildColorEditFieldCS" : "BuildEditFieldCS");
         HRESULT hr = E_FAIL;
         if (code) {
             D3D12_COMPUTE_PIPELINE_STATE_DESC desc={}; desc.pRootSignature=g_codec.root;
             desc.CS.pShaderBytecode=code->lpVtbl->GetBufferPointer(code);
             desc.CS.BytecodeLength=code->lpVtbl->GetBufferSize(code);
             hr=ID3D12Device_CreateComputePipelineState(device,&desc,IID_ID3D12PipelineState,
-                reinterpret_cast<void **>(&g_codec.build_edit_field));
+                reinterpret_cast<void **>(&field_pipeline));
             ReleaseCom(code);
         }
         if (FAILED(hr)) {
-            g_codec.edit_field_pipeline_failed=true;
-            Log("LowGridEditField optional PSO unavailable; existing composition A retained.");
+            if (color_variant) g_codec.color_edit_field_pipeline_failed=true;
+            else g_codec.edit_field_pipeline_failed=true;
+            Log("LowGrid%sEditField optional PSO unavailable; existing composition A retained.",
+                color_variant ? "Color" : "");
             return false;
         }
     }
-    D3D12_FEATURE_DATA_FORMAT_SUPPORT support={}; support.Format=DXGI_FORMAT_R32G32_FLOAT;
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT support={}; support.Format=field_format;
     if (FAILED(ID3D12Device_CheckFeatureSupport(device,D3D12_FEATURE_FORMAT_SUPPORT,
             &support,sizeof(support))) ||
         (support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD)==0 ||
         (support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE)==0) {
         slot.edit_field_allocation_failed=true;
-        Log("LowGridEditField R32G32_FLOAT load/store unavailable; composition A retained.");
+        Log("LowGridEditField %s load/store unavailable; composition A retained.",
+            FormatName(field_format));
         return false;
     }
     D3D12_RESOURCE_DESC desc={}; desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     desc.Width=width; desc.Height=height; desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
-    desc.Format=DXGI_FORMAT_R32G32_FLOAT; desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    desc.Format=field_format; desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     const auto allocation=ID3D12Device_GetResourceAllocationInfo(device,0,1,&desc);
-    if (!allocation.SizeInBytes || allocation.SizeInBytes > kEditFieldSlotBudget ||
+    // Create-before-release preserves the proven plane if replacement fails.
+    // Budget that real overlap, rather than reporting only the post-swap net.
+    if (!allocation.SizeInBytes || slot.edit_field_bytes > kEditFieldSlotBudget ||
+        slot.edit_horizontal_bytes > kEditFieldSlotBudget - slot.edit_field_bytes ||
+        allocation.SizeInBytes > kEditFieldSlotBudget - slot.edit_field_bytes -
+            slot.edit_horizontal_bytes ||
+        g_edit_field_allocated_bytes > kEditFieldTotalBudget ||
         allocation.SizeInBytes > kEditFieldTotalBudget - g_edit_field_allocated_bytes) {
         slot.edit_field_allocation_failed=true;
-        Log("LowGridEditField allocation exceeds 64MiB/slot or 256MiB/Core budget; composition A retained.");
+        Log("LowGridEditField replacement peak exceeds 64MiB/slot or 256MiB/Core budget; existing field retained and composition A used.");
         return false;
     }
-    if (!CreateTexture(device,width,height,L"NRChain.LogLumaEditField",&slot.edit_field,
-                       DXGI_FORMAT_R32G32_FLOAT)) {
+    const unsigned long long retained_bytes =
+        g_edit_field_allocated_bytes - slot.edit_field_bytes;
+    ID3D12Resource *replacement = nullptr;
+    if (!CreateTexture(device,width,height,color_variant
+            ? L"NRChain.NormalizedOpponentEditField"
+            : L"NRChain.LogLumaEditField",&replacement,field_format)) {
         slot.edit_field_allocation_failed=true;
         return false;
     }
+    ReleaseCom(slot.edit_field);
+    g_edit_field_allocated_bytes = retained_bytes;
+    slot.edit_field = replacement;
+    slot.edit_field_state = D3D12_RESOURCE_STATE_COMMON;
     slot.edit_field_bytes=allocation.SizeInBytes;
     g_edit_field_allocated_bytes+=slot.edit_field_bytes;
     WriteEditFieldDescriptors(device,slot);
-    Log("LowGridEditField allocated N=%ux%u bytes=%llu total=%llu; same-slot retirement, no additional NR call.",
-        width,height,slot.edit_field_bytes,g_edit_field_allocated_bytes);
+    Log("LowGridEditField allocated N=%ux%u format=%s bytes=%llu total=%llu; safe-slot replacement, no additional NR call.",
+        width,height,FormatName(field_format),slot.edit_field_bytes,g_edit_field_allocated_bytes);
     return true;
 }
 
@@ -6036,7 +6184,9 @@ bool EnsureEditRestore(ID3D12Device *device, NrSlot &slot, UINT width, UINT heig
     d.Width=width; d.Height=height; d.DepthOrArraySize=d.MipLevels=d.SampleDesc.Count=1;
     d.Format=DXGI_FORMAT_R16G16_FLOAT; d.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     const auto allocation=ID3D12Device_GetResourceAllocationInfo(device,0,1,&d);
-    if(!allocation.SizeInBytes || allocation.SizeInBytes>kEditFieldSlotBudget-slot.edit_field_bytes ||
+    if(!allocation.SizeInBytes || slot.edit_field_bytes>kEditFieldSlotBudget ||
+        allocation.SizeInBytes>kEditFieldSlotBudget-slot.edit_field_bytes ||
+        g_edit_field_allocated_bytes>kEditFieldTotalBudget ||
         allocation.SizeInBytes>kEditFieldTotalBudget-g_edit_field_allocated_bytes ||
         !CreateTexture(device,width,height,L"NRChain.EditHorizontal",&slot.edit_horizontal,DXGI_FORMAT_R16G16_FLOAT)) {
         slot.edit_horizontal_allocation_failed=true; return false;
@@ -6380,7 +6530,10 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     // and work grid; it does not change the model input or guide semantics.
     const bool independent_chroma = g_config.independent_chroma_composition &&
         (pipeline == g_codec.combine || pipeline == g_codec.combine_v2);
-    if (independent_chroma) pipeline = g_codec.combine_v2;
+    const bool low_grid_color = g_config.low_grid_color_edit_field &&
+        g_config.mode == 2 && slot.edit_field_recorded &&
+        (pipeline == g_codec.combine || pipeline == g_codec.combine_v2);
+    if (independent_chroma || low_grid_color) pipeline = g_codec.combine_v2;
     const bool v2_combine = pipeline == g_codec.combine_v2;
     const bool any_combine = pipeline == g_codec.combine || v2_combine;
     const bool capture_delta = any_combine &&
@@ -6405,12 +6558,15 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         ApplyLightingLockPolicy(color_policy, g_config.mode, g_config.lighting_lock);
     ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,
         g_config.color_strength);
+    const float effective_color_strength = color_policy.effective_color_strength;
     const unsigned int base_codec_flags = source_flags |
-        ((v2_combine && g_config.mode == 2 && g_config.low_grid_edit_field &&
-          g_config.color_strength <= 0.000001f && slot.edit_field_recorded) ? 8192u : 0u) |
         ((v2_combine && slot.edit_field_recorded && slot.edit_horizontal_recorded &&
           g_config.low_grid_edit_field && g_config.catmull_edit_restore &&
           g_config.mode==2 && g_config.color_strength<=0.000001f) ? 16384u : 0u) |
+        ((v2_combine && g_config.mode == 2 && slot.edit_field_recorded &&
+          ((g_config.low_grid_edit_field && g_config.color_strength <= 0.000001f) ||
+           low_grid_color)) ? 8192u : 0u) |
+        (low_grid_color ? 32768u : 0u) |
         (independent_chroma ? 4096u : 0u) |
         ((v2_combine && g_config.high_strength_protection) ? 1024u : 0u) |
         ((v2_combine && g_config.layered_enhancement) ? 2048u : 0u) |
@@ -6418,7 +6574,6 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         (capture_delta ? 8u : 0u) |
         ((hdr_input && color_contract.exposure_texture != nullptr) ? 64u : 0u) |
         (UsePeakShoulder(color_mode, hdr_input, g_config.experimental_peak_shoulder) ? 256u : 0u);
-    const float effective_color_strength = color_policy.effective_color_strength;
     nr_f8_gpu::ArmResult f8_capture={};
     bool f8_armed=false;
     unsigned long long f8_token=0;
@@ -7844,12 +7999,19 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     slot->active_render_height = render_height;
     slot->edit_field_recorded = false;
     slot->edit_horizontal_recorded = false;
-    const bool edit_field_ready = g_config.low_grid_edit_field && g_config.mode == 2 &&
-        g_config.color_strength <= 0.000001f && g_config.transfer_strength > 0.000001f &&
+    const bool color_edit_field = g_config.low_grid_color_edit_field;
+    const bool edit_field_requested = g_config.mode == 2 &&
+        ((g_config.low_grid_edit_field && g_config.color_strength <= 0.000001f) ||
+         color_edit_field);
+    const bool edit_field_ready = edit_field_requested &&
+        g_config.transfer_strength > 0.000001f &&
         !g_config.identity_use_original &&
         context->successful_evaluations_since_reset >= g_config.warmup_after_create &&
-        EnsureEditField(device,*slot,width,height);
-    const bool edit_restore_ready = edit_field_ready && g_config.catmull_edit_restore &&
+        EnsureEditField(device,*slot,width,height,color_edit_field);
+    // #85 remains a colour-zero RG32F-only restore.  Enabling #86 selects the
+    // RGBA variant and cannot silently opt Catmull into colour reconstruction.
+    const bool edit_restore_ready = edit_field_ready && !color_edit_field &&
+        g_config.catmull_edit_restore && g_config.color_strength <= 0.000001f &&
         (render_width!=width || render_height!=height) &&
         EnsureEditRestore(device,*slot,render_width,height);
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
@@ -8002,7 +8164,9 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     if (edit_field_ready) {
         Transition(command_list, slot->edit_field, slot->edit_field_state,
                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        DispatchCodec(command_list,*slot,g_codec.build_edit_field,width,height,color_contract,
+        DispatchCodec(command_list,*slot,color_edit_field
+                ? g_codec.build_color_edit_field : g_codec.build_edit_field,
+            width,height,color_contract,
             (feature.create_flags & 1) != 0,0,0,0,0,slot->codec_color_mode,
             render_width,render_height,width,height);
         UavBarrier(command_list,slot->edit_field);

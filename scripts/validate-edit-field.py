@@ -30,7 +30,8 @@ def wiring():
     assert 'return float2(0.0,0.0)' in sample
     assert 'slot.edit_field_allocation_failed || !CanMutateSlotLocked(slot)' in s
     assert 'g_edit_field_allocated_bytes -= slot.edit_field_bytes;' in s
-    assert 'g_config.color_strength <= 0.000001f && slot.edit_field_recorded' in s
+    assert 'g_config.low_grid_edit_field && g_config.color_strength <= 0.000001f' in s
+    assert 'slot.edit_field_recorded' in s
     assert 'context->successful_evaluations_since_reset >= g_config.warmup_after_create' in s
     body=s.split('if (edit_field_ready) {',1)[1].split('DispatchCodec(command_list, *slot, g_codec.combine_v2',1)[0]
     assert body.index('g_codec.build_edit_field')<body.index('UavBarrier(command_list,slot->edit_field)')<body.index('slot->edit_field_recorded = true')

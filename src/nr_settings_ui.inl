@@ -440,10 +440,16 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         "低网格亮度编辑场（实验）"), &next.low_grid_edit_field);
     SettingsTooltip(ui("Effective only before SR with Colour follow zero. Computes a luma edit at NR size, then restores it; this changes the interpolation order and may change edges. Source protection remains at full resolution. Adds one optional pass and bounded storage; unavailable resources retain the existing composition. GPU benefit and game quality are unverified.",
         "仅前置且颜色跟随为零时生效。在 NR 尺寸计算亮度编辑后恢复，会改变插值顺序及可能的边缘观感。原图保护仍在全分辨率。增加一次可选处理和有界存储，资源不可用则保留原合成；GPU 收益和游戏画质未验证。"));
+    ImGui::BeginDisabled(next.low_grid_color_edit_field || next.color_strength > 0.000001f);
     changed |= ImGui::Checkbox(ui("Catmull-Rom edit restore (experimental; off = BilinearSafe)",
         "Catmull-Rom编辑恢复（实验，关闭为BilinearSafe）"), &next.catmull_edit_restore);
     SettingsTooltip(ui("Requires low-grid luminance editing and zero colour follow. Uses a bounded FP16 horizontal plane; vertical restoration stays in final composition. Invalid footprints or unavailable resources retain valid BilinearSafe. No speed or quality claim.",
         "需低网格亮度编辑且颜色跟随为零。使用有界FP16横向中间面，纵向恢复在最终合成内完成。无效邻域或资源不可用则退有效双线性；不保证速度或画质收益。"));
+    ImGui::EndDisabled();
+    changed |= ImGui::Checkbox(ui("Low-grid stable colour edit field (experimental)",
+        "低网格稳定色彩编辑场（实验）"), &next.low_grid_color_edit_field);
+    SettingsTooltip(ui("Before SR only. Stores log luminance plus normalized opponent-colour change at NR size, with explicit near-black and finite validity. Interpolation happens before full-resolution colour reconstruction; source edge, HDR headroom, ratio, gamut and finite guards remain final. This is not a face mask and does not add another NR call. Off keeps the existing RG32F luminance field and composition paths.",
+        "仅用于前置路线。在 NR 尺寸保存对数亮度及归一化对手色变化，并显式标记近黑和有限性。先插值、再在全分辨率重建色彩；原图边缘、HDR 余量、倍率、色域及有限值保护仍在最终阶段。这不是人脸遮罩，也不增加 NR 调用。关闭时保留现有 RG32F 亮度场与合成路径。"));
     changed |= ImGui::Checkbox(ui("High-strength protection (experimental)",
         "高强度保护（实验）"), &next.high_strength_protection);
     SettingsTooltip(ui("Above 1x effective strength, soft-limits extra luminance; SDR uses remaining headroom. Applies before SR and to the optional shared post candidate. Legacy pre composition also soft-limits extra chroma; independent chroma uses its own colour budget. This does not fix an already clipped 1x result or guarantee stable pictures at 4x.",
