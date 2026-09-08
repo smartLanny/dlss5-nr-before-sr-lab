@@ -23,6 +23,9 @@ def main():
     a=p.parse_args()
     if a.output.exists():raise ValueError('Preserve previous package; choose a new output directory')
     manifest=json.loads((a.stage/'source-manifest.json').read_text(encoding='utf-8-sig'))
+    research_commit=subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip()
+    if subprocess.check_output(['git','-C',str(ROOT),'status','--porcelain','--untracked-files=no'],text=True).strip():
+        raise ValueError('Commit the research source before packaging')
     build=a.stage/'core/build'
     sources=list(build.glob('*nvfp4-dev1*.addon64'))
     chinese=[s for s in sources if '.en.' not in s.name]
@@ -74,7 +77,8 @@ def main():
 启用 Auto 而显示回退原 FP8 是当前资格门槛的预期行为。
 '''
     (a.output/'开始阅读.md').write_text(instructions,encoding='utf-8')
-    receipt={'schema':1,'source_commit':manifest['nvfp4']['source_commit'],'baseline_commit':manifest['nvfp4']['baseline_commit'],
+    receipt={'schema':1,'source_commit':manifest['nvfp4']['source_commit'],'research_source_commit':research_commit,'baseline_commit':manifest['nvfp4']['baseline_commit'],
+             'kernel_abi_fingerprint':kernel_receipt['abi_fingerprint'],
              'kind':'local source preview','default_precision':'original FP8','auto_qualified':False,
              'fused_gpu_verified':False,'game_verified':False,'performance_verified':False,'deployed':False,
              'files':{p.relative_to(a.output).as_posix():sha(p) for p in sorted(a.output.rglob('*')) if p.is_file()}}
