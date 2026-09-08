@@ -27,9 +27,8 @@ the horizontal restore plane and the new field in the real 64 MiB slot and
 256 MiB Core peak checks. Failure retains the old resource and composition A.
 
 The reviewed #86 source is `9670b1057a5fbd9634ad198c6c0ff84e668c528f`.
-Its generated source manifest is
-`C:\Users\pc1\Documents\ChatGPT\DLSS5\beta050-086-source-r2-20260908\source-manifest.json`,
-SHA-256 `f4e334207809258c73e60215cb9bf2eab7c8fd591203090b5509b0f956a84dc5`;
+Its private generated source manifest has SHA-256
+`f4e334207809258c73e60215cb9bf2eab7c8fd591203090b5509b0f956a84dc5`;
 all 103 listed files matched and the generated Core source SHA-256 was
 `84865e9f92bdb3a1f47e267bd1e1cc0f00ff9b7a42fc4314dff4c74a3ad1b906`.
 The 30-group production WARP fixture passed explicit validity, finite output,
@@ -43,9 +42,8 @@ These are source, WARP and build facts, not NVIDIA inference, game-quality or
 performance acceptance. #85 colour Catmull was not tested or enabled.
 
 The ordinary #85 + #86 merge source is
-`8982733ce456934c884c64255e6788901cc594e1`. Its generated tree is
-`C:\Users\pc1\Documents\ChatGPT\DLSS5\beta050-085-086-integration-20260908`.
-The source manifest SHA-256 is
+`8982733ce456934c884c64255e6788901cc594e1`. Its private generated source
+manifest SHA-256 is
 `e6cbc65c7590c5122059c5a064a6ababc7ff3514c4739f1cb8b5c3d674e16eef`;
 all 103 listed files matched and the transformed Core source SHA-256 is
 `8b8e6cb2a907c098cafac57d1ddb019d9be9f8df0c10a692675a6c0e66664556`.
@@ -65,9 +63,8 @@ create-before-release overlap. The resulting 64 MiB slot and 256 MiB Core caps
 therefore cover all three optional planes together.
 
 The three-slice production merge is
-`bab376699fb609f35c615c1333917e2a6e540d6a`. Its generated dev7 source is
-`C:\Users\pc1\Documents\ChatGPT\DLSS5\beta050-084-086-integration-20260908`;
-the 103-entry manifest has SHA-256
+`bab376699fb609f35c615c1333917e2a6e540d6a`. Its private generated dev7
+103-entry source manifest has SHA-256
 `375722b279322eb5e1fff3d7b17b1895894a7c225ec5fdf11761b68834f91d1e`
 with zero mismatches, and its transformed Core source SHA-256 is
 `32c6fa500806f6867d50b83e7c8afa3bd8a6a0f87d39053cfb9f80b26b67eab9`.
@@ -84,5 +81,8 @@ read old Neural or represent a real NR result. The runner then unintentionally
 fell through into its existing default matrix because the new branch lacked a
 `return`; that additional descriptor/motion/boost/layer/codec matrix also
 passed. Commit `96057b355d6675533aec195c1e05e4617ab9e87e` fixes the runner without
-another GPU execution. No 200/80/30 raw export was repeated. Private logs are
-under `evidence\low-grid-integration-bab3766-20260908`.
+another GPU execution. No 200/80/30 raw export was repeated. The private WARP
+log SHA-256 is
+`5ceddd191c98b06b31e13311fe6e3d9af813190321efc55b2fe929daa7f20840`;
+the private validation summary SHA-256 is
+`af36d9ed755f750f8716e2ba7bb724c55d19a4a82c4a42dd2f0a9af24c72df36`.
