@@ -7,3 +7,6 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 黎明行者之血 / Dawnwalker | RTX 5090 Laptop | 61062 | beta0.4.6-hotfix.1 | 主人过测 + 阿龙同版成功；ColorDiag finalChanged≠0 | 2026-09-09 | #177（已关） |
 | 红色沙漠 / Crimson Desert | RTX 5090 Laptop | 61062 | beta0.4.6-hotfix.1 | 主人 ROG 过测；bypass=none/active | 2026-09-09 | #201（已关） |
+| 红色沙漠 / Crimson Desert | RTX 5090 Laptop | 61062 | **0.5-dev14** | 开 RR→自动 RR-NR 过测（主人） | 2026-09-09 | 继 #201 |
+| 异环 / HTGame | RTX 5090 Laptop | 61062 | **0.5-dev14** | 开 RR→自动 RR-NR 过测；后置人脸黑：光照保护拉到 **0.2**；人脸遮罩游戏中不生效 | 2026-09-09 | #101/#99 |
+| 赛博朋克2077 | RTX 5090 Laptop | 61062 | **0.5-dev14** | 开 RR→自动 RR-NR 过测（主人） | 2026-09-09 | |
