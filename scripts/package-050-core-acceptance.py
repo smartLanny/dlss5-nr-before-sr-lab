@@ -56,6 +56,7 @@ def package(build: Path, output: Path) -> dict:
                 'validate-color-policy.py', 'validate-bug-sweep.py',
                 'validate-strength-migration.py', 'validate-f8-controller.py',
                 'tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py',
+                'tests/test_imgui_abi.py', 'tests/test_rr_depth_device_identity.py',
                 'bounded RR projection CPU copy',
                 'validate-command-creation.py', 'tests/test_rr_depth_projection.py',
                 'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py', 'tests/test_picture_reset.py',
