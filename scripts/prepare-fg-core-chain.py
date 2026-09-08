@@ -50,6 +50,14 @@ def main():
                               'void StreamlineSample::RenderScene(nvrhi::IFramebuffer* framebuffer)\n{\n    nr_fg_sample::Get().Init(GetDevice(), this);')
             patched = fg.once(patched, 'StreamlineSample::~StreamlineSample()\n{',
                               'StreamlineSample::~StreamlineSample()\n{\n    nr_fg_sample::Get().Shutdown(this);')
+            patched = fg.once(patched, '    NVWrapper::Get().TagResources_General(m_CommandList,',
+                              '''    nr_fg_sample::Get().BeforeTags(m_CommandList,
+        {m_RenderTargets->Depth, m_RenderTargets->MotionVectors, m_RenderTargets->PreUIColor});
+    NVWrapper::Get().TagResources_General(m_CommandList,''')
+            patched = fg.once(patched, '    NVWrapper::Get().TagResources_DLSS_NIS(m_CommandList,',
+                              '''    nr_fg_sample::Get().BeforeTags(m_CommandList,
+        {m_RenderTargets->HdrColor, m_RenderTargets->AAResolvedColor});
+    NVWrapper::Get().TagResources_DLSS_NIS(m_CommandList,''')
             patched = fg.once(patched, '            NVWrapper::Get().EvaluateDLSS(m_CommandList);', '''            // One renderer-owned base frame; before SR, UI and the existing FG presenter.
             auto nrJitter = std::dynamic_pointer_cast<PlanarView, IView>(m_View)->GetPixelOffset();
             nr_fg_sample::Get().Record(m_CommandList, m_RenderTargets->HdrColor,

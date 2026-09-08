@@ -150,6 +150,16 @@ struct Chain {
         value.provenance = NrGuideProvenance::Extracted;
         return value;
     }
+    void BeforeTags(nvrhi::ICommandList* list, std::initializer_list<nvrhi::ITexture*> textures) {
+        if (!requested) return;
+        // eOnlyValidNow depth tags can copy immediately. Restore the state that
+        // the fixed SL wrapper declares before tagging, not only before Evaluate.
+        for (auto* texture : textures) {
+            if (!texture) Fail("tag-resource-missing");
+            list->setTextureState(texture, nvrhi::AllSubresources, texture->getDesc().initialState);
+        }
+        list->commitBarriers();
+    }
     void Record(nvrhi::ICommandList* list, nvrhi::ITexture* hdr, nvrhi::ITexture* input_depth,
                 nvrhi::ITexture* input_motion, unsigned w, unsigned h, UINT64 frame,
                 float jitter_x, float jitter_y, bool reset, bool reverse_depth) {
