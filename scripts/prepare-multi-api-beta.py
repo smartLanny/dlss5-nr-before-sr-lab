@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline2'
-DISPLAY_VERSION = '0.5-dline2'
+VERSION = 'beta0.5-dline3'
+DISPLAY_VERSION = '0.5-dline3'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -24,27 +24,28 @@ PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
 STATE_CURRENT = 'f0f13b0a8ac243f01cdf0f93a517440ac65f1394'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
-REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5')
+REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e')
 INTEGRATION_CORE_PINS = {
-    'config/nr_before_sr.ini': '4ac5f14dd8d3d832e61f83dda2b3ac62c62198d8',
+    'src/nr_feedback_picture.inl': 'fd05bf35896dc16d8428a228198f9df092069574',
+    'config/nr_before_sr.ini': 'ed249e5cea839a697e69f08c2e00e04dd492ec0c',
     'scripts/patch-post-compat.py': '0542d143584a8eb56364a54c2ad8daae46fcc9c3',
     'src/nr_codec_descriptors.inl': '353c97c74bde56c72cda349fca2e50118000cbcb',
-    'src/nr_feedback_core.inl': '2e2b54d62c09befdd3ba76cdc75f087225d38d5d',
+    'src/nr_feedback_core.inl': '8cd643862263291036f3f70eed359bf28ed93b8c',
     'src/nr_feedback_text.h': '2eb84a38dca9c72243bc2a4a0aa84007ec75097f',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
     'src/nr_f8_sequence.inl': 'f4b2cd5ca77ea273c5f1dd92c6853a68980a2114',
     'src/nr_command_state.inl': 'f0f13b0a8ac243f01cdf0f93a517440ac65f1394',
     'src/nr_feedback_capture.inl': 'f96ccb29b148d1325f11b02e32ad0dcd1b0097d6',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': '0e8ef7895630f088447eace881fc224386c723e9',
-    'src/nr_before_sr.cpp': '961cd849027c51726d4b5d4334cf83919b33b382',
+    'src/nr_settings_ui.inl': '951a41791a913b3f6f80cdab25be5baffe0bc57a',
+    'src/nr_before_sr.cpp': 'ebf1485e19f878970368a7422c746c06c905d501',
     'src/nr_recommended_picture.inl': '35afc07bf8af81590e952002a3bc5e60f75f4c8c',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': '629f631e8febbcdc49105e72e53f4c8fe2a59f2a',
+    'src/nr_before_sr.rc': '3c389c5a79700ac3cacd38cc2970a14a8ae85fb5',
     'src/nr_color_policy.inl': '1a5f5a4862dcaba8900a30653b3f185ef50f1fa3',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': '516571efc8888e7cb8d0506e34ac8780653ee2fc',
+    'scripts/build.ps1': 'b8b1aee612a02aebe555f537ad872190b6e92062',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '10055ef3d9fdb4b8081ac5ab8fd3bd969bea039c',
@@ -166,7 +167,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.1 dline2 beta' not in resource_text:
+    if '0.5.1 dline3 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -177,7 +178,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.1.2',
+        'core_pe_version': '0.5.1.3',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),
@@ -200,7 +201,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'rr_post': 'Feature13 successful native output, known hardware depth, same NR core; not game verified',
         'post_work': '50-100 percent Npost/O; 0 disables while retaining precision; invalid requests rejected',
         'rr_linear_depth': 'not converted; native RR output retained with F8 feedback reason',
-        'light_style': 'independent dline2 pre/post candidate; existing per-route luma and colour; no new RR adapter',
+        'light_style': 'independent dline3 pre/post candidate; existing per-route luma and colour; no new RR adapter',
         'post_light_style_game_verified_at_build': False,
         'jitter': 'resolved post color zero jitter; native guide phase requires runtime validation',
         'fg_control': 'not implemented', 'getdesc_spoof': 'not implemented',

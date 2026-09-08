@@ -40,6 +40,46 @@ void ValidatePostLightStyle(Gpu &gpu) {
             Require(std::memcmp(&original,&suppressed,sizeof(Float4))==0,
                 "POST_LIGHT_GLOW_FINE_CENTER_UNCHANGED");
         }
+        for(bool reflection:{true,false}) {
+            LightCase zero=neutral, doubled=neutral;
+            if(reflection) { zero.reflection=0.f; doubled.reflection=2.f; }
+            else { zero.structure=0.f; doubled.structure=2.f; }
+            for(int variant:{30,31,32,33}) {
+                const auto off=PostLightRun(gpu,variant,zero);
+                const auto on=PostLightRun(gpu,variant,doubled);
+                const Float4 offCenter=PostLightCenter(off), onCenter=PostLightCenter(on);
+                if(variant==(reflection?32:33)) {
+                    // The isolated centre has the opposite sign to every tap.
+                    // Zero fine gain must restore source luma; the 2x endpoint
+                    // must move it in the target sign, without copying the shader.
+                    Require(std::abs(PostLightY(offCenter)-PostLightY(PostLightOriginal(off)))<1e-5f,
+                        reflection?"POST_LIGHT_REFLECTION_ZERO_RETURNS_SOURCE_LUMA":
+                                   "POST_LIGHT_STRUCTURE_ZERO_RETURNS_SOURCE_LUMA");
+                    const auto targetResponse=[reflection](Float4 low,Float4 high) {
+                        return reflection?PostLightY(high)>PostLightY(low)+.001f:
+                                          PostLightY(high)<PostLightY(low)-.001f;
+                    };
+                    Require(targetResponse(offCenter,onCenter),
+                        reflection?"POST_LIGHT_REFLECTION_0_TO_2_FINE_RESPONSE":
+                                   "POST_LIGHT_STRUCTURE_0_TO_2_FINE_RESPONSE");
+                    // The same acceptance predicate rejects a reversed response
+                    // and an ignored gain, with no extra GPU dispatches.
+                    Require(!targetResponse(onCenter,offCenter),"POST_LIGHT_WRONG_SIGN_ORACLE");
+                    Require(!targetResponse(offCenter,offCenter),"POST_LIGHT_IGNORED_GAIN_ORACLE");
+                } else if(variant<32) {
+                    Require(PostLightSame(off,on),
+                        reflection?"POST_LIGHT_REFLECTION_0_TO_2_WIDE_UNCHANGED":
+                                   "POST_LIGHT_STRUCTURE_0_TO_2_WIDE_UNCHANGED");
+                } else {
+                    // Only the centre has the non-target sign; its surroundings
+                    // may legitimately respond to this control.
+                    Require(std::memcmp(&offCenter,&onCenter,sizeof(Float4))==0,
+                        reflection?"POST_LIGHT_REFLECTION_NEGATIVE_CENTER_UNCHANGED":
+                                   "POST_LIGHT_STRUCTURE_POSITIVE_CENTER_UNCHANGED");
+                }
+                ++groups;
+            }
+        }
         LightCase natural{1.f,.85f,1.10f,1.05f,.30f,0u,lighting};
         for(int variant:{0,3,30,31,32,33,34,35})
             (void)PostLightRun(gpu,variant,natural,13,12,.8f);
@@ -51,5 +91,5 @@ void ValidatePostLightStyle(Gpu &gpu) {
         Require(PostLightCenter(shown).w==.625f,"POST_LIGHT_PREVIEW_ALPHA");
         ++groups;
     }
-    std::printf("Post light style: %u WARP groups; legacy bytes, independent broad/fine signs, LightingLock 0/.2/1, scaled colour/finite/alpha and previews. Synthetic model planes only.\n",groups);
+    std::printf("Post light style: %u WARP groups; legacy bytes, reflection/structure 0-to-2 response and non-target isolation, independent broad/fine signs, LightingLock 0/.2/1, scaled colour/finite/alpha and previews. Synthetic model planes only.\n",groups);
 }

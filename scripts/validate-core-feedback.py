@@ -1,7 +1,8 @@
 """Compile production core collector with OS scheduling/runtime seams, real file IO.
 
 The core collector, log streaming, privacy policy and ZIP writer are included
-verbatim. GPU/NGX is not simulated as success: its counters stay zero. The test
+verbatim. A synthetic historical tuning identity tests serialization only;
+GPU/NGX is not simulated as success: its counters stay zero. The test
 must complete without a further Present and without any stage/image request.
 """
 from pathlib import Path
@@ -66,6 +67,7 @@ IDENTITY
 SESSION
 ChainConfig g_config{};
 NrDiagnosticIdentity g_applied_nr_identity{};
+int g_applied_nr_mode=0;
 CRITICAL_SECTION g_chain_cs;
 SRWLOCK g_feedback_lock=SRWLOCK_INIT;
 std::atomic<bool> g_feedback_requested{false};
@@ -140,10 +142,37 @@ REQUEST_CORE
 LEGACY_REQUEST
 unsigned checks=0;
 void check(bool ok,const char *message){++checks;if(!ok){std::fprintf(stderr,"FAIL: %s Win32=%lu\n",message,GetLastError());std::exit(1);}}
-void drain(){while(!work.empty()){const auto w=work.front();work.erase(work.begin());w.fn(w.arg);}}
+void drain(){
+    unsigned char before[sizeof(g_config)];std::memcpy(before,&g_config,sizeof(g_config));
+    const auto generation=g_config_generation.load();
+    while(!work.empty()){const auto w=work.front();work.erase(work.begin());w.fn(w.arg);}
+    check(std::memcmp(before,&g_config,sizeof(g_config))==0 && g_config_generation==generation,
+        "worker collection preserves all requested configuration bytes and generation");
+}
 void put(const std::filesystem::path &path,const std::string &value){std::ofstream out(path,std::ios::binary);out<<value;check(out.good(),"write fixture");}
 void save(const char *name){check(g_feedback_last_zip[0]!=0,"current ZIP exists");std::filesystem::copy_file(g_feedback_last_zip,std::filesystem::path(output_root)/name);}
-void begin(reshade::api::effect_runtime &runtime, bool archive=true){check(archive ? nr_core_feedback::Request(true) : RequestFeedbackBundle(),"explicit F7 archive or legacy F8 TXT request");check(!g_feedback_last_zip[0],"new request clears old path");check(!nr_core_feedback::g_submission[0],"new request clears old ticket");check(!nr_core_feedback::g_full_report && !nr_core_feedback::g_report_path[0],"new request clears old TXT");check(nr_core_feedback::SnapshotPair().session[0] && g_feedback_status==1,"legacy request initializes session and parameter observer");nr_core_feedback::Present(&runtime);}
+void begin(reshade::api::effect_runtime &runtime, bool archive=true){
+    unsigned char before[sizeof(g_config)];std::memcpy(before,&g_config,sizeof(g_config));
+    const auto generation=g_config_generation.load();
+    check(archive ? nr_core_feedback::Request(true) : RequestFeedbackBundle(),"explicit F7 archive or legacy F8 TXT request");check(!g_feedback_last_zip[0],"new request clears old path");check(!nr_core_feedback::g_submission[0],"new request clears old ticket");check(!nr_core_feedback::g_full_report && !nr_core_feedback::g_report_path[0],"new request clears old TXT");check(nr_core_feedback::SnapshotPair().session[0] && g_feedback_status==1,"legacy request initializes session and parameter observer");nr_core_feedback::Present(&runtime);
+    check(std::memcmp(before,&g_config,sizeof(g_config))==0 && g_config_generation==generation,
+        "request and Present preserve all requested configuration bytes and generation");
+}
+void check_light_request(const std::string &report){
+    for(const char *line:{"requested.lightStyleVersion=1\n","requested.lightPreset=2\n","requested.lightPreview=1\n",
+        "requested.lightBroad=0.5\n","requested.lightDark=0.75\n","requested.lightReflection=1.25\n",
+        "requested.lightStructure=1.5\n","requested.lightGlow=0.25\n","requested.lightPresetColor=0.625\n"})
+        check(report.find(line)!=std::string::npos,"all D requested values survive actual TXT publication");
+}
+void check_applied_unavailable(const std::string &report,const char *status){
+    check(report.find("applied.valid=0\n")!=std::string::npos &&
+        report.find(std::string("applied.status=")+status+"\n")!=std::string::npos,
+        "missing applied identity has an explicit validity and reason");
+    for(const char *key:{"instance","frame","config","mode","evaluation","sinceReset","warmedUp","intensity",
+        "localTone","localStructure","skin","autoMask","style","uiCorrection","jitterMode","inputFilter"})
+        check(report.find(std::string("applied.")+key+"=")==std::string::npos,
+            "unavailable historical identity never emits constructor or stale applied values");
+}
 int main(int argc,char **argv) {
     check(argc==3,"output directory and matched companion fixture supplied");output_root=std::filesystem::absolute(argv[1]).wstring();
     std::filesystem::create_directories(output_root);InitializeCriticalSection(&g_chain_cs);
@@ -215,8 +244,11 @@ int main(int argc,char **argv) {
     }
     g_config.high_strength_protection=false;g_config.layered_enhancement=true;
     g_config.layer_tone=.5f;g_config.layer_structure=1.5f;g_config.layer_bright=.75f;g_config.layer_shadow=1.25f;
+    g_config.light_preset=2;g_config.light_preview=1;g_config.light_broad=.5f;g_config.light_dark=.75f;
+    g_config.light_reflection=1.25f;g_config.light_structure=1.5f;g_config.light_glow=.25f;g_config.light_preset_color=.625f;
     begin(runtime);check(nr_core_feedback::Busy(),"worker owned by current session");
     g_config.layer_bright=2.f; // Worker must serialize the earlier coherent snapshot.
+    g_config.light_broad=1.75f;
     const auto first=nr_core_feedback::SnapshotPair();check(!nr_core_feedback::Request(),"no overlapping core jobs");
     drain(); // no second Present, no NR frame, no image or GPU stage functions even exist in this harness
     check(g_feedback_status==3 && !nr_core_feedback::Busy(),"zero-NR core completes independently");
@@ -252,6 +284,8 @@ int main(int argc,char **argv) {
           report.find("requested.layerBright=0.75\n")!=std::string::npos &&
           report.find("requested.layerShadow=1.25\n")!=std::string::npos,
           "TXT carries frozen 0.5 picture settings, not current globals");
+    check_light_request(report);
+    check_applied_unavailable(report,"no-successful-NR");
     std::ifstream txt(std::filesystem::path(nr_core_feedback::g_report_path),std::ios::binary);
     check(std::string((std::istreambuf_iterator<char>(txt)),{})==report,"disk TXT equals clipboard cache");
     txt.close();
@@ -325,9 +359,25 @@ int main(int argc,char **argv) {
     wcscpy_s(nr_f8::g_last_zip,L"previous-image.zip");
     check(!nr_f8::RequestCore() && nr_f8::g_last_zip[0],"active image request is not cleared by rejected core request");
     nr_f8::g_status=nr_f8::Status::Done;
+    // Deliberately differ from the requested configuration; this is fixture data,
+    // not an NGX success or evidence that the D composition reached a GPU.
+    g_config.light_broad=.5f;g_config.style=1;g_config.intensity=.75f;g_config.mode=2;
+    g_config.color_strength=.875f;
+    g_applied_nr_identity.instance_id=73;g_applied_nr_identity.frame_id=84;g_applied_nr_identity.config_generation=6;
+    g_applied_nr_identity.evaluation=19;g_applied_nr_identity.since_reset=3;g_applied_nr_identity.warmed_up=true;
+    g_applied_nr_identity.tuning.intensity=1.75f;g_applied_nr_identity.tuning.local_tone=.5f;
+    g_applied_nr_identity.tuning.local_structure=1.5f;g_applied_nr_identity.tuning.skin_structure=.25f;
+    g_applied_nr_identity.tuning.auto_mask=true;g_applied_nr_identity.tuning.style=2;
+    g_applied_nr_identity.tuning.ui_correction=true;g_applied_nr_identity.tuning.jitter_mode=NrJitterMode::Legacy;
+    g_applied_nr_identity.tuning.input_filter=1;g_applied_nr_mode=1;
     check(nr_f8::RequestCore(),"core request accepted after completed images");
     check(!nr_f8::g_last_zip[0] && nr_f8::g_status==nr_f8::Status::Idle,"new core clears old image path and completion status");
-    nr_core_feedback::Present(&runtime);drain();
+    unsigned char requested_before[sizeof(g_config)];std::memcpy(requested_before,&g_config,sizeof(g_config));
+    nr_core_feedback::Present(&runtime);
+    check(std::memcmp(requested_before,&g_config,sizeof(g_config))==0 && g_config_generation==7,
+        "F8 Present preserves requested values while reading historical tuning");
+    g_applied_nr_identity={};g_applied_nr_mode=2;g_config.light_broad=1.75f;
+    drain();
     check(g_feedback_status==3,"fresh core completes after image-result reset");
     check(!g_feedback_last_zip[0],"F8 never publishes a ZIP path");
     check(!nr_core_feedback::SnapshotPair().complete,"text-only capture cannot masquerade as a paired image core");
@@ -340,6 +390,17 @@ int main(int argc,char **argv) {
     check(siblings==1,"successful F8 physically leaves exactly one TXT");
     check(named.filename().string().find("-core-test-only-")!=std::string::npos,"filename carries actual build");
     const auto fresh_report=*nr_core_feedback::g_full_report;
+    check_light_request(fresh_report);
+    for(const char *line:{"applied.valid=1\n","applied.status=historical-success\n",
+        "applied.instance=73\n","applied.frame=84\n","applied.config=6\n","applied.mode=1\n",
+        "applied.evaluation=19\n","applied.sinceReset=3\n","applied.warmedUp=1\n",
+        "applied.intensity=1.75\n","applied.localTone=0.5\n","applied.localStructure=1.5\n","applied.skin=0.25\n",
+        "applied.autoMask=1\n","applied.style=2\n","applied.uiCorrection=1\n","applied.jitterMode=0\n","applied.inputFilter=1\n",
+        "requested.config=7\n","requested.mode=2\n","requested.style=1\n","requested.intensity=0.75\n","requested.color=0.875\n"})
+        check(fresh_report.find(line)!=std::string::npos,"F8 exports frozen requested and complete historical tuning as distinct records");
+    check(fresh_report.find("model tuning only, not D light composition or measured output")!=std::string::npos,
+        "applied contract cannot claim actual D composition or visual quality");
+    std::filesystem::copy_file(named,std::filesystem::path(output_root)/"applied-core.txt");
     check(fresh_report.find("format=DLSS5-CoreText-v2")!=std::string::npos,"single text schema");
     check(fresh_report.find("archive.requested=0")!=std::string::npos,"no false archive status");
     check(fresh_report.find("capture.localTime=")!=std::string::npos && fresh_report.find("capture.utcTime=")!=std::string::npos,"local and UTC timestamps recorded");
@@ -358,12 +419,24 @@ int main(int argc,char **argv) {
     check(g_feedback_status==3 && nr_core_feedback::g_full_report->find("carrierLog.status=matching-companion-not-loaded")!=std::string::npos,"unloaded companion is explicit and not required for D3D12 feedback");
     begin(runtime,false);nr_core_feedback::Cancel();drain();
     check(g_feedback_status==4 && nr_core_feedback::g_full_report && !g_feedback_last_zip[0],"cancelled F8 keeps partial TXT, not ZIP or old results");
+    g_applied_nr_identity.instance_id=99;g_applied_nr_identity.frame_id=101;g_applied_nr_mode=1;
     snapshot_busy=true;begin(runtime,false);drain();snapshot_busy=false;
     check(g_feedback_status==4 && nr_core_feedback::g_full_report->find("snapshot.valid=0")!=std::string::npos,"busy F8 snapshot explicit");
+    check_applied_unavailable(*nr_core_feedback::g_full_report,"snapshot-unavailable");
+    for(const char *key:{"config","enabled","mode","blend","color","workMode","workScale","lightingLock",
+        "detailStability","edgeGuard","intensity","localTone","localStructure","skin","faceMask","uiCorrection","jitterMode","style",
+        "lightStyleVersion","lightPreset","lightPreview","lightBroad","lightDark","lightReflection","lightStructure","lightGlow","lightPresetColor"})
+        check(nr_core_feedback::g_full_report->find(std::string("requested.")+key+"=")==std::string::npos,
+            "busy snapshot never exports default or later global requested values");
+    check(nr_core_feedback::g_full_report->find("requested.pictureSnapshotValid=0\n")!=std::string::npos,
+        "D requested snapshot explicitly unavailable");
+    std::filesystem::copy_file(nr_core_feedback::g_report_path,std::filesystem::path(output_root)/"busy-core.txt");
+    g_applied_nr_identity={};g_applied_nr_identity.instance_id=99; // Create without Evaluate is not success.
     directory_fail=true;begin(runtime,false);drain();directory_fail=false;
     check(g_feedback_status==5 && !nr_core_feedback::g_full_report && !nr_core_feedback::g_report_path[0],"failed F8 has no stale text");
     begin(runtime,false);drain();
     check(g_feedback_status==3 && std::filesystem::path(nr_core_feedback::g_report_path)!=named,"repeat F8 has a new filename");
+    check_applied_unavailable(*nr_core_feedback::g_full_report,"no-successful-NR");
     check(std::filesystem::exists(named),"later F8 never overwrites previous evidence");
     // The generalized archive cap cannot be raised and handles underflow safely.
     auto *job=new nr_bundle::Job{};job->archive_limit=UINT64_MAX;

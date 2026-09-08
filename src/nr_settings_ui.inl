@@ -370,6 +370,33 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     SettingsTooltip(ui(
         "Restores NR before SR, 100% NR rendering for both routes, model strength 1.2, extra enhancement 1.0 and colour protection on. Keeps the F6 switch and game compatibility settings. Other picture experiments return to their recommended defaults.",
         "恢复前置 NR、前后置 NR 渲染比例 100%、模型强度 1.2、额外增强 1.0，并开启色彩保护。保留 F6 总开关和游戏兼容设置；其他画质实验选项恢复推荐值。"));
+    SettingsField(ui("Style", "风格"));
+    const char *style_labels[] = {ui("Default###style-option", "默认###style-option"),
+        ui("Natural###style-option", "自然###style-option"),
+        ui("Cinematic###style-option", "电影###style-option")};
+    const float style_width = std::max(1.0f,
+        (SettingsContentWidth() - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f);
+    ImGui::PushID("nr-model-style");
+    for (unsigned option = 0; option < 3; ++option) {
+        if (option != 0) ImGui::SameLine();
+        ImGui::PushID(static_cast<int>(option));
+        const bool selected = next.style == option;
+        if (selected) ImGui::PushStyleColor(ImGuiCol_Button,
+            ImGui::GetStyleColorVec4(ImGuiCol_Header));
+        const bool clicked = ImGui::Button(style_labels[option],
+            ImVec2(style_width, ImGui::GetFrameHeight() * 1.25f));
+        if (selected) ImGui::PopStyleColor();
+        if (clicked && !selected) {
+            next.style = option;
+            changed = true;
+            apply_discrete_edit = true;
+        }
+        SettingsTooltip(ui("Choose the AI picture style. The selected option stays highlighted; switching briefly reloads the model.",
+            "选择 AI 画面风格。当前选择会高亮显示；切换后模型会短暂重新加载。"));
+        ImGui::PopID();
+    }
+    ImGui::PopID();
+
     SettingsSection(ui("Processing", "处理方式"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
     int mode = rr_guarded ? 1 : (next.mode == 2 ? 0 : 1);
@@ -430,36 +457,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "INI 工作比例请求无效，已保留上一有效精度；1–49% 尚不可用，不会暗中提高到 50%。"));
     }
 #endif
-    DrawLightStyleControls(next,before_sr,current.generation,light_undo,
-        has_pending,pending_light_undo,changed,apply_discrete_edit);
     SettingsSection(ui("Model details", "模型细节"));
-    SettingsField(ui("Style", "风格"));
-    const char *style_labels[] = {ui("Default###style-option", "默认###style-option"),
-        ui("Natural###style-option", "自然###style-option"),
-        ui("Cinematic###style-option", "电影###style-option")};
-    const float style_width = std::max(1.0f,
-        (SettingsContentWidth() - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f);
-    ImGui::PushID("nr-model-style");
-    for (unsigned option = 0; option < 3; ++option) {
-        if (option != 0) ImGui::SameLine();
-        ImGui::PushID(static_cast<int>(option));
-        const bool selected = next.style == option;
-        if (selected) ImGui::PushStyleColor(ImGuiCol_Button,
-            ImGui::GetStyleColorVec4(ImGuiCol_Header));
-        const bool clicked = ImGui::Button(style_labels[option],
-            ImVec2(style_width, ImGui::GetFrameHeight() * 1.25f));
-        if (selected) ImGui::PopStyleColor();
-        if (clicked && !selected) {
-            next.style = option;
-            changed = true;
-            apply_discrete_edit = true;
-        }
-        SettingsTooltip(ui("Choose the AI picture style. The selected option stays highlighted; switching briefly reloads the model.",
-            "选择 AI 画面风格。当前选择会高亮显示；切换后模型会短暂重新加载。"));
-        ImGui::PopID();
-    }
-    ImGui::PopID();
-
         changed |= SettingsSliderFloat(ui("Model strength", "模型强度"),
             "##nr-model-strength", &next.intensity, 0.f, 2.f, "%.2f");
         SettingsTooltip(ui("Tunes the model itself; recommended 1.2. Extra enhancement controls the final mix separately. Higher values may look less natural.",
@@ -499,6 +497,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (next.identity_use_original && ImGui::Button(ui("Show NR picture (leave diagnostic identity)", "显示 NR 效果（退出诊断原图）"))) {
         next.identity_use_original = false; changed = true;
     }
+    DrawLightStyleControls(next,before_sr,current.generation,light_undo,
+        has_pending,pending_light_undo,changed,apply_discrete_edit);
     SettingsSection(ui("Advanced picture controls", "高级画质"));
 #if NR_HAS_DETAIL_STABILITY
     constexpr float maximum_strength = 4.0f;

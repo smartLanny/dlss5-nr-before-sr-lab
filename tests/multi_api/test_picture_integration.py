@@ -22,8 +22,8 @@ class PictureIntegration(unittest.TestCase):
         self.assertEqual(args[0], 'rev-parse')
         return m.INTEGRATION_CORE_PINS[args[1].removeprefix('HEAD:')].encode()
 
-    def test_all_dline2_ancestors_required(self):
-        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5'))
+    def test_all_dline3_ancestors_required(self):
+        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e'))
         for missing in m.REQUIRED_ANCESTORS:
             with self.subTest(missing=missing), patch.object(m, 'is_ancestor', side_effect=lambda r, c: c != missing), patch.object(m, 'load') as load:
                 with self.assertRaisesRegex(ValueError, 'Missing integration ancestor'):
@@ -60,6 +60,7 @@ class PictureIntegration(unittest.TestCase):
             'scripts/patch-post-compat.py',
             'src/nr_codec_descriptors.inl',
             'src/nr_feedback_core.inl',
+            'src/nr_feedback_picture.inl',
             'src/nr_feedback_text.h',
             'src/nr_feedback_single_text.h',
             'src/nr_f8_sequence.inl',
@@ -87,8 +88,8 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_light_style_ui.inl',
             'src/nr_skin_protection.h',
             'src/nr_stage_capture.inl',        })
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '0e8ef7895630f088447eace881fc224386c723e9')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '951a41791a913b3f6f80cdab25be5baffe0bc57a')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '516571efc8888e7cb8d0506e34ac8780653ee2fc')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'b8b1aee612a02aebe555f537ad872190b6e92062')
 
 if __name__ == '__main__': unittest.main()

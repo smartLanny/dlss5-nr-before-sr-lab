@@ -460,8 +460,10 @@ void Present(reshade::api::effect_runtime *runtime) {
     GetLocalTime(&session->local_time); GetSystemTime(&session->utc_time);
     nr_bundle::CopyText(session->session, sizeof(session->session), pair.session);
     ChainConfig config{}; NrDiagnosticIdentity applied{}; unsigned generation = 0;
+    int applied_mode = 0;
     if (TryEnterCriticalSection(&g_chain_cs)) {
         config = g_config; applied = g_applied_nr_identity; generation = g_config_generation.load();
+        applied_mode = g_applied_nr_mode;
         session->snapshot_ok = true; LeaveCriticalSection(&g_chain_cs);
     }
     char gpu[256] = {}; std::uint32_t driver = 0, vendor = 0, width = 0, height = 0;
@@ -479,25 +481,38 @@ void Present(reshade::api::effect_runtime *runtime) {
     FeedbackAppend(s, "format=DLSS5-Core-v1\ncapture.kind=core\nsession=%s\nbuild=%s\nlanguage=%s\n"
         "exe.leaf=%s\ngpu=%s\ndriver.raw=%u\ndriver.known=%d\nvendor=%u\napi=%u\n"
         "display.extent=%ux%u\ndisplay.storageFormat=%u\ndisplay.colorSpace=%u\n"
-        "snapshot.valid=%d\nrequested.config=%u\nrequested.enabled=%d\nrequested.mode=%d\n"
-        "requested.blend=%.9g\nrequested.color=%.9g\nrequested.workMode=%d\nrequested.workScale=%.9g\n"
-        "requested.lightingLock=%.9g\nrequested.detailStability=%.9g\nrequested.edgeGuard=%.9g\n"
-        "requested.intensity=%.9g\nrequested.localTone=%.9g\nrequested.localStructure=%.9g\nrequested.skin=%.9g\n"
-        "requested.faceMask=%d\nrequested.uiCorrection=%d\nrequested.jitterMode=%d\nrequested.style=%u\n"
-        "applied.instance=%llu\napplied.frame=%llu\napplied.config=%u\napplied.intensity=%.9g\napplied.skin=%.9g\n"
+        "snapshot.valid=%d\n"
         "capture.automaticSettingChanges=none\nconfig.writesToIni=0\nimages.requested=0\ngpu.readbackRequested=0\n"
         "fg.status=unavailable; this collector does not intercept FG\n"
-        "applied.contract=historical successful NR; compare config generation and start/end counters\n"
+        "applied.contract=historical successful NR; compare config generation and start/end counters; model tuning only, not D light composition or measured output\n"
         "core.zipLimitBytes=%llu\ntimeline.columns=tag,elapsedMs,SRcarrier,featureGeneration,reset,jitterX,jitterY,mvScaleX,mvScaleY,preExposure,exposureScale,previousBypass\n",
         session->session, kBuildIdentity, kChineseUi ? "zh-CN" : "en", safe_exe.c_str(), safe_gpu.c_str(),
         driver, driver_known, vendor, device ? static_cast<unsigned>(device->get_api()) : 0, width, height,
-        g_feedback_swap_format.load(), g_feedback_swap_color_space.load(), session->snapshot_ok, generation,
-        config.enabled, config.mode, ActiveTransferStrength(config), config.color_strength, config.work_mode,
-        config.custom_work_scale, config.lighting_lock, config.detail_stability, config.edge_guard,
-        config.intensity, config.local_tone, config.local_structure, config.skin_structure, config.auto_mask,
-        config.ui_correction, static_cast<int>(config.jitter_mode), config.style,
-        applied.instance_id, applied.frame_id, applied.config_generation, applied.tuning.intensity,
-        applied.tuning.skin_structure, static_cast<unsigned long long>(nr_feedback_text::kCoreZipLimit));
+        g_feedback_swap_format.load(), g_feedback_swap_color_space.load(), session->snapshot_ok,
+        static_cast<unsigned long long>(nr_feedback_text::kCoreZipLimit));
+    if (session->snapshot_ok)
+        FeedbackAppend(s, "requested.config=%u\nrequested.enabled=%d\nrequested.mode=%d\n"
+            "requested.blend=%.9g\nrequested.color=%.9g\nrequested.workMode=%d\nrequested.workScale=%.9g\n"
+            "requested.lightingLock=%.9g\nrequested.detailStability=%.9g\nrequested.edgeGuard=%.9g\n"
+            "requested.intensity=%.9g\nrequested.localTone=%.9g\nrequested.localStructure=%.9g\nrequested.skin=%.9g\n"
+            "requested.faceMask=%d\nrequested.uiCorrection=%d\nrequested.jitterMode=%d\nrequested.style=%u\n",
+            generation, config.enabled, config.mode, ActiveTransferStrength(config), config.color_strength, config.work_mode,
+            config.custom_work_scale, config.lighting_lock, config.detail_stability, config.edge_guard,
+            config.intensity, config.local_tone, config.local_structure, config.skin_structure, config.auto_mask,
+            config.ui_correction, static_cast<int>(config.jitter_mode), config.style);
+    const bool applied_valid = session->snapshot_ok && applied.instance_id != 0 && applied.frame_id != 0;
+    FeedbackAppend(s, "applied.valid=%d\napplied.status=%s\n", applied_valid ? 1 : 0,
+        !session->snapshot_ok ? "snapshot-unavailable" : applied_valid ? "historical-success" : "no-successful-NR");
+    if (applied_valid)
+        FeedbackAppend(s, "applied.instance=%llu\napplied.frame=%llu\napplied.config=%u\napplied.mode=%d\n"
+            "applied.evaluation=%u\napplied.sinceReset=%u\napplied.warmedUp=%d\n"
+            "applied.intensity=%.9g\napplied.localTone=%.9g\napplied.localStructure=%.9g\napplied.skin=%.9g\n"
+            "applied.autoMask=%d\napplied.style=%u\napplied.uiCorrection=%d\napplied.jitterMode=%d\napplied.inputFilter=%u\n",
+            applied.instance_id, applied.frame_id, applied.config_generation, applied_mode,
+            applied.evaluation, applied.since_reset, applied.warmed_up,
+            applied.tuning.intensity, applied.tuning.local_tone, applied.tuning.local_structure, applied.tuning.skin_structure,
+            applied.tuning.auto_mask, applied.tuning.style, applied.tuning.ui_correction,
+            static_cast<int>(applied.tuning.jitter_mode), applied.tuning.input_filter);
     const auto &local = session->local_time;
     const auto &utc = session->utc_time;
     FeedbackAppend(s, "capture.delivery=%s\ncapture.localTime=%04u-%02u-%02uT%02u:%02u:%02u.%03u\n"
