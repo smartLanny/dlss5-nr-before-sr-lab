@@ -206,6 +206,17 @@ def patch_host(text: str, forward: str) -> str:
     # Match a call, not the general-purpose helper definition.
     text = replace_once(text, 'g_vk_mirror = CfgKeyInt("vk_mirror", 1) != 0 ? 1 : 0;',
                         'g_vk_mirror = 0; // Native DX11 experiment; no Vulkan hooks.')
+    # EnumProcessModules reports the bytes required for the complete module
+    # inventory even when the caller's fixed buffer is too small. Both startup
+    # scans used that value as an array bound and could walk beyond mods[1024].
+    module_count = "    const DWORD count = needed / sizeof(HMODULE);"
+    bounded_count = (
+        "    const DWORD count = needed < sizeof(mods)\n"
+        "        ? needed / sizeof(HMODULE)\n"
+        "        : static_cast<DWORD>(sizeof(mods) / sizeof(mods[0]));")
+    if text.count(module_count) != 2:
+        raise ValueError("Module enumeration anchors changed")
+    text = text.replace(module_count, bounded_count)
     return text
 
 
