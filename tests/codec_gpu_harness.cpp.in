@@ -75,6 +75,7 @@ struct Gpu {
     Com<ID3D12PipelineState> pipeline;
     Com<ID3D12PipelineState> v2_pipeline;
     Com<ID3D12PipelineState> edit_pipeline;
+    Com<ID3D12PipelineState> color_edit_pipeline;
     const char *shader_text = nullptr;
     Com<ID3D12DescriptorHeap> heap;
     UINT increment = 0;
@@ -274,28 +275,31 @@ struct Gpu {
         Barrier(texture.resource.p, texture.state, state);
         texture.state = state;
     }
-    Texture EmptyEditField(UINT width, UINT height) {
+    Texture EmptyEditField(UINT width, UINT height, bool color) {
         Texture texture; texture.width=width; texture.height=height;
         D3D12_HEAP_PROPERTIES props{}; props.Type=D3D12_HEAP_TYPE_DEFAULT;
         D3D12_RESOURCE_DESC desc{}; desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
         desc.Width=width; desc.Height=height; desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
-        desc.Format=DXGI_FORMAT_R32G32_FLOAT; desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        desc.Format=color?DXGI_FORMAT_R32G32B32A32_FLOAT:DXGI_FORMAT_R32G32_FLOAT;
+        desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         Check(device->CreateCommittedResource(&props,D3D12_HEAP_FLAG_NONE,&desc,texture.state,nullptr,
-            IID_ID3D12Resource,texture.resource.address()),"Create real RG32F edit field");
+            IID_ID3D12Resource,texture.resource.address()),"Create real edit field");
         UINT64 bytes=0; device->GetCopyableFootprints(&desc,0,1,0,&texture.footprint,nullptr,nullptr,&bytes);
         texture.readback=Buffer(bytes,D3D12_HEAP_TYPE_READBACK,D3D12_RESOURCE_FLAG_NONE,D3D12_RESOURCE_STATE_COPY_DEST);
         return texture;
     }
-    void EnsureEditPipeline() {
-        if(edit_pipeline.p) return;
+    void EnsureEditPipeline(bool color) {
+        Com<ID3D12PipelineState> &pipeline=color?color_edit_pipeline:edit_pipeline;
+        if(pipeline.p) return;
         Com<ID3DBlob> code,errors;
         const HRESULT hr=D3DCompile(shader_text,std::strlen(shader_text),"production-edit-field",nullptr,nullptr,
-            "BuildEditFieldCS","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code.p,&errors.p);
+            color?"BuildColorEditFieldCS":"BuildEditFieldCS","cs_5_0",
+            D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code.p,&errors.p);
         if(FAILED(hr)&&errors.p) std::fprintf(stderr,"%s\n",static_cast<const char*>(errors->GetBufferPointer()));
-        Check(hr,"Compile actual BuildEditFieldCS");
+        Check(hr,"Compile actual edit-field builder");
         D3D12_COMPUTE_PIPELINE_STATE_DESC desc{};desc.pRootSignature=root.p;
         desc.CS={code->GetBufferPointer(),code->GetBufferSize()};
-        Check(device->CreateComputePipelineState(&desc,IID_ID3D12PipelineState,edit_pipeline.address()),"Create edit pipeline");
+        Check(device->CreateComputePipelineState(&desc,IID_ID3D12PipelineState,pipeline.address()),"Create edit pipeline");
     }
     void Srv(UINT index, ID3D12Resource *resource, DXGI_FORMAT format=DXGI_FORMAT_R32G32B32A32_FLOAT) {
         D3D12_SHADER_RESOURCE_VIEW_DESC view{};
@@ -454,6 +458,15 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
         std::fill(proxy.begin(),proxy.end(),Float4{.0003f,.0003f,.0003f,.75f});
         std::fill(neural.begin(),neural.end(),Float4{.00045f,.00045f,.00045f,.875f});
     }
+    if (variant == 17) {
+        std::fill(proxy.begin(),proxy.end(),Float4{1e-8f,2e-8f,1e-8f,.75f});
+        std::fill(neural.begin(),neural.end(),Float4{2e-8f,1e-8f,3e-8f,.875f});
+    }
+    if (variant == 18) {
+        std::fill(original.begin(),original.end(),Float4{8.f,4.f,2.f,.625f});
+        std::fill(proxy.begin(),proxy.end(),Float4{1000.f,20.f,2.f,.75f});
+        std::fill(neural.begin(),neural.end(),Float4{2.f,20.f,1000.f,.875f});
+    }
     if (variant == 3) neural[0].x = std::numeric_limits<float>::quiet_NaN();
     auto source_texture = gpu.MakeTexture(source_width, source_height, original);
     auto proxy_texture = gpu.MakeTexture(model_width, model_height, proxy);
@@ -491,9 +504,13 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.Srv(kCodecExposureSrvIndex, (flags & 64u) ? exposure_texture.resource.p : nullptr);
     Texture edit_texture;
     const bool use_edit_field=(flags & 8192u)!=0u;
-    if(use_edit_field) edit_texture=gpu.EmptyEditField(model_width,model_height);
-    gpu.Srv(kCodecEditFieldSrvIndex,edit_texture.resource.p,DXGI_FORMAT_R32G32_FLOAT);
-    gpu.UavTexture(kCodecEditFieldUavIndex,edit_texture.resource.p,DXGI_FORMAT_R32G32_FLOAT);
+    const bool color_edit_field=(flags & 16384u)!=0u;
+    Require(!color_edit_field || use_edit_field,"Colour field requires its luma/valid field bit");
+    const DXGI_FORMAT edit_format=color_edit_field
+        ?DXGI_FORMAT_R32G32B32A32_FLOAT:DXGI_FORMAT_R32G32_FLOAT;
+    if(use_edit_field) edit_texture=gpu.EmptyEditField(model_width,model_height,color_edit_field);
+    gpu.Srv(kCodecEditFieldSrvIndex,edit_texture.resource.p,edit_format);
+    gpu.UavTexture(kCodecEditFieldUavIndex,edit_texture.resource.p,edit_format);
     gpu.UavTexture(kCodecSrvCount, nullptr, DXGI_FORMAT_R32G32B32A32_FLOAT);
     gpu.UavTexture(kCodecResultUavIndex, output_texture.resource.p,
                    DXGI_FORMAT_R32G32B32A32_FLOAT);
@@ -518,10 +535,12 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.list->SetComputeRootDescriptorTable(0, gpu.heap->GetGPUDescriptorHandleForHeapStart());
     gpu.list->SetComputeRoot32BitConstants(1, kCodecRootConstantCount, &constants, 0);
     if(use_edit_field) {
-        Require(v2 && color_strength==0.f,"EditField fixture requires pre-SR and colour zero");
-        gpu.EnsureEditPipeline();
+        Require(v2 && (color_edit_field || color_strength==0.f),
+                "Luma EditField fixture requires pre-SR and colour zero");
+        gpu.EnsureEditPipeline(color_edit_field);
         gpu.TextureState(edit_texture,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        gpu.list->SetPipelineState(gpu.edit_pipeline.p);
+        gpu.list->SetPipelineState(color_edit_field
+            ?gpu.color_edit_pipeline.p:gpu.edit_pipeline.p);
         gpu.list->Dispatch((model_width+7)/8,(model_height+7)/8,1);
         D3D12_RESOURCE_BARRIER barrier{};barrier.Type=D3D12_RESOURCE_BARRIER_TYPE_UAV;
         barrier.UAV.pResource=edit_texture.resource.p;gpu.list->ResourceBarrier(1,&barrier);
@@ -542,11 +561,12 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.Execute();
     RunResult result;
     if(use_edit_field) {
-        void *read=nullptr;Check(edit_texture.readback->Map(0,nullptr,&read),"Map actual RG32F field");
-        result.edit_field.resize(model_width*model_height*2);
-        for(UINT y=0;y<model_height;++y) std::memcpy(result.edit_field.data()+y*model_width*2,
+        void *read=nullptr;Check(edit_texture.readback->Map(0,nullptr,&read),"Map actual edit field");
+        const UINT components=color_edit_field?4u:2u;
+        result.edit_field.resize(model_width*model_height*components);
+        for(UINT y=0;y<model_height;++y) std::memcpy(result.edit_field.data()+y*model_width*components,
             static_cast<const std::uint8_t*>(read)+edit_texture.footprint.Offset+y*edit_texture.footprint.Footprint.RowPitch,
-            model_width*2*sizeof(float));
+            model_width*components*sizeof(float));
         edit_texture.readback->Unmap(0,nullptr);
     }
     if (read_model_planes) {
