@@ -30,7 +30,11 @@ class LightingEdgeWeights(unittest.TestCase):
         if "float2 ModelLightingTapV2(" in source:
             model += definition(source, "float2 ModelLightingTapV2(")
         combine = definition(source, "void CombineV2CS(")
-        lighting = definition(combine, "if (LightingLock > 0.000001)")
+        lighting = definition(
+            combine,
+            "if (LightingLock > 0.000001 || "
+            "(layeredActive && LayerTone != LayerStructure))",
+        )
         harness = r'''
 #include <cmath>
 #include <cstdio>
@@ -71,6 +75,9 @@ float LoadNeuralLinearV2(int2 p){++neuralLoads;return tapN[TapIndex(p)];}
 @MODEL@
 float Evaluate(float p,float ratio,float stabilized,float lock){
     float proxyLuma=p,neuralLuma=p*ratio,logRatio=stabilized,LightingLock=lock;
+    bool layeredActive=false;
+    float LayerTone=1.0f,LayerStructure=1.0f;
+    [[maybe_unused]] float layerMean=0.0f;
     float2 center(64.5f,64.5f);
     proxyLoads=neuralLoads=0;
     @LIGHTING@
