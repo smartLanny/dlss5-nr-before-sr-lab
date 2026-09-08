@@ -32,12 +32,14 @@ $Artifacts = [ordered]@{}
 $Failure = $null
 $OldToolchain = $env:DLSS5_LLVM_MINGW_ROOT
 $OldCxx = $env:CXX
+$OldPostSource = $env:POST_COMPAT_CORE_SOURCE
 New-Item -ItemType Directory -Path $Output | Out-Null
 Start-Transcript -LiteralPath (Join-Path $Output 'validation.log') | Out-Null
 Push-Location $Root
 try {
     $env:DLSS5_LLVM_MINGW_ROOT = $Toolchain
     $env:CXX = $Compiler
+    $env:POST_COMPAT_CORE_SOURCE = Join-Path $Root 'src/nr_before_sr.cpp'
     & python (Join-Path $PSScriptRoot 'prepare-multi-api-beta.py') --core $Root --upstream $UpstreamRoot --output $Stage
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
@@ -98,6 +100,7 @@ try {
     Pop-Location
     $env:DLSS5_LLVM_MINGW_ROOT = $OldToolchain
     $env:CXX = $OldCxx
+    $env:POST_COMPAT_CORE_SOURCE = $OldPostSource
     Stop-Transcript | Out-Null
     $Result = [ordered]@{
         schema='nr050-focused-acceptance-v1'; source_commit=$Commit;
