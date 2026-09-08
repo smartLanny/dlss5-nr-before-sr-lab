@@ -38,7 +38,7 @@ struct Chain {
     ComPtr<ID3D12CommandQueue> queue;
     ComPtr<ID3D12Fence> fence;
     HANDLE event = nullptr;
-    UINT64 completed = 0, epoch = 0, last_frame = UINT64_MAX;
+    UINT64 completed = 0, epoch = 1, resource_generation = 0, last_frame = UINT64_MAX;
     unsigned width = 0, height = 0;
     bool owner = false, frame_recorded = false, requested = false;
     nvrhi::TextureHandle color, depth, motion, output;
@@ -104,7 +104,7 @@ struct Chain {
         // fence, never on Present count or a timed-out wait.
         if (w != width || h != height) {
             depth_binding = nullptr; source_depth = nullptr;
-            width = w; height = h; ++epoch;
+            width = w; height = h; ++resource_generation;
             color = Texture(device, nvrhi::Format::RGBA16_FLOAT, "NR.Sample.Color");
             depth = Texture(device, nvrhi::Format::R32_FLOAT, "NR.Sample.Depth");
             motion = Texture(device, nvrhi::Format::RG16_FLOAT, "NR.Sample.Motion");
@@ -175,7 +175,7 @@ struct Chain {
         }
         if (hdr->getDesc().format != nvrhi::Format::RGBA16_FLOAT ||
             input_motion->getDesc().format != nvrhi::Format::RG16_FLOAT) Fail("source-format");
-        const UINT64 old_epoch = epoch;
+        const UINT64 old_generation = resource_generation;
         Prepare(list->getDevice(), w, h, input_depth);
         last_frame = frame;
         nvrhi::TextureSlice rect; rect.width = w; rect.height = h;
@@ -195,7 +195,10 @@ struct Chain {
         f.queue = reinterpret_cast<UINT64>(queue.Get()); f.fence = reinterpret_cast<UINT64>(fence.Get()); f.fence_value = completed;
         f.lease_flags = static_cast<unsigned>(NrExternalLeaseFlags::CommandListOwnedByProducer) |
             static_cast<unsigned>(NrExternalLeaseFlags::QueueFenceRequired) | static_cast<unsigned>(NrExternalLeaseFlags::HdrColor);
-        if (reset || old_epoch != epoch) f.lease_flags |= static_cast<unsigned>(NrExternalLeaseFlags::ResetTemporal);
+        // MC1 epoch identifies the claimed view session, not each allocation.
+        // A size change resets history inside that session; changing epoch would
+        // correctly be rejected until ownership is explicitly retired/reclaimed.
+        if (reset || old_generation != resource_generation) f.lease_flags |= static_cast<unsigned>(NrExternalLeaseFlags::ResetTemporal);
         if (reverse_depth) f.lease_flags |= static_cast<unsigned>(NrExternalLeaseFlags::DepthInverted);
         f.color = Resource(color, shader_state); f.depth = Resource(depth, shader_state);
         f.motion = Resource(motion, shader_state); f.output = Resource(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -219,7 +222,7 @@ struct Chain {
         frame_recorded = true;
         donut::log::info("NR_FG_CHAIN frame=%llu epoch=%llu R=%ux%u accepted=%d recorded=%u reason=%s reset=%u provenance=renderer end=1",
             frame, epoch, w, h, accepted, result.writeback_performed,
-            NrExternalProviderReasonName(result.reason), unsigned(reset || old_epoch != epoch));
+            NrExternalProviderReasonName(result.reason), unsigned(reset || old_generation != resource_generation));
     }
     void Submitted() {
         if (!frame_recorded) return;

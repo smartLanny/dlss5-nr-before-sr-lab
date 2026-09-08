@@ -183,4 +183,6 @@ Write-Output "Sample exit=$($Report.exit_code), sourceFrames=$($Report.source_fr
 Write-Output 'SDK presentation counters are not generated-pixel or display-cadence proof.'
 if($TimedOut -or $Process.ExitCode -ne 0 -or !$States.Count -or !$Report.diagnostics_revision_2 -or $States.Count -ne $FrameIds.Count -or $Valid.Count -ne $States.Count -or @($Limits|Where-Object{$_.Groups[1].Value -ne '0'}).Count -or $Report.asynchronous_api_errors.Count) { throw 'Sample lifecycle, diagnostic revision, query or device-health validation failed; evidence retained.' }
 if($CoreDirectory -and (!$NrRecords.Count -or $NrRecords.Count -ne $NrFences.Count -or
-    ($EnableNR -and !$NrWrites.Count) -or (!$EnableNR -and $NrWrites.Count))) { throw 'Requested NR/source completion contract was not observed; evidence retained.' }
+    ($EnableNR -and !$NrWrites.Count) -or (!$EnableNR -and $NrWrites.Count) -or
+    @($NrRecords|Where-Object{$_.Groups[7].Value -in @('epoch-mismatch','view-mismatch','frame-mismatch')}).Count -or
+    (!$EnableNR -and @($NrRecords|Where-Object{$_.Groups[7].Value -ne 'master-disabled'}).Count))) { throw 'Requested NR/source completion contract was not observed; evidence retained.' }
