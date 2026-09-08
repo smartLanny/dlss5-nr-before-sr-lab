@@ -1495,7 +1495,7 @@ void ReloadConfig(bool force = false) {
             g_config.layered_enhancement, g_config.mode, g_config.layer_tone, g_config.layer_structure, g_config.layer_bright, g_config.layer_shadow);
         Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", g_config.independent_chroma_composition);
         Log("LowGridEditField requested=%d; only Mode2 and colour zero; recorded flag=8192; unavailable optional resources retain composition A.", g_config.low_grid_edit_field);
-        Log("LowGridColorEditField requested=%d; Mode2 normalized-opponent candidate flag=16384; actual colour remains policy-gated.", g_config.low_grid_color_edit_field);
+        Log("LowGridColorEditField requested=%d; Mode2 normalized-opponent candidate flag=32768; actual colour remains policy-gated.", g_config.low_grid_color_edit_field);
         Log("HighStrengthProtection requested=%d; effective on V2/candidate luminance above 1x; legacy V2 also protects chroma; codec flag=1024.",
             g_config.high_strength_protection ? 1 : 0);
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
@@ -1677,7 +1677,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
         applied.layered_enhancement, applied.mode, applied.layer_tone, applied.layer_structure, applied.layer_bright, applied.layer_shadow);
     Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", applied.independent_chroma_composition);
     Log("LowGridEditField requested=%d; only Mode2 and colour zero; recorded flag=8192; unavailable optional resources retain composition A.", applied.low_grid_edit_field);
-    Log("LowGridColorEditField requested=%d; Mode2 normalized-opponent candidate flag=16384; actual colour remains policy-gated.", applied.low_grid_color_edit_field);
+    Log("LowGridColorEditField requested=%d; Mode2 normalized-opponent candidate flag=32768; actual colour remains policy-gated.", applied.low_grid_color_edit_field);
     Log("HighStrengthProtection requested=%d; effective on V2/candidate luminance above 1x; legacy V2 also protects chroma; codec flag=1024.",
         applied.high_strength_protection ? 1 : 0);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
@@ -2560,7 +2560,7 @@ void BuildColorEditFieldCS(uint3 tid : SV_DispatchThreadID) {
 // (log,valid) meaning; RGBA32F decodes luma validity from w bit 0.
 float2 ReadLumaEditV6(int2 p) {
     float4 raw = EditField.Load(int3(p, 0));
-    if ((Passthrough & 16384u) == 0u) return raw.xy;
+    if ((Passthrough & 32768u) == 0u) return raw.xy;
     uint validity = uint(raw.w + 0.5);
     return float2(raw.x, (validity & 1u) != 0u ? 1.0 : 0.0);
 }
@@ -3147,7 +3147,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float3 neural = SampleNeuralLinearV2(center);
     float3 fullProxy = EncodeProxyLinearV2(source);
     const bool independentChroma = (Passthrough & 4096u) != 0u;
-    const bool lowGridColor = (Passthrough & 16384u) != 0u;
+    const bool lowGridColor = (Passthrough & 32768u) != 0u;
 
     bool finiteInputs = ModelNeighborhoodFiniteV2(center) &&
         all(storedOriginal.rgb == storedOriginal.rgb) &&
@@ -6062,14 +6062,18 @@ bool EnsureEditField(ID3D12Device *device, NrSlot &slot,
     desc.Width=width; desc.Height=height; desc.DepthOrArraySize=desc.MipLevels=desc.SampleDesc.Count=1;
     desc.Format=field_format; desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     const auto allocation=ID3D12Device_GetResourceAllocationInfo(device,0,1,&desc);
-    const unsigned long long retained_bytes =
-        g_edit_field_allocated_bytes - slot.edit_field_bytes;
-    if (!allocation.SizeInBytes || allocation.SizeInBytes > kEditFieldSlotBudget ||
-        allocation.SizeInBytes > kEditFieldTotalBudget - retained_bytes) {
+    // Create-before-release preserves the proven plane if replacement fails.
+    // Budget that real overlap, rather than reporting only the post-swap net.
+    if (!allocation.SizeInBytes || slot.edit_field_bytes > kEditFieldSlotBudget ||
+        allocation.SizeInBytes > kEditFieldSlotBudget - slot.edit_field_bytes ||
+        g_edit_field_allocated_bytes > kEditFieldTotalBudget ||
+        allocation.SizeInBytes > kEditFieldTotalBudget - g_edit_field_allocated_bytes) {
         slot.edit_field_allocation_failed=true;
-        Log("LowGridEditField allocation exceeds 64MiB/slot or 256MiB/Core budget; composition A retained.");
+        Log("LowGridEditField replacement peak exceeds 64MiB/slot or 256MiB/Core budget; existing field retained and composition A used.");
         return false;
     }
+    const unsigned long long retained_bytes =
+        g_edit_field_allocated_bytes - slot.edit_field_bytes;
     ID3D12Resource *replacement = nullptr;
     if (!CreateTexture(device,width,height,color_variant
             ? L"NRChain.NormalizedOpponentEditField"
@@ -6453,7 +6457,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         ((v2_combine && g_config.mode == 2 && slot.edit_field_recorded &&
           ((g_config.low_grid_edit_field && g_config.color_strength <= 0.000001f) ||
            low_grid_color)) ? 8192u : 0u) |
-        (low_grid_color ? 16384u : 0u) |
+        (low_grid_color ? 32768u : 0u) |
         (independent_chroma ? 4096u : 0u) |
         ((v2_combine && g_config.high_strength_protection) ? 1024u : 0u) |
         ((v2_combine && g_config.layered_enhancement) ? 2048u : 0u) |

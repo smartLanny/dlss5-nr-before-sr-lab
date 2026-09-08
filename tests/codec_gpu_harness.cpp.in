@@ -504,7 +504,7 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     gpu.Srv(kCodecExposureSrvIndex, (flags & 64u) ? exposure_texture.resource.p : nullptr);
     Texture edit_texture;
     const bool use_edit_field=(flags & 8192u)!=0u;
-    const bool color_edit_field=(flags & 16384u)!=0u;
+    const bool color_edit_field=(flags & 32768u)!=0u;
     Require(!color_edit_field || use_edit_field,"Colour field requires its luma/valid field bit");
     const DXGI_FORMAT edit_format=color_edit_field
         ?DXGI_FORMAT_R32G32B32A32_FLOAT:DXGI_FORMAT_R32G32_FLOAT;

@@ -37,7 +37,7 @@ def wiring():
     assert body.index('g_codec.build_edit_field')<body.index('UavBarrier(command_list,slot->edit_field)')<body.index('slot->edit_field_recorded = true')
     # Public budgets cover actual allocation sizes (including alignment), not
     # merely estimated width*height, and reject rather than wrap at extremes.
-    assert 'allocation.SizeInBytes > kEditFieldTotalBudget - retained_bytes' in s
+    assert 'allocation.SizeInBytes > kEditFieldTotalBudget - g_edit_field_allocated_bytes' in s
     print('PASS EditField production opt-in, strict validity, full-res guards and lifetime/budget wiring')
 
 

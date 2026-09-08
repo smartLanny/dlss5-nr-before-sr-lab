@@ -17,7 +17,7 @@ void ValidateColorEditField(Gpu &gpu) {
                 reference.output.size()*sizeof(Float4))==0,
             "#86 default-off output differs from frozen dev6 shader");
 #endif
-        const auto candidate=Run(gpu,13,13,0,1,1u|8192u|16384u,variant,
+        const auto candidate=Run(gpu,13,13,0,1,1u|8192u|32768u,variant,
             true,nw,nh,{},0.f,{},1.f,{1,1,1,1},true,colour);
         Require(candidate.edit_field.size()==nw*nh*4u,"RGBA field extent");
         for(UINT i=0;i<nw*nh;++i) {
