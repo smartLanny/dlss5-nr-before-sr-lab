@@ -1,5 +1,15 @@
 # 统一开发与测试交接入口
 
+## 2026-09-08 新授权：#11 最小亮度 EditField 实验
+
+从 dev5 最终交接另建隔离分支，生产源码 `6062a0be77be561d1936c204d975ca4890f21453`，
+beta0.5-dev6 / PE 0.5.0.6。默认关闭，仅 Mode2 + ColorStrength=0 的 N 尺寸
+R32G32_FLOAT log-luma/valid pass 已接真实 slot、描述符和 barrier；原全分辨率
+保护保留。64 MiB/slot、256 MiB/Core 实际纹理分配上界，准备失败回既有合成。
+生成源 C++、7 个 SM5 入口和 64-pair 原始数据 A/B 夹具仅编译通过；此检查点
+未运行 GPU/游戏或链接新 DLL。等待协调任务集中验收，不触动 dev5 产物/旧 raw。
+[实现、源锁、边界和后续命令](EDIT_FIELD_20260908.md)。
+
 ## 2026-09-08 新授权：0.5 独立亮度／色度候选
 
 #172 后的隔离切片新增默认关闭的 `IndependentChromaComposition`，前后置可选
