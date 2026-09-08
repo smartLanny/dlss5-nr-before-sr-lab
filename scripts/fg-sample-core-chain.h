@@ -7,6 +7,7 @@
 #include <wrl/client.h>
 #include <nvrhi/nvrhi.h>
 #include <donut/core/log.h>
+#include <sl_core_api.h>
 #include <cmath>
 #include "nr_external_provider_producer.h"
 #include "nr_external_provider_completion.h"
@@ -35,6 +36,7 @@ struct Chain {
     nr_external_provider_client::ReleaseFn release = nullptr;
     nr_external_provider_client::SubmitFn submit = nullptr;
     ComPtr<ID3D12Device> native_device;
+    ComPtr<ID3D12Device> host_device;
     ComPtr<ID3D12CommandQueue> queue;
     ComPtr<ID3D12Fence> fence;
     HANDLE event = nullptr;
@@ -48,6 +50,14 @@ struct Chain {
     nvrhi::BindingSetHandle depth_binding;
     nvrhi::ITexture* source_depth = nullptr;
     const void* renderer_identity = nullptr;
+    template<class T> static ComPtr<T> Native(T* value) {
+        // Fixed SL 2.12, serial render thread, forceProxies and engine-allocation
+        // tracking disabled by the controlled launcher. This API returns AddRef.
+        void* base = nullptr;
+        if (!value || slGetNativeInterface(value, &base) != sl::Result::eOk || !base)
+            Fail("sl-native-interface");
+        ComPtr<T> result; result.Attach(static_cast<T*>(base)); return result;
+    }
 
     void Init(nvrhi::IDevice* device, const void* renderer) {
         if (requested) {
@@ -64,9 +74,10 @@ struct Chain {
         renderer_identity = renderer;
         if (count >= 32768 || !device || device->getGraphicsAPI() != nvrhi::GraphicsAPI::D3D12)
             Fail("unsupported-host");
-        native_device = static_cast<ID3D12Device*>(device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device));
-        queue = static_cast<ID3D12CommandQueue*>(device->getNativeQueue(
-            nvrhi::ObjectTypes::D3D12_CommandQueue, nvrhi::CommandQueue::Graphics));
+        host_device = static_cast<ID3D12Device*>(device->getNativeObject(nvrhi::ObjectTypes::D3D12_Device));
+        native_device = Native(host_device.Get());
+        queue = Native(static_cast<ID3D12CommandQueue*>(device->getNativeQueue(
+            nvrhi::ObjectTypes::D3D12_CommandQueue, nvrhi::CommandQueue::Graphics)));
         if (!native_device || !queue || FAILED(native_device->CreateFence(0, D3D12_FENCE_FLAG_NONE,
                 IID_PPV_ARGS(&fence)))) Fail("producer-fence-create");
         event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -166,7 +177,7 @@ struct Chain {
         if (!requested) return;
         if (!owner || !list || !hdr || !input_depth || !input_motion || frame == last_frame ||
             !std::isfinite(jitter_x) || !std::isfinite(jitter_y)) Fail("source-frame-identity");
-        if (static_cast<ID3D12Device*>(list->getDevice()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device)) != native_device.Get())
+        if (static_cast<ID3D12Device*>(list->getDevice()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device)) != host_device.Get())
             Fail("device-changed");
         for (auto* texture : { hdr, input_depth, input_motion }) {
             const auto& d = texture->getDesc();
@@ -190,8 +201,9 @@ struct Chain {
         constexpr auto shader_state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         NrExternalFrameV1 f{};
         f.provider_id = kNrExternalProviderIdDl5f; f.view_id = 1; f.epoch = epoch; f.frame_id = frame + 1;
-        f.command_list = reinterpret_cast<UINT64>(static_cast<ID3D12GraphicsCommandList*>(
+        auto native_list = Native(static_cast<ID3D12GraphicsCommandList*>(
             list->getNativeObject(nvrhi::ObjectTypes::D3D12_GraphicsCommandList)));
+        f.command_list = reinterpret_cast<UINT64>(native_list.Get());
         f.queue = reinterpret_cast<UINT64>(queue.Get()); f.fence = reinterpret_cast<UINT64>(fence.Get()); f.fence_value = completed;
         f.lease_flags = static_cast<unsigned>(NrExternalLeaseFlags::CommandListOwnedByProducer) |
             static_cast<unsigned>(NrExternalLeaseFlags::QueueFenceRequired) | static_cast<unsigned>(NrExternalLeaseFlags::HdrColor);
@@ -207,6 +219,13 @@ struct Chain {
         // separately; normalization constants are not the raw field's units.
         f.motion.motion_scale_x = f.motion.motion_scale_y = 1.f;
         f.pre_exposure = f.exposure_scale = 1.f; // Sample HDR target precedes tonemapping/exposure.
+        if (frame < 3) {
+            ComPtr<ID3D12Device> queue_owner, list_owner;
+            const bool queue_same = SUCCEEDED(queue->GetDevice(IID_PPV_ARGS(&queue_owner))) && queue_owner.Get() == native_device.Get();
+            const bool list_same = SUCCEEDED(native_list->GetDevice(IID_PPV_ARGS(&list_owner))) && list_owner.Get() == native_device.Get();
+            donut::log::info("NR_FG_CHAIN nativeIdentity frame=%llu queueSame=%u listSame=%u end=1", frame, unsigned(queue_same), unsigned(list_same));
+            if (!queue_same || !list_same) Fail("native-device-identity");
+        }
         NrExternalSubmitResultV1 result{};
         const auto accepted = submit(kNrExternalProviderAbi, &f, &result);
         if (result.writeback_performed && (!accepted || result.admitted_frame_id != f.frame_id))
@@ -238,7 +257,7 @@ struct Chain {
         owner = false;
         depth_binding = nullptr; output = nullptr; color = nullptr; depth = nullptr; motion = nullptr;
         depth_pipeline = nullptr; depth_shader = nullptr; depth_layout = nullptr;
-        CloseHandle(event); event = nullptr; fence.Reset(); queue.Reset(); native_device.Reset();
+        CloseHandle(event); event = nullptr; fence.Reset(); queue.Reset(); native_device.Reset(); host_device.Reset();
         requested = false;
     }
 };

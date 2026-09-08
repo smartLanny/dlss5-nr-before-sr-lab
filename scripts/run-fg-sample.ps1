@@ -59,6 +59,7 @@ if ($DevelopmentSdkRoot) {
     $Exe=Join-Path $Bin 'StreamlineSample.exe'
     [IO.File]::WriteAllText((Join-Path $Bin 'sl.interposer.json'),(@{
         showConsole=$false;logLevel=2;logMessageDelayMs=0;waitForDebugger=$false;logPath=$Bin
+        forceProxies=$false;trackEngineAllocations=$false
     }|ConvertTo-Json))
     [IO.File]::WriteAllText((Join-Path $Bin 'sl.common.json'),'{"logLevelNGX":2,"enableOTA":false}')
     [IO.File]::WriteAllText((Join-Path $Bin 'sl.dlss_g.json'),'{"showDebugText":true}')
