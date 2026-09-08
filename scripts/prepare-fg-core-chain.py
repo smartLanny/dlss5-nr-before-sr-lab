@@ -40,8 +40,8 @@ def main():
                               '#include "StreamlineSample.h"\n#include "nr-fg-sample/core-chain.h"')
             patched = fg.once(patched, 'void StreamlineSample::RenderScene(nvrhi::IFramebuffer* framebuffer)\n{',
                               'void StreamlineSample::RenderScene(nvrhi::IFramebuffer* framebuffer)\n{\n    nr_fg_sample::Get().Init(GetDevice(), this);')
-            patched = fg.once(patched, '    NVWrapper::Get().CleanupDLSSG(false);',
-                              '    NVWrapper::Get().CleanupDLSSG(false);\n    nr_fg_sample::Get().Shutdown();')
+            patched = fg.once(patched, 'StreamlineSample::~StreamlineSample()\n{',
+                              'StreamlineSample::~StreamlineSample()\n{\n    nr_fg_sample::Get().Shutdown(this);')
             patched = fg.once(patched, '            NVWrapper::Get().EvaluateDLSS(m_CommandList);', '''            // One renderer-owned base frame; before SR, UI and the existing FG presenter.
             auto nrJitter = std::dynamic_pointer_cast<PlanarView, IView>(m_View)->GetPixelOffset();
             nr_fg_sample::Get().Record(m_CommandList, m_RenderTargets->HdrColor,

@@ -218,8 +218,8 @@ struct Chain {
         ++completed; frame_recorded = false;
         donut::log::info("NR_FG_CHAIN completedFence=%llu end=1", completed);
     }
-    void Shutdown() {
-        if (!requested) return;
+    void Shutdown(const void* renderer) {
+        if (!requested || renderer != renderer_identity) return;
         if (frame_recorded || fence->GetCompletedValue() != completed) Fail("shutdown-unretired");
         if (owner && !release(kNrExternalProviderAbi, kNrExternalProviderIdDl5f)) Fail("owner-release");
         owner = false;
