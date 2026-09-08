@@ -3155,6 +3155,72 @@ void WriteCombined(uint2 coord, uint2 destinationCoord, float4 result) {
     }
 }
 
+// Shared dimensionless gains are defined with the V2 compositor below. Post
+// supplies its own relative-edit domain; no log-composition or colour switch.
+bool LightStyleNeutralV1(float broad, float dark, float reflection,
+                         float structure, float glow);
+float LightStyleStrengthV1(float remaining, float edit, float mean, float master,
+                          float broad, float dark, float reflection,
+                          float structure, float glow);
+float3 LightPartitionPreviewV1(float edit, float mean, float remaining);
+
+// POST_LIGHT_SCALAR_BEGIN
+float PostRelativeEditV1(float proxyLuma, float neuralLuma) {
+    return (neuralLuma - proxyLuma) / max(proxyLuma, 1.0 / 1024.0);
+}
+
+float PostLightTransferRatioV1(float remaining, float edit, float mean,
+                               float master, float maxRatio,
+                               float broad, float dark, float reflection,
+                               float structure, float glow) {
+    float strength = LightStyleStrengthV1(remaining, edit, mean, master,
+        broad, dark, reflection, structure, glow);
+    // The old post path transfers a LINEAR relative edit. Exponentiating this
+    // edit would silently change its 1x anchor and its response to protection.
+    return clamp(1.0 + remaining * strength, 1.0 / maxRatio, maxRatio);
+}
+// POST_LIGHT_SCALAR_END
+
+float3 ReadPostLightEditV1(float2 center) {
+    const bool scaled = ModelWidth != Width || ModelHeight != Height;
+    if (scaled && !ModelNeighborhoodFiniteV2(center)) return float3(0.0, 0.0, 0.0);
+    int2 pixel = clamp(int2(center), int2(0, 0), int2(Width - 1u, Height - 1u));
+    float3 proxy = scaled ? SampleProxyStoredV2(center) : ProxyColor.Load(int3(pixel, 0)).rgb;
+    float3 neural = scaled ? SampleNeuralStoredV2(center) : NeuralColor.Load(int3(pixel, 0)).rgb;
+    if (!all(isfinite(proxy)) || !all(isfinite(neural)) ||
+        any(abs(proxy) > 65504.0.xxx) || any(abs(neural) > 65504.0.xxx))
+        return float3(0.0, 0.0, 0.0);
+    // Identical to CombineCS's own model decode, including its bounded value
+    // domain. No low-grid edit field, HDR inference or additional NR is used.
+    if ((Passthrough & 1u) == 0u) {
+        proxy = SRGBToLinear(proxy);
+        neural = SRGBToLinear(neural);
+    }
+    float proxyLuma = dot(proxy, kLuma);
+    float edit = PostRelativeEditV1(proxyLuma, dot(neural, kLuma));
+    return isfinite(edit) && isfinite(proxyLuma)
+        ? float3(edit, proxyLuma, 1.0) : float3(0.0, 0.0, 0.0);
+}
+
+float2 PostLightEditTapV1(float2 center, float centerProxyLuma) {
+    float3 tap = ReadPostLightEditV1(center);
+    if (tap.z != 1.0) return float2(0.0, 0.0);
+    float relativeEdge = abs(tap.y - centerProxyLuma) /
+        max(max(tap.y, centerProxyLuma), 1.0 / 1024.0);
+    float weight = 1.0 - smoothstep(0.10, 0.50, relativeEdge);
+    return float2(weight * tap.x, weight);
+}
+
+float PostLightEditMeanV1(float2 center, float edit, float proxyLuma) {
+    const float radius = 8.0; // Composition pixels, independent of N/O ratio.
+    float2 local = float2(0.40 * edit, 0.40);
+    local += 0.15 * PostLightEditTapV1(center + float2(radius, 0.0), proxyLuma);
+    local += 0.15 * PostLightEditTapV1(center - float2(radius, 0.0), proxyLuma);
+    local += 0.15 * PostLightEditTapV1(center + float2(0.0, radius), proxyLuma);
+    local += 0.15 * PostLightEditTapV1(center - float2(0.0, radius), proxyLuma);
+    return local.x / local.y;
+}
+
 [numthreads(8, 8, 1)]
 void CombineCS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height) return;
@@ -3179,6 +3245,8 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
 
     float3 diagnosticOriginal =
         SourceToDiagnosticLinear(storedOriginal.rgb);
+    const bool lightStyleActive = (Passthrough & 262144u) != 0u;
+    const bool lightStylePreview = lightStyleActive && LightPreview != 0u;
     float3 diagnosticProxy = ModelToDiagnosticLinear(storedProxy);
     float3 diagnosticNeural = ModelToDiagnosticLinear(storedNeural);
     float diagnosticDelta = max(abs(diagnosticNeural.r - diagnosticProxy.r),
@@ -3215,7 +3283,9 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         // A no-op neural result must be a strict per-pixel identity. Avoiding
         // any colour-space round-trip here also makes the diagnostic contract
         // independent of FP16 matrix precision.
-        WriteCombined(tid.xy, destinationCoord, storedOriginal);
+        float4 unchanged = storedOriginal;
+        if (lightStylePreview) unchanged.rgb = EncodeCompositionToStoredV2(0.0.xxx);
+        WriteCombined(tid.xy, destinationCoord, unchanged);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
                           diagnosticNeural, diagnosticOriginal,
                           diagnosticDelta, 0.0, false);
@@ -3229,6 +3299,10 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float sourceLuma = dot(source, kLuma);
     float proxyLuma = dot(proxy, kLuma);
     float neuralLuma = dot(neural, kLuma);
+    const float lightOriginalEdit = lightStyleActive
+        ? PostRelativeEditV1(proxyLuma, neuralLuma) : 0.0;
+    const float lightOriginalMean = lightStyleActive
+        ? PostLightEditMeanV1(float2(tid.xy) + 0.5, lightOriginalEdit, proxyLuma) : 0.0;
     // Post-SR/RR receives the same paired proxy/neural model contract as the
     // pre-SR path. Attenuate only its broad luminance residual with the shared
     // model-grid estimator; retain the legacy colour transfer below. The
@@ -3273,6 +3347,13 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
     float transferredLumaRatio = clamp(
         1.0 + relativeLumaDelta * TransferStrength,
         1.0 / maxRatio, maxRatio);
+    // Neutral (including diagnostic-only requests) retains the original
+    // arithmetic above byte-for-byte. Only nonneutral controls add a gain.
+    if (lightStyleActive && !LightStyleNeutralV1(LightBroad, LightDark,
+            LightReflection, LightStructure, LightGlow))
+        transferredLumaRatio = PostLightTransferRatioV1(relativeLumaDelta,
+            lightOriginalEdit, lightOriginalMean, TransferStrength, maxRatio,
+            LightBroad, LightDark, LightReflection, LightStructure, LightGlow);
     float lumaRatio = lerp(1.0, transferredLumaRatio, transferConfidence);
     float3 lumaOnly = source * lumaRatio;
 
@@ -3320,6 +3401,16 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
         storedResult = LinearToSRGB(sourceDomainResult);
     else if (linearSdrStorage)
         storedResult = saturate(sourceDomainResult);
+    if (lightStylePreview) {
+        // Same preview contract as pre-SR, using this route's relative-edit
+        // magnitudes: partition colours, or actual final NR/source delta x4.
+        float3 preview = LightPreview == 1u
+            ? LightPartitionPreviewV1(lightOriginalEdit, lightOriginalMean, relativeLumaDelta)
+            : saturate(abs(SourceToDiagnosticLinear(storedResult) - diagnosticOriginal) * 4.0);
+        float3 storedPreview = EncodeCompositionToStoredV2(preview);
+        if (all(isfinite(storedPreview)) && all(abs(storedPreview) <= 65504.0.xxx))
+            storedResult = storedPreview;
+    }
     WriteCombined(tid.xy, destinationCoord,
                   float4(storedResult, storedOriginal.a));
     float originalMagnitude = max(
@@ -6980,9 +7071,11 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    unsigned int model_width = 0,
                    unsigned int model_height = 0,
                    float frame_confidence = 1.0f) {
-    // Freeze the incoming route before the independent-colour experiment may
-    // redirect legacy post composition to V2. D v1 is pre-SR only on either UI mode.
-    const bool light_style_supported = pipeline == g_codec.combine_v2 && g_config.mode == 2;
+    // Support each compositor in its own edit domain. Existing shared-V2 post
+    // remains a user's independent-colour choice; D never selects that route.
+    const bool light_style_pre_supported = pipeline == g_codec.combine_v2 && g_config.mode == 2;
+    const bool light_style_post_supported = pipeline == g_codec.combine;
+    const bool light_style_supported = light_style_pre_supported || light_style_post_supported;
     const bool light_style_requested = g_config.light_broad != 1.0f ||
         g_config.light_dark != 1.0f || g_config.light_reflection != 1.0f ||
         g_config.light_structure != 1.0f || g_config.light_glow != 0.0f ||

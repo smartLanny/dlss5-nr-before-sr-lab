@@ -139,7 +139,8 @@ def main():
             else:
                 assert run.returncode == 23 and 'FOUR_REGION_ORACLE:' in run.stderr, (name,run.returncode,run.stdout,run.stderr)
                 print(f'PASS negative control {name}: {run.stderr.strip()}')
-    assert 'const bool light_style_supported = pipeline == g_codec.combine_v2 && g_config.mode == 2;' in source
+    assert 'const bool light_style_pre_supported = pipeline == g_codec.combine_v2 && g_config.mode == 2;' in source
+    assert 'const bool light_style_post_supported = pipeline == g_codec.combine;' in source
     assert source.index('const bool light_style_supported') < source.index('if (independent_chroma || low_grid_color) pipeline = g_codec.combine_v2;')
     assert '(light_style_active ? 262144u : 0u)' in source
     assert 'const float lightOriginalEdit = logRatio;' in source
@@ -150,7 +151,7 @@ def main():
     assert 'offsetof(CodecConstants, light_broad) == 35 * sizeof(UINT)' in source
     assert 'offsetof(CodecConstants, light_preview) == 40 * sizeof(UINT)' in source
     assert 'uint LightPreview;' in source
-    print('PASS pre-route gate, same-grid edit sampling, strict validity and appended constant layout')
+    print('PASS explicit pre/post route gates, same-grid edit sampling, strict validity and appended constant layout')
 
 
 if __name__ == '__main__':
