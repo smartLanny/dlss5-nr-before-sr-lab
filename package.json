@@ -1,6 +1,6 @@
 {
   "name": "xiaofeng-dlss5-manager",
-  "version": "0.4.6-hotfix.7-dev.1",
+  "version": "0.4.6-hotfix.7-dev.2",
   "private": true,
   "description": "A beginner-friendly desktop manager for the DLSS 5 NR-before-SR add-on.",
   "main": "main.js",
@@ -17,7 +17,9 @@
     "build": "node scripts/prepare-core-catalog.js && npm run icon && npm run verify:vendor && npm run verify:payload && npm run verify:fg-components && electron-builder --win",
     "build:portable": "node scripts/prepare-core-catalog.js && npm run icon && npm run verify:vendor && npm run verify:payload && npm run verify:fg-components && electron-builder --win portable",
     "verify:fg-components": "node scripts/verify-fg-components.js",
-    "verify:execution-level": "node scripts/verify-execution-level.js"
+    "verify:execution-level": "node scripts/verify-execution-level.js",
+    "build:external": "npm run icon && npm run verify:vendor && npm run verify:fg-components && electron-builder --win --config scripts/external-build-config.cjs && npm run verify:external",
+    "verify:external": "node scripts/verify-external-package.cjs dist-external/win-unpacked"
   },
   "dependencies": {
     "yauzl": "^2.10.0"

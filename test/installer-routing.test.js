@@ -12,7 +12,7 @@ const { sha256 } = require('../src/product/payload');
 const { PAYLOAD_FILES, INSTALLED_NAMES, DX11_COMPAT_VERSION, DX11_COMPAT_CARRIER } = require('../src/product/constants');
 const { manifestPath } = require('../src/product/manifest');
 
-function fixture(t, api = 'dx12') {
+function fixture(t, api = 'dx12', options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-route-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const gameDir = path.join(root, 'Game');
@@ -54,7 +54,8 @@ function fixture(t, api = 'dx12') {
     journal,
     scan: scanModule,
     guards: { antiCheatPresent: () => false, assertGameClosed: async () => {} },
-    pe: { getBitness: () => 64 }
+    pe: { getBitness: () => 64 },
+    ...(options.copyFile ? { copyFile: options.copyFile } : {})
   });
   return { root, gameDir, exeDir, exePath, payload, scan, installer };
 }
@@ -71,6 +72,7 @@ test('DX12 keeps nrchain, never deploys carrier, and restores an unmanaged old c
   assert.equal(fs.existsSync(oldCarrier), false);
   assert.equal(result.components.find(row=>row.key==='carrier').label,'兼容桥接');
   assert.equal(result.components.find(row=>row.key==='carrier').detail,'无需启用（DirectX 12）');
+  assert.match(result.components.find(row=>row.key==='conflicts').detail, /外部冲突备份/);
 
   const removed = await f.installer.uninstall({ gameDir: f.gameDir, scan: f.scan });
   assert.equal(removed.removed, true);
@@ -249,11 +251,30 @@ test('repairing a DX11 install on a resolved DX12 route retires carrier but reta
   assert.equal(beforeRepair.deploymentApi, 'dx11');
   assert.equal(beforeRepair.selectedApi, 'dx12');
   assert.equal(beforeRepair.complete, false);
+  assert.equal(beforeRepair.components.find(row => row.key === 'conflicts').ok, true,
+    'a Manager-owned carrier is reported by the route component, not as an external conflict');
+  assert.match(beforeRepair.components.find(row => row.key === 'carrier').detail, /目标 DirectX 12.*受管/);
   const repaired = await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   assert.equal(repaired.complete, true);
   assert.equal(repaired.routeMismatch, false);
   assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.carrier)), false);
   assert.equal(fs.readFileSync(bridge, 'utf8'), 'payload-bridge');
+});
+
+test('install cleans only the exact NR addon entry in [ADDON] and keeps a first ReShade backup', async t => {
+  const f = fixture(t, 'dx12');
+  const reshadeIni = path.join(f.exeDir, 'ReShade.ini');
+  const original = `\uFEFF[OTHER]\r\nDisabledAddons=@${INSTALLED_NAMES.addon},@keep.addon64\r\n` +
+    `[ADDON] trailing text\r\nDisabledAddons=@${INSTALLED_NAMES.addon},@${INSTALLED_NAMES.addon.toUpperCase()},@${INSTALLED_NAMES.addon.replace('.addon64', '-copy.addon64')},@user,,name.addon64\r\n`;
+  fs.writeFileSync(path.join(f.exeDir, 'dxgi.dll'), 'existing ReShade Searching for add-ons');
+  fs.writeFileSync(reshadeIni, original);
+
+  const installed = await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  assert.equal(installed.complete, true);
+  assert.equal(fs.readFileSync(`${reshadeIni}.bak`, 'utf8'), original);
+  const edited = fs.readFileSync(reshadeIni, 'utf8');
+  assert.match(edited, new RegExp(`DisabledAddons=@${INSTALLED_NAMES.addon.toUpperCase()},@${INSTALLED_NAMES.addon.replace('.addon64', '-copy.addon64')},@user,,name\\.addon64`));
+  assert.match(edited, new RegExp(`\\[OTHER\\]\\r\\nDisabledAddons=@${INSTALLED_NAMES.addon},@keep\\.addon64`));
 });
 
 test('addon upgrades apply carrier only to a complete DX11 set and preserve DX12 nrchain', async t => {
@@ -329,7 +350,7 @@ test('real journal restores earlier conflict moves and managed writes after a la
   fs.writeFileSync(conflict, 'old conflict');
   f.payload.addon.file = path.join(f.root, 'missing.addon64');
 
-  await assert.rejects(f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan }), { code: 'ENOENT' });
+  await assert.rejects(f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan }), { code: 'ERR_PAYLOAD_HASH' });
   assert.equal(fs.readFileSync(conflict, 'utf8'), 'old conflict');
   assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.reshade)), false);
   assert.equal(fs.existsSync(manifestPath(f.gameDir)), false);
@@ -393,4 +414,45 @@ test('direct DX11 repair reinstates the carrier regardless of a historical manua
   assert.equal(disabled.components.find(row => row.key === 'carrier').detail, '文件缺失');
   await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES.carrier)), true);
+});
+
+test('repair rejects a payload changed after requirePayload validation without touching installed state', async t => {
+  const f = fixture(t, 'dx12'); await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  const target = path.join(f.exeDir, INSTALLED_NAMES.addon), manifestFile = manifestPath(f.gameDir);
+  const before = { target: fs.readFileSync(target), manifest: fs.readFileSync(manifestFile), entries: fs.readdirSync(f.exeDir).sort() };
+  fs.writeFileSync(f.payload.addon.file, 'changed-after-payload-validation');
+  await assert.rejects(f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan }), error =>
+    error.code === 'ERR_PAYLOAD_HASH' && error.details?.reason === 'source-changed');
+  assert.deepEqual(fs.readFileSync(target), before.target); assert.deepEqual(fs.readFileSync(manifestFile), before.manifest);
+  assert.deepEqual(fs.readdirSync(f.exeDir).sort(), before.entries); assert.equal(fs.existsSync(journal.pendingPath(f.gameDir)), false);
+});
+
+test('OTA source drift between pre-copy hash and copy rolls back target, backup and receipt', async t => {
+  let driftSource = null;
+  const f = fixture(t, 'dx12', { copyFile: async (source, target) => {
+    if (source === driftSource) fs.writeFileSync(source, 'changed-during-copy');
+    await fs.promises.copyFile(source, target);
+  } });
+  await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
+  const target = path.join(f.exeDir, INSTALLED_NAMES.addon), manifestFile = manifestPath(f.gameDir), replacement = path.join(f.root, 'ota.addon64');
+  fs.writeFileSync(replacement, 'verified-ota-addon'); const expected = sha256(replacement); driftSource = replacement;
+  const before = { target: fs.readFileSync(target), manifest: fs.readFileSync(manifestFile), entries: fs.readdirSync(f.exeDir).sort() };
+  await assert.rejects(f.installer.upgradeAddon({ gameDir: f.gameDir,
+    addon: { id: 'drift-ota', file: replacement, addonSha256: expected }, version: 'drift-ota', scan: f.scan }), error =>
+    error.code === 'ERR_PAYLOAD_HASH' && error.details?.reason === 'copy-changed');
+  assert.deepEqual(fs.readFileSync(target), before.target); assert.deepEqual(fs.readFileSync(manifestFile), before.manifest);
+  assert.deepEqual(fs.readdirSync(f.exeDir).sort(), before.entries); assert.equal(fs.existsSync(journal.pendingPath(f.gameDir)), false);
+});
+
+test('first-install config drift rolls back every earlier managed payload write', async t => {
+  let driftSource = null;
+  const f = fixture(t, 'dx12', { copyFile: async (source, target) => {
+    if (source === driftSource) fs.writeFileSync(source, 'changed-config-during-copy');
+    await fs.promises.copyFile(source, target);
+  } });
+  driftSource = f.payload.config.file;
+  await assert.rejects(f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan }), error =>
+    error.code === 'ERR_PAYLOAD_HASH' && error.details?.reason === 'copy-changed');
+  for (const kind of ['reshade', 'addon', 'bridge', 'runtime', 'config']) assert.equal(fs.existsSync(path.join(f.exeDir, INSTALLED_NAMES[kind])), false, `${kind} rolled back`);
+  assert.equal(fs.existsSync(manifestPath(f.gameDir)), false); assert.equal(fs.existsSync(journal.pendingPath(f.gameDir)), false);
 });

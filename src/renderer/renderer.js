@@ -143,7 +143,7 @@ function renderPayloadNotice(removedSelection = false) {
     message = '未能确认可自动匹配的显卡，请在“设置”中检查显卡识别结果。';
   } else if (!payloadReadyForHardware()) {
     const problems = [...((payload && payload.missing) || []), ...((payload && payload.invalid) || [])];
-    message = `安装组件缺失或校验未通过${problems.length ? `：${problems.join('、')}` : ''}。请重新下载完整的一键安装包；若仍有问题，请在“修复”页保存反馈日志。`;
+    message = payload?.source?.error?.message || `安装组件缺失或校验未通过${problems.length ? `：${problems.slice(0, 3).join('、')}` : ''}。请到“插件版本”检查组件来源，或选择完整组件目录；仍失败时在“修复”页保存反馈。`;
   } else if (removedSelection) {
     const item = payload.versions[payload.selectedVersion];
     message = `上次选择的版本已退出常规分发，本安装包提供 ${coreVersionLabel(payload.selectedVersion, item)}。已安装核心不会因此自动更换；可在游戏设置中选择并应用新版本。`;
@@ -251,7 +251,7 @@ function cardAction(game) {
   const dismiss = '<button class="icon-button dismiss-game-btn" title="移除这个游戏" aria-label="移除这个游戏">×</button>';
   if (game.installed) return `<button class="button primary launch-btn">启动游戏</button><button class="button subtle card-open">设置</button>${dismiss}`;
   if (game.supported && payloadReadyForHardware()) return `<button class="button primary install-btn">一键安装</button>${dismiss}`;
-  if (game.supported) return `<button class="button" disabled>安装组件未准备</button>${dismiss}`;
+  if (game.supported) return `<button class="button subtle payload-open-btn">检查安装组件</button>${dismiss}`;
   if (game.supportCode === 'ERR_API_SELECTION_REQUIRED') return `<button class="button subtle">请选择游戏 API</button>${dismiss}`;
   return `<button class="button" disabled>无法安装</button>${dismiss}`;
 }
@@ -404,6 +404,8 @@ function bindGameCards() {
     };
     const install = card.querySelector('.install-btn');
     if (install) install.onclick = event => { event.stopPropagation(); const version = card.querySelector('.game-version-select')?.value; runConfirmedAction(allowAntiCheat => window.manager.install(id, { allowAntiCheat, version }), '安装完成', true, id); };
+    const sourceButton = card.querySelector('.payload-open-btn');
+    if (sourceButton) sourceButton.onclick = event => { event.stopPropagation(); switchView('addons'); $('choosePayloadSourceBtn').focus(); };
     const saveApi = card.querySelector('.api-save-btn');
     if (saveApi) saveApi.onclick = event => {
       event.stopPropagation();
@@ -642,14 +644,51 @@ function renderAddonVersions() {
   const root = $('addonVersionList');
   if (!root) return;
   const rows = state.addons || [];
-  $('addonListHint').textContent = rows.length ? `${rows.length} 个版本 · 内置版本不可删除` : '还没有可用版本';
+  renderPayloadSource();
+  $('addonListHint').textContent = rows.length ? `${rows.length} 个版本 · 在游戏设置中应用` : '还没有可用版本';
   root.innerHTML = rows.length ? rows.map(item => `<div class="addon-row">
-    <div class="addon-symbol">${item.addonOnly ? '↓' : '◆'}</div>
-    <div><div class="addon-name">${escapeHtml(coreVersionLabel(item.id, item))}</div><div class="addon-meta">${item.addonOnly ? `导入文件：${escapeHtml(item.sourceName || '')} · ${item.ota ? '标准 OTA，校验后只替换 Addon' : '只替换 Addon'}` : escapeHtml(item.notes || '完整安装组件')}</div></div>
+    <div class="addon-symbol"><span class="nav-icon nav-icon-addons" aria-hidden="true"></span></div>
+    <div><div class="addon-name">${escapeHtml(coreVersionLabel(item.id, item))}</div><div class="addon-meta">${item.addonOnly ? `导入文件：${escapeHtml(item.sourceName || '')} · ${item.ota ? '配套更新包，按 API 应用所需组件' : '仅更新核心，保留配套组件'}` : escapeHtml(item.notes || '完整安装组件')}</div></div>
     <span class="addon-tag">${item.ready ? '可用' : '组件未准备'}</span>
-    ${item.deletable ? `<button class="button danger addon-remove-btn" data-id="${escapeHtml(item.id)}">删除</button>` : '<span class="addon-tag">内置</span>'}
-  </div>`).join('') : '<p class="muted">点击上面的“选择 addon 文件”，或把 .addon64 拖进来。</p>';
+    ${item.deletable ? `<button class="button danger addon-remove-btn" data-id="${escapeHtml(item.id)}">移出版本库</button>` : `<span class="addon-tag">${item.source === 'external' ? '外部目录' : '随程序提供'}</span>`}
+  </div>`).join('') : '<p class="muted">首次安装请先选择完整组件目录；已有安装可导入标准 OTA 或核心更新文件。</p>';
   root.querySelectorAll('.addon-remove-btn').forEach(button => button.onclick = () => confirmRemoveAddon(button.dataset.id));
+}
+
+function renderPayloadSource() {
+  const source = state.payload?.source;
+  const status = $('payloadSourceStatus');
+  if (!status) return;
+  const ready = source ? source.ready && !source.error : Boolean(state.payload?.ready);
+  status.textContent = ready ? '组件检查通过' : '需要处理';
+  status.className = `badge ${ready ? 'good' : 'warn'}`;
+  $('payloadSourceLabel').textContent = source?.mode === 'external' ? '外部组件目录' : source?.mode === 'unconfigured' ? '尚未选择组件' : '随程序提供';
+  $('payloadSourcePath').textContent = source?.mode === 'unconfigured' ? '选择完整组件目录后会记住位置。' : source?.path || state.payload?.dir || '未提供完整组件目录';
+  $('payloadSourceDetail').textContent = source?.mode === 'unconfigured' ? '本程序未附带完整 NR 组件；选择已有的完整组件目录即可继续。'
+    : source?.error?.message || (ready ? '已核对清单和文件；安装或修复前还会再次校验。' : '请确认完整组件、文件校验和显卡匹配。');
+  $('payloadSourceDetail').classList.toggle('error', Boolean(source?.error) && source?.mode !== 'unconfigured');
+  $('resetPayloadSourceBtn').classList.toggle('hidden', source?.mode !== 'external' || source?.bundledAvailable === false);
+}
+
+async function changePayloadSource(action) {
+  if (state.busy) return;
+  const message = $('payloadSourceFeedback');
+  const buttons = ['choosePayloadSourceBtn', 'recheckPayloadSourceBtn', 'resetPayloadSourceBtn'].map($);
+  setBusy(true); buttons.forEach(button => { button.disabled = true; });
+  message.textContent = '正在核对组件目录和文件，请稍候…'; message.className = 'payload-source-feedback';
+  const update = data => {
+    state.settings = data.settings; state.payload = data.payload; state.addons = data.addons;
+    renderVersionSelector(); renderAddonVersions(); renderGames({ preserveExpanded: true });
+  };
+  try {
+    const result = unwrap(await window.manager[action]());
+    if (result) { update(result); message.textContent = '组件来源已保存；已安装游戏可在游戏设置中选择并应用版本。'; }
+    else message.textContent = '已取消选择，继续使用当前组件来源。';
+  } catch (error) {
+    try { update(unwrap(await window.manager.readPayloadSource())); } catch {}
+    message.textContent = error.message; message.className = 'payload-source-feedback error';
+    message.classList.toggle('hidden', state.payload?.source?.error?.message === error.message);
+  } finally { setBusy(false); buttons.forEach(button => { button.disabled = false; }); }
 }
 
 function confirmRemoveAddon(id) {
@@ -774,11 +813,12 @@ function switchView(view) {
     games: ['我的游戏', '安装、设置和卸载都在同一个页面完成'],
     repair: ['问题修复', '检查组件完整性，并安全恢复缺失文件'],
     settings: ['设置', '只保留真正会影响使用的选项'],
-    addons: ['插件版本管理', '导入、删除和切换 Addon，方便退出游戏后快速 A/B 对比']
+    addons: ['插件版本管理', '检查组件来源，管理更新和回退版本']
   };
   $('pageTitle').textContent = titles[view][0];
   $('pageSubtitle').textContent = titles[view][1];
   $('addGameBtn').classList.toggle('hidden', view !== 'games');
+  $('addExeBtn').classList.toggle('hidden', view !== 'games');
   $('refreshBtn').classList.toggle('hidden', view !== 'games');
   if (view === 'repair') loadRepairDiagnostic();
   if (view === 'addons') renderAddonVersions();
@@ -999,6 +1039,9 @@ $('importAddonBtn').onclick = async () => {
   } catch (error) { toast(error.message, true); }
   finally { setBusy(false); }
 };
+$('choosePayloadSourceBtn').onclick = () => changePayloadSource('pickPayloadSource');
+$('recheckPayloadSourceBtn').onclick = () => changePayloadSource('recheckPayloadSource');
+$('resetPayloadSourceBtn').onclick = () => changePayloadSource('resetPayloadSource');
 $('addonDropZone').ondragover = event => { event.preventDefault(); $('addonDropZone').classList.add('dragging'); };
 $('addonDropZone').ondragleave = () => $('addonDropZone').classList.remove('dragging');
 $('addonDropZone').ondrop = async event => {

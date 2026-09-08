@@ -45,7 +45,7 @@ test('invalid hash stays blocked even when the saved selection was removed',()=>
 test('missing bundle remains blocked with player-facing recovery instructions',()=>{
  const f=fixture();f.context.state.payload={ready:false,missing:['bundle.json'],invalid:[]};
  f.render();assert.equal(f.enabled(),false);assert.equal(f.nodes.addonVersionSelect.disabled,true);
- assert.match(f.nodes.payloadNotice.textContent,/重新下载完整/);assert.doesNotMatch(f.nodes.payloadNotice.textContent,/生成|README/);
+ assert.match(f.nodes.payloadNotice.textContent,/选择完整组件目录/);assert.doesNotMatch(f.nodes.payloadNotice.textContent,/生成|README/);
 });
 
 test('inherited object keys are not accepted as bundled version IDs',()=>{

@@ -23,6 +23,7 @@ function createInstaller(overrides = {}) {
   const scanModule = overrides.scan || require('../core/scan');
   const guards = overrides.guards || require('../core/install-guards');
   const pe = overrides.pe || require('../core/pe');
+  const copy = overrides.copyFile || ((source, target) => fs.promises.copyFile(source, target));
 
   const safe = (gameDir, target) => journal.safePath(gameDir, path.relative(gameDir, target));
 
@@ -41,7 +42,7 @@ function createInstaller(overrides = {}) {
 
   async function copyFile(src, dest) {
     await fs.promises.mkdir(path.dirname(dest), { recursive: true });
-    await fs.promises.copyFile(src, dest);
+    await copy(src, dest);
   }
 
   async function sidecarBackup(gameDir, target) {
@@ -88,8 +89,12 @@ function createInstaller(overrides = {}) {
     return entry;
   }
 
-  async function writeManaged(gameDir, manifest, source, target, kind) {
+  async function writeManaged(gameDir, manifest, source, target, kind, expectedHash) {
     safe(gameDir, target);
+    const expected = typeof expectedHash === 'string' && /^[a-f0-9]{64}$/i.test(expectedHash) ? expectedHash.toLowerCase() : null;
+    let sourceHash = null;
+    try { sourceHash = fs.statSync(source).isFile() ? sha256(source) : null; } catch {}
+    if (!expected || sourceHash !== expected) throw appError('ERR_PAYLOAD_HASH', { file: path.basename(source), reason: 'source-changed' });
     const existing = findEntry(manifest, path.relative(gameDir, target));
     if (existing && fs.existsSync(target)) {
       const current = fs.statSync(target).isFile() ? sha256(target) : null;
@@ -101,7 +106,9 @@ function createInstaller(overrides = {}) {
     await journal.capture(gameDir, target);
     const entry = await recordOriginal(gameDir, manifest, target, kind);
     await copyFile(source, target);
-    entry.installedSha256 = sha256(target);
+    const installedHash = fs.statSync(target).isFile() ? sha256(target) : null;
+    if (installedHash !== expected) throw appError('ERR_PAYLOAD_HASH', { file: path.basename(source), reason: 'copy-changed' });
+    entry.installedSha256 = installedHash;
     entry.sourceName = path.basename(source);
     if (sidecar) entry.sidecarBak = sidecar;
     manifest.updatedAt = new Date().toISOString();
@@ -250,6 +257,39 @@ function createInstaller(overrides = {}) {
     await fs.promises.writeFile(file, edited.text, 'utf8');
   }
 
+  function editAddonDisabled(text, remove = false) {
+    const addonFile = path.basename(INSTALLED_NAMES.addon);
+    let section = '';
+    let changed = false;
+    const lines = String(text || '').split('\n').map(line => {
+      const header = line.match(/^(?:\uFEFF)?[ \t]*\[([^\]]+)\]/);
+      if (header) {
+        section = header[1].replace(/^[ \t]+|[ \t]+$/g, '');
+        return line;
+      }
+      if (section !== 'ADDON') return line;
+      const match = line.match(/^([ \t]*DisabledAddons[ \t]*=[ \t]*)(.*?)(\r?)$/);
+      if (!match) return line;
+      const valueEnd = match[2].search(/[ \t]*$/);
+      const valueTail = match[2].slice(valueEnd);
+      const items = splitDisabledAddons(match[2].slice(0, valueEnd));
+      let lineChanged = false;
+      const kept = items.filter(item => {
+        const at = item.indexOf('@');
+        const fileName = at >= 0 ? item.slice(at + 1) : item;
+        const disablesAddon = fileName === addonFile;
+        if (!disablesAddon || !remove) return true;
+        changed = true;
+        lineChanged = true;
+        return false;
+      });
+      return lineChanged
+        ? `${match[1]}${kept.join(',')}${valueTail}${match[3]}`
+        : line;
+    });
+    return { changed, text: lines.join('\n') };
+  }
+
   async function install({ gameDir, payload, scan: suppliedScan, allowAntiCheat = false }) {
     const scan = suppliedScan || await scanModule.scanGame(gameDir);
     verifyTarget(scan, payload);
@@ -290,37 +330,35 @@ function createInstaller(overrides = {}) {
 
         if (!reshade.installed) {
           await writeManaged(gameDir, manifest, payload.reshade.file,
-            installedFile(exeDir, 'reshade'), 'reshade');
+            installedFile(exeDir, 'reshade'), 'reshade', payload.reshade.actual);
         }
         await writeManaged(gameDir, manifest, payload.addon.file,
-          installedFile(exeDir, 'addon'), 'addon');
+          installedFile(exeDir, 'addon'), 'addon', payload.addon.actual);
         await writeManaged(gameDir, manifest, payload.bridge.file,
-          installedFile(exeDir, 'bridge'), 'bridge');
+          installedFile(exeDir, 'bridge'), 'bridge', payload.bridge.actual);
         await writeManaged(gameDir, manifest, payload.runtime.file,
-          installedFile(exeDir, 'runtime'), 'runtime');
+          installedFile(exeDir, 'runtime'), 'runtime', payload.runtime.actual);
 
         if (carrierRequired) {
           await writeManaged(gameDir, manifest, payload.carrier.file,
-            carrierTarget, 'carrier');
+            carrierTarget, 'carrier', payload.carrier.actual);
         }
 
         const configTarget = installedFile(exeDir, 'config');
         if (!fs.existsSync(configTarget)) {
-          await writeManaged(gameDir, manifest, payload.config.file, configTarget, 'config');
+          await writeManaged(gameDir, manifest, payload.config.file, configTarget, 'config', payload.config.actual);
         }
 
-        // If a previous ReShade session disabled this add-on, remove only this
-        // add-on's stem from DisabledAddons and leave every other setting intact.
+        // If a previous ReShade session disabled this add-on, remove only its
+        // exact filename from [ADDON]. Preserve other sections, names and
+        // ReShade's escaped comma entries.
         const reshadeIni = path.join(exeDir, 'ReShade.ini');
         if (fs.existsSync(reshadeIni)) {
-          const text = fs.readFileSync(reshadeIni, 'utf8');
-          const stem = path.basename(INSTALLED_NAMES.addon).replace(/\.addon(?:32|64)?$/i, '');
-          const match = text.match(/^DisabledAddons=(.*)$/m);
-          if (match && match[1].toLowerCase().includes(stem.toLowerCase())) {
+          const edited = editAddonDisabled(fs.readFileSync(reshadeIni, 'utf8'), true);
+          if (edited.changed) {
+            await sidecarBackup(gameDir, reshadeIni);
             await journal.capture(gameDir, reshadeIni);
-            const kept = match[1].split(',').filter(name => !name.toLowerCase().includes(stem.toLowerCase()));
-            const next = text.replace(/^DisabledAddons=.*$/m, `DisabledAddons=${kept.join(',')}`);
-            await fs.promises.writeFile(reshadeIni, next, 'utf8');
+            await fs.promises.writeFile(reshadeIni, edited.text, 'utf8');
           }
         }
         if (carrierRequired) await enableCarrier(gameDir, exeDir);
@@ -365,6 +403,7 @@ function createInstaller(overrides = {}) {
         if (expected) throw appError('ERR_ADDON_INVALID', { reason: 'missing-file', file: key });
         continue;
       }
+      if (typeof expected !== 'string' || !/^[a-f0-9]{64}$/i.test(expected)) throw appError('ERR_ADDON_INVALID', { reason: 'missing-hash', file: path.basename(file) });
       if (pe.getBitness(file) !== 64) throw appError('ERR_ADDON_INVALID', { reason: 'not-x64', file: path.basename(file) });
       if (expected && sha256(file) !== String(expected).toLowerCase()) {
         throw appError('ERR_ADDON_INVALID', { reason: 'hash', file: path.basename(file) });
@@ -402,17 +441,32 @@ function createInstaller(overrides = {}) {
       detail: reshade.installed && !reshade.addonSupport ? '已安装，但不支持 Add-on' : null
     });
 
+    const currentCarrierRel = path.normalize(path.relative(
+      gameDir, installedFile(exeDir, 'carrier'))).toLowerCase();
+    const managedCarrierRows = manifest
+      ? manifest.files.filter(row => row.kind === 'carrier')
+      : [];
     const managedAddons = manifest
-      ? manifest.files.filter(row => row.kind === 'addon' || (carrierRequired && row.kind === 'carrier')).map(row => row.rel)
+      ? manifest.files.filter(row => row.kind === 'addon' ||
+        (row.kind === 'carrier' && path.normalize(row.rel).toLowerCase() === currentCarrierRel))
+        .map(row => row.rel)
       : [];
     const activeConflicts = scanConflicts(gameDir, { exclude: managedAddons });
+    const activeManagedCarriers = activeConflicts.filter(conflict => managedCarrierRows.some(row =>
+      path.normalize(row.rel).toLowerCase() === path.normalize(conflict.rel).toLowerCase()));
+    const activeExternalConflicts = activeConflicts.length - activeManagedCarriers.length;
     const savedConflicts = manifest && Array.isArray(manifest.conflicts) ? manifest.conflicts : [];
+    const conflictDetail = activeManagedCarriers.length && activeExternalConflicts
+      ? `发现 ${activeManagedCarriers.length} 个受管旧 Carrier 残留及 ${activeExternalConflicts} 个外部或未受管冲突插件，点击修复会分别退役、移出并保留备份`
+      : activeManagedCarriers.length
+        ? `发现 ${activeManagedCarriers.length} 个受管旧 Carrier 残留，点击修复会退役并恢复原始备份`
+        : activeExternalConflicts
+          ? `发现 ${activeExternalConflicts} 个外部或未受管冲突插件，点击修复会移出并备份`
+          : (savedConflicts.length ? `已移出并保留 ${savedConflicts.length} 个外部冲突备份` : '未发现需要移出的冲突插件');
     components.push({
       key: 'conflicts', label: '冲突 Addon',
       ok: activeConflicts.length === 0,
-      detail: activeConflicts.length
-        ? `发现 ${activeConflicts.length} 个，点击修复会移出并备份`
-        : (savedConflicts.length ? `已移出并保留 ${savedConflicts.length} 个备份` : '未发现需要移出的冲突插件')
+      detail: conflictDetail
     });
 
     if (manifest && payloadVersion) {
@@ -439,7 +493,9 @@ function createInstaller(overrides = {}) {
         detail: kind === 'carrier' && !carrierRequired && !exists
           ? (selectedApi === 'dx12' ? '无需启用（DirectX 12）' : '未部署，需先确认 API 与配套组件')
           : kind === 'carrier' && !carrierRequired && exists
-          ? 'DX12 路线不应部署 DX11 Carrier，点击修复移出并备份'
+          ? (selectedApi === 'dx12'
+            ? '目标 DirectX 12 路线仍有受管 DX11 Carrier，点击修复退役并恢复原始备份'
+            : '当前 API 未确认，受管 DX11 Carrier 暂不自动移动；请先确认 DirectX 11 或 DirectX 12 路线')
           : (kind === 'carrier' && carrierDisabled
             ? (carrierDisabledState.nameOnly
               ? 'DX11 Carrier 注册名仍在 ReShade.ini 中禁用；Manager 保留名称项，请在 ReShade 中手动启用'
@@ -539,13 +595,13 @@ function createInstaller(overrides = {}) {
           capture: conflictTarget => journal.capture(gameDir, conflictTarget)
         });
         manifest.conflicts = [...(manifest.conflicts || []), ...found];
-        await writeManaged(gameDir, manifest, addon.file, target, 'addon');
+        await writeManaged(gameDir, manifest, addon.file, target, 'addon', addon.addonSha256);
         if (addon.bridgeFile) {
           await writeManaged(gameDir, manifest, addon.bridgeFile,
-            installedFile(exeDir, 'bridge'), 'bridge');
+            installedFile(exeDir, 'bridge'), 'bridge', addon.bridgeSha256);
         }
         if (carrierRequired) {
-          await writeManaged(gameDir, manifest, addon.carrierFile, carrierTarget, 'carrier');
+          await writeManaged(gameDir, manifest, addon.carrierFile, carrierTarget, 'carrier', addon.carrierSha256);
           await enableCarrier(gameDir, exeDir);
         }
         manifest.payloadVersion = version || addon.id || null;

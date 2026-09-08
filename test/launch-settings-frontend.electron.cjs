@@ -18,9 +18,15 @@ function installMock() {
   };
   const game = { id: 'ui-fixture', name: 'SR / FG 界面验证', dir: 'C:\\UI-fixture\\游戏目录', installed: true, supported: true, launcher: '手动添加',
     chosen: { apiResolution: { api: 'dx11', evidence: [] }, detectedApiResolution: { api: 'dx11', evidence: [] }, bitness: 64 }, components: { dx11Carrier: true }, addonVersion: '0.4.6-hotfix.1' };
+  mock.payload = { ready: true, selectedVersion: '0.4.6-hotfix.1', source: { mode: 'bundled', path: 'C:\\组件\\随程序提供', ready: true }, versions: { '0.4.6-hotfix.1': { label: '0.4.6-hotfix.1', variants: { RTX40: { ready: true, files: [] }, RTX50: { ready: true, files: [] } } } } };
+  const sourceState = () => ok({ settings: {}, payload: mock.payload, addons: [] });
   const manager = window.manager = {
     boot: async () => ok({ product: { name: 'DLSS 5 AI 超分管理器', edition: '装机宅版', author: '野生的装机宅', version: 'UI smoke' }, settings: {}, hardware: mock.data.hardware,
-      payload: { ready: true, selectedVersion: '0.4.6-hotfix.1', versions: { '0.4.6-hotfix.1': { label: '0.4.6-hotfix.1', variants: { RTX40: { ready: true, files: [] }, RTX50: { ready: true, files: [] } } } } }, games: [game], addons: [] }),
+      payload: mock.payload, games: [game], addons: [] }),
+    readPayloadSource: async () => sourceState(),
+    pickPayloadSource: async () => { mock.calls.push(['pick-source']); if (mock.failSource) return { ok: false, error: { code: 'ERR_PAYLOAD_SOURCE_HASH', message: '测试组件校验失败：核心文件不匹配' } }; mock.payload.source = { mode: 'external', path: 'D:\\安装组件库\\已校验', ready: true }; return sourceState(); },
+    recheckPayloadSource: async () => { mock.calls.push(['recheck-source']); mock.payload.source.ready = false; mock.payload.source.error = { code: 'ERR_PAYLOAD_SOURCE_UNAVAILABLE', message: '所选组件目录已断开，请重新连接。' }; mock.payload.ready = false; mock.payload.versions = {}; return { ok: false, error: mock.payload.source.error }; },
+    resetPayloadSource: async () => { mock.calls.push(['reset-source']); mock.payload.source = { mode: 'bundled', path: 'C:\\组件\\随程序提供', ready: true }; mock.payload.ready = true; return sourceState(); },
     readNr: async () => ok({ AutoMask: 1, Style: 0, Intensity: 1, TransferStrength: 1, PostTransferStrength: 1, capabilities: { TransferStrength: true, PostTransferStrength: true }, ColorStrength: 0.75, SkinStructureStrength: 1 }),
     writeNr: async (id, patch) => { mock.calls.push(['write-nr', id, patch]); return ok(patch); },
     diagnose: async () => ok({ components: [{ ok: true, label: '核心组件', detail: '测试桩' }] }),
@@ -219,6 +225,20 @@ async function smoke() {
     assert(rect.left >= -1 && rect.right <= innerWidth + 1 && node.scrollWidth <= node.clientWidth + 1, `900px width contains ${node.className || node.tagName}`);
   }
   assert(!mock.error, 'No renderer error occurred');
+  document.querySelector('[data-view="addons"]').click();
+  assert(!document.querySelector('.addon-guide').open, 'Version history is collapsed so source and usable versions stay first');
+  assert(document.querySelector('#addExeBtn').classList.contains('hidden'), 'Unrelated EXE picker is absent from plugin management');
+  const sourceAction = async id => { document.getElementById(id).click(); await waitUntil(() => !document.getElementById('choosePayloadSourceBtn').disabled); };
+  await sourceAction('choosePayloadSourceBtn');
+  assert(document.getElementById('payloadSourcePath').textContent === 'D:\\安装组件库\\已校验' && !document.getElementById('resetPayloadSourceBtn').classList.contains('hidden'), 'Validated external directory and explicit return action are visible');
+  assert(document.querySelector('.launch-settings-host') === host, 'Changing source preserves the existing expanded settings editor');
+  mock.failSource = true; await sourceAction('choosePayloadSourceBtn');
+  assert(document.getElementById('payloadSourceFeedback').textContent.includes('核心文件不匹配') && document.getElementById('payloadSourcePath').textContent.includes('已校验'), 'Rejected selection keeps the active source and a persistent readable error');
+  await sourceAction('recheckPayloadSourceBtn');
+  assert(document.getElementById('payloadSourceStatus').textContent === '需要处理' && document.getElementById('payloadSourceDetail').textContent.includes('断开'), 'Disconnected source remains visibly unavailable instead of claiming readiness');
+  await sourceAction('resetPayloadSourceBtn');
+  assert(document.getElementById('payloadSourceLabel').textContent === '随程序提供', 'Returning to bundled components is an explicit working action');
+  document.querySelector('[data-view="games"]').click();
   document.querySelector('.launch-jump-btn').click();
   assert(document.querySelector('.titlebar').getBoundingClientRect().top >= 0 && document.scrollingElement.scrollTop === 0, 'SR/FG jump scrolls only the game view and preserves the fixed app header');
   const view = document.querySelector('.view.active');
@@ -232,7 +252,7 @@ app.whenReady().then(async () => {
   const width = Number(process.env.SRFG_UI_WIDTH) || 900;
   const win = new BrowserWindow({ width, height: Number(process.env.SRFG_UI_HEIGHT) || 1100, useContentSize: true, show: false, webPreferences: { preload, sandbox: false, contextIsolation: false, nodeIntegration: false, backgroundThrottling: false, offscreen: true } });
   try {
-    await win.loadFile(path.join(__dirname, '../src/renderer/index.html'));
+    await win.loadFile(path.join(process.env.MANAGER_UI_ROOT || path.resolve(__dirname, '..'), 'src/renderer/index.html'));
     const result = await win.webContents.executeJavaScript(`(${smoke.toString()})()`);
     if (['rtx50', 'rtx40-prepare'].includes(process.env.SRFG_UI_STATE)) {
       const native = process.env.SRFG_UI_STATE === 'rtx50';

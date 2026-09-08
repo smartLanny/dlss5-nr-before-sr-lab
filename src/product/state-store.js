@@ -13,6 +13,8 @@ const DEFAULTS = Object.freeze({
   excludedRoots: [],
   excludedGames: [],
   lastSelectedGame: null,
+  payloadSourcePath: null,
+  payloadSourceIdentity: null,
   addonVersion: null
 });
 
@@ -97,6 +99,8 @@ function validate(value) {
     excludedRoots: uniquePaths(state.excludedRoots),
     excludedGames: normalizeExcludedGames(state.excludedGames),
     lastSelectedGame: typeof state.lastSelectedGame === 'string' ? state.lastSelectedGame : null,
+    payloadSourcePath: typeof state.payloadSourcePath === 'string' && path.isAbsolute(state.payloadSourcePath) ? path.resolve(state.payloadSourcePath) : null,
+    payloadSourceIdentity: typeof state.payloadSourceIdentity === 'string' && /^[a-f0-9]{64}$/i.test(state.payloadSourceIdentity) ? state.payloadSourceIdentity.toLowerCase() : null,
     addonVersion: typeof state.addonVersion === 'string' ? state.addonVersion : null
   };
 }

@@ -9,6 +9,7 @@ const { createAppService } = require('../src/product/app-service');
 const { createLibraryService } = require('../src/product/library-service');
 const { createInstaller } = require('../src/product/installer');
 const { createCompactBundle } = require('../src/product/payload');
+const { sha256 } = require('../src/product/payload');
 const { PAYLOAD_FILES, DX11_COMPAT_VERSION, DX11_COMPAT_CARRIER } = require('../src/product/constants');
 const journal = require('../src/core/file-journal');
 const { CARRIER, BRIDGE, zip, dx11Fixture } = require('./helpers/ota-fixture');
@@ -71,6 +72,68 @@ function makeService(t) {
   const service = createAppService({ userData: path.join(root, 'user-data'), resourcesPath: path.join(root, 'resources'), appDir: root, version: '0.4.5', overrides: { library, installer, detectGpu: () => ({ family: 'RTX40', series: ['RTX 4070'], vendor: 'NVIDIA' }) } });
   return { root, gameDir, exe, payloadDir, service, scan, library, installer };
 }
+
+async function externalFixture(t) {
+  const f=makeService(t);await f.service.addManualGame(f.gameDir);const id=(await f.service.boot()).games[0].id;await f.service.setGameApi(id,'dx12');
+  const external=path.join(f.root,'external','nr-before-sr');fs.cpSync(f.payloadDir,external,{recursive:true});
+  const addon=path.join(external,'versions','0.3.3.5',PAYLOAD_FILES.addon);fs.writeFileSync(addon,'external:stable:addon');
+  const bundleFile=path.join(external,'bundle.json'),bundle=JSON.parse(fs.readFileSync(bundleFile,'utf8'));bundle.versions['0.3.3.5'].files[PAYLOAD_FILES.addon]=sha256(addon);fs.writeFileSync(bundleFile,JSON.stringify(bundle));
+  return {...f,id,external,addon,bundleFile};
+}
+
+test('external source persists across restart and installs from selected files while preserving game paths',async t=>{
+  const f=await externalFixture(t),before=f.service.store.read();
+  const result=await f.service.selectPayloadSource(path.dirname(f.external));assert.equal(result.payload.source.mode,'external');assert.equal(result.addons[0].source,'external');
+  assert.deepEqual(f.service.store.read().manualGames,before.manualGames);assert.deepEqual(f.service.store.read().gameOverrides,before.gameOverrides);
+  const restarted=createAppService({userData:path.join(f.root,'user-data'),resourcesPath:path.join(f.root,'resources'),appDir:f.root,overrides:{library:f.library,installer:f.installer,detectGpu:()=>({family:'RTX40'})}});
+  assert.equal((await restarted.boot()).payload.source.path,fs.realpathSync(f.external));await restarted.install(f.id,{version:'0.3.3.5'});
+  assert.equal(fs.readFileSync(path.join(path.dirname(f.exe),PAYLOAD_FILES.addon),'utf8'),'external:stable:addon');
+});
+
+test('bad source selection leaves active preferences intact and disconnected source cannot silently fall back',async t=>{
+  const f=await externalFixture(t);await f.service.selectPayloadSource(f.external);const before=f.service.store.read();
+  await assert.rejects(f.service.selectPayloadSource(path.join(f.root,'missing')),{code:'ERR_PAYLOAD_SOURCE_MISSING'});assert.deepEqual(f.service.store.read(),before);
+  const moved=path.join(f.root,'disconnected');assert.ok(f.external.startsWith(f.root+path.sep)&&moved.startsWith(f.root+path.sep));fs.renameSync(f.external,moved);
+  const boot=await f.service.boot();assert.equal(boot.games.length,1);assert.equal(boot.payload.ready,false);assert.equal(boot.payload.source.error.code,'ERR_PAYLOAD_SOURCE_UNAVAILABLE');
+  await assert.rejects(f.service.install(f.id),{code:'ERR_PAYLOAD_SOURCE_UNAVAILABLE'});assert.equal(fs.existsSync(path.join(path.dirname(f.exe),'dxgi.dll')),false);
+  await f.service.selectPayloadSource(null);assert.equal((await f.service.boot()).payload.source.mode,'bundled');assert.equal(f.service.store.read().payloadSourcePath,null);
+});
+
+test('source manifest changes require explicit recheck and operation rejects later binary drift',async t=>{
+  const f=await externalFixture(t);await f.service.selectPayloadSource(f.external);fs.appendFileSync(f.bundleFile,'\n');
+  assert.equal(f.service.payloadState().payload.source.error.code,'ERR_PAYLOAD_SOURCE_CHANGED');await assert.rejects(f.service.install(f.id),{code:'ERR_PAYLOAD_SOURCE_CHANGED'});
+  assert.equal((await f.service.recheckPayloadSource()).payload.ready,true);fs.appendFileSync(f.addon,'changed');
+  await assert.rejects(f.service.install(f.id),{code:'ERR_PAYLOAD_HASH'});assert.equal(fs.existsSync(path.join(path.dirname(f.exe),'dxgi.dll')),false);
+});
+
+test('repair never silently replaces an installed version absent from the selected external catalog',async t=>{
+  const f=await externalFixture(t);await f.service.install(f.id,{version:'0.3.3.5'});
+  const bundle=JSON.parse(fs.readFileSync(f.bundleFile,'utf8'));delete bundle.versions['0.3.3.5'];bundle.defaultVersion=DX11_COMPAT_VERSION;fs.writeFileSync(f.bundleFile,JSON.stringify(bundle));
+  await f.service.selectPayloadSource(f.external);await assert.rejects(f.service.repair(f.id),{code:'ERR_ADDON_NOT_FOUND'});
+  await f.service.repair(f.id,{version:DX11_COMPAT_VERSION});
+});
+
+test('external-only manager starts without bundled payload and can prepare installation from a remembered source', async t => {
+  const f = await externalFixture(t);
+  const staging = path.join(f.root, 'saved-bundled-fixture');
+  assert.ok(f.payloadDir.startsWith(f.root + path.sep) && staging.startsWith(f.root + path.sep));
+  fs.renameSync(f.payloadDir, staging);
+  const restarted = createAppService({ userData: path.join(f.root, 'user-data'), resourcesPath: path.join(f.root, 'resources'),
+    appDir: f.root, overrides: { library: f.library, installer: f.installer, detectGpu: () => ({ family: 'RTX40' }) } });
+  const initial = await restarted.boot();
+  assert.equal(initial.games.length, 1);
+  assert.equal(initial.payload.ready, false);
+  assert.equal(initial.payload.source.mode, 'unconfigured');
+  assert.equal(initial.payload.source.path, '');
+  assert.equal(initial.payload.source.bundledAvailable, false);
+  const selected = await restarted.selectPayloadSource(f.external);
+  assert.equal(selected.payload.source.bundledAvailable, false);
+  assert.equal(selected.payload.ready, true);
+  await assert.rejects(restarted.selectPayloadSource(null), { code: 'ERR_PAYLOAD_MISSING' });
+  assert.equal(restarted.store.read().payloadSourcePath, fs.realpathSync(f.external));
+  await restarted.install(f.id, { version: '0.3.3.5' });
+  assert.equal(fs.readFileSync(path.join(path.dirname(f.exe), PAYLOAD_FILES.addon), 'utf8'), 'external:stable:addon');
+});
 
 test('API override routes one game through DX12 then unified DX11 and persists', async t => {
   const f = makeService(t);

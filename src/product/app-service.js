@@ -18,10 +18,11 @@ const { createArtService } = require('./art-service');
 const { readOtaPackage } = require('./ota');
 const { createFeedbackCollector } = require('./feedback');
 const { resolveVersion } = require('./version-selection');
+const { resolvePayloadDirectory, inspectSource } = require('./payload-source');
 
 const QUIET_READ_ACTIONS = new Set(['boot', 'games-refresh', 'games-list', 'game-diagnose', 'game-hotkeys-read',
   'nr-read', 'sr-model-read', 'launch-settings-inspect', 'addon-list', 'game-art', 'game-icon',
-  'game-selection-icon', 'feedback-build']);
+  'game-selection-icon', 'feedback-build', 'payload-source-read']);
 
 function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', overrides = {} }) {
   const store = createStore(path.join(userData, 'settings.json'));
@@ -31,12 +32,61 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   const artService = createArtService({ userData });
   const feedback = createFeedbackCollector({ userData, productVersion: version });
   const payloadInspection = createPayloadInspectionCache();
-  const payloadDir = payloadRoot(fs.existsSync(path.join(resourcesPath || '', 'payload')) ? resourcesPath : appDir);
+  const bundledPayloadDir = payloadRoot(fs.existsSync(path.join(resourcesPath || '', 'payload')) ? resourcesPath : appDir);
+  let payloadDir = store.read().payloadSourcePath || bundledPayloadDir;
   const addonVersionsDir = path.join(userData, 'addon-versions');
   let games = [];
   let collectionFresh = false;
   let activeRefresh = null, refreshGeneration = 0, scanEpoch = 0;
   let hardware = detectGpu();
+
+  function assertSourceIdentity() {
+    const selected = store.read();
+    if (!selected.payloadSourcePath) return;
+    const file = path.join(payloadDir, 'bundle.json');
+    if (!fs.existsSync(file)) throw appError('ERR_PAYLOAD_SOURCE_UNAVAILABLE', { path: payloadDir, file: 'bundle.json' });
+    readBundle(payloadDir); // Bound metadata size and reject links before hashing.
+    if (!selected.payloadSourceIdentity || sha256(file) !== selected.payloadSourceIdentity)
+      throw appError('ERR_PAYLOAD_SOURCE_CHANGED', { path: payloadDir, file: 'bundle.json' });
+  }
+
+  function inspectCurrentPayload(options = {}) {
+    const external = Boolean(store.read().payloadSourcePath);
+    const bundledAvailable = fs.existsSync(path.join(bundledPayloadDir, 'bundle.json'));
+    const mode = external ? 'external' : bundledAvailable ? 'bundled' : 'unconfigured';
+    try {
+      assertSourceIdentity();
+      const inspected = payloadInspection.inspect(payloadDir, options);
+      const sourceError = !inspected.ready && mode !== 'unconfigured'
+        ? normalizeError(appError(inspected.missing.length ? 'ERR_PAYLOAD_MISSING' : 'ERR_PAYLOAD_HASH',
+          { path: payloadDir, files: inspected.missing.length ? inspected.missing : inspected.invalid })) : null;
+      return { ...inspected, source: { mode, bundledAvailable, path: mode === 'unconfigured' ? '' : payloadDir,
+        ready: Boolean(inspected.bundle && inspected.ready), error: sourceError } };
+    } catch (error) {
+      return { dir: payloadDir, bundle: null, versions: {}, selectedVersion: null, files: [], ready: false,
+        missing: [], invalid: [], source: { mode, bundledAvailable, path: mode === 'unconfigured' ? '' : payloadDir, ready: false, error: normalizeError(error) } };
+    }
+  }
+
+  function payloadState() {
+    return { settings: store.read(), payload: inspectCurrentPayload({ allowMissingBundle: true, hardwareFamily: hardware.family, version: selectedVersion() }), addons: listAddonVersions() };
+  }
+
+  async function selectPayloadSource(selectedPath) {
+    const directory = selectedPath === null ? bundledPayloadDir : resolvePayloadDirectory(selectedPath);
+    readBundle(directory);
+    const identity = sha256(path.join(directory, 'bundle.json'));
+    const inspected = inspectSource(directory, { hardwareFamily: hardware.family });
+    readBundle(directory);
+    if (sha256(path.join(directory, 'bundle.json')) !== identity) throw appError('ERR_PAYLOAD_SOURCE_CHANGED', { path: directory });
+    const current = store.read();
+    await store.write({ payloadSourcePath: selectedPath === null ? null : directory,
+      payloadSourceIdentity: selectedPath === null ? null : identity,
+      addonVersion: inspected.versions && current.addonVersion && !inspected.versions[current.addonVersion] ? null : current.addonVersion });
+    payloadDir = directory;
+    payloadInspection.invalidate();
+    return payloadState();
+  }
 
   // Keep internal IDs stable while presenting public 0.4 releases as Beta0.4.
   const displayVersionLabel = value => typeof value === 'string'
@@ -81,7 +131,10 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       dx11Only: Boolean(game && game.scan && isDx11Only(game.scan.chosen))
     });
     if (!selected || /^imported-/i.test(selected)) return { version: selected, replacement: null };
+    assertSourceIdentity();
     const bundle = readBundle(payloadDir), map = bundle.supersededVersions;
+    if (store.read().payloadSourcePath && bundle.versions && !bundle.versions[selected] && !map?.[selected])
+      throw appError('ERR_ADDON_NOT_FOUND', { reason: 'version-not-in-selected-source', requestedVersion: selected });
     if (map === undefined) return { version: selected, replacement: null };
     if (!map || typeof map !== 'object' || Array.isArray(map) || Object.keys(map).length > 64 ||
         Object.entries(map).some(([from, to]) => !from || typeof to !== 'string' || !to || !bundle.versions?.[to])) throw appError('ERR_PAYLOAD_HASH', { file: 'bundle.json' });
@@ -104,6 +157,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   }
 
   function selectedPayload(game, requestedVersion = null) {
+    assertSourceIdentity();
     const choice = versionChoice(game, requestedVersion), version = choice.version;
     if (/^imported-/i.test(version || '')) throw appError('ERR_ADDON_NOT_FOUND', { reason: 'Install a bundled base before applying an imported update.' });
     const result = requirePayload(payloadDir, (hardware = detectGpu()).family, version);
@@ -159,7 +213,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   function listAddonVersions() {
     let inspected;
     try {
-      inspected = payloadInspection.inspect(payloadDir, {
+      inspected = inspectCurrentPayload({
         allowMissingBundle: true,
         hardwareFamily: hardware.family,
         version: selectedVersion()
@@ -172,7 +226,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
           id,
           label: displayVersionLabel(item.label || id),
           notes: item.notes || '',
-          source: 'bundled',
+          source: store.read().payloadSourcePath ? 'external' : 'bundled',
           compatibility: item.compatibility || null,
           ota: Boolean(item.ota),
           addonOnly: false,
@@ -189,7 +243,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     const imported = importedAddon(version);
     if (/^imported-/i.test(version || '') && !imported) throw appError('ERR_ADDON_NOT_FOUND');
     if (!imported) {
-      const payload = payloadInspection.inspect(payloadDir, {
+      const payload = inspectCurrentPayload({
         allowMissingBundle: true,
         hardwareFamily: family,
         version
@@ -207,7 +261,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     // An imported OTA owns the addon (and, when present, its paired bridge),
     // while runtime/ReShade/config remain game-install state. Do not compare
     // those preserved files against whichever bundled version is selected.
-    const base = payloadInspection.inspect(payloadDir, {
+    const base = inspectCurrentPayload({
       allowMissingBundle: true,
       hardwareFamily: family
     });
@@ -351,9 +405,12 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   return {
     product: { ...PRODUCT, version },
     store,
-    payloadDir,
+    get payloadDir() { return payloadDir; },
+    payloadState,
+    selectPayloadSource,
+    recheckPayloadSource: () => selectPayloadSource(store.read().payloadSourcePath),
     reShadeSource: () => {
-      const inspected = payloadInspection.inspect(payloadDir, { allowMissingBundle: true, hardwareFamily: 'RTX40', version: selectedVersion() });
+      const inspected = inspectCurrentPayload({ allowMissingBundle: true, hardwareFamily: 'RTX40', version: selectedVersion() });
       const row = inspected.files?.find(file => file.kind === 'reshade');
       return row?.valid && row.expected ? { file: row.file, sha256: row.expected } : null;
     },
@@ -363,7 +420,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       product: { ...PRODUCT, version },
       settings: store.read(),
       hardware,
-      payload: payloadInspection.inspect(payloadDir, {
+      payload: inspectCurrentPayload({
         allowMissingBundle: true,
         hardwareFamily: hardware.family,
         version: selectedVersion()

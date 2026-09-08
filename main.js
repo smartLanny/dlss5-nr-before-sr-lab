@@ -117,7 +117,8 @@ function registerIpc() {
     'game-api-set', 'nr-write', 'nr-default', 'nr-recommended', 'game-hotkey-write']);
   const serializedActions = new Set([...guardedActions, 'game-launch', 'game-uninstall', 'game-dismiss',
     'game-confirm', 'settings-update', 'sr-model-write', 'launch-settings-save', 'launch-settings-preview',
-    'launch-settings-apply', 'launch-settings-restore', 'launch-settings-recover', 'fg-components-prepare', 'fg-components-restore']);
+    'launch-settings-apply', 'launch-settings-restore', 'launch-settings-recover', 'fg-components-prepare', 'fg-components-restore',
+    'payload-source-pick', 'payload-source-reset', 'payload-source-recheck']);
   const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => service.withError(
     () => {
       const work = async () => {
@@ -189,6 +190,15 @@ function registerIpc() {
   call('nr-recommended', id => service.applyDefault(id));
   call('settings-update', patch => service.updateSettings(patch));
   call('addon-list', () => service.listAddonVersions());
+  call('payload-source-read', () => service.payloadState());
+  call('payload-source-pick', async () => {
+    const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: '选择完整组件目录',
+      defaultPath: service.store.read().payloadSourcePath || service.payloadDir });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return service.selectPayloadSource(result.filePaths[0]);
+  });
+  call('payload-source-reset', () => service.selectPayloadSource(null));
+  call('payload-source-recheck', () => service.recheckPayloadSource());
   call('addon-import', file => service.importAddonFile(file));
   call('addon-remove', id => service.removeAddonVersion(id));
   call('game-art', id => service.fetchGameArt(id));

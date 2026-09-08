@@ -10,6 +10,62 @@ const { appError } = require('./errors');
 const OPTIONAL_PAYLOAD_FILES = Object.freeze({
   carrier: DX11_COMPAT_CARRIER
 });
+const HASH = /^[a-f0-9]{64}$/i;
+const VERSION_ID = /^[a-z0-9][a-z0-9._+-]{0,127}$/i;
+const MAX_BUNDLE_BYTES = 2 * 1024 * 1024;
+
+function pathKey(value) {
+  const resolved = path.resolve(value);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function payloadDirectory(dir) {
+  const resolved = path.resolve(dir);
+  let stat;
+  try { stat = fs.lstatSync(resolved); } catch { throw appError('ERR_PAYLOAD_MISSING', { file: resolved }); }
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw appError('ERR_PAYLOAD_HASH', { file: resolved, reason: 'unsafe-directory' });
+  return fs.realpathSync(resolved);
+}
+
+function safePayloadPath(root, file) {
+  const base = path.resolve(root), target = path.resolve(file), rel = path.relative(base, target);
+  if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) throw appError('ERR_PAYLOAD_HASH', { file: String(file), reason: 'path-escape' });
+  let current = base;
+  for (const part of rel.split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    try {
+      const stat = fs.lstatSync(current);
+      if (stat.isSymbolicLink()) throw appError('ERR_PAYLOAD_HASH', { file: path.relative(base, current), reason: 'link' });
+      const real = fs.realpathSync(current);
+      if (pathKey(real) !== pathKey(base) && !pathKey(real).startsWith(`${pathKey(base)}${path.sep}`)) throw appError('ERR_PAYLOAD_HASH', { file: path.relative(base, current), reason: 'path-escape' });
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  return target;
+}
+
+function hashMap(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.entries(value).length <= 32 && Object.entries(value).every(([name, digest]) =>
+      path.basename(name) === name && name !== '.' && name !== '..' && typeof digest === 'string' && HASH.test(digest));
+}
+
+function validateBundlePaths(bundle) {
+  if (bundle.version === 1 && !hashMap(bundle.files)) throw appError('ERR_PAYLOAD_HASH', { file: 'bundle.json' });
+  if (bundle.version === 2) {
+    if (Object.keys(bundle.variants).length > 8 || FAMILIES.some(family => !hashMap(bundle.variants[family]?.files))) throw appError('ERR_PAYLOAD_HASH', { file: 'bundle.json' });
+  }
+  if (bundle.version === 3 || bundle.version === 4) {
+    const ids = Object.keys(bundle.versions);
+    if (!ids.length || ids.length > 64 || ids.some(id => !VERSION_ID.test(id)) || !VERSION_ID.test(bundle.defaultVersion || '') || !Object.hasOwn(bundle.versions, bundle.defaultVersion)) throw appError('ERR_PAYLOAD_HASH', { file: 'bundle.json' });
+    for (const entry of Object.values(bundle.versions)) {
+      if (!entry || typeof entry !== 'object' || (bundle.version === 3
+        ? FAMILIES.some(family => !hashMap(entry.variants?.[family]?.files))
+        : !hashMap(entry.files))) throw appError('ERR_PAYLOAD_HASH', { file: 'bundle.json' });
+    }
+    if (bundle.version === 4 && FAMILIES.some(family => !hashMap(bundle.fixed?.[family]?.files))) throw appError('ERR_PAYLOAD_HASH', { file: 'bundle.json' });
+  }
+  return bundle;
+}
 
 function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -30,10 +86,11 @@ function payloadRoot(baseDir) {
 }
 
 function readBundle(dir) {
-  const file = path.join(dir, 'bundle.json');
+  dir = payloadDirectory(dir);
+  const file = safePayloadPath(dir, path.join(dir, 'bundle.json'));
   if (!fs.existsSync(file)) throw appError('ERR_PAYLOAD_MISSING', { file: 'bundle.json' });
   let bundle;
-  try { bundle = JSON.parse(fs.readFileSync(file, 'utf8')); }
+  try { if (fs.statSync(file).size > MAX_BUNDLE_BYTES) throw new Error('large'); bundle = JSON.parse(fs.readFileSync(file, 'utf8')); }
   catch { throw appError('ERR_PAYLOAD_HASH', { file: 'bundle.json' }); }
   const legacy = bundle && bundle.version === 1 && bundle.files && typeof bundle.files === 'object';
   const variants = bundle && bundle.version === 2 && bundle.variants && typeof bundle.variants === 'object';
@@ -41,16 +98,16 @@ function readBundle(dir) {
   if (!legacy && !variants && !versions) {
     throw appError('ERR_PAYLOAD_HASH', { file: 'bundle.json' });
   }
-  return bundle;
+  return validateBundlePaths(bundle);
 }
 
-function inspectFiles(dir, expectedFiles, digest = sha256) {
-  return inspectFilesAt(dir, expectedFiles, {}, digest);
+function inspectFiles(dir, expectedFiles, digest = sha256, safetyRoot = dir) {
+  return inspectFilesAt(dir, expectedFiles, {}, digest, safetyRoot);
 }
 
-function inspectFilesAt(dir, expectedFiles, customPaths = {}, digest = sha256) {
+function inspectFilesAt(dir, expectedFiles, customPaths = {}, digest = sha256, safetyRoot = dir) {
   return Object.entries(PAYLOAD_FILES).map(([kind, name]) => {
-    const file = customPaths[kind] || path.join(dir, name);
+    const file = safePayloadPath(safetyRoot, customPaths[kind] || path.join(dir, name));
     const exists = fs.existsSync(file) && fs.statSync(file).isFile();
     const actual = exists ? digest(file) : null;
     const expected = expectedFiles && expectedFiles[name] ? String(expectedFiles[name]).toLowerCase() : null;
@@ -58,7 +115,8 @@ function inspectFilesAt(dir, expectedFiles, customPaths = {}, digest = sha256) {
   });
 }
 
-function inspectOptionalFile(file, expected, kind, name, digest = sha256) {
+function inspectOptionalFile(file, expected, kind, name, digest = sha256, safetyRoot = path.dirname(file)) {
+  file = safePayloadPath(safetyRoot, file);
   const exists = fs.existsSync(file) && fs.statSync(file).isFile();
   const actual = exists ? digest(file) : null;
   const normalizedExpected = expected ? String(expected).toLowerCase() : null;
@@ -68,8 +126,8 @@ function inspectOptionalFile(file, expected, kind, name, digest = sha256) {
   };
 }
 
-function inspectOne(dir, expectedFiles, digest = sha256) {
-  const files = inspectFiles(dir, expectedFiles, digest);
+function inspectOne(dir, expectedFiles, digest = sha256, safetyRoot = dir) {
+  const files = inspectFiles(dir, expectedFiles, digest, safetyRoot);
   return {
     dir, files,
     ready: files.every(row => row.valid && row.expected),
@@ -78,11 +136,11 @@ function inspectOne(dir, expectedFiles, digest = sha256) {
   };
 }
 
-function inspectVersion(dir, entry, digest = sha256) {
+function inspectVersion(dir, entry, digest = sha256, safetyRoot = dir) {
   const variants = {};
   for (const family of FAMILIES) {
     const variant = entry && entry.variants && entry.variants[family];
-    variants[family] = inspectOne(path.join(dir, family), variant && variant.files, digest);
+    variants[family] = inspectOne(path.join(dir, family), variant && variant.files, digest, safetyRoot);
   }
   return {
     id: entry && entry.id,
@@ -113,7 +171,7 @@ function inspectCompactVersion(root, id, entry, fixed, digest = sha256) {
       runtime: path.join(fixedDir, PAYLOAD_FILES.runtime),
       addon: path.join(versionDir, PAYLOAD_FILES.addon),
       config: path.join(versionDir, PAYLOAD_FILES.config)
-    }, digest);
+    }, digest, root);
     variants[family] = {
       dir: versionDir,
       files,
@@ -125,7 +183,7 @@ function inspectCompactVersion(root, id, entry, fixed, digest = sha256) {
       const optional = inspectOptionalFile(
         path.join(versionDir, OPTIONAL_PAYLOAD_FILES.carrier),
         entry.files[OPTIONAL_PAYLOAD_FILES.carrier],
-        'carrier', OPTIONAL_PAYLOAD_FILES.carrier, digest
+        'carrier', OPTIONAL_PAYLOAD_FILES.carrier, digest, root
       );
       variants[family].files.push(optional);
       variants[family].ready = variants[family].files.every(row => row.valid && row.expected);
@@ -149,6 +207,7 @@ function inspectPayload(dir, options = {}) {
   // A compact bundle deliberately shares fixed files between versions. Hash
   // each physical path once per inspection while keeping every invocation
   // fresh for requirePayload and mutation-time validation.
+  dir = payloadDirectory(dir);
   const digest = inspectionHasher();
   let bundle = null;
   try { bundle = readBundle(dir); }
@@ -160,7 +219,7 @@ function inspectPayload(dir, options = {}) {
     const variants = {};
     for (const family of FAMILIES) {
       const entry = bundle.variants[family];
-      variants[family] = inspectOne(path.join(dir, family), entry && entry.files, digest);
+      variants[family] = inspectOne(path.join(dir, family), entry && entry.files, digest, dir);
     }
     const selectedFamily = options.hardwareFamily;
     const selected = FAMILIES.includes(selectedFamily) ? variants[selectedFamily] : null;
@@ -176,7 +235,7 @@ function inspectPayload(dir, options = {}) {
   if (bundle && bundle.version === 3) {
     const versions = {};
     for (const [id, entry] of Object.entries(bundle.versions || {})) {
-      versions[id] = inspectVersion(path.join(dir, 'versions', id), { ...entry, id }, digest);
+      versions[id] = inspectVersion(path.join(dir, 'versions', id), { ...entry, id }, digest, dir);
     }
     const ids = Object.keys(versions);
     const selectedVersion = ids.includes(options.version)
@@ -217,7 +276,7 @@ function inspectPayload(dir, options = {}) {
     };
   }
 
-  const legacy = inspectOne(dir, bundle && bundle.files, digest);
+  const legacy = inspectOne(dir, bundle && bundle.files, digest, dir);
   return { dir, bundle, files: legacy.files, ready: Boolean(bundle) && legacy.ready, missing: legacy.missing, invalid: legacy.invalid };
 }
 

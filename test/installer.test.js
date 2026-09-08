@@ -230,6 +230,12 @@ test('unified compatibility install retires an old managed carrier instead of st
     installedSha256: sha256(oldCarrier)
   });
   fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+  const beforeUpgrade = await installer.diagnose({
+    gameDir: f.gameDir,
+    payload: { ...f.payload, versionInfo: { compatibility: 'dx11' } },
+    scan: f.scan
+  });
+  assert.match(beforeUpgrade.components.find(row => row.key === 'conflicts').detail, /受管旧 Carrier/);
 
   const carrierSource = path.join(f.root, DX11_COMPAT_CARRIER);
   fs.writeFileSync(carrierSource, 'new matched carrier');
@@ -271,7 +277,8 @@ test('upgrades the managed addon and optional paired bridge while leaving the re
   fs.writeFileSync(bridgeReplacement, 'new imported bridge');
   const result = await installer.upgradeAddon({
     gameDir: f.gameDir,
-    addon: { id: 'imported-test', file: replacement, bridgeFile: bridgeReplacement },
+    addon: { id: 'imported-test', file: replacement, bridgeFile: bridgeReplacement,
+      addonSha256: sha256(replacement), bridgeSha256: sha256(bridgeReplacement) },
     version: 'imported-test',
     scan: f.scan
   });

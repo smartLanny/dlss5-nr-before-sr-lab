@@ -81,18 +81,31 @@
       </section>
 
       <section class="view" id="view-addons">
+        <div class="panel payload-source-panel">
+          <div class="payload-source-head"><div><h3>安装组件来源</h3><p>选择完整组件目录并记住路径，后续安装和修复使用这里的组件。</p></div><span class="badge" id="payloadSourceStatus">正在检查</span></div>
+          <div class="payload-source-location"><strong id="payloadSourceLabel">随程序提供</strong><span id="payloadSourcePath"></span></div>
+          <p class="config-note" id="payloadSourceDetail" role="status"></p>
+          <div class="payload-source-actions"><button class="button primary" id="choosePayloadSourceBtn">选择组件目录</button><button class="button" id="recheckPayloadSourceBtn">重新检查</button><button class="button subtle hidden" id="resetPayloadSourceBtn">使用随程序组件</button></div>
+          <p class="payload-source-feedback hidden" id="payloadSourceFeedback" role="status" aria-live="polite"></p>
+          <details class="payload-source-help"><summary>完整组件与更新包有什么区别？</summary><p>完整组件目录含 bundle.json 清单、核心和配套运行文件，用于首次安装与修复。标准 OTA 或单个 addon 是更新文件，在下方导入后按游戏应用。切换来源不会立即改动已安装游戏；切换路线仍使用备份和恢复记录。</p></details>
+        </div>
         <div class="panel addon-intro">
           <div>
-            <h3>插件版本管理</h3>
-            <p>内置最新中文核心为 0.4.6-hotfix.1，恢复主面板 F8/F7 入口并合并反馈与诊断。DX12 使用所选核心与 nrchain；DX11 需要勾选独立的“兼容桥接”并使用完整配套组件。更新保留现有 INI、ReShade 与游戏自带 DLSS；旧版本可用于回退。导入中文 OTA 可同时核验配套组件，单独 .addon64 不包含桥接。</p>
+            <h3>导入核心更新</h3>
+            <p>标准 OTA 会一起校验核心和配套组件；单个 addon 只更新核心。DX11 的兼容桥接按 API 自动部署，DX12 保留所选核心及共用组件。</p>
+            <div class="config-actions addon-actions"><button class="button" id="importAddonBtn">选择 OTA / addon 文件</button></div>
           </div>
           <div class="addon-drop" id="addonDropZone">把标准 OTA .zip 或 .addon64 拖到这里</div>
-          <div class="config-actions addon-actions"><button class="button primary" id="importAddonBtn">选择 OTA / addon 文件</button></div>
         </div>
-        <div class="panel addon-guide">
+        <div class="panel">
+          <div class="addon-list-head"><h3>可用版本</h3><span class="muted" id="addonListHint"></span></div>
+          <div class="addon-list" id="addonVersionList"></div>
+        </div>
+        <details class="panel addon-guide">
+          <summary>版本选择与兼容说明</summary>
           <div class="addon-guide-head">
-            <div><h3>0.1～0.4 版本怎么理解？</h3><p>给第一次接触 NR→SR 的用户：数字越大不代表一定更快或更好，主要是处理链路在逐步改进。0.5 目前还没有发布。</p></div>
-            <span class="addon-guide-tip">默认使用 0.4.6-hotfix.1</span>
+            <div><h3>0.3 稳定基线，0.4 Beta</h3><p>核心版本与管理器版本分别记录。实验分支的构建结果不能代替具体游戏验证，实际可用版本以上方组件目录为准。</p></div>
+            <span class="addon-guide-tip">按游戏选择与回退</span>
           </div>
           <div class="addon-guide-grid">
             <article class="addon-guide-card"><span class="addon-guide-version">0.1</span><h4>先增强，再交给游戏超分</h4><p>游戏以 1440p 渲染 → NR 增强 → 游戏自己的 DLSS SR → 4K。</p><small>NR 处理 1440p；放大到 4K 仍由游戏原生 DLSS SR 负责。</small><b>第一次证明“先 AI 增强，再超分”可以跑。</b></article>
@@ -100,12 +113,8 @@
             <article class="addon-guide-card"><span class="addon-guide-version">0.3</span><h4>让 NR→SR 更稳定</h4><p>仍是“NR → 游戏原生 SR”，但迁移 NR 效果的过程更稳。</p><small>NR 处理 1440p；最终放大到 4K 由游戏原生 SR 负责。</small><b>NR→SR 开始真正工程化、稳定化。</b></article>
             <article class="addon-guide-card featured"><span class="addon-guide-version">Beta0.4</span><h4>NR 可以单独用更低分辨率</h4><p>游戏保留 1440p → 额外缩一份 1080p 给 NR → AI 修改贴回 1440p → 游戏原生 SR → 4K。</p><small>NR 实际处理 1080p，和游戏自己的渲染分辨率解耦。</small><b>核心飞跃：降低 NR 成本，同时保留游戏原生超分。</b></article>
           </div>
-          <p class="addon-guide-footer">简单选择建议：历史游戏仍可选择保留的旧版本；新版选择 <strong>0.4.6-hotfix.1</strong>。它支持已有原生或模组 DLSS 的 DX11-x64 游戏，也保留 D3D12 SR/RR 路线；不支持无 DLSS 游戏、Feeder、Vulkan、DX9/DX10/OpenGL 或 x86 Legacy。</p>
-        </div>
-        <div class="panel">
-          <div class="addon-list-head"><h3>可用版本</h3><span class="muted" id="addonListHint"></span></div>
-          <div class="addon-list" id="addonVersionList"></div>
-        </div>
+          <p class="addon-guide-footer">当前 NR 安装路线要求 64 位及已有普通 DLSS；DX11 需要配套桥接，DX12 直接使用核心。Vulkan、DX9/DX10/OpenGL 等仍需后续兼容实现，界面可选不代表已经支持。</p>
+        </details>
       </section>
 
       <section class="view" id="view-settings">
@@ -124,12 +133,12 @@
             <b id="settingsHardware">自动识别</b>
           </div>
           <div class="setting-row">
-            <div><strong>Addon 版本</strong><p id="addonVersionNote">安装和修复会使用这里选择的版本；切换后点击游戏卡片里的“修复”即可对比。</p></div>
+            <div><strong>默认核心版本</strong><p id="addonVersionNote">用于新安装；已安装游戏可在游戏设置中选择并应用版本。</p></div>
             <select id="addonVersionSelect"></select>
           </div>
           <div class="setting-row">
-            <div><strong>回滚方式</strong><p>替换前会保留同目录 .bak 副本，同时写入管理器恢复记录。</p></div>
-            <b>.bak + 恢复记录</b>
+            <div><strong>恢复与卸载</strong><p>按恢复记录核对原文件；遇到外部改动会保留现场并提示，不覆盖未知插件。</p></div>
+            <b>原文件备份 + 恢复记录</b>
           </div>
         </div>
         <div class="panel settings-panel">
