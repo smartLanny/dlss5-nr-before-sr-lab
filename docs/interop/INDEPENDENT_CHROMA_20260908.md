@@ -67,17 +67,53 @@ different post defaults and attribute every change solely to independent chroma.
 Private generated files, four compile/scalar logs and `validation.json` remain
 under this worktree's ignored `build/` directory. They are not exported source.
 
-## Centralized next action
+## Authorized centralized WARP result
+
+After the coordinating task explicitly released the GPU, the new contract ran
+once with production source `e084a5247d26eaf8fd60a741d131db7908829a7f` and clean
+test-source HEAD `f60ecb504b8d49d945bf194117eace537f281653`. These source identities
+are separate. The subsequent documentation does not relabel either one.
+
+All 72 production triples passed: 432 actual raw planes, 1,527,552 bytes. The
+two old reference routes still differed in 40 cases. Candidate bytes differed
+from old pre in 14 cases and old post in 42; this measures algorithm difference,
+not quality. The original and raw N inputs were identical across all three
+routes, and capture did not perturb either old pre or candidate output.
+Independent Python metric/extent/hash verification passed; deliberately wrong
+N extent and wrong measured metric were rejected at their exact expected checks.
+
+Additional CPU inspection of the same completed readbacks checked 12,168 active
+candidate pixels for finite RGB/unchanged alpha, 3,042 zero-strength pixels for
+exact original identity, 10,816 SDR pixels for [0,1] bounds, and 6,084 adjacent
+nonzero-strength pixel comparisons for nondecreasing absolute luminance edit
+(tolerance 2e-6). The explicit linear HDR fixture retains its distinct unbounded
+storage contract. This does not extend coverage to PQ, exposure sweeps, every
+signed-source case or game HDR. It does not replace independent chroma-direction
+CPU mathematics with a perceptual colour claim.
+
+WARP executable SHA256:
+`befd44e87d40b1a9ceb2f8bf881f5e2207577900d88d3d18e0eb7c912680ad42`.
+Actual contract SHA256:
+`fce1ada01e56f3e6979d698a9102e420e3e43c4816669712ca467648bf9ca7ea`.
+Validation manifest (including all raw hashes and clean test-source identity):
+`4bd91c864896bf02373592f2f3867471e4fafd761f60d846d80efb16a63d9591`.
+Boundary-count report SHA256:
+`51c09a207d21ca5d83fdcb44838459295caf407e1634f9162f422b9bc5dab79f`.
+
+The WARP process exited and was checked absent; GPU ownership was released to
+the coordinating task. No NVIDIA/game work or repeated 504/46 baseline gate ran.
+
+## Reproduction and remaining work
 
 The existing #172 fixture now exports 72 triples on identical Original/Proxy/
 Neural: legacy pre, legacy post and this candidate. Schema v2 adds a sixth raw
 plane and candidate luminance/edit metrics within the unchanged 8 MiB cap. The
 Python verifier still accepts historical v1 captures. Real raw-N readback,
 fence/alpha/padding and capture-on/off checks remain in the existing harness;
-candidate zero-identity and input-equality checks are added. This extension is
-compiled but its new triples/metrics have **not yet been executed**.
+candidate zero-identity and input-equality checks are added. The new triples and
+independent metrics were executed as recorded above.
 
-After the coordinating task releases the GPU, run from this branch:
+The executed commands, using an otherwise unused output directory, were:
 
 ```powershell
 ./scripts/validate-codec-gpu.ps1 -ToolchainRoot $Toolchain `
