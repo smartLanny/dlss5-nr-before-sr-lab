@@ -111,18 +111,30 @@ function addonArgs(argv) {
   return (argv || []).filter(file => typeof file === 'string' && /(?:\.addon64|\.zip)$/i.test(file));
 }
 
-async function iconDataFor(file) {
+let executableIconCache = null;
+async function iconDataFor(file, currentIcon = null) {
   if (typeof file !== 'string' || !path.isAbsolute(file)) return null;
-  // `small` asks Windows for a 16px shell icon. The renderer then enlarges it
-  // to 52-58px, which is why manually added games looked noticeably blurry.
-  // Prefer the largest shell resource and keep fallbacks for unusual EXEs.
+  const current = typeof currentIcon === 'string' && currentIcon.length <= 1024 * 1024 ? currentIcon : null;
+  let fallback = null, recognizedShellIcon = !current;
   for (const size of ['large', 'normal', 'small']) {
     try {
       const icon = await app.getFileIcon(file, { size });
-      if (icon && !icon.isEmpty()) return icon.toDataURL();
+      if (icon && !icon.isEmpty()) {
+        const data = icon.toDataURL();
+        fallback ||= data;
+        if (current === data) recognizedShellIcon = true;
+      }
     } catch {}
   }
-  return null;
+  // Upgrade old automatically extracted shell icons only when their exact
+  // bytes match. A user-selected icon is never replaced on a guess.
+  if (!recognizedShellIcon) return current;
+  try {
+    executableIconCache ||= require('./src/product/executable-icon').createExecutableIconCache();
+    const resource = executableIconCache.get(file);
+    if (resource) return resource;
+  } catch {}
+  return fallback || current;
 }
 
 function createWindow() {
@@ -231,6 +243,8 @@ function registerIpc() {
   call('launch-settings-update', async (id, domain, input, options = {}) => {
     const request = require('./src/product/launch-settings-policy').validateRequest(domain, input);
     await launchSettings.assertReady(id);
+    if (!require('./src/product/launch-settings-policy').isRestore(domain, request) && !/^nvngx_dlss\.dll$/i.test(service.gameScan(id)?.primaryDlss?.name || ''))
+      throw Object.assign(new Error('未检测到此游戏的普通 DLSS 组件，请先确认选择的是实际游戏 EXE。'),{code:'ERR_NO_DLSS'});
     if (domain === 'fg' && request.mode !== 'restore') {
       const components = await fgComponents.inspect(id);
       const expectedRoute = request.backend === 'rtx40' ? 'compatibility' : 'native';
@@ -285,9 +299,9 @@ function registerIpc() {
   call('addon-import', file => service.importAddonFile(file));
   call('addon-remove', id => service.removeAddonVersion(id));
   call('game-art', id => service.fetchGameArt(id));
-  call('game-icon', async id => {
+  call('game-icon', async (id, currentIcon) => {
     const file = service.gameExecutable(id);
-    return iconDataFor(file);
+    return iconDataFor(file, currentIcon);
   });
   call('game-selection-icon', file => iconDataFor(file));
 

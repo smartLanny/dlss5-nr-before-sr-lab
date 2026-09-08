@@ -8,7 +8,7 @@ const { assess, isDx11Only } = require('./game-support');
 const { annotateApi } = require('./api-evidence');
 const { createLaunchContext } = require('./launch-evidence');
 const { DX11_COMPAT_VERSION } = require('./constants');
-const { readManifest } = require('./manifest');
+const { readManifest, manifestPath, manifestExecutable } = require('./manifest');
 const { MESSAGES } = require('./errors');
 const pe = require('../core/pe');
 
@@ -137,7 +137,7 @@ function createLibraryService(overrides = {}) {
   function choosePreferred(scan, preferredExecutable) {
     if (!scan || !preferredExecutable || !Array.isArray(scan.exeCandidates)) return scan;
     const chosen = scan.exeCandidates.find(candidate => samePath(candidate.path, preferredExecutable));
-    if (!chosen) return scan;
+    if (!chosen) return chooseBest(scan, scan.gameDir || path.dirname(preferredExecutable), scan.exeCandidates, preferredExecutable);
     return {
       ...scan,
       chosen,
@@ -147,13 +147,13 @@ function createLibraryService(overrides = {}) {
     };
   }
 
-  async function findGameRoot(executable) {
+  async function findGameRoot(executable, scanAt = dir => scanModule.scanGame(dir)) {
     let current = path.dirname(path.resolve(executable));
     let fallback = current;
     let fallbackScan = null;
     for (let depth = 0; depth < 7; depth += 1) {
       let scan = null;
-      try { scan = await scanModule.scanGame(current); } catch {}
+      try { scan = await scanAt(current); } catch {}
       // A previously installed manager runtime (`nvngx_dlssnr.dll`) is not
       // the game's native DLSS SR. Only stop at a directory that has the
       // actual `nvngx_dlss.dll`; otherwise keep walking toward UE's Engine /
@@ -249,6 +249,16 @@ function createLibraryService(overrides = {}) {
     const rows = Array.isArray(candidates) ? candidates : (scan && scan.exeCandidates) || [];
     const preferred = preferredExecutable && rows.find(candidate => samePath(candidate.path, preferredExecutable));
     if (preferred) return applyChosen({ ...scan, exeCandidates: rows }, preferred);
+    if (preferredExecutable) {
+      // A vanished or unreadable saved EXE must not silently select a sibling.
+      if (!isInside(preferredExecutable, root) || !fs.existsSync(preferredExecutable))
+        return { ...scan, exeCandidates: rows, chosen: null, preferredExecutableMissing: true };
+      const evidence = apiEvidence(preferredExecutable);
+      const selected = { path: preferredExecutable, rel: path.relative(root, preferredExecutable), name: path.basename(preferredExecutable),
+        api: evidence?.api || 'unknown', apiLabel: evidence?.apiLabel || '图形 API 未知（已选择）', via: evidence?.via || 'manual-selection',
+        bitness: pe.getBitness(preferredExecutable), dx12: evidence?.apiLabel === 'DirectX 12' };
+      return applyChosen({ ...scan, exeCandidates: [...rows, selected] }, selected);
+    }
     const best = [...rows]
       .filter(candidate => !isLikelyHelper(candidate, root))
       .sort((left, right) => candidateScore(right, root) - candidateScore(left, root))[0];
@@ -327,6 +337,7 @@ function createLibraryService(overrides = {}) {
       size: candidate.size,
       api: candidate.api,
       apiLabel: candidate.apiLabel,
+      via: candidate.via,
       bitness: candidate.bitness,
       dx12: Boolean(candidate.dx12),
       helper: isLikelyHelper(candidate, root),
@@ -376,24 +387,37 @@ function createLibraryService(overrides = {}) {
       const inferredGameRoot = await findGameRoot(selectedCandidate.path);
       if (inferredGameRoot.scan) gameRoot = inferredGameRoot.root;
     }
+    const finalCandidates = candidates.map(candidate => ({ ...candidate, rel: path.relative(gameRoot, candidate.path) }));
+    const finalSelected = selectedCandidate ? annotateApi({ ...scan, chosen: {
+      ...selectedCandidate, rel: path.relative(gameRoot, selectedCandidate.path)
+    } }, gameRoot).chosen : null;
     return {
       root: gameRoot,
       name: defaultGameName(gameRoot),
-      chosen: selectedCandidate ? {
-        path: selectedCandidate.path,
-        rel: selectedCandidate.rel,
-        name: selectedCandidate.name,
-        api: selectedCandidate.api,
-        apiLabel: selectedCandidate.apiLabel,
-        bitness: selectedCandidate.bitness,
-        size: selectedCandidate.size
+      chosen: finalSelected ? {
+        path: finalSelected.path,
+        rel: finalSelected.rel,
+        name: finalSelected.name,
+        api: finalSelected.api,
+        apiLabel: finalSelected.apiLabel,
+        apiResolution: finalSelected.apiResolution,
+        detectedApi: finalSelected.detectedApi,
+        detectedApiResolution: finalSelected.detectedApiResolution,
+        bitness: finalSelected.bitness,
+        size: finalSelected.size
       } : null,
-      candidates
+      candidates: finalCandidates
     };
   }
 
   async function scanAll(state) {
     const launchContext = createLaunchContext();
+    const scans = new Map();
+    const scanAt = dir => {
+      const key = path.resolve(dir).toLowerCase();
+      if (!scans.has(key)) scans.set(key, Promise.resolve().then(() => scanModule.scanGame(dir)));
+      return scans.get(key);
+    };
     const discovered = library.discover(
       state.scanFolders || [],
       state.scanDrives === true,
@@ -415,9 +439,12 @@ function createLibraryService(overrides = {}) {
     const discoveredGames = (discovered.games || []).map(game => steamArtworkFor(game, artworkDirectories));
     const candidates = library.dedupe([...discoveredGames, ...manual]).filter(game => !isExcludedGame(game, state));
     const rows = await mapLimit(candidates, 2, async game => {
+      const sourceRoot = game.dir;
+      const savedSelection = manualByRoot.get(path.resolve(game.dir).toLowerCase());
+      if (savedSelection?.preferredExecutable) game = { ...game, preferredExecutable: savedSelection.preferredExecutable };
       let scan;
       try {
-        const baseScan = normalizeUnityDynamicApi(await scanModule.scanGame(game.dir), game.dir);
+        const baseScan = normalizeUnityDynamicApi(await scanAt(game.dir), game.dir);
         if (game.launcher === '手动添加') {
           // Manual folders may be launcher roots. Broaden only these scans so
           // a nested real executable (for example Endfield.exe) can outrank
@@ -427,8 +454,31 @@ function createLibraryService(overrides = {}) {
         } else {
           scan = choosePreferred(baseScan, game.preferredExecutable);
         }
-        // A saved root is explicit. Refresh must not infer a broader root
-        // when this game lacks native DLSS or its files are temporarily absent.
+        // Repair aliases only when the exact selected EXE reaches a verified
+        // native-SR tree through the bounded binary layout walk. Existing
+        // receipts (including damaged ones) keep their original recovery root.
+        const binaryRoot = /^(?:binaries|bin|win(?:32|64)(?:[._ -].*)?|x64|x86|client|windowsnoeditor|shipping)$/i.test(path.basename(game.dir));
+        const unrealLayout = /[\\/]Engine[\\/]/i.test(scan.primaryDlss?.path || '') ||
+          fs.existsSync(path.join(path.dirname(game.dir), 'Engine', 'Plugins'));
+        if (game.launcher === '手动添加' && scan.chosen && (binaryRoot || unrealLayout) && !fs.existsSync(manifestPath(game.dir))) {
+          const selected = scan.chosen;
+          const inferred = await findGameRoot(selected.path, scanAt);
+          const native = inferred.scan?.primaryDlss;
+          let canNormalize = native && /^nvngx_dlss\.dll$/i.test(native.name || '') && typeof native.path === 'string' &&
+            isInside(native.path, inferred.root) &&
+            !samePath(inferred.root, game.dir) && (isInside(inferred.root, game.dir) || isInside(game.dir, inferred.root));
+          if (canNormalize && fs.existsSync(manifestPath(inferred.root))) {
+            try { canNormalize = samePath(manifestExecutable(inferred.root, readManifest(inferred.root)), selected.path); }
+            catch { canNormalize = false; }
+          }
+          if (canNormalize) {
+            game = { ...game, dir: inferred.root, name: defaultGameName(inferred.root) };
+            const normalized = normalizeUnityDynamicApi(inferred.scan, inferred.root);
+            const matching = normalized.exeCandidates?.find(row => samePath(row.path, selected.path)) ||
+              { ...selected, rel: path.relative(inferred.root, selected.path) };
+            scan = applyChosen(normalized, matching);
+          }
+        }
       } catch (error) {
         return {
           id: idFor(game.dir),
@@ -445,10 +495,16 @@ function createLibraryService(overrides = {}) {
           scanError: error && error.message ? error.message : 'scan failed'
         };
       }
-      const override = state.gameOverrides && state.gameOverrides[path.resolve(game.dir).toLowerCase()];
-      const apiOverride = override && override.apiExecutable && scan.chosen &&
-        samePath(override.apiExecutable, scan.chosen.path) ? override.api : 'auto';
-      scan = annotateApi(scan, game.dir, { ...launchContext(game), apiOverride });
+      const overrides = state.gameOverrides || {};
+      const override = { ...overrides[path.resolve(sourceRoot).toLowerCase()], ...overrides[path.resolve(game.dir).toLowerCase()] };
+      // Root aliases must not erase an API choice bound to this exact EXE.
+      // The canonical root wins explicit newer choices, including auto.
+      const boundOverrides = [overrides[path.resolve(game.dir).toLowerCase()], overrides[path.resolve(sourceRoot).toLowerCase()],
+        ...Object.entries(overrides).filter(([dir, value]) => value?.apiExecutable && scan.chosen &&
+          isInside(scan.chosen.path, dir) && (isInside(dir, game.dir) || isInside(game.dir, dir))).map(([, value]) => value)]
+        .filter(value => value?.apiExecutable && scan.chosen && samePath(value.apiExecutable, scan.chosen.path) && value.api !== undefined);
+      const apiOverride = boundOverrides[0]?.api || 'auto';
+      scan = annotateApi(scan, game.dir, { ...launchContext(game), steamAppId: game.launcher === 'Steam' ? String(game.id) : null, apiOverride });
       let manifest = null;
       try { manifest = readManifest(game.dir); } catch {}
       const carrierEnabled = isDx11Only(scan.chosen);
@@ -465,6 +521,7 @@ function createLibraryService(overrides = {}) {
         launcher: game.launcher || '本地游戏',
         appid: game.id || null,
         dir: game.dir,
+        rootAliases: [...new Set([sourceRoot, game.dir])],
         poster: posterUrl(game.poster),
         icon: override && override.icon ? override.icon : (game.steamIcon || null),
         chosen: scan.chosen ? {
@@ -491,7 +548,18 @@ function createLibraryService(overrides = {}) {
       };
     });
 
-    const sorted = rows.filter(Boolean).sort((a, b) =>
+    const unique = new Map();
+    for (const row of rows.filter(Boolean)) {
+      const key = row.chosen?.path ? path.resolve(row.chosen.path).toLowerCase() : path.resolve(row.dir).toLowerCase();
+      const previous = unique.get(key);
+      // Never hide two distinct recovery receipts for the same executable.
+      if (previous?.installed && row.installed && !samePath(previous.dir, row.dir)) { unique.set(`${key}:${row.dir}`, row); continue; }
+      if (!previous) { unique.set(key, row); continue; }
+      const preferred = row.installed && !previous.installed ? row : previous;
+      preferred.rootAliases = [...new Set([...(previous.rootAliases || [previous.dir]), ...(row.rootAliases || [row.dir])])];
+      unique.set(key, preferred);
+    }
+    const sorted = [...unique.values()].sort((a, b) =>
       Number(b.installed) - Number(a.installed) ||
       Number(b.supported) - Number(a.supported) ||
       a.name.localeCompare(b.name, 'zh-CN', { numeric: true })

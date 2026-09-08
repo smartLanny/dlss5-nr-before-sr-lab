@@ -97,6 +97,42 @@ test('incomplete uninstall returns a failed IPC envelope and keeps the original 
   assert.equal((await f.service.listGames()).find(game => game.id === f.id).installed, true);
 });
 
+test('missing imported source does not hide installed-file diagnostics or prevent uninstall', async t => {
+  const f=await externalFixture(t);await f.service.install(f.id,{version:'0.3.3.5'});
+  const file=path.join(f.gameDir,'_DLSS5_Backup/xiaofeng-manager.json'), manifest=JSON.parse(fs.readFileSync(file));
+  manifest.payloadVersion='imported-123456789abc';fs.writeFileSync(file,JSON.stringify(manifest));await f.service.refreshAfterMutation({});
+  const diagnosis=await f.service.diagnose(f.id);assert.equal(diagnosis.sourceMissing,true);assert.equal(diagnosis.components.find(row=>row.key==='addon').ok,true);
+  assert.equal(diagnosis.components.find(row=>row.key==='payload-source').ok,false);
+  await assert.rejects(f.service.repair(f.id),{code:'ERR_ADDON_NOT_FOUND'});
+  await f.service.uninstall(f.id);assert.equal(fs.existsSync(file),false);
+});
+
+test('missing-source feedback keeps current-EXE component diagnostics and ignores old-directory hashes', async t => {
+  const f = await externalFixture(t); await f.service.install(f.id, { version: '0.3.3.5' });
+  const file = path.join(f.gameDir, '_DLSS5_Backup', 'xiaofeng-manager.json');
+  const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
+  manifest.payloadVersion = 'imported-missing-source';
+  const addon = manifest.files.find(row => row.kind === 'addon');
+  manifest.files.push({ ...addon, rel: path.join('OldExecutable', PAYLOAD_FILES.addon), installedSha256: '0'.repeat(64) });
+  fs.writeFileSync(file, JSON.stringify(manifest)); await f.service.refreshAfterMutation({});
+  let calls = 0; const original = f.installer.diagnose;
+  f.installer.diagnose = async request => { calls++; return original(request); };
+  const diagnosis = await f.service.diagnose(f.id);
+  assert.equal(diagnosis.sourceMissing, true); assert.equal(diagnosis.components.find(row => row.key === 'addon').ok, true);
+  const feedback = await f.service.collectFeedback(f.id);
+  assert.equal(calls, 2, 'each operation shares one diagnosis path without a duplicate inspect/diagnose');
+  assert.match(feedback.text, /NR→SR 插件：完整/); assert.match(feedback.text, /修复组件来源：已按安装记录检查现有文件/);
+  assert.doesNotMatch(feedback.text, /诊断生成：/);
+});
+
+test('removing an installed game restores managed files before excluding the row; a failure keeps it visible', async t => {
+  const f=await externalFixture(t);await f.service.install(f.id,{version:'0.3.3.5'});
+  const bridge=path.join(path.dirname(f.exe),PAYLOAD_FILES.bridge), installed=fs.readFileSync(bridge);
+  fs.writeFileSync(bridge,'changed externally');await assert.rejects(f.service.dismissGame(f.id));assert.equal((await f.service.boot()).games.some(row=>row.id===f.id),true);
+  fs.writeFileSync(bridge,installed);await f.service.dismissGame(f.id);assert.equal((await f.service.boot()).games.some(row=>row.id===f.id),false);
+  assert.equal(fs.existsSync(bridge),false);assert.equal(fs.existsSync(path.join(f.gameDir,'_DLSS5_Backup/xiaofeng-manager.json')),false);assert.equal(fs.existsSync(f.exe),true);
+});
+
 test('uninstall chooses the first recognized warning and fails closed when no warning is recognized', async t => {
   const f = await externalFixture(t);
   for (const [warnings, code] of [

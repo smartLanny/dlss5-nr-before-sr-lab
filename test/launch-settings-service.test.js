@@ -52,6 +52,64 @@ test('native SR owns four keys, leaves FG isolated and restores through the shar
   assert.deepEqual(await f.service.pending('g'), []);
 });
 
+test('automatic SR model resolves per hardware while preserving the saved auto selection', async t => {
+  for (const [family,preset] of [['RTX30',11],['RTX40',13],['RTX50',13]]) {
+    const f=fixture(t,{family}), request={backend:'native',quality:'quality',preset:'auto'};
+    await f.service.save('g','sr',request);
+    const result=await f.service.beforeLaunch('g'); assert.equal(result[0].applied,true);
+    assert.equal(f.driver.peek().settings[DRS.srPreset].value,preset);
+    assert.equal((await f.service.inspect('g')).requests.sr.request.preset,'auto');
+    await f.service.restore('g','sr'); assert.equal(f.driver.peek().profile,null);
+  }
+  const f=fixture(t,{service:{detectHardware:async()=>({family:'mixed',series:['RTX30','RTX50']})}});
+  await assert.rejects(f.service.preview('g','sr',{backend:'native',quality:'quality',preset:'auto'}),{code:'SETTINGS_GPU_UNKNOWN'});
+  assert.deepEqual(await f.service.pending('g'),[]);
+});
+
+test('shared predefined profile refusal occurs before any pending record or driver write', async t => {
+  const f=fixture(t), before=f.driver.peek(); before.profile={name:'Shared game family',appName:'game/game.exe',exclusive:false,owned:false}; f.driver.set(before);
+  let writes=0; f.driver.write=async()=>{writes++;throw Error('must not write');};
+  const plan=await f.service.preview('g','sr',{backend:'native',quality:'quality',preset:'M'});
+  await assert.rejects(f.service.apply(plan.id,{confirm:true,automatic:true}),{code:'SETTINGS_BLOCKED'});
+  assert.equal(writes,0); assert.deepEqual(await f.service.pending('g'),[]); assert.equal(await f.service.hasSrRequest('g'),false);
+  assert.deepEqual(f.driver.peek(),before);
+});
+
+test('verified official game profile applies and restores SR/FG without changing shared associations', async t => {
+  const f=fixture(t), before=f.driver.peek(), appName='game/Binaries/Win64/Game.exe';
+  before.profile={name:'Official game',appName,exclusive:false,owned:false,scope:{predefined:true,applications:[appName,'GameDX11.exe'],fingerprint:'a'.repeat(64)}};
+  f.driver.set(before);
+  for(const [domain,request] of [['sr',{backend:'native',quality:'quality',preset:'auto'}],['fg',{backend:'nvidia',mode:'fixed',multiplier:4}]]) {
+    const plan=await f.service.preview('g',domain,request);assert.deepEqual(plan.blockers,[]);await f.service.apply(plan.id,{confirm:true,automatic:true});
+  }
+  assert.deepEqual(f.driver.peek().profile,before.profile);
+  assert.equal((await f.service.inspect('g')).driverScope.applications.length,2);
+  assert.equal((await f.service.inspect('g')).applied.sr.readbackVerified,true);
+  await f.service.restore('g','fg'); await f.service.restore('g','sr');assert.deepEqual(f.driver.peek(),before);assert.deepEqual(await f.service.pending('g'),[]);
+});
+
+test('official game profile association changes refuse restore and retain the receipt', async t => {
+  const f=fixture(t), before=f.driver.peek(), appName='game/Binaries/Win64/Game.exe';
+  before.profile={name:'Official game',appName,exclusive:false,owned:false,scope:{predefined:true,applications:[appName,'other.exe'],fingerprint:'a'.repeat(64)}};f.driver.set(before);
+  const plan=await f.service.preview('g','sr',{backend:'native',quality:'quality',preset:'M'});await f.service.apply(plan.id,{confirm:true});
+  const changed=f.driver.peek();changed.profile.scope.fingerprint='b'.repeat(64);f.driver.set(changed);
+  await assert.rejects(f.service.restore('g','sr'),{code:'SETTINGS_EXTERNAL_CHANGE'});assert.equal(fs.existsSync(f.service.receiptFile('g')),true);assert.deepEqual(f.driver.peek(),changed);
+});
+
+test('dev8 refused shared-profile pending clears only after full unchanged-state verification', async t => {
+  for(const changed of [false,'setting','profile']) {
+    const f=fixture(t), before=f.driver.peek(); before.profile={name:'Shared game',appName:'game/game.exe',exclusive:false,owned:false}; f.driver.set(before);
+    const desired=clone(before); desired.settings[DRS.srPreset]=explicit(13);
+    const pending=f.service.driverPendingFile('g'); fs.mkdirSync(path.dirname(pending),{recursive:true});
+    fs.writeFileSync(pending,JSON.stringify({version:1,transactionId:'22222222-2222-2222-2222-222222222222',domain:'sr',restoring:false,exe:f.exe,ids:[DRS.srPreset],before,desired,after:null}));
+    let writes=0;f.driver.write=async()=>{writes++;throw Error('never write a shared profile');};
+    if(changed){const current=clone(before);if(changed==='setting')current.settings[DRS.fgCount]=explicit(6);else current.profile.name='Other profile';f.driver.set(current);
+      await assert.rejects(f.service.recover('g'),{code:'SETTINGS_EXTERNAL_CHANGE'});assert.equal(fs.existsSync(pending),true);
+    }else{assert.equal((await f.service.recover('g')).driverRestored,true);assert.deepEqual(await f.service.pending('g'),[]);}
+    assert.equal(writes,0);
+  }
+});
+
 test('old SR baseline is restored before the new full four-key baseline is captured', async t => {
   let captured = true, migrations = 0, f;
   const legacy = { migrationInfo: async () => ({ baselineCaptured: captured, selection: 'm', effective: 'm' }),

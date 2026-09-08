@@ -20,8 +20,8 @@ function validateRequest(domain, input) {
   const request = structuredClone(input);
   if (domain === 'sr') {
     if (request.backend === 'native' && request.quality === 'preserve') {
-      if (!['K','L','M'].includes(request.preset) || request.renderPercent !== undefined) fail('SETTINGS_INPUT','只改模型时请选择 K/L/M，不同时指定渲染比例。');
-    } else if (request.backend === 'native') compiler.planNvidiaSr(withoutBackend(request));
+      if (!['auto','K','L','M'].includes(request.preset) || request.renderPercent !== undefined) fail('SETTINGS_INPUT','只改模型时请选择自动推荐或 K/L/M，不同时指定渲染比例。');
+    } else if (request.backend === 'native') compiler.planNvidiaSr(withoutBackend(request.preset === 'auto' ? {...request,preset:'K'} : request));
     else compiler.planOptiScalerSr('', withoutBackend(request));
   } else if (request.backend === 'nvidia') nativeFg(request);
   else if(request.mode==='restore'){if(Object.keys(request).some(k=>!['backend','mode'].includes(k)))fail('SETTINGS_INPUT','恢复请求不能包含倍率。');}
@@ -30,7 +30,13 @@ function validateRequest(domain, input) {
 }
 function withoutBackend(request) { const {backend,...fields}=request; return fields; }
 function isRestore(domain, request) { return domain === 'sr' ? request.quality === 'game' : request.mode === 'restore'; }
-function nativeSr(request) {
+function nativeSr(request, hardware) {
+  if (request.preset === 'auto') {
+    const series = [...new Set((hardware?.series || []).filter(s => /^RTX(?:20|30|40|50)$/.test(s)))];
+    if (hardware?.family === 'mixed' || hardware?.source === 'unavailable' || series.length !== 1 || !['RTX30','RTX40','RTX50'].includes(series[0]))
+      fail('SETTINGS_GPU_UNKNOWN','无法唯一确认 RTX 30 / 40 / 50 显卡，请手动选择 SR 模型。');
+    request = {...request,preset:series[0] === 'RTX30' ? 'K' : 'M'};
+  }
   if (request.quality === 'preserve') return { operations:[{action:'set-dword',id:DRS.srOverride,value:1},{action:'set-dword',id:DRS.srPreset,value:{K:11,L:12,M:13}[request.preset]}] };
   return compiler.planNvidiaSr(withoutBackend(request));
 }

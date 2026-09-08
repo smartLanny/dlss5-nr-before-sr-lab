@@ -16,6 +16,18 @@ function baseline() {
   };
 }
 
+test('opening SR controls without an explicit selection never creates an automatic driver override', async t => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'xiaofeng-sr-unconfigured-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const game=path.join(root,'game');fs.mkdirSync(game);const exe=path.join(game,'game.exe');fs.writeFileSync(exe,'');
+  const fail=async()=>{throw Error('unconfigured launch must not access NVIDIA settings');};
+  const service=createSrModelService({userData:path.join(root,'user'),resourcesPath:root,appDir:root,gameDirectory:()=>game,gameExecutable:()=>exe,
+    detectHardware:()=>({family:'RTX50',series:['RTX50']}),nvapi:{readSrState:fail,applySrPreset:fail,restoreSrState:fail}});
+  assert.equal((await service.read('g')).recommended,'m');
+  assert.equal((await service.migrationInfo('g')).baselineCaptured,false);
+  const result=await service.applyBeforeLaunch('g');assert.equal(result.apply.ok,true);assert.equal(result.apply.skipped,true);
+  assert.equal(fs.existsSync(service.policyFile),false);
+});
+
 test('per-game SR model selection persists and auto resolves from GPU series', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-sr-model-'));
   const gameDir = path.join(root, 'GameA');
@@ -126,6 +138,7 @@ test('manager refuses to overwrite an unknown NVIDIA baseline when the safe read
       restoreSrState: async () => ({ ok: true })
     }
   });
+  await service.write('d', 'auto');
   const result = await service.applyBeforeLaunch('d');
   assert.equal(result.apply.ok, false);
   assert.equal(applied, false);

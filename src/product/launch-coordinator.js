@@ -47,7 +47,8 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
     await service.validateLaunch(id);
     await closed(id);
     if (components) {
-      const snapshot = await settings.inspect(id), fg = snapshot.requests?.fg?.request;
+      const requests = typeof settings.savedRequests === 'function' ? await settings.savedRequests(id) : (await settings.inspect(id)).requests;
+      const fg = requests?.fg?.request;
       if (fg && fg.mode !== 'restore') {
         const readiness = await components.inspect(id);
         if (!readiness.ready) throw Object.assign(new Error(readiness.needsCleanup

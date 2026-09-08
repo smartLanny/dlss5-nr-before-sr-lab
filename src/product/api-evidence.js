@@ -8,6 +8,13 @@ const MAX_EXE_BYTES = 128 * 1024 * 1024;
 const MAX_MARKER_BYTES = 32 * 1024 * 1024;
 const MAX_ENGINE_BYTES = 32 * 1024 * 1024;
 const PROXY_OR_CARRIER = /^(?:d3d11|d3d12|dxgi|nvngx(?:_[^.]*)?|nrchain(?:_[^.]*)?|sl\.[^.]*)\.(?:dll|addon64|addon32|addon)$/i;
+// AGS exports support for both D3D11 and D3D12. Its capabilities do not tell
+// which API the importing game actually uses (observed in 007 First Light).
+const GENERIC_GRAPHICS_SDK = /^(?:amd_ags(?:_x64|_x86)?|nvapi(?:64)?)\.dll$/i;
+// Larian's documented renderer-specific entry points. This is restricted to
+// the Steam application identity and exact relative path, never basename alone.
+// https://forums.larian.com/ubbthreads.php?Number=818949&ubb=showthreaded
+const STEAM_ENTRY_APIS = { '1086940': { 'bin/bg3.exe': 'vulkan', 'bin/bg3_dx11.exe': 'dx11' } };
 
 function text(value) { return String(value == null ? '' : value); }
 
@@ -80,6 +87,8 @@ function annotateApi(scan, root, context = {}) {
 
   const pe = context.pe || require('../core/pe');
   const exe = text(chosen.path);
+  const entryApi = STEAM_ENTRY_APIS[text(context.steamAppId)]?.[path.relative(root,exe).replace(/\\/g,'/').toLowerCase()];
+  if (entryApi) addSignal(signals,entryApi,'game-entry',`Larian 官方启动入口：bg3.exe 使用 Vulkan；bg3_dx11.exe 使用 DX11。API 选择不会切换 EXE`);
   inspectFile(exe, pe, 'exe-imports', signals, { maxBytes: MAX_EXE_BYTES });
   const chosenLabel = text(chosen.apiLabel);
   if (chosen.dx12 === true || /(?:DirectX|DX|D3D)\s*12\b|(?:DirectX|DX|D3D)\s*11\s*\/\s*12\b/i.test(chosenLabel)) addSignal(signals, 'dx12', 'chosen-static', '扫描结果含 DirectX 12 静态线索');
@@ -105,6 +114,10 @@ function annotateApi(scan, root, context = {}) {
     if (inspected >= MAX_ENGINE_MODULES) break;
     const file = typeof item === 'string' ? item : item && (item.path || item.file);
     if (!file || !/\.dll$/i.test(file) || PROXY_OR_CARRIER.test(path.basename(file))) continue;
+    if (GENERIC_GRAPHICS_SDK.test(path.basename(file))) {
+      signals.push({api:null,source:'graphics-sdk',evidence:`${path.basename(file)} 为通用显卡 SDK，其多 API 能力不代表游戏的运行 API`});
+      continue;
+    }
     inspectFile(file, pe, 'engine-module', signals, { maxBytes: MAX_ENGINE_BYTES });
     inspected++;
   }
@@ -127,8 +140,10 @@ function annotateApi(scan, root, context = {}) {
 
   const staticApis = new Set(signals.map(row => row.api).filter(Boolean));
   const argumentConflict = uniqueArgApis.some(value => staticApis.size && !staticApis.has(value));
-  const logConflict = log && Array.isArray(log.apis) && log.apis.some(value => staticApis.size && !staticApis.has(value));
-  const api = argumentConflict || logConflict || (uniqueArgApis.length > 1) ? 'mixed' : classify(signals, chosen);
+  const logConflict = log && log.bound === true && samePath(log.exe, exe, root) &&
+    Array.isArray(log.apis) && log.apis.some(value => staticApis.size && !staticApis.has(value));
+  const api = argumentConflict || logConflict || (uniqueArgApis.length > 1) ? 'mixed'
+    : entryApi && staticApis.size === 1 ? entryApi : classify(signals, chosen);
   const decisive = signals.filter(row => row.api === api);
   const evidence = [...new Set(signals.map(row => row.evidence))].slice(-8);
   const source = decisive.length ? decisive[0].source : (signals[0] ? signals[0].source : 'none');

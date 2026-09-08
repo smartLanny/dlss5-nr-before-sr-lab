@@ -53,7 +53,7 @@ contextBridge.exposeInMainWorld('manager', Object.freeze({
   importAddon: file => invoke('addon-import', file),
   removeAddon: id => invoke('addon-remove', id),
   fetchGameArt: id => invoke('game-art', id),
-  getGameIcon: id => invoke('game-icon', id),
+  getGameIcon: (id, currentIcon) => invoke('game-icon', id, currentIcon),
   getExecutableIcon: file => invoke('game-selection-icon', file),
   confirmGame: selection => invoke('game-confirm', selection),
   pickGameIcon: () => invoke('pick-game-icon'),

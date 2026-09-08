@@ -43,7 +43,7 @@ function harness(options = {}) {
     async showSaveDialog() { return { canceled: true }; }, showErrorBox(title, detail) { errors.push({ title, detail }); }, async showOpenDialog() { return { canceled: true, filePaths: [] }; } };
   const electron = { app, BrowserWindow, ipcMain, dialog, shell: { showItemInFolder() {}, async openExternal() {}, async openPath() { return ''; } }, clipboard: { writeText() {} } };
   const service = { store: { readRecoveryStatus: () => ({ state: 'ok' }) }, withError: fn => fn(), gameDirectory: () => 'C:\\game', gameExecutable: () => 'C:\\game\\game.exe',
-    gameScan: () => ({ streamlineFiles: [], chosen: {}, reshade: {} }), reShadeSource: () => null, importAddonFile: async () => {}, dispose() {} };
+    gameScan: () => ({ primaryDlss:options.noNativeDlss ? null : {name:'nvngx_dlss.dll'}, streamlineFiles: [], chosen: {}, reshade: {} }), reShadeSource: () => null, importAddonFile: async () => {}, dispose() {} };
   const launchSettings = options.launchService || { assertReady: async () => {}, restore: async () => {} };
   const fgComponents = options.fgComponents || { inspect: async () => ({ route: 'native', ready: true }) };
   const business = {
@@ -212,4 +212,17 @@ test('global launch settings reset attempts both domains and rejects partial res
     return true;
   });
   assert.deepEqual(restored, ['fg', 'sr']);
+});
+
+test('missing native DLSS rejects automatic overrides before component or driver work while allowing restore', async () => {
+  const calls=[];
+  const h=harness({noNativeDlss:true,fgComponents:{inspect:async()=>calls.push('components')},launchService:{
+    assertReady:async()=>{},preview:async()=>{calls.push('preview');return{id:'restore'};},apply:async()=>{calls.push('apply');return{restored:true};},save:async()=>calls.push('save')
+  }});
+  await settle();
+  await assert.rejects(h.handles.get('launch-settings-update')({},'game','sr',{backend:'native',quality:'balanced',preset:'auto'}),error=>error.code==='ERR_NO_DLSS');
+  await assert.rejects(h.handles.get('launch-settings-update')({},'game','fg',{backend:'rtx40',mode:'fixed',multiplier:3}),error=>error.code==='ERR_NO_DLSS');
+  assert.deepEqual(calls,[]);
+  const result=await h.handles.get('launch-settings-update')({},'game','fg',{backend:'nvidia',mode:'restore'});
+  assert.equal(result.restored,true);assert.deepEqual(calls,['preview','apply','save']);
 });

@@ -76,6 +76,7 @@ function createSrModelService(options) {
     const recommended = recommendSrPreset(hardware);
     const effective = effectiveSrPreset(selection, hardware);
     return {
+      configured: Object.hasOwn(loadPolicies(policyFile), keyForGame(id)),
       selection,
       effective,
       recommended,
@@ -107,6 +108,9 @@ function createSrModelService(options) {
     }
     const key = keyForGame(id);
     const games = loadPolicies(policyFile);
+    if (!Object.hasOwn(games, key)) {
+      return { ...state, apply: { ok: true, skipped: true, restored: false, reason: 'no-explicit-model-selection' } };
+    }
     const entry = games[key] || { selection: state.selection, baseline: null };
     if (entry.baseline && entry.baselineExecutable && path.resolve(entry.baselineExecutable).toLowerCase() !== path.resolve(exe).toLowerCase()) {
       throw Object.assign(new Error('旧 SR 配置属于另一个 EXE，请先恢复原程序的设置。'), { code: 'SETTINGS_EXE_CHANGED' });
@@ -171,7 +175,8 @@ function createSrModelService(options) {
         if (!row?.baseline) continue;
         for (const name of ['enable', 'preset']) {
           const item = row.baseline[name];
-          if (!item || typeof item.explicit !== 'boolean' || !Number.isInteger(item.value) || item.value < 0 || item.value > 0xffffffff) throw new Error('Invalid baseline');
+          if (!item || typeof item.explicit !== 'boolean' || !(item.explicit === false && item.value === null) &&
+              (!Number.isInteger(item.value) || item.value < 0 || item.value > 0xffffffff)) throw new Error('Invalid baseline');
         }
       }
     } catch {

@@ -100,6 +100,48 @@ test('native errors and malformed success responses can never become successful 
   await assert.rejects(fake.write(EXE, one, one), e => e.code === 'INVALID_SNAPSHOT');
 });
 
+test('official shared profile scope survives read, write and restore requests unchanged', async () => {
+  const profile = { name: 'Official game', appName: 'example/game.exe', exclusive: false, owned: false,
+    scope: { predefined: true, applications: ['example/game.exe', 'example/game_dx11.exe'], fingerprint: 'a'.repeat(64) } };
+  const before = { profile, settings: settings([SR_OVERRIDE, absent()]) };
+  const desired = { profile, settings: settings([SR_OVERRIDE, explicit(1)]) };
+  const requests = [];
+  const adapter = createNvapiProfileAdapter({ runner: async request => {
+    requests.push(request); return { ok: true, snapshot: request.op === 'write' ? request.desiredSnapshot : before };
+  } });
+  assert.deepEqual(await adapter.read(EXE, [SR_OVERRIDE]), before);
+  assert.deepEqual(await adapter.write(EXE, before, desired), desired);
+  assert.deepEqual(await adapter.write(EXE, desired, before), before);
+  assert.deepEqual(requests[1].expectedSnapshot.profile.scope, profile.scope);
+  assert.deepEqual(requests[2].desiredSnapshot.profile.scope, profile.scope);
+});
+
+test('shared writes cannot use missing, incomplete or forged scope shapes', async () => {
+  const profile = { name: 'Official game', appName: 'example/game.exe', exclusive: false, owned: false,
+    scope: { predefined: true, applications: ['example/game.exe'], fingerprint: 'a'.repeat(64) } };
+  let calls = 0;
+  const adapter = createNvapiProfileAdapter({ runner: async () => { calls++; } });
+  for (const changed of [undefined, { ...profile.scope, applications: [] }, { ...profile.scope, fingerprint: 'not-a-hash' },
+    { ...profile.scope, predefined: 1 }, { ...profile.scope, unknown: true }]) {
+    const value = { profile: { ...profile, scope: changed }, settings: settings([SR_OVERRIDE, absent()]) };
+    await assert.rejects(adapter.write(EXE, value, value), { code: 'INVALID_SNAPSHOT' });
+  }
+  assert.equal(calls, 0);
+});
+
+test('scope inspection validates its independent result and preserves no-profile versus official shared scope', async () => {
+  let request, reply = { name: 'Official game', applications: ['example/game.exe', 'example/game_dx11.exe'], predefined: true, shared: true };
+  const adapter = createNvapiProfileAdapter({ runner: async value => { request = value; return { ok: true, scope: reply }; } });
+  assert.deepEqual(await adapter.inspectScope(EXE), reply);
+  assert.deepEqual(request, { op: 'inspect-scope', exe: EXE });
+  reply = { name: null, applications: [], predefined: false, shared: false };
+  assert.deepEqual(await adapter.inspectScope(EXE), reply);
+  reply = { name: null, applications: ['game.exe'], predefined: true, shared: true };
+  await assert.rejects(adapter.inspectScope(EXE), { code: 'INVALID_SNAPSHOT' });
+  const denied = createNvapiProfileAdapter({ runner: async () => ({ ok: false, code: 'UNSAFE_PROFILE', error: 'global' }) });
+  await assert.rejects(denied.inspectScope(EXE), { code: 'UNSAFE_PROFILE' });
+});
+
 test('PowerShell bridge validates restore predicates and pinned layouts without loading a profile', { skip: process.platform !== 'win32' }, () => {
   const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const script = path.join(__dirname, '..', 'src', 'product', 'nvapi-profile.ps1');

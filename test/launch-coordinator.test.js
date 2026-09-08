@@ -31,6 +31,11 @@ test('legacy-only selection is retained until new SR settings explicitly take ow
   await f.module.launch('a');
   assert.deepEqual(f.calls, ['ready', 'validate', 'closed', 'settings', 'legacy', 'launch']);
 });
+
+test('plain launch reads saved intent without probing NVIDIA profile scope or component UI state', async () => {
+  const f=fixture({savedRequests:async()=>({}),inspect:async()=>{throw Error('plain launch must not inspect GPU settings');}}, {inspect:async()=>{throw Error('no FG request');}});
+  await f.module.launch('a');assert.equal(f.calls.includes('launch'),true);
+});
 test('failed settings and invalid launch preflight cannot start the game', async () => {
   const outcomes = [{ domain: 'sr', applied: true, runtimeVerified: false },
     { domain: 'fg', applied: false, code: 'SETTINGS_BACKEND_MISSING', reason: 'missing' }];

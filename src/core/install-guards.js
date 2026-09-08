@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
 const { execFile } = require('child_process');
 const upstream = require('../../vendor/DLSS5-Swapper/src/core/install-guards.js');
 
@@ -27,6 +28,43 @@ function processRows(value) {
   const rows = Array.isArray(value) ? value : [value];
   if (!rows.every(row => row && typeof row === 'object')) throw new TypeError('Invalid process snapshot');
   return rows;
+}
+
+function independentEngineReporter(row, gameDir, gameExePath) {
+  if (String(row.Name || '').toLowerCase() !== 'crashreportclient.exe' || typeof row.ExecutablePath !== 'string' || !path.isAbsolute(row.ExecutablePath)) return false;
+  const root = normalizedExecutable(gameDir), game = normalizedExecutable(gameExePath), processPath = normalizedExecutable(row.ExecutablePath);
+  if (!root || !game || !processPath || game === processPath) return false;
+  const selectedRelative = path.relative(root, game);
+  if (path.isAbsolute(selectedRelative)) return false;
+  const selected = selectedRelative.split(path.sep);
+  // Only the known Unreal sibling layout is independent of the deployment
+  // directory. Reporters beside the game or in any other location stay guarded.
+  if (selected.length !== 4 || ['..', 'engine'].includes(selected[0]) || selected[1] !== 'binaries' || selected[2] !== 'win64') return false;
+  const reporter = path.join(root, 'engine', 'binaries', 'win64', 'crashreportclient.exe');
+  if (processPath !== reporter) return false;
+  try {
+    // Prove that these names resolve to ordinary separate files; a junction,
+    // symlink or hardlink must not turn the apparent sibling into deployed code.
+    for (const source of [path.resolve(gameExePath), path.resolve(row.ExecutablePath)]) {
+      if (normalizedExecutable(fs.realpathSync.native(source)) !== normalizedExecutable(source)) return false;
+      let current = source;
+      for (let depth = 0; depth <= 4; depth++) {
+        const stat = fs.lstatSync(current);
+        if (stat.isSymbolicLink() || (depth === 0 ? !stat.isFile() || stat.nlink !== 1 : !stat.isDirectory())) return false;
+        if (normalizedExecutable(current) === root) break;
+        current = path.dirname(current);
+      }
+    }
+    const deployment = /^(?:(?:dxgi|d3d9|d3d10|d3d11|d3d12|opengl32|version|winmm|nvngx(?:_[^.]*)?|nrchain(?:_[^.]*)?)\.dll|reshade\.ini|global\.ini|_dlss5_backup|reshade-shaders)$|\.(?:addon(?:32|64)?|asi)$/i;
+    const entries = fs.opendirSync(path.dirname(row.ExecutablePath));
+    try {
+      let entry, examined = 0;
+      while ((entry = entries.readSync()) !== null) {
+        if (++examined > 256 || entry.isSymbolicLink() || deployment.test(entry.name)) return false;
+      }
+    } finally { entries.closeSync(); }
+    return true;
+  } catch { return false; }
 }
 
 async function systemProcesses(runner = run) {
@@ -90,7 +128,8 @@ function createInstallGuards(options = {}) {
     const rows = processRows(processes);
     const owned = ownedProcessIds(rows, gameExePath);
     const candidates = rows.filter(row => !owned.has(numericPid(row && row.ProcessId)));
-    const matches = upstream.matchingProcesses(candidates, gameDir, gameExePath);
+    const matches = upstream.matchingProcesses(candidates, gameDir, gameExePath)
+      .filter(row => !independentEngineReporter(row, gameDir, gameExePath));
 
     // Upstream always excludes process.pid. If the selected game executable is
     // the Manager itself, restore that row so an identity collision fails shut.
@@ -112,10 +151,18 @@ function createInstallGuards(options = {}) {
     }
     const matches = matchingProcesses(rows, gameDir, gameExePath);
     if (matches.length) {
-      const processes = matches.map(row => ({
-        pid: numericPid(row && row.ProcessId),
-        name: typeof (row && row.Name) === 'string' && row.Name ? row.Name : 'unknown'
-      }));
+      const processes = matches.map(row => {
+        const executable = normalizedExecutable(row && row.ExecutablePath);
+        const game = normalizedExecutable(gameExePath);
+        const relativePath = executable ? path.relative(path.resolve(gameDir).toLowerCase(), executable) : null;
+        return {
+          pid: numericPid(row && row.ProcessId),
+          name: typeof (row && row.Name) === 'string' && row.Name ? row.Name : 'unknown',
+          relativePath,
+          reason: !executable ? '同名进程路径无法读取' : executable === game ? '所选游戏进程仍在运行'
+            : game && path.dirname(executable) === path.dirname(game) ? '游戏部署目录内的进程仍在运行' : '游戏目录内的进程仍在运行'
+        };
+      });
       throw Object.assign(new Error(`Close the game and helper first: ${processes.map(row => row.name).join(', ')}`), {
         code: 'errGameRunning',
         details: { processes }

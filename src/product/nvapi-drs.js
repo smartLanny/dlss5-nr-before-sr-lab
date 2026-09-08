@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const { execFile } = require('child_process');
 
 function execute(program, args) {
@@ -22,9 +23,8 @@ async function defaultRunner(scriptPath, scriptArgs) {
     '-ExecutionPolicy', 'Bypass', '-File', scriptPath,
     ...scriptArgs
   ];
-  let result = await execute('powershell.exe', args);
-  if (result.error && result.error.code === 'ENOENT') result = await execute('pwsh.exe', args);
-  return result;
+  const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  return execute(powershell, args);
 }
 
 function parseJsonLine(text) {

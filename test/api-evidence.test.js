@@ -38,6 +38,30 @@ test('DX11 EXE plus DX12 engine module is mixed', () => {
   assert.equal(out.chosen.apiResolution.api, 'mixed');
 });
 
+test('documented BG3 entry points require Steam identity and exact path, while manual API stays independent', () => {
+  const root='C:/games/bg3', vk=root+'/bin/bg3.exe', dx=root+'/bin/bg3_dx11.exe';
+  const pe=fakePe({[vk]:{},[dx]:{imports:['d3d11.dll']}});
+  const scanFor=exe=>({chosen:{path:exe,api:'dxgi',apiLabel:''}});
+  for(const [exe,api] of [[vk,'vulkan'],[dx,'dx11']]) {
+    const result=annotateApi(scanFor(exe),root,{pe,steamAppId:'1086940'});
+    assert.equal(result.chosen.detectedApi,api);assert.equal(result.chosen.detectedApiResolution.source,'game-entry');
+  }
+  assert.equal(annotateApi(scanFor(dx),root,{pe,steamAppId:'999'}).chosen.detectedApi,'unknown');
+  assert.equal(annotateApi(scanFor(vk),root,{pe,steamAppId:'1086940',logEvidence:{bound:false,apis:['dx12'],evidence:'旧 carrier 创建过 DX12 设备'}}).chosen.detectedApi,'vulkan');
+  assert.equal(annotateApi(scanFor(root+'/other/bg3.exe'),root,{pe,steamAppId:'1086940'}).chosen.detectedApi,'unknown');
+  const override=annotateApi(scanFor(vk),root,{pe,steamAppId:'1086940',apiOverride:'dx11'});
+  assert.equal(override.chosen.detectedApi,'vulkan');assert.equal(override.chosen.apiResolution.api,'dx11');
+});
+
+test('a DX12 game importing dual-API AMD AGS stays DX12; real engine conflicts remain mixed', () => {
+  const exe='C:/games/demo/game.exe', sdk='C:/games/demo/amd_ags_x64.dll', engine='C:/games/demo/render_engine.dll';
+  const pe=fakePe({[exe]:{imports:['d3d12.dll','amd_ags_x64.dll']},[sdk]:{markers:['D3D11CreateDevice','D3D12CreateDevice']},[engine]:{imports:['d3d11.dll']}});
+  const result=annotateApi(scan(),'C:/games/demo',{pe,engineModules:[sdk]});
+  assert.equal(result.chosen.apiResolution.api,'dx12');
+  assert.match(result.chosen.apiResolution.evidence.join(' '),/通用显卡 SDK/);
+  assert.equal(annotateApi(scan(),'C:/games/demo',{pe,engineModules:[sdk,engine]}).chosen.apiResolution.api,'mixed');
+});
+
 test('explicit override wins without changing original API fields', () => {
   const out = annotateApi(scan(), 'C:/games/demo', { apiOverride: 'dx11', pe: fakePe({}) });
   assert.equal(out.chosen.apiResolution.api, 'dx11');
@@ -138,8 +162,22 @@ test('actual ReShade header is EXE-bound but device creation is only historical 
   fs.writeFileSync(log, `Initializing crosire's ReShade version '6.8.0.0' loaded from 'dxgi.dll' into '${exe}' ...\nRedirecting D3D12CreateDevice(...)\n`);
   const input = { chosen: { path: exe, api: 'dxgi', apiLabel: 'DirectX 11', via: 'imports' } };
   const output = annotateApi(input, root, { pe: fakePe({}) });
-  assert.equal(output.chosen.apiResolution.api, 'mixed');
+  assert.equal(output.chosen.apiResolution.api, 'unknown');
   assert.ok(output.chosen.apiResolution.evidence.some(line => /历史.*dx12/.test(line)));
   fs.writeFileSync(log, `Initializing crosire's ReShade version '6.8.0.0' into '${path.join(root, 'other.exe')}' ...\nRedirecting D3D12CreateDevice(...)\n`);
   assert.equal(annotateApi(input, root, { pe: fakePe({}) }).chosen.apiResolution.api, 'unknown');
+});
+
+test('unbound historical multi-device logs cannot downgrade a DX12 game to mixed', () => {
+  const exe = 'C:/games/demo/game.exe';
+  const result = annotateApi(scan(), 'C:/games/demo', {
+    pe: fakePe({ [exe]: { imports: ['d3d12.dll'] } }),
+    logEvidence: { exe, bound: false, apis: ['dx11', 'dx12'], evidence: '历史日志创建过 DX11/DX12 设备' }
+  });
+  assert.equal(result.chosen.detectedApi, 'dx12');
+  assert.ok(result.chosen.detectedApiResolution.evidence.includes('历史日志创建过 DX11/DX12 设备'));
+  const conflicting = annotateApi(scan(), 'C:/games/demo', {
+    pe: fakePe({ [exe]: { imports: ['d3d12.dll'] } }), logEvidence: { exe, bound: true, api: 'dx11', apis: ['dx11'] }
+  });
+  assert.equal(conflicting.chosen.detectedApi, 'mixed', 'a rigorously bound real conflict still blocks automatic selection');
 });

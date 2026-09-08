@@ -31,6 +31,7 @@ function createLaunchSettingsService(options = {}) {
   const driver = options.driver || createNvapiProfileAdapter({ scriptPath });
   const requestFile = path.join(userData, 'launch-settings-requests.json');
   const plans = new Map();
+  const scopeReads = new Map();
   let serial = Promise.resolve();
   const serialize = work => { const next = serial.then(work, work); serial = next.catch(() => {}); return next; };
 
@@ -54,7 +55,17 @@ function createLaunchSettingsService(options = {}) {
     }
     return value;
   }
-  function validProfile(value, t) { return value === null || value && typeof value === 'object' && typeof value.name === 'string' && typeof value.appName === 'string' && samePath(value.appName, t.exe) && value.exclusive === true && typeof value.owned === 'boolean'; }
+  function validProfile(value, t) {
+    if (value === null) return true;
+    if (!value || typeof value !== 'object' || typeof value.name !== 'string' || typeof value.appName !== 'string' || typeof value.owned !== 'boolean') return false;
+    if (value.exclusive === true) return samePath(value.appName,t.exe);
+    const scope=value.scope, rule=value.appName.replace(/\\/g,'/').toLowerCase(), exe=t.exe.replace(/\\/g,'/').toLowerCase();
+    return value.exclusive === false && value.owned === false && scope?.predefined === true &&
+      /^[a-f0-9]{64}$/.test(scope.fingerprint || '') && Array.isArray(scope.applications) && scope.applications.length > 0 && scope.applications.length <= 512 &&
+      scope.applications.every(name => typeof name === 'string' && name.length > 0 && name.length <= 2048 && !name.includes('\0')) &&
+      scope.applications.includes(value.appName) && !rule.split('/').some(part=>part==='.'||part==='..') &&
+      (exe === rule || !/^(?:[a-z]:|\/)/.test(rule) && exe.endsWith('/'+rule));
+  }
   function validSetting(value) { return value && typeof value === 'object' && ['explicit', 'inherited', 'absent'].includes(value.kind) &&
     (value.kind === 'absent' ? value.value === null && value.location === null && value.predefined === null : Number.isInteger(value.value) && value.value >= 0 && value.value <= 0xffffffff && Number.isInteger(value.location) && value.location >= 0 && value.location <= 3 && typeof value.predefined === 'boolean' && (value.kind !== 'explicit' || value.location === 0 && value.predefined === false)); }
   function validSnapshot(value, t) { return value && typeof value === 'object' && validProfile(value.profile, t) && value.settings &&
@@ -107,6 +118,7 @@ function createLaunchSettingsService(options = {}) {
     return Object.keys(value.applied).length > 0;
   }
   function requestRow(id, domain) { const t = target(id), state = requests(), row = state.games[t.key]?.[domain]; return row && samePath(row.exe, t.exe) ? row : null; }
+  function savedRequests(id) { return Object.fromEntries(['sr','fg'].map(domain=>[domain,requestRow(id,domain)]).filter(([,row])=>row)); }
   // Once the new editor owns a game directory, never revive the old directory-
   // based model writer, including after a safe EXE change. Requests stay EXE-bound.
   async function hasSrRequest(id) { const t = target(id), row = requests().games[t.key]; return Boolean(row?.sr || row?._srManaged); }
@@ -142,7 +154,17 @@ function createLaunchSettingsService(options = {}) {
     }
     const visibleRequests = Object.fromEntries(['sr', 'fg'].filter(domain => row[domain]).map(domain => [domain, row[domain]]));
     const notice = receiptError ? '检测到未完成事务，当前启动设置记录需要先恢复。' : legacy?.error ? '旧 SR 设置需要核对；FG 状态和恢复功能仍可使用。' : null;
-    return { hardware: await detectHardware(), requests: visibleRequests, applied, legacy, pending: pendingRows, notice, receiptError, runtimeVerified: false,
+    let driverScope;
+    if (driverCurrent?.profile?.scope) driverScope={name:driverCurrent.profile.name,...driverCurrent.profile.scope,shared:true};
+    else if (typeof driver.inspectScope === 'function') {
+      const cached=scopeReads.get(t.exe);
+      if (!cached || Date.now()-cached.at > 1000) {
+        if (scopeReads.size >= 64) scopeReads.delete(scopeReads.keys().next().value);
+        scopeReads.set(t.exe,{at:Date.now(),promise:Promise.resolve().then(()=>driver.inspectScope(t.exe)).catch(error=>({error:error.code||'NVAPI_SCOPE_UNAVAILABLE',message:'暂时无法读取 NVIDIA 游戏配置范围；原样启动不受影响。'}))});
+      }
+      driverScope=await scopeReads.get(t.exe).promise;
+    }
+    return { hardware: await detectHardware(), requests: visibleRequests, applied, legacy, driverScope, pending: pendingRows, notice, receiptError, runtimeVerified: false,
       note: '配置读回只证明文件或驱动请求已保存，不代表游戏实际采用。' };
   }
   async function assertStopped(t) {
@@ -166,7 +188,7 @@ function createLaunchSettingsService(options = {}) {
     else if (['native', 'nvidia'].includes(plan.backend)) {
       if (plan.backend === 'nvidia' && !restoring && !(series.length === 1 && series[0] === 'RTX50')) plan.blockers.push('未唯一确认 RTX 50，官方 FG 请求不会写入。');
       const before = await driver.read(t.exe, DRIVER_IDS), after = clone(before);
-      const operations = restoring ? [] : (plan.backend === 'native' ? policy.nativeSr(request) : policy.nativeFg(request)).operations;
+      const operations = restoring ? [] : (plan.backend === 'native' ? policy.nativeSr(request, hardware) : policy.nativeFg(request)).operations;
       plan.operations = clone(operations);
       const ids = restoring ? old.ids : [...new Set([...(old?.ids || []), ...operations.map(row => row.id)])];
       if (old && (!policy.same(before.profile, old.profile) || !policy.same(subset(before, old.ids), old.lastValues)))
@@ -180,6 +202,8 @@ function createLaunchSettingsService(options = {}) {
       } else for (const operation of operations) after.settings[operation.id] = { kind: 'explicit', value: operation.value, location: 0, predefined: false };
       plan.driver = { before, after, ids, baseline };
       plan.noOp = !restoring && policy.same(subset(before, ids), subset(after, ids));
+      if (!plan.noOp && before.profile && !validProfile(before.profile, t))
+        plan.blockers.push('当前 NVIDIA 配置不是可确认的游戏官方配置或独立 EXE 配置，未修改参数；原样启动游戏不受影响。');
     } else {
       if (plan.backend === 'rtx40' && !restoring && !(series.length === 1 && series[0] === 'RTX40')) plan.blockers.push('未唯一确认 RTX 40，社区 FG 请求不会写入。');
       const controlRoot = path.dirname(t.exe);
@@ -219,6 +243,24 @@ function createLaunchSettingsService(options = {}) {
   async function restoreDriverPending(t, forceRestore = false) {
     const file = driverPendingFile(t); if (!fs.existsSync(file)) return false;
     const row = readJson(file, null);
+    // dev.7/8 could persist a read-only shared-profile snapshot before the
+    // native adapter refused the write. Retire that record only when all eight
+    // settings AND the profile still match its exact pre-write state. Never use
+    // this compatibility branch to write or restore a shared application profile.
+    const sharedSnapshot = value => value?.profile && value.profile.exclusive === false && value.profile.owned === false &&
+      typeof value.profile.name === 'string' && value.profile.name.length <= 2048 &&
+      typeof value.profile.appName === 'string' && value.profile.appName.length <= 2048 &&
+      value.settings && Object.keys(value.settings).length === DRIVER_IDS.length && DRIVER_IDS.every(id => validSetting(value.settings[id]));
+    if (row?.version === 1 && /^[a-f0-9-]{36}$/.test(row.transactionId || '') && samePath(row.exe,t.exe) &&
+        ['sr','fg'].includes(row.domain) && row.restoring === false && row.after === null &&
+        Array.isArray(row.ids) && row.ids.length && new Set(row.ids).size === row.ids.length && row.ids.every(id => policy.IDS[row.domain].includes(id)) &&
+        sharedSnapshot(row.before) && sharedSnapshot(row.desired) && !row.before.profile.scope && !row.desired.profile.scope && policy.same(row.before.profile,row.desired.profile) &&
+        DRIVER_IDS.filter(id => !row.ids.includes(id)).every(id => policy.same(row.before.settings[id],row.desired.settings[id]))) {
+      const actual = await driver.read(t.exe, DRIVER_IDS);
+      const originalProfile=Object.fromEntries(['name','appName','exclusive','owned'].map(key=>[key,actual.profile?.[key]]));
+      if (!policy.same(originalProfile,row.before.profile) || !policy.same(actual.settings,row.before.settings)) fail('SETTINGS_EXTERNAL_CHANGE','旧失败记录对应的驱动配置已有变化，不能按“未写入”清理；已保留恢复记录。');
+      await fsp.unlink(file); return true;
+    }
     if (!row || row.version !== 1 || !/^[a-f0-9-]{36}$/.test(row.transactionId || '') || !samePath(row.exe, t.exe) || !['sr', 'fg'].includes(row.domain) || typeof row.restoring !== 'boolean' ||
         !Array.isArray(row.ids) || !row.ids.length || new Set(row.ids).size !== row.ids.length || row.ids.some(id => !policy.IDS[row.domain].includes(id)) || !validSnapshot(row.before, t) || !validSnapshot(row.desired, t) || row.after != null && !validSnapshot(row.after, t)) fail('SETTINGS_RECEIPT_INVALID', '驱动恢复记录无效。');
     const current = await driver.read(t.exe, DRIVER_IDS);
@@ -334,7 +376,7 @@ function createLaunchSettingsService(options = {}) {
     }
     return outcomes;
   }
-  return Object.freeze({ inspect, save, preview, apply, beforeLaunch, recover, restore, pending, assertReady, hasSrRequest, hasOwnedState,
+  return Object.freeze({ inspect, savedRequests, save, preview, apply, beforeLaunch, recover, restore, pending, assertReady, hasSrRequest, hasOwnedState,
     requestFile, receiptFile: id => receiptFile(target(id)), driverPendingFile: id => driverPendingFile(target(id)) });
 }
 

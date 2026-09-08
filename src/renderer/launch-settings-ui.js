@@ -25,6 +25,11 @@
       series: known ? series[0] : null, fgBackend: known && series[0] === 'RTX40' ? 'rtx40' : known && series[0] === 'RTX50' ? 'nvidia' : null };
   }
 
+  function recommendedPreset(hardware) {
+    const series = hardwareFacts(hardware).series;
+    return series === 'RTX30' ? 'K' : series === 'RTX40' || series === 'RTX50' ? 'M' : null;
+  }
+
   function createRequest(domain, fields) {
     const backend = fields.backend;
     if (domain === 'sr') {
@@ -40,10 +45,10 @@
         request.renderPercent = percent;
       }
       if (backend === 'native' && fields.preset) {
-        if (!['K', 'L', 'M'].includes(fields.preset)) throw new Error('请选择 K、L 或 M 模型。');
+        if (!['auto', 'K', 'L', 'M'].includes(fields.preset)) throw new Error('请选择自动推荐、K、L 或 M 模型。');
         request.preset = fields.preset;
       }
-      if (quality === 'preserve' && !request.preset) throw new Error('仅改模型时，请选择 K、L 或 M。');
+      if (quality === 'preserve' && !request.preset) throw new Error('仅改模型时，请选择自动推荐、K、L 或 M。');
       return request;
     }
     if (domain !== 'fg' || !['nvidia', 'rtx40'].includes(backend)) throw new Error('当前显卡尚未确认可用的 FG 设置后端。');
@@ -70,7 +75,7 @@
     if (domain === 'sr') {
       parts.push(QUALITY[request.quality] || request.quality);
       if (request.quality === 'custom') parts.push(`输入 ${request.renderPercent}%`);
-      if (request.preset) parts.push(`模型 ${request.preset}`);
+      if (request.preset) parts.push(request.preset === 'auto' ? '模型自动推荐' : `模型 ${request.preset}`);
     } else {
       parts.push(MODES[request.mode] || request.mode);
       if (request.mode === 'fixed') parts.push(`总计 ${request.multiplier}×`);
@@ -85,8 +90,9 @@
     const legacy = legacyState(data);
     if (domain === 'sr') {
       // A proposed next-launch value is not a measurement of the game's current setting.
-      const fields = { backend: 'native', quality: 'quality', preset: legacy?.preset || '', renderPercent: 67, ...request };
+      const fields = { backend: 'native', quality: 'quality', preset: legacy?.preset || (recommendedPreset(data.hardware) ? 'auto' : ''), renderPercent: 67, ...request };
       fields.backend = 'native';
+      if (fields.preset === 'auto' && !recommendedPreset(data.hardware)) fields.preset = '';
       if (!Object.hasOwn(PRESET_PERCENT, fields.quality) && fields.quality !== 'custom') fields.quality = 'quality';
       if (Object.hasOwn(PRESET_PERCENT, fields.quality)) fields.renderPercent = PRESET_PERCENT[fields.quality];
       return fields;
@@ -96,10 +102,11 @@
 
   function legacyState(data) {
     const legacy = data.legacy;
-    if (!legacy || legacy.managed === true || legacy.error || data.requests?.sr || data.applied?.sr) return null;
+    if (!legacy || legacy.configured === false || legacy.managed === true || legacy.error || data.requests?.sr || data.applied?.sr) return null;
     const effective = String(legacy.effective || '').toUpperCase();
-    const preset = ['K', 'L', 'M'].includes(effective) ? effective : null;
-    const label = preset ? `${legacy.selection === 'auto' ? '自动 → ' : ''}模型 ${preset}` : 'NVIDIA 默认 / 不覆盖';
+    const effectivePreset = ['K', 'L', 'M'].includes(effective) ? effective : null;
+    const preset = legacy.selection === 'auto' ? 'auto' : effectivePreset;
+    const label = effectivePreset ? `${legacy.selection === 'auto' ? '自动 → ' : ''}模型 ${effectivePreset}` : 'NVIDIA 默认 / 不覆盖';
     return { preset, label };
   }
 
@@ -113,10 +120,12 @@
     return `<div class="launch-status" aria-live="polite"><span class="badge ${dirty ? 'warn' : applied ? 'good' : ''}">${dirty ? '等待应用' : applied ? '已应用配置' : legacy ? '沿用原模型设置' : legacyError ? '状态未确认' : '使用原有设置'}</span>${readback ? '<span class="badge good">配置已校验</span>' : ''}</div><p class="launch-saved">${esc(appliedLabel || (legacy ? `沿用原模型设置：${legacy.label}` : saved ? `已有保存设置：${requestLabel(domain, saved)}` : '更改选项后自动应用'))}</p>`;
   }
 
-  function srFields(fields) {
+  function srFields(fields, hardware) {
+    const recommended = recommendedPreset(hardware);
+    const automatic = recommended ? option('auto', `自动推荐 · ${recommended}（推荐）`, fields.preset) : '';
     return `<label class="launch-field"><span>画质档位</span><select data-ls-field="quality" aria-label="SR 画质档位">${Object.entries(QUALITY).filter(([key]) => key !== 'game' && key !== 'preserve').map(([key, label]) => option(key, label, fields.quality)).join('')}</select></label>
       <label class="launch-field"><span>输入比例</span><div class="launch-number"><input data-ls-field="renderPercent" type="number" min="33" max="100" step="1" value="${esc(fields.renderPercent)}" aria-label="SR 输入分辨率百分比"><span>%</span></div><small>档位为近似宽高比例；改数值即自定义。</small></label>
-      <label class="launch-field"><span>DLSS SR 模型</span><select data-ls-field="preset" aria-label="DLSS SR 模型">${option('', '使用原有模型', fields.preset)}${['K', 'L', 'M'].map(key => option(key, `模型 ${key}`, fields.preset)).join('')}</select></label>
+      <label class="launch-field"><span>DLSS SR 模型</span><select data-ls-field="preset" aria-label="DLSS SR 模型">${option('', '使用原有模型', fields.preset)}${automatic}${option('K', '模型 K', fields.preset)}${option('L', '模型 L · 高画质低性能', fields.preset)}${option('M', '模型 M · 推荐（适用 RTX40 / RTX50）', fields.preset)}</select></label>
       <p class="config-note">用于已有原生 DLSS；不代表游戏当前档位。</p>`;
   }
 
@@ -153,9 +162,19 @@
     </div>`;
   }
 
+  function driverScopeMarkup(scope, busy = false) {
+    if (!scope) return '';
+    if (scope.error || scope.status === 'unknown') return `<div class="launch-driver-scope launch-driver-scope-unknown" role="status"><span>NVIDIA 设置范围暂时无法读取。</span><button class="button subtle" type="button" data-ls-action="reload"${busy ? ' disabled' : ''}>重新检查</button></div>`;
+    const applications = Array.isArray(scope.applications) ? scope.applications.filter(item => typeof item === 'string' && item.trim()) : [];
+    if (scope.shared !== true && applications.length <= 1) return '';
+    const name = scope.name || 'NVIDIA 游戏配置';
+    return `<details class="launch-driver-scope"><summary>NVIDIA 游戏配置：${esc(name)} · 关联 ${applications.length} 个启动入口；超分补帧设置会同步用于这些入口</summary>${applications.length ? `<ul>${applications.map(item => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}</details>`;
+  }
+
   function mount(host, id, options = {}) {
     if (!host || host.launchSettingsController) return host?.launchSettingsController;
     const manager = options.manager || scope.manager;
+    const capabilityMissing = options.nativeDlssAvailable === false;
     let data = null, busy = false, generation = 0;
     const drafts = {}, dirty = {}, messages = {}, timers = {};
     const queued = new Set();
@@ -170,15 +189,15 @@
       const focusDomain = focusField && focused.closest('[data-ls-domain]')?.dataset.lsDomain;
       const facts = hardwareFacts(data.hardware);
       const pending = Array.isArray(data.pending) && data.pending.length > 0;
-      host.innerHTML = `<div class="launch-head"><div><h4>超分补帧</h4><p>更改后自动应用；请先退出游戏，正在运行的游戏需要重启才会采用新设置。</p></div><span title="${esc(facts.allNames)}">${esc(facts.label)}</span><button class="button subtle" type="button" data-ls-action="restore-all" title="撤销管理器的 SR / FG 覆盖，恢复原有游戏及驱动设置"${busy || pending ? ' disabled' : ''}>恢复默认</button></div>${pending ? `<div class="launch-recovery" role="alert"><span>${esc(data.notice || '上次操作未完成，请先恢复。')}</span><button class="button" type="button" data-ls-action="recover">恢复未完成操作</button></div>` : data.notice ? `<p class="launch-message launch-error" role="alert">${esc(data.notice)}</p>` : ''}${data.legacy?.error ? `<p class="launch-message launch-error">旧 SR 记录读取失败：${esc(data.legacy.error.message)}。恢复记录已保留。</p>` : ''}
+      host.innerHTML = `<div class="launch-head"><div><h4>超分补帧</h4><p>更改后自动应用；请先退出游戏，正在运行的游戏需要重启才会采用新设置。</p></div><span title="${esc(facts.allNames)}">${esc(facts.label)}</span><button class="button subtle" type="button" data-ls-action="restore-all" title="撤销管理器的 SR / FG 覆盖，恢复原有游戏及驱动设置"${busy || pending ? ' disabled' : ''}>恢复默认</button></div>${capabilityMissing ? '<div class="launch-capability-missing" role="status"><strong>未检测到普通 DLSS</strong><span>请确认已选择游戏实际运行的 EXE；确认前不会应用 SR / FG 设置。</span></div>' : ''}${driverScopeMarkup(data.driverScope, busy || pending)}${pending ? `<div class="launch-recovery" role="alert"><span>${esc(data.notice || '上次操作未完成，请先恢复。')}</span><button class="button" type="button" data-ls-action="recover">恢复未完成操作</button></div>` : data.notice ? `<p class="launch-message launch-error" role="alert">${esc(data.notice)}</p>` : ''}${data.legacy?.error ? `<p class="launch-message launch-error">旧 SR 记录读取失败：${esc(data.legacy.error.message)}。恢复记录已保留。</p>` : ''}
         <div class="launch-grid">${['sr', 'fg'].map(domain => {
           const fields = drafts[domain];
           const legacyOptiScaler = domain === 'sr' && hasLegacyOptiScaler(data);
           const available = domain === 'sr' ? !legacyOptiScaler : facts.fgBackend && fields.backend === facts.fgBackend;
           const message = messages[domain];
           return `<section class="launch-panel" data-ls-domain="${domain}" aria-label="${domain === 'sr' ? 'SR 超分辨率' : 'FG 帧生成'}"><div class="launch-panel-title"><h4>${domain === 'sr' ? 'SR 超分' : 'FG 帧生成'}</h4><span>${domain === 'sr' ? '画质与模型' : '倍率与目标'}</span></div>
-            ${domain === 'fg' ? fgComponentMarkup(data, busy || pending) : ''}
-            <fieldset${busy || pending || !available ? ' disabled' : ''}><legend class="sr-only">${domain.toUpperCase()} 设置</legend>${legacyOptiScaler ? '<p class="launch-unavailable">检测到旧 OptiScaler 设置。请先点击总的“恢复默认”，再设置原生 DLSS；恢复记录仍会保留。</p>' : domain === 'sr' ? srFields(fields) : fgFields(fields, data.hardware)}
+            ${domain === 'fg' ? fgComponentMarkup(data, busy || pending || capabilityMissing) : ''}
+            <fieldset${busy || pending || capabilityMissing || !available ? ' disabled' : ''}><legend class="sr-only">${domain.toUpperCase()} 设置</legend>${legacyOptiScaler ? '<p class="launch-unavailable">检测到旧 OptiScaler 设置。请先点击总的“恢复默认”，再设置原生 DLSS；恢复记录仍会保留。</p>' : domain === 'sr' ? srFields(fields, data.hardware) : fgFields(fields, data.hardware)}
             ${statusMarkup(domain, data, dirty[domain])}${message ? `<p class="launch-message${message.error ? ' launch-error' : ''}" role="${message.error ? 'alert' : 'status'}">${esc(message.text)}</p>` : ''}
             ${message?.error && dirty[domain] ? '<button class="button subtle" type="button" data-ls-action="auto">重试应用</button>' : ''}</fieldset></section>`;
         }).join('')}</div>`;
@@ -201,6 +220,7 @@
       let succeeded = false;
       try {
         if (domain) delete messages[domain];
+        if (capabilityMissing && (action === 'auto' || action === 'prepare')) throw new Error('未检测到普通 DLSS，请先确认所选游戏 EXE。');
         if (action === 'auto') {
           const request = createRequest(domain, drafts[domain]);
           setMessage(domain, '正在应用…'); render();
@@ -322,7 +342,7 @@
     return controller;
   }
 
-  const api = { mount, createRequest, hardwareFacts, initialFields, requestLabel, statusMarkup, fgComponentMarkup };
+  const api = { mount, createRequest, hardwareFacts, recommendedPreset, initialFields, requestLabel, statusMarkup, fgComponentMarkup, driverScopeMarkup };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else scope.launchSettingsUi = api;
 })(typeof window === 'object' ? window : globalThis);

@@ -42,11 +42,38 @@ function plain(value, name) {
 function profile(value) {
   if (value === null) return null;
   plain(value, 'profile');
-  const expected = ['name', 'appName', 'exclusive', 'owned'];
+  const expected = ['name', 'appName', 'exclusive', 'owned', 'scope'];
   if (Object.keys(value).some(k => !expected.includes(k)) || typeof value.name !== 'string' ||
       typeof value.appName !== 'string' || typeof value.exclusive !== 'boolean' || typeof value.owned !== 'boolean')
     fail('INVALID_SNAPSHOT', 'profile 字段无效。');
-  return { name: value.name, appName: value.appName, exclusive: value.exclusive, owned: value.owned };
+  const result = { name: value.name, appName: value.appName, exclusive: value.exclusive, owned: value.owned };
+  if (value.exclusive) {
+    if (value.scope !== undefined) fail('INVALID_SNAPSHOT', '独占 profile 不应携带共享范围。');
+  } else {
+    const scope = plain(value.scope, 'profile.scope');
+    if (value.owned || Object.keys(scope).some(key => !['predefined', 'applications', 'fingerprint'].includes(key)) ||
+        typeof scope.predefined !== 'boolean' || typeof scope.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(scope.fingerprint))
+      fail('INVALID_SNAPSHOT', '共享 profile 的范围指纹无效。');
+    result.scope = { predefined: scope.predefined, applications: applications(scope.applications), fingerprint: scope.fingerprint };
+  }
+  return result;
+}
+
+function applications(value, allowEmpty = false) {
+  if (!Array.isArray(value) || value.length > 512 || (!allowEmpty && value.length === 0) ||
+      value.some(name => typeof name !== 'string' || !name || name.length > 2048 || name.includes('\0')))
+    fail('INVALID_SNAPSHOT', 'profile 的应用关联列表无效。');
+  return [...value];
+}
+
+function scopeInfo(value) {
+  plain(value, 'scope');
+  if (Object.keys(value).some(key => !['name', 'applications', 'predefined', 'shared'].includes(key)) ||
+      (value.name !== null && typeof value.name !== 'string') || typeof value.predefined !== 'boolean' || typeof value.shared !== 'boolean')
+    fail('INVALID_SNAPSHOT', 'profile 的影响范围无效。');
+  const names = applications(value.applications, value.name === null);
+  if (value.name === null && (names.length || value.predefined || value.shared)) fail('INVALID_SNAPSHOT', '不存在的 profile 不应声明应用范围。');
+  return { name: value.name, applications: names, predefined: value.predefined, shared: value.shared };
 }
 
 function setting(value, name) {
@@ -147,7 +174,12 @@ function createNvapiProfileAdapter({ runner = nativeRunner, scriptPath } = {}) {
     if (!result?.ok) errorFrom(result, 'NVAPI_WRITE_FAILED');
     return snapshot(result.snapshot, settingIds);
   }
-  return Object.freeze({ read, write });
+  async function inspectScope(exe) {
+    const result = await runner({ op: 'inspect-scope', exe: exePath(exe) }, scriptPath);
+    if (!result?.ok) errorFrom(result, 'NVAPI_READ_FAILED');
+    return scopeInfo(result.scope);
+  }
+  return Object.freeze({ read, write, inspectScope });
 }
 
 module.exports = { ALLOWED_IDS, createNvapiProfileAdapter };

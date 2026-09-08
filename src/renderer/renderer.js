@@ -210,12 +210,13 @@ function renderVersionSelector() {
 }
 
 function coreVersionLabel(id, item) {
+  if (id === '0.3.3-dev-r4') return '0.3.3-r4 · 稳定兼容';
   const raw = String(item && item.label || id);
   const version = raw.match(/^(0\.\d+\.\d+(?:\.\d+)?(?:-(?:hotfix|beta)\.\d+)?)/);
   if (version) {
     const value = version[1];
     if (value.startsWith('0.2.')) return value.replace(/-beta\.\d+$/i, '');
-    if (value.startsWith('0.3.')) return `${value} · 稳定基线`;
+    if (value.startsWith('0.3.')) return `${value} · 历史对照`;
     if (value.startsWith('0.4.')) return `${value} · Beta`;
     return value;
   }
@@ -251,6 +252,9 @@ function versionOptionsMarkup(selected = state.payload && state.payload.selected
   const imported = includeImported ? (state.addons || []).filter(item => item.addonOnly).map(item => [item.id, item]) : [];
   const all = [...versions, ...imported];
   if (!all.length) return '<option value="">当前组件</option>';
+  const missingInstalled = includeImported && selected && !all.some(([id])=>id===selected) && !catalogReplacement(selected);
+  if (missingInstalled) return `<option value="${escapeHtml(selected)}" selected disabled>${/^imported-/.test(selected)?'当前导入核心':escapeHtml(coreVersionLabel(selected))}（原安装源不可用）</option>`+
+    all.map(([id,item])=>`<option value="${escapeHtml(id)}">${escapeHtml(coreVersionLabel(id,item))}${item.addonOnly?'（导入）':''}</option>`).join('');
   if (!all.some(([id]) => id === selected)) selected = catalogReplacement(selected) || (state.payload && state.payload.selectedVersion);
   return all.map(([id, item]) => `<option value="${escapeHtml(id)}"${id === selected ? ' selected' : ''}>${escapeHtml(coreVersionLabel(id, item))}${item.addonOnly ? '（导入）' : ''}</option>`).join('');
 }
@@ -315,15 +319,17 @@ function apiControls(game) {
   const selected = game.apiOverride || 'auto';
   const detectedLabel = detected.api === 'dx11' ? 'DX11 桥接' : detected.api === 'dx12' ? 'DX12' : API_LABELS[detected.api] || 'API 待确认';
   const options = [['auto', `${detectedLabel}（自动）`],
-    ['dx9', 'DirectX 9（暂不支持 NR）'], ['dx10', 'DirectX 10（暂不支持 NR）'],
-    ['dx11', 'DX11 桥接'], ['dx12', 'DX12（无需桥接）'],
-    ['vulkan', 'Vulkan（暂不支持 NR）'], ['opengl', 'OpenGL（暂不支持 NR）']]
+    ['dx12', 'DX12（无需桥接）'], ['dx11', 'DX11 桥接'],
+    ['vulkan', 'Vulkan（暂不支持 NR）'], ['dx10', 'DirectX 10（暂不支持 NR）'],
+    ['dx9', 'DirectX 9（暂不支持 NR）'], ['opengl', 'OpenGL（暂不支持 NR）']]
     .map(([id, label]) => `<option value="${id}"${id === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
   const deployment = resolution.api === 'dx11' ? '兼容桥接随 DirectX 11 自动部署。'
     : resolution.api === 'dx12' ? 'DirectX 12 无需兼容桥接。'
       : ['dx9', 'dx10', 'vulkan', 'opengl', 'unsupported'].includes(resolution.api) ? '当前 API 暂不支持 NR，不部署兼容桥接。' : 'API 待确认，暂不部署兼容桥接。';
   const evidence = (detected.evidence || []).join('；');
-  return `<div class="config-block api-config-block"><h4>游戏图形 API</h4><div class="control-row"><select class="game-api-select" aria-label="游戏图形 API">${options}</select><button class="button subtle api-save-btn">保存 API</button></div><p class="api-route-status">${escapeHtml(deployment)}</p><details class="api-help"><summary>检测与桥接说明</summary><p>自动项展示检测结果；可手动改为实际使用的 API，桥接随选择自动处理。选择绑定当前 EXE 保存，重新扫描不会覆盖；不会替你修改游戏启动参数。已有安装在保存 API 时同步，未安装游戏在安装时应用。</p>${evidence ? `<p>检测线索：${escapeHtml(evidence)}</p>` : ''}</details></div>`;
+  const entryMismatch = detected.source === 'game-entry' && selected !== 'auto' && selected !== detected.api
+    ? `<p class="config-note" role="status">此 EXE 的已知入口为 ${escapeHtml(API_LABELS[detected.api] || detected.api)}；切换下拉框不会切换程序入口。请通过“选择 EXE”选择对应入口。${escapeHtml(evidence)}</p>` : '';
+  return `<div class="config-block api-config-block"><h4>游戏图形 API</h4><div class="control-row"><select class="game-api-select" aria-label="游戏图形 API">${options}</select><button class="button subtle api-save-btn">保存 API</button></div><p class="api-route-status">${escapeHtml(deployment)}</p>${entryMismatch}<details class="api-help"><summary>检测与桥接说明</summary><p>自动项展示检测结果；可手动改为实际使用的 API，桥接随选择自动处理。选择绑定当前 EXE 保存，重新扫描不会覆盖；不会替你修改游戏启动参数。已有安装在保存 API 时同步，未安装游戏在安装时应用。</p>${evidence ? `<p>检测线索：${escapeHtml(evidence)}</p>` : ''}</details></div>`;
 }
 
 function addonVersionRow(game, applyVersion = false) {
@@ -428,7 +434,8 @@ function mergeGameVisuals(previous, next) {
     return {
       ...game,
       poster: game.poster || (old && old.poster) || null,
-      icon: game.icon || (old && old.icon) || null
+      icon: old?.iconCheckedFor === (game.chosen?.path || game.id) ? old.icon : game.icon || old?.icon || null,
+      iconCheckedFor: old?.iconCheckedFor === (game.chosen?.path || game.id) ? old.iconCheckedFor : null
     };
   });
 }
@@ -456,11 +463,12 @@ function bindGameCards() {
   });
   document.querySelectorAll('.game-card').forEach(card => {
     const id = card.dataset.id;
+    const game = state.games.find(row => row.id === id);
     const detail = card.querySelector('.game-detail');
     if (detail && !detail.detailTabController && window.GameDetailTabs) {
       const mountGraphics = () => {
         const host = detail.querySelector('.launch-settings-host');
-        if (host && window.launchSettingsUi && !host.launchSettingsController) window.launchSettingsUi.mount(host, id);
+        if (host && window.launchSettingsUi && !host.launchSettingsController) window.launchSettingsUi.mount(host, id, {nativeDlssAvailable:game?.nativeDlssAvailable});
       };
       detail.detailTabController = window.GameDetailTabs.mount(detail, {
         initial: state.detailTabs.get(detail.dataset.detailKey) === 'graphics' ? 'graphics' : 'enhance',
@@ -513,6 +521,16 @@ function bindGameCards() {
       await loadExpanded(id);
     };
     const applyVersion = card.querySelector('.version-apply-btn');
+    const versionSelect = card.querySelector('.game-version-select');
+    if (versionSelect) {
+      if (applyVersion) applyVersion.disabled=Boolean(versionSelect.selectedOptions[0]?.disabled);
+      versionSelect.onchange=()=>{
+        versionSelect.dataset.versionEdited='true';
+        if (applyVersion) applyVersion.disabled=Boolean(versionSelect.selectedOptions[0]?.disabled);
+        const note=card.querySelector('.installed-version-note');
+        if(note)note.textContent=`已安装：${coreVersionLabel(game?.addonVersion)}。所选版本尚未应用，点击“应用版本”后才会更换。`;
+      };
+    }
     if (applyVersion) applyVersion.onclick = event => {
       event.stopPropagation();
       const version = card.querySelector('.game-version-select').value;
@@ -548,7 +566,7 @@ async function loadExpanded(id) {
   };
   const versionSelect = root.querySelector('.game-version-select');
   const game = state.games.find(row => row.id === id);
-  if (versionSelect) {
+  if (versionSelect && versionSelect.dataset.versionEdited !== 'true') {
     const requested = (game && game.addonVersion) || (state.payload && state.payload.selectedVersion);
     if ([...versionSelect.options].some(option => option.value === requested)) versionSelect.value = requested;
   }
@@ -881,8 +899,8 @@ function confirmUninstall(id) {
 function confirmDismissGame(id) {
   const game = state.games.find(row => row.id === id);
   state.pendingModal = { type: 'dismiss-game', id };
-  $('modalTitle').textContent = '移除这个条目';
-  $('modalBody').textContent = `确认从游戏列表移除“${game ? game.name : id}”？不会删除游戏文件；之后可以重新选择游戏目录添加。移除记录会保留，重新扫描时不会自动回来。`;
+  $('modalTitle').textContent = '卸载组件并移除游戏';
+  $('modalBody').textContent = `将先卸载本工具为“${game ? game.name : id}”部署的组件，撤销超分补帧覆盖并恢复安装前备份，然后移出列表。保留游戏本体和个人配置；恢复失败时保留条目，方便继续处理。之后可重新添加。`;
   $('removeSettingsLine').classList.add('hidden');
   $('modal').classList.remove('hidden');
 }
@@ -1033,10 +1051,11 @@ async function enrichMissingArtwork() {
         if (poster) { game.poster = poster; changed = true; }
       } catch {}
     }
-    if (!game.poster && !game.icon) {
+    if (!game.poster && game.iconCheckedFor !== (game.chosen?.path || game.id)) {
       try {
-        const icon = unwrap(await window.manager.getGameIcon(game.id));
+        const icon = unwrap(await window.manager.getGameIcon(game.id, game.icon));
         if (icon) { game.icon = icon; changed = true; }
+        game.iconCheckedFor = game.chosen?.path || game.id;
       } catch {}
     }
     if (changed) updateGameCardArtwork(game);

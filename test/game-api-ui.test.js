@@ -48,6 +48,8 @@ test('automatic API label retains detection while a manual override controls the
   assert.match(html, /value="auto">DX11 桥接（自动）/);
   assert.match(html, /value="dx12" selected/);
   assert.match(html, /DirectX 12 无需兼容桥接/);
+  const optionValues = [...html.matchAll(/<option value="([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(optionValues, ['auto', 'dx12', 'dx11', 'vulkan', 'dx10', 'dx9', 'opengl']);
   assert.equal(vm.runInContext('gameApiLabel(game.chosen)', context), 'DX12（已指定）');
   context.game.chosen.apiResolution = { api: 'dx11', source: 'imports' };
   assert.equal(vm.runInContext('gameApiLabel(game.chosen)', context), 'DX11 桥接（自动）');
@@ -177,7 +179,7 @@ test('rename modal saves entered names and cancel leaves the manager untouched',
 test('retired catalog selection offers its replacement while preserving the actual installed version', () => {
   const context = uiContext();
   assert.equal(vm.runInContext("coreVersionLabel('0.2.0-beta.2')", context), '0.2.0');
-  assert.equal(vm.runInContext("coreVersionLabel('0.3.3.5')", context), '0.3.3.5 · 稳定基线');
+  assert.equal(vm.runInContext("coreVersionLabel('0.3.3.5')", context), '0.3.3.5 · 历史对照');
   assert.equal(vm.runInContext("coreVersionLabel('0.4.6-hotfix.1')", context), '0.4.6-hotfix.1 · Beta');
   context.game = { installed: true, addonVersion: '0.4.6' };
   const html = vm.runInContext('addonVersionRow(game, true)', context);
@@ -192,9 +194,16 @@ test('retired catalog selection offers its replacement while preserving the actu
   const installer = fs.readFileSync(path.join(__dirname, '../src/product/installer.js'), 'utf8');
   vm.runInContext(installer.slice(installer.indexOf('const coreVersionText'), installer.indexOf('const { scanConflicts')), context);
   assert.equal(vm.runInContext("coreVersionText('0.2.0-beta.2')", context), '0.2.0');
-  assert.equal(vm.runInContext("coreVersionText('0.3.3.5')", context), '0.3.3.5 · 稳定基线');
+  assert.equal(vm.runInContext("coreVersionText('0.3.3.5')", context), '0.3.3.5 · 历史对照');
 });
 
 test('product metadata exposes the second QQ group number', () => {
   assert.equal(product.qqGroup, '392308850');
+});
+
+test('a lost imported source remains visibly selected instead of masquerading as the default core', () => {
+  const context=uiContext();context.game={installed:true,addonVersion:'imported-123456789abc'};
+  const html=vm.runInContext('addonVersionRow(game,true)',context);
+  assert.match(html,/value="imported-123456789abc" selected disabled/);
+  assert.match(html,/原安装源不可用/);assert.doesNotMatch(html,/value="0\.4\.6-hotfix\.1" selected/);
 });

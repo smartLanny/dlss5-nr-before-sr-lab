@@ -10,6 +10,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 
 $source = @'
 using System;
@@ -19,7 +20,11 @@ using System.Runtime.InteropServices;
 namespace XiaofengNvapi {
   public sealed class SettingState {
     public bool explicitValue { get; set; }
-    public uint value { get; set; }
+    public uint? value { get; set; }
+    public string kind { get; set; }
+    public int? location { get; set; }
+    public bool? predefined { get; set; }
+    public SettingState() { kind = "absent"; }
   }
 
   public sealed class StateResult {
@@ -84,8 +89,10 @@ namespace XiaofengNvapi {
   public static class Drs {
     const int OK = 0;
     const int PROFILE_NOT_FOUND = -163;
-    const int SETTING_ALREADY_DEFAULT = -160;
-    const int SETTING_NOT_FOUND = -165;
+    // NVIDIA nvapi_lite_common.h: -160 is SETTING_NOT_FOUND;
+    // -165 is PROFILE_NAME_EMPTY and must remain a failure.
+    // https://github.com/NVIDIA/nvapi/blob/main/nvapi_lite_common.h
+    const int SETTING_NOT_FOUND = -160;
     const int EXECUTABLE_NOT_FOUND = -166;
 
     const uint SR_OVERRIDE_ID = 0x10E41E01;
@@ -201,18 +208,32 @@ namespace XiaofengNvapi {
 
     static void DeleteSetting(Api api, IntPtr session, IntPtr profile, uint id) {
       int status = api.DeleteSetting(session, profile, id);
-      if (status != OK && status != SETTING_NOT_FOUND && status != SETTING_ALREADY_DEFAULT)
+      CheckDeleteStatus(status, id);
+    }
+
+    static void CheckDeleteStatus(int status, uint id) {
+      if (status != OK && status != SETTING_NOT_FOUND)
         throw new InvalidOperationException(String.Format("NvAPI_DRS_DeleteProfileSetting 0x{0:X8} failed ({1})", id, status));
     }
 
     static SettingState ReadState(Api api, IntPtr session, IntPtr profile, uint id) {
-      SettingState state = new SettingState();
       NVDRS_SETTING setting = NewSetting();
       int status = api.GetSetting(session, profile, id, ref setting);
-      if (status == SETTING_NOT_FOUND) return state;
+      return DecodeReadState(status, setting, id);
+    }
+
+    static SettingState DecodeReadState(int status, NVDRS_SETTING setting, uint id) {
+      if (status == SETTING_NOT_FOUND) return new SettingState();
       Check(status, String.Format("NvAPI_DRS_GetSetting 0x{0:X8}", id));
-      state.explicitValue = setting.isCurrentPredefined == 0;
+      if (setting.settingType != 0) throw new InvalidOperationException(String.Format("NvAPI setting 0x{0:X8} is not a DWORD", id));
+      if (setting.settingLocation < 0 || setting.settingLocation > 3)
+        throw new InvalidOperationException(String.Format("NvAPI setting 0x{0:X8} has unknown location {1}", id, setting.settingLocation));
+      SettingState state = new SettingState();
+      state.explicitValue = setting.settingLocation == 0 && setting.isCurrentPredefined == 0;
+      state.kind = state.explicitValue ? "explicit" : "inherited";
       state.value = setting.currentValue.u32Value;
+      state.location = setting.settingLocation;
+      state.predefined = setting.isCurrentPredefined != 0;
       return state;
     }
 
@@ -375,8 +396,8 @@ try {
       ok = $true
       profileFound = $result.profileFound
       profile = $result.profile
-      enable = [pscustomobject]@{ explicit = $result.enable.explicitValue; value = $result.enable.value }
-      preset = [pscustomobject]@{ explicit = $result.preset.explicitValue; value = $result.preset.value }
+      enable = [pscustomobject]@{ explicit = $result.enable.explicitValue; value = $result.enable.value; kind = $result.enable.kind; location = $result.enable.location; predefined = $result.enable.predefined }
+      preset = [pscustomobject]@{ explicit = $result.preset.explicitValue; value = $result.preset.value; kind = $result.preset.kind; location = $result.preset.location; predefined = $result.preset.predefined }
     } | ConvertTo-Json -Compress
   } else {
     $result | ConvertTo-Json -Compress

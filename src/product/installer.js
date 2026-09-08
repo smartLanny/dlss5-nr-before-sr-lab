@@ -8,10 +8,11 @@ const { inspectAddonLayout, requireAddonLayout } = require('./reshade-layout');
 const { assess, classifyApi, isDx11Only } = require('./game-support');
 const { sha256 } = require('./payload');
 const coreVersionText = value => {
+  if (/^0\.3\.3-(?:dev-)?r4\b/.test(String(value || ''))) return '0.3.3-r4 · 稳定兼容';
   const raw = String(value || ''), version = raw.match(/^(0\.\d+\.\d+(?:\.\d+)?(?:-(?:hotfix|beta)\.\d+)?)/)?.[1];
   if (!version) return raw;
   if (version.startsWith('0.2.')) return version.replace(/-beta\.\d+$/i, '');
-  if (version.startsWith('0.3.')) return `${version} · 稳定基线`;
+  if (version.startsWith('0.3.')) return `${version} · 历史对照`;
   return version.startsWith('0.4.') ? `${version} · Beta` : version;
 };
 const { scanConflicts, moveConflicts, restoreConflicts } = require('./conflicts');

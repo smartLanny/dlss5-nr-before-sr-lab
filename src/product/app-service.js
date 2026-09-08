@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { PRODUCT, DX11_COMPAT_VERSION } = require('./constants');
+const { PRODUCT, DX11_COMPAT_VERSION, INSTALLED_NAMES } = require('./constants');
 const { isDx11Only, classifyApi } = require('./game-support');
 const { createStore } = require('./state-store');
 const { createLibraryWorkerClient } = require('./library-worker-client');
@@ -11,7 +11,7 @@ const { createInstaller } = require('./installer');
 const { payloadRoot, readBundle, requirePayload, sha256 } = require('./payload');
 const { readConfig, writeConfig, defaultPatch } = require('./nr-config');
 const { readReShadeHotkey, writeReShadeHotkey } = require('./hotkeys');
-const { readManifest, assertManifestExecutable } = require('./manifest');
+const { readManifest, assertManifestExecutable, manifestPath } = require('./manifest');
 const { appError, normalizeError, MESSAGES } = require('./errors');
 const { detectGpu: readGpu } = require('./gpu');
 const { createArtService } = require('./art-service');
@@ -110,6 +110,30 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
 
   const removeExcludedFor = (rows, root, executable = null) =>
     (Array.isArray(rows) ? rows : []).filter(row => !canBeRestoredBy(row, root, executable));
+
+  function executableAliases(state, root, executable) {
+    const roots = new Map([[pathKey(root), root]]);
+    const sameExe = value => typeof value === 'string' && executable && pathKey(value) === pathKey(executable);
+    const add = dir => {
+      if (typeof dir === 'string' && path.isAbsolute(dir) && executable && isInside(executable, dir)) roots.set(pathKey(dir), path.resolve(dir));
+    };
+    for (const game of games) if (sameExe(game.scan?.chosen?.path || game.chosen?.path)) {
+      add(game.dir); for (const alias of game.rootAliases || []) add(alias);
+    }
+    for (const row of state.manualExecutables) if (sameExe(row.file)) add(row.root);
+    for (const [dir, row] of Object.entries(state.gameOverrides)) if (sameExe(row.apiExecutable)) add(dir);
+    for (const row of state.excludedGames) if (sameExe(row.executable)) add(row.dir);
+    const otherExecutables = [
+      ...state.manualExecutables.map(row => row.file), ...Object.values(state.gameOverrides).map(row => row.apiExecutable),
+      ...games.map(game => game.scan?.chosen?.path || game.chosen?.path)
+    ].filter(file => typeof file === 'string' && !sameExe(file));
+    const protectedRoots = new Set([...roots.keys()].filter(key => key !== pathKey(root) && fs.existsSync(manifestPath(roots.get(key)))));
+    const sharedRoots = new Set([...roots.keys()].filter(key => otherExecutables.some(file => isInside(file, roots.get(key)))));
+    const ownsRoot = dir => roots.has(pathKey(dir)) && !protectedRoots.has(pathKey(dir));
+    const ownsMetadata = (dir, row) => ownsRoot(dir) && (!row?.apiExecutable || sameExe(row.apiExecutable)) &&
+      (!sharedRoots.has(pathKey(dir)) || sameExe(row?.apiExecutable));
+    return { roots, sameExe, protectedRoots, sharedRoots, ownsRoot, ownsMetadata };
+  }
 
   function selectedVersion() {
     return store.read().addonVersion || undefined;
@@ -287,6 +311,34 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     };
   }
 
+  async function diagnoseGame(game) {
+    let inspected;
+    try { inspected = inspectGamePayload(game); }
+    catch (error) {
+      const manifest = readManifest(game.dir);
+      if (!manifest || !/^(?:ERR_ADDON_NOT_FOUND|ERR_PAYLOAD_[A-Z_]+)$/.test(error.code || '')) throw error;
+      const executableDir = path.dirname(assertManifestExecutable(game.dir, manifest));
+      const currentFiles = manifest.files.filter(row => row && typeof row.kind === 'string' && typeof row.rel === 'string' &&
+        !path.isAbsolute(row.rel) && /^[a-f0-9]{64}$/i.test(row.installedSha256 || '') && Object.hasOwn(INSTALLED_NAMES, row.kind) &&
+        pathKey(path.resolve(game.dir, row.rel)) === pathKey(path.join(executableDir, INSTALLED_NAMES[row.kind])));
+      const expected = Object.fromEntries(currentFiles.map(row => [row.kind, { actual: row.installedSha256 }]));
+      expected.versionInfo = { compatibility: manifest.deploymentApi === 'dx11' || currentFiles.some(row => row.kind === 'carrier') ? 'dx11' : null };
+      const result = await installer.diagnose({ gameDir: game.dir, payload: expected, payloadVersion: manifest.payloadVersion,
+        payloadVersionLabel: /^imported-/.test(manifest.payloadVersion || '') ? '已装导入核心（原包需重新导入）' : manifest.payloadVersion, scan: game.scan });
+      return {
+        payload: { selectedVersion: manifest.payloadVersion, ready: false, missing: ['原安装源不可用'], invalid: [] },
+        diagnostic: { ...result, complete: false, sourceMissing: true, components: [...result.components, { key: 'payload-source', label: '修复组件来源', ok: false,
+          detail: '已按安装记录检查现有文件。原安装源不可用；可重新导入原包，或选择可用核心并点击“应用版本”。卸载恢复不依赖原包。' }] }
+      };
+    }
+    const payload = inspected.payload;
+    const mapped = Object.fromEntries(payload.files.map(row => [row.kind, row]));
+    mapped.versionInfo = payload.versionInfo || (payload.versions && payload.versions[payload.selectedVersion]);
+    const result = await installer.diagnose({ gameDir: game.dir, payload: mapped, payloadVersion: inspected.payloadVersion,
+      payloadVersionLabel: inspected.payloadVersionLabel, scan: game.scan });
+    return { payload, diagnostic: inspected.payloadVersionReplacement ? { ...result, payloadReplacement: inspected.payloadVersionReplacement } : result };
+  }
+
   async function repairGame(game, options = {}) {
       const requestedVersion = options && typeof options.version === 'string' ? options.version : null;
       const version = selectedVersionForGame(game, requestedVersion);
@@ -304,7 +356,8 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   function publicGame(game) {
     if (!game) return null;
     const { scan, ...safe } = game;
-    return { ...safe, recommendedAddonVersion: safe.recommendedAddonVersion ? recommendedCompatVersion() : null };
+    return { ...safe, nativeDlssAvailable: Boolean(scan?.primaryDlss && /^nvngx_dlss\.dll$/i.test(scan.primaryDlss.name || '')),
+      recommendedAddonVersion: safe.recommendedAddonVersion ? recommendedCompatVersion() : null };
   }
 
   function findGame(id) {
@@ -381,18 +434,32 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       throw appError('ERR_BAD_REQUEST');
     }
     const state = store.read();
-    const manualExecutables = state.manualExecutables.filter(row => pathKey(row.root) !== pathKey(root));
+    const aliases = executableAliases(state, root, executable);
+    const manualExecutables = state.manualExecutables.filter(row => pathKey(row.root) !== pathKey(root) &&
+      !(aliases.ownsRoot(row.root) && aliases.sameExe(row.file)));
     manualExecutables.push({ root, file: executable });
-    const gameOverrides = { ...state.gameOverrides };
+    const remembered = [...aliases.roots.keys()].filter(key => aliases.ownsMetadata(key, state.gameOverrides[key]))
+      .map(key => state.gameOverrides[key]).filter(Boolean);
+    // Prefer the canonical root, then fill missing display metadata from an
+    // exact-EXE alias. Never carry a route remembered for another executable.
+    const canonical = state.gameOverrides[pathKey(root)];
+    const metadata = [canonical, ...remembered].filter(row => row && (!row.apiExecutable || aliases.sameExe(row.apiExecutable)));
+    const boundApi = metadata.find(row => aliases.sameExe(row.apiExecutable));
     const name = typeof selection.name === 'string' ? selection.name.trim().slice(0, 160) : '';
     const icon = typeof selection.icon === 'string' && selection.icon.length <= 1024 * 1024 ? selection.icon : null;
-    gameOverrides[pathKey(root)] = { ...gameOverrides[pathKey(root)], name, icon };
+    const gameOverrides = Object.fromEntries(Object.entries(state.gameOverrides).filter(([dir, row]) => !aliases.ownsMetadata(dir, row)));
+    gameOverrides[pathKey(root)] = {
+      name: name || metadata.find(row => row.name)?.name || '',
+      icon: icon || metadata.find(row => row.icon)?.icon || null,
+      api: boundApi?.api || 'auto', apiExecutable: boundApi ? executable : null
+    };
       await store.write({
-        manualGames: [...state.manualGames, root],
+        manualGames: [...state.manualGames.filter(dir => !aliases.ownsRoot(dir) || aliases.sharedRoots.has(pathKey(dir))), root],
         manualExecutables,
         gameOverrides,
-        excludedRoots: state.excludedRoots.filter(item => pathKey(item) !== pathKey(root)),
-        excludedGames: removeExcludedFor(state.excludedGames, root, executable)
+        excludedRoots: state.excludedRoots.filter(dir => !aliases.ownsRoot(dir) || aliases.sharedRoots.has(pathKey(dir))),
+        excludedGames: state.excludedGames.filter(row => !aliases.sameExe(row.executable) &&
+          !(row.dir && !row.executable && aliases.ownsRoot(row.dir) && !aliases.sharedRoots.has(pathKey(row.dir))))
       });
     return refreshCollection(games);
   }
@@ -486,20 +553,32 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     },
     dismissGame: async id => {
       const game = findGame(id);
-      const key = pathKey(game.dir);
+      // Removing a library entry also removes this tool's NR deployment. Never
+      // hide the game while an incomplete restore still needs the user's attention.
+      if (readManifest(game.dir)) {
+        const result=await installer.uninstall({gameDir:game.dir,removeSettings:false,scan:game.scan});
+        if (result?.removed !== true) throw appError('ERR_BACKUP_INVALID',{operation:'dismiss-uninstall',removed:false,warnings:result?.warnings||[]});
+      }
       const state = store.read();
+      const executable = game.scan?.chosen?.path || null;
+      const aliases = executableAliases(state, game.dir, executable);
+      const removable = [...aliases.roots].filter(([key]) => !aliases.protectedRoots.has(key) && !aliases.sharedRoots.has(key));
+      const hiddenRoots = removable.map(([, dir]) => dir);
+      const hidesAnotherReceipt = dir => [...aliases.protectedRoots].some(key => isInside(aliases.roots.get(key), dir));
+      // With another receipt, use exact-directory exclusions so its recovery
+      // row cannot be hidden by the shared executable or launcher identity.
+      const exclusionDirs = [...new Set([game.dir, ...hiddenRoots])];
       await store.write({
-        excludedRoots: [...state.excludedRoots, game.dir],
-        excludedGames: [...state.excludedGames, {
-          dir: game.dir,
-          executable: game.scan && game.scan.chosen ? game.scan.chosen.path : null,
-          launcher: game.launcher || '',
-          id: game.appid || null,
-          appid: game.appid || null
-        }],
-        manualGames: state.manualGames.filter(dir => pathKey(dir) !== key),
-        manualExecutables: state.manualExecutables.filter(row => pathKey(row.root) !== key),
-        gameOverrides: Object.fromEntries(Object.entries(state.gameOverrides).filter(([dir]) => dir !== key))
+        excludedRoots: [...state.excludedRoots, ...hiddenRoots.filter(dir => !hidesAnotherReceipt(dir))],
+        excludedGames: [...state.excludedGames, ...exclusionDirs.map(dir => ({
+          dir, executable: aliases.protectedRoots.size ? null : executable,
+          launcher: aliases.protectedRoots.size ? '' : game.launcher || '',
+          id: aliases.protectedRoots.size ? null : game.appid || null,
+          appid: aliases.protectedRoots.size ? null : game.appid || null
+        }))],
+        manualGames: state.manualGames.filter(dir => !aliases.ownsRoot(dir) || aliases.sharedRoots.has(pathKey(dir))),
+        manualExecutables: state.manualExecutables.filter(row => !(aliases.ownsRoot(row.root) && (!executable || aliases.sameExe(row.file)))),
+        gameOverrides: Object.fromEntries(Object.entries(state.gameOverrides).filter(([dir, row]) => !aliases.ownsMetadata(dir, row)))
       });
       return refreshCollection(games);
     },
@@ -674,38 +753,14 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       }
       return refreshAfterMutation(result);
     },
-    diagnose: async id => {
-      const game = findGame(id);
-      const inspected = inspectGamePayload(game);
-      const payload = inspected.payload;
-      const mapped = Object.fromEntries(payload.files.map(row => [row.kind, row]));
-      mapped.versionInfo = payload.versionInfo || (payload.versions && payload.versions[payload.selectedVersion]);
-      const result = await installer.diagnose({
-        gameDir: game.dir,
-        payload: mapped,
-        payloadVersion: inspected.payloadVersion,
-        payloadVersionLabel: inspected.payloadVersionLabel,
-        scan: game.scan
-      });
-      return inspected.payloadVersionReplacement ? { ...result, payloadReplacement: inspected.payloadVersionReplacement } : result;
-    },
+    diagnose: async id => (await diagnoseGame(findGame(id))).diagnostic,
     collectFeedback: async (id, options = {}) => {
       const game = findGame(id);
       const includePaths = options && options.includePaths === true;
       let payload = null;
       let diagnostic = null;
       try {
-        const inspected = inspectGamePayload(game);
-        payload = inspected.payload;
-        const mapped = Object.fromEntries(payload.files.map(row => [row.kind, row]));
-        mapped.versionInfo = payload.versionInfo || (payload.versions && payload.versions[payload.selectedVersion]);
-        diagnostic = await installer.diagnose({
-          gameDir: game.dir,
-          payload: mapped,
-          payloadVersion: inspected.payloadVersion,
-          payloadVersionLabel: inspected.payloadVersionLabel,
-          scan: game.scan
-        });
+        ({ payload, diagnostic } = await diagnoseGame(game));
       } catch (error) {
         const normalized = normalizeError(error);
         diagnostic = {

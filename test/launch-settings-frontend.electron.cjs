@@ -13,7 +13,7 @@ app.disableHardwareAcceleration();
 function installMock() {
   const ok = value => ({ ok: true, value: structuredClone(value) });
   const mock = window.__launchMock = {
-    data: { hardware: { family: 'RTX40', series: ['RTX40'], names: ['NVIDIA GeForce RTX 4090'], source: 'fixture' }, requests: {}, applied: {}, pending: [], fgComponents: { ready: true, canPrepare: false, missing: [], blockers: [] } },
+    data: { hardware: { family: 'RTX40', series: ['RTX40'], names: ['NVIDIA GeForce RTX 4090'], source: 'fixture' }, requests: {}, applied: {}, pending: [], driverScope: { name: 'Fixture Shared Profile', applications: ['Game.exe', 'Launcher.exe'], predefined: true, shared: true }, fgComponents: { ready: true, canPrepare: false, missing: [], blockers: [] } },
     calls: [], failUpdate: false, listener: null
   };
   const game = { id: 'ui-fixture', name: 'SR / FG 界面验证', dir: 'C:\\UI-fixture\\游戏目录', installed: true, supported: true, launcher: '手动添加',
@@ -67,6 +67,8 @@ async function smoke() {
   const waitUntil = async predicate => { const deadline = Date.now() + 5000; while (!predicate()) { if (Date.now() > deadline) throw new Error('Timed out waiting for renderer'); await new Promise(resolve => setTimeout(resolve, 10)); } };
   const visible = node => Boolean(node && node.getClientRects().length && getComputedStyle(node).visibility !== 'hidden');
   await waitUntil(() => document.querySelector('.game-card-head'));
+  const communityNote = document.querySelector('.community-note');
+  assert(communityNote && document.getElementById('bilibiliBtn').nextElementSibling === communityNote && communityNote.textContent.includes('用爱发电') && communityNote.textContent.includes('不要付费') && visible(communityNote), 'The quiet two-line free-use note appears below the homepage link');
   const apiFixture = document.createElement('div');
   for (const [api, label] of [['dx11', 'DX11 桥接（自动）'], ['dx12', 'DX12（自动）'], ['unknown', 'API 待确认（自动）']]) {
     apiFixture.innerHTML = apiControls({ apiOverride: 'auto', chosen: { detectedApi: api, detectedApiResolution: { api, source: 'fixture', evidence: [] }, apiResolution: { api, source: 'fixture' } } });
@@ -92,10 +94,31 @@ async function smoke() {
   const apiSelect = detail.querySelector('.game-api-select'), coreSelect = detail.querySelector('.game-version-select');
   assert(!apiSelect.closest('[data-detail-panel]') && !coreSelect.closest('[data-detail-panel]') && visible(apiSelect) && visible(coreSelect), 'API and core controls live outside tab panels and are visible on enhancement');
   assert(detail.querySelector('.skin-settings').tagName === 'DIV' && !detail.querySelector('.nr-mask').closest('details') && visible(detail.querySelector('.nr-mask')) && visible(detail.querySelector('.nr-skin-strength')), 'Skin protection and strength are visible without expanding an advanced section');
+  const coveredTab = detail.querySelector('[data-detail-tab="graphics"]');
+  detail.querySelector('.uninstall-inline-btn').click();
+  const removalModal = document.getElementById('modal'), tabRect = coveredTab.getBoundingClientRect();
+  const hit = document.elementFromPoint(tabRect.left + tabRect.width / 2, tabRect.top + tabRect.height / 2);
+  assert(!removalModal.classList.contains('hidden') && Number(getComputedStyle(removalModal).zIndex) > Number(getComputedStyle(detail.querySelector('.detail-tabs')).zIndex), 'The removal modal is stacked above sticky detail tabs');
+  assert(hit === removalModal || hit?.closest('#modal') === removalModal, 'The modal mask receives pointer hits over the underlying sticky tab');
+  document.getElementById('modalConfirm').focus();
+  assert(document.activeElement === document.getElementById('modalConfirm') && removalModal.matches(':focus-within'), 'Modal actions retain keyboard focus above the covered content');
+  hit.click();
+  assert(tabs.active() === 'enhance' && !removalModal.classList.contains('hidden'), 'Clicking the mask over a tab cannot activate the covered tab or dismiss the confirmation');
+  document.getElementById('modalCancel').click();
   detail.querySelector('[data-detail-tab="graphics"]').click();
   assert(visible(apiSelect) && visible(coreSelect), 'The same public API and core controls remain visible on graphics');
   await host.launchSettingsController.ready;
   const controller = host.launchSettingsController;
+  assert(host.querySelector('.launch-driver-scope')?.textContent.includes('Fixture Shared Profile') && host.querySelector('.launch-driver-scope')?.textContent.includes('关联 2 个启动入口'), 'A shared NVIDIA profile explains that settings affect both launch entries');
+  const capabilityHost = document.createElement('div'); capabilityHost.className = 'launch-settings-host'; host.parentElement.appendChild(capabilityHost);
+  const writesBeforeCapability = mock.calls.filter(row => row[0] === 'update').length;
+  const capabilityController = window.launchSettingsUi.mount(capabilityHost, 'ui-fixture', { manager: window.manager, nativeDlssAvailable: false });
+  await capabilityController.ready;
+  assert(capabilityHost.textContent.includes('未检测到普通 DLSS') && [...capabilityHost.querySelectorAll('fieldset')].every(item => item.disabled), 'A game without detected ordinary DLSS clearly disables both SR and FG editors');
+  assert(!capabilityHost.querySelector('[data-ls-action="restore-all"]').disabled && !capabilityHost.querySelector('[data-ls-action="prepare"]:not([disabled])'), 'Missing DLSS keeps restoration available while component preparation cannot run');
+  await capabilityController.perform('auto', 'sr');
+  assert(mock.calls.filter(row => row[0] === 'update').length === writesBeforeCapability, 'A disabled capability cannot be bypassed through the renderer controller');
+  capabilityHost.remove();
   const panel = domain => host.querySelector(`[data-ls-domain="${domain}"]`);
   const field = (domain, key) => panel(domain).querySelector(`[data-ls-field="${key}"]`);
   const set = (domain, key, value) => {
@@ -135,6 +158,9 @@ async function smoke() {
   assert(document.querySelectorAll('.sr-model-select').length === 0, 'Legacy SR selector is absent');
   assert(document.querySelectorAll('[aria-label="DLSS SR 模型"]').length === 1, 'There is exactly one SR model selector');
   assert(!field('sr', 'backend'), 'SR has no backend selector');
+  assert(field('sr', 'preset').value === 'auto' && field('sr', 'preset').selectedOptions[0].textContent === '自动推荐 · M（推荐）', 'RTX40 starts with the visible M automatic recommendation without an initialization write');
+  assert([...field('sr', 'preset').options].some(item => item.value === 'L' && item.textContent.includes('高画质低性能')), 'Manual L explains its quality and performance tradeoff');
+  assert([...field('sr', 'preset').options].some(item => item.value === 'M' && item.textContent.includes('推荐（适用 RTX40 / RTX50）')), 'Manual M identifies its RTX40 and RTX50 recommendation');
   assert(document.querySelector('.game-version-select').textContent.includes('Beta'), 'Core Beta choice remains visible');
   assert(!document.querySelector('.carrier-component-check'), 'API route owns compatibility bridging without a separate checkbox');
   assert(field('sr', 'renderPercent').value === '67', 'Input percentage is visible before any interaction');
@@ -193,10 +219,10 @@ async function smoke() {
   mock.data.requests = {}; mock.data.applied = {};
   mock.data.legacy = { selection: 'auto', effective: 'm', managed: false, baselineCaptured: true };
   await controller.refresh(true);
-  assert(field('sr', 'quality').value === 'quality' && field('sr', 'preset').value === 'M', 'Legacy M remains visible alongside a proposed quality preset');
+  assert(field('sr', 'quality').value === 'quality' && field('sr', 'preset').value === 'auto', 'Legacy automatic selection remains automatic while its current M result stays visible');
   assert(panel('sr').textContent.includes('沿用原模型设置：自动 → 模型 M') && !panel('sr').textContent.includes('未设启动覆盖'), 'Legacy launch behavior stays visible before ownership migration');
   await click(null, 'restore-all');
-  assert(field('sr', 'quality').value === 'quality' && field('sr', 'preset').value === '' && !panel('sr').textContent.includes('沿用原模型设置'), 'A restored and managed legacy policy cannot silently re-enable M');
+  assert(field('sr', 'quality').value === 'quality' && field('sr', 'preset').value === 'auto' && !panel('sr').textContent.includes('沿用原模型设置'), 'A restored legacy policy returns to the explicit hardware-bound recommendation without silently restoring old M ownership');
   set('sr', 'quality', 'custom'); set('sr', 'renderPercent', 75); set('sr', 'preset', 'M');
   const beforeSrAuto = count('update'); await waitForAuto(beforeSrAuto);
   assert(saved('sr').renderPercent === 75 && saved('sr').preset === 'M' && mock.data.applied.sr.readbackVerified, 'Native SR automatically saves, applies and reads back custom 75 percent with model M');

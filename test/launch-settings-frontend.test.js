@@ -18,6 +18,7 @@ test('renderer requests compile with the real policy and omit dormant fields', (
   assert.throws(() => ui.createRequest('sr', { backend: 'native', quality: 'custom', renderPercent: '75.5' }), /整数/);
   assert.throws(() => ui.createRequest('sr', { backend: 'optiscaler', quality: 'custom', renderPercent: '33.33' }), /33.334/);
   assert.deepEqual(ui.createRequest('sr', { backend: 'native', quality: 'preserve', preset: 'K' }), { backend: 'native', quality: 'preserve', preset: 'K' });
+  assert.deepEqual(ui.createRequest('sr', { backend: 'native', quality: 'preserve', preset: 'auto' }), { backend: 'native', quality: 'preserve', preset: 'auto' });
   for (const backend of ['nvidia', 'rtx40']) {
     for (const mode of ['restore', 'fixed', 'dynamic', backend === 'nvidia' ? 'off' : 'follow']) {
       const request = ui.createRequest('fg', { backend, mode, multiplier: '6', targetFps: '0', experimental56: true });
@@ -41,6 +42,11 @@ test('an installation family alone never grants FG capability', () => {
   assert.equal(ui.hardwareFacts({ series: ['RTX40'], source: 'unavailable' }).fgBackend, null);
   assert.equal(ui.hardwareFacts({ family: 'RTX40', series: ['RTX40'], names: ['NVIDIA GeForce RTX 4090'] }).fgBackend, 'rtx40');
   assert.equal(ui.hardwareFacts({ family: 'RTX50', series: ['RTX50'] }).fgBackend, 'nvidia');
+  assert.equal(ui.recommendedPreset({ family: 'RTX30', series: ['RTX30'] }), 'K');
+  assert.equal(ui.recommendedPreset({ family: 'RTX40', series: ['RTX40'] }), 'M');
+  assert.equal(ui.recommendedPreset({ family: 'RTX50', series: ['RTX50'] }), 'M');
+  assert.equal(ui.recommendedPreset({ family: 'mixed', series: ['RTX30', 'RTX40'] }), null);
+  assert.equal(ui.recommendedPreset({ family: 'RTX40' }), null);
 });
 
 test('settings apply through one update operation; errors stay dirty and global reset clears both domains', async () => {
@@ -102,7 +108,8 @@ test('readback state and component messages are escaped', () => {
 test('legacy SR choices stay visible until this editor takes ownership', () => {
   const data = { requests: {}, applied: {}, legacy: { selection: 'auto', effective: 'm', managed: false, baselineCaptured: true } };
   assert.equal(ui.initialFields('sr', data).quality, 'quality');
-  assert.equal(ui.initialFields('sr', data).preset, 'M');
+  data.hardware = { family: 'RTX40', series: ['RTX40'] };
+  assert.equal(ui.initialFields('sr', data).preset, 'auto');
   const status = ui.statusMarkup('sr', data, false);
   assert.match(status, /沿用原模型设置：自动 → 模型 M/);
   assert.doesNotMatch(status, /未设启动覆盖|配置已校验/);
@@ -128,6 +135,78 @@ test('the new module replaces the legacy writable SR widget and preserves core c
   assert.match(renderer, /launchSettingsUi.mount/);
   assert.doesNotMatch(renderer, /carrier-component-check/);
   assert.match(renderer, /核心版本/);
+  assert.match(html, /<div class="community-note"[^>]*><span>用爱发电<\/span><span>不要付费<\/span><\/div>/);
+});
+
+test('shared NVIDIA profile scope is visible without nagging a single executable', () => {
+  assert.equal(ui.driverScopeMarkup({ name: 'Game profile', applications: ['Game.exe'], shared: false }), '');
+  const shared = ui.driverScopeMarkup({ name: '<Shared>', applications: ['Game.exe', '<Launcher.exe>'], shared: true });
+  assert.match(shared, /NVIDIA 游戏配置：&lt;Shared&gt; · 关联 2 个启动入口；超分补帧设置会同步用于这些入口/);
+  assert.match(shared, /<li>Game\.exe<\/li><li>&lt;Launcher\.exe&gt;<\/li>/);
+  assert.match(ui.driverScopeMarkup({ status: 'unknown', message: 'driver unavailable' }), /设置范围暂时无法读取/);
+  assert.match(ui.driverScopeMarkup({ error: { message: 'private backend detail' } }), /data-ls-action="reload"/);
+  assert.doesNotMatch(ui.driverScopeMarkup({ error: { message: '<secret>' } }), /secret/);
+});
+
+test('missing game DLSS capability blocks edits and preparation but keeps global restore available', async () => {
+  const data = { hardware: { family: 'RTX40', series: ['RTX40'] }, requests: {}, applied: {}, pending: [],
+    fgComponents: { route: 'compatibility', ready: false, canPrepare: true, missing: ['compatibility files'], blockers: [] } };
+  const host = { isConnected: true, innerHTML: '', querySelector: () => null };
+  let writes = 0;
+  const controller = ui.mount(host, 'no-dlss', { nativeDlssAvailable: false, manager: {
+    inspectLaunchSettings: async () => ({ ok: true, value: data }),
+    updateLaunchSettings: async () => { writes++; return { ok: true, value: { applied: true } }; },
+    prepareFgComponents: async () => { writes++; return { ok: true, value: { prepared: true } }; }
+  } });
+  await controller.ready;
+  assert.match(host.innerHTML, /未检测到普通 DLSS/);
+  assert.match(host.innerHTML, /请确认已选择游戏实际运行的 EXE/);
+  assert.match(host.innerHTML, /data-ls-action="restore-all"(?![^>]* disabled)/);
+  assert.match(host.innerHTML, /<fieldset disabled/);
+  assert.match(host.innerHTML, /data-ls-action="prepare" disabled/);
+  await controller.perform('auto', 'sr');
+  await controller.perform('prepare', 'fg');
+  assert.equal(writes, 0);
+});
+
+test('SR model recommendation is hardware-bound and does not write during initialization', async () => {
+  for (const [series, expected] of [['RTX30', 'K'], ['RTX40', 'M'], ['RTX50', 'M']]) {
+    const data = { hardware: { family: series, series: [series] }, requests: {}, applied: {}, pending: [] };
+    const host = { isConnected: true, innerHTML: '', querySelector: () => null };
+    let writes = 0;
+    const controller = ui.mount(host, series, { manager: {
+      inspectLaunchSettings: async () => ({ ok: true, value: data }),
+      updateLaunchSettings: async () => { writes++; return { ok: true, value: { applied: true } }; }
+    } });
+    await controller.ready;
+    assert.equal(controller.getState().drafts.sr.preset, 'auto');
+    assert.match(host.innerHTML, new RegExp(`value="auto" selected>\u81ea\u52a8\u63a8\u8350 · ${expected}（\u63a8\u8350）`));
+    assert.match(host.innerHTML, /模型 L · 高画质低性能/);
+    assert.match(host.innerHTML, /模型 M · 推荐（适用 RTX40 \/ RTX50）/);
+    assert.equal(writes, 0);
+  }
+  for (const hardware of [{ source: 'unavailable', series: ['RTX40'] }, { family: 'mixed', series: ['RTX30', 'RTX50'] }, {}]) {
+    const data = { hardware, requests: {}, applied: {}, pending: [] };
+    assert.equal(ui.initialFields('sr', data).preset, '');
+    data.requests.sr = { request: { backend: 'native', quality: 'quality', preset: 'auto' } };
+    assert.equal(ui.initialFields('sr', data).preset, '', 'a stale automatic request is not silently recommended when hardware is no longer unique');
+  }
+});
+
+test('an unconfigured legacy default does not masquerade as an existing model policy', async () => {
+  const data = { hardware: { family: 'RTX40', series: ['RTX40'] }, requests: {}, applied: {}, pending: [],
+    legacy: { configured: false, selection: 'auto', effective: 'm', managed: false } };
+  const host = { isConnected: true, innerHTML: '', querySelector: () => null };
+  let writes = 0;
+  const controller = ui.mount(host, 'fresh-game', { manager: {
+    inspectLaunchSettings: async () => ({ ok: true, value: data }),
+    updateLaunchSettings: async () => { writes++; return { ok: true, value: { applied: true } }; }
+  } });
+  await controller.ready;
+  assert.equal(controller.getState().drafts.sr.preset, 'auto');
+  assert.match(host.innerHTML, /value="auto" selected>自动推荐 · M（推荐）/);
+  assert.doesNotMatch(host.innerHTML, /沿用原模型设置/);
+  assert.equal(writes, 0);
 });
 
 test('failed game launch refreshes any settings that were already applied and enables feedback context', () => {
