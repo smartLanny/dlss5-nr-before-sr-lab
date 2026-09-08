@@ -6551,6 +6551,38 @@ bool ResolveOutputExtentFromEvaluate(const NgxParams *params,
 }
 
 
+// Diagnostic-only observation after successful pre-NR/composition recording.
+// Declining O must never change NR admission, shader work or substitution.
+void RecordPreWorkReceiptLocked(const NgxParams* params,const FeatureRecord& feature,
+                                const NrContext& context,const NrSlot& slot,
+                                unsigned render_width,unsigned render_height) {
+    if (!params || feature.feature_id!=1 || context.mode!=2 ||
+        g_applied_nr_identity.instance_id!=context.instance_id ||
+        g_applied_nr_identity.config_generation!=context.config_generation) return;
+    ID3D12Resource* output=nullptr;
+    unsigned output_x=0,output_y=0,output_width=0,output_height=0;
+    GetUInt(params,"DLSS.Output.Subrect.Base.X",&output_x);
+    GetUInt(params,"DLSS.Output.Subrect.Base.Y",&output_y);
+    if (!GetResource(params,"Output",&output) || !output ||
+        !ResolveOutputExtentFromEvaluate(params,feature,output,output_x,output_y,
+            render_width,render_height,output_width,output_height) ||
+        !TextureContainsRegion(output,output_x,output_y,output_width,output_height)) return;
+    nr_work_receipt::Receipt receipt{};
+    receipt.route=nr_work_receipt::Route::NativePreNr;
+    receipt.render={render_width,render_height};
+    receipt.work={context.width,context.height};
+    receipt.output={output_width,output_height};
+    receipt.nr_evaluation=g_applied_nr_identity.frame_id;
+    receipt.command_token=context.pending_recording_token;
+    receipt.feature_generation=context.feature_generation;
+    receipt.nr_instance=context.instance_id;
+    receipt.slot_use_serial=slot.last_used_serial;
+    receipt.config_generation=context.config_generation;
+    receipt.history_generation=context.history_generation;
+    receipt.recorded_ms=GetTickCount64();
+    (void)nr_work_receipt::Record(g_recorded_work_receipt,receipt);
+}
+
 struct NrWorkExtent {
     unsigned int render_width = 0;
     unsigned int render_height = 0;
@@ -7713,6 +7745,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
 
     substitution.active = true;
     substitution.params = const_cast<NgxParams *>(sr_params);
+    RecordPreWorkReceiptLocked(sr_params,feature,*context,*slot,render_width,render_height);
     substitution.original_color = color;
     substitution.base_x = color_x;
     substitution.base_y = color_y;

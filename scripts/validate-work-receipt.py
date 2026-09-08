@@ -17,8 +17,11 @@ HARNESS=r'''
 #include <cstdio>
 #include <cstdlib>
 #include <initializer_list>
+#include <map>
+#include <string>
 #include "nr_work_receipt.h"
 struct NrContext {
+    int mode=1;
     unsigned width=320,height=184,config_generation=7,history_generation=9;
     unsigned long long feature_generation=11,instance_id=13,pending_recording_token=17;
 };
@@ -34,6 +37,27 @@ unsigned long long now=100;
 unsigned fence_reads=0;
 unsigned long long GetTickCount64() { return now; }
 unsigned long long ID3D12Fence_GetCompletedValue(Fence* f) { ++fence_reads;return f->completed; }
+constexpr unsigned D3D12_RESOURCE_DIMENSION_TEXTURE2D=3;
+struct D3D12_RESOURCE_DESC {
+    unsigned long long Width=0; unsigned Height=0,Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    struct { unsigned Count=1; } SampleDesc;
+};
+struct ID3D12Resource { D3D12_RESOURCE_DESC desc; };
+D3D12_RESOURCE_DESC ID3D12Resource_GetDesc(ID3D12Resource* r) { return r->desc; }
+struct FeatureRecord {
+    int feature_id=1; unsigned width=640,height=360,out_width=1280,out_height=720;
+    unsigned long long generation=11;
+};
+struct NgxParams { std::map<std::string,unsigned> values; ID3D12Resource* output=nullptr; };
+bool GetUInt(const NgxParams* params,const char* key,unsigned* out) {
+    const auto it=params->values.find(key);if(it==params->values.end())return false;
+    *out=it->second;return true;
+}
+bool GetResource(const NgxParams* params,const char* key,ID3D12Resource** out) {
+    if(std::string(key)!="Output" || !params->output)return false;
+    *out=params->output;return true;
+}
+void Log(const char*,...) {}
 HELPERS
 unsigned checks=0;
 void Check(bool value,const char* label) {
@@ -108,6 +132,66 @@ int main() {
     Check(!Record(g_recorded_work_receipt,invalid),"missing actual token is unsupported");
     invalid=before;invalid.work.width=1281;
     Check(!Record(g_recorded_work_receipt,invalid),"impossible post N rejected");
+    // Native pre observation uses actual same-call Output contract, independent
+    // of the work resolver's Reference early return. No shader/model is run.
+    FeatureRecord feature;
+    ID3D12Resource color{{500,300}},output{{900,500}};
+    NgxParams params{{{"DLSS.Render.Subrect.Dimensions.Width",427},
+                      {"DLSS.Render.Subrect.Dimensions.Height",240},
+                      {"DLSS.Output.Subrect.Base.X",11},
+                      {"DLSS.Output.Subrect.Base.Y",13},
+                      {"DLSS.Output.Subrect.Dimensions.Width",854},
+                      {"DLSS.Output.Subrect.Dimensions.Height",480}},&output};
+    unsigned rw=0,rh=0;
+    Check(ResolveRenderExtentFromEvaluate(&params,feature,&color,5,7,rw,rh) && rw==427 && rh==240,
+          "actual Color active rect outranks stale Create dimensions");
+    context.mode=2;context.width=427;context.height=240;context.pending_recording_token=31;
+    g_applied_nr_identity={13,29,7};slot.last_used_serial=30;now=200;
+    const auto original_params=params.values;
+    RecordPreWorkReceiptLocked(&params,feature,context,slot,rw,rh);
+    auto pre=g_recorded_work_receipt;
+    Check(pre.valid && pre.route==Route::NativePreNr && pre.render.width==427 && pre.work.width==427 &&
+          pre.render.height==240 && pre.work.height==240 && pre.output.width==854 && pre.output.height==480,
+          "odd 100-percent pre N equals real R with independently observed O");
+    Check(pre.nr_evaluation==29 && pre.command_token==31 && !pre.completion_observed &&
+          params.values==original_params,"observation is read-only and not future SR completion");
+    Submitted(g_recorded_work_receipt,31,30,12,201);current.completed=12;now=202;
+    Check(SnapshotWorkReceiptLocked().completion_observed,"pre uses same exact signal/fence observation gate");
+    params.values["DLSS.Render.Subrect.Dimensions.Width"]=320;
+    params.values["DLSS.Render.Subrect.Dimensions.Height"]=180;
+    params.values["DLSS.Output.Subrect.Dimensions.Width"]=640;
+    params.values["DLSS.Output.Subrect.Dimensions.Height"]=360;
+    Check(ResolveRenderExtentFromEvaluate(&params,feature,&color,5,7,rw,rh) && rw==320 && rh==180,
+          "next DRS tuple resolves current render rect");
+    context.width=160;context.height=88;context.pending_recording_token=33;
+    g_applied_nr_identity.frame_id=32;slot.last_used_serial=31;now=210;
+    RecordPreWorkReceiptLocked(&params,feature,context,slot,rw,rh);
+    Check(g_recorded_work_receipt.render.width==320 && g_recorded_work_receipt.work.width==160 &&
+          g_recorded_work_receipt.work.height==88 && g_recorded_work_receipt.output.width==640 &&
+          !g_recorded_work_receipt.completion_observed,"next scaled pre tuple does not inherit old N/completion");
+    Check(pre.work.width==427 && pre.nr_evaluation==29,"frozen prior 100-percent tuple retained by value");
+    params.values.erase("DLSS.Output.Subrect.Dimensions.Width");
+    params.values.erase("DLSS.Output.Subrect.Dimensions.Height");
+    g_recorded_work_receipt={};
+    RecordPreWorkReceiptLocked(&params,feature,context,slot,rw,rh);
+    Check(!g_recorded_work_receipt.valid && context.width==160 && params.output==&output,
+          "ambiguous nonzero atlas O suppresses receipt only");
+    params.values["DLSS.Output.Subrect.Dimensions.Width"]=640;
+    RecordPreWorkReceiptLocked(&params,feature,context,slot,rw,rh);
+    Check(!g_recorded_work_receipt.valid,"partial O tuple is not invented");
+    params.values["DLSS.Output.Subrect.Dimensions.Height"]=600;
+    RecordPreWorkReceiptLocked(&params,feature,context,slot,rw,rh);
+    Check(!g_recorded_work_receipt.valid,"O outside actual allocation rejected only for receipt");
+    params.values["DLSS.Output.Subrect.Dimensions.Height"]=360;
+    params.output=nullptr;
+    RecordPreWorkReceiptLocked(&params,feature,context,slot,rw,rh);
+    Check(!g_recorded_work_receipt.valid,"missing Output means unknown receipt");
+    params.output=&output;output.desc.SampleDesc.Count=2;
+    RecordPreWorkReceiptLocked(&params,feature,context,slot,rw,rh);
+    Check(!g_recorded_work_receipt.valid,"unsupported Output sample contract is not a valid receipt");
+    output.desc.SampleDesc.Count=1;feature.feature_id=0;
+    RecordPreWorkReceiptLocked(&params,feature,context,slot,rw,rh);
+    Check(!g_recorded_work_receipt.valid,"external still cannot supply downstream O");
     std::printf("work receipt: %u CPU cases passed; no GPU or waits\n",checks);
 }
 '''
@@ -121,7 +205,10 @@ def main():
     os.environ['PATH']=str(Path(compiler).resolve().parent)+os.pathsep+os.environ.get('PATH','')
     source=(args.source_root/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
     helpers='\n\n'.join(extract.function(source,s) for s in (
-        'void RecordPostWorkReceiptLocked(', 'nr_work_receipt::Receipt SnapshotWorkReceiptLocked('))
+        'void RecordPostWorkReceiptLocked(', 'nr_work_receipt::Receipt SnapshotWorkReceiptLocked(',
+        'bool TextureContainsRegion(', 'bool ResolveRenderExtentFromEvaluate(',
+        'bool ResolveSrOutputExtent(', 'bool ResolveOutputExtentFromEvaluate(',
+        'void RecordPreWorkReceiptLocked('))
     with tempfile.TemporaryDirectory(prefix='nr-work-receipt-') as directory:
         root=Path(directory);cpp=root/'test.cpp';exe=root/'test.exe'
         cpp.write_text(HARNESS.replace('HELPERS',helpers),encoding='utf-8')
@@ -130,6 +217,11 @@ def main():
         subprocess.run([str(exe)],check=True)
     finish=extract.function(source,'bool FinishAfterSr(')
     assert finish.index('CompleteNrDiagnosticEvaluation(')<finish.index('KeepNativePostSrImage(')<finish.index('RecordVisibleTransferLocked(')<finish.index('RecordPostWorkReceiptLocked(')
+    pre=extract.function(source,'Substitution PrepareBeforeSr(')
+    assert pre.index('ResolveRenderExtentFromEvaluate(')<pre.index('ResolveNrWorkExtent(')<pre.index('CompleteNrDiagnosticEvaluation(')<pre.index('g_codec.combine_v2')<pre.index('RecordPreWorkReceiptLocked(')<pre.index('SetResource(substitution.params, "Color"')
+    observer=extract.function(source,'void RecordPreWorkReceiptLocked(')
+    assert 'SetBypassReason' not in observer and 'SetResource' not in observer and 'SetUInt' not in observer
+    assert 'void RecordPreWorkReceiptLocked(' in observer and 'return substitution' not in observer
     batch=extract.function(source,'void CompleteSubmissionBatchLocked(')
     assert batch.index('nr_work_receipt::Submitted(')<batch.index('*record = {}')
     execute=extract.function(source,'void ProcessSubmittedCommandLists(')

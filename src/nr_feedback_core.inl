@@ -499,7 +499,7 @@ void Present(reshade::api::effect_runtime *runtime) {
         config.ui_correction, static_cast<int>(config.jitter_mode), config.style,
         applied.instance_id, applied.frame_id, applied.config_generation, applied.tuning.intensity,
         applied.tuning.skin_structure, static_cast<unsigned long long>(nr_feedback_text::kCoreZipLimit));
-    FeedbackAppend(s,"workReceipt.coverage=native-post-sr,native-post-rr; native-pre/external unsupported\n"
+    FeedbackAppend(s,"workReceipt.coverage=native-pre-nr-recorded,native-post-sr,native-post-rr; external unsupported\n"
         "workReceipt.contract=last recorded NR evaluation and composition; not a current/presented game frame\n"
         "workReceipt.gameFrame=unknown\nworkReceipt.gameView=unknown\n"
         "workReceipt.resourceGeneration=unknown; NR instance and slot-use serial are explicit lifetime/use identities\n"
@@ -507,6 +507,9 @@ void Present(reshade::api::effect_runtime *runtime) {
             work_receipt.valid?"last-recorded":"unknown-no-supported-recording");
     if (session->snapshot_ok && work_receipt.valid) {
         const auto& w=work_receipt;
+        if (w.route==nr_work_receipt::Route::NativePreNr)
+            FeedbackAppend(s,"workReceipt.downstreamSR=unknown\nworkReceipt.presentation=unknown\n"
+                "workReceipt.preContract=NR/composition recorded; fence observation does not prove later SR success or presentation\n");
         FeedbackAppend(s,"workReceipt.route=%s\nworkReceipt.R=%ux%u\nworkReceipt.N=%ux%u\nworkReceipt.O=%ux%u\n"
             "workReceipt.nrEvaluation=%llu\nworkReceipt.commandToken=%llu\nworkReceipt.featureGeneration=%llu\n"
             "workReceipt.nrInstance=%llu\nworkReceipt.slotUseSerial=%llu\nworkReceipt.configGeneration=%u\n"

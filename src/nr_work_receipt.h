@@ -5,7 +5,7 @@
 // One bounded historical receipt. Identities come from actual NR evaluation,
 // feature/context lifetime and command recording; none is a game view id.
 namespace nr_work_receipt {
-enum class Route : unsigned { Unknown, NativePostSr, NativePostRr };
+enum class Route : unsigned { Unknown, NativePostSr, NativePostRr, NativePreNr };
 struct Extent { unsigned width=0,height=0; };
 struct Receipt {
     Route route=Route::Unknown;
@@ -17,10 +17,12 @@ struct Receipt {
     bool valid=false,submission_observed=false,completion_observed=false;
 };
 inline bool Record(Receipt& target, Receipt next) {
-    if ((next.route!=Route::NativePostSr && next.route!=Route::NativePostRr) ||
+    const Extent limit=next.route==Route::NativePreNr?next.render:next.output;
+    if ((next.route!=Route::NativePostSr && next.route!=Route::NativePostRr &&
+         next.route!=Route::NativePreNr) ||
         !next.render.width || !next.render.height || !next.work.width || !next.work.height ||
-        !next.output.width || !next.output.height || next.work.width>next.output.width ||
-        next.work.height>next.output.height || !next.nr_evaluation || !next.command_token ||
+        !next.output.width || !next.output.height || next.work.width>limit.width ||
+        next.work.height>limit.height || !next.nr_evaluation || !next.command_token ||
         !next.feature_generation || !next.nr_instance || !next.slot_use_serial || !next.recorded_ms)
         return false;
     next.queue_identity=next.fence_value=next.submitted_ms=next.completed_observed_ms=0;
@@ -46,6 +48,7 @@ inline void ObserveCompletion(Receipt& value,std::uint64_t queue,
 }
 inline const char* RouteName(Route route) {
     return route==Route::NativePostSr?"native-post-sr":
-           route==Route::NativePostRr?"native-post-rr":"unknown";
+           route==Route::NativePostRr?"native-post-rr":
+           route==Route::NativePreNr?"native-pre-nr-recorded":"unknown";
 }
 } // namespace nr_work_receipt

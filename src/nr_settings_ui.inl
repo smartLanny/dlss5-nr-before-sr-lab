@@ -554,8 +554,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             ImGui::TextDisabled("%s",ui("NR dimensions: snapshot temporarily unavailable.",
                 "NR 尺寸：快照暂不可用。"));
         } else if (!work_receipt.valid) {
-            ImGui::TextDisabled("%s",ui("NR dimensions: unknown; no supported post-SR/RR recording yet.",
-                "NR 尺寸：未知，尚无支持的原生后置 SR/RR 录制。"));
+            ImGui::TextDisabled("%s",ui("NR dimensions: unknown; no supported native NR recording yet.",
+                "NR 尺寸：未知，尚无支持的原生 NR 录制。"));
         } else {
             const auto& w=work_receipt;
             ImGui::Text(ui("Last recorded %s: R %ux%u / N %ux%u / O %ux%u",
@@ -567,10 +567,13 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 w.recorded_ms,w.submission_observed?ui("observed","已观察"):ui("unknown","未知"),
                 w.completion_observed?ui("observed","已观察"):ui("unknown","未知"),
                 g_config_generation.load(std::memory_order_relaxed),w.config_generation);
+            if (w.route==nr_work_receipt::Route::NativePreNr)
+                ImGui::TextDisabled("%s",ui("Pre-NR recorded; later SR success and presentation remain unknown.",
+                    "前置 NR 已录制；后续 SR 成功与呈现仍未知。"));
         }
         ImGui::TextDisabled("%s",ui(
-            "Historical native post-SR/RR receipt only. Pre-SR/external and game frame/view identity are unsupported; recording is not presentation.",
-            "仅支持原生 SR/RR 后置的历史记录。前置/外部路径及游戏帧/视图身份尚不支持；录制不等于呈现。"));
+            "Historical native NR receipt only. External downstream O and game frame/view identity are unsupported; recording is not presentation.",
+            "仅支持原生 NR 历史记录。外部路径下游 O 及游戏帧/视图身份尚不支持；录制不等于呈现。"));
 
             int jitter = static_cast<int>(next.jitter_mode);
             if (ImGui::Combo(ui("NR jitter input", "NR jitter 输入"), &jitter,
