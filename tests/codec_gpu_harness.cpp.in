@@ -53,7 +53,7 @@ struct Float4 { float x, y, z, w; };
 static_assert(sizeof(Float4) == 16);
 static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * 4);
 static_assert(kCodecCaptureUavIndex == kCodecSrvCount + 4);
-static_assert(kCodecDescriptorCount == kCodecEditFieldUavIndex + 1);
+static_assert(kCodecDescriptorCount == kCodecLanczosUavIndex + 1);
 
 struct Texture {
     Com<ID3D12Resource> resource;
@@ -493,6 +493,10 @@ RunResult Run(Gpu &gpu, UINT width, UINT height, UINT stride,
     const bool use_edit_field=(flags & 8192u)!=0u;
     if(use_edit_field) edit_texture=gpu.EmptyEditField(model_width,model_height);
     gpu.Srv(kCodecEditFieldSrvIndex,edit_texture.resource.p,DXGI_FORMAT_R32G32_FLOAT);
+    gpu.Srv(kCodecLanczosSrvIndex,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
+    gpu.Srv(kCodecReservedRestoreSrvIndex,nullptr,DXGI_FORMAT_R16G16_FLOAT);
+    gpu.UavTexture(kCodecReservedRestoreUavIndex,nullptr,DXGI_FORMAT_R16G16_FLOAT);
+    gpu.UavTexture(kCodecLanczosUavIndex,nullptr,DXGI_FORMAT_R16G16B16A16_FLOAT);
     gpu.UavTexture(kCodecEditFieldUavIndex,edit_texture.resource.p,DXGI_FORMAT_R32G32_FLOAT);
     gpu.UavTexture(kCodecSrvCount, nullptr, DXGI_FORMAT_R32G32B32A32_FLOAT);
     gpu.UavTexture(kCodecResultUavIndex, output_texture.resource.p,

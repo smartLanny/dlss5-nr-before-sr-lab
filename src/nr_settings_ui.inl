@@ -440,6 +440,15 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         "低网格亮度编辑场（实验）"), &next.low_grid_edit_field);
     SettingsTooltip(ui("Effective only before SR with Colour follow zero. Computes a luma edit at NR size, then restores it; this changes the interpolation order and may change edges. Source protection remains at full resolution. Adds one optional pass and bounded storage; unavailable resources retain the existing composition. GPU benefit and game quality are unverified.",
         "仅前置且颜色跟随为零时生效。在 NR 尺寸计算亮度编辑后恢复，会改变插值顺序及可能的边缘观感。原图保护仍在全分辨率。增加一次可选处理和有界存储，资源不可用则保留原合成；GPU 收益和游戏画质未验证。"));
+    ImGui::BeginDisabled(next.mode != 2);
+    int input_filter=static_cast<int>(next.nr_input_filter);
+    if(ImGui::Combo(ui("NR input filter", "NR 输入滤波"),&input_filter,
+        ui("Exact Area\0Lanczos-2 AA (experimental)\0", "精确面积\0Lanczos-2 抗混叠（实验）\0"))) {
+        next.nr_input_filter=static_cast<unsigned int>(input_filter);changed=true;
+    }
+    SettingsTooltip(ui("Only changes pre-SR model input downsampling. 1:1 retains Exact Area. Lanczos preserves signed intermediate lobes, then bounds the final model input; preparation failure keeps Area. Changing the input retires old history. This adds a pass and memory, with unverified game quality and GPU cost.",
+        "只改变前置模型输入的降采样；1:1 保留精确面积。Lanczos 在中间面保留有符号负瓣，最后限制模型输入范围；准备失败保留面积核。切换会退休旧历史。增加处理步骤与内存，游戏画质和 GPU 成本尚未验证。"));
+    ImGui::EndDisabled();
     changed |= ImGui::Checkbox(ui("High-strength protection (experimental)",
         "高强度保护（实验）"), &next.high_strength_protection);
     SettingsTooltip(ui("Above 1x effective strength, soft-limits extra luminance; SDR uses remaining headroom. Applies before SR and to the optional shared post candidate. Legacy pre composition also soft-limits extra chroma; independent chroma uses its own colour budget. This does not fix an already clipped 1x result or guarantee stable pictures at 4x.",

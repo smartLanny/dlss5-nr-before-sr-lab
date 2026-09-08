@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$InputFilterOutput)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -41,7 +41,16 @@ $boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_stren
 $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
 $layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
-if (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
+if (![string]::IsNullOrWhiteSpace($InputFilterOutput)) {
+    if ($NegativeControl -or $LayerNegativeControl -or $ComparisonOutput -or $EditFieldOutput) { throw 'Run input filter export independently.' }
+    if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
+        $baselineHash = (Get-FileHash -LiteralPath $BaselineSource -Algorithm SHA256).Hash.ToLowerInvariant()
+        $harness = '#define NR_INPUT_FILTER_BASELINE_SOURCE_SHA "' + $baselineHash + '"' + "`n" + $harness
+    }
+    $inputTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/input_filter_gpu.inl') -Raw -Encoding UTF8
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $inputTests)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 3 && std::strcmp(argv[1], "--input-filter-contract") == 0) { ExportInputFilterContract(gpu, argv[2]); return 0; }')
+} elseif (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
     if ($NegativeControl -or $LayerNegativeControl -or $ComparisonOutput) { throw 'Run EditField export independently.' }
     if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
         $baselineHash = (Get-FileHash -LiteralPath $BaselineSource -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -97,7 +106,12 @@ if ($CompileOnly) {
     Write-Host 'Production codec fixture compiled only; no WARP/GPU dispatch executed.'
     return
 }
-if (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
+if (![string]::IsNullOrWhiteSpace($InputFilterOutput)) {
+    & $binary '--input-filter-contract' ([IO.Path]::GetFullPath($InputFilterOutput))
+    if ($LASTEXITCODE -ne 0) { throw 'Production input filter export failed.' }
+    & python (Join-Path $projectRoot 'scripts/validate-input-filter.py') --capture $InputFilterOutput --source (Join-Path $SourceRoot 'src/nr_before_sr.cpp')
+    if ($LASTEXITCODE -ne 0) { throw 'Independent input filter contract validation failed.' }
+} elseif (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
     & $binary '--edit-field-contract' ([IO.Path]::GetFullPath($EditFieldOutput))
     if ($LASTEXITCODE -ne 0) { throw 'Production EditField export failed.' }
     & python (Join-Path $projectRoot 'scripts/validate-edit-field.py') --capture $EditFieldOutput --source (Join-Path $SourceRoot 'src/nr_before_sr.cpp')
