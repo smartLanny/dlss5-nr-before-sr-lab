@@ -146,6 +146,7 @@ def main() -> None:
         checks=check(exe) if args.self_test else 0
         rows=[plan(exe,args.width,args.height,p,route) for route in routes for p in args.percent]
     files=('src/nr_before_sr.cpp','src/nr_precision_ui.h','src/interop/nr_post_compat.h',
+           'src/interop/nr_external_provider_core.inl',
            'scripts/extract-post-gpu.py','scripts/plan-nr-size-admission.py')
     report=dict(schema='nr-size-admission-plan-v1',
                 source_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
