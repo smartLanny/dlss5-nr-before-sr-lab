@@ -50,11 +50,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dev4";
+constexpr const char *kAddonVersion = "beta0.5-dev5";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dev4";
+constexpr const char *kBuildIdentity = "beta0.5-dev5";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -871,6 +871,7 @@ struct ChainConfig {
     float detail_stability = 0.0f; // Experimental spatial residual protection; 0 preserves old output.
     bool high_strength_protection = true; // Mode 2 composition only; does not reset NR history.
     bool layered_enhancement = false; // One NR inference; independent composite contributions.
+    bool independent_chroma_composition = false; // 0.5 opt-in shared pre/post candidate.
     float layer_tone = 1.0f;
     float layer_structure = 1.0f;
     float layer_bright = 1.0f;
@@ -1299,6 +1300,7 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.detail_stability == b.detail_stability &&
            a.high_strength_protection == b.high_strength_protection &&
            a.layered_enhancement == b.layered_enhancement &&
+           a.independent_chroma_composition == b.independent_chroma_composition &&
            a.layer_tone == b.layer_tone && a.layer_structure == b.layer_structure &&
            a.layer_bright == b.layer_bright && a.layer_shadow == b.layer_shadow &&
            a.motion_stability == b.motion_stability &&
@@ -1385,6 +1387,7 @@ void ReloadConfig(bool force = false) {
     next.edge_guard = ReadIniFloat(L"EdgeGuard", 0.25f);
     next.detail_stability = ReadIniFloat(L"DetailStability", 0.0f);
     next.layered_enhancement = GetPrivateProfileIntW(L"NRBeforeSR", L"LayeredEnhancement", 0, g_ini_path) != 0;
+    next.independent_chroma_composition = GetPrivateProfileIntW(L"NRBeforeSR", L"IndependentChromaComposition", 0, g_ini_path) != 0;
     next.layer_tone = ReadIniFloat(L"LayerTone", 1.0f);
     next.layer_structure = ReadIniFloat(L"LayerStructure", 1.0f);
     next.layer_bright = ReadIniFloat(L"LayerBright", 1.0f);
@@ -1484,6 +1487,7 @@ void ReloadConfig(bool force = false) {
     if (changed || force) {
         Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
             g_config.layered_enhancement, g_config.mode, g_config.layer_tone, g_config.layer_structure, g_config.layer_bright, g_config.layer_shadow);
+        Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", g_config.independent_chroma_composition);
         Log("HighStrengthProtection requested=%d; effective only in Mode 2 above 1x; codec flag=1024.",
             g_config.high_strength_protection ? 1 : 0);
         Log("Config: enabled=%d mode=%d identity=%d preTransfer=%.3f "
@@ -1556,6 +1560,7 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniFloat(L"EdgeGuard", config.edge_guard));
     record_write(WriteIniFloat(L"DetailStability", config.detail_stability));
     record_write(WriteIniInt(L"LayeredEnhancement", config.layered_enhancement ? 1 : 0));
+    record_write(WriteIniInt(L"IndependentChromaComposition", config.independent_chroma_composition ? 1 : 0));
     record_write(WriteIniFloat(L"LayerTone", config.layer_tone));
     record_write(WriteIniFloat(L"LayerStructure", config.layer_structure));
     record_write(WriteIniFloat(L"LayerBright", config.layer_bright));
@@ -1660,6 +1665,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
     LeaveCriticalSection(&g_chain_cs);
     Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
         applied.layered_enhancement, applied.mode, applied.layer_tone, applied.layer_structure, applied.layer_bright, applied.layer_shadow);
+    Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", applied.independent_chroma_composition);
     Log("HighStrengthProtection requested=%d; effective only in Mode 2 above 1x; codec flag=1024.",
         applied.high_strength_protection ? 1 : 0);
     Log("Config updated from %s: enabled=%d nrBeforeSr=%d transfer=%.3f "
@@ -2971,6 +2977,16 @@ float LayeredLumaStrengthV3(float edit, float mean, float master,
 }
 // LAYERED_SCALAR_END
 
+// INDEPENDENT_CHROMA_SCALAR_BEGIN
+// One scalar budget for the entire log-chroma vector. Attenuation cannot
+// rotate an edit by clipping its channels separately or invent a zero edit.
+// Final luminance still comes exclusively from the existing luminance path.
+float IndependentChromaScaleV4(float peak, float strength, float confidence, float limit) {
+    if (peak <= 0.0 || limit <= 0.0) return 0.0;
+    return min(clamp(strength, 0.0, 2.0) * saturate(confidence), limit / peak);
+}
+// INDEPENDENT_CHROMA_SCALAR_END
+
 [numthreads(8, 8, 1)]
 void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     if (tid.x >= Width || tid.y >= Height ||
@@ -2983,12 +2999,17 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float3 proxy = SampleProxyLinearV2(center);
     float3 neural = SampleNeuralLinearV2(center);
     float3 fullProxy = EncodeProxyLinearV2(source);
+    const bool independentChroma = (Passthrough & 4096u) != 0u;
 
     bool finiteInputs = ModelNeighborhoodFiniteV2(center) &&
         all(storedOriginal.rgb == storedOriginal.rgb) &&
         all(source == source) && all(proxy == proxy) && all(neural == neural) &&
         all(abs(source) <= 65504.0.xxx) && all(abs(proxy) <= 65504.0.xxx) &&
         all(abs(neural) <= 65504.0.xxx);
+    // The candidate's logarithmic chromaticity has no signed-colour contract.
+    // Retain the exact source for such samples; do not silently rectify them.
+    if (independentChroma && (any(source < 0.0.xxx) ||
+        any(proxy < 0.0.xxx) || any(neural < 0.0.xxx))) finiteInputs = false;
     float3 diagnosticOriginal = SourceToDiagnosticLinear(storedOriginal.rgb);
     float3 diagnosticProxy = proxy;
     float3 diagnosticNeural = neural;
@@ -3008,6 +3029,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float neuralLuma = max(dot(neural, kLuma), 1.0 / 4096.0);
     float fullProxyLuma = max(dot(fullProxy, kLuma), 1.0 / 4096.0);
     float logRatio = clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0);
+    float rawModelLumaLog = log2(neuralLuma / proxyLuma);
     logRatio = StabilizeDetailLogV2(center, logRatio, proxyLuma);
     const bool layeredActive = (Passthrough & 2048u) != 0u;
     float layerMean = 0.0;
@@ -3101,6 +3123,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         ? source * (targetLuma / sourceLuma) : source;
 
     float3 result = lumaOnly;
+    bool candidateChromaApplied = false;
     if (ColorStrength > 0.000001) {
         float3 logRgbRatio = log2(
             max(neural, (1.0 / 4096.0).xxx) /
@@ -3110,7 +3133,17 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         float3 poweredChromaLog = clamp(chromaLog *
             (TransferStrength * ColorStrength * confidence),
             -logLimit.xxx, logLimit.xxx);
-        if (protectBoost) {
+        if (independentChroma) {
+            // Extract colour before luminance-only detail/lighting protection.
+            // TransferStrength remains the master zero gate, but nonzero luma
+            // strength/layers do not amplify or rotate this independent edit.
+            float3 independentLog = logRgbRatio - rawModelLumaLog.xxx;
+            float peak = max(abs(independentLog.r),
+                max(abs(independentLog.g), abs(independentLog.b)));
+            poweredChromaLog = independentLog * IndependentChromaScaleV4(
+                peak, ColorStrength, confidence, logLimit);
+            candidateChromaApplied = any(abs(poweredChromaLog) > 0.0.xxx);
+        } else if (protectBoost) {
             // Keep the existing 1x chroma anchor. Scale its entire log-vector
             // together, so extra amplification cannot clip each axis at a
             // different strength and thereby rotate the edit direction.
@@ -3130,6 +3163,12 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         else
             coloured = lumaOnly;
         result = coloured;
+    }
+    if (independentChroma && poweredLog == 0.0 && !candidateChromaApplied) {
+        WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
+        RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+            diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0, false);
+        return;
     }
     const bool boundedSdrStorage =
         (Passthrough & (1u | 16u | 32u)) != 0u;
@@ -6098,6 +6137,12 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    unsigned int model_width = 0,
                    unsigned int model_height = 0,
                    float frame_confidence = 1.0f) {
+    // Preserve both legacy entry points when disabled. Post-SR/RR opt-in uses
+    // the same candidate with its own source rectangle, colour policy/exposure
+    // and work grid; it does not change the model input or guide semantics.
+    const bool independent_chroma = g_config.independent_chroma_composition &&
+        (pipeline == g_codec.combine || pipeline == g_codec.combine_v2);
+    if (independent_chroma) pipeline = g_codec.combine_v2;
     const bool v2_combine = pipeline == g_codec.combine_v2;
     const bool any_combine = pipeline == g_codec.combine || v2_combine;
     const bool capture_delta = any_combine &&
@@ -6123,6 +6168,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     ApplyRequestedUnverifiedHdrColor(color_policy, g_config.allow_unverified_hdr_color,
         g_config.color_strength);
     const unsigned int base_codec_flags = source_flags |
+        (independent_chroma ? 4096u : 0u) |
         ((v2_combine && g_config.high_strength_protection) ? 1024u : 0u) |
         ((v2_combine && g_config.layered_enhancement) ? 2048u : 0u) |
         (color_policy.effective_preserve_lighting ? 2u : 0u) |
@@ -11526,13 +11572,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dev4 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dev5 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev4 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev5 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

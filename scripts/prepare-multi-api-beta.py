@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dev4'
-DISPLAY_VERSION = '0.5-dev4'
+VERSION = 'beta0.5-dev5'
+DISPLAY_VERSION = '0.5-dev5'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -33,13 +33,13 @@ INTEGRATION_CORE_PINS = {
     'src/nr_command_state.inl': STATE_CURRENT,
     'src/nr_feedback_capture.inl': '99328d273b964509e344bfdbcd7bbc85f230619b',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': 'eed50de022be7f0a2c78c43c2a16032ee4254218',
-    'src/nr_before_sr.cpp': '06018f0d4aa7d6df035c9aec0ecefe63fb69a1de',
-    'src/nr_before_sr.rc': 'a4691a4751192760d1942e380100227c7da1786a',
+    'src/nr_settings_ui.inl': 'cbab76c60b33df90be04e75f7dfc6aff200f5662',
+    'src/nr_before_sr.cpp': '68975681a540eb09ee8a732a8cb882c6bcd6a4bf',
+    'src/nr_before_sr.rc': '42620d6596b6e30fdd0bcdf9d1ead4fcc4811bb5',
     'src/nr_color_policy.inl': '486c656eaf54af6c1d5b93bed3ce0f7bce9e1b60',
     'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': '5d37cfddf4b9eb375672f49eac62b28c2ed572b3',
+    'scripts/build.ps1': '2c12c507dd3d1c8365329b8da9397a1e34ec2f9a',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
 }
 BRIDGE_BLOBS = {
@@ -78,7 +78,7 @@ def configure(core: Path):
     fmt = load('format_patch', core / 'scripts/patch-format-access.py')
     post = load('post_patch', core / 'scripts/patch-post-compat.py')
     m.EXPERIMENT = m.legacy.EXPERIMENT = VERSION
-    m.VERSION = 'beta0.5-dev4'
+    m.VERSION = 'beta0.5-dev5'
     m.legacy.UPSTREAM = UPSTREAM
     m.legacy.UPSTREAM_BLOBS = dict(BRIDGE_BLOBS)
     m.legacy.CORE_BLOBS.update(INTEGRATION_CORE_PINS)
@@ -150,7 +150,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.0 dev4 beta' not in resource_text:
+    if '0.5.0 dev5 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -161,7 +161,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.0.4',
+        'core_pe_version': '0.5.0.5',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),

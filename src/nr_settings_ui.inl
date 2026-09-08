@@ -431,14 +431,18 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         "Sets only NR work from 50% to 100% for the effective pre/post route. It does not change the game's render resolution. 100% uses the route's full input.",
         "仅设置当前前置/后置路线的 NR 工作量，可在 50%–100% 连续调整；不改变游戏真实渲染分辨率，100% 使用该路线的完整输入。"));
 #endif
-    ImGui::BeginDisabled(next.mode != 2);
+    changed |= ImGui::Checkbox(ui("Independent luma / chroma composition (experimental)",
+        "亮度／色度独立合成（实验）"), &next.independent_chroma_composition);
+    SettingsTooltip(ui("Uses the shared candidate before or after SR. Nonzero final strength controls luminance; Colour follow independently controls chroma with a common colour budget. Zero final strength still bypasses all edits. Off restores the original route. HDR colour permission is unchanged; no extra model call. GPU cost and game quality await validation.",
+        "前置和后置均可使用此候选。非零最终强度控制亮度，颜色跟随独立控制色度并使用共同颜色预算；最终强度为零仍关闭全部修改。关闭恢复原路线。HDR 颜色准入不变，不增加模型调用；GPU 开销与游戏画质尚待验证。"));
+    ImGui::BeginDisabled(next.mode != 2 && !next.independent_chroma_composition);
     changed |= ImGui::Checkbox(ui("High-strength protection (experimental)",
         "高强度保护（实验）"), &next.high_strength_protection);
-    SettingsTooltip(ui("Before-SR only, above 1x effective strength (including enabled layers). Soft-limits the extra brightness/chroma edit; SDR brightening uses remaining source headroom. With layers off or neutral, 0-1x is unchanged; the full-resolution after-SR reference is always unchanged. Off restores the old amplification for A/B. This does not fix an already clipped 1x model result or guarantee stable pictures at the 4x public maximum.",
-        "仅前置、有效强度高于 1 时生效（含分层增益）。对额外明暗/颜色增强做软限制，SDR 提亮参考原图剩余空间；分层关闭或为中性时，0-1 倍不变；完整后置参考始终不变。关闭可对比旧算法。不能修复 1 倍已经剪裁的模型结果，也不保证上限 4 倍画面稳定。"));
+    SettingsTooltip(ui("Above 1x effective strength, soft-limits extra luminance; SDR uses remaining headroom. Applies before SR and to the optional shared post candidate. Legacy pre composition also soft-limits extra chroma; independent chroma uses its own colour budget. This does not fix an already clipped 1x result or guarantee stable pictures at 4x.",
+        "有效强度高于 1 时软限制额外明暗增强，SDR 参考剩余空间；适用于前置及可选的共用后置候选。旧前置同时软限制额外色彩，独立色度候选采用自己的颜色预算。不能修复 1 倍已经剪裁的结果，也不保证 4 倍画面稳定。"));
     ImGui::EndDisabled();
     if (ImGui::CollapsingHeader(ui("Layered composition (one NR)", "分层强化（单次 NR）"))) {
-        ImGui::BeginDisabled(next.mode != 2);
+        ImGui::BeginDisabled(next.mode != 2 && !next.independent_chroma_composition);
         changed |= ImGui::Checkbox(ui("Enable layered composition", "启用分层强化"), &next.layered_enhancement);
         ImGui::BeginDisabled(!next.layered_enhancement);
         changed |= ImGui::SliderFloat(ui("Broad tone contribution", "大范围影调贡献"), &next.layer_tone, 0.f, 2.f, "%.2f");

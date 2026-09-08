@@ -11,21 +11,27 @@ import subprocess
 def verify(root, m=None):
     if m is None:
         m = json.loads((root / 'contract.json').read_text(encoding='utf-8'))
-    assert m['schema'] == 'nr-composition-fixture-v1'
+    assert m['schema'] in ('nr-composition-fixture-v1','nr-composition-fixture-v2')
+    candidate = m['schema'] == 'nr-composition-fixture-v2'
+    if candidate:
+        assert m['new_algorithm'] and m['candidate'] == 'independent-chroma-v4' and m['candidate_flag'] == 4096
     assert m['synthetic'] and not m['nvidia_inference'] and not m['game_capture']
     assert m['cases_total'] == len(m['cases']) == 72
     hashes, total, different = {}, 0, 0
     for c in m['cases']:
         planes = {}
-        for name, extent in [('original',m['source_texture']),('proxy',c['N']),
-                             ('neural',c['N']),('pre',m['output_texture']),('post',m['output_texture'])]:
+        layout = [('original',m['source_texture']),('proxy',c['N']),
+                  ('neural',c['N']),('pre',m['output_texture']),('post',m['output_texture'])]
+        if candidate:
+            layout.append(('candidate',m['output_texture']))
+        for name, extent in layout:
             path = root / f"case-{c['id']}-{name}.rgba32f"
             raw = path.read_bytes()
             assert len(raw) == math.prod(extent)*16, (path.name, 'actual N extent')
             total += len(raw)
             hashes[path.name] = hashlib.sha256(raw).hexdigest()
             planes[name] = list(struct.iter_unpack('<4f', raw))
-        sums = [0.,0.,0.]
+        sums = [0.,0.,0.,0.,0.]
         for y in range(13):
             for x in range(13):
                 a,b = (planes[n][(y+1)*17+x+2] for n in ('pre','post'))
@@ -34,12 +40,21 @@ def verify(root, m=None):
                 luma=lambda p: .2126*p[0]+.7152*p[1]+.0722*p[2]
                 sums[0] += sum(abs(a[i]-b[i]) for i in range(3))/3
                 sums[1] += abs(luma(a)-luma(o)); sums[2] += abs(luma(b)-luma(o))
+                if candidate:
+                    v = planes['candidate'][(y+1)*17+x+2]
+                    assert all(math.isfinite(t) for t in v) and v[3] == o[3]
+                    assert c['strength'] != 0 or v == o, (c['id'],'candidate zero identity')
+                    sums[3] += abs(luma(v)-luma(o))
+                    sums[4] += sum(abs(v[i]-a[i]) for i in range(3))/3
         for measured, key in zip(sums, ('pre_post_rgb_mae','pre_luma_edit_mae','post_luma_edit_mae')):
             assert math.isclose(measured/169,c[key],rel_tol=2e-6,abs_tol=2e-8), (c['id'],key)
+        if candidate:
+            for measured,key in zip(sums[3:],('candidate_luma_edit_mae','candidate_pre_rgb_mae')):
+                assert math.isclose(measured/169,c[key],rel_tol=2e-6,abs_tol=2e-8), (c['id'],key)
         different += sums[0] > 1e-6
     assert total == m['plane_bytes'] <= m['byte_budget'] == 8388608
     assert different == m['different_outputs'] and different > 0
-    assert len(list(root.glob('*.rgba32f'))) == 72*5
+    assert len(list(root.glob('*.rgba32f'))) == 72*(6 if candidate else 5)
     return hashes
 
 
