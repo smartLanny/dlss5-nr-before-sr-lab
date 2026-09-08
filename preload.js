@@ -6,6 +6,7 @@ const invoke = (name, ...args) => ipcRenderer.invoke(name, ...args);
 contextBridge.exposeInMainWorld('manager', Object.freeze({
   boot: () => invoke('boot'),
   refresh: () => invoke('games-refresh'),
+  listGames: () => invoke('games-list'),
   pickGame: () => invoke('pick-game'),
   pickExecutable: () => invoke('pick-executable'),
   pickAddon: () => invoke('pick-addon'),

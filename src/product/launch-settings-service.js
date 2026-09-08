@@ -7,7 +7,7 @@ const journalDefault = require('../core/file-journal');
 const policy = require('./launch-settings-policy');
 const { createNvapiProfileAdapter } = require('./nvapi-profile');
 const { fail, inside, noLinks, digestFile, atomicJson } = require('./launch-safety');
-const { detectGpu } = require('./gpu');
+const { detectGpuAsync: detectGpu } = require('./gpu');
 const { createInstallGuards } = require('../core/install-guards');
 const pe = require('../core/pe');
 

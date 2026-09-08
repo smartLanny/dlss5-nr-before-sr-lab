@@ -5,9 +5,10 @@ const path = require('path');
 const { PRODUCT, DX11_COMPAT_VERSION } = require('./constants');
 const { isDx11Only, classifyApi } = require('./game-support');
 const { createStore } = require('./state-store');
-const { createLibraryService } = require('./library-service');
+const { createLibraryWorkerClient } = require('./library-worker-client');
+const { createPayloadInspectionCache } = require('./payload-inspection-cache');
 const { createInstaller } = require('./installer');
-const { payloadRoot, readBundle, inspectPayload, requirePayload, sha256 } = require('./payload');
+const { payloadRoot, readBundle, requirePayload, sha256 } = require('./payload');
 const { readConfig, writeConfig, defaultPatch } = require('./nr-config');
 const { readReShadeHotkey, writeReShadeHotkey } = require('./hotkeys');
 const { readManifest } = require('./manifest');
@@ -18,16 +19,23 @@ const { readOtaPackage } = require('./ota');
 const { createFeedbackCollector } = require('./feedback');
 const { resolveVersion } = require('./version-selection');
 
+const QUIET_READ_ACTIONS = new Set(['boot', 'games-refresh', 'games-list', 'game-diagnose', 'game-hotkeys-read',
+  'nr-read', 'sr-model-read', 'launch-settings-inspect', 'addon-list', 'game-art', 'game-icon',
+  'game-selection-icon', 'feedback-build']);
+
 function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', overrides = {} }) {
   const store = createStore(path.join(userData, 'settings.json'));
-  const library = overrides.library || createLibraryService();
+  const library = overrides.library || createLibraryWorkerClient();
   const installer = overrides.installer || createInstaller();
   const detectGpu = overrides.detectGpu || readGpu;
   const artService = createArtService({ userData });
   const feedback = createFeedbackCollector({ userData, productVersion: version });
+  const payloadInspection = createPayloadInspectionCache();
   const payloadDir = payloadRoot(fs.existsSync(path.join(resourcesPath || '', 'payload')) ? resourcesPath : appDir);
   const addonVersionsDir = path.join(userData, 'addon-versions');
   let games = [];
+  let collectionFresh = false;
+  let activeRefresh = null, refreshGeneration = 0, scanEpoch = 0;
   let hardware = detectGpu();
 
   // Keep internal IDs stable while presenting public 0.4 releases as Beta0.4.
@@ -131,9 +139,9 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   function listAddonVersions() {
     let inspected;
     try {
-      inspected = inspectPayload(payloadDir, {
+      inspected = payloadInspection.inspect(payloadDir, {
         allowMissingBundle: true,
-        hardwareFamily: (hardware = detectGpu()).family,
+        hardwareFamily: hardware.family,
         version: selectedVersion()
       });
     } catch {
@@ -156,12 +164,12 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   }
 
   function inspectGamePayload(game, requestedVersion = null) {
-    const family = (hardware = detectGpu()).family;
+    const family = hardware.family;
     const version = selectedVersionForGame(game, requestedVersion);
     const imported = importedAddon(version);
     if (/^imported-/i.test(version || '') && !imported) throw appError('ERR_ADDON_NOT_FOUND');
     if (!imported) {
-      const payload = inspectPayload(payloadDir, {
+      const payload = payloadInspection.inspect(payloadDir, {
         allowMissingBundle: true,
         hardwareFamily: family,
         version
@@ -178,7 +186,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     // An imported OTA owns the addon (and, when present, its paired bridge),
     // while runtime/ReShade/config remain game-install state. Do not compare
     // those preserved files against whichever bundled version is selected.
-    const base = inspectPayload(payloadDir, {
+    const base = payloadInspection.inspect(payloadDir, {
       allowMissingBundle: true,
       hardwareFamily: family
     });
@@ -229,12 +237,24 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     return game;
   }
 
-  async function refresh() {
-    games = await library.scanAll(store.read());
-    return games.map(publicGame);
+  function refresh() {
+    const state = store.read(), epoch = scanEpoch, key = JSON.stringify([state, epoch]);
+    if (activeRefresh?.key === key) return activeRefresh.promise;
+    const generation = ++refreshGeneration;
+    const promise = Promise.resolve().then(() => library.scanAll(state, epoch)).then(rows => {
+      if (generation !== refreshGeneration) return activeRefresh ? activeRefresh.promise : games.map(publicGame);
+      games = rows; collectionFresh = true;
+      return games.map(publicGame);
+    }, error => {
+      if (generation !== refreshGeneration) return activeRefresh ? activeRefresh.promise : games.map(publicGame);
+      collectionFresh = false; throw error;
+    }).finally(() => { if (activeRefresh?.generation === generation) activeRefresh = null; });
+    activeRefresh = { key, generation, promise };
+    return promise;
   }
 
   async function refreshCollection(fallback = games) {
+    collectionFresh = false; scanEpoch++;
     try { return await refresh(); } catch { return fallback; }
   }
 
@@ -242,6 +262,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     // The journal transaction has already committed. A transient scan failure
     // must not turn that successful mutation into an IPC error; the renderer
     // retries the cache refresh separately.
+    collectionFresh = false; scanEpoch++;
     try { await refresh(); } catch {}
     return value;
   }
@@ -249,7 +270,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
   async function withError(work, context = {}) {
     try {
       const value = await work();
-      await feedback.record({ ...context, ok: true });
+      if (!QUIET_READ_ACTIONS.has(context.action)) await feedback.record({ ...context, ok: true });
       return { ok: true, value };
     } catch (error) {
       const normalized = normalizeError(error);
@@ -310,13 +331,18 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     product: { ...PRODUCT, version },
     store,
     payloadDir,
+    reShadeSource: () => {
+      const inspected = payloadInspection.inspect(payloadDir, { allowMissingBundle: true, hardwareFamily: 'RTX40', version: selectedVersion() });
+      const row = inspected.files?.find(file => file.kind === 'reshade');
+      return row?.valid && row.expected ? { file: row.file, sha256: row.expected } : null;
+    },
     withError,
     validateLaunch,
     boot: async () => ({
       product: { ...PRODUCT, version },
       settings: store.read(),
-      hardware: (hardware = detectGpu()),
-      payload: inspectPayload(payloadDir, {
+      hardware,
+      payload: payloadInspection.inspect(payloadDir, {
         allowMissingBundle: true,
         hardwareFamily: hardware.family,
         version: selectedVersion()
@@ -325,6 +351,9 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       games: await refresh()
     }),
     refresh,
+    refreshAfterMutation,
+    listGames: () => collectionFresh ? games.map(publicGame) : refresh(),
+    dispose: () => library.dispose?.(),
     gameDirectory: id => findGame(id).dir,
     gameScan: id => structuredClone(findGame(id).scan),
     gamesInDirectory: dir => games.filter(game => pathKey(game.dir) === pathKey(dir)).map(game => ({
@@ -529,20 +558,20 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       const game = findGame(id);
       const payload = selectedPayload(game, options && typeof options.version === 'string' ? options.version : null);
       const result = await installer.install({ gameDir: game.dir, payload, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
-      return result;
+      return refreshAfterMutation(result);
     },
-    repair: async (id, options = {}) => repairGame(findGame(id), options),
+    repair: async (id, options = {}) => refreshAfterMutation(await repairGame(findGame(id), options)),
     upgradeAddon: async (id, version, options = {}) => {
       const game = findGame(id);
       const imported = importedAddon(version);
       if (!imported) throw appError('ERR_ADDON_NOT_FOUND');
       const result = await installer.upgradeAddon({ gameDir: game.dir, addon: imported, version: imported.id, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
-      return result;
+      return refreshAfterMutation(result);
     },
     toggleD3D12: async (id, enabled, options = {}) => {
       const game = findGame(id);
       const result = await installer.toggleD3D12({ gameDir: game.dir, enabled: enabled === true, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
-      return result;
+      return refreshAfterMutation(result);
     },
     launch: async id => {
       const exe = await validateLaunch(id);
@@ -557,7 +586,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     uninstall: async (id, removeSettings = false) => {
       const game = findGame(id);
       const result = await installer.uninstall({ gameDir: game.dir, removeSettings, scan: game.scan });
-      return result;
+      return refreshAfterMutation(result);
     },
     diagnose: async id => {
       const game = findGame(id);

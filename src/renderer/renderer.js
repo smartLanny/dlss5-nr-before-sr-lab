@@ -305,7 +305,9 @@ function gameDetail(game) {
   </div>`;
 }
 
-function renderGames() {
+function renderGames(options = {}) {
+  const previousExpanded = options?.preserveExpanded === true
+    ? [...document.querySelectorAll('.game-card')].find(card => card.dataset.id === state.expanded) : null;
   const rows = visibleGames();
   updateGameListMeta(rows);
   $('gameList').innerHTML = rows.map(game => `<article class="game-card${state.expanded === game.id ? ' expanded' : ''}" data-id="${game.id}">
@@ -314,13 +316,18 @@ function renderGames() {
       <div class="game-meta"><div class="game-title"><h3>${escapeHtml(game.name)}</h3>${supportBadge(game)}</div><p>${escapeHtml(game.launcher)} · ${escapeHtml(game.chosen ? `${gameApiLabel(game.chosen)} / ${game.chosen.bitness} 位` : game.supportText)}</p></div>
       <div class="card-action">${cardAction(game)}<span class="expand-arrow">⌄</span></div>
     </div>
-    ${gameDetail(game)}
+    ${state.expanded === game.id ? gameDetail(game) : ''}
   </article>`).join('');
+  let reusedExpanded = false;
+  if (previousExpanded) {
+    const replacement = [...document.querySelectorAll('.game-card')].find(card => card.dataset.id === previousExpanded.dataset.id);
+    if (replacement) { replacement.replaceWith(previousExpanded); reusedExpanded = true; }
+  }
   bindGameCards();
   const expandedCard = [...document.querySelectorAll('.game-card')].find(card => card.dataset.id === state.expanded);
   const launchHost = expandedCard?.querySelector('.launch-settings-host');
   if (launchHost && window.launchSettingsUi) window.launchSettingsUi.mount(launchHost, state.expanded);
-  if (state.expanded) loadExpanded(state.expanded);
+  if (state.expanded && !reusedExpanded) loadExpanded(state.expanded);
   renderRepairSelect();
   renderFeedbackSelect();
 }
@@ -356,7 +363,8 @@ function bindGameCards() {
       event.stopPropagation();
       const host = button.closest('.game-card')?.querySelector('.launch-settings-host');
       if (!host) return;
-      host.scrollIntoView({ block: 'start', behavior: 'auto' });
+      const view = host.closest('.view');
+      if (view) view.scrollTop += host.getBoundingClientRect().top - view.getBoundingClientRect().top - 12;
       host.querySelector('select, button')?.focus({ preventScroll: true });
     };
   });
@@ -543,7 +551,8 @@ function queueRefreshRetry(attempt = 0) {
 }
 
 async function refreshGames() {
-  state.games = mergeGameVisuals(state.games, unwrap(await window.manager.refresh()));
+  const response = await (window.manager.listGames ? window.manager.listGames() : window.manager.refresh());
+  state.games = mergeGameVisuals(state.games, unwrap(response));
   renderGames();
   scheduleArtworkEnrichment();
   if (state.repairGame && !state.games.some(g => g.id === state.repairGame)) state.repairGame = null;
@@ -912,8 +921,11 @@ async function confirmGameSelection() {
 }
 
 document.querySelectorAll('.nav').forEach(button => button.onclick = () => switchView(button.dataset.view));
-$('searchInput').oninput = renderGames;
-$('gameFilter').onchange = renderGames;
+$('searchInput').oninput = () => {
+  clearTimeout(renderGames.searchTimer);
+  renderGames.searchTimer = setTimeout(() => renderGames({ preserveExpanded: true }), 120);
+};
+$('gameFilter').onchange = () => renderGames({ preserveExpanded: true });
 $('refreshBtn').onclick = () => runAction(async () => { state.games = unwrap(await window.manager.refresh()); return true; }, '扫描完成', false).then(() => { renderGames(); scheduleArtworkEnrichment(); });
 async function pickAndRefresh(picker, success) {
   if (state.busy) return;

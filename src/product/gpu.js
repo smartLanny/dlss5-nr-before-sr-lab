@@ -1,6 +1,6 @@
 'use strict';
 
-const { execFileSync } = require('child_process');
+const { execFileSync, execFile } = require('child_process');
 
 // RTX 20/30/40 use the same fixed runtime family in this product. Keep the
 // payload family names compact while exposing the actual detected series to
@@ -47,4 +47,18 @@ function detectGpu(options = {}) {
   };
 }
 
-module.exports = { FAMILIES, classifyGpu, classifySeries, detectGpu };
+let gpuInFlight = null;
+function detectGpuAsync(options = {}) {
+  if (!options.run && gpuInFlight) return gpuInFlight;
+  const run = options.run || (() => new Promise((resolve, reject) => execFile('powershell', [
+    '-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }'
+  ], { encoding: 'utf8', timeout: 8000, windowsHide: true }, (error, stdout) => error ? reject(error) : resolve(stdout))));
+  const result = Promise.resolve().then(run).then(output => detectGpu({ run: () => output }), () => detectGpu({ run: () => '' }));
+  if (!options.run) {
+    gpuInFlight = result;
+    void result.finally(() => { if (gpuInFlight === result) gpuInFlight = null; });
+  }
+  return result;
+}
+
+module.exports = { FAMILIES, classifyGpu, classifySeries, detectGpu, detectGpuAsync };

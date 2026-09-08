@@ -44,7 +44,7 @@ frame-generation DLLs as part of this compatibility package.
 
 ## Lucide navigation icons
 
-Four navigation icons are copied without path changes from Lucide `0.468.0`
+Four navigation icons and the checkbox check icon are copied without path changes from Lucide `0.468.0`
 (`f12b0de177fbc2a6795e99be065887e72b237123`). The full ISC/MIT attribution is
 included in `src/renderer/icons/LICENSE`. Source: https://github.com/lucide-icons/lucide.
 

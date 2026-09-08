@@ -11,7 +11,6 @@ const { createLaunchCoordinator } = require('./src/product/launch-coordinator');
 const installGuards = require('./src/core/install-guards');
 const { createFgComponents } = require('./src/product/fg-components');
 const { classifyApi } = require('./src/product/game-support');
-const { requirePayload } = require('./src/product/payload');
 
 let win = null;
 let service = null;
@@ -131,6 +130,7 @@ function registerIpc() {
   ));
   call('boot', () => service.boot());
   call('games-refresh', () => service.refresh());
+  call('games-list', () => service.listGames());
   call('game-install', (id, options) => service.install(id, options));
   call('game-repair', (id, options) => service.repair(id, options));
   call('game-upgrade-addon', (id, version, options) => service.upgradeAddon(id, version, options));
@@ -164,15 +164,13 @@ function registerIpc() {
   call('fg-components-prepare', async (id, options) => {
     await launchSettings.assertReady(id);
     const result = await fgComponents.prepare(id, { allowAntiCheat: options?.allowAntiCheat === true });
-    await service.refresh();
-    return result;
+    return service.refreshAfterMutation(result);
   });
   call('fg-components-restore', async id => {
     await launchSettings.assertReady(id);
     await launchSettings.restore(id, 'fg');
     const result = await fgComponents.restore(id);
-    await service.refresh();
-    return result;
+    return service.refreshAfterMutation(result);
   });
   call('game-hotkeys-read', id => service.readGameHotkeys(id));
   call('game-hotkey-write', (id, target, binding) => service.writeGameHotkey(id, target, binding));
@@ -309,10 +307,7 @@ if (!shouldContinue) {
         };
       },
       getReShadeSource: () => {
-        try {
-          const payload = requirePayload(service.payloadDir, 'RTX40');
-          return { file: payload.reshade.file, sha256: payload.reshade.expected };
-        } catch { return null; }
+        try { return service.reShadeSource(); } catch { return null; }
       }
     });
     launchCoordinator = createLaunchCoordinator({ service, settings: launchSettings, legacySrModel: srModel, guards: installGuards, components: fgComponents });
@@ -323,4 +318,5 @@ if (!shouldContinue) {
     createWindow();
   });
   app.on('window-all-closed', () => app.quit());
+  app.on('before-quit', () => { service?.dispose?.(); });
 }

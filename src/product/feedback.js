@@ -14,6 +14,17 @@ function trimText(value, max = MAX_LOG_BYTES) {
   return `...[前面的内容已截断，保留最后 ${Math.round(max / 1024)} KB]...\n${bytes.subarray(-max).toString('utf8')}`;
 }
 
+async function readLogTail(file) {
+  const handle = await fs.promises.open(file, 'r');
+  try {
+    const stat = await handle.stat();
+    const length = Math.min(stat.size, MAX_LOG_BYTES), buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, Math.max(0, stat.size - length));
+    const prefix = stat.size > length ? `...[前面的内容已截断，保留最后 ${Math.round(length / 1024)} KB]...\n` : '';
+    return prefix + buffer.subarray(0, bytesRead).toString('utf8').replace(/\u0000/g, '');
+  } finally { await handle.close(); }
+}
+
 function redactPath(value) {
   if (typeof value !== 'string') return value;
   const home = os.homedir();
@@ -81,7 +92,7 @@ function createFeedbackCollector({ userData, productVersion = '0.0.0' }) {
         const file = path.join(dir, entry.name);
         if (files.some(row => row.file.toLowerCase() === file.toLowerCase())) continue;
         try {
-          files.push({ name: entry.name, file, text: trimText(await fs.promises.readFile(file, 'utf8')) });
+          files.push({ name: entry.name, file, text: await readLogTail(file) });
         } catch {}
       }
     }

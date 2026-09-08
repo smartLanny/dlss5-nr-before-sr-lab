@@ -66,6 +66,7 @@ async function smoke() {
   function assert(condition, description) { if (!condition) throw new Error(description); checks.push(description); }
   const waitUntil = async predicate => { const deadline = Date.now() + 5000; while (!predicate()) { if (Date.now() > deadline) throw new Error('Timed out waiting for renderer'); await new Promise(resolve => setTimeout(resolve, 10)); } };
   await waitUntil(() => document.querySelector('.game-card-head'));
+  assert(!document.querySelector('.launch-settings-host'), 'Collapsed cards do not build hidden SR/FG forms');
   document.querySelector('.game-card-head').click();
   const host = document.querySelector('.launch-settings-host');
   await host.launchSettingsController.ready;
@@ -86,6 +87,14 @@ async function smoke() {
   };
   const count = action => mock.calls.filter(row => row[0] === action).length;
   const saved = domain => mock.data.requests[domain]?.request;
+  const readsBeforeFilter = count('inspect');
+  document.querySelector('#searchInput').value = 'SR';
+  document.querySelector('#searchInput').dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 160));
+  assert(document.querySelector('.launch-settings-host') === host && count('inspect') === readsBeforeFilter, 'Search keeps the expanded editor and does not repeat component inspection');
+  document.querySelector('#searchInput').value = '';
+  document.querySelector('#searchInput').dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 160));
   const hardware = async (series, family = series === 'RTX50' ? 'RTX50' : 'RTX40') => {
     mock.data.hardware = { family, series: series ? [series] : [], names: series ? [`NVIDIA GeForce ${series.replace('RTX', 'RTX ')}90`] : [], source: 'fixture' };
     mock.data.requests = {}; mock.data.applied = {};
@@ -180,6 +189,8 @@ async function smoke() {
     assert(rect.left >= -1 && rect.right <= innerWidth + 1 && node.scrollWidth <= node.clientWidth + 1, `900px width contains ${node.className || node.tagName}`);
   }
   assert(!mock.error, 'No renderer error occurred');
+  document.querySelector('.launch-jump-btn').click();
+  assert(document.querySelector('.titlebar').getBoundingClientRect().top >= 0 && document.scrollingElement.scrollTop === 0, 'SR/FG jump scrolls only the game view and preserves the fixed app header');
   const view = document.querySelector('.view.active');
   view.scrollTop += host.getBoundingClientRect().top - view.getBoundingClientRect().top - 12;
   return { checks, viewport: { width: innerWidth, height: innerHeight, launchTop: host.getBoundingClientRect().top, scrollTop: document.querySelector('.view.active').scrollTop } };
@@ -189,7 +200,7 @@ const preload = path.join(temporary, 'preload.cjs');
 fs.writeFileSync(preload, `(${installMock.toString()})();`, 'utf8');
 app.whenReady().then(async () => {
   const width = Number(process.env.SRFG_UI_WIDTH) || 900;
-  const win = new BrowserWindow({ width, height: 1100, useContentSize: true, show: false, webPreferences: { preload, sandbox: false, contextIsolation: false, nodeIntegration: false, backgroundThrottling: false, offscreen: true } });
+  const win = new BrowserWindow({ width, height: Number(process.env.SRFG_UI_HEIGHT) || 1100, useContentSize: true, show: false, webPreferences: { preload, sandbox: false, contextIsolation: false, nodeIntegration: false, backgroundThrottling: false, offscreen: true } });
   try {
     await win.loadFile(path.join(__dirname, '../src/renderer/index.html'));
     const result = await win.webContents.executeJavaScript(`(${smoke.toString()})()`);
@@ -204,6 +215,7 @@ app.whenReady().then(async () => {
         const view=document.querySelector('.view.active');view.scrollTop+=host.getBoundingClientRect().top-view.getBoundingClientRect().top-12;
       })()`);
     }
+    if (process.env.SRFG_UI_STATE === 'bridge') await win.webContents.executeJavaScript("(()=>{const row=document.querySelector('.addon-version-row'),view=row.closest('.view');view.scrollTop+=row.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()");
     win.webContents.invalidate();
     await new Promise(resolve => setTimeout(resolve, 150));
     const screenshot = process.argv[2];

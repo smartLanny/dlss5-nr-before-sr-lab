@@ -23,7 +23,7 @@ function posterUrl(poster) {
   return pathToFileURL(poster.file).href;
 }
 
-function steamArtworkFor(game) {
+function steamArtworkFor(game, directoryCache = new Map()) {
   if (!game || game.launcher !== 'Steam' || !game.steamRoot || !game.id) return game;
   const appid = String(game.id);
   const cacheDirs = [
@@ -32,12 +32,13 @@ function steamArtworkFor(game) {
   ];
   const files = [];
   for (const dir of cacheDirs) {
-    let names = [];
-    try { names = fs.readdirSync(dir); } catch { continue; }
-    for (const name of names) {
-      const full = path.join(dir, name);
-      try { if (fs.statSync(full).isFile()) files.push({ name, file: full }); } catch {}
+    let cached = directoryCache.get(dir);
+    if (!cached) {
+      try { cached = fs.readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isFile()).map(entry => ({ name: entry.name, file: path.join(dir, entry.name) })); }
+      catch { cached = []; }
+      directoryCache.set(dir, cached);
     }
+    files.push(...cached);
   }
   const match = (pattern) => files.find(row => pattern.test(row.name));
   const cover = match(new RegExp(`^(?:${appid}_)?library_600x900(?:_[^.]*)?\\.(?:jpg|jpeg|png)$`, 'i'));
@@ -144,6 +145,7 @@ function createLibraryService(overrides = {}) {
   async function findGameRoot(executable) {
     let current = path.dirname(path.resolve(executable));
     let fallback = current;
+    let fallbackScan = null;
     for (let depth = 0; depth < 7; depth += 1) {
       let scan = null;
       try { scan = await scanModule.scanGame(current); } catch {}
@@ -155,11 +157,19 @@ function createLibraryService(overrides = {}) {
         scan.dlssFiles.some(file => /^nvngx_dlss\.dll$/i.test(file && file.name || ''));
       if (hasNativeDlss && scan.primaryDlss && /^nvngx_dlss\.dll$/i.test(scan.primaryDlss.name || '')) return { root: current, scan };
       fallback = current;
+      fallbackScan = scan;
       const parent = path.dirname(current);
       if (parent === current) break;
+      // Walk out of known binary layouts only. A missing native DLSS DLL
+      // must never turn one EXE selection into a scan of Games/AppData/a drive.
+      const technical = /^(?:binaries|bin|win(?:32|64)(?:[._ -].*)?|x64|x86|client|windowsnoeditor|shipping|build|dist|release)$/i;
+      const unrealProjectParent = /^windowsnoeditor$/i.test(path.basename(parent)) ||
+        fs.existsSync(path.join(parent, 'Engine', 'Binaries')) || fs.existsSync(path.join(parent, 'Engine', 'Plugins'));
+      if (!technical.test(path.basename(current)) && !unrealProjectParent) break;
+      if (parent === path.parse(parent).root) break;
       current = parent;
     }
-    return { root: fallback, scan: null };
+    return { root: fallback, scan: fallbackScan };
   }
 
   function likelyHelper(candidate) {
@@ -392,7 +402,8 @@ function createLibraryService(overrides = {}) {
       manualByRoot.set(key, existing);
     }
     const manual = [...manualByRoot.values()];
-    const discoveredGames = (discovered.games || []).map(steamArtworkFor);
+    const artworkDirectories = new Map();
+    const discoveredGames = (discovered.games || []).map(game => steamArtworkFor(game, artworkDirectories));
     const candidates = library.dedupe([...discoveredGames, ...manual]).filter(game => !isExcludedGame(game, state));
     const rows = await mapLimit(candidates, 2, async game => {
       let scan;
@@ -407,16 +418,8 @@ function createLibraryService(overrides = {}) {
         } else {
           scan = choosePreferred(baseScan, game.preferredExecutable);
         }
-        const hasNativeDlss = scan && Array.isArray(scan.dlssFiles) &&
-          scan.dlssFiles.some(file => /^nvngx_dlss\.dll$/i.test(file && file.name || ''));
-        if (game.launcher === '手动添加' && scan && !hasNativeDlss && scan.chosen && scan.chosen.path) {
-          const inferred = await findGameRoot(scan.chosen.path);
-          if (inferred.scan && !samePath(inferred.root, game.dir)) {
-            game.dir = inferred.root;
-            const inferredCandidates = await collectCandidates(game.dir, inferred.scan);
-            scan = chooseBest(inferred.scan, game.dir, inferredCandidates, game.preferredExecutable || scan.chosen.path);
-          }
-        }
+        // A saved root is explicit. Refresh must not infer a broader root
+        // when this game lacks native DLSS or its files are temporarily absent.
       } catch (error) {
         return {
           id: idFor(game.dir),

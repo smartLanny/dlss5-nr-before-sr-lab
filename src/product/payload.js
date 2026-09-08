@@ -15,6 +15,16 @@ function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
+function inspectionHasher() {
+  const values = new Map();
+  return file => {
+    const resolved = path.resolve(file);
+    const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    if (!values.has(key)) values.set(key, sha256(resolved));
+    return values.get(key);
+  };
+}
+
 function payloadRoot(baseDir) {
   return path.join(baseDir, 'payload', 'nr-before-sr');
 }
@@ -34,23 +44,23 @@ function readBundle(dir) {
   return bundle;
 }
 
-function inspectFiles(dir, expectedFiles) {
-  return inspectFilesAt(dir, expectedFiles);
+function inspectFiles(dir, expectedFiles, digest = sha256) {
+  return inspectFilesAt(dir, expectedFiles, {}, digest);
 }
 
-function inspectFilesAt(dir, expectedFiles, customPaths = {}) {
+function inspectFilesAt(dir, expectedFiles, customPaths = {}, digest = sha256) {
   return Object.entries(PAYLOAD_FILES).map(([kind, name]) => {
     const file = customPaths[kind] || path.join(dir, name);
     const exists = fs.existsSync(file) && fs.statSync(file).isFile();
-    const actual = exists ? sha256(file) : null;
+    const actual = exists ? digest(file) : null;
     const expected = expectedFiles && expectedFiles[name] ? String(expectedFiles[name]).toLowerCase() : null;
     return { kind, name, file, exists, actual, expected, valid: exists && (!expected || actual === expected) };
   });
 }
 
-function inspectOptionalFile(file, expected, kind, name) {
+function inspectOptionalFile(file, expected, kind, name, digest = sha256) {
   const exists = fs.existsSync(file) && fs.statSync(file).isFile();
-  const actual = exists ? sha256(file) : null;
+  const actual = exists ? digest(file) : null;
   const normalizedExpected = expected ? String(expected).toLowerCase() : null;
   return {
     kind, name, file, exists, actual, expected: normalizedExpected,
@@ -58,8 +68,8 @@ function inspectOptionalFile(file, expected, kind, name) {
   };
 }
 
-function inspectOne(dir, expectedFiles) {
-  const files = inspectFiles(dir, expectedFiles);
+function inspectOne(dir, expectedFiles, digest = sha256) {
+  const files = inspectFiles(dir, expectedFiles, digest);
   return {
     dir, files,
     ready: files.every(row => row.valid && row.expected),
@@ -68,11 +78,11 @@ function inspectOne(dir, expectedFiles) {
   };
 }
 
-function inspectVersion(dir, entry) {
+function inspectVersion(dir, entry, digest = sha256) {
   const variants = {};
   for (const family of FAMILIES) {
     const variant = entry && entry.variants && entry.variants[family];
-    variants[family] = inspectOne(path.join(dir, family), variant && variant.files);
+    variants[family] = inspectOne(path.join(dir, family), variant && variant.files, digest);
   }
   return {
     id: entry && entry.id,
@@ -86,7 +96,7 @@ function inspectVersion(dir, entry) {
   };
 }
 
-function inspectCompactVersion(root, id, entry, fixed) {
+function inspectCompactVersion(root, id, entry, fixed, digest = sha256) {
   const variants = {};
   for (const family of FAMILIES) {
     const fixedEntry = fixed && fixed[family];
@@ -103,7 +113,7 @@ function inspectCompactVersion(root, id, entry, fixed) {
       runtime: path.join(fixedDir, PAYLOAD_FILES.runtime),
       addon: path.join(versionDir, PAYLOAD_FILES.addon),
       config: path.join(versionDir, PAYLOAD_FILES.config)
-    });
+    }, digest);
     variants[family] = {
       dir: versionDir,
       files,
@@ -115,7 +125,7 @@ function inspectCompactVersion(root, id, entry, fixed) {
       const optional = inspectOptionalFile(
         path.join(versionDir, OPTIONAL_PAYLOAD_FILES.carrier),
         entry.files[OPTIONAL_PAYLOAD_FILES.carrier],
-        'carrier', OPTIONAL_PAYLOAD_FILES.carrier
+        'carrier', OPTIONAL_PAYLOAD_FILES.carrier, digest
       );
       variants[family].files.push(optional);
       variants[family].ready = variants[family].files.every(row => row.valid && row.expected);
@@ -136,6 +146,10 @@ function inspectCompactVersion(root, id, entry, fixed) {
 }
 
 function inspectPayload(dir, options = {}) {
+  // A compact bundle deliberately shares fixed files between versions. Hash
+  // each physical path once per inspection while keeping every invocation
+  // fresh for requirePayload and mutation-time validation.
+  const digest = inspectionHasher();
   let bundle = null;
   try { bundle = readBundle(dir); }
   catch (error) {
@@ -146,7 +160,7 @@ function inspectPayload(dir, options = {}) {
     const variants = {};
     for (const family of FAMILIES) {
       const entry = bundle.variants[family];
-      variants[family] = inspectOne(path.join(dir, family), entry && entry.files);
+      variants[family] = inspectOne(path.join(dir, family), entry && entry.files, digest);
     }
     const selectedFamily = options.hardwareFamily;
     const selected = FAMILIES.includes(selectedFamily) ? variants[selectedFamily] : null;
@@ -162,7 +176,7 @@ function inspectPayload(dir, options = {}) {
   if (bundle && bundle.version === 3) {
     const versions = {};
     for (const [id, entry] of Object.entries(bundle.versions || {})) {
-      versions[id] = inspectVersion(path.join(dir, 'versions', id), { ...entry, id });
+      versions[id] = inspectVersion(path.join(dir, 'versions', id), { ...entry, id }, digest);
     }
     const ids = Object.keys(versions);
     const selectedVersion = ids.includes(options.version)
@@ -184,7 +198,7 @@ function inspectPayload(dir, options = {}) {
   if (bundle && bundle.version === 4) {
     const versions = {};
     for (const [id, entry] of Object.entries(bundle.versions || {})) {
-      versions[id] = inspectCompactVersion(dir, id, { ...entry, id }, bundle.fixed || {});
+      versions[id] = inspectCompactVersion(dir, id, { ...entry, id }, bundle.fixed || {}, digest);
     }
     const ids = Object.keys(versions);
     const selectedVersion = ids.includes(options.version)
@@ -203,7 +217,7 @@ function inspectPayload(dir, options = {}) {
     };
   }
 
-  const legacy = inspectOne(dir, bundle && bundle.files);
+  const legacy = inspectOne(dir, bundle && bundle.files, digest);
   return { dir, bundle, files: legacy.files, ready: Boolean(bundle) && legacy.ready, missing: legacy.missing, invalid: legacy.invalid };
 }
 

@@ -43,13 +43,12 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
   }
   return { serialize, launch, restoreForUninstall,
     async inspect(id) {
-      const snapshot = await settings.inspect(id);
-      if (!components) return snapshot;
-      try { return { ...snapshot, fgComponents: await components.inspect(id) }; }
-      catch (error) {
-        return { ...snapshot, fgComponents: { route: 'unknown', ready: false, canPrepare: false,
-          missing: [], blockers: [error.message || '无法确认 FG 组件状态。'], errorCode: error.code || 'SETTINGS_COMPONENTS_UNKNOWN' } };
-      }
+      if (!components) return settings.inspect(id);
+      const [snapshot, fgComponents] = await Promise.all([settings.inspect(id), components.inspect(id).catch(error => ({
+        route: 'unknown', ready: false, canPrepare: false, missing: [], blockers: [error.message || '无法确认 FG 组件状态。'],
+        errorCode: error.code || 'SETTINGS_COMPONENTS_UNKNOWN'
+      }))]);
+      return { ...snapshot, fgComponents };
     },
     assertMutationReady: id => settings.assertReady(id),
     async dismiss(id) {
