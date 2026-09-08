@@ -1259,8 +1259,8 @@ nr_work_config::Request ReadWorkRequest(bool file_proven_absent) {
         L"\x1",scale,static_cast<DWORD>(std::size(scale)),g_ini_path);
     const auto result=(mode_size==std::size(mode)-1 || scale_size==std::size(scale)-1)
         ? nr_work_config::Request{previous,nr_work_config::Status::Rejected}
-        : nr_work_config::Parse(mode[0]==L'\x1'?nullptr:mode,
-                                scale[0]==L'\x1'?nullptr:scale,previous);
+        : nr_work_config::Parse(mode_size==1 && mode[0]==L'\x1'?nullptr:mode,
+                                scale_size==1 && scale[0]==L'\x1'?nullptr:scale,previous);
     RecordWorkRequestStatus(result.status);
     return result;
 }

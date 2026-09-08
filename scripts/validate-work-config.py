@@ -80,7 +80,7 @@ int wmain(int argc,wchar_t** argv) {
           "initial invalid custom uses declared legacy fallback");
     Previous(5,.67f);
     for (const wchar_t* invalid:{L"0.49",L"0.499999",L"-1",L"1.01",L"nan",L"inf",
-                               L"",L"0.75junk",L"0.75%",L"garbage",
+                               L"",L"0.75junk",L"0.75%",L"garbage",L"1e-9999",L"1e9999",
                                L"0.7500000000000000000000000000000000000000000000000000000000000000000000001"}) {
         WritePrivateProfileStringW(L"NRBeforeSR",L"CustomWorkScale",invalid,g_ini_path);
         request=ReadWorkRequest(false);

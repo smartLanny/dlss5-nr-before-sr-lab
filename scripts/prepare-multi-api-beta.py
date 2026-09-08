@@ -27,7 +27,7 @@ PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137)
 INTEGRATION_CORE_PINS = {
     'config/nr_before_sr.ini': '8f7b8bfc96214debaa8ca3b2a659f3a69c899667',
-    'src/nr_work_config.h': '14ea14d389f3759d9c1e261cf5f6309d45265415',
+    'src/nr_work_config.h': '8366b543fbddb66aaf0a7a7d4caf06e1b0bec1a1',
     'src/nr_feedback_core.inl': 'd0d3c4c09b2755ba7b7e89fb0fad9a124e996c48',
     'src/nr_feedback_text.h': '2eb84a38dca9c72243bc2a4a0aa84007ec75097f',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
@@ -36,7 +36,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_capture.inl': '99328d273b964509e344bfdbcd7bbc85f230619b',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
     'src/nr_settings_ui.inl': '54dac997f905cb44e11b511b8cb988a2282d224f',
-    'src/nr_before_sr.cpp': '86146a752e04e9f1dcdc4570b1c52dc050ce321a',
+    'src/nr_before_sr.cpp': '2333ff7b1f524ea3cc6343b328b91e86d6b30797',
     'src/nr_before_sr.rc': '25985f691b7f3104ba7c696f3da03eae709d4e52',
     'src/nr_color_policy.inl': '486c656eaf54af6c1d5b93bed3ce0f7bce9e1b60',
     'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',

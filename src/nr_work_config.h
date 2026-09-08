@@ -1,5 +1,6 @@
 #pragma once
 #include <cmath>
+#include <cerrno>
 #include <cwchar>
 #include <cwctype>
 
@@ -41,8 +42,9 @@ inline Request Parse(const wchar_t* mode, const wchar_t* scale, Work previous) {
     }
     if (scale) {
         wchar_t* end=nullptr;
+        errno=0;
         requested.scale=std::wcstof(scale,&end);
-        if (!Finished(scale,end)) return {previous,Status::Rejected};
+        if (errno==ERANGE || !Finished(scale,end)) return {previous,Status::Rejected};
     }
     return Resolve(requested,previous);
 }
