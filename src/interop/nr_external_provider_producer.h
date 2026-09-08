@@ -18,6 +18,30 @@ using ReleaseFn = std::int32_t (WINAPI *)(std::uint32_t, std::uint64_t);
 using SubmitFn = std::int32_t (WINAPI *)(std::uint32_t, const NrExternalFrameV1 *,
                                          NrExternalSubmitResultV1 *);
 
+// Call outside loader callbacks, after official NGX Init/capability loading and
+// before Claim/Create of an injected SR feature. Retain the consumer module.
+// A deadline declines startup; it never authorizes Create. Re-run before each
+// new SR lifecycle. This is separate from NR-only Feeder admission.
+inline bool WaitForNativeObserver(QueryFn query_fn, DWORD timeout_ms,
+                                 NrExternalStatusV1 &status) noexcept {
+    const ULONGLONG start = GetTickCount64();
+    for (;;) {
+        status = {};
+        if (!query_fn || !query_fn(kNrExternalProviderAbi, sizeof(status),
+                kNrExternalQueryNativeObserver, &status)) return false;
+        if (status.size != sizeof(status) || status.abi != kNrExternalProviderAbi ||
+            status.reserved) return false;
+        if (status.reason == NrExternalProviderReason::Ready)
+            return !(status.observer_epoch & 1u);
+        if (status.reason != NrExternalProviderReason::Starting &&
+            status.reason != NrExternalProviderReason::Busy) return false;
+        const ULONGLONG elapsed = GetTickCount64() - start;
+        if (elapsed >= timeout_ms) return false;
+        const auto remaining = static_cast<DWORD>(timeout_ms - elapsed);
+        Sleep(remaining < 5 ? remaining : 5);
+    }
+}
+
 inline SRWLOCK lock = SRWLOCK_INIT;
 inline HMODULE retained = nullptr;
 inline QueryFn query = nullptr;

@@ -3,6 +3,7 @@
 // disable its private NGX Feature1 evaluate. No fake Feature1 is created here.
 #include "nr_external_provider_d3d12.h"
 #include "nr_external_provider_feedback.h"
+#include "nr_external_observer_startup.inl"
 #include "nr_external_provider_core.inl"
 
 namespace nr_external_provider_runtime {
@@ -96,9 +97,16 @@ extern "C" __declspec(dllexport) std::int32_t WINAPI NRExternalProvider_QueryV1(
     std::uint32_t abi, std::uint32_t size, std::uint32_t flags,
     NrExternalStatusV1 *output) {
     if (abi != kNrExternalProviderAbi || size != sizeof(*output) || !output ||
-        (flags & ~1u))
+        (flags & ~3u))
         return 0;
     nr_external_provider_runtime::EnsureCoreHook();
+    const bool native_preflight = (flags & kNrExternalQueryNativeObserver) != 0;
+    if (native_preflight) {
+        // Observer readiness is independent of master enablement and ownership.
+        // Do not overwrite the NR feedback snapshot with this distinct query.
+        *output = QueryNativeObserverStartup();
+        return 1;
+    }
     if (flags & 1u) PollNgxLifecycleModules(true);
     AcquireSRWLockExclusive(&nr_external_provider_runtime::lock);
     auto cfg = nr_external_provider_runtime::Snapshot();

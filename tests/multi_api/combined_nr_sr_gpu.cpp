@@ -14,26 +14,6 @@ extern "C" __declspec(dllexport) const void *ReShadeGetImGuiFunctionTable(unsign
 }
 
 namespace {
-void WaitForActualCoreObserver(const wchar_t *dll_path) {
-    // QueryV1 is also valid for a feeder-only host without native SR hooks. Its
-    // Starting/epoch=0 reply therefore is not a native Create-observer ready
-    // signal. This controlled test waits on the frozen Core's actual startup
-    // trace in a fresh fixture directory, without disabling lifecycle guards.
-    std::wstring log=dll_path;const auto slash=log.find_last_of(L"/\\");
-    if(slash==std::wstring::npos)throw std::runtime_error("absolute core path required");
-    log.resize(slash+1);log+=L"nr-before-sr.log";
-    for(unsigned tries=0;tries<120;++tries){
-        FILE *file=nullptr;
-        if(_wfopen_s(&file,log.c_str(),L"rb")==0&&file){
-            char text[65537]{};const size_t count=fread(text,1,sizeof(text)-1,file);fclose(file);
-            if(std::string(text,count).find("NGX observer/AI-upscaling hooks active.")!=std::string::npos){
-                std::cout<<"core_native_observer=actual-startup-trace-confirmed\n";return;
-            }
-        }
-        Sleep(25);
-    }
-    throw std::runtime_error("actual Core native observer did not become ready in fixture startup window");
-}
 void RequireNgx(NVSDK_NGX_Result result, const char *stage) {
     std::cout << stage << "=0x" << std::hex << static_cast<unsigned>(result) << std::dec << '\n';
     if (NVSDK_NGX_FAILED(result)) throw std::runtime_error(std::string(stage) + " rejected");
@@ -85,18 +65,15 @@ int wmain(int argc,wchar_t **argv) {
         // them before creating Feature1; Claim intentionally precedes SR Create.
         HMODULE core=LoadLibraryW(argv[1]);
         if(!core)throw std::runtime_error("production core DLL registration failed");
-        WaitForActualCoreObserver(argv[1]);
         query=reinterpret_cast<nr_external_provider_client::QueryFn>(GetProcAddress(core,"NRExternalProvider_QueryV1"));
         auto claim=reinterpret_cast<nr_external_provider_client::ClaimFn>(GetProcAddress(core,"NRExternalProvider_ClaimOwnershipV1"));
         release=reinterpret_cast<nr_external_provider_client::ReleaseFn>(GetProcAddress(core,"NRExternalProvider_ReleaseOwnershipV1"));
         auto submit=reinterpret_cast<nr_external_provider_client::SubmitFn>(GetProcAddress(core,"NRExternalProvider_SubmitFrameV1"));
         if(!query||!claim||!release||!submit)throw std::runtime_error("four production provider exports absent");
         NrExternalStatusV1 status{};
-        for(unsigned tries=0;tries<40;++tries){
-            if(!query(kNrExternalProviderAbi,sizeof(status),1,&status))throw std::runtime_error("provider query ABI failed");
-            if(status.reason!=NrExternalProviderReason::ObserverUncertain)break;
-            Sleep(25);
-        }
+        if (!nr_external_provider_client::WaitForNativeObserver(query, 3000, status))
+            throw std::runtime_error(std::string("native observer preflight rejected: ") +
+                                     NrExternalProviderReasonName(status.reason));
         std::cout<<"observer_before_claim="<<NrExternalProviderReasonName(status.reason)<<" epoch="<<status.observer_epoch<<'\n';
         if(!claim(kNrExternalProviderAbi,sizeof(status),kNrExternalProviderIdDl5f,&status))
             throw std::runtime_error(std::string("provider claim rejected: ")+NrExternalProviderReasonName(status.reason));

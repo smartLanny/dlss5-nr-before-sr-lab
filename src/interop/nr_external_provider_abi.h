@@ -9,6 +9,9 @@
 // Exact version/size; x64 Windows WINAPI at the DLL boundary.
 constexpr std::uint32_t kNrExternalProviderAbi = 0x00010000u;
 constexpr std::uint64_t kNrExternalProviderIdDl5f = 0x444C3546ull; // 'DL5F'
+// Opt-in Query mode for hosts injecting native SR. Flags 0/1 retain NR-only
+// semantics. Old consumers reject bit 2, so callers must fail closed.
+constexpr std::uint32_t kNrExternalQueryNativeObserver = 2u;
 
 enum class NrGuideProvenance : std::uint32_t {
     Unknown = 0,
@@ -39,6 +42,8 @@ enum class NrExternalProviderReason : std::uint32_t {
     HistoryResetRequired,
     ObserverUncertain,
     RuntimeUnavailable,    // NR API/codec/hooks not ready; decline (never fake copy-success)
+    ObserverFailed,
+    Stopping,
 };
 
 enum class NrExternalLeaseFlags : std::uint32_t {
@@ -148,6 +153,8 @@ inline const char *NrExternalProviderReasonName(NrExternalProviderReason r) noex
     case NrExternalProviderReason::HistoryResetRequired: return "history-reset-required";
     case NrExternalProviderReason::ObserverUncertain: return "observer-uncertain";
     case NrExternalProviderReason::RuntimeUnavailable: return "runtime-unavailable";
+    case NrExternalProviderReason::ObserverFailed: return "observer-failed";
+    case NrExternalProviderReason::Stopping: return "stopping";
     default: return "unknown";
     }
 }
