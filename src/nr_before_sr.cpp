@@ -2196,7 +2196,7 @@ constexpr UINT kCodecResultUavIndex = kCodecSrvCount + 1;
 constexpr UINT kCodecMotionUavIndex = kCodecSrvCount + 2;
 constexpr UINT kCodecStatsUavIndex = kCodecSrvCount + 3;
 constexpr UINT kCodecCaptureUavIndex = kCodecSrvCount + 4;
-constexpr UINT kCodecRootConstantCount = 35;
+constexpr UINT kCodecRootConstantCount = 41;
 
 const char kCodecShader[] = R"HLSL(
 // The HDR proxy keeps a linear mid-range and applies a luminance-preserving
@@ -2259,6 +2259,12 @@ cbuffer Constants : register(b0) {
     float LayerStructure;
     float LayerBright;
     float LayerShadow;
+    float LightBroad;
+    float LightDark;
+    float LightReflection;
+    float LightStructure;
+    float LightGlow;
+    uint LightPreview;
 };
 
 static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
@@ -3359,6 +3365,97 @@ float LayeredLumaStrengthV3(float edit, float mean, float master,
 }
 // LAYERED_SCALAR_END
 
+// FOUR_REGION_SCALAR_BEGIN
+bool LightStyleNeutralV1(float broad, float dark, float reflection,
+                         float structure, float glow) {
+    return broad == 1.0 && dark == 1.0 && reflection == 1.0 &&
+        structure == 1.0 && glow == 0.0;
+}
+
+// Classify once, before either the requested gains or existing protection.
+// The same-sign partition is a bounded residual heuristic, not a material mask.
+float LightBroadFractionV1(float edit, float mean) {
+    if (!isfinite(edit) || !isfinite(mean) || edit == 0.0) return 0.0;
+    float broad = clamp(mean, min(edit, 0.0), max(edit, 0.0));
+    return saturate(abs(broad) / abs(edit));
+}
+
+// Existing detail/lighting guards may have removed part of the original edit.
+// Map its original partition proportionally into the remaining edit; never
+// clamp an unprotected mean against the remainder and relabel fine as broad.
+float LightRemainingBroadV1(float edit, float mean, float remaining) {
+    if (!isfinite(remaining) || edit == 0.0 ||
+        (remaining > 0.0) != (edit > 0.0)) return 0.0;
+    return remaining * LightBroadFractionV1(edit, mean);
+}
+
+float LightStyleStrengthV1(float remaining, float edit, float mean, float master,
+                          float broad, float dark, float reflection,
+                          float structure, float glow) {
+    if (!isfinite(master)) return 0.0;
+    master = clamp(master, 0.0, 4.0);
+    if (LightStyleNeutralV1(broad, dark, reflection, structure, glow)) return master;
+    if (master == 0.0 || remaining == 0.0 || !isfinite(remaining) ||
+        !isfinite(edit) || !isfinite(mean) || !isfinite(broad) ||
+        !isfinite(dark) || !isfinite(reflection) || !isfinite(structure) ||
+        !isfinite(glow) || edit == 0.0 ||
+        (remaining > 0.0) != (edit > 0.0)) return 0.0;
+    float fraction = LightBroadFractionV1(edit, mean);
+    float broadGain = edit > 0.0
+        ? clamp(broad, 0.0, 2.0) * (1.0 - saturate(glow))
+        : clamp(dark, 0.0, 2.0);
+    float fineGain = edit > 0.0
+        ? clamp(reflection, 0.0, 2.0) : clamp(structure, 0.0, 2.0);
+    return clamp(master * (fraction * broadGain + (1.0 - fraction) * fineGain),
+                 0.0, 4.0);
+}
+// FOUR_REGION_SCALAR_END
+
+// Read the exact log-edit representation used at the centre. The optional
+// field path includes its strict Catmull/BilinearSafe validity contract.
+float3 ReadLightEditV1(float2 center) {
+    if (!ModelNeighborhoodFiniteV2(center)) return float3(0.0, 0.0, 0.0);
+    float proxyLuma = max(dot(SampleProxyLinearV2(center), kLuma), 1.0 / 4096.0);
+    float neuralLuma = max(dot(SampleNeuralLinearV2(center), kLuma), 1.0 / 4096.0);
+    float2 edit = (Passthrough & 8192u) != 0u ? SampleRestoredEdit(center)
+        : float2(clamp(log2(neuralLuma / proxyLuma), -8.0, 8.0), 1.0);
+    return edit.y == 1.0 && isfinite(edit.x) && isfinite(proxyLuma)
+        ? float3(edit.x, proxyLuma, 1.0) : float3(0.0, 0.0, 0.0);
+}
+
+float2 LightEditTapV1(float2 center, float centerProxyLuma) {
+    float3 tap = ReadLightEditV1(center);
+    if (tap.z != 1.0) return float2(0.0, 0.0);
+    float relativeEdge = abs(tap.y - centerProxyLuma) /
+        max(max(tap.y, centerProxyLuma), 1.0 / 4096.0);
+    float weight = 1.0 - smoothstep(0.10, 0.50, relativeEdge);
+    return float2(weight * tap.x, weight);
+}
+
+float LightEditMeanV1(float2 center, float edit, float proxyLuma) {
+    // Radius stays in composition pixels as N changes. Both centre and taps
+    // are recovered on this same grid, then averaged directly in log space.
+    const float radius = 8.0;
+    float2 local = float2(0.40 * edit, 0.40);
+    local += 0.15 * LightEditTapV1(center + float2(radius, 0.0), proxyLuma);
+    local += 0.15 * LightEditTapV1(center - float2(radius, 0.0), proxyLuma);
+    local += 0.15 * LightEditTapV1(center + float2(0.0, radius), proxyLuma);
+    local += 0.15 * LightEditTapV1(center - float2(0.0, radius), proxyLuma);
+    return local.x / local.y; // The known-valid centre bounds denominator >= .40.
+}
+
+float3 LightPartitionPreviewV1(float edit, float mean, float remaining) {
+    float broad = LightRemainingBroadV1(edit, mean, remaining);
+    float fine = remaining - broad;
+    // Orange=wide positive, blue=wide negative, yellow=fine positive,
+    // magenta=fine negative. Brightness represents remaining log-edit magnitude.
+    float3 colour = max(broad, 0.0) * float3(1.0, 0.28, 0.0)
+        + max(-broad, 0.0) * float3(0.0, 0.35, 1.0)
+        + max(fine, 0.0) * float3(1.0, 1.0, 0.15)
+        + max(-fine, 0.0) * float3(0.75, 0.05, 1.0);
+    return saturate(colour * 2.0);
+}
+
 // INDEPENDENT_CHROMA_SCALAR_BEGIN
 // One scalar budget for the entire log-chroma vector. Attenuation cannot
 // rotate an edit by clipping its channels separately or invent a zero edit.
@@ -3403,6 +3500,8 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     float3 fullProxy = EncodeProxyLinearV2(source);
     const bool independentChroma = (Passthrough & 4096u) != 0u;
     const bool lowGridColor = (Passthrough & 32768u) != 0u;
+    const bool lightStyleActive = (Passthrough & 262144u) != 0u;
+    const bool lightStylePreview = lightStyleActive && LightPreview != 0u;
 
     bool finiteInputs = ModelNeighborhoodFiniteV2(center) &&
         all(storedOriginal.rgb == storedOriginal.rgb) &&
@@ -3422,7 +3521,11 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         max(abs(neural.g - proxy.g), abs(neural.b - proxy.b)));
     if (!finiteInputs || unsupportedSignedSource || TransferStrength <= 0.000001 ||
         FrameConfidence <= 0.000001 || diagnosticDelta <= 0.000001) {
-        WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
+        float4 unchanged = storedOriginal;
+        if (lightStylePreview && finiteInputs && !unsupportedSignedSource &&
+            TransferStrength > 0.000001 && FrameConfidence > 0.000001)
+            unchanged.rgb = EncodeCompositionToStoredV2(0.0.xxx);
+        WriteCombinedV2(tid.xy, destinationCoord, unchanged);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
             diagnosticNeural, diagnosticOriginal, diagnosticDelta, 0.0,
             !finiteInputs);
@@ -3445,6 +3548,9 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         }
         logRatio = edit.x;
     }
+    const float lightOriginalEdit = logRatio;
+    const float lightOriginalMean = lightStyleActive
+        ? LightEditMeanV1(center, lightOriginalEdit, proxyLuma) : 0.0;
     logRatio = StabilizeDetailLogV2(center, logRatio, proxyLuma);
     const bool layeredActive = (Passthrough & 2048u) != 0u;
     float layerMean = 0.0;
@@ -3497,11 +3603,15 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     if (layeredActive)
         lumaStrength = LayeredLumaStrengthV3(logRatio, layerMean, TransferStrength,
             LayerTone, LayerStructure, LayerBright, LayerShadow);
+    if (lightStyleActive)
+        lumaStrength = LightStyleStrengthV1(logRatio, lightOriginalEdit,
+            lightOriginalMean, lumaStrength, LightBroad, LightDark,
+            LightReflection, LightStructure, LightGlow);
     float maxRatio = max(MaxLumaRatio, 1.0);
     float logLimit = log2(maxRatio);
     float poweredLog = clamp(logRatio * TransferStrength * confidence,
                              -logLimit, logLimit);
-    if (layeredActive)
+    if (layeredActive || lightStyleActive)
         poweredLog = clamp(logRatio * lumaStrength * confidence, -logLimit, logLimit);
     // With layers off/neutral, preserve dev1 arithmetic inside the public 0..4 range.
     // This is a spatial composite guard, not a model/history or exposure fix.
@@ -3602,7 +3712,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
             result = coloured;
         }
     }
-    if ((independentChroma || lowGridColor) && poweredLog == 0.0 &&
+    if (!lightStylePreview && (independentChroma || lowGridColor) && poweredLog == 0.0 &&
         !candidateChromaApplied) {
         WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
@@ -3620,6 +3730,16 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         any(abs(storedResult) > 65504.0.xxx)) {
         storedResult = storedOriginal.rgb;
         result = source;
+    }
+    if (lightStylePreview) {
+        // Preview 2 is the actual protected NR result minus the source, not
+        // an isolated D-on/D-off comparison. Display absolute linear delta x4.
+        float3 preview = LightPreview == 1u
+            ? LightPartitionPreviewV1(lightOriginalEdit, lightOriginalMean, logRatio)
+            : saturate(abs(SourceToDiagnosticLinear(storedResult) - diagnosticOriginal) * 4.0);
+        float3 storedPreview = EncodeCompositionToStoredV2(preview);
+        if (all(isfinite(storedPreview)) && all(abs(storedPreview) <= 65504.0.xxx))
+            storedResult = storedPreview;
     }
     WriteCombinedV2(tid.xy, destinationCoord,
                     float4(storedResult, storedOriginal.a));
@@ -6796,8 +6916,16 @@ struct CodecConstants {
     float layer_structure = 1.0f;
     float layer_bright = 1.0f;
     float layer_shadow = 1.0f;
+    float light_broad = 1.0f;
+    float light_dark = 1.0f;
+    float light_reflection = 1.0f;
+    float light_structure = 1.0f;
+    float light_glow = 0.0f;
+    unsigned int light_preview = 0;
 };
 static_assert(sizeof(CodecConstants) == kCodecRootConstantCount * sizeof(UINT));
+static_assert(offsetof(CodecConstants, light_broad) == 35 * sizeof(UINT));
+static_assert(offsetof(CodecConstants, light_preview) == 40 * sizeof(UINT));
 
 void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    ID3D12PipelineState *pipeline, unsigned int width,
@@ -6812,6 +6940,14 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
                    unsigned int model_width = 0,
                    unsigned int model_height = 0,
                    float frame_confidence = 1.0f) {
+    // Freeze the incoming route before the independent-colour experiment may
+    // redirect legacy post composition to V2. D v1 is pre-SR only on either UI mode.
+    const bool light_style_supported = pipeline == g_codec.combine_v2 && g_config.mode == 2;
+    const bool light_style_requested = g_config.light_broad != 1.0f ||
+        g_config.light_dark != 1.0f || g_config.light_reflection != 1.0f ||
+        g_config.light_structure != 1.0f || g_config.light_glow != 0.0f ||
+        g_config.light_preview != 0u;
+    const bool light_style_active = light_style_supported && light_style_requested;
     // Preserve both legacy entry points when disabled. Post-SR/RR opt-in uses
     // the same candidate with its own source rectangle, colour policy/exposure
     // and work grid; it does not change the model input or guide semantics.
@@ -6847,6 +6983,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         g_config.color_strength);
     const float effective_color_strength = color_policy.effective_color_strength;
     const unsigned int base_codec_flags = source_flags |
+        (light_style_active ? 262144u : 0u) |
         ((v2_combine && slot.edit_field_recorded && slot.edit_horizontal_recorded &&
           g_config.low_grid_edit_field && g_config.catmull_edit_restore &&
           g_config.mode==2 && g_config.color_strength<=0.000001f) ? 16384u : 0u) |
@@ -6887,6 +7024,13 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         f8_info.layer_structure=v2_combine?g_config.layer_structure:1.f;
         f8_info.layer_bright=v2_combine?g_config.layer_bright:1.f;
         f8_info.layer_shadow=v2_combine?g_config.layer_shadow:1.f;
+        f8_info.light_broad=light_style_active?g_config.light_broad:1.f;
+        f8_info.light_dark=light_style_active?g_config.light_dark:1.f;
+        f8_info.light_reflection=light_style_active?g_config.light_reflection:1.f;
+        f8_info.light_structure=light_style_active?g_config.light_structure:1.f;
+        f8_info.light_glow=light_style_active?g_config.light_glow:0.f;
+        f8_info.light_preview=light_style_active?g_config.light_preview:0u;
+        f8_info.light_supported=light_style_supported;
         f8_info.edge_guard=v2_combine?g_config.edge_guard:0.f;f8_info.proxy_curve=g_config.proxy_curve;
         f8_info.frame_confidence=std::clamp(frame_confidence,0.f,1.f);
         nr_f8::FrameTicket ticket={};
@@ -6985,6 +7129,13 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.layer_structure = v2_combine ? g_config.layer_structure : 1.0f;
         info.layer_bright = v2_combine ? g_config.layer_bright : 1.0f;
         info.layer_shadow = v2_combine ? g_config.layer_shadow : 1.0f;
+        info.light_broad = light_style_active ? g_config.light_broad : 1.0f;
+        info.light_dark = light_style_active ? g_config.light_dark : 1.0f;
+        info.light_reflection = light_style_active ? g_config.light_reflection : 1.0f;
+        info.light_structure = light_style_active ? g_config.light_structure : 1.0f;
+        info.light_glow = light_style_active ? g_config.light_glow : 0.0f;
+        info.light_preview = light_style_active ? g_config.light_preview : 0u;
+        info.light_supported = light_style_supported;
         info.proxy_curve = g_config.proxy_curve;
         info.frame_confidence = std::clamp(frame_confidence, 0.0f, 1.0f);
         info.pre_exposure = color_contract.pre_exposure;
@@ -7019,7 +7170,13 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         v2_combine ? g_config.layer_tone : 1.0f,
         v2_combine ? g_config.layer_structure : 1.0f,
         v2_combine ? g_config.layer_bright : 1.0f,
-        v2_combine ? g_config.layer_shadow : 1.0f};
+        v2_combine ? g_config.layer_shadow : 1.0f,
+        light_style_active ? g_config.light_broad : 1.0f,
+        light_style_active ? g_config.light_dark : 1.0f,
+        light_style_active ? g_config.light_reflection : 1.0f,
+        light_style_active ? g_config.light_structure : 1.0f,
+        light_style_active ? g_config.light_glow : 0.0f,
+        light_style_active ? g_config.light_preview : 0u};
     ID3D12GraphicsCommandList_SetComputeRoot32BitConstants(
         command_list, 1, kCodecRootConstantCount, &constants, 0);
     ID3D12GraphicsCommandList_SetPipelineState(command_list, pipeline);
