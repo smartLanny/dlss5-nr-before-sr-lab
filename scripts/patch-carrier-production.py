@@ -19,6 +19,7 @@ static std::atomic<bool> g_carrier_observer_armed{false};
 static std::atomic<bool> g_carrier_bridge_armed{false};
 static std::atomic<LONG> g_carrier_initialized{0};
 static std::uintptr_t g_carrier_bridge_owner;
+static std::uint64_t g_carrier_rejection_epoch;
 static void CarrierRetireLocked(std::uintptr_t device);
 
 struct CarrierOperationGuard {
@@ -273,6 +274,8 @@ static NVSDK_NGX_Result ForwardRelease(Hook &h, NVSDK_NGX_Handle *handle)
 def patch_discovery(text: str) -> str:
     text = once(text, 'static volatile bool g_scan_pending;',
                 'static std::atomic<bool> g_scan_pending{false};')
+    text = once(text, '    Hook    release;\n',
+                '    Hook    release;\n    HMODULE source_lease; // Retained only for installed observer layers.\n')
     text = once(text, '''// One detour per layer, because a detour has to know which layer's saved bytes
 // to restore before forwarding, and the entry point itself carries no way to
 // tell. Eight sets of three is duplication a macro can carry; the alternative is
@@ -301,9 +304,15 @@ def patch_discovery(text: str) -> str:
             const bool create_removed = HookUninstall(L.create);
             const bool release_removed = HookUninstall(L.release);
             if (create_removed && release_removed) L.mod = nullptr;
-            else Log("[native-carrier] incomplete observer retained safely without Evaluate; native path retained. Use F8 BUG feedback.");
+            else {
+                L.source_lease = source_lease.Detach();
+                if (slot == g_layer_count) InterlockedIncrement(&g_layer_count);
+                Log("[native-carrier] incomplete observer retained safely without Evaluate; native path retained. Use F8 BUG feedback.");
+            }
+            LeaveCriticalSection(&g_hook_cs);
             continue;
         }
+        L.source_lease = source_lease.Detach();
         const bool full = g_carrier_bridge_armed.load(std::memory_order_acquire);
         const bool ok_eval = full && eval != nullptr &&
             HookInstall(L.eval, eval, reinterpret_cast<void *>(kDetour[slot].eval));
@@ -319,14 +328,22 @@ def patch_discovery(text: str) -> str:
             !full ? "deferred" : (eval_c != nullptr ? (ok_eval_c ? "yes" : "FAILED") : "absent"));''')
     # Existing observer layers are promoted only after a same-device swapchain.
     marker = 'static int HookNewNgxModules()\n'
-    promote = r'''static void PromoteObservedLayers()
+    promote = MODULE_LEASE + r'''static void PromoteObservedLayers()
 {
     if (!g_carrier_bridge_armed.load(std::memory_order_acquire)) return;
     for (LONG i = 0; i < g_layer_count; ++i) {
         Layer &layer = g_layer[i];
         if (layer.mod == nullptr || !layer.create.active || !layer.release.active) continue;
+        // source_lease keeps the export table alive, including forwarding DLLs.
+        const auto epoch = g_carrier_modules.Epoch();
         void *eval = reinterpret_cast<void *>(GetProcAddress(layer.mod, "NVSDK_NGX_D3D11_EvaluateFeature"));
         void *eval_c = reinterpret_cast<void *>(GetProcAddress(layer.mod, "NVSDK_NGX_D3D11_EvaluateFeature_C"));
+        CarrierModuleLease eval_lease, eval_c_lease;
+        if (!eval_lease.Acquire(eval) || !eval_c_lease.Acquire(eval_c) ||
+            epoch != g_carrier_modules.Epoch()) {
+            g_scan_pending.store(true, std::memory_order_release);
+            continue;
+        }
         if (!layer.eval.active && eval != nullptr)
             HookInstall(layer.eval, eval, reinterpret_cast<void *>(kDetour[i].eval));
         if (!layer.eval_c.active && eval_c != nullptr)
@@ -336,6 +353,44 @@ def patch_discovery(text: str) -> str:
 
 '''
     text = once(text, marker, promote + marker)
+    # EnumProcessModules yields addresses, not references. Capture the event epoch
+    # before enumeration, lease each image before export lookup, and reject a load
+    # generation change even when the bounded per-module ledger has overflowed.
+    start = text.index(marker)
+    stop = text.index('static void LogPrologue(', start)
+    scan = text[start:stop]
+    scan = once(scan, '    HMODULE mods[1024];', '''    const auto scan_epoch = g_carrier_modules.Epoch();
+    if (g_carrier_rejection_epoch != scan_epoch) {
+        g_rejected_count = 0;
+        g_carrier_rejection_epoch = scan_epoch;
+    }
+    HMODULE mods[1024];''')
+    scan = once(scan, '        void *eval   =', '''        CarrierModuleLease source_lease;
+        if (!source_lease.Acquire(mods[i], mods[i]) ||
+            scan_epoch != g_carrier_modules.Epoch()) {
+            g_scan_pending.store(true, std::memory_order_release);
+            continue;
+        }
+        void *eval   =''')
+    scan = once(scan, '        // Mandatory on Vulkan rather than optional:', '''        // Forwarded exports can belong to another DLL. Lease their code before
+        // inspecting prologues, and keep these references until hooks own them.
+        CarrierModuleLease code_leases[8];
+        void *targets[] = {create, release, eval, eval_c, vk_create, vk_create1, vk_eval, vk_eval_c};
+        bool code_live = true;
+        for (unsigned target = 0; target < 8; ++target)
+            if (!code_leases[target].Acquire(targets[target])) code_live = false;
+        if (!code_live || scan_epoch != g_carrier_modules.Epoch()) {
+            g_scan_pending.store(true, std::memory_order_release);
+            continue;
+        }
+
+        // Mandatory on Vulkan rather than optional:''')
+    scan = once(scan, 'const bool filler = IsFillerStub(create) ||',
+                      'const bool filler = IsFillerStub(release) || IsFillerStub(create) ||')
+    scan = once(scan, '        if ((eval != nullptr && eval == create) ||',
+        '''        if ((release != nullptr && (release == create || release == eval || release == eval_c)) ||
+            (eval != nullptr && eval == create) ||''')
+    text = text[:start] + scan + text[stop:]
     text = once(text, 'static void TryInstallHooks()\n{', '''static void TryInstallHooks()
 {
     if (!g_carrier_observer_armed.load(std::memory_order_acquire)) return;''')
@@ -350,6 +405,31 @@ def patch_discovery(text: str) -> str:
     { g_scan_pending = false; TryInstallHooks(); }''', '''    if (!g_ngx_init_in_flight && g_scan_pending.exchange(false, std::memory_order_acq_rel))
         TryInstallHooks();''')
     return text
+
+
+MODULE_LEASE = r'''class CarrierModuleLease {
+public:
+    CarrierModuleLease() = default;
+    CarrierModuleLease(const CarrierModuleLease &) = delete;
+    CarrierModuleLease &operator=(const CarrierModuleLease &) = delete;
+    ~CarrierModuleLease() { if (module_ != nullptr) FreeLibrary(module_); }
+    bool Acquire(void *address, HMODULE expected = nullptr) {
+        if (address == nullptr) return true; // Absent optional export.
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                reinterpret_cast<LPCWSTR>(address), &module_)) return false;
+        if (expected != nullptr && module_ != expected) {
+            FreeLibrary(module_);
+            module_ = nullptr;
+            return false;
+        }
+        return true;
+    }
+    HMODULE Detach() { HMODULE module = module_; module_ = nullptr; return module; }
+private:
+    HMODULE module_ = nullptr;
+};
+
+'''
 
 
 LEDGER = r'''static void CALLBACK OnDllLoaded(ULONG reason, const void *data, void *)

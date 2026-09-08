@@ -66,6 +66,11 @@ public:
 
     bool NeedsRescan() const noexcept { return needs_rescan_.load(std::memory_order_acquire); }
     void BeginFullRescan() noexcept { needs_rescan_.exchange(false, std::memory_order_acq_rel); }
+    // Snapshot before enumeration and verify after acquiring module references.
+    // Unlike the bounded identity table, this also covers table overflow.
+    std::uint64_t Epoch() const noexcept {
+        return next_generation_.load(std::memory_order_acquire);
+    }
 
 private:
     struct EventSlot {
