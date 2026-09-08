@@ -88,6 +88,9 @@ unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_con
     const unsigned source_flags=0;
     const bool f8_armed=false;
     const bool low_grid_color=false, independent_chroma=false;
+    // This fixture isolates colour admission; light wiring is exercised by
+    // its production scalar/dispatch GPU tests with the full ChainConfig.
+    const bool light_style_active=false;
     DISPATCH
     return codec_flags;
 }
