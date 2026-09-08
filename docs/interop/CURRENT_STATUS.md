@@ -2,13 +2,17 @@
 
 ## 2026-09-08 新授权：#84 Lanczos-2 AA 输入核
 
-独立源 `704fcf838d22a0d878e64ce822cfe84269bfb67c`，beta0.5-dev7 / PE0.5.0.7。
+最终独立源 `266b25d23ed66538b95e4e0eac66425574466711`，beta0.5-dev7 / PE0.5.0.7。
 默认 ExactArea，可选前置 scale-aware Lanczos2AA（支持2/s），真实有符号FP16
 横向中间面与纵向最终有界模型输入已接现有slot/history/队列；t7/u7、位65536，
 t6/u6保留RG16F typed-null供#85集成。每slot64MiB、Core256MiB纹理配额，
 准备失败回Area，实际核改变走既有Reset重试。R/N/O、guides、NR1:1及原SR不变。
-生成C++、9个SM5、21,706生产scalar断言及200组输入小图夹具仅编译通过。
-本检查点未GPU/NR/SR/Neural复用/完整DLL链接，等待协调窗口；不冒称新模型结果。
+生成C++、9个SM5与21,706生产scalar断言通过。随后一次200组输入WARP完成，
+150组有限Area与dev6逐字节相同，40组1:1保持；960 raw / 6,319,040 bytes。
+首次CPU oracle支持端点舍入失败保留；validator7f6644f按实际FP32修正后仅复核
+同批raw通过，两负控精确拒绝，没有重跑GPU。双语Core/nrchain已完整链接，
+103项源manifest未变，内嵌266源码及PE版本核验通过。未NR/SR/Neural复用、
+NVIDIA/游戏/性能或动态故障验收，不冒称新模型结果；尚未推送，等待集成协调。
 [实现、精确源锁与下一检查](LANCZOS2_INPUT_20260908.md)。
 
 ## 2026-09-08 新授权：#11 最小亮度 EditField 实验
