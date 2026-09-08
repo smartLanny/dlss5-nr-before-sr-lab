@@ -43,9 +43,8 @@ static void Present(reshade::api::effect_runtime* value) {
     }
 }
 static void Overlay(reshade::api::effect_runtime*) {
-    // The fixture alone disables docking so its actual Core window can use the
-    // large off-screen render target. This changes layout, never control state.
-    ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_DockingEnable;
+    // Preserve ReShade's docking configuration. Its initial layout builder
+    // requires docking; observation must not invalidate that host precondition.
     if (frames == 4 || frames == 16 || frames == 28) {
         ImGui::SetWindowCollapsed(coreWindow,false,ImGuiCond_Always);
         ImGui::SetWindowPos(coreWindow,ImVec2(24,90),ImGuiCond_Always);
