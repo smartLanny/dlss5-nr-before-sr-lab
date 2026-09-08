@@ -27,9 +27,30 @@ function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
+function historicalPayloadFixture(root) {
+  const resources = path.join(root, 'resources');
+  const source = path.join(PROJECT_ROOT, 'payload');
+  fs.cpSync(source, path.join(resources, 'payload'), { recursive: true });
+  const payload = path.join(resources, 'payload', 'nr-before-sr');
+  const versionDir = path.join(payload, 'versions', '0.4.5-ota');
+  const bundleFile = path.join(payload, 'bundle.json');
+  const bundle = JSON.parse(fs.readFileSync(bundleFile, 'utf8'));
+  const names = ['nr-before-sr.zh-CN.addon64', 'nr_before_sr.ini', 'nrchain_nvngx.dll',
+    'dlss5-native-carrier-045-dx11-compat.addon64'];
+  bundle.versions['0.4.5-ota'] = {
+    label: '0.4.5 historical rollback fixture',
+    notes: 'Test-only historical catalog entry.',
+    source: 'isolated test fixture', compatibility: 'dx11', ota: true,
+    files: Object.fromEntries(names.map(name => [name, sha256(path.join(versionDir, name))]))
+  };
+  fs.writeFileSync(bundleFile, `${JSON.stringify(bundle, null, 2)}\n`);
+  return resources;
+}
+
 function makeService(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-release046-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const resourcesPath = historicalPayloadFixture(root);
   const gameDir = path.join(root, 'game');
   const exeDir = path.join(gameDir, 'Binaries', 'Win64');
   fs.mkdirSync(exeDir, { recursive: true });
@@ -81,7 +102,7 @@ function makeService(t) {
     pe: { getBitness: () => 64 }
   });
   const service = createAppService({
-    userData: path.join(root, 'user-data'), resourcesPath: PROJECT_ROOT, appDir: PROJECT_ROOT, version: '0.4.6',
+    userData: path.join(root, 'user-data'), resourcesPath, appDir: PROJECT_ROOT, version: '0.4.6',
     overrides: { library, installer,
       detectGpu: () => ({ family: 'RTX40', series: ['RTX 4070'], vendor: 'NVIDIA' }) }
   });
