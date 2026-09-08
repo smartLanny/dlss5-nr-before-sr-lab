@@ -549,6 +549,29 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "Read-only observation. Change the game's actual render scale in its DLSS quality settings; NR working scale is independent.",
             "这是只读观测。游戏真实渲染比例由游戏内 DLSS 质量档位调整，与 NR 工作比例相互独立。"));
 
+        nr_work_receipt::Receipt work_receipt{};
+        if (!TrySnapshotWorkReceipt(work_receipt)) {
+            ImGui::TextDisabled("%s",ui("NR dimensions: snapshot temporarily unavailable.",
+                "NR 尺寸：快照暂不可用。"));
+        } else if (!work_receipt.valid) {
+            ImGui::TextDisabled("%s",ui("NR dimensions: unknown; no supported post-SR/RR recording yet.",
+                "NR 尺寸：未知，尚无支持的原生后置 SR/RR 录制。"));
+        } else {
+            const auto& w=work_receipt;
+            ImGui::Text(ui("Last recorded %s: R %ux%u / N %ux%u / O %ux%u",
+                           "最后录制 %s：R %u×%u / N %u×%u / O %u×%u"),
+                nr_work_receipt::RouteName(w.route),w.render.width,w.render.height,
+                w.work.width,w.work.height,w.output.width,w.output.height);
+            ImGui::TextDisabled(ui("Recorded at %llu ms; submission %s; completion %s. Current config %u / recorded %u.",
+                "录制时点 %llu 毫秒；提交 %s；完成 %s。当前配置 %u / 记录配置 %u。"),
+                w.recorded_ms,w.submission_observed?ui("observed","已观察"):ui("unknown","未知"),
+                w.completion_observed?ui("observed","已观察"):ui("unknown","未知"),
+                g_config_generation.load(std::memory_order_relaxed),w.config_generation);
+        }
+        ImGui::TextDisabled("%s",ui(
+            "Historical native post-SR/RR receipt only. Pre-SR/external and game frame/view identity are unsupported; recording is not presentation.",
+            "仅支持原生 SR/RR 后置的历史记录。前置/外部路径及游戏帧/视图身份尚不支持；录制不等于呈现。"));
+
             int jitter = static_cast<int>(next.jitter_mode);
             if (ImGui::Combo(ui("NR jitter input", "NR jitter 输入"), &jitter,
                     ui("Do not forward\0Forward verified game pixel coordinates\0", "不传递\0传递已验证的游戏像素坐标\0"))) {

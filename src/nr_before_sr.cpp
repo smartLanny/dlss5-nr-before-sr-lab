@@ -36,6 +36,7 @@
 #include "nr_shortcut_edge.h"
 #include "nr_ui_activity.h"
 #include "nr_work_config.h"
+#include "nr_work_receipt.h"
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
@@ -3712,6 +3713,58 @@ std::atomic<bool> g_lifecycle_tracking_uncertain{false};
 // remains non-zero until that list is reset or destroyed.
 std::atomic<unsigned int> g_lifecycle_active_command_lists{0};
 
+// g_chain_cs protects this coherent last-recorded tuple and its fence facts.
+// No resource/queue pointer or fabricated view identity escapes the snapshot.
+nr_work_receipt::Receipt g_recorded_work_receipt{};
+
+void RecordPostWorkReceiptLocked(int feature_id,const NrContext& context,
+                                 const NrSlot& slot,unsigned render_width,
+                                 unsigned render_height,unsigned output_width,
+                                 unsigned output_height) {
+    if ((feature_id!=1 && feature_id!=13) ||
+        g_applied_nr_identity.instance_id!=context.instance_id ||
+        g_applied_nr_identity.config_generation!=context.config_generation) return;
+    nr_work_receipt::Receipt receipt{};
+    receipt.route=feature_id==13?nr_work_receipt::Route::NativePostRr:
+                                nr_work_receipt::Route::NativePostSr;
+    receipt.render={render_width,render_height};
+    receipt.work={context.width,context.height};
+    receipt.output={output_width,output_height};
+    receipt.nr_evaluation=g_applied_nr_identity.frame_id;
+    receipt.command_token=context.pending_recording_token;
+    receipt.feature_generation=context.feature_generation;
+    receipt.nr_instance=context.instance_id;
+    receipt.slot_use_serial=slot.last_used_serial;
+    receipt.config_generation=context.config_generation;
+    receipt.history_generation=context.history_generation;
+    receipt.recorded_ms=GetTickCount64();
+    (void)nr_work_receipt::Record(g_recorded_work_receipt,receipt);
+}
+
+nr_work_receipt::Receipt SnapshotWorkReceiptLocked() {
+    if (!g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) &&
+        g_recorded_work_receipt.submission_observed &&
+        !g_recorded_work_receipt.completion_observed) {
+        for (const auto& queue:g_lifecycle_queues) {
+            if (queue.identity==g_recorded_work_receipt.queue_identity && queue.fence) {
+                // GetCompletedValue is an observation only: no event, wait,
+                // resource readback or new queue operation is introduced.
+                nr_work_receipt::ObserveCompletion(g_recorded_work_receipt,queue.identity,
+                    ID3D12Fence_GetCompletedValue(queue.fence),GetTickCount64());
+                break;
+            }
+        }
+    }
+    return g_recorded_work_receipt;
+}
+
+bool TrySnapshotWorkReceipt(nr_work_receipt::Receipt& receipt) {
+    if (!TryEnterCriticalSection(&g_chain_cs)) return false;
+    receipt=SnapshotWorkReceiptLocked();
+    LeaveCriticalSection(&g_chain_cs);
+    return true;
+}
+
 #include "nr_f8_gpu.inl"
 nr_f8_gpu::CaptureRing g_f8_gpu;
 
@@ -5087,6 +5140,11 @@ void CompleteSubmissionBatchLocked(SubmissionBatch &batch) {
             continue;
         }
         --record->in_flight_submissions;
+        // This function is reached only after native Execute and successful
+        // retirement Signal. A reserved value from Capture is not submission.
+        if (!batch.quarantine && !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire))
+            nr_work_receipt::Submitted(g_recorded_work_receipt,record->token,
+                queue_state->identity,batch.fence_value,GetTickCount64());
         if (record->detached && record->in_flight_submissions == 0)
             *record = {};
     }
@@ -8184,6 +8242,9 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     UavBarrier(command_list, slot.result);
     if (!RecordVisibleTransferLocked(command_list, feature.generation, 1))
         return false;
+    RecordPostWorkReceiptLocked(feature.feature_id,context,slot,
+        substitution.guide_width,substitution.guide_height,
+        substitution.width,substitution.height);
     SetBypassReason(BypassReason::None);
     return true;
 }

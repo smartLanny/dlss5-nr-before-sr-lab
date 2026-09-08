@@ -459,8 +459,10 @@ void Present(reshade::api::effect_runtime *runtime) {
     GetLocalTime(&session->local_time); GetSystemTime(&session->utc_time);
     nr_bundle::CopyText(session->session, sizeof(session->session), pair.session);
     ChainConfig config{}; NrDiagnosticIdentity applied{}; unsigned generation = 0;
+    nr_work_receipt::Receipt work_receipt{};
     if (TryEnterCriticalSection(&g_chain_cs)) {
         config = g_config; applied = g_applied_nr_identity; generation = g_config_generation.load();
+        work_receipt=SnapshotWorkReceiptLocked();
         session->snapshot_ok = true; LeaveCriticalSection(&g_chain_cs);
     }
     char gpu[256] = {}; std::uint32_t driver = 0, vendor = 0, width = 0, height = 0;
@@ -497,6 +499,31 @@ void Present(reshade::api::effect_runtime *runtime) {
         config.ui_correction, static_cast<int>(config.jitter_mode), config.style,
         applied.instance_id, applied.frame_id, applied.config_generation, applied.tuning.intensity,
         applied.tuning.skin_structure, static_cast<unsigned long long>(nr_feedback_text::kCoreZipLimit));
+    FeedbackAppend(s,"workReceipt.coverage=native-post-sr,native-post-rr; native-pre/external unsupported\n"
+        "workReceipt.contract=last recorded NR evaluation and composition; not a current/presented game frame\n"
+        "workReceipt.gameFrame=unknown\nworkReceipt.gameView=unknown\n"
+        "workReceipt.resourceGeneration=unknown; NR instance and slot-use serial are explicit lifetime/use identities\n"
+        "workReceipt.status=%s\n",!session->snapshot_ok?"snapshot-unavailable":
+            work_receipt.valid?"last-recorded":"unknown-no-supported-recording");
+    if (session->snapshot_ok && work_receipt.valid) {
+        const auto& w=work_receipt;
+        FeedbackAppend(s,"workReceipt.route=%s\nworkReceipt.R=%ux%u\nworkReceipt.N=%ux%u\nworkReceipt.O=%ux%u\n"
+            "workReceipt.nrEvaluation=%llu\nworkReceipt.commandToken=%llu\nworkReceipt.featureGeneration=%llu\n"
+            "workReceipt.nrInstance=%llu\nworkReceipt.slotUseSerial=%llu\nworkReceipt.configGeneration=%u\n"
+            "workReceipt.historyGeneration=%u\nworkReceipt.recordedTickMs=%llu\n"
+            "workReceipt.submissionObserved=%d\nworkReceipt.completionObserved=%d\n",
+            nr_work_receipt::RouteName(w.route),w.render.width,w.render.height,w.work.width,w.work.height,
+            w.output.width,w.output.height,w.nr_evaluation,w.command_token,w.feature_generation,w.nr_instance,
+            w.slot_use_serial,w.config_generation,w.history_generation,w.recorded_ms,w.submission_observed,
+            w.completion_observed);
+        if (w.submission_observed)
+            FeedbackAppend(s,"workReceipt.queueIdentity=%llu\nworkReceipt.fenceValue=%llu\nworkReceipt.submittedTickMs=%llu\n",
+                w.queue_identity,w.fence_value,w.submitted_ms);
+        else FeedbackAppend(s,"workReceipt.submission=not-observed\n");
+        if (w.completion_observed)
+            FeedbackAppend(s,"workReceipt.completionObservedTickMs=%llu\n",w.completed_observed_ms);
+        else FeedbackAppend(s,"workReceipt.completion=not-observed\n");
+    }
     const auto &local = session->local_time;
     const auto &utc = session->utc_time;
     FeedbackAppend(s, "capture.delivery=%s\ncapture.localTime=%04u-%02u-%02uT%02u:%02u:%02u.%03u\n"
