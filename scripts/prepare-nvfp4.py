@@ -62,7 +62,7 @@ def source_boundary(core: Path, source: str) -> dict:
         if path.startswith('src/') and path not in baseline_paths:
             if path not in NEW_CORE_FILES and not path.startswith('src/nvfp4/'):
                 raise ValueError(f'Unexpected new production module: {path}')
-            if Path(path).suffix not in ('.h', '.cpp', '.inl'):
+            if Path(path).suffix not in ('.h', '.cpp', '.inl') and Path(path).name != 'README.md':
                 raise ValueError(f'Private/binary payload is not a source input: {path}')
     hashes = {}
     for path in sorted(p for p in baseline_paths if p.startswith('src/')):
