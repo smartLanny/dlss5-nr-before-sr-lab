@@ -1,5 +1,71 @@
 # #167: official D3D12 FG-only sample, generation not yet verified
 
+## Diagnostic continuation: corrected observation contract, GPU run pending
+
+The fixed SDK 2.12 headers/documentation expose two concrete limitations in the
+original probe. Neither establishes the cause of suppressed interpolation:
+
+- `DLSSGState::numFramesActuallyPresented` counts presentations **since the last
+  GetState**, and the upstream renderer queried twice per source frame. The old
+  maximum of 1 must not be treated as a rigorous exclusion of asynchronous
+  generated presentations split between queries. The old 242 samples remain
+  historical measurements; they have not been relabelled as success.
+- `estimatedVRAMUsageInBytes` is an opt-in estimate requiring
+  `eRequestVRAMEstimate` plus input formats/extents/backbuffer count. The original
+  sample never requested it. Its zero is not proof that FG allocated no memory.
+
+The adapter now keeps exactly one state query per source frame on the original
+render/present thread, reusing that result for status, limits and fence waiting.
+It requests the estimate once in that same query after actual D3D12 resource
+descriptors become available. Normal queries pass null options; the estimate
+flag is never set on the runtime SetOptions call. It also logs asynchronous
+DXGI API errors using the SDK callback and requests verbose logging.
+
+The runner records the summed since-query presentation count, query/source-frame
+ratio, explicit estimate result and asynchronous errors, preserving the original
+fields. It rejects an old diagnostic revision or anything other than one query
+per observed source frame. These counters still do not verify generated pixels
+or display cadence; startup and the final pending async present bound the count.
+
+`-DevelopmentSdkRoot` stages the exact seven pinned SDK 2.12 development binaries
+in a fresh sibling of `_bin`, preserving upstream `../media` lookup. The original
+production files and sample configuration are untouched. Development binaries
+are hash-checked instead of requiring production signatures; that exception is
+limited to this explicit diagnostic mode. JSON configuration is disabled in
+production DLLs, so the development stage is necessary for the documented
+`sl.common.json` NGX verbosity setting. The stage writes only documented logging
+and debug-text options, without forcing interpolation, changing profiles or
+enabling a guessed workaround. All runtime paths and logs remain private.
+
+Local validation completed: Python patch preparation and idempotence, PowerShell
+parse, complete MSVC Release link, development staging and seven exact hash
+checks. CMake reused the cached DXC source with
+`FETCHCONTENT_FULLY_DISCONNECTED=ON`; no dependency download was needed.
+New EXE SHA256: `bbe753c39bb5955a144f28f72ed5f4bef886322f58092f5c825aa4aa42058b67`.
+Final build log SHA256: `252dc0b54a2f44ba7885f2870a9a589dbfb4d0cc5ad658aa164bed99aedaf09f`.
+Patch manifest SHA256: `d52e862de02dea663c611ef6d629bbf62421206f8b6aff07d3a5e0becee76944`.
+Existing upstream C4819/deprecation warnings remain. No GPU process or hosted CI
+was run for this continuation. The original sample checkout/binary was preserved
+using a separate official-source worktree. Remote refs checked before work:
+main `cd10d96b817d83ea4d84da4286c52cbdc0ca377a`, #173
+`a0143f29efa89ea384a6a435a384c3f204530e52`.
+
+Next single, bounded run after the owner coordinates GPU access:
+
+```powershell
+./scripts/run-fg-sample.ps1 -SampleRoot $DiagnosticSample -OutputRoot $NewEvidence `
+  -DevelopmentSdkRoot $FixedSdk212 -EnableFG -AllowFocusedWindow -Frames 120
+```
+
+Keep 640x360, Reflex 60, one requested generated frame and the same animated
+renderer. Inspect the development/NGX decision around `WAR4639162`, explicit
+estimate result, errors and presentation count before selecting any further
+change. The public SDK source does not contain that workaround implementation;
+its meaning and the actual interpolation blocker remain unproven. An estimate
+is not measured allocation, and a successful estimate is not FG verification.
+
+The remainder describes the unchanged original hardware evidence from #173.
+
 The official renderer was built and run on the RTX 5090 Laptop GPU, using its
 real scene camera, animated objects, depth, motion, HUDless/UI tagging, frame
 tokens, Reflex callbacks and swapchain recreation. NR is off; no Opti/RenoDX NR

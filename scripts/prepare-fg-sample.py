@@ -14,7 +14,7 @@ def once(text, old, new):
     return text.replace(old,new,1)
 
 
-def transform(name, text):
+def legacy_transform(name, text):
     if name == 'src/SLWrapper.cpp':
         text=text.replace('pref.showConsole = true;', 'pref.showConsole = false;')
         text=once(text,'    sl::Preferences pref;', '''    sl::Preferences pref;
@@ -60,6 +60,61 @@ def transform(name, text):
     return text
 
 
+def transform(name, text):
+    text = legacy_transform(name, text)
+    if name == 'src/SLWrapper.cpp':
+        text = once(text, '    sl::Preferences pref;', '''    log::info("FG_SAMPLE_DIAGNOSTICS revision=2 stateQueriesPerSourceFrame=1 vramEstimate=once end=1");
+    sl::Preferences pref;''')
+        text = text.replace('pref.logLevel = sl::LogLevel::eDefault;',
+                            'pref.logLevel = sl::LogLevel::eVerbose;')
+        text = once(text, '    const auto state_result = slDLSSGGetState(m_viewport, m_dlssg_settings, &m_dlssg_consts);', '''    // One consuming state query per source frame, on the original render thread.
+    // Estimate once from actual renderer descriptors; never interpret an unrequested zero.
+    static bool estimateRequested = false;
+    auto queryOptions = m_dlssg_consts;
+    const bool requestEstimate = !estimateRequested && queryOptions.numBackBuffers &&
+        queryOptions.mvecDepthWidth && queryOptions.colorWidth;
+    if (requestEstimate) queryOptions.flags |= sl::DLSSGFlags::eRequestVRAMEstimate;
+    const auto state_result = slDLSSGGetState(m_viewport, m_dlssg_settings,
+        requestEstimate ? &queryOptions : nullptr);
+    if (requestEstimate) {
+        estimateRequested = true;
+        log::info("FG_SAMPLE_VRAM_ESTIMATE requested=1 result=%u bytes=%llu end=1",
+            unsigned(state_result), (unsigned long long)m_dlssg_settings.estimatedVRAMUsageInBytes);
+    }''')
+        text = once(text, '    successCheck(slDLSSGSetOptions(m_viewport, m_dlssg_consts), "slDLSSGSetOptions");', '''    m_dlssg_consts.onErrorCallback = [](const sl::APIError& error) {
+        log::error("FG_SAMPLE_API_ERROR hresult=0x%08x end=1", unsigned(error.hres));
+    };
+    successCheck(slDLSSGSetOptions(m_viewport, m_dlssg_consts), "slDLSSGSetOptions");''')
+    elif name == 'src/StreamlineSample.cpp':
+        text = once(text, '''        auto fenceValue = lastPresentDLSSGInputsProcessingFenceValue;
+        // This is where we query DLSS-G FPS, estimated VRAM usage and status
+        NVWrapper::Get().QueryDLSSGState(estimatedVramUsage, fps_multiplier, status, minSize, numFramesMaxMultiplier, pDLSSGInputsProcessingFence, lastPresentDLSSGInputsProcessingFenceValue, vsyncSupported, bIsDynamicMFGSupported);
+        assert(fenceValue == lastPresentDLSSGInputsProcessingFenceValue);''', '''        // Reuse this frame's query: another GetState consumes the since-query
+        // presentation counter a second time and splits asynchronous presents.''')
+        text = once(text, '        dlssgConst.mode = m_ui.DLSSG_mode;', '''        dlssgConst.mode = m_ui.DLSSG_mode;
+#if DONUT_WITH_DX12
+        // The bounded D3D12 probe retains fixed dimensions. On the first frame
+        // resources do not yet exist; estimate on the next query after creation.
+        if (m_RenderTargets && GetDevice()->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12) {
+            auto format = [](nvrhi::ITexture* texture) {
+                return unsigned(static_cast<ID3D12Resource*>(texture->getNativeObject(
+                    nvrhi::ObjectTypes::D3D12_Resource))->GetDesc().Format);
+            };
+            dlssgConst.numBackBuffers = GetDeviceManager()->GetBackBufferCount();
+            dlssgConst.mvecDepthWidth = m_RenderTargets->Depth->getDesc().width;
+            dlssgConst.mvecDepthHeight = m_RenderTargets->Depth->getDesc().height;
+            dlssgConst.colorWidth = backbufferWidth;
+            dlssgConst.colorHeight = backbufferHeight;
+            dlssgConst.colorBufferFormat = format(framebuffer->getDesc().colorAttachments[0].texture);
+            dlssgConst.depthBufferFormat = format(m_RenderTargets->Depth);
+            dlssgConst.mvecBufferFormat = format(m_RenderTargets->MotionVectors);
+            dlssgConst.hudLessBufferFormat = format(m_RenderTargets->PreUIColor);
+            dlssgConst.uiBufferFormat = format(m_RenderTargets->UIColorAlpha);
+        }
+#endif''')
+    return text
+
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--sample',type=Path,required=True)
@@ -73,7 +128,7 @@ def main():
         original=original.replace('\r\n','\n')
         patched=transform(name,original)
         current=(a.sample/name).read_text(encoding='utf-8')
-        if current not in (original,patched): raise ValueError('Unrelated sample edit: '+name)
+        if current not in (original,legacy_transform(name,original),patched): raise ValueError('Unrelated sample edit: '+name)
         changes[name]={'upstream_sha256':hashlib.sha256(original.encode()).hexdigest(),
                        'patched_sha256':hashlib.sha256(patched.encode()).hexdigest()}
     for name in changes:
