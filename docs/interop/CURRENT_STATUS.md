@@ -9,6 +9,8 @@
 协调任务释放 GPU，使用 clean test-source `f60ecb504b8d49d945bf194117eace537f281653`
 一次完成 72 组三路 WARP：432 raw planes / 1,527,552 bytes；候选与旧前置
 14 组、旧后置 42 组不同，两个元数据负控精确拒绝。GPU 进程已结束并释放。
+CPU 比对 #172 已有 clean raw 证据：72 组共同合同一致，216 原始输入与
+144 旧前/后输出 plane 逐字节相同；未为此重复运行 GPU。
 未链接新 Core DLL，无 NVIDIA/游戏验收，未重复全门禁。仅归属 next/0.5。
 [算法、构建锁及精确后续步骤](INDEPENDENT_CHROMA_20260908.md)。
 

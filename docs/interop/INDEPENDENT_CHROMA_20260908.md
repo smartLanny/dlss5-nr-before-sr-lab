@@ -61,8 +61,9 @@ different post defaults and attribute every change solely to independent chroma.
   assertions passed, plus configuration/routing checks.
 - The extended production comparison harness compiled with `-CompileOnly`.
   EXE SHA256 `100ac03a4e35f260e30c3adfca745a08e53996059186b18df4dcaae03b9a8750`.
-  **No WARP, GPU, NVIDIA or game dispatch ran in this slice.** No Core DLL was
-  linked, no CI was run, and no push/merge/release was performed.
+  At this compilation stage, before the separately authorized centralized
+  validation below, no WARP/GPU dispatch had run. No NVIDIA/game dispatch or
+  linked Core DLL followed; no CI, push/merge/release was performed.
 
 Private generated files, four compile/scalar logs and `validation.json` remain
 under this worktree's ignored `build/` directory. They are not exported source.
@@ -102,6 +103,23 @@ Boundary-count report SHA256:
 
 The WARP process exited and was checked absent; GPU ownership was released to
 the coordinating task. No NVIDIA/game work or repeated 504/46 baseline gate ran.
+
+### Disabled-reference equivalence from existing readbacks
+
+Without running the GPU again, the existing #172 merged capture was compared
+against this batch. Baseline runtime source is `bf0ef31d5e822586781a349bfda77bed527a99b6`,
+clean fixture `6ee5494110677044f6c11fd697e6608e6e852326`. Both capture metadata
+hashes and every compared raw-plane hash were verified against their original
+validation manifests. All common contract fields, per-case inputs/configuration
+and legacy metrics match. All 216 Original/Proxy/Neural input planes and all 144
+disabled-candidate legacy pre/post output planes are byte-identical across the
+72 cases. This closes disabled-path equivalence for this captured contract,
+without extending it to the unrun 504-case gate or arbitrary games.
+
+Baseline validation SHA256:
+`9fd6a544b4cd326a4bee6f530335b0b61e77725e00df023a97d2724ce86c2995`.
+The private `legacy-byte-equivalence.json` records both source/fixture identities
+and manifest hashes. No old evidence was rewritten or copied into source.
 
 ## Reproduction and remaining work
 
