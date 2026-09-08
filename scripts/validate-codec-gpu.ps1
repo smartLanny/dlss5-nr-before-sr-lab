@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -84,6 +84,10 @@ $compiler = Join-Path $ToolchainRoot 'bin\x86_64-w64-mingw32-clang++.exe'
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' $generated `
     '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'GPU codec harness compilation failed.' }
+if ($CompileOnly) {
+    Write-Host 'Production codec fixture compiled only; no WARP/GPU dispatch executed.'
+    return
+}
 if (![string]::IsNullOrWhiteSpace($ComparisonOutput)) {
     & $binary '--composition-contract' ([IO.Path]::GetFullPath($ComparisonOutput))
     if ($LASTEXITCODE -ne 0) { throw 'Production pre/post composition export failed.' }

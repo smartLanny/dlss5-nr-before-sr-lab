@@ -3008,14 +3008,14 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         all(abs(neural) <= 65504.0.xxx);
     // The candidate's logarithmic chromaticity has no signed-colour contract.
     // Retain the exact source for such samples; do not silently rectify them.
-    if (independentChroma && (any(source < 0.0.xxx) ||
-        any(proxy < 0.0.xxx) || any(neural < 0.0.xxx))) finiteInputs = false;
+    const bool unsupportedSignedSource = independentChroma && any(storedOriginal.rgb < 0.0.xxx);
+    if (independentChroma && any(abs(storedOriginal.rgb) > 65504.0.xxx)) finiteInputs = false;
     float3 diagnosticOriginal = SourceToDiagnosticLinear(storedOriginal.rgb);
     float3 diagnosticProxy = proxy;
     float3 diagnosticNeural = neural;
     float diagnosticDelta = max(abs(neural.r - proxy.r),
         max(abs(neural.g - proxy.g), abs(neural.b - proxy.b)));
-    if (!finiteInputs || TransferStrength <= 0.000001 ||
+    if (!finiteInputs || unsupportedSignedSource || TransferStrength <= 0.000001 ||
         FrameConfidence <= 0.000001 || diagnosticDelta <= 0.000001) {
         WriteCombinedV2(tid.xy, destinationCoord, storedOriginal);
         RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
