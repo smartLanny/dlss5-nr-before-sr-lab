@@ -265,7 +265,8 @@ def prepare(core: Path, upstream: Path, output: Path) -> None:
         transform("carrier/src/bridge.inc", patch_bridge)
         forward = (stage / "core/src/interop/nr_native_bridge_forward.inl").read_text(encoding="utf-8")
         transform("carrier/src/dlss5-bridge.cpp", lambda s: patch_host(s, forward))
-        for name in ("nr_native_bridge_abi.h", "nr_native_bridge_history.h", "nr_native_bridge_client.h"):
+        for name in ("nr_native_bridge_abi.h", "nr_native_bridge_history.h", "nr_native_bridge_client.h",
+                     "nr_carrier_activation_runtime.h"):
             (stage / "carrier/src" / name).write_bytes((stage / "core/src/interop" / name).read_bytes())
         # A staged archive has no Git metadata; build.ps1 needs the source identity.
         build = stage / "core/scripts/build.ps1"

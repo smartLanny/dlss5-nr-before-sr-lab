@@ -87,6 +87,17 @@ class CarrierCompletion(unittest.TestCase):
             result=subprocess.run([str(exe)],capture_output=True,text=True,check=True)
             print(result.stdout.strip())
 
+    @unittest.skipUnless(os.environ.get('CXX'),'requires host C++ compiler')
+    def test_actual_complete_session_retirement_and_quarantine(self):
+        function=extract(self.bridge,'static bool BridgeReleaseSession()\n{')
+        source=SESSION_HARNESS.replace('// PRODUCTION',function)
+        with tempfile.TemporaryDirectory(prefix='nr-carrier-session-') as temp:
+            cpp=Path(temp)/'session.cpp';exe=Path(temp)/'session.exe'
+            cpp.write_text(source,encoding='utf-8')
+            subprocess.run([os.environ['CXX'],'-std=c++17','-O2','-Wall','-Wextra','-Werror',str(cpp),'-o',str(exe)],check=True)
+            result=subprocess.run([str(exe)],capture_output=True,text=True,check=True)
+            print(result.stdout.strip())
+
 WARP_HARNESS=r'''
 #include <windows.h>
 #include <d3d12.h>
@@ -225,6 +236,66 @@ int main(){
     BridgeReleaseTextures();CHECK(release_calls==1);
     Reset();BridgeReleaseTextures();CHECK(releases==1&&closes==1&&release_calls==1&&g_bridge.feature==nullptr&&!g_nr_carrier_quarantined);
     std::printf("PASS %u production completion/retirement checks (fake queues, no GPU claim)\n",checks);
+}
+'''
+
+SESSION_HARNESS=r'''
+#include <cstdio>
+#include <cstdlib>
+#include <cstdint>
+using UINT64=std::uint64_t;using HANDLE=void*;using NVSDK_NGX_Result=int;
+constexpr int NGX_SUCCESS=1;
+static unsigned checks=0;
+#define CHECK(x) do {++checks;if(!(x)){std::fprintf(stderr,"FAIL %d: %s\n",__LINE__,#x);std::exit(1);}}while(0)
+static int releases=0,closes=0,textures=0,destroys=0,shutdowns=0;
+static bool quarantine_on_textures=false;static int destroy_result=NGX_SUCCESS,shutdown_result=NGX_SUCCESS;
+struct Obj {void Release(){++releases;}};
+struct NVSDK_NGX_Parameter {};
+struct ID3D12Device {void Release(){++releases;}};
+using PFN_DestroyParameters=NVSDK_NGX_Result(*)(NVSDK_NGX_Parameter*);
+using PFN_Shutdown1=NVSDK_NGX_Result(*)(ID3D12Device*);
+NVSDK_NGX_Result Destroy(NVSDK_NGX_Parameter*){++destroys;return destroy_result;}
+NVSDK_NGX_Result Shutdown(ID3D12Device*){++shutdowns;return shutdown_result;}
+struct Bridge {
+    static constexpr int kFrames=3;
+    NVSDK_NGX_Parameter *params=nullptr;ID3D12Device *dev12=nullptr;
+    Obj *mt=nullptr,*ctx4=nullptr,*fence11=nullptr,*fence12=nullptr,*fence_progress=nullptr,*stall_fence=nullptr;
+    Obj *list=nullptr,*alloc[kFrames]={},*queue=nullptr,*adapter3=nullptr;
+    HANDLE fence_event=nullptr;bool session_ready=false,frame_ready=false,disabled=false;
+    UINT64 alloc_fence[kFrames]={},pending_out=0,fence_value=0,last_submitted=0;
+    int frame_slot=0;void *alloc_params=nullptr,*create_feature=nullptr,*eval_feature=nullptr,*release_feature=nullptr;
+}g_bridge;
+static bool g_nr_carrier_quarantined=false,g_nr_ngx_initialized=false;
+static NVSDK_NGX_Parameter *g_nr_capability_parameters=nullptr;
+static PFN_DestroyParameters g_nr_destroy_parameters=nullptr;
+static PFN_Shutdown1 g_nr_shutdown1=nullptr;
+void NrCarrierQuarantine(const char*){g_nr_carrier_quarantined=true;g_bridge.disabled=true;}
+void BridgeReleaseTextures(){++textures;if(quarantine_on_textures)NrCarrierQuarantine("texture retirement");}
+void CloseHandle(HANDLE){++closes;}
+// PRODUCTION
+Obj objects[12];NVSDK_NGX_Parameter params,capabilities;ID3D12Device device;
+void Reset(){
+    releases=closes=textures=destroys=shutdowns=0;quarantine_on_textures=false;
+    destroy_result=shutdown_result=NGX_SUCCESS;g_nr_carrier_quarantined=false;g_nr_ngx_initialized=true;
+    g_nr_destroy_parameters=Destroy;g_nr_shutdown1=Shutdown;g_nr_capability_parameters=&capabilities;g_bridge={};
+    g_bridge.params=&params;g_bridge.dev12=&device;g_bridge.mt=&objects[0];g_bridge.ctx4=&objects[1];
+    g_bridge.fence11=&objects[2];g_bridge.fence12=&objects[3];g_bridge.fence_progress=&objects[4];
+    g_bridge.stall_fence=&objects[5];g_bridge.list=&objects[6];
+    for(int i=0;i<Bridge::kFrames;++i){g_bridge.alloc[i]=&objects[7+i];g_bridge.alloc_fence[i]=10+i;}
+    g_bridge.queue=&objects[10];g_bridge.adapter3=&objects[11];g_bridge.fence_event=&objects[0];
+    g_bridge.session_ready=g_bridge.frame_ready=true;g_bridge.pending_out=9;g_bridge.fence_value=8;
+    g_bridge.last_submitted=7;g_bridge.frame_slot=2;g_bridge.alloc_params=g_bridge.create_feature=(void*)1;
+    g_bridge.eval_feature=g_bridge.release_feature=(void*)1;
+}
+int main(){
+    Reset();CHECK(BridgeReleaseSession());CHECK(textures==1&&destroys==2&&shutdowns==1);
+    CHECK(releases==13&&closes==1&&!g_nr_ngx_initialized&&!g_bridge.session_ready&&!g_bridge.frame_ready);
+    CHECK(g_bridge.params==nullptr&&g_bridge.dev12==nullptr&&g_bridge.ctx4==nullptr&&g_bridge.queue==nullptr);
+    CHECK(g_bridge.alloc_params==nullptr&&g_bridge.create_feature==nullptr&&g_bridge.eval_feature==nullptr&&g_bridge.release_feature==nullptr);
+    Reset();quarantine_on_textures=true;CHECK(!BridgeReleaseSession());CHECK(releases==0&&destroys==0&&g_bridge.dev12==&device);
+    Reset();destroy_result=-1;CHECK(!BridgeReleaseSession());CHECK(g_nr_carrier_quarantined&&releases==0&&shutdowns==0&&g_bridge.params==&params);
+    Reset();shutdown_result=-1;CHECK(!BridgeReleaseSession());CHECK(g_nr_carrier_quarantined&&releases==0&&destroys==2&&shutdowns==1&&g_bridge.params==nullptr&&g_nr_capability_parameters==nullptr&&g_bridge.dev12==&device);
+    std::printf("PASS %u complete-session retirement/quarantine checks (CPU doubles, no GPU claim)\n",checks);
 }
 '''
 

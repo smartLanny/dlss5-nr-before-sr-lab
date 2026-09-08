@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Freeze native-carrier completion: real GPU proof, no caught NGX faults.
 
-Applied after the pinned carrier/ABI transforms by the canonical generator.
+Applied after the pinned carrier production-lifetime transform and before build.
 Waiting before DX11 copyback costs a CPU/GPU synchronization point per frame.
 Timeout permanently disables this carrier and retains unproven dependencies.
+The production activation lock serializes ordinary retirement; timeout quarantine
+still deliberately keeps uncertain GPU resources until process exit.
 """
 from pathlib import Path
 import importlib.util
@@ -15,6 +17,13 @@ once,edit=base.once,base.edit_block
 
 HELPERS='''// Completion is only a GPU fence observation, never a CPU Signal.
 static bool g_nr_carrier_quarantined = false; // protected by g_bridge_cs
+typedef NVSDK_NGX_Result (*PFN_DestroyParameters)(NVSDK_NGX_Parameter *);
+typedef NVSDK_NGX_Result (*PFN_Shutdown1)(ID3D12Device *);
+static PFN_DestroyParameters g_nr_destroy_parameters = nullptr;
+static PFN_Shutdown1 g_nr_shutdown1 = nullptr;
+static bool g_nr_ngx_initialized = false;
+static NVSDK_NGX_Parameter *g_nr_capability_parameters = nullptr;
+static bool BridgeReleaseSession();
 static void NrCarrierQuarantine(const char *why) {
     g_nr_carrier_quarantined = true;
     g_bridge.disabled = true;
@@ -60,6 +69,68 @@ DRAIN='''static bool BridgeDrainGpu()
         NrCarrierQuarantine("GPU retirement was not completed"); return false;
     }
     for (int i = 0; i < Bridge::kFrames; ++i) g_bridge.alloc_fence[i] = 0;
+    return true;
+}'''
+
+SESSION='''static bool BridgeReleaseSession()
+{
+    if (g_nr_carrier_quarantined) return false;
+    BridgeReleaseTextures();
+    if (g_nr_carrier_quarantined) return false;
+
+    if (g_bridge.params != nullptr) {
+        if (g_nr_destroy_parameters == nullptr ||
+            g_nr_destroy_parameters(g_bridge.params) != NGX_SUCCESS) {
+            NrCarrierQuarantine("NGX parameter destruction failed");
+            return false;
+        }
+        g_bridge.params = nullptr;
+    }
+    if (g_nr_capability_parameters != nullptr) {
+        if (g_nr_destroy_parameters == nullptr ||
+            g_nr_destroy_parameters(g_nr_capability_parameters) != NGX_SUCCESS) {
+            NrCarrierQuarantine("NGX capability parameter destruction failed");
+            return false;
+        }
+        g_nr_capability_parameters = nullptr;
+    }
+    if (g_nr_ngx_initialized && g_bridge.dev12 != nullptr) {
+        if (g_nr_shutdown1 == nullptr || g_nr_shutdown1(g_bridge.dev12) != NGX_SUCCESS) {
+            NrCarrierQuarantine("NGX D3D12 shutdown failed");
+            return false;
+        }
+    }
+
+    if (g_bridge.mt != nullptr) { g_bridge.mt->Release(); g_bridge.mt = nullptr; }
+    if (g_bridge.ctx4 != nullptr) { g_bridge.ctx4->Release(); g_bridge.ctx4 = nullptr; }
+    if (g_bridge.fence11 != nullptr) { g_bridge.fence11->Release(); g_bridge.fence11 = nullptr; }
+    if (g_bridge.fence12 != nullptr) { g_bridge.fence12->Release(); g_bridge.fence12 = nullptr; }
+    if (g_bridge.fence_progress != nullptr) { g_bridge.fence_progress->Release(); g_bridge.fence_progress = nullptr; }
+    if (g_bridge.stall_fence != nullptr) { g_bridge.stall_fence->Release(); g_bridge.stall_fence = nullptr; }
+    if (g_bridge.list != nullptr) { g_bridge.list->Release(); g_bridge.list = nullptr; }
+    for (int i = 0; i < Bridge::kFrames; ++i) {
+        if (g_bridge.alloc[i] != nullptr) { g_bridge.alloc[i]->Release(); g_bridge.alloc[i] = nullptr; }
+        g_bridge.alloc_fence[i] = 0;
+    }
+    if (g_bridge.queue != nullptr) { g_bridge.queue->Release(); g_bridge.queue = nullptr; }
+    if (g_bridge.adapter3 != nullptr) { g_bridge.adapter3->Release(); g_bridge.adapter3 = nullptr; }
+    if (g_bridge.dev12 != nullptr) { g_bridge.dev12->Release(); g_bridge.dev12 = nullptr; }
+    if (g_bridge.fence_event != nullptr) { CloseHandle(g_bridge.fence_event); g_bridge.fence_event = nullptr; }
+
+    g_bridge.session_ready = false;
+    g_bridge.frame_ready = false;
+    g_bridge.pending_out = 0;
+    g_bridge.fence_value = 0;
+    g_bridge.last_submitted = 0;
+    g_bridge.frame_slot = 0;
+    g_bridge.disabled = false;
+    g_nr_ngx_initialized = false;
+    g_bridge.alloc_params = nullptr;
+    g_bridge.create_feature = nullptr;
+    g_bridge.eval_feature = nullptr;
+    g_bridge.release_feature = nullptr;
+    g_nr_destroy_parameters = nullptr;
+    g_nr_shutdown1 = nullptr;
     return true;
 }'''
 
@@ -135,6 +206,31 @@ def patch_bridge(text):
     }
 ''','')
     text=edit(text,'static void BridgeReleaseTextures()\n{',release)
+    text=edit(text,'static void BridgeReleaseTextures()\n{',lambda s:s+'\n\n'+SESSION)
+    text=once(text,'''        g_bridge.release_feature = reinterpret_cast<PFN_D3D12ReleaseFeature>(
+            GetProcAddress(ngx, "NVSDK_NGX_D3D12_ReleaseFeature"));''','''        g_bridge.release_feature = reinterpret_cast<PFN_D3D12ReleaseFeature>(
+            GetProcAddress(ngx, "NVSDK_NGX_D3D12_ReleaseFeature"));
+        g_nr_destroy_parameters = reinterpret_cast<PFN_DestroyParameters>(
+            GetProcAddress(ngx, "NVSDK_NGX_D3D12_DestroyParameters"));
+        g_nr_shutdown1 = reinterpret_cast<PFN_Shutdown1>(
+            GetProcAddress(ngx, "NVSDK_NGX_D3D12_Shutdown1"));''')
+    text=once(text,'''        if (init_ext == nullptr || g_bridge.alloc_params == nullptr ||
+            g_bridge.create_feature == nullptr || g_bridge.eval_feature == nullptr)
+        { Log("[bridge] required NGX exports missing"); goto fail; }''','''        if (init_ext == nullptr || g_bridge.alloc_params == nullptr ||
+            g_bridge.create_feature == nullptr || g_bridge.eval_feature == nullptr ||
+            g_bridge.release_feature == nullptr || g_nr_destroy_parameters == nullptr ||
+            g_nr_shutdown1 == nullptr)
+        { Log("[bridge] required NGX lifecycle exports missing"); goto fail; }''')
+    text=once(text,'        Log("[bridge] NGX D3D12 session initialised");',
+        '        g_nr_ngx_initialized = true;\n        Log("[bridge] NGX D3D12 session initialised");')
+    text=once(text,'            NVSDK_NGX_Result rc = SafeGetCaps(get_caps, &caps, &code);',
+        '            NVSDK_NGX_Result rc = SafeGetCaps(get_caps, &caps, &code);\n'
+        '            if (caps != nullptr) g_nr_capability_parameters = caps;')
+    text=edit(text,'static void BridgeDisable(',lambda s:once(s,
+        '''    BridgeReleaseTextures();
+    if (g_bridge.adapter3 != nullptr)
+    { g_bridge.adapter3->Release(); g_bridge.adapter3 = nullptr; }''',
+        '    BridgeReleaseSession();\n    g_bridge.disabled = true;'))
     text=once(text,'    BridgeReleaseExposureFwd();',
         '    BridgeReleaseExposureFwd();\n    if (g_nr_carrier_quarantined) return;')
     text=edit(text,'static bool BridgeBuildResources(',lambda s:once(s,

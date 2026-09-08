@@ -24,8 +24,9 @@ Assert-Commit $Upstream '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 Assert-Commit $ReShade '4a50d1eddace85734871d91792ff214f13f66c01'
 Assert-Commit $Math '28929ac6f3c1649a7641741b689ebecccb17aa8d'
 $Cxx = Join-Path $Toolchain 'bin/x86_64-w64-mingw32-clang++.exe'
+$Cc = Join-Path $Toolchain 'bin/x86_64-w64-mingw32-clang.exe'
 $Windres = Join-Path $Toolchain 'bin/x86_64-w64-mingw32-windres.exe'
-foreach ($File in @($Cxx, $Windres, (Join-Path $Math 'Inc/DirectXPackedVector.h'))) {
+foreach ($File in @($Cxx, $Cc, $Windres, (Join-Path $Math 'Inc/DirectXPackedVector.h'))) {
     if (-not (Test-Path -LiteralPath $File)) { throw "Missing build input: $File" }
 }
 $Stage = Join-Path $Output 'source'
@@ -65,7 +66,7 @@ try {
         -OutputRoot (Join-Path $TestBuild 'runtime-load-windows')
     $Checks.Add('runtime load Windows fixture: file-absent vs dependency-missing under restricted LoadLibraryExW')
     $Include = @('-DNR_TEST_MULTIAPI=1', "-I$(Join-Path $Stage 'core')", "-I$Root", "-I$(Join-Path $Math 'Inc')")
-    foreach ($Test in @('multi_api/format_access', 'multi_api/format_adapter', 'multi_api/post_policy', 'multi_api/rr_post_runtime', 'multi_api/post_settings', 'multi_api/motion_access', 'multi_api/exposure_access', 'native_bridge/history', 'native_bridge/forward', 'native_bridge/render_scale', 'native_bridge/mirror_rect', 'native_bridge/ngx_parameter_abi')) {
+    foreach ($Test in @('multi_api/format_access', 'multi_api/format_adapter', 'multi_api/post_policy', 'multi_api/rr_post_runtime', 'multi_api/post_settings', 'multi_api/motion_access', 'multi_api/exposure_access', 'native_bridge/history', 'native_bridge/forward', 'native_bridge/render_scale', 'native_bridge/mirror_rect', 'native_bridge/ngx_parameter_abi', 'native_bridge/carrier_activation_runtime')) {
         $Exe = Join-Path $TestBuild ((Split-Path -Leaf $Test) + '.exe')
         & $Cxx '-std=c++17' '-Wall' '-Wextra' '-Werror' '-static' @Include (Join-Path $Root "tests/$Test.cpp") '-o' $Exe
         if ($LASTEXITCODE) { throw "Host compile failed: $Test" }
@@ -129,6 +130,18 @@ try {
     & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade
     $Checks.Add('staged bilingual core + nrchain compilation and link')
     $CarrierRoot = Join-Path $Stage 'carrier/src'
+    $MinHookRoot = Join-Path $Stage 'carrier/third_party/minhook'
+    $MinHookObjects = @()
+    foreach ($Name in @('buffer', 'hook', 'trampoline')) {
+        $Object = Join-Path $Output "minhook-$Name.o"
+        & $Cc '-std=c11' '-O2' "-I$(Join-Path $MinHookRoot 'include')" "-I$(Join-Path $MinHookRoot 'src')" "-I$(Join-Path $MinHookRoot 'src/hde')" '-c' (Join-Path $MinHookRoot "src/$Name.c") '-o' $Object
+        if ($LASTEXITCODE) { throw "Carrier MinHook compile failed: $Name.c" }
+        $MinHookObjects += $Object
+    }
+    $HdeObject = Join-Path $Output 'minhook-hde64.o'
+    & $Cc '-std=c11' '-O2' "-I$(Join-Path $MinHookRoot 'src/hde')" '-c' (Join-Path $MinHookRoot 'src/hde/hde64.c') '-o' $HdeObject
+    if ($LASTEXITCODE) { throw 'Carrier MinHook compile failed: hde64.c' }
+    $MinHookObjects += $HdeObject
     $CarrierResource = Join-Path $Output 'carrier-version.o'
     $Manifest = Get-Content -LiteralPath (Join-Path $Stage 'source-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $CarrierLeaf = $Manifest.integration.carrier_filename
@@ -136,9 +149,18 @@ try {
     $Carrier = Join-Path $Output $CarrierLeaf
     & $Windres '--codepage=65001' '--input-format=rc' '--output-format=coff' (Join-Path $CarrierRoot 'version.rc') $CarrierResource
     if ($LASTEXITCODE) { throw 'Carrier version resource failed.' }
-    & $Cxx '-std=c++17' '-O2' '-fms-extensions' '-shared' '-static' "-I$(Join-Path $Math 'Inc')" "-I$(Join-Path $CarrierRoot 'reshade')" (Join-Path $CarrierRoot 'dlss5-bridge.cpp') $CarrierResource '-o' $Carrier '-luser32' '-ladvapi32' '-lbcrypt' '-lversion' '-ldxgi' '-ld3d11' '-ld3d12' '-ld3dcompiler' '-ldxguid'
+    & $Cxx '-std=c++17' '-O2' '-fms-extensions' '-shared' '-static' "-I$(Join-Path $Math 'Inc')" "-I$(Join-Path $CarrierRoot 'reshade')" "-I$(Join-Path $MinHookRoot 'include')" (Join-Path $CarrierRoot 'dlss5-bridge.cpp') @MinHookObjects $CarrierResource '-o' $Carrier '-luser32' '-ladvapi32' '-lbcrypt' '-lversion' '-ldxgi' '-ld3d11' '-ld3d12' '-ld3dcompiler' '-ldxguid'
     if ($LASTEXITCODE) { throw 'Staged native carrier compilation failed.' }
-    $Checks.Add('staged carrier compilation + Windows version resource + link')
+    $Checks.Add('staged production carrier + static pinned MinHook compilation, Windows version resource and link')
+    $LoaderStub = Join-Path $TestBuild 'reshade-loader-stub.dll'
+    $LoaderTest = Join-Path $TestBuild 'carrier-addon-loader.exe'
+    & $Cxx '-std=c++17' '-O2' '-Wall' '-Wextra' '-Werror' '-shared' '-static' (Join-Path $Root 'tests/native_bridge/reshade_loader_stub.cpp') '-o' $LoaderStub
+    if ($LASTEXITCODE) { throw 'ReShade loader stub compilation failed.' }
+    & $Cxx '-std=c++17' '-O2' '-Wall' '-Wextra' '-Werror' '-static' '-municode' (Join-Path $Root 'tests/native_bridge/carrier_addon_loader.cpp') '-o' $LoaderTest
+    if ($LASTEXITCODE) { throw 'Carrier AddonInit loader harness compilation failed.' }
+    & $LoaderTest $LoaderStub $Carrier
+    if ($LASTEXITCODE) { throw 'Carrier AddonInit loader contract failed.' }
+    $Checks.Add('actual carrier AddonInit: minimal DllMain, failed registration unload/reload, synchronous success and idempotence')
     $Manifest = Get-Content -LiteralPath (Join-Path $Stage 'source-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($Entry in $Manifest.files.PSObject.Properties) {
         $Actual = (Get-FileHash -LiteralPath (Join-Path $Stage $Entry.Name) -Algorithm SHA256).Hash

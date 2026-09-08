@@ -181,6 +181,8 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'synthetic_legacy': 'not integrated',
         'carrier_filename': CARRIER_NAME,
         'carrier_completion': 'actual GPU progress before DX11 copyback; 500ms frame timeout quarantines resources until restart; no CPU completion signal',
+        'carrier_activation': 'D3D11 device observer, same-device swapchain and successful live Create required; late missing Create is native fallback with F8 BUG feedback',
+        'carrier_hooks': 'statically linked pinned MinHook 1.3.4; carrier and successfully hooked code modules pinned to process exit',
         'carrier_faults': 'NGX hardware exceptions propagate; ordinary error codes retain native fallback',
         'rr_post': 'Feature13 successful native output, known hardware depth, same NR core; not game verified',
         'post_work': '50-100 percent Npost/O; 0 disables while retaining precision; invalid requests rejected',

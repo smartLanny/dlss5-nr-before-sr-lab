@@ -193,6 +193,13 @@ def prepare(core: Path, upstream: Path, output: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="nr-045-stage-", dir=output.parent) as tmp:
         stage = Path(tmp) / "candidate"
         old_prepare(core, upstream, stage)
+        shutil.copytree(stage / "core/third_party/minhook",
+                        stage / "carrier/third_party/minhook")
+        production_spec = importlib.util.spec_from_file_location(
+            "carrier_production", ROOT / "scripts/patch-carrier-production.py")
+        production = importlib.util.module_from_spec(production_spec)
+        production_spec.loader.exec_module(production)
+        production.apply(stage)
         for name in ("nr_bridge_baseline.h", "nr_mirror_rect.h"):
             shutil.copyfile(stage / "core/src/interop" / name, stage / "carrier/src" / name)
         rc = stage / "core/src/nr_before_sr.rc"
