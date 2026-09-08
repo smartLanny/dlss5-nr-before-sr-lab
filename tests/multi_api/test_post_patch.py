@@ -64,7 +64,7 @@ struct PostSrSubstitution {
     unsigned int height = 0;
 };
 PostSrSubstitution PrepareAfterSr() {
-    if (!g_config.enabled || g_config.mode != 1 || feature.feature_id != 1 ||
+    if (!g_config.enabled || !((g_config.mode == 1 || (compatibility_fallback && g_config.mode == 2)) && feature.feature_id == 1) ||
         command_list == nullptr || sr_params == nullptr) return substitution;
     ID3D12Resource *output = nullptr;
     NrGuideBinding guides = {};

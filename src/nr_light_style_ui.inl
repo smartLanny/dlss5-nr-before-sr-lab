@@ -14,8 +14,8 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
     const auto ui=[zh](const char *en,const char *cn) { return zh?cn:en; };
     SettingsSection(ui("Light and detail (candidate)","光影与细节（候选）"));
     if (!before_sr)
-        SettingsNote(ui("This candidate supports post-SR light controls, including the existing RR automatic post route. If NR is bypassed or cannot run, requests remain saved without a picture change. No new RR game adapter is included.",
-            "本候选已接入后置光影控制，包括既有 RR 自动后置。NR 被旁路或无法运行时，请求仍会保留，但画面不会改变；本版未增加新的 RR 游戏适配。"));
+        SettingsNote(ui("Light controls work after SR, including automatic post processing with supported RR. If NR cannot run, saved requests do not change the picture.",
+            "后置光影控制也适用于已支持的 RR 自动后置。NR 无法运行时，设置仍会保留，但不会改变画面。"));
     else
         SettingsNote(ui("This candidate supports pre-SR light controls. If NR is bypassed, requests are retained without applying the effect. 100% retains the original contribution; these are not material or face masks.",
             "本候选已接入前置光影控制。NR 被旁路时，请求保留但效果不应用。100% 保留原有对应成分；这不是材质或人脸识别。"));
@@ -23,8 +23,8 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
     bool manual=false;
     manual|=LightStylePercent(ui("Reflection enhancement","反射增强"),
         "##nr-light-reflection",next.light_reflection,2.f);
-    SettingsTooltip(ui("Weights small bright changes, including possible reflections, highlights and other fine bright regions. It does not identify reflective materials.",
-        "控制细小亮部变化，可能包含反光、高光或其他细亮区域，不代表识别了反射材质。"));
+    SettingsTooltip(ui("Weights small bright changes, including possible reflections, highlights and other fine bright regions. It does not identify reflective materials. If the model adds little fine bright detail, raising this may have little visible effect.",
+        "控制细小亮部变化，可能包含反光、高光或其他细亮区域，不代表识别了反射材质。模型没有新增细亮变化时，调高也可能不明显。"));
     manual|=LightStylePercent(ui("Dark structure","暗部结构"),
         "##nr-light-structure",next.light_structure,2.f);
     manual|=LightStylePercent(ui("Glow suppression","辉光抑制"),
@@ -81,10 +81,15 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
         }
     }
     if (ImGui::CollapsingHeader(ui("Advanced light controls###light-advanced","光影高级选项###light-advanced"))) {
+        SettingsNote(ui("100% keeps the model's original change in that part; 0% removes it; above 100% strengthens it. The game's original lighting is retained. These are not whole-picture brightness controls.",
+            "100% 保留模型原有的这部分改动，0% 去掉这部分，超过 100% 会增强。保留游戏原有光照，不是全画面亮度调节。"));
+        if (next.light_glow==1.f)
+            SettingsNote(ui("Glow suppression is at 100%, removing the model's added broad brightening. The brightening slider therefore has no visible effect for now.",
+                "辉光抑制已为 100%，模型新增的大范围提亮已去掉，因此提亮滑块暂时看不出变化。"));
         bool broad_changed=false;
-        broad_changed|=LightStylePercent(ui("Broad brightening","大范围提亮"),
+        broad_changed|=LightStylePercent(ui("Added broad brightening","模型新增提亮"),
             "##nr-light-broad",next.light_broad,2.f);
-        broad_changed|=LightStylePercent(ui("Broad darkening","大范围暗化"),
+        broad_changed|=LightStylePercent(ui("Added broad darkening","模型新增压暗"),
             "##nr-light-dark",next.light_dark,2.f);
         if (broad_changed) { nr_light_style::MarkCustom(next); changed=true; }
         int preview=static_cast<int>(next.light_preview);
@@ -93,8 +98,8 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
                "0：最终画面\0" "1：四分区范围\0" "2：NR 修改前后差\0"))) {
             next.light_preview=static_cast<unsigned>(preview); changed=true; apply_discrete_edit=true;
         }
-        SettingsTooltip(ui("Regions: orange broad-bright, blue broad-dark, yellow fine-bright, purple fine-dark; intensity shows the remaining protected luminance edit in the active route. Difference is absolute final NR output minus original input in linear colour, magnified 4x. It includes NR, colour and protections, not only this group. Preview is not saved or an NR-history reset.",
-            "四分区：橙色宽亮、蓝色宽暗、黄色细亮、紫色细暗；强度表示当前处理路线在保护后仍保留的亮度改动。差分为 NR 最终输出与原图的绝对线性差乘 4，包含原 NR、颜色和保护，并非本组独立影响。预览不保存，也不重建 NR 历史。"));
+        SettingsTooltip(ui("Regions: orange broad-bright, blue broad-dark, yellow fine-bright, purple fine-dark. This shows the regions themselves, unchanged by enhancement amounts; exit preview to compare the effect. Difference is absolute final NR output minus original input in linear colour, magnified 4x. It includes NR, colour and protections, not only this group. Preview is not saved or an NR-history reset.",
+            "四分区：橙色宽亮、蓝色宽暗、黄色细亮、紫色细暗。显示分区本身，不随增强数值变化，比较效果请退出预览。差分为 NR 最终输出与原图的绝对线性差乘 4，包含原 NR、颜色和保护，并非本组独立影响。预览不保存，也不重建 NR 历史。"));
     }
 }
 

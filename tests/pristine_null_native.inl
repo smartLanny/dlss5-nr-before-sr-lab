@@ -9,24 +9,31 @@ int RunPristineNullGate(bool negative) {
     Hr(IDXGIFactory4_EnumWarpAdapter(factory,IID_IDXGIAdapter,reinterpret_cast<void **>(&adapter)),"pristine WARP");
     Hr(D3D12CreateDevice(reinterpret_cast<IUnknown *>(adapter),D3D_FEATURE_LEVEL_11_0,
         IID_ID3D12Device,reinterpret_cast<void **>(&device)),"pristine device");
-    reshade::api::device od{device}; OnCommandStateInitDevice(&od);
-    Check(g_state_RSSetViewports.count==0 && g_state_OMSetRenderTargets.count==0,
-          "default device startup does not install wide graphics hooks");
+    reshade::api::device od{device};
     ID3D12CommandAllocator *allocator=nullptr; ID3D12GraphicsCommandList *list=nullptr;
     Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,
         IID_ID3D12CommandAllocator,reinterpret_cast<void **>(&allocator)),"pristine allocator");
     Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,nullptr,
         IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&list)),"pristine list");
-    reshade::api::command_list owner{&od,list};
-    auto *snapshot=new NativeCommandState;
-    Check(!CaptureNativeCommandState(list,*snapshot),"missed init is not inferred from native pointer");
-    Check(std::strcmp(SnapshotCommandStateEvidence().reason,"unregistered-list")==0,"unregistered reason retained");
+    // Keep this legacy recovery case genuinely unobserved: its native Create
+    // predates hook publication. Post-publication native records are tested
+    // separately and must not be made artificially unregistered here.
+    // Both lists in this missed-init fixture genuinely predate native Create
+    // observation. The separate first-recording gate starts enabled and proves
+    // new-list coverage; it must not pre-publish full guards for this legacy case.
     ID3D12CommandAllocator *other_allocator=nullptr;
     Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,
         IID_ID3D12CommandAllocator,reinterpret_cast<void **>(&other_allocator)),"unrelated allocator");
     ID3D12GraphicsCommandList *other=nullptr;
     Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,other_allocator,nullptr,
         IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&other)),"unrelated known list");
+    OnCommandStateInitDevice(&od);
+    Check(g_state_RSSetViewports.count==0 && g_state_OMSetRenderTargets.count==0,
+          "default device startup does not install wide graphics hooks");
+    reshade::api::command_list owner{&od,list};
+    auto *snapshot=new NativeCommandState;
+    Check(!CaptureNativeCommandState(list,*snapshot),"missed init is not inferred from native pointer");
+    Check(std::strcmp(SnapshotCommandStateEvidence().reason,"unregistered-list")==0,"unregistered reason retained");
     reshade::api::command_list other_owner{&od,other}; OnCommandStateInitList(&other_owner);
     Check(!CaptureNativeCommandState(other,*snapshot),"unrelated known list still awaits its own baseline");
     Check(g_command_state_registration_repair_needed.load(),"known carrier does not cancel missing-list recovery");
@@ -184,7 +191,7 @@ int RunPristineNullGate(bool negative) {
     if (!negative) CheckCommandPoolPriming(device,od);
     const auto old_token=ReadCommandStateToken(list);
     OnCommandStateDestroyList(&owner);OnCommandStateInitList(&owner);
-    Check(ReadCommandStateToken(list)!=old_token && !CaptureNativeCommandState(list,*snapshot),"reused list never inherits pristine certification");
+    Check(ReadCommandStateToken(list)!=old_token && !CaptureNativeCommandState(list,*snapshot),"legacy wrapper re-registration requires a fresh observed baseline");
     OnCommandStateDestroyList(&owner);ReleaseNativeCommandState(*snapshot);delete snapshot;
     Drop(queue);Drop(fence);Drop(readback);Drop(output);Drop(list);Drop(allocator);Drop(pso);Drop(root);Drop(device);Drop(adapter);Drop(factory);
     printf("default pristine-null native+GPU: %d checks, %d failures; GPU=%u, negative=%d\n",checks,failures,actual,negative?1:0);

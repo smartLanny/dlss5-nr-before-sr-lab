@@ -32,6 +32,7 @@
 #include "MinHook.h"
 #include "interop/nr_post_compat.h"
 #include "nr_guide_contract.h"
+#include "nr_rr_depth_projection.h"
 // Standard-library headers must be included outside the private runtime namespace.
 #include "nr_feedback_text.h"
 #include "nr_feedback_ticket.h"
@@ -53,11 +54,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline3";
+constexpr const char *kAddonVersion = "beta0.5-dline4";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline3";
+constexpr const char *kBuildIdentity = "beta0.5-dline4";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -1001,6 +1002,17 @@ BypassReason OtherNrOwnerBypassReason() {
 // actually written to the NR parameter block for the current binding.
 
 namespace nr_f8 { extern std::atomic<bool> g_config_hold; }
+
+std::atomic<unsigned long long> g_compat_fallback_attempts{0}, g_compat_fallback_recorded{0};
+std::atomic<ULONGLONG> g_compat_fallback_tick{0};
+std::atomic<int> g_compat_fallback_reason{0};
+std::atomic<unsigned int> g_compat_fallback_config{0};
+bool IsCompatibilityPostObserved() {
+    const auto tick=g_compat_fallback_tick.load(std::memory_order_acquire);
+    const auto now=GetTickCount64();
+    return tick && now>=tick && now-tick<=2000 &&
+        g_compat_fallback_config.load(std::memory_order_relaxed)==g_config_generation.load(std::memory_order_relaxed);
+}
 
 void BeginPipelineStatsScopeLocked(unsigned long long feature_generation,
                                    int mode) {
@@ -2211,6 +2223,9 @@ struct Codec {
     ID3D12PipelineState *combine_v2 = nullptr;
     ID3D12PipelineState *copy = nullptr;
     ID3D12PipelineState *motion_resample = nullptr;
+    ID3D12RootSignature *rr_depth_root = nullptr;
+    ID3D12PipelineState *rr_depth_pipeline = nullptr;
+    bool rr_depth_failed = false;
     ID3D12PipelineState *build_edit_field = nullptr;
     ID3D12PipelineState *restore_edit_horizontal = nullptr;
     bool edit_restore_pipeline_failed = false;
@@ -4229,6 +4244,10 @@ struct NrSlot {
     ID3D12Resource *result = nullptr;
     ID3D12Resource *motion_source = nullptr;
     ID3D12Resource *motion_proxy = nullptr;
+    ID3D12Resource *rr_depth = nullptr, *rr_depth_source = nullptr;
+    ID3D12DescriptorHeap *rr_depth_heap = nullptr;
+    D3D12_RESOURCE_STATES rr_depth_state = D3D12_RESOURCE_STATE_COMMON;
+    unsigned long long rr_depth_bytes = 0;
     ID3D12Resource *exposure_source = nullptr;
     ID3D12Resource *delta_stats = nullptr;
     ID3D12Resource *delta_stats_readback = nullptr;
@@ -4539,7 +4558,7 @@ constexpr unsigned long long kExtraSlotBudget = 64ull * 1024ull * 1024ull;
 constexpr unsigned long long kExtraTotalBudget = 256ull * 1024ull * 1024ull;
 
 unsigned long long ExtraSlotBytes(const NrSlot &slot) {
-    return slot.edit_field_bytes + slot.edit_horizontal_bytes + slot.lanczos_bytes;
+    return slot.edit_field_bytes + slot.edit_horizontal_bytes + slot.lanczos_bytes + slot.rr_depth_bytes;
 }
 
 bool FitsExtraResourcePeak(const NrSlot &slot, unsigned long long new_bytes) {
@@ -4567,6 +4586,9 @@ void DestroySlot(NrSlot &slot) {
     ReleaseCom(slot.proxy);
     ReleaseCom(slot.motion_source);
     ReleaseCom(slot.motion_proxy);
+    ReleaseCom(slot.rr_depth);
+    ReleaseCom(slot.rr_depth_source);
+    ReleaseCom(slot.rr_depth_heap);
     ReleaseCom(slot.exposure_source);
     ReleaseCom(slot.source);
     slot = {};
@@ -7973,9 +7995,10 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
                       ID3D12Resource *motion_override = nullptr) {
     const NrGuideSignature &s = guides.signature;
     ID3D12Resource *motion = s.resample_motion ? motion_override : guides.motion;
-    ID3D12Resource *depth = guides.depth;
+    ID3D12Resource *depth = s.linear_depth ? slot.rr_depth : guides.depth;
     if (motion == nullptr || depth == nullptr) return false;
-    const unsigned int depth_x = s.depth_x, depth_y = s.depth_y;
+    const unsigned int depth_x = s.linear_depth ? 0 : s.depth_x;
+    const unsigned int depth_y = s.linear_depth ? 0 : s.depth_y;
     const unsigned int mv_x = s.resample_motion ? 0 : s.motion_x;
     const unsigned int mv_y = s.resample_motion ? 0 : s.motion_y;
     const unsigned int guide_width = s.depth_width, guide_height = s.depth_height;
@@ -8316,11 +8339,16 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
 
 struct Substitution {
     bool active = false;
+    // Set only at pre-SR input admission, before any NR call or GPU command.
+    bool compatibility_fallback = false;
     NgxParams *params = nullptr;
     ID3D12Resource *original_color = nullptr;
     unsigned int base_x = 0;
     unsigned int base_y = 0;
 };
+
+#include "nr_rr_depth_adapter.inl"
+
 
 Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                              const NgxHandle *sr_handle,
@@ -8346,6 +8374,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     if (!render_extent_valid || width == 0 || height == 0 ||
         !TextureContainsRegion(color, color_x, color_y, width, height) ||
         !IsUsablePreSrStorage(storage_contract)) {
+        // An invalid render extent cannot be repaired by changing NR order.
+        substitution.compatibility_fallback = render_extent_valid && width && height &&
+            TextureContainsRegion(color,color_x,color_y,width,height) &&
+            !IsUsablePreSrStorage(storage_contract);
         const bool unknown_color =
             storage_contract == PreSrStorageContract::R8EncodingUnknown ||
             storage_contract == PreSrStorageContract::R10EncodingUnknown;
@@ -8408,6 +8440,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         const bool live_r8_admitted = IsPreSrBoundedR8Contract(
             color_contract, create_declares_sdr, live_bounded_output);
         if (!live_r8_admitted) {
+            substitution.compatibility_fallback = true;
             SetBypassReason(BypassReason::InputColorContractUnverified);
             static unsigned int rejected_live_r8_contracts = 0;
             ++rejected_live_r8_contracts;
@@ -8435,6 +8468,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     }
     if (storage_contract == PreSrStorageContract::R10PqHdr &&
         !IsPqDisplayExposureContract(color_contract)) {
+        substitution.compatibility_fallback = true;
         SetBypassReason(BypassReason::InputColorContractUnverified);
         static unsigned int rejected_pq_exposure = 0;
         ++rejected_pq_exposure;
@@ -8461,6 +8495,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     if (!SupportsPreSrStorage(device, color_desc, storage_contract,
                               &color_format_support,
                               &color_format_query)) {
+        substitution.compatibility_fallback = true;
         SetBypassReason(BypassReason::UnsupportedInputFormat);
         static unsigned int rejected_capabilities = 0;
         ++rejected_capabilities;
@@ -8522,6 +8557,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);
         return substitution;
     }
+    BeginPipelineStatsScopeLocked(feature.generation, 2);
     const bool nr_ready = EnsureNrApi(device);
     const bool ready = nr_ready && EnsureCodec(device);
     if (nr_ready && !ready) SetBypassReason(BypassReason::CodecUnavailable);
@@ -8859,9 +8895,10 @@ struct PostSrSubstitution {
 PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
                                   const NgxHandle *sr_handle,
                                   const NgxParams *sr_params,
-                                  const FeatureRecord &feature) {
+                                  const FeatureRecord &feature, bool compatibility_fallback = false) {
     PostSrSubstitution substitution = {};
-    if (!g_config.enabled || g_config.mode != 1 || feature.feature_id != 1 ||
+    if (!g_config.enabled ||
+        !((g_config.mode == 1 || (compatibility_fallback && g_config.mode == 2)) && feature.feature_id == 1) ||
         command_list == nullptr || sr_params == nullptr) return substitution;
 
     ID3D12Resource *output = nullptr;
@@ -9043,12 +9080,19 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
 
     const CodecColorMode post_sr_color_mode =
         PostSrCodecColorMode(storage_contract);
+    BeginPipelineStatsScopeLocked(feature.generation, 1);
     NrGuideBinding guides = {};
     if (!ResolveNrGuideBinding(sr_params, feature, 1, width, height,
                                guide_width, guide_height, output,
                                output_x, output_y, post_sr_color_mode, guides)) {
         ReleaseCom(device);
         return substitution;
+    }
+    if (!ResolveRrLinearDepth(sr_params,feature,guides)) {
+        const auto count=g_rr_depth_declines.fetch_add(1,std::memory_order_relaxed)+1;
+        if (count<=3 || count%600==0) Log("RR depth adapter declined: missing/unsupported current projection or linear storage; native RR retained; F8 feedback. count=%llu",count);
+        SetBypassReason(BypassReason::RayReconstructionGuard);
+        ReleaseCom(device);return substitution;
     }
     NrContext *context = FindOrCreateContext(
         sr_handle, feature.generation, 1, width, height,
@@ -9083,6 +9127,11 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     if (slot == nullptr || context->failed) {
         ReleaseCom(device);
         return substitution;
+    }
+    if (!EnsureRrDepthSlot(device,*slot,guides)) {
+        g_rr_depth_declines.fetch_add(1,std::memory_order_relaxed);
+        SetBypassReason(BypassReason::RayReconstructionGuard);
+        ReleaseCom(device);return substitution;
     }
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
     if (context->retired) {
@@ -9220,6 +9269,13 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     // call.  Re-reading mutable parameters afterwards could otherwise encode
     // and combine with different exposure generations.
     const ColorContract color_contract = substitution.color_contract;
+
+    if (!DispatchRrDepth(command_list,slot,substitution.guides)) {
+        g_rr_depth_declines.fetch_add(1,std::memory_order_relaxed);
+        SetBypassReason(BypassReason::RayReconstructionGuard);
+        PreservePostSrOnFailure(command_list,substitution);
+        return false;
+    }
 
     if (substitution.native_output_snapshot &&
         !DispatchPostSrNativeSnapshot(command_list, substitution)) {
@@ -10251,29 +10307,10 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         rr_transaction.Release();
         return original(command_list, handle, params, callback);
     }
-    BeginPipelineStatsScopeLocked(feature.generation, g_config.mode);
-    const unsigned long long scoped_carriers =
-        g_pipeline_eligible_carriers.fetch_add(
-            1, std::memory_order_relaxed) + 1;
-    if (scoped_carriers <= 3 || (scoped_carriers % 600) == 0) {
-        const unsigned long long scoped_success =
-            g_pipeline_feature18_success.load(std::memory_order_relaxed);
-        const unsigned long long scoped_attempted =
-            g_pipeline_transfer_attempted.load(std::memory_order_relaxed);
-        const unsigned long long scoped_recorded =
-            g_pipeline_transfer_recorded.load(std::memory_order_relaxed);
-        const unsigned long long scoped_bound =
-            g_pipeline_transfer_bound.load(std::memory_order_relaxed);
-        const unsigned long long scoped_submitted =
-            g_pipeline_transfer_submitted.load(std::memory_order_relaxed);
-        Log("[stats] current contract: generation=%llu mode=%d "
-            "carrier-requests=%llu Feature18-success=%llu "
-            "transfer-prepared=%llu transfer-recorded=%llu "
-            "transfer-bound=%llu transfer-submitted=%llu.",
-            feature.generation, g_config.mode, scoped_carriers,
-            scoped_success, scoped_attempted, scoped_recorded,
-            scoped_bound, scoped_submitted);
-    }
+    // Each prepare path begins its diagnostic scope only after input admission.
+    // A front-colour rejection may select post without resetting its counters
+    // to Mode2 on every Evaluate.
+    g_compat_fallback_tick.store(0,std::memory_order_release);
     NativeCommandStateScope before_state(command_list);
     if (!before_state.active) {
         LeaveCriticalSection(&g_chain_cs);
@@ -10282,8 +10319,21 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     }
     Substitution before_sr = PrepareBeforeSr(
         before_state.command_list, handle, params, feature);
+    const bool compatibility_fallback = before_sr.compatibility_fallback &&
+        !before_sr.active && (g_config.identity_use_original || g_config.post_transfer_strength>0.000001f);
+    if (compatibility_fallback) {
+        g_compat_fallback_reason.store(g_last_bypass_reason.load(std::memory_order_relaxed),std::memory_order_relaxed);
+        g_compat_fallback_config.store(g_config_generation.load(std::memory_order_relaxed),std::memory_order_relaxed);
+        g_compat_fallback_tick.store(GetTickCount64(),std::memory_order_release);
+        const auto count=++g_compat_fallback_attempts;
+        if(count<=3 || count%600==0)
+            Log("[compat-route] pre input rejected; requestedMode=2 fallbackAttempt=post-NR reason=%d count=%llu; post admission and native SR success remain required. Saved preference retained; F8 feedback requested.",
+                g_compat_fallback_reason.load(),count);
+    }
     PostSrSubstitution after_sr = PrepareAfterSr(
-        before_state.command_list, handle, params, feature);
+        before_state.command_list, handle, params, feature, compatibility_fallback);
+    if(before_sr.active || after_sr.active)
+        g_pipeline_eligible_carriers.fetch_add(1,std::memory_order_relaxed);
     // Feature 18 warm-up, Create or Evaluate failure may still have changed
     // the game's compute bindings. Restore the exact entry state before SR.
     before_state.Restore();
@@ -10350,7 +10400,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             // Snapshot that state and restore it after the post-SR experiment.
             NativeCommandStateScope after_state(command_list);
             if (after_state.active) {
-                FinishAfterSr(after_state.command_list, params, feature, after_sr);
+                if (FinishAfterSr(after_state.command_list, params, feature, after_sr) && compatibility_fallback)
+                    ++g_compat_fallback_recorded;
                 after_state.Restore();
             } else if (after_sr.redirected_output) {
                 Log("[command-state] post-SR state unavailable; native SR is "
@@ -10894,6 +10945,10 @@ bool EnsureNativeCommandListResetHook(
         return true;
     auto *native_command_list = reinterpret_cast<ID3D12GraphicsCommandList *>(
         command_list->get_native());
+    return EnsureNativeCommandListResetHookForNative(native_command_list);
+}
+
+bool EnsureNativeCommandListResetHookForNative(ID3D12GraphicsCommandList *native_command_list) {
     if (native_command_list == nullptr) return false;
     void **vtable = *reinterpret_cast<void ***>(native_command_list);
     // ID3D12GraphicsCommandList::Reset is vtable slot 10.
@@ -12633,13 +12688,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline3 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline4 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline3 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline4 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

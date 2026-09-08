@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package a focused, verified 0.5 D3D12 Core acceptance build, without carrier.
+"""Package the verified 0.5 D-line and 0.4.7 compatibility integration, without carrier.
 
 This is NOT the multi-API/Manager OTA packager. It never changes games or INI,
 includes no runtime/model/private log, and will not overwrite existing output.
@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline3'
+VERSION = 'beta0.5-dline4'
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -58,12 +58,22 @@ def package(build: Path, output: Path) -> dict:
                 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py',
                 'tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py',
                 'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py',
+                'tests/test_rr_depth_device_identity.py',
                 'four-region production scalar and three negative controls',
                 'legacy-post production scalar and four negative controls',
+                'post transformation exact adapter pair and negative controls',
                 'generated legacy-post light fixture compiled without GPU dispatch',
                 'legacy-post light controls production WARP; synthetic Neural only',
                 'four-region light controls production WARP; synthetic Neural only',
                 'bounded RR projection CPU copy',
+                'validate-command-creation.py', 'validate-first-recording.py',
+                'validate-reset-notification-gap.py', 'validate-core-feedback.py',
+                'first-recording old-policy CPU negative control',
+                'first-recording real Create Capture Restore native API',
+                'first-recording old-policy native API negative control', 'tests/test_rr_depth_projection.py',
+                'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py', 'tests/test_picture_reset.py',
+                'native command creation and lifecycle; full state and negative restore WARP',
+                'production RR depth cs_5_0 and private R32 WARP readback',
                 'validate-recommended-picture.py', 'recommended independent negative control',
                 'test_post_patch.py', 'test_picture_integration.py',
                 'validate-edit-field.py', 'validate-color-edit-field.py',
@@ -89,13 +99,13 @@ def package(build: Path, output: Path) -> dict:
     artifacts = result['artifacts']
     addons = sorted(n for n in artifacts if n.endswith('.addon64') and VERSION in n)
     if len(addons) != 2 or set(artifacts) != set(addons + ['nrchain_nvngx.dll']):
-        raise ValueError('Expected two dline3 language cores and only the owned bridge.')
+        raise ValueError('Expected two dline4 language cores and only the owned bridge.')
     binaries = {name: checked_file(binary_root, name, entry['sha256']) for name, entry in artifacts.items()}
     for name, data in binaries.items():
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/DLINE3_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
+    guide = (ROOT / 'docs/testing/DLINE4_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     packages = []
     for addon in addons:
@@ -107,7 +117,9 @@ def package(build: Path, output: Path) -> dict:
             'validation_sha256': sha((build / 'validation.json').read_bytes()),
             'scope': 'D3D12 Core-only manual acceptance; not Manager/multi-API OTA',
             'single_nr': True, 'experimental_algorithms_default_off': True,
-            'light_style': 'independent pre/post candidate; neutral by default; three candidate presets; no new RR adapter',
+            'light_style': 'D pre/post controls and three candidate presets; neutral by default',
+            'compatibility_source': '6a0ad7684683993328a7a98a9bea83ac76b01a64',
+            'rr_depth_adapter': '0.4.7 standard positive view-Z adapter and verified device identity; integration awaits owner game test',
             'post_light_style_warp_verified': True, 'post_light_style_game_verified': False,
             'skin_protection_runtime': False,
             'source_verified': True, 'compile_verified': True, 'warp_verified': True,

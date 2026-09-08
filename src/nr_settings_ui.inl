@@ -62,6 +62,44 @@ void SettingsNote(const char *text) {
 
 #include "nr_light_style_ui.inl"
 
+bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded) {
+    const bool zh = UseChineseUi();
+    const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
+    const char *labels[] = {
+        ui("Before: NR -> SR###route-option", "前置 NR → SR###route-option"),
+        ui("After: SR -> NR###route-option", "后置 SR → NR###route-option")};
+    const float width = std::max(1.0f,
+        (SettingsContentWidth() - ImGui::GetStyle().ItemSpacing.x) / 2.0f);
+    bool changed = false;
+    ImGui::PushID("nr-processing-mode");
+    if (rr_guarded) ImGui::BeginDisabled();
+    for (int option = 0; option < 2; ++option) {
+        if (option != 0) ImGui::SameLine();
+        ImGui::PushID(option);
+        const int requested_mode = option == 0 ? 2 : 1;
+        const int shown_mode = rr_guarded ? 1 : next.mode;
+        const bool selected = shown_mode == requested_mode;
+        if (selected) ImGui::PushStyleColor(ImGuiCol_Button,
+            ImGui::GetStyleColorVec4(ImGuiCol_Header));
+        const bool clicked = ImGui::Button(labels[option],
+            ImVec2(width, ImGui::GetFrameHeight() * 1.25f));
+        if (selected) ImGui::PopStyleColor();
+        if (clicked && !rr_guarded && !selected) {
+            next.mode = requested_mode;
+            changed = true;
+        }
+        SettingsTooltip(option == 0 ? ui(
+            "AI rendering first, then game upscaling. Usually costs less. Ray Reconstruction (RR) automatically uses the right-hand option instead.",
+            "先做 AI 渲染，再由游戏放大画面，通常更省性能。开启光线重建（RR）时，会自动使用右侧的后置模式。") : ui(
+            "Game upscaling first, then AI rendering. Usually costs more. RR uses this mode automatically; your choice returns when RR is off.",
+            "先由游戏放大画面，再做 AI 渲染，通常更耗性能。光线重建（RR）开启时自动使用此模式；关闭 RR 后恢复你自己的选择。"));
+        ImGui::PopID();
+    }
+    if (rr_guarded) ImGui::EndDisabled();
+    ImGui::PopID();
+    return changed;
+}
+
 void DrawColorControls(ChainConfig &next, bool has_pending, bool &changed) {
     const bool use_chinese_ui = UseChineseUi();
     const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
@@ -368,8 +406,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         apply_discrete_edit = true;
     }
     SettingsTooltip(ui(
-        "Restores NR before SR, 100% NR rendering for both routes, model strength 1.2, extra enhancement 1.0 and colour protection on. Keeps the F6 switch and game compatibility settings. Other picture experiments return to their recommended defaults.",
-        "恢复前置 NR、前后置 NR 渲染比例 100%、模型强度 1.2、额外增强 1.0，并开启色彩保护。保留 F6 总开关和游戏兼容设置；其他画质实验选项恢复推荐值。"));
+        "Restores NR before SR, 100% NR rendering for both routes, model strength 1.2, extra enhancement 1.0, lighting protection 0.2 and colour protection on. Keeps the F6 switch and game compatibility settings. Other picture experiments return to their recommended defaults.",
+        "恢复前置 NR、前后置 NR 渲染比例 100%、模型强度 1.2、额外增强 1.0、光照保护 0.2，并开启色彩保护。保留 F6 总开关和游戏兼容设置；其他画质实验选项恢复推荐值。"));
     SettingsField(ui("Style", "风格"));
     const char *style_labels[] = {ui("Default###style-option", "默认###style-option"),
         ui("Natural###style-option", "自然###style-option"),
@@ -399,19 +437,15 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
 
     SettingsSection(ui("Processing", "处理方式"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
-    int mode = rr_guarded ? 1 : (next.mode == 2 ? 0 : 1);
     SettingsField(ui("Processing mode", "处理模式"));
-    if (rr_guarded) ImGui::BeginDisabled();
-    if (ImGui::Combo("##nr-processing-mode", &mode,
-            ui("Before SR: NR -> SR\0After SR: SR -> NR\0",
-               "前置 NR → SR\0后置 SR → NR\0"))) {
-        next.mode = mode == 0 ? 2 : 1; changed = true;
+    if (DrawProcessingModeBlocks(next, rr_guarded)) {
+        changed = true;
+        apply_discrete_edit = true;
     }
-    if (rr_guarded) ImGui::EndDisabled();
-    SettingsTooltip(ui("Before SR usually costs less. After SR processes the reconstructed output. The game controls its own DLSS render scale; this selector does not force DLAA.",
-        "前置：先做 AI 渲染，再放大画面，通常更省性能。后置：先由游戏放大画面，再做 AI 渲染，通常更耗性能。开启光线重建（RR）时自动选择后置。"));
     if (rr_guarded) DrawPostRouteStatus();
-    const bool before_sr = !rr_guarded && next.mode == 2;
+    const bool compatibility_post = !rr_guarded && next.mode==2 && IsCompatibilityPostObserved();
+    if (compatibility_post) DrawGenericCompatibilityStatus();
+    const bool before_sr = !rr_guarded && !compatibility_post && next.mode == 2;
 #if NR_HAS_DETAIL_STABILITY
     const bool effective_post = !before_sr;
     // These atomics are historical observations, NOT a coherent frame tuple.

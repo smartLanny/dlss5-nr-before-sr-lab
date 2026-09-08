@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the merged 0.4.6 compatibility candidate without changing the checkout.
+"""Stage the 0.5 D and 0.4.7 compatibility integration without changing the checkout.
 
 Requires #131, #132 and the completed #134 merge. Generated-source availability
 is not game verification. MFG work is deferred for the current owner test batch.
@@ -14,50 +14,57 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline3'
-DISPLAY_VERSION = '0.5-dline3'
+VERSION = 'beta0.5-dline4'
+DISPLAY_VERSION = '0.5-dline4'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
 PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
-STATE_CURRENT = 'f0f13b0a8ac243f01cdf0f93a517440ac65f1394'
+STATE_CURRENT = '3063ae9e44090f3ce3b4e1ccc9816824896c2a20'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
-REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e')
+REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e', '80a6379640cebbd70851d9929790ceee160ace57', '6a0ad7684683993328a7a98a9bea83ac76b01a64')
 INTEGRATION_CORE_PINS = {
     'src/nr_feedback_picture.inl': 'fd05bf35896dc16d8428a228198f9df092069574',
-    'config/nr_before_sr.ini': 'ed249e5cea839a697e69f08c2e00e04dd492ec0c',
-    'scripts/patch-post-compat.py': '0542d143584a8eb56364a54c2ad8daae46fcc9c3',
+    'config/nr_before_sr.ini': '8ddff731e0f05c6bf16eab52997febb5020fdcf9',
+    'scripts/patch-post-compat.py': '035040cc833053f938afbcdb99521a48551ee5e1',
     'src/nr_codec_descriptors.inl': '353c97c74bde56c72cda349fca2e50118000cbcb',
     'src/nr_feedback_core.inl': '8cd643862263291036f3f70eed359bf28ed93b8c',
     'src/nr_feedback_text.h': '2eb84a38dca9c72243bc2a4a0aa84007ec75097f',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
     'src/nr_f8_sequence.inl': 'f4b2cd5ca77ea273c5f1dd92c6853a68980a2114',
-    'src/nr_command_state.inl': 'f0f13b0a8ac243f01cdf0f93a517440ac65f1394',
-    'src/nr_feedback_capture.inl': 'f96ccb29b148d1325f11b02e32ad0dcd1b0097d6',
+    'src/nr_command_state.inl': '3063ae9e44090f3ce3b4e1ccc9816824896c2a20',
+    'src/nr_feedback_capture.inl': 'fc0b23fc5809121157b389dcca929df070b4b748',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': '951a41791a913b3f6f80cdab25be5baffe0bc57a',
-    'src/nr_before_sr.cpp': 'ebf1485e19f878970368a7422c746c06c905d501',
+    'src/nr_settings_ui.inl': '83f46f9524a55fa6b6425aa8778b2c003a2f0da3',
+    'src/nr_before_sr.cpp': 'bca47bcdec54b3b3c997dbe96cfbb6e945ae5969',
     'src/nr_recommended_picture.inl': '35afc07bf8af81590e952002a3bc5e60f75f4c8c',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': '3c389c5a79700ac3cacd38cc2970a14a8ae85fb5',
-    'src/nr_color_policy.inl': '1a5f5a4862dcaba8900a30653b3f185ef50f1fa3',
+    'src/nr_before_sr.rc': '0247d8f53926da2416e28092222e51c202fac9f6',
+    'src/nr_color_policy.inl': '7a7453d479ebf8a9666468d0e287a3c3310697b7',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': 'b8b1aee612a02aebe555f537ad872190b6e92062',
+    'scripts/build.ps1': '74a1460d5c2d9e03c726e4c8eff57721d8ca9d6c',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
-    'src/interop/nr_post_ui.inl': '10055ef3d9fdb4b8081ac5ab8fd3bd969bea039c',
-    'src/interop/nr_post_feedback.inl': '609a213378d5630aad6b56fc54ef37da854747e7',
+    'src/interop/nr_post_ui.inl': '85e6364d1fa357c19bceb97830375ba86142d98d',
+    'src/interop/nr_post_feedback.inl': '2522f983d536f2ee6fcdfe070778c9bce0d80092',
     'src/interop/nr_rr_post_runtime.inl': '6f8c98ca7943233f57e10276dbe9943631c9dd05',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
     'src/nr_f8_stream.inl': 'ec9c92e98bb7aa1853710f4245d2ec85163e4368',
     'src/nr_imgui_abi.h': 'd52148f7dc9999c8090947243b9fe6167f457240',
     'src/nr_light_style.h': 'e2bccf165841f512e97e88080273762cdf7f8548',
-    'src/nr_light_style_ui.inl': '865a85b935a6c9b508cb986e11c3537170df8e7f',
+    'src/nr_light_style_ui.inl': '48725ddd09d3efcf92ee94266bde4e6c3e96fed0',
     'src/nr_skin_protection.h': 'b09ae7909e8c06452406ecc49e174c6ba8eda4a3',
     'src/nr_stage_capture.inl': '0352ab55a9e40834c89fc60b00d83d976228a2d1',
+    'src/nr_guide_contract.h': '19c2af89af734af998e63e3f6251679c4b22ce38',
+    'src/nr_rr_depth_adapter.inl': 'b606205e654bdcc9107a7266e71af23724377a86',
+    'src/nr_rr_depth_shader.h': '2ea485b7cc58c3a1a17fbf636b8d3cbf2607690b',
+    'src/nr_rr_depth_projection.h': '8cb9c11b7750935f425e6c1dc2d6786fa804c9ad',
+    'src/nr_command_creation_observer.inl': 'fd5d0f4adf50cb1ea3becb6fa9e51f61bf79c828',
+    'src/nr_native_command_record.inl': '91b4cf6b2c77396b464b2e28ae0093efd5558a68',
+    'src/interop/nr_post_area.hlsl': '00e7eecadbb08278fe664c23297d7ca8068776b5',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
@@ -167,7 +174,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.1 dline3 beta' not in resource_text:
+    if '0.5.1 dline4 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -178,7 +185,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.1.3',
+        'core_pe_version': '0.5.1.4',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),
@@ -198,14 +205,15 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'carrier_filename': CARRIER_NAME,
         'carrier_completion': 'actual GPU progress before DX11 copyback; 500ms frame timeout quarantines resources until restart; no CPU completion signal',
         'carrier_faults': 'NGX hardware exceptions propagate; ordinary error codes retain native fallback',
-        'rr_post': 'Feature13 successful native output, known hardware depth, same NR core; not game verified',
+        'rr_post': 'Feature13 native output; hardware depth or current standard ViewSpace projection converted privately; same NR core; game pending',
         'post_work': '50-100 percent Npost/O; 0 disables while retaining precision; invalid requests rejected',
-        'rr_linear_depth': 'not converted; native RR output retained with F8 feedback reason',
-        'light_style': 'independent dline3 pre/post candidate; existing per-route luma and colour; no new RR adapter',
+        'rr_linear_depth': 'positive view-Z standard perspective to private R32 HW depth; matrix-derived inversion; unknown projection stays native with F8',
+        'compatibility_source': '6a0ad7684683993328a7a98a9bea83ac76b01a64',
+        'light_style': 'D-line pre/post controls with 0.4.7 compatibility; per-route luma and colour retained',
         'post_light_style_game_verified_at_build': False,
         'jitter': 'resolved post color zero jitter; native guide phase requires runtime validation',
         'fg_control': 'not implemented', 'getdesc_spoof': 'not implemented',
-        'mfg_scope': 'Manager FG/MFG is independent under plan 0838ffb; this 0.5 candidate adds no FG backend',
+        'mfg_scope': 'Manager FG/MFG is independent under plan 0838ffb; this Core candidate adds no FG backend',
         'game_validation': 'owner will test final batch; old BG3 result retained separately',
     }
     manifest['files'] = file_hashes(stage)

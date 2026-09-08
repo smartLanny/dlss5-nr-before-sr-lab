@@ -196,7 +196,7 @@ def main():
     core=(ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
     group=(ROOT/'src/nr_light_style_ui.inl').read_text(encoding='utf-8')
     ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8')
-    assert 'const bool before_sr = !rr_guarded && next.mode == 2;' in ui
+    assert 'const bool before_sr = !rr_guarded && !compatibility_post && next.mode == 2;' in ui
     assert 'DrawLightStyleControls(next,before_sr' in ui
     assert 'ApplyLightStyleOverlay(pending,pending_generation,' in ui
     assert 'if (color_follow_changed) nr_light_style::MarkCustom(next);' in ui

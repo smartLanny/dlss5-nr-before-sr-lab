@@ -22,6 +22,16 @@ OverlayApplyResult ApplyPictureReset(ChainConfig next, unsigned expected_generat
     return result;
 }
 
+void DrawGenericCompatibilityStatus() {
+    const auto snapshot=SnapshotColorPolicy();
+    const bool recorded=snapshot.status==NrColorPolicyStatus::Current && snapshot.mode==1;
+    ImGui::TextWrapped("%s",UseChineseUi() ? (recorded ?
+        "已自动切换到兼容处理：SR → NR。原来的 NR → SR 设置已保留；请按 F8 反馈，帮助我们改善兼容性。" :
+        "正在尝试兼容处理：SR → NR，暂未确认 NR 生效。原设置已保留；持续无效时请按 F8。") : (recorded ?
+        "Compatibility fallback: SR -> NR recently recorded. Your NR -> SR preference is retained. Please save an F8 report." :
+        "Trying compatibility fallback: SR -> NR; NR processing is not confirmed. Your preference is retained. Save F8 if this persists."));
+}
+
 // RR observation selects a route; only recent, matching NR activity describes
 // execution. A saved front preference must not be mistaken for applied post work.
 void DrawPostRouteStatus() {
@@ -39,8 +49,8 @@ void DrawPostRouteStatus() {
     const int depth = nr_post_settings::last_rr_depth_type.load(std::memory_order_acquire);
     if (recent && depth != 1 && snapshot.status == NrColorPolicyStatus::Bypassed) {
         ImGui::TextWrapped("%s", depth == 0 ? ui(
-            "RR is active, but NR is not processing: this game's linear depth needs an adapter. Native RR is retained; NR picture controls cannot take effect yet.",
-            "光线重建（RR）已开启，但 NR 未生效：当前游戏的深度格式还需要适配。已保留游戏原生 RR；此时调整 NR 画质不会改变画面。") : ui(
+            "RR is active, but NR is not processing: the current depth conversion could not be admitted. Native RR is retained; save an F8 report.",
+            "光线重建（RR）已开启，但 NR 未生效：当前深度转换未满足条件。已保留游戏原生 RR，请按 F8 收集反馈。") : ui(
             "RR is active, but NR is not processing: the game's depth format is unknown. Native RR is retained.",
             "光线重建（RR）已开启，但暂未确认游戏的深度格式，NR 未生效。已保留游戏原生 RR。"));
     } else if (snapshot.status == NrColorPolicyStatus::Bypassed) {

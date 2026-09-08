@@ -202,7 +202,8 @@ const char *NrColorPolicyStatusText(NrColorPolicyStatus status, bool chinese) {
 NrColorPolicySnapshot g_recorded_color_policy = {};
 
 int EffectivePictureMode(int requested_mode) {
-    return IsRayReconstructionRouteObserved() ? 1 : requested_mode;
+    return IsRayReconstructionRouteObserved() ||
+        (requested_mode==2 && IsCompatibilityPostObserved()) ? 1 : requested_mode;
 }
 
 NrColorPolicySnapshot SnapshotColorPolicy() {

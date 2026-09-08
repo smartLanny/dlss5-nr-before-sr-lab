@@ -65,6 +65,8 @@ std::atomic<unsigned long long> g_pipeline_stats_generation{12};
 std::atomic<int> g_last_bypass_reason{0};
 bool rr_observed=false;
 bool IsRayReconstructionRouteObserved() { return rr_observed; }
+bool compatibility_post_observed=false;
+bool IsCompatibilityPostObserved() { return compatibility_post_observed; }
 unsigned long long clock_ms=2000;
 int g_chain_cs=0, held=0;
 void EnterCriticalSection(int*) { ++held; }

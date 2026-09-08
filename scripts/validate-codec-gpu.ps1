@@ -63,7 +63,14 @@ if($PostLightStyle) {
     $candidateManifest = Get-Content -LiteralPath $candidateManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $baselineManifest = Get-Content -LiteralPath $baselineManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($baselineManifest.source_commit -ne '59ab029614df6fad6ea1e95df18a0a986be58962') { throw 'PostLightStyle baseline must be frozen dline1 source 59ab029, not a raw historical shader.' }
-    if ($candidateManifest.integration.picture_source_pins.'scripts/patch-post-compat.py' -ne $baselineManifest.integration.picture_source_pins.'scripts/patch-post-compat.py') { throw 'PostLightStyle requires the same post-generation transformation.' }
+    # Preserve the exact D1 reference. The sole differing adapter pair changes
+    # PrepareAfterSr admission, while its shader transform and area helper must
+    # remain byte-identical and belong to the recorded source commits.
+    & python (Join-Path $PSScriptRoot 'validate-post-transform.py') `
+        --baseline-commit $baselineManifest.source_commit --candidate-commit $candidateManifest.source_commit `
+        --baseline-pin $baselineManifest.integration.picture_source_pins.'scripts/patch-post-compat.py' `
+        --candidate-pin $candidateManifest.integration.picture_source_pins.'scripts/patch-post-compat.py'
+    if ($LASTEXITCODE) { throw 'PostLightStyle transformation provenance failed.' }
     $candidateHash = (Get-FileHash -LiteralPath (Join-Path $SourceRoot 'src/nr_before_sr.cpp') -Algorithm SHA256).Hash.ToLowerInvariant()
     $baselineHash = (Get-FileHash -LiteralPath $BaselineSource -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($candidateManifest.files.'core/src/nr_before_sr.cpp' -ne $candidateHash -or $baselineManifest.files.'core/src/nr_before_sr.cpp' -ne $baselineHash) { throw 'Generated post source does not match its actual source manifest.' }

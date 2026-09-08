@@ -22,8 +22,8 @@ class PictureIntegration(unittest.TestCase):
         self.assertEqual(args[0], 'rev-parse')
         return m.INTEGRATION_CORE_PINS[args[1].removeprefix('HEAD:')].encode()
 
-    def test_all_dline3_ancestors_required(self):
-        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e'))
+    def test_all_dline4_ancestors_required(self):
+        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e', '80a6379640cebbd70851d9929790ceee160ace57', '6a0ad7684683993328a7a98a9bea83ac76b01a64'))
         for missing in m.REQUIRED_ANCESTORS:
             with self.subTest(missing=missing), patch.object(m, 'is_ancestor', side_effect=lambda r, c: c != missing), patch.object(m, 'load') as load:
                 with self.assertRaisesRegex(ValueError, 'Missing integration ancestor'):
@@ -56,11 +56,11 @@ class PictureIntegration(unittest.TestCase):
 
     def test_pins_cover_actual_ui_composition_and_build_dependencies(self):
         self.assertEqual(set(m.INTEGRATION_CORE_PINS), {
+            'src/nr_feedback_picture.inl',
             'config/nr_before_sr.ini',
             'scripts/patch-post-compat.py',
             'src/nr_codec_descriptors.inl',
             'src/nr_feedback_core.inl',
-            'src/nr_feedback_picture.inl',
             'src/nr_feedback_text.h',
             'src/nr_feedback_single_text.h',
             'src/nr_f8_sequence.inl',
@@ -87,9 +87,17 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_light_style.h',
             'src/nr_light_style_ui.inl',
             'src/nr_skin_protection.h',
-            'src/nr_stage_capture.inl',        })
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '951a41791a913b3f6f80cdab25be5baffe0bc57a')
+            'src/nr_stage_capture.inl',
+            'src/nr_guide_contract.h',
+            'src/nr_rr_depth_adapter.inl',
+            'src/nr_rr_depth_shader.h',
+            'src/nr_rr_depth_projection.h',
+            'src/nr_command_creation_observer.inl',
+            'src/nr_native_command_record.inl',
+            'src/interop/nr_post_area.hlsl',
+        })
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '83f46f9524a55fa6b6425aa8778b2c003a2f0da3')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'b8b1aee612a02aebe555f537ad872190b6e92062')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '74a1460d5c2d9e03c726e4c8eff57721d8ca9d6c')
 
 if __name__ == '__main__': unittest.main()

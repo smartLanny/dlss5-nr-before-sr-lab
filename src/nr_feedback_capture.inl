@@ -92,6 +92,7 @@ void FeedbackAppendCommandHistory(FeedbackSession &s) {
             e.reset_serial, e.pipeline_writes, e.creation_method, e.creation_serial, e.creation_tick, e.registered_tick,
             e.genuine_init_event ? 1 : 0, e.initial_pso ? 1 : 0, e.reset_notifications, e.native_resets, e.reset_successes,
             e.captures, e.route, e.dynamic, e.dirty, i, next);
+        FeedbackAppend(s, "commandHistory.%u.firstRecordingObserved=%d\n", i, e.first_recording_observed ? 1 : 0);
         FeedbackAppend(s, "commandHistory.%u.blendObserved=%d\n", i, e.blend_observed ? 1 : 0);
         if (e.blend_observed)
             FeedbackAppend(s, "commandHistory.%u.blend=%.9g,%.9g,%.9g,%.9g\n",
@@ -151,6 +152,7 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
             prefix, evidence.registered ? 1 : 0, prefix, evidence.hooks_ready ? 1 : 0,
             prefix, evidence.guard_requested ? 1 : 0, prefix, evidence.guard_covered ? 1 : 0,
             prefix, evidence.fresh_reset ? 1 : 0, prefix, evidence.tainted ? 1 : 0);
+        FeedbackAppend(s, "%s.commandState.firstRecordingObserved=%d\n", prefix, evidence.first_recording_observed ? 1 : 0);
         FeedbackAppend(s, "%s.commandState.baseline=%s\n%s.commandState.resetSerial=%llu\n"
             "%s.commandState.pipelineWrites=%llu\n%s.commandState.nullBaseline=%d\n"
             "%s.commandState.hasPso=%d\n%s.commandState.hasDxrPso=%d\n"

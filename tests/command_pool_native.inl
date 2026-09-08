@@ -9,9 +9,13 @@ void CheckCommandPoolPriming(ID3D12Device *device, reshade::api::device &od) {
         IID_ID3D12CommandAllocator,reinterpret_cast<void **>(&allocator)),"pool allocator");
     auto *snapshot=new NativeCommandState;
     for (unsigned i=0;i<kMaxPrimedCommandStates+3;++i) {
+        // Exercise cold Reset priming, not the separately tested enabled Create
+        // boundary. Real creation/registration still runs; no receipt is forged.
+        g_enabled_fast.store(false);
         Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,nullptr,
             IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&lists[i])),"pool list");
         owners[i]={&od,lists[i]}; OnCommandStateInitList(&owners[i]);
+        g_enabled_fast.store(true);
         Hr(ID3D12GraphicsCommandList_Close(lists[i]),"pool initial close");
         auto *record=FindCommandStateTokenLocked(ReadCommandStateToken(lists[i]));
         Check(record && !record->state,"registration does not invent recorded state");
@@ -72,9 +76,14 @@ void CheckResetNotificationGap(ID3D12Device *device, reshade::api::device &od) {
     ID3D12CommandAllocator *allocator=nullptr; ID3D12GraphicsCommandList *list=nullptr;
     Hr(ID3D12Device_CreateCommandAllocator(device,D3D12_COMMAND_LIST_TYPE_DIRECT,
         IID_ID3D12CommandAllocator,reinterpret_cast<void **>(&allocator)),"gap allocator");
+    // Preserve a genuinely cold observer until the actual native Reset. Merely
+    // checking !known on an already allocated Create observer would lose this
+    // test's missing-pre-reset-notification regression oracle.
+    g_enabled_fast.store(false);
     Hr(ID3D12Device_CreateCommandList(device,0,D3D12_COMMAND_LIST_TYPE_DIRECT,allocator,nullptr,
         IID_ID3D12GraphicsCommandList,reinterpret_cast<void **>(&list)),"gap initial list");
     reshade::api::command_list owner{&od,list}; OnCommandStateInitList(&owner);
+    g_enabled_fast.store(true);
     auto *record=FindCommandStateTokenLocked(ReadCommandStateToken(list));
     Check(record && !record->state,"native creation receipt alone never invents state");
     if (!record) ExitProcess(3);

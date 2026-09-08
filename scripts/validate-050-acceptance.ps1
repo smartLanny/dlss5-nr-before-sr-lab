@@ -48,14 +48,17 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline3') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline4') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
-    foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py')) {
+    foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py')) {
         & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
         $Checks.Add($Test)
     }
-    foreach ($Test in @('tests/test_ui_refresh.py', 'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py', 'tests/multi_api/test_rr_post_diagnostics.py')) {
+    & python (Join-Path $PSScriptRoot 'validate-first-recording.py') --compiler $Compiler --negative-control
+    if ($LASTEXITCODE) { throw 'First-recording old-policy negative control failed.' }
+    $Checks.Add('first-recording old-policy CPU negative control')
+    foreach ($Test in @('tests/test_ui_refresh.py', 'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py', 'tests/multi_api/test_rr_post_diagnostics.py', 'tests/test_rr_depth_projection.py', 'tests/test_rr_depth_device_identity.py', 'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py')) {
         & python (Join-Path $Root $Test)
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
         $Checks.Add($Test)
@@ -78,7 +81,7 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-recommended-picture.py') --compiler $Compiler --build-dir $Negative --negative-control
     if ($LASTEXITCODE) { throw 'Recommended negative oracle failed.' }
     $Checks.Add('recommended independent negative control')
-    foreach ($Test in @('test_post_patch.py','test_picture_integration.py')) {
+    foreach ($Test in @('test_post_patch.py','test_picture_integration.py','test_integration.py','test_050_core_package.py')) {
         & python (Join-Path $Root "tests/multi_api/$Test")
         if ($LASTEXITCODE) { throw "Source gate failed: $Test" }
         $Checks.Add($Test)
@@ -94,13 +97,24 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-post-light-style.py') --compiler $Compiler --negative-control
     if ($LASTEXITCODE) { throw 'Legacy-post four-region scalar contract failed.' }
     $Checks.Add('legacy-post production scalar and four negative controls')
+    & python (Join-Path $PSScriptRoot 'validate-post-transform.py') --negative-control
+    if ($LASTEXITCODE) { throw 'Post transformation provenance negative controls failed.' }
+    $Checks.Add('post transformation exact adapter pair and negative controls')
     & (Join-Path $PSScriptRoot 'validate-codec-shader.ps1') -Source (Join-Path $Stage 'core/src/nr_before_sr.cpp')
     $Checks.Add('all staged production SM5 entries compiled')
     & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade
     $Checks.Add('full staged bilingual Core and nrchain compile/link')
     & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -PostLightStyle -CompileOnly
     $Checks.Add('generated legacy-post light fixture compiled without GPU dispatch')
+    & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain -FirstRecordingOnly
+    $Checks.Add('first-recording real Create Capture Restore native API')
+    & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain -FirstRecordingNegativeControl
+    $Checks.Add('first-recording old-policy native API negative control')
     if ($RunWarp) {
+        & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain
+        $Checks.Add('native command creation and lifecycle; full state and negative restore WARP')
+        & (Join-Path $PSScriptRoot 'validate-rr-depth-gpu.ps1') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $Output 'rr-depth-warp') -RunWarp
+        $Checks.Add('production RR depth cs_5_0 and private R32 WARP readback')
         # The caller owns the serial GPU/WARP slot. Baseline must be the actual
         # frozen reference source, never a synthetic replacement of the model.
         & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -PostLightStyle
@@ -115,12 +129,12 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline3*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline3 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline4*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline4 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 3) { throw 'Wrong numeric PE version.' }
+            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 4) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }
