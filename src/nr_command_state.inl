@@ -557,9 +557,18 @@ void RememberCommandEvidence(const CommandStateEvidence &evidence) {
     if (!TryAcquireSRWLockExclusive(&g_command_history_lock)) {
         g_command_history_dropped.fetch_add(1, std::memory_order_relaxed); return;
     }
+    const auto same_text = [](const char *left, const char *right) {
+        return left == right || (left != nullptr && right != nullptr && std::strcmp(left, right) == 0);
+    };
+    // One command list can alternate between a rejected capture and success.
+    // Coalesce only the same observed outcome so a later success cannot erase
+    // the reason for an earlier command-state-unverified frame in F8 history.
     unsigned index = 0;
-    for (; index < g_command_history.count; ++index)
-        if (g_command_history.entries[index].token == evidence.token) break;
+    for (; index < g_command_history.count; ++index) {
+        const auto &prior = g_command_history.entries[index];
+        if (prior.token == evidence.token && prior.captured == evidence.captured &&
+            same_text(prior.reason, evidence.reason) && same_text(prior.route, evidence.route)) break;
+    }
     if (index == kCommandHistoryLimit) {
         index = kCommandHistoryLimit - 1;
         g_command_history_dropped.fetch_add(1, std::memory_order_relaxed);

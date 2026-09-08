@@ -65,6 +65,60 @@ int checks = 0, failures = 0;
 void Check(bool ok, const char *label) { ++checks; if (!ok) { ++failures; printf("FAIL %s\n", label); } }
 void Hr(HRESULT result, const char *label) { if (FAILED(result)) { printf("HRESULT %s 0x%08lX\n", label, result); ExitProcess(2); } }
 template<class T> void Drop(T *&object) { if (object != nullptr) { IUnknown_Release(reinterpret_cast<IUnknown *>(object)); object = nullptr; } }
+int RunCommandEvidenceHistory() {
+    static_assert(kCommandHistoryLimit == 12);
+    g_command_history = {};
+    g_command_history_dropped.store(0);
+    CommandStateEvidence failed{};
+    failed.token = 7; failed.sequence = 1; failed.sampled_at = 10;
+    failed.reason = "unregistered-list"; failed.route = "native-bypass";
+    RememberCommandEvidence(failed);
+    CommandStateEvidence succeeded = failed;
+    succeeded.captured = true; succeeded.sequence = 2; succeeded.sampled_at = 20;
+    succeeded.reason = "none"; succeeded.route = "typed-pso";
+    RememberCommandEvidence(succeeded);
+    Check(g_command_history.count == 2 && g_command_history.entries[0].captured &&
+          !g_command_history.entries[1].captured &&
+          std::strcmp(g_command_history.entries[1].reason, "unregistered-list") == 0,
+          "failure then success on one token retains the failure evidence");
+
+    CommandStateEvidence different_failure = failed;
+    different_failure.sequence = 3; different_failure.reason = "pipeline-unbound";
+    RememberCommandEvidence(different_failure);
+    different_failure.sequence = 4; different_failure.route = "guarded-null-raster";
+    RememberCommandEvidence(different_failure);
+    Check(g_command_history.count == 4 &&
+          std::strcmp(g_command_history.entries[0].route, "guarded-null-raster") == 0 &&
+          std::strcmp(g_command_history.entries[1].route, "native-bypass") == 0,
+          "same-token rejection reason and route changes remain distinct");
+
+    different_failure.sequence = 5; different_failure.sampled_at = 50;
+    RememberCommandEvidence(different_failure);
+    Check(g_command_history.count == 4 && g_command_history.entries[0].sequence == 5 &&
+          g_command_history.entries[0].sampled_at == 50 && g_command_history_dropped.load() == 0,
+          "repeated identical reason and route update one history entry");
+
+    g_command_history = {};
+    g_command_history_dropped.store(0);
+    for (UINT64 token = 1; token <= kCommandHistoryLimit; ++token) {
+        CommandStateEvidence entry{}; entry.token = token; entry.reason = "capacity";
+        RememberCommandEvidence(entry);
+    }
+    Check(g_command_history.count == kCommandHistoryLimit && g_command_history_dropped.load() == 0,
+          "history keeps exactly twelve distinct entries without loss");
+    CommandStateEvidence overflow{};
+    overflow.token = kCommandHistoryLimit + 1; overflow.reason = "overflow";
+    RememberCommandEvidence(overflow);
+    bool oldest_present = false;
+    for (unsigned i = 0; i < g_command_history.count; ++i)
+        oldest_present = oldest_present || g_command_history.entries[i].token == 1;
+    Check(g_command_history.count == kCommandHistoryLimit &&
+          g_command_history.entries[0].token == kCommandHistoryLimit + 1 &&
+          !oldest_present && g_command_history_dropped.load() == 1,
+          "thirteenth distinct entry evicts the oldest and increments dropped once");
+    printf("command evidence history: %d checks, %d failures\n", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
 ID3D12RootSignature *MakeRoot(ID3D12Device *device, UINT count) {
     D3D12_DESCRIPTOR_RANGE range{};
     range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV; range.NumDescriptors = 1;
@@ -227,6 +281,7 @@ int RunDefaultEnabledStartupGate() {
 }
 // @PRISTINE_NULL_TEST@
 int main(int argc, char **argv) {
+    if (argc>1 && std::strcmp(argv[1],"--history-only")==0) return RunCommandEvidenceHistory();
     if (argc>1 && std::strcmp(argv[1],"--pristine-null")==0) return RunPristineNullGate(false);
     if (argc>1 && std::strcmp(argv[1],"--pristine-null-negative")==0) return RunPristineNullGate(true);
     if (argc > 1 && strcmp(argv[1], "--default-enabled") == 0)
