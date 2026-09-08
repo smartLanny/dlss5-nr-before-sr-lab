@@ -35,6 +35,7 @@
 #include "nr_feedback_ticket.h"
 #include "nr_shortcut_edge.h"
 #include "nr_ui_activity.h"
+#include "nr_work_config.h"
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
@@ -864,8 +865,8 @@ struct ChainConfig {
     float post_transfer_strength = 1.0f;
     // Independent Feature 18 working raster for Mode 2. 0 reference,
     // 1 quality, 2 balanced, 3 performance, 4 ultra, 5 custom.
-    int work_mode = 1;
-    float custom_work_scale = 0.75f;
+    int work_mode = 0;
+    float custom_work_scale = 1.0f;
     float lighting_lock = 0.20f;
     float edge_guard = 0.25f;
     float detail_stability = 0.0f; // Experimental spatial residual protection; 0 preserves old output.
@@ -1204,6 +1205,66 @@ int MigrateConfigMode(int config_version, int configured_mode) {
 bool WriteIniInt(const wchar_t *key, int value);
 bool WriteIniFloat(const wchar_t *key, float value);
 
+bool g_work_config_loaded = false; // protected by g_chain_cs
+std::atomic<bool> g_work_request_rejected{false};
+
+bool IsNewWorkConfigFile() {
+    SetLastError(ERROR_SUCCESS);
+    const DWORD attributes=GetFileAttributesW(g_ini_path);
+    return !g_work_config_loaded && attributes==INVALID_FILE_ATTRIBUTES &&
+           GetLastError()==ERROR_FILE_NOT_FOUND;
+}
+
+void RecordWorkRequestStatus(nr_work_config::Status status) {
+    const bool rejected=status==nr_work_config::Status::Rejected;
+    if (g_work_request_rejected.exchange(rejected)!=rejected && rejected)
+        Log("NR work request rejected: valid WorkMode is 0..5; CustomWorkScale "
+            "must be finite 0.5..1 (Custom 0 disables). Previous valid request "
+            "retained, NOT clamped; 1..49 percent is not admitted.");
+}
+
+void PersistWorkControl(nr_work_config::Work work, bool disable) {
+    // Only materialize proven-new defaults or consume the explicit zero
+    // control. Existing valid/invalid requests are not rewritten on reload.
+    SetLastError(ERROR_SUCCESS);
+    bool ok=true;
+    unsigned long first_error=ERROR_SUCCESS;
+    const auto write=[&](bool success) {
+        if (!success && ok) {
+            first_error=GetLastError();
+            if (!first_error) first_error=ERROR_WRITE_FAULT;
+        }
+        ok=success && ok;
+    };
+    if (disable) write(WriteIniInt(L"Enabled",0));
+    write(WriteIniInt(L"WorkMode",work.mode));
+    write(WriteIniFloat(L"CustomWorkScale",work.scale));
+    if (!ok) {
+        g_config_persistence_error.store(first_error,std::memory_order_relaxed);
+        g_config_persistence_failed.store(true,std::memory_order_release);
+    }
+    Log("NR work %s: WorkMode=%d CustomWorkScale=%.9g persisted=%d.",
+        disable?"0/off control consumed":"new-file 100-percent reference",
+        work.mode,static_cast<double>(work.scale),ok?1:0);
+}
+
+nr_work_config::Request ReadWorkRequest(bool file_proven_absent) {
+    const auto previous=g_work_config_loaded
+        ? nr_work_config::Work{g_config.work_mode,g_config.custom_work_scale}
+        : nr_work_config::Initial(file_proven_absent);
+    wchar_t mode[64]={},scale[64]={};
+    const DWORD mode_size=GetPrivateProfileStringW(L"NRBeforeSR",L"WorkMode",
+        L"\x1",mode,static_cast<DWORD>(std::size(mode)),g_ini_path);
+    const DWORD scale_size=GetPrivateProfileStringW(L"NRBeforeSR",L"CustomWorkScale",
+        L"\x1",scale,static_cast<DWORD>(std::size(scale)),g_ini_path);
+    const auto result=(mode_size==std::size(mode)-1 || scale_size==std::size(scale)-1)
+        ? nr_work_config::Request{previous,nr_work_config::Status::Rejected}
+        : nr_work_config::Parse(mode[0]==L'\x1'?nullptr:mode,
+                                scale[0]==L'\x1'?nullptr:scale,previous);
+    RecordWorkRequestStatus(result.status);
+    return result;
+}
+
 // ConfigVersion 3 predates the shared strength control. Its mode-1 post value
 // can intentionally be zero while its inactive pre value is still one.
 float ReadConfiguredTransferStrength(int configured_mode) {
@@ -1243,8 +1304,8 @@ void NormalizeConfig(ChainConfig &config) {
     // sync preserves compatibility with existing INI files without allowing a
     // mode switch to silently select a stale zero-strength value.
     config.post_transfer_strength = config.transfer_strength;
-    config.work_mode = std::clamp(config.work_mode, 0, 5);
-    config.custom_work_scale = std::clamp(FiniteOr(config.custom_work_scale, 0.75f), 0.5f, 1.0f);
+    // Work request validity is checked against the previous effective pair at
+    // each locked entry point; never silently normalize a rejected percentage.
     config.lighting_lock = std::clamp(FiniteOr(config.lighting_lock, 0.20f), 0.0f, 1.0f);
     config.edge_guard = std::clamp(FiniteOr(config.edge_guard, 0.25f), 0.0f, 1.0f);
     config.detail_stability = std::isfinite(config.detail_stability)
@@ -1322,6 +1383,10 @@ void ReloadConfig(bool force = false) {
     g_config_read_tick = now;
     g_next_config_poll_tick.store(now + 500, std::memory_order_relaxed);
 
+    // Snapshot file existence BEFORE strength/Mode migrations can create it.
+    // Missing WorkMode in an existing/unknown file is a legacy configuration.
+    const bool new_work_file=IsNewWorkConfigFile();
+    const auto work_request=ReadWorkRequest(new_work_file);
     ChainConfig next = {};
     next.enabled = GetPrivateProfileIntW(L"NRBeforeSR", L"Enabled", 0, g_ini_path) != 0;
     const int config_version = GetPrivateProfileIntW(
@@ -1364,9 +1429,13 @@ void ReloadConfig(bool force = false) {
     }
     next.identity_use_original = GetPrivateProfileIntW(
         L"NRBeforeSR", L"IdentityUseOriginalColor", 0, g_ini_path) != 0;
-    next.work_mode = GetPrivateProfileIntW(
-        L"NRBeforeSR", L"WorkMode", 1, g_ini_path);
-    next.custom_work_scale = ReadIniFloat(L"CustomWorkScale", 0.75f);
+    next.work_mode = work_request.work.mode;
+    next.custom_work_scale = work_request.work.scale;
+    if (work_request.status==nr_work_config::Status::Disable) next.enabled=false;
+    if (new_work_file || work_request.status==nr_work_config::Status::Disable)
+        PersistWorkControl(work_request.work,
+            work_request.status==nr_work_config::Status::Disable);
+    g_work_config_loaded=true;
     next.lighting_lock = ReadIniFloat(L"LightingLock", 0.20f);
     next.edge_guard = ReadIniFloat(L"EdgeGuard", 0.25f);
     next.detail_stability = ReadIniFloat(L"DetailStability", 0.0f);
@@ -1607,6 +1676,13 @@ bool ApplyConfig(ChainConfig next, const char *source,
     NormalizeConfig(next);
     EnterCriticalSection(&g_chain_cs);
     if(persist_to_ini && nr_f8::g_config_hold.load()){LeaveCriticalSection(&g_chain_cs);return false;}
+    const auto work_request=nr_work_config::Resolve(
+        {next.work_mode,next.custom_work_scale},
+        {g_config.work_mode,g_config.custom_work_scale});
+    next.work_mode=work_request.work.mode;
+    next.custom_work_scale=work_request.work.scale;
+    if (work_request.status==nr_work_config::Status::Disable) next.enabled=false;
+    RecordWorkRequestStatus(work_request.status);
     if (SameConfig(next, g_config)) {
         LeaveCriticalSection(&g_chain_cs);
         return false;

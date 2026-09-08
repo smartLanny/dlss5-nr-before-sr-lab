@@ -428,8 +428,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             observed_post_precision = post_options.percent;
     }
     SettingsTooltip(ui(
-        "Sets only NR work from 50% to 100% for the effective pre/post route. It does not change the game's render resolution. 100% uses the route's full input.",
-        "仅设置当前前置/后置路线的 NR 工作量，可在 50%–100% 连续调整；不改变游戏真实渲染分辨率，100% 使用该路线的完整输入。"));
+        "Sets only NR work from 50% to 100% for the effective pre/post route. It does not change the game's render resolution. New installs use pre-SR 100% (N=R); existing presets/custom requests are retained. 100% uses the route's full input.",
+        "仅设置当前前置/后置路线的 NR 工作量，可在 50%–100% 连续调整；不改变游戏真实渲染分辨率。新装前置默认 100%（N=R），已有预设/自定义请求保留；100% 使用该路线的完整输入。"));
+    if (before_sr && g_work_request_rejected.load(std::memory_order_acquire))
+        SettingsNote(ui("The INI work request was rejected. Previous valid precision is retained; 1-49% is unavailable, not silently raised to 50%.",
+            "INI 工作比例请求无效，已保留上一有效精度；1–49% 尚不可用，不会暗中提高到 50%。"));
 #endif
     int style = static_cast<int>(next.style);
     SettingsSection(ui("Model details", "模型细节"));
