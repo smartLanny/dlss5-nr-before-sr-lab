@@ -1,4 +1,5 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$PoolNegativeControl)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$PoolNegativeControl,
+      [switch]$HistoryOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ([string]::IsNullOrWhiteSpace($ToolchainRoot)) { throw 'Provide -ToolchainRoot.' }
@@ -43,6 +44,12 @@ foreach ($source in @('buffer', 'hook', 'trampoline', 'hde\hde64')) {
 }
 & $compiler '-std=c++20' '-O2' '-static' '-Wall' '-Wextra' '-Werror' '-fstack-usage' "-I$(Join-Path $minHook 'include')" $generated @objects '-o' $binary '-ld3d12' '-ldxgi' '-ldxguid' '-ld3dcompiler'
 if ($LASTEXITCODE -ne 0) { throw 'Native command-state harness compilation failed.' }
+if ($HistoryOnly) {
+    & $binary '--history-only'
+    if ($LASTEXITCODE -ne 0) { throw 'Command evidence history validation failed.' }
+    Write-Output 'Command evidence history CPU-only validation passed; no D3D12 device was created.'
+    exit 0
+}
 if ($PoolNegativeControl) {
     $output=& $binary '--pristine-null' 2>&1
     $code=$LASTEXITCODE
