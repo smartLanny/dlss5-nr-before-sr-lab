@@ -26,18 +26,18 @@ STATE_CURRENT = '672395127e34ccc692528ad06b3768935dda3f01'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137)
 INTEGRATION_CORE_PINS = {
-    'src/nr_work_receipt.h': '1a43fde1747a2de08d252b30f20b5f62df43491d',
+    'src/nr_work_receipt.h': 'd1e799e771f3eb213f9870c15c7ad592c2ce440e',
     'config/nr_before_sr.ini': '8f7b8bfc96214debaa8ca3b2a659f3a69c899667',
     'src/nr_work_config.h': '8366b543fbddb66aaf0a7a7d4caf06e1b0bec1a1',
-    'src/nr_feedback_core.inl': '0e708a5884926bed191f354e6ed8da7c61ea5cb6',
+    'src/nr_feedback_core.inl': '2434acc9b9cc90e7d4fa49a4aa9c903be05dc913',
     'src/nr_feedback_text.h': '2eb84a38dca9c72243bc2a4a0aa84007ec75097f',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
     'src/nr_f8_sequence.inl': 'd6a017063570787a04b67562a5a67ed91d723921',
     'src/nr_command_state.inl': STATE_CURRENT,
     'src/nr_feedback_capture.inl': '99328d273b964509e344bfdbcd7bbc85f230619b',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': '554964153984878d0a4391c81416e9f59e9ac6dc',
-    'src/nr_before_sr.cpp': 'ea17cdaf8884eb4727c536484cca9cd616d4b54c',
+    'src/nr_settings_ui.inl': 'ec7338151d2c67162859a3ea35d5eb5c5f26946f',
+    'src/nr_before_sr.cpp': '49ab171da4660cbcc176006d0340995048fe44ea',
     'src/nr_before_sr.rc': '25985f691b7f3104ba7c696f3da03eae709d4e52',
     'src/nr_color_policy.inl': '486c656eaf54af6c1d5b93bed3ce0f7bce9e1b60',
     'src/nr_color_amplification.h': '1d386e71884c31093de3cb66f7273f8f43d74d90',
