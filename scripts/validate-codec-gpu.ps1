@@ -42,7 +42,11 @@ $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
 $layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
 if (![string]::IsNullOrWhiteSpace($EditFieldOutput)) {
-    if ($NegativeControl -or $LayerNegativeControl -or $BaselineSource -or $ComparisonOutput) { throw 'Run EditField export independently.' }
+    if ($NegativeControl -or $LayerNegativeControl -or $ComparisonOutput) { throw 'Run EditField export independently.' }
+    if (![string]::IsNullOrWhiteSpace($BaselineSource)) {
+        $baselineHash = (Get-FileHash -LiteralPath $BaselineSource -Algorithm SHA256).Hash.ToLowerInvariant()
+        $harness = '#define NR_EDIT_FIELD_BASELINE_SOURCE_SHA "' + $baselineHash + '"' + "`n" + $harness
+    }
     $editTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/edit_field_gpu.inl') -Raw -Encoding UTF8
     $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $editTests)
     $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 3 && std::strcmp(argv[1], "--edit-field-contract") == 0) { ExportEditFieldContract(gpu, argv[2]); return 0; }')

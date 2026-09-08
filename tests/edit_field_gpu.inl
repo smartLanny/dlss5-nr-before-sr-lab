@@ -4,6 +4,9 @@
 #include <iomanip>
 
 void ExportEditFieldContract(Gpu &gpu,const char *directory) {
+#ifdef NR_EDIT_FIELD_BASELINE_SOURCE_SHA
+    Gpu baseline(kMaintenanceShader);
+#endif
     const std::filesystem::path root(directory);
     Require(!std::filesystem::exists(root),"EditField output already exists");
     Require(std::filesystem::create_directories(root),"Create EditField output");
@@ -28,6 +31,11 @@ void ExportEditFieldContract(Gpu &gpu,const char *directory) {
     for(float strength:{0.f,1.f,2.f,4.f}) {
         const UINT nw=reduced?7:13,nh=reduced?5:13,flags=variant==13?0u:1u;
         const auto a=Run(gpu,13,13,0,1,flags,variant,true,nw,nh,{},0.f,{},strength,{1,1,1,1},true,0.f);
+#ifdef NR_EDIT_FIELD_BASELINE_SOURCE_SHA
+        const auto old=Run(baseline,13,13,0,1,flags,variant,true,nw,nh,{},0.f,{},strength,{1,1,1,1},true,0.f);
+        Require(equal(a.original,old.original)&&equal(a.proxy,old.proxy)&&equal(a.neural,old.neural),"EditField baseline input identity");
+        Require(equal(a.output,old.output),"EditField disabled A differs from frozen previous production shader");
+#endif
         const auto b=Run(gpu,13,13,0,1,flags|8192u,variant,true,nw,nh,{},0.f,{},strength,{1,1,1,1},true,0.f);
         Require(equal(a.original,b.original)&&equal(a.proxy,b.proxy)&&equal(a.neural,b.neural),"EditField A/B identical raw input");
         double difference=0;
@@ -48,7 +56,11 @@ void ExportEditFieldContract(Gpu &gpu,const char *directory) {
             <<"],\"codec_flags\":"<<flags<<",\"strength\":"<<strength<<",\"a_b_rgb_mae\":"<<difference/169<<'}';
         ++index;
     }
-    metadata<<"],\"cases_total\":"<<index<<",\"plane_bytes\":"<<bytes<<"}\n";
+    metadata<<"],\"cases_total\":"<<index<<",\"plane_bytes\":"<<bytes;
+#ifdef NR_EDIT_FIELD_BASELINE_SOURCE_SHA
+    metadata<<",\"baseline_identical_cases\":"<<index<<",\"baseline_source_sha256\":\""<<NR_EDIT_FIELD_BASELINE_SOURCE_SHA<<'"';
+#endif
+    metadata<<"}\n";
     Require(bool(metadata),"Write EditField metadata");
     std::printf("Production EditField A/B: %u pairs, %llu raw bytes; actual N field and queue completion.\n",index,static_cast<unsigned long long>(bytes));
 }
