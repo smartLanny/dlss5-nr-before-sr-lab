@@ -33,6 +33,8 @@ $Failure = $null
 $OldToolchain = $env:DLSS5_LLVM_MINGW_ROOT
 $OldCxx = $env:CXX
 $OldPostSource = $env:POST_COMPAT_CORE_SOURCE
+$OldReShadeRoot = $env:NR_RESHADE_ROOT
+$OldLlvmBin = $env:NR_LLVM_BIN
 New-Item -ItemType Directory -Path $Output | Out-Null
 Start-Transcript -LiteralPath (Join-Path $Output 'validation.log') | Out-Null
 Push-Location $Root
@@ -124,6 +126,8 @@ try {
     $env:DLSS5_LLVM_MINGW_ROOT = $OldToolchain
     $env:CXX = $OldCxx
     $env:POST_COMPAT_CORE_SOURCE = $OldPostSource
+    $env:NR_RESHADE_ROOT = $OldReShadeRoot
+    $env:NR_LLVM_BIN = $OldLlvmBin
     Stop-Transcript | Out-Null
     $Result = [ordered]@{
         schema='nr050-focused-acceptance-v1'; source_commit=$Commit;
