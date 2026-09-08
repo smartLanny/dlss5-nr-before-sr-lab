@@ -12,6 +12,7 @@ struct Lease {
     ID3D12Fence *fence = nullptr;
     std::uint64_t last_completed_submission = 0;
     NrGuideProvenance provenance = NrGuideProvenance::Unknown;
+    bool command_list_owned = false; // Explicit caller lease; not inferred from a pointer.
 };
 
 inline nr_fsr31_dlss::Status BuildFrame(ID3D12Device *device,
@@ -26,6 +27,7 @@ inline nr_fsr31_dlss::Status BuildFrame(ID3D12Device *device,
     if (mapped != S::Ready) return mapped;
     if (!lease.provider_id || !lease.view_id || !lease.epoch || !lease.frame_id ||
         !lease.queue || !lease.fence || !nr_output) return S::MissingInput;
+    if (!lease.command_list_owned) return S::UnsupportedState;
     if (lease.provenance != NrGuideProvenance::Native &&
         lease.provenance != NrGuideProvenance::Extracted &&
         lease.provenance != NrGuideProvenance::Synthetic) return S::UnsupportedFlags;
@@ -48,6 +50,9 @@ inline nr_fsr31_dlss::Status BuildFrame(ID3D12Device *device,
     owner.Reset();
     if (FAILED(lease.fence->GetDevice(IID_PPV_ARGS(&owner))) ||
         !nr_fsr31_dlss::SameDevice(device, owner.Get())) return S::DeviceMismatch;
+    const auto completed = lease.fence->GetCompletedValue();
+    if (completed == std::numeric_limits<std::uint64_t>::max() ||
+        completed < lease.last_completed_submission) return S::UnsupportedState;
     const auto nr_view = ffxApiGetResourceDX12(nr_output, FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
     const auto valid_output = nr_fsr31_dlss::Resource(device, nr_view, rw, rh,
         DXGI_FORMAT_R16G16B16A16_FLOAT, FFX_API_SURFACE_FORMAT_R16G16B16A16_FLOAT, true);
