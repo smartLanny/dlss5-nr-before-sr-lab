@@ -6,3 +6,4 @@
 | 游戏 | 显卡 | 驱动 | addon 版本 | 备注 | 日期 | 关联 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 黎明行者之血 / Dawnwalker | RTX 5090 Laptop | 61062 | beta0.4.6-hotfix.1 | 主人过测 + 阿龙同版成功；ColorDiag finalChanged≠0 | 2026-09-09 | #177（已关） |
+| 红色沙漠 / Crimson Desert | RTX 5090 Laptop | 61062 | beta0.4.6-hotfix.1 | 主人 ROG 过测；bypass=none/active | 2026-09-09 | #201（已关） |
