@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DLSS 5 AI 超分管理器</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="workspace-layout.css">
 </head>
 <body>
   <div class="app-shell">
@@ -17,7 +18,7 @@
       <nav>
         <button class="nav active" data-view="games"><span class="nav-icon nav-icon-games" aria-hidden="true"></span>游戏</button>
         <button class="nav" data-view="repair"><span class="nav-icon nav-icon-repair" aria-hidden="true"></span>修复</button>
-        <button class="nav" data-view="addons"><span class="nav-icon nav-icon-addons" aria-hidden="true"></span>插件版本</button>
+        <button class="nav" data-view="addons"><span class="nav-icon nav-icon-addons" aria-hidden="true"></span>组件管理</button>
         <button class="nav" data-view="settings"><span class="nav-icon nav-icon-settings" aria-hidden="true"></span>设置</button>
       </nav>
       <div class="sidebar-foot">
@@ -33,21 +34,18 @@
       <header class="titlebar">
         <div class="page-title"><h2 id="pageTitle">我的游戏</h2><p id="pageSubtitle">只显示真实检测结果，不做运行状态猜测</p></div>
         <div class="title-actions">
-          <button class="button subtle" id="addGameBtn">＋ 添加游戏</button>
-          <button class="button subtle" id="addExeBtn">＋ 选择 EXE</button>
-          <button class="button" id="refreshBtn">重新扫描</button>
           <button class="window-button" id="minBtn" aria-label="最小化">—</button>
           <button class="window-button close" id="closeBtn" aria-label="关闭">×</button>
         </div>
       </header>
 
       <section class="view active" id="view-games">
+        <div class="library-header"><div><h3>游戏库</h3><p class="summary" id="gameSummary"></p></div><div class="library-actions"><button class="button primary" id="addGameBtn">添加游戏</button><button class="button subtle" id="addExeBtn">选择 EXE</button><button class="button subtle" id="refreshBtn">重新扫描</button></div></div>
         <div class="notice hidden" id="hardwareNotice"></div>
         <div class="notice hidden" id="payloadNotice"></div>
         <div class="toolbar-row">
           <div class="search"><span>⌕</span><input id="searchInput" placeholder="搜索游戏" autocomplete="off"></div>
           <select id="gameFilter" aria-label="筛选游戏"><option value="all">全部游戏</option><option value="installed">已安装</option><option value="supported">可安装</option><option value="unsupported">暂不支持</option></select>
-          <div class="summary" id="gameSummary"></div>
         </div>
         <div class="game-list" id="gameList"></div>
         <div class="empty hidden" id="emptyState">
@@ -59,8 +57,8 @@
 
       <section class="view" id="view-repair">
         <div class="panel repair-head">
-          <div><h3>安装检查与修复</h3><p>只检查文件是否完整；不会声称游戏内 AI 已经成功运行。</p></div>
-          <select id="repairGameSelect"></select>
+          <div><h3>检查一个游戏</h3><p>先核对文件与安装记录，再处理异常或恢复原文件。</p></div>
+          <select id="repairGameSelect" aria-label="选择要检查的游戏"></select>
         </div>
         <div class="panel diagnostics" id="diagnostics"></div>
         <div class="repair-actions">
@@ -69,11 +67,10 @@
           <button class="button danger" id="uninstallBtn">卸载插件</button>
         </div>
         <div class="panel feedback-panel">
-          <h3>安装/修复反馈</h3>
-          <p>安装或修复出现异常时，在这里选中对应游戏，保存反馈日志发给开发者。日志只保存到本机，不会自动上传；即使游戏还没安装，也可以收集。</p>
+          <div class="section-heading"><div><h3>需要进一步排查</h3><p>保存精简反馈，保留错误原因和必要环境信息。</p></div><span class="badge">只保存到本机</span></div>
           <div class="feedback-controls">
             <select id="feedbackGameSelect" aria-label="选择反馈游戏"></select>
-            <label class="check-line"><input type="checkbox" id="feedbackIncludePaths"> 包含完整路径（排查权限问题时再勾选）</label>
+            <label class="check-line"><input type="checkbox" id="feedbackIncludePaths"> 包含完整路径</label>
             <button class="button" id="copyFeedbackBtn">复制反馈日志</button>
             <button class="button primary" id="exportFeedbackBtn">保存反馈日志</button>
           </div>
@@ -81,13 +78,14 @@
       </section>
 
       <section class="view" id="view-addons">
+        <div class="component-sources-layout">
         <div class="panel payload-source-panel">
           <div class="payload-source-head"><div><h3>安装组件来源</h3><p>选择完整组件目录并记住路径，后续安装和修复使用这里的组件。</p></div><span class="badge" id="payloadSourceStatus">正在检查</span></div>
           <div class="payload-source-location"><strong id="payloadSourceLabel">随程序提供</strong><span id="payloadSourcePath"></span></div>
           <p class="config-note" id="payloadSourceDetail" role="status"></p>
           <div class="payload-source-actions"><button class="button primary" id="choosePayloadSourceBtn">选择组件目录</button><button class="button" id="recheckPayloadSourceBtn">重新检查</button><button class="button subtle hidden" id="resetPayloadSourceBtn">使用随程序组件</button></div>
           <p class="payload-source-feedback hidden" id="payloadSourceFeedback" role="status" aria-live="polite"></p>
-          <details class="payload-source-help"><summary>完整组件与更新包有什么区别？</summary><p>完整组件目录含 bundle.json 清单、核心和配套运行文件，用于首次安装与修复。标准 OTA 或单个 addon 是更新文件，在下方导入后按游戏应用。切换来源不会立即改动已安装游戏；切换路线仍使用备份和恢复记录。</p></details>
+          <details class="payload-source-help"><summary>完整组件与更新包有什么区别？</summary><p>完整组件目录用于首次安装与修复，标准 OTA 或单个 addon 用于更新。这里选择的是安装文件来源；安装后的插件仍由游戏内 ReShade 加载。切换来源不会立即改动游戏，版本更新需按游戏应用并保留恢复记录。</p></details>
         </div>
         <div class="panel addon-intro">
           <div>
@@ -97,6 +95,8 @@
           </div>
           <div class="addon-drop" id="addonDropZone">把标准 OTA .zip 或 .addon64 拖到这里</div>
         </div>
+        </div>
+        <div class="panel default-core-panel"><div><h3>新安装默认核心</h3><p id="addonVersionNote">用于新安装；已安装游戏保留自己的版本。</p></div><select id="addonVersionSelect" aria-label="新安装默认核心版本"></select></div>
         <div class="panel">
           <div class="addon-list-head"><h3>可用版本</h3><span class="muted" id="addonListHint"></span></div>
           <div class="addon-list" id="addonVersionList"></div>
@@ -118,6 +118,7 @@
       </section>
 
       <section class="view" id="view-settings">
+        <div class="workspace-intro"><h3>管理器偏好</h3><p>游戏画面参数和核心版本在各自页面设置。</p></div>
         <div class="panel settings-panel">
           <h3>扫描范围</h3>
           <label class="setting-row">
@@ -133,21 +134,17 @@
             <b id="settingsHardware">自动识别</b>
           </div>
           <div class="setting-row">
-            <div><strong>默认核心版本</strong><p id="addonVersionNote">用于新安装；已安装游戏可在游戏设置中选择并应用版本。</p></div>
-            <select id="addonVersionSelect"></select>
-          </div>
-          <div class="setting-row">
             <div><strong>恢复与卸载</strong><p>按恢复记录核对原文件；遇到外部改动会保留现场并提示，不覆盖未知插件。</p></div>
             <b>原文件备份 + 恢复记录</b>
           </div>
         </div>
-        <div class="panel settings-panel">
-          <h3>产品信息</h3>
-          <div class="info-row"><span>版本</span><b id="settingsVersion"></b></div>
+        <details class="panel settings-panel product-information">
+          <summary>关于管理器 <span id="settingsVersion"></span></summary>
+          <div class="info-row"><span>核心版本</span><b>按游戏管理 · 0.3 稳定 / 0.4 Beta</b></div>
           <div class="info-row"><span>作者</span><b id="settingsAuthor">野生的装机宅</b></div>
           <div class="info-row"><span>上游基础</span><b>DLSS5-Swapper (MIT)</b></div>
           <div class="info-row"><span>游戏内设置</span><b>继续使用 ReShade Overlay</b></div>
-        </div>
+        </details>
       </section>
     </main>
   </div>
@@ -178,6 +175,7 @@
     </div>
   </div>
   <script src="action-flow.js"></script>
+  <script src="game-detail-tabs.js"></script>
   <script src="launch-settings-ui.js"></script>
   <script src="renderer.js"></script>
 </body>

@@ -37,7 +37,7 @@ test('portable outer launcher and inner executable use their distinct supported 
   assert.ok(portable.enum.includes(pkg.build.portable.requestExecutionLevel));
   assert.equal(pkg.build.portable.requestExecutionLevel, 'admin');
   assert.equal(pkg.build.win.requestedExecutionLevel, 'requireAdministrator');
-  assert.equal(pkg.version, '0.4.6-hotfix.7-dev.3'); assert.equal(pkg.build.buildVersion, '0.4.6.7');
+  assert.equal(pkg.version, '0.4.6-hotfix.7-dev.4'); assert.equal(pkg.build.buildVersion, '0.4.6.7');
   assert.equal(lock.version, pkg.version); assert.equal(lock.packages[''].version, pkg.version);
   const target = fs.readFileSync(require.resolve('app-builder-lib/out/targets/nsis/NsisTarget'), 'utf8');
   const template = fs.readFileSync(path.join(path.dirname(require.resolve('app-builder-lib/package.json')), 'templates/nsis/portable.nsi'), 'utf8');

@@ -1,5 +1,24 @@
 # 现用 xiaofeng 管理器维护与待发布交接
 
+## 当前交付：整套工作区界面与本机更新（dev.4）
+
+当前为 **Manager 0.4.6-hotfix.7-dev.4**，沿用 #195；以下 dev.3 / dev.2 及“尚未替换 hotfix.6”的描述均为历史记录。本次用户明确授权调整整个现用界面，已在独立维护 worktree 实现、构建完整 Setup/portable，并通过 Setup 更新到 `C:/Users/pc1/AppData/Local/Programs/xiaofeng-dlss5-manager`，重新启动成功。冻结测试 UI 未修改。没有公开上传本候选；等待兼容性支线后再发布的要求仍有效。
+
+游戏详情改为「画面增强 / SR 与 FG / 安装诊断」，页签键盘可操作，切换保留草稿且不写入；SR/FG 第一次打开时才加载。常用 NR 强度前置，高级设置折叠并显示当前状态。组件管理集中来源、导入、可用版本及新装默认核心；修复页优先异常。额外修复来源切换后保留详情中的版本列表未刷新、旧异步诊断覆盖新选择的问题。范围及主代理视觉验收见 [设计验收记录](../design/2026-09-08-manager-workspace-ui.md)。
+
+完整 **292 passed / 0 failed / 0 skipped**；UI 合同 71 IDs / 67 references。实际本次 ASAR renderer 的 1280×900 与最小 900×620 交互通过，另检查 900×780 多页面布局。数据/IPC/GPU 为隔离夹具，不是游戏验证。实际包内所有核心版本、FG 摘要、许可证、NVAPI 脚本及新 UI 文件验证通过；external unpacked 验证不含 NR payload，保留 FG/许可证/NVAPI。完整 portable 外壳、内部程序、已安装 EXE 的实际 RT_MANIFEST 全部为 requireAdministrator。
+
+本机通过完整 Setup 安装返回 0，重启后的 Manager 进程存在；已安装 EXE/ASAR 摘要与本次构建一致。安装前 ASAR 与摘要留在 `build/installed-before-dev4`，原 hotfix.6 完整 Setup 仍在 `xiaofeng-sr-fg-20260908/dist` 可用于回退。用户设置及游戏目录未由本次维护直接修改。内置 `bundle.json` 与原已安装版本摘要相同：Core **0.4.6-hotfix.1 · Beta**、0.3.3.5 稳定基线、0.2 历史项，FG 仍为 RTX40 MFG v1.2 / UAL v9.7.4。新 carrier 源码交付没有混入默认组件。
+
+| 成品（`dist`） | SHA256 |
+| --- | --- |
+| `win-unpacked/resources/app.asar` | `c84fda6f82cf183e2ffaccc28926692db3986decb0c0b974475ce68d8aefd4ca` |
+| `win-unpacked/DLSS 5 AI 超分管理器.exe` | `4e0f7a9d5621dbc9ea60e606e4fcc2b2686588de4a252aced4208fcebadda7f1` |
+| `DLSS5-Manager-Setup-0.4.6-hotfix.7-dev.4.exe` | `e039847837fb056e3938a83fe8b827dedb8728d97049e38ff8df24753a0d0350` |
+| `DLSS5-Manager-0.4.6-hotfix.7-dev.4-portable.exe` | `5460e040e74a20c089ee8cda014de7d0e5f404a6028dc1a602b8e99a37a6fcbc` |
+
+最新兼容性区分：#191/#195 的外部目录是安装来源，不等于游戏运行时外置 Addon；#171/#175 的外部 provider→Own Core 已有受控 RTX5090 Feature18/NR→SR 结果，真实游戏 feeder/guides/copy-back 等仍待验收；#194 的 DX11 carrier 是进程内 D3D11→D3D12 资源及生命周期桥接，不是独立进程隔离，真实游戏/NVIDIA Feature18/真实 ReShade 派发仍未验证。Native DX12 不部署 DX11 carrier；DX11 DLSS 最可能直接受益但不能先宣称通过。FSR/XeSS、TAA/TSR、Vulkan 仍分别依赖 provider/引擎输入/加载链路。#153 旧闪退没有据此关闭。
+
 ## 最新追加：运行库与 UI 检查（dev.3）
 
 当前候选更新为 **Manager 0.4.6-hotfix.7-dev.3**，继续 #195；下面的 dev.2 / b8785be / 287 测试及构建摘要为上一批历史。当前安装版仍是 hotfix.6，Core 组件没有替换，兼容性支线与发布条件不变。

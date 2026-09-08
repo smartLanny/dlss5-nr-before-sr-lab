@@ -105,7 +105,7 @@ test('legacy SR choices stay visible until this editor takes ownership', () => {
   assert.equal(ui.initialFields('sr', data).preset, 'M');
   const status = ui.statusMarkup('sr', data, false);
   assert.match(status, /沿用原模型设置：自动 → 模型 M/);
-  assert.match(status, /保存本页后接管/);
+  assert.match(status, /保存后由本页接管/);
   assert.doesNotMatch(status, /未设启动覆盖|配置已读回/);
   data.legacy.managed = true;
   assert.equal(ui.initialFields('sr', data).quality, 'quality');

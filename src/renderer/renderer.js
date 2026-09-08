@@ -11,6 +11,8 @@ const state = {
   activeView: 'games',
   expanded: null,
   expandedLoadToken: 0,
+  repairLoadToken: 0,
+  detailTabs: new Map(),
   repairGame: null,
   feedbackGame: null,
   lastFailureGame: null,
@@ -168,10 +170,7 @@ function renderVersionSelector() {
   const selected = state.payload.selectedVersion;
   select.innerHTML = Object.entries(versions).map(([id, item]) => `<option value="${escapeHtml(id)}">${escapeHtml(coreVersionLabel(id, item))}</option>`).join('');
   select.value = selected;
-  const item = versions[selected];
-  $('addonVersionNote').textContent = item && item.notes
-    ? `${item.notes} 此处用于新安装；已安装游戏请在其卡片选择并“应用版本”。`
-    : '此处用于新安装；已安装游戏保留自己的版本，请在其卡片选择并“应用版本”。';
+  $('addonVersionNote').textContent = '用于新安装；已安装游戏保留自己的版本，在游戏卡片中选择并应用。';
   select.disabled = false;
   renderPayloadNotice(removedSelection);
 }
@@ -300,37 +299,51 @@ function gameApiLabel(chosen) {
   return `${API_LABELS[resolution.api] || 'API 待确认'}${resolution.source === 'override' ? '（已指定）' : ''}`;
 }
 
+function detailKey(game) {
+  return `${game.id}:${String(game.chosen?.path || game.dir || '').toLowerCase()}`;
+}
+
 function gameDetail(game) {
-  const launchSettings = game.chosen ? '<section class="launch-settings-host" aria-label="SR 与 FG 启动设置"><p class="config-note">正在读取 SR / FG 设置…</p></section>' : '';
-  if (!game.installed) {
-    const title = game.supported ? '已检测到可用的普通 DLSS 游戏'
-      : game.supportCode === 'ERR_API_SELECTION_REQUIRED' ? '请确认游戏实际启动 API' : '当前不满足基础版安装条件';
-    const detail = game.supported
-      ? (payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可以直接一键安装。` : '安装前检查已通过；请确认显卡型号并准备对应组件。')
-      : game.supportText;
-    return `<div class="game-detail">${apiControls(game)}<div class="config-block"><h4>${escapeHtml(title)}</h4><p>${escapeHtml(detail)}</p>${addonVersionRow(game)}<div class="path-line">${escapeHtml(game.dir)}</div></div>${launchSettings}</div>`;
-  }
-  return `<div class="game-detail" data-game-detail="${game.id}">
-    ${apiControls(game)}
-    <div class="config-grid">
-      <div class="config-block">
-        <div class="config-title"><h4>常用设置</h4><button class="button subtle launch-jump-btn" type="button">SR / FG 设置 ↓</button></div>
-        ${addonVersionRow(game, true)}
-        <div class="control-row"><label>风格</label><div class="segmented style-segment"><button data-value="0">默认</button><button data-value="1">自然</button><button data-value="2">电影</button></div><span></span></div>
-        <div class="control-row"><label title="模型内部的皮肤结构控制，不是最终合成的人脸遮罩，也不能单独调整脸部效果倍率。">皮肤结构保护</label><span></span><input class="switch nr-mask" type="checkbox"></div>
-        <div class="control-row"><label title="模型内部强度，默认 1.00，范围 0–2。">模型强度</label><div class="range-wrap"><input class="nr-model-strength" aria-label="NR 模型强度" type="range" min="0" max="2" step="0.01"><span class="value-pill nr-model-value">1.00</span></div><span></span></div>
-        <div class="control-row"><label title="核心面板中的 NR 效果倍率，控制最终效果混合，默认 1.00，范围 0–4。">额外强度</label><div class="range-wrap"><input class="nr-effect-strength" aria-label="NR 额外强度" type="range" min="0" max="4" step="0.01"><span class="value-pill nr-effect-value">1.00</span></div><span></span></div>
-        <div class="control-row skin-strength-row"><label>皮肤结构强度</label><div class="range-wrap"><input class="nr-skin-strength" type="range" min="-1" max="2" step="0.01"><span class="value-pill nr-skin-value">关闭</span></div><span></span></div>
-        <p class="config-note">模型强度影响模型内部处理；额外强度对应核心面板的 NR 效果倍率，默认均为 1.00。NR 工作分辨率和色调跟随可在游戏内面板调整。</p>
-        <div class="shortcut-block"><div class="shortcut-head"><h4>快捷键</h4><span>按游戏单独保存</span></div><div class="shortcut-row"><label>NR 效果切换</label><button class="button subtle nr-hotkey-btn" disabled>F6 开关</button></div><div class="shortcut-row"><label>ReShade 菜单</label><button class="button subtle reshade-hotkey-btn">Home</button></div><p class="config-note">NR 效果切换使用 F6 开关；ReShade 菜单键可以在这里改，下一次启动游戏时生效。</p></div>
-        <div class="config-actions"><button class="button default-btn">恢复默认</button><button class="button open-folder-btn">打开目录</button></div>
-      </div>
-      <div class="config-block component-block"><h4>安装状态</h4><div class="component-body">正在检查…</div><div class="config-actions"><button class="button repair-inline-btn">一键修复</button><button class="button danger uninstall-inline-btn">卸载</button></div><div class="compat-actions"><button class="button subtle d3d12-btn">${game.d3d12Route ? '恢复 DXGI 入口' : '加载 D3D12 入口'}</button><span>${game.d3d12Route ? '当前已加载 D3D12 入口；如需恢复可点击“恢复 DXGI 入口”。' : '部分网游（异环、逆战）不兼容 DXGI，建议加载 D3D12。'}</span></div></div>
+  const key = detailKey(game);
+  const active = state.detailTabs.get(key) || (game.installed ? 'enhance' : 'diagnostics');
+  const title = game.supported ? '安装条件已确认'
+    : game.supportCode === 'ERR_API_SELECTION_REQUIRED' ? '请先确认游戏图形 API' : '安装前需要处理';
+  const installDetail = game.supported
+    ? (payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可使用上方“一键安装”。` : '请到“组件管理”选择完整安装组件，再返回安装。')
+    : game.supportText || '请先选择游戏实际运行的 EXE。';
+  const nr = game.installed ? `<div class="enhancement-layout">
+    <div class="config-block enhancement-controls">
+      <div class="config-title"><div><h4>画面增强</h4><p class="section-caption">调整后自动保存到这个游戏</p></div><span class="save-state" role="status">正在读取…</span></div>
+      <div class="control-row"><label>风格</label><div class="segmented style-segment"><button data-value="0">默认</button><button data-value="1">自然</button><button data-value="2">电影</button></div><span></span></div>
+      <div class="control-row"><label title="模型内部强度，默认 1.00，范围 0–2。">模型强度</label><div class="range-wrap"><input class="nr-model-strength" aria-label="NR 模型强度" type="range" min="0" max="2" step="0.01"><span class="value-pill nr-model-value">1.00</span></div><span></span></div>
+      <div class="control-row"><label title="对应核心 NR 效果倍率，默认 1.00，范围 0–4。">额外强度</label><div class="range-wrap"><input class="nr-effect-strength" aria-label="NR 额外强度" type="range" min="0" max="4" step="0.01"><span class="value-pill nr-effect-value">1.00</span></div><span></span></div>
+      <p class="config-note">模型强度影响内部处理；额外强度控制最终混合。默认均为 1.00。</p>
+      <details class="advanced-settings skin-settings"><summary>皮肤结构保护 <span class="skin-summary">读取中</span></summary>
+        <div class="control-row"><label title="模型内部的皮肤结构控制，不是独立人脸遮罩。">皮肤结构保护</label><span></span><input class="switch nr-mask" aria-label="皮肤结构保护" type="checkbox"></div>
+        <div class="control-row skin-strength-row"><label>保护强度</label><div class="range-wrap"><input class="nr-skin-strength" aria-label="皮肤结构强度" type="range" min="-1" max="2" step="0.01"><span class="value-pill nr-skin-value">关闭</span></div><span></span></div>
+        <p class="config-note">对应模型内部控制，不等于独立人脸遮罩。NR 工作分辨率与色调跟随在游戏内 ReShade 面板调整。</p>
+      </details>
+      <div class="config-actions"><button class="button subtle default-btn">恢复 NR 默认</button></div>
     </div>
-    ${launchSettings}
-    <div class="path-line">${escapeHtml(game.dir)}</div>
+    <aside class="config-block enhancement-guide"><h4>在游戏中确认效果</h4><p class="config-note">设置保存后，用 F6 对比增强前后的画面。菜单与实际效果以游戏内表现为准。</p>
+      <div class="shortcut-block"><div class="shortcut-row"><label>NR 效果切换</label><button class="button subtle nr-hotkey-btn" disabled>F6 开关</button></div><div class="shortcut-row"><label>ReShade 菜单</label><button class="button subtle reshade-hotkey-btn">Home</button></div><p class="config-note">修改菜单快捷键后，下次启动游戏生效。</p></div>
+      <button class="button subtle launch-jump-btn" type="button">调整超分与帧生成</button>
+    </aside>
+  </div>` : `<div class="config-block detail-empty"><h4>先为这个游戏安装 NR 核心</h4><p class="config-note">安装完成后，可在这里调整风格和增强强度。</p><button class="button" data-select-detail="diagnostics">查看安装条件</button></div>`;
+  const graphics = game.chosen ? '<section class="launch-settings-host" aria-label="SR 与 FG 启动设置"><p class="config-note">正在读取 SR / FG 设置…</p></section>'
+    : '<div class="config-block detail-empty"><h4>请先确认游戏 EXE</h4><p class="config-note">选择实际运行程序后，才能读取此游戏的 SR 与 FG 设置。</p></div>';
+  const diagnostic = `<div class="route-layout">${apiControls(game)}<div class="config-block core-selection"><h4>${game.installed ? '游戏核心版本' : title}</h4>${!game.installed ? `<p class="config-note">${escapeHtml(installDetail)}</p>` : ''}${addonVersionRow(game, Boolean(game.installed))}<p class="config-note">版本只应用到这个游戏。安装前会核对所需文件，遇到外部改动会保留现场。</p></div></div>
+    ${game.installed ? `<div class="config-block component-block"><div class="config-title"><div><h4>安装检查</h4><p class="section-caption">文件与安装记录，不代表游戏运行验证</p></div><span class="component-summary" role="status">检查中</span></div><div class="component-body">正在检查…</div><div class="diagnostic-actions"><button class="button primary repair-inline-btn">检查并修复</button><button class="button subtle feedback-inline-btn">保存反馈</button><button class="button danger uninstall-inline-btn">卸载插件</button></div></div>
+    <details class="config-block advanced-settings route-advanced"><summary>高级加载入口</summary><div class="compat-actions"><button class="button subtle d3d12-btn">${game.d3d12Route ? '恢复 DXGI 入口' : '使用 D3D12 入口'}</button><span>仅在 DX12 游戏存在加载入口冲突时调整；保留原始文件和恢复记录。</span></div></details>` : ''}`;
+  const tabs = [['enhance', '画面增强'], ['graphics', 'SR 与 FG'], ['diagnostics', '安装诊断']];
+  return `<div class="game-detail" data-game-detail="${escapeHtml(game.id)}" data-detail-key="${escapeHtml(key)}">
+    <div class="game-identity"><span>${escapeHtml(gameApiLabel(game.chosen))}</span><span>${game.installed ? `核心 ${escapeHtml(coreVersionLabel(game.addonVersion || '未知'))}` : '尚未安装 NR'}</span><span>${game.chosen?.apiResolution?.api === 'dx11' ? 'DX11 配套桥接' : game.chosen?.apiResolution?.api === 'dx12' ? 'DX12 直接路线' : '路线待确认'}</span></div>
+    <div class="detail-tabs" role="tablist" aria-label="游戏设置分类">${tabs.map(([id, label]) => `<button id="detail-${encodeURIComponent(game.id)}-${id}-tab" type="button" data-detail-tab="${id}" aria-controls="detail-${encodeURIComponent(game.id)}-${id}-panel" aria-selected="${id === active}" tabindex="${id === active ? 0 : -1}">${label}</button>`).join('')}</div>
+    ${[['enhance', nr], ['graphics', graphics], ['diagnostics', diagnostic]].map(([id, content]) => `<section id="detail-${encodeURIComponent(game.id)}-${id}-panel" data-detail-panel="${id}" aria-labelledby="detail-${encodeURIComponent(game.id)}-${id}-tab"${id !== active ? ' hidden' : ''}>${content}</section>`).join('')}
+    <div class="detail-footer"><span class="path-line" title="${escapeHtml(game.chosen?.path || game.dir)}">${escapeHtml(game.chosen?.path || game.dir)}</span><button class="button subtle open-folder-btn">打开目录</button></div>
   </div>`;
 }
+
 
 function renderGames(options = {}) {
   const previousExpanded = options?.preserveExpanded === true
@@ -341,19 +354,20 @@ function renderGames(options = {}) {
     <div class="game-card-head">
       ${poster(game)}
       <div class="game-meta"><div class="game-title"><h3>${escapeHtml(game.name)}</h3>${supportBadge(game)}</div><p>${escapeHtml(game.launcher)} · ${escapeHtml(game.chosen ? `${gameApiLabel(game.chosen)} / ${game.chosen.bitness} 位` : game.supportText)}</p></div>
-      <div class="card-action">${cardAction(game)}<span class="expand-arrow">⌄</span></div>
+      <div class="card-action">${cardAction(game)}<button class="expand-arrow" type="button" aria-label="展开或收起游戏详情" aria-expanded="${state.expanded === game.id}">⌄</button></div>
     </div>
     ${state.expanded === game.id ? gameDetail(game) : ''}
   </article>`).join('');
   let reusedExpanded = false;
   if (previousExpanded) {
     const replacement = [...document.querySelectorAll('.game-card')].find(card => card.dataset.id === previousExpanded.dataset.id);
-    if (replacement) { replacement.replaceWith(previousExpanded); reusedExpanded = true; }
+    if (replacement) {
+      replacement.replaceWith(previousExpanded); reusedExpanded = true;
+      const select = previousExpanded.querySelector('.game-version-select');
+      if (select) select.innerHTML = versionOptionsMarkup(select.value, Boolean(state.games.find(game => game.id === previousExpanded.dataset.id)?.installed));
+    }
   }
   bindGameCards();
-  const expandedCard = [...document.querySelectorAll('.game-card')].find(card => card.dataset.id === state.expanded);
-  const launchHost = expandedCard?.querySelector('.launch-settings-host');
-  if (launchHost && window.launchSettingsUi) window.launchSettingsUi.mount(launchHost, state.expanded);
   if (state.expanded && !reusedExpanded) loadExpanded(state.expanded);
   renderRepairSelect();
   renderFeedbackSelect();
@@ -390,6 +404,7 @@ function bindGameCards() {
       event.stopPropagation();
       const host = button.closest('.game-card')?.querySelector('.launch-settings-host');
       if (!host) return;
+      button.closest('.game-detail')?.detailTabController?.select('graphics');
       const view = host.closest('.view');
       if (view) view.scrollTop += host.getBoundingClientRect().top - view.getBoundingClientRect().top - 12;
       host.querySelector('select, button')?.focus({ preventScroll: true });
@@ -397,6 +412,20 @@ function bindGameCards() {
   });
   document.querySelectorAll('.game-card').forEach(card => {
     const id = card.dataset.id;
+    const detail = card.querySelector('.game-detail');
+    if (detail && !detail.detailTabController && window.GameDetailTabs) {
+      const game = state.games.find(row => row.id === id);
+      const mountGraphics = () => {
+        const host = detail.querySelector('.launch-settings-host');
+        if (host && window.launchSettingsUi && !host.launchSettingsController) window.launchSettingsUi.mount(host, id);
+      };
+      detail.detailTabController = window.GameDetailTabs.mount(detail, {
+        initial: state.detailTabs.get(detail.dataset.detailKey) || (game?.installed ? 'enhance' : 'diagnostics'),
+        onSelect: tab => { state.detailTabs.set(detail.dataset.detailKey, tab); if (tab === 'graphics') mountGraphics(); }
+      });
+      if (detail.detailTabController.active() === 'graphics') mountGraphics();
+      detail.querySelectorAll('[data-select-detail]').forEach(button => { button.onclick = () => detail.detailTabController.select(button.dataset.selectDetail, { focus: true }); });
+    }
     card.querySelector('.game-card-head').onclick = event => {
       if (event.target.closest('.install-btn') || event.target.closest('.launch-btn') || event.target.closest('.dismiss-game-btn')) return;
       state.expanded = state.expanded === id ? null : id;
@@ -421,6 +450,8 @@ function bindGameCards() {
     if (openFolder) openFolder.onclick = () => window.manager.openFolder(id);
     const repair = card.querySelector('.repair-inline-btn');
     if (repair) repair.onclick = () => runConfirmedAction(allowAntiCheat => window.manager.repair(id, { allowAntiCheat }), '修复完成', true, id);
+    const feedback = card.querySelector('.feedback-inline-btn');
+    if (feedback) feedback.onclick = () => { state.repairGame = id; state.feedbackGame = id; switchView('repair'); };
     const uninstall = card.querySelector('.uninstall-inline-btn');
     if (uninstall) uninstall.onclick = () => confirmUninstall(id);
     const d3d12 = card.querySelector('.d3d12-btn');
@@ -448,7 +479,7 @@ async function loadExpanded(id) {
   const loadToken = (state.expandedLoadToken || 0) + 1;
   state.expandedLoadToken = loadToken;
   const root = document.querySelector(`[data-game-detail="${id}"]`);
-  if (!root) return;
+  if (!root || !root.querySelector('.nr-mask')) return;
   try {
     const [settings, diagnostic, hotkeys] = await Promise.all([
       window.manager.readNr(id).then(unwrap),
@@ -463,6 +494,8 @@ async function loadExpanded(id) {
       if ([...versionSelect.options].some(option => option.value === requested)) versionSelect.value = requested;
     }
     root.querySelector('.nr-mask').checked = Boolean(settings.AutoMask);
+    root.querySelector('.skin-summary').textContent = settings.AutoMask ? '已开启' : '已关闭';
+    root.querySelector('.save-state').textContent = '已读取设置';
     root.querySelectorAll('.style-segment button').forEach(b => b.classList.toggle('active', Number(b.dataset.value) === Number(settings.Style)));
     const intensity = Number(settings.Intensity ?? 1);
     const model = root.querySelector('.nr-model-strength');
@@ -485,28 +518,37 @@ async function loadExpanded(id) {
     if (skin) skin.disabled = !settings.AutoMask;
     root.querySelector('.reshade-hotkey-btn').textContent = hotkeyLabel(hotkeys && hotkeys.reshade);
     root.querySelector('.nr-hotkey-btn').textContent = 'F6 开关';
-    root.querySelector('.component-body').innerHTML = diagnostic.components.map(row => `<div class="diag-row"><span class="diag-icon ${row.ok ? 'ok' : 'bad'}">${row.ok ? '●' : '×'}</span><span>${escapeHtml(row.label)}</span><span class="diag-detail">${escapeHtml(row.detail || (row.ok ? '完整' : '异常'))}</span></div>`).join('');
+    root.querySelector('.component-body').innerHTML = diagnosticRows(diagnostic.components);
+    const problems = diagnostic.components.filter(row => !row.ok).length;
+    root.querySelector('.component-summary').textContent = problems ? `${problems} 项需要处理` : '文件检查通过';
     bindNrControls(root, id);
     bindHotkeyControls(root, id, hotkeys);
-  } catch (error) { toast(error.message, true); }
+  } catch (error) {
+    const indicator = root.querySelector('.save-state');
+    if (indicator) { indicator.textContent = '读取失败'; indicator.classList.add('error'); }
+    toast(error.message, true);
+  }
 }
 
 function queueSetting(id, patch, root) {
+  const indicator = root.querySelector('.save-state');
+  if (indicator) { indicator.textContent = '正在保存…'; indicator.classList.remove('error'); }
   state.pendingPatches.set(id, { ...(state.pendingPatches.get(id) || {}), ...patch });
   clearTimeout(state.saveTimers.get(id));
   state.saveTimers.set(id, setTimeout(async () => {
     const pending = state.pendingPatches.get(id) || {};
     state.pendingPatches.delete(id);
     try {
-      const settings = unwrap(await window.manager.writeNr(id, pending));
-      toast('NR 参数已保存；游戏内效果请在 ReShade 中确认。');
-    } catch (error) { toast(error.message, true); }
+      unwrap(await window.manager.writeNr(id, pending));
+      if (indicator) indicator.textContent = '已保存';
+    } catch (error) { if (indicator) { indicator.textContent = '保存失败'; indicator.classList.add('error'); } toast(error.message, true); }
   }, 180));
 }
 
 function bindNrControls(root, id) {
   root.querySelector('.nr-mask').onchange = e => {
     const enabled = e.target.checked;
+    root.querySelector('.skin-summary').textContent = enabled ? '已开启' : '已关闭';
     const skin = root.querySelector('.nr-skin-strength');
     if (skin) skin.disabled = !enabled;
     queueSetting(id, { AutoMask: enabled ? 1 : 0 }, root);
@@ -700,18 +742,34 @@ function confirmRemoveAddon(id) {
   $('modal').classList.remove('hidden');
 }
 
+function diagnosticRows(rows) {
+  const markup = row => `<div class="diag-row"><span class="diag-icon ${row.ok ? 'ok' : 'bad'}">${row.ok ? '●' : '×'}</span><span>${escapeHtml(row.label)}</span><span class="diag-detail">${escapeHtml(row.detail || (row.ok ? '完整' : '异常'))}</span></div>`;
+  const failed = rows.filter(row => !row.ok), passed = rows.filter(row => row.ok);
+  return `${failed.map(markup).join('')}${passed.length ? `<details class="healthy-components"><summary>${failed.length ? '其余 ' : ''}${passed.length} 项文件检查通过</summary>${passed.map(markup).join('')}</details>` : ''}`;
+}
+
 async function loadRepairDiagnostic() {
   const id = state.repairGame;
+  const token = ++state.repairLoadToken;
+  state.diagnostics = null;
+  const game = state.games.find(row => row.id === id);
+  $('repairBtn').disabled = !game;
+  $('uninstallBtn').disabled = !game?.installed;
+  $('copyDiagBtn').disabled = true;
   if (!id) {
-    $('diagnostics').innerHTML = '<p>先在“游戏”页面安装插件。</p>';
+    $('diagnostics').innerHTML = '<p>选择需要检查的游戏；尚未安装也可以保存反馈。</p>';
     state.diagnostics = null;
     return;
   }
   $('diagnostics').innerHTML = '<p>正在检查组件…</p>';
   try {
-    state.diagnostics = unwrap(await window.manager.diagnose(id));
-    $('diagnostics').innerHTML = `<h3>${state.diagnostics.complete ? '组件完整' : '发现问题'}</h3>${state.diagnostics.components.map(row => `<div class="diag-row"><span class="diag-icon ${row.ok ? 'ok' : 'bad'}">${row.ok ? '●' : '×'}</span><span>${escapeHtml(row.label)}</span><span class="diag-detail">${escapeHtml(row.detail || (row.ok ? '完整' : '异常'))}</span></div>`).join('')}`;
-  } catch (error) { $('diagnostics').innerHTML = `<p>${escapeHtml(error.message)}</p>`; }
+    const diagnostic = unwrap(await window.manager.diagnose(id));
+    if (token !== state.repairLoadToken || state.repairGame !== id) return;
+    state.diagnostics = diagnostic;
+    const problems = diagnostic.components.filter(row => !row.ok).length;
+    $('diagnostics').innerHTML = `<div class="diagnostic-heading"><div><h3>${problems ? `${problems} 项需要处理` : '文件检查通过'}</h3><p>${problems ? '先处理以下异常，已通过的项目收在下方。' : '已核对当前安装文件；游戏实际效果仍需在游戏内确认。'}</p></div><span class="badge ${problems ? 'warn' : 'good'}">${escapeHtml(game?.name || '')}</span></div>${diagnosticRows(diagnostic.components)}`;
+    $('copyDiagBtn').disabled = false;
+  } catch (error) { if (token === state.repairLoadToken) $('diagnostics').innerHTML = `<p class="launch-error">${escapeHtml(error.message)}</p>`; }
 }
 
 function diagnosticText() {
@@ -813,7 +871,7 @@ function switchView(view) {
     games: ['我的游戏', '安装、设置和卸载都在同一个页面完成'],
     repair: ['问题修复', '检查组件完整性，并安全恢复缺失文件'],
     settings: ['设置', '只保留真正会影响使用的选项'],
-    addons: ['插件版本管理', '检查组件来源，管理更新和回退版本']
+    addons: ['组件管理', '准备安装来源，按游戏应用与回退核心']
   };
   $('pageTitle').textContent = titles[view][0];
   $('pageSubtitle').textContent = titles[view][1];
@@ -1068,7 +1126,7 @@ $('addonVersionSelect').onchange = event => runAction(async () => {
   refreshSelectedPayload(event.target.value);
   renderVersionSelector();
   return true;
-}, 'Addon 版本已切换；请点游戏卡片中的“修复”应用', false).then(renderGames);
+}, '新安装默认版本已保存；已安装游戏保持当前版本', false).then(() => renderGames({ preserveExpanded: true }));
 $('bilibiliBtn').onclick = () => window.manager.openExternal('bilibiliUrl');
 $('qqBtn').onclick = async () => { await window.manager.copyText(state.product.qqGroup); toast('群号已复制'); };
 $('updateBtn').onclick = () => window.manager.openExternal('releaseUrl');

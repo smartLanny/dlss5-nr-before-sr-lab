@@ -17,17 +17,18 @@ function installMock() {
     calls: [], plans: {}, failSave: false, failApply: false, blockPreview: false, listener: null
   };
   const game = { id: 'ui-fixture', name: 'SR / FG 界面验证', dir: 'C:\\UI-fixture\\游戏目录', installed: true, supported: true, launcher: '手动添加',
-    chosen: { apiResolution: { api: 'dx11', evidence: [] }, detectedApiResolution: { api: 'dx11', evidence: [] }, bitness: 64 }, components: { dx11Carrier: true }, addonVersion: '0.4.6-hotfix.1' };
+    chosen: { apiResolution: { api: 'dx12', evidence: [] }, detectedApiResolution: { api: 'dx12', evidence: [] }, bitness: 64 }, components: { dx11Carrier: false }, addonVersion: '0.4.6-hotfix.1' };
   mock.payload = { ready: true, selectedVersion: '0.4.6-hotfix.1', source: { mode: 'bundled', path: 'C:\\组件\\随程序提供', ready: true }, versions: { '0.4.6-hotfix.1': { label: '0.4.6-hotfix.1', variants: { RTX40: { ready: true, files: [] }, RTX50: { ready: true, files: [] } } } } };
+  const originalVersions = structuredClone(mock.payload.versions);
   const sourceState = () => ok({ settings: {}, payload: mock.payload, addons: [] });
   const manager = window.manager = {
     boot: async () => ok({ product: { name: 'DLSS 5 AI 超分管理器', edition: '装机宅版', author: '野生的装机宅', version: 'UI smoke' }, settings: {}, hardware: mock.data.hardware,
-      payload: mock.payload, games: [game], addons: [] }),
+      payload: mock.payload, games: [game, { ...game, id: 'ui-fixture-2', name: '待检查的游戏' }, { ...game, id: 'ui-fixture-3', name: '待安装的游戏', installed: false, supported: false, supportCode: 'ERR_API_SELECTION_REQUIRED', chosen: { ...game.chosen, apiResolution: { api: 'unknown' }, detectedApiResolution: { api: 'unknown' } } }], addons: [] }),
     readPayloadSource: async () => sourceState(),
     openExternal: async key => { mock.calls.push(['open-external', key]); return ok(true); },
-    pickPayloadSource: async () => { mock.calls.push(['pick-source']); if (mock.failSource) return { ok: false, error: { code: 'ERR_PAYLOAD_SOURCE_HASH', message: '测试组件校验失败：核心文件不匹配' } }; mock.payload.source = { mode: 'external', path: 'D:\\安装组件库\\已校验', ready: true }; return sourceState(); },
+    pickPayloadSource: async () => { mock.calls.push(['pick-source']); if (mock.failSource) return { ok: false, error: { code: 'ERR_PAYLOAD_SOURCE_HASH', message: '测试组件校验失败：核心文件不匹配' } }; mock.payload.source = { mode: 'external', path: 'D:\\安装组件库\\已校验', ready: true }; mock.payload.versions['fixture-core-v2'] = structuredClone(originalVersions['0.4.6-hotfix.1']); return sourceState(); },
     recheckPayloadSource: async () => { mock.calls.push(['recheck-source']); mock.payload.source.ready = false; mock.payload.source.error = { code: 'ERR_PAYLOAD_SOURCE_UNAVAILABLE', message: '所选组件目录已断开，请重新连接。' }; mock.payload.ready = false; mock.payload.versions = {}; return { ok: false, error: mock.payload.source.error }; },
-    resetPayloadSource: async () => { mock.calls.push(['reset-source']); mock.payload.source = { mode: 'bundled', path: 'C:\\组件\\随程序提供', ready: true }; mock.payload.ready = true; return sourceState(); },
+    resetPayloadSource: async () => { mock.calls.push(['reset-source']); mock.payload.source = { mode: 'bundled', path: 'C:\\组件\\随程序提供', ready: true }; mock.payload.versions = structuredClone(originalVersions); mock.payload.ready = true; return sourceState(); },
     readNr: async () => ok({ AutoMask: 1, Style: 0, Intensity: 1, TransferStrength: 1, PostTransferStrength: 1, capabilities: { TransferStrength: true, PostTransferStrength: true }, ColorStrength: 0.75, SkinStructureStrength: 1 }),
     writeNr: async (id, patch) => { mock.calls.push(['write-nr', id, patch]); return ok(patch); },
     diagnose: async () => ok({ components: [{ ok: true, label: '核心组件', detail: '测试桩' }] }),
@@ -75,8 +76,15 @@ async function smoke() {
   const waitUntil = async predicate => { const deadline = Date.now() + 5000; while (!predicate()) { if (Date.now() > deadline) throw new Error('Timed out waiting for renderer'); await new Promise(resolve => setTimeout(resolve, 10)); } };
   await waitUntil(() => document.querySelector('.game-card-head'));
   assert(!document.querySelector('.launch-settings-host'), 'Collapsed cards do not build hidden SR/FG forms');
+  document.querySelector('[data-id="ui-fixture-3"] .game-card-head').click();
+  const pendingDetail = document.querySelector('[data-id="ui-fixture-3"] .game-detail');
+  assert(pendingDetail.detailTabController.active() === 'diagnostics' && pendingDetail.querySelector('.game-api-select') && !pendingDetail.querySelector('.nr-mask'), 'An uninstalled unknown-API game starts at actionable installation diagnostics');
+  document.querySelector('[data-id="ui-fixture-3"] .game-card-head').click();
   document.querySelector('.game-card-head').click();
+  const detail = document.querySelector('.game-detail'), tabs = detail.detailTabController;
   const host = document.querySelector('.launch-settings-host');
+  assert(tabs.active() === 'enhance' && !host.launchSettingsController, 'An installed game starts on enhancement without probing hidden SR/FG settings');
+  detail.querySelector('[data-detail-tab="graphics"]').click();
   await host.launchSettingsController.ready;
   const controller = host.launchSettingsController;
   const panel = domain => host.querySelector(`[data-ls-domain="${domain}"]`);
@@ -124,6 +132,7 @@ async function smoke() {
   const ratioInput = field('sr', 'renderPercent'); ratioInput.focus(); set('sr', 'renderPercent', 75);
   assert(field('sr', 'quality').value === 'custom' && document.activeElement === ratioInput, 'Editing ratio selects custom without losing focus');
   await click('sr', 'restore');
+  tabs.select('enhance');
   const modelStrength = document.querySelector('.nr-model-strength');
   const effectStrength = document.querySelector('.nr-effect-strength');
   await waitUntil(() => modelStrength.oninput && effectStrength.oninput);
@@ -132,6 +141,7 @@ async function smoke() {
   await waitUntil(() => mock.calls.some(row => row[0] === 'write-nr'));
   const nrPatch = mock.calls.find(row => row[0] === 'write-nr')[2];
   assert(nrPatch.Intensity === 1.2 && nrPatch.TransferStrength === 1.4 && nrPatch.PostTransferStrength === 1.4 && !('ColorStrength' in nrPatch), 'Strength controls write the correct paired core values without changing hue follow');
+  tabs.select('graphics');
   mock.data.legacy = { selection: 'auto', effective: 'm', managed: false, baselineCaptured: true };
   await controller.refresh(true);
   assert(field('sr', 'quality').value === 'quality' && field('sr', 'preset').value === 'M', 'Legacy M remains visible alongside a proposed quality preset');
@@ -171,7 +181,7 @@ async function smoke() {
   await click('fg', 'runtime-check');
   assert(panel('fg').textContent.includes('运行库检查尚未通过') && !field('fg', 'mode'), 'An unsuccessful runtime recheck keeps FG blocked');
   mock.data.fgComponents.runtime.repair = 'game-files'; await controller.refresh();
-  assert(!panel('fg').querySelector('[data-ls-action="runtime-help"]') && panel('fg').textContent.includes('验证游戏安装文件'), 'A broken game-local DLL is not misrepresented as fixable by installing a system runtime');
+  assert(!panel('fg').querySelector('[data-ls-action="runtime-help"]') && panel('fg').textContent.includes('验证游戏文件'), 'A broken game-local DLL is not misrepresented as fixable by installing a system runtime');
   mock.data.fgComponents = { route: 'compatibility', ready: false, canPrepare: true, missing: ['兼容插件'], blockers: [], runtime: { status: 'available', ready: true } };
   await click('fg', 'runtime-check');
   assert(panel('fg').querySelector('[data-ls-action="prepare"]') && panel('fg').textContent.includes('游戏内加载与帧生成仍需验证'), 'Runtime recovery unlocks preparation while keeping game verification separate');
@@ -197,9 +207,9 @@ async function smoke() {
     assert(!saved('fg') && !mock.data.applied.fg, `${series} restore clears the next launch request`);
     if (series === 'RTX50') {
       set('fg', 'mode', 'off'); await click('fg', 'save');
-      assert(saved('fg').mode === 'off' && panel('fg').textContent.includes('游戏菜单中的开关可能不变'), 'Native FG off has a driver-disable request and honest game-state explanation');
+      assert(saved('fg').mode === 'off' && panel('fg').textContent.includes('游戏菜单可能不变'), 'Native FG off has a driver-disable request and honest game-state explanation');
       set('fg', 'mode', 'restore');
-      assert(panel('fg').textContent.includes('这不会关闭帧生成'), 'Restore is explicitly distinguished from FG off');
+      assert(panel('fg').textContent.includes('不会关闭 FG'), 'Restore is explicitly distinguished from FG off');
       await click('fg', 'restore');
     }
   }
@@ -210,7 +220,7 @@ async function smoke() {
   await hardware('RTX40');
   mock.data.requests.fg = { request: { backend: 'nvidia', mode: 'fixed', multiplier: 3 } };
   await controller.refresh(true);
-  assert(panel('fg').querySelector('[data-ls-action="save"]').disabled && panel('fg').textContent.includes('不一致'), 'A saved FG backend for another GPU cannot be resubmitted');
+  assert(panel('fg').querySelector('[data-ls-action="save"]').disabled && panel('fg').textContent.includes('不符'), 'A saved FG backend for another GPU cannot be resubmitted');
   await click('fg', 'restore');
   set('sr', 'quality', 'quality');
   mock.failSave = true; await click('sr', 'save');
@@ -234,24 +244,49 @@ async function smoke() {
 
   set('sr', 'quality', 'custom'); set('sr', 'renderPercent', 75); set('sr', 'preset', 'M');
   set('fg', 'mode', 'dynamic'); set('fg', 'targetFps', 144);
+  const beforeTabWrites = mock.calls.filter(row => ['save', 'apply', 'write-nr'].includes(row[0])).length;
+  const graphicsTab = detail.querySelector('[data-detail-tab="graphics"]'); graphicsTab.focus();
+  graphicsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  assert(tabs.active() === 'diagnostics' && detail.querySelector('[data-detail-panel="graphics"]').hidden && detail.querySelector('[data-detail-panel="graphics"]').inert, 'Arrow navigation selects diagnostics and removes hidden controls from keyboard interaction');
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+  assert(tabs.active() === 'enhance', 'Home reaches the first detail tab');
+  assert(tabs.select('invalid') === false && tabs.active() === 'enhance', 'Invalid tab selection is refused');
+  detail.querySelector('.launch-jump-btn').click();
+  assert(tabs.active() === 'graphics' && host.launchSettingsController === controller && field('sr', 'renderPercent').value === '75' && field('fg', 'targetFps').value === '144', 'Returning to graphics preserves both unsaved drafts and the existing controller');
+  assert(mock.calls.filter(row => ['save', 'apply', 'write-nr'].includes(row[0])).length === beforeTabWrites, 'Tab navigation performs no settings writes');
   for (const node of document.querySelectorAll('.app-shell, main, .view.active, .game-card, .game-detail, .launch-settings-host, .launch-panel, .launch-field select, .launch-number input')) {
     const rect = node.getBoundingClientRect();
     assert(rect.left >= -1 && rect.right <= innerWidth + 1 && node.scrollWidth <= node.clientWidth + 1, `900px width contains ${node.className || node.tagName}`);
   }
   assert(!mock.error, 'No renderer error occurred');
   document.querySelector('[data-view="addons"]').click();
+  assert(document.querySelector('#addonVersionSelect').closest('#view-addons') && !document.querySelector('#view-settings #addonVersionSelect'), 'Default core selection lives with component management');
   assert(!document.querySelector('.addon-guide').open, 'Version history is collapsed so source and usable versions stay first');
   assert(document.querySelector('#addExeBtn').classList.contains('hidden'), 'Unrelated EXE picker is absent from plugin management');
   const sourceAction = async id => { document.getElementById(id).click(); await waitUntil(() => !document.getElementById('choosePayloadSourceBtn').disabled); };
   await sourceAction('choosePayloadSourceBtn');
   assert(document.getElementById('payloadSourcePath').textContent === 'D:\\安装组件库\\已校验' && !document.getElementById('resetPayloadSourceBtn').classList.contains('hidden'), 'Validated external directory and explicit return action are visible');
   assert(document.querySelector('.launch-settings-host') === host, 'Changing source preserves the existing expanded settings editor');
+  assert([...document.querySelector('.game-version-select').options].some(option => option.value === 'fixture-core-v2') && document.querySelector('.game-version-select').value === '0.4.6-hotfix.1', 'A retained detail updates its catalog while keeping the previous valid version choice');
   mock.failSource = true; await sourceAction('choosePayloadSourceBtn');
   assert(document.getElementById('payloadSourceFeedback').textContent.includes('核心文件不匹配') && document.getElementById('payloadSourcePath').textContent.includes('已校验'), 'Rejected selection keeps the active source and a persistent readable error');
   await sourceAction('recheckPayloadSourceBtn');
   assert(document.getElementById('payloadSourceStatus').textContent === '需要处理' && document.getElementById('payloadSourceDetail').textContent.includes('断开'), 'Disconnected source remains visibly unavailable instead of claiming readiness');
   await sourceAction('resetPayloadSourceBtn');
   assert(document.getElementById('payloadSourceLabel').textContent === '随程序提供', 'Returning to bundled components is an explicit working action');
+  const originalDiagnose = window.manager.diagnose; let finishOld;
+  window.manager.diagnose = id => id === 'ui-fixture' ? new Promise(resolve => { finishOld = () => resolve({ ok: true, value: { components: [{ ok: false, label: '过期诊断', detail: '不可覆盖新选择' }] } }); })
+    : Promise.resolve({ ok: true, value: { components: [{ ok: false, label: '当前诊断', detail: '当前游戏的问题' }] } });
+  document.querySelector('[data-view="repair"]').click();
+  await waitUntil(() => finishOld);
+  const repairSelect = document.getElementById('repairGameSelect');
+  repairSelect.value = 'ui-fixture-2'; repairSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await waitUntil(() => document.getElementById('diagnostics').textContent.includes('当前诊断'));
+  finishOld(); await new Promise(resolve => setTimeout(resolve, 10));
+  assert(!document.getElementById('diagnostics').textContent.includes('过期诊断'), 'Old async diagnostics cannot overwrite a new game');
+  repairSelect.value = ''; repairSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  assert(document.getElementById('uninstallBtn').disabled && document.getElementById('repairBtn').disabled && document.getElementById('copyDiagBtn').disabled, 'Without a selected game destructive and copy actions are disabled');
+  window.manager.diagnose = originalDiagnose;
   document.querySelector('[data-view="games"]').click();
   document.querySelector('.launch-jump-btn').click();
   assert(document.querySelector('.titlebar').getBoundingClientRect().top >= 0 && document.scrollingElement.scrollTop === 0, 'SR/FG jump scrolls only the game view and preserves the fixed app header');
@@ -279,7 +314,7 @@ app.whenReady().then(async () => {
         const view=document.querySelector('.view.active');view.scrollTop+=host.getBoundingClientRect().top-view.getBoundingClientRect().top-12;
       })()`);
     }
-    if (process.env.SRFG_UI_STATE === 'bridge') await win.webContents.executeJavaScript("(()=>{const row=document.querySelector('.api-config-block'),view=row.closest('.view');view.scrollTop+=row.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()");
+    if (process.env.SRFG_UI_STATE === 'bridge') await win.webContents.executeJavaScript("(()=>{const row=document.querySelector('.api-config-block'),detail=row.closest('.game-detail'),view=row.closest('.view');detail.detailTabController.select('diagnostics');view.scrollTop+=row.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()");
     if (process.env.SRFG_UI_STATE === 'runtime-missing') await win.webContents.executeJavaScript(`(async()=>{const mock=window.__launchMock,host=document.querySelector('.launch-settings-host');mock.data.fgComponents={route:'compatibility',ready:false,canPrepare:false,missing:[],blockers:['缺少 VC++ x64 运行库：vcruntime140.dll、msvcp140.dll。请安装或修复微软运行库后重新检查。'],runtime:{status:'missing',ready:false}};await host.launchSettingsController.refresh(false);const view=document.querySelector('.view.active');view.scrollTop+=host.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()`);
     win.webContents.invalidate();
     await new Promise(resolve => setTimeout(resolve, 150));
