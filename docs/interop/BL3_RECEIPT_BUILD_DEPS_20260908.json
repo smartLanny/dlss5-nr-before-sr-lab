@@ -1,0 +1,72 @@
+{
+  "scope": "Local Development-Release UE receipt add-on build; no deployment or game execution",
+  "luma": {
+    "repository": "https://github.com/Filoppi/Luma-Framework",
+    "commit": "91babfe12abe5f7de0c4890f0efc321d8277887f",
+    "license": "Custom MIT; retain attribution; commercial usage requires author permission",
+    "selected_upstream_files": 166,
+    "selected_upstream_bytes": 6413090,
+    "selection_manifest_sha256": "4c56a60213ed858455c1633d01b4f8a958e92c0d382ebe3f019d1162f312d589",
+    "patched_main_sha256": "1dc5d9c1ffbe47ded56bbfe0e0eaa541fd02f4404fef4f4b126988b006e5ee3e",
+    "receipt_header_sha256": "dd9cc1f562d3168e94f245e94f271e43d8bf782f2cba32822079533cc9cda74d",
+    "build_project_sha256": "d8ba7fadb58a780073e00143c22a0034f8877961e389272da9caaa3a5f19f4f5",
+    "adapter_source_commit": "fa4c6eb88d0b6f05a97d6deb30d41e8bc30b77b1"
+  },
+  "reshade": {
+    "repository": "https://github.com/crosire/reshade",
+    "commit": "18deaa52de0c425a78b329e9cb3c497281cd00ec",
+    "scope": "Fixed required headers and utilities; not a newly built ReShade runtime",
+    "imgui_commit": "3912b3d9a9c1b3f17431aebafd86d2f40ee6e59c",
+    "stb_commit": "28d546d5eb77d4585506a20480f4de2e706dff4c",
+    "stb_image_header_sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3"
+  },
+  "ngx": {
+    "headers_and_library_source": "Luma fixed commit Source/External/NGX",
+    "static_library": "nvsdk_ngx_d.lib",
+    "bytes": 5576350,
+    "git_blob": "79b9c0621fe0d87136e153360e4894a2801525fe",
+    "sha256": "a2209ba6c071fb0f6c54c592f60239d856e9e6471e6abf1fb2fcc7c0c09cde5e",
+    "runtime_downloaded": false,
+    "runtime_selected_or_tested": false
+  },
+  "directxmath": {
+    "repository": "https://github.com/microsoft/DirectXMath",
+    "commit": "28929ac6f3c1649a7641741b689ebecccb17aa8d",
+    "source": "Existing local cache"
+  },
+  "official_atl": {
+    "catalog_component": "Microsoft.VisualStudio.Component.VC.ATL",
+    "package_version": "14.44.35208",
+    "toolset_directory": "14.44.35207",
+    "source": "Local Visual Studio catalog URLs on download.visualstudio.microsoft.com",
+    "installation": "VSIX extracted only to external dependency directory; no Visual Studio installation change",
+    "packages": [
+      {
+        "id": "Microsoft.VC.14.44.17.14.ATL.Headers.base",
+        "bytes": 579876,
+        "sha256": "f8d375a254b6cfdbe0e7dc4fe7342d6212052068eb6394070dd932c815adb500"
+      },
+      {
+        "id": "Microsoft.VC.14.44.17.14.ATL.X64.base",
+        "bytes": 808455,
+        "sha256": "6dd0b7f8079c654db2b8fdaebc74900e8418b5204914a77bde93a5b01ac0998c"
+      }
+    ]
+  },
+  "build": {
+    "msvc": "14.44.35207",
+    "windows_sdk": "10.0.26100.0",
+    "configuration": "Development-Release x64",
+    "project_toolset_override": "v143",
+    "UseLumaFSR": false,
+    "PostBuildEventUseInBuild": false,
+    "LumaPackage": false,
+    "exit_code": 0,
+    "addon_bytes": 1897472,
+    "addon_sha256": "1a93cb0d960f8f4d75bf4d69e8afa48d4beb9b5074d5fc3d1070510bb4278db0",
+    "build_log_sha256": "462a625a60bfe2cd7c37ebc16ab6c766d1243e9dfd15926626a02a45bdab967b",
+    "initial_missing_atl_log_sha256": "d72cf370656e743496ac4cc5a88486d9f7f7f9e7f77a65f516234c651ce898b4",
+    "game_or_addon_loaded": false,
+    "gpu_tested": false
+  }
+}
