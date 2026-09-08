@@ -15,26 +15,26 @@ next，不发布稳定版或移动历史 tag。以下“未实现”针对列出
 | #99/#15诊断与RR热切 | 已有实现待整合：#149/#150/#166；维护者确认0.4.6fix RR切换可用 | 不再重复RR关开关任务；保留真实RR事务和unknown-handle保护 |
 | #39/#152 | 已有实现待整合：#151 LightingLock、#156 signed126 | 源码继承；具体游戏画面/加载结果仍独立验收 |
 | #155/#157/#160 | 已有实现待整合：文件名、source=off bootstrap、ReShade预加载排除 | 保留各自边界，不能称#153游戏崩溃已修 |
-| #164启动顺序 | 本次已实现：#175续做，生产7659d4c、构建492f802 | 显式native preflight已替换宿主日志等待；详见CORE_PROVIDER_STARTUP，完整transport继续 |
+| #164启动顺序 | 本次已实现：#175续做，启动切片492f802、最终运行批次e7df0fc | 显式native preflight已替换宿主日志等待；详见CORE_PROVIDER_STARTUP，完整transport继续 |
 | #164完整provider/transport | 部分实现继续：#171 Signal/Drain、官方bootstrap、真实Core样本 | 接实际producer调度/退出重建；DX11/Vulkan/Legacy沿原桥，不另建Core |
 | #14 | 部分实现继续：#174官方FFX mapper，#175受控NR→SR | 固定实际无DLSS游戏/API/SDK，接真实dispatch；先SR-only再NR→SR，最后游戏/原生回退验收；已向维护者询问游戏 |
-| #4/#107/#108 | 部分实现继续：现有Core/owner/admission合同 | 随实际provider补唯一NR owner和自检，复用生产合同，不新增巨型框架 |
-| #153/#106 | 未定根因；已有新旧carrier/编译器/加载证据 | Sol独立查初始化时机、无DX11是否启动、device/NGX/shared-resource生命周期；确定小缺陷直接修，架构改动先实验/方案；不吞AV重入 |
+| #4/#107/#108 | 部分实现继续：现有Core/owner/admission合同 | 本次f819a8e已补external/native RR单owner和事务隔离；继续随实际provider补自检，不新增巨型框架 |
+| #153/#106 | 未定根因；已有新旧carrier/编译器/加载证据 | 本次f6de13d已修两处模块枚举OOB；loader-lock/首device单例仍需独立两阶段激活实验，不吞AV重入，不称全部游戏崩溃已修 |
 | #99/#123 | 部分诊断已有；其余游戏gate缺证 | 用已有诊断收窄剩余gate；确实缺证保留needs-evidence，不冻结其它代码 |
 | #139/#140 | 后续明确排期：DX11桥无效，尚未收口 | 紧接carrier生命周期核对实际入口/创建/共享资源/回填；同因合并处理，异因单列最小复现 |
-| #121 | 后续明确排期：闪烁未收口 | 在carrier后读取既有帧/历史/reset证据，定位相位或重建条件；不以调低参数替代根因 |
+| #121 | 后续明确排期：闪烁未收口 | 旧报告缺失败帧细节；Sol继续修同token成功覆盖历史失败证据的问题，仅诊断，不称闪烁已修 |
 | #148 | 后续明确排期：不生效未收口 | 在#121后核对实际provider、owner、admission到record/submit的首个断点，不能删保护制造计数 |
 | #15/#12/#82成本方案 | 部分实现继续：后置50–100%与真实R/N/O已有 | 独立NR/RR低成本实验；原生RR只调用一次，保持采样/曝光/历史一致性；性能矩阵最后测，不重写RR热切 |
 | #71/#168 | 部分实现继续：#170追平hotfix且保留#119祖先 | 0.5独立工作树接#172，保持与维护默认隔离 |
-| #169 | 部分实现继续：#172成对合成合同/原始N | Astra并行实现新的亮度/色度独立合成候选与有界保护；保留ExactArea/Bilinear/0.4.6参考，先最小编译/数值合同 |
-| #11 | 未完成低网格EditField | 在#169合同稳定后，把需要的修改场留在低网格并明确R/N/O映射 |
+| #169 | 部分实现继续：#172成对合成合同/原始N | dev5生产e084、#172@bd2b3b1已交独立亮度/色度候选、72三路WARP/旧参考字节等价/双语链接；游戏画质仍未验收 |
+| #11 | 未完成低网格EditField | 独立codex/050-editfield-20260908正在实现最小N尺寸log-luma/valid pass；full-res保护保留，不同时换输入/恢复核 |
 | #84 | 未完成scale-aware Lanczos-2 AA输入核 | 接#11，按实际缩放定义采样支持/归一化与退化路径，保留旧输入核对照 |
 | #85 | 未完成Catmull-Rom 4+4恢复/纵向合成融合 | 接输入核，先实现等价恢复/融合候选，集中验证边界和GPU成本 |
 | #86 | 未完成低网格安全运算前移/色彩EditField | 随#169/#11依赖接入，保持颜色/亮度界限，不把高频保护错误移到低网格 |
 | #113 | 未完成真正2–3次NR和独立历史 | 在单次候选后明确各实例/history/输入输出；区别于已存在低成本单次分层，不用循环计数冒充多次NR |
 | #9/#10/#90/#91 | 按依赖补证据能力 | 仅新增上述实现所需GPU计时、固定输入、时域身份；不另建巨大测试系统 |
 | #96 | 明确延期：区域化NR研究 | 按#71依赖和收益排在前述可交付切片之后 |
-| #167 | 部分实现继续：#173官方renderer，未证明中间帧 | 独立Astra定位Presented≤1、input fence/VRAM0与WAR4639162；先最窄开发诊断/修复，再统一GPU运行，之后接自有NR/SR与唯一presenter |
+| #167 | 部分实现继续：#173官方renderer，未证明中间帧 | #173@22adf944已修重复GetState/估算请求，单次development运行119次presented2且插帧启用；下一步生成像素/显示节奏，再接自有NR/SR与唯一presenter |
 | #16运行时共存 | 核心归属，尚未完整实现 | 随#167补实际后端和呈现共存；Manager倍率设置不等于FG注入 |
 | #162 | 当前BUG：反复切换后人脸视觉失效/受整体倍率影响 | 复用既有F8与图像评估真实mask来源；模型参数成功不否认视觉问题。需独立分割等架构先实验/方案，不用肤色阈值冒充人脸识别，不催重复采集 |
 | #179/#13/#129、#165安装恢复、#16设置UI | 跨线程归属：现用xiaofeng Manager任务 | 由指定Manager session处理；本任务仅#165 runtime/ABI/组件合同，跨层先协调，不改其UI/Engine |
@@ -43,10 +43,10 @@ next，不发布稳定版或移动历史 tag。以下“未实现”针对列出
 
 ## 当前实际并行切片
 
-- 主任务：#175启动协议收口，然后实际输入/provider生命周期与后置成本合同。
-- Sol Medium：`codex/carrier-lifecycle-continue-20260908`，只做独立carrier定位/小修。
-- Astra：`codex/050-composition-continue-20260908`，以#172接0.5亮度/色度合成。
-- Astra：`codex/fg-backend-continue-20260908`，以#173接最窄FG backend阻断。
+- 主任务：#175最终运行批次e7df0fc已构建/真实GPU通过；继续实际输入/provider生命周期与后置成本合同。
+- Sol Medium：carrier两处OOB与联合GPU时间戳已交；另做#121历史失败证据保留。
+- Astra：0.5-dev5合成已交#172；`codex/050-editfield-20260908`接#11最小EditField。
+- Astra：FG观测改进已交#173；BL3只读指纹与真实Luma TAA接点已锁，generic仅DLAA/R=O，尚未游戏运行。
 
 各隔离worktree保留原候选/未提交文件；无Luna。源码切片与最后compile/WARP/
 NVIDIA/game验收分别记录。Lab托管CI因付款/额度未启动，不重跑且不计通过。

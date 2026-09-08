@@ -7082,8 +7082,8 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     SetFloat(params, "DLSSNR.SkinStructureStrength", tuning.skin_structure);
     SetInt(params, "DLSSNR.UseAutoMask", tuning.auto_mask ? 1 : 0);
     SetUInt(params, "DLSSNR.Style", tuning.style);
-    // 310.8 reads UICorrection through the unsigned NGX parameter slot.
-    // Writing the signed slot leaves the runtime unable to observe this value.
+    // Keep the explicit unsigned 0/1 writer. The current real parameter factory
+    // supports signed/unsigned read conversion; this is not a visual-mask proof.
     SetUInt(params, "DLSSNR.UICorrection", tuning.ui_correction ? 1u : 0u);
     SetInt(params, "DLSS.Indicator.Invert.X.Axis", 0);
     SetInt(params, "DLSS.Indicator.Invert.Y.Axis", 0);
