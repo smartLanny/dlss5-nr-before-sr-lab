@@ -145,6 +145,7 @@ if ($CompileOnly) {
 if($CombinedLowGrid) {
     & $binary '--combined-low-grid'
     if($LASTEXITCODE -ne 0){throw 'Combined low-grid GPU contract failed.'}
+    return
 } elseif($CatmullOutput) {
     & $binary '--catmull-contract' ([IO.Path]::GetFullPath($CatmullOutput))
     if($LASTEXITCODE -ne 0){throw 'Catmull GPU contract failed; evidence retained.'}
