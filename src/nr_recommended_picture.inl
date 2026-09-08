@@ -9,7 +9,7 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.post_transfer_strength = 1.0f;
     next.work_mode = 0;
     next.custom_work_scale = 1.0f;
-    next.lighting_lock = 0.20f;
+    next.lighting_lock = 0.0f;
     next.edge_guard = 0.25f;
     next.detail_stability = 0.0f;
     next.high_strength_protection = true;

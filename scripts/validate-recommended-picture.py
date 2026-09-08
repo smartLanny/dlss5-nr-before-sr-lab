@@ -39,7 +39,7 @@ PRESERVED={'enabled','depth_mode','r8_output_encoding','jitter_mode','perf_epoch
 # current model recommendation and the protection gate enabled.
 RECOMMENDED_OVERRIDES={
  'work_mode':'0', 'custom_work_scale':'1.0', 'intensity':'1.2',
- 'color_protection':'1',
+ 'color_protection':'1', 'lighting_lock':'0.0',
 }
 IDENTIFIER=r'[a-z_][a-z0-9_]*'
 

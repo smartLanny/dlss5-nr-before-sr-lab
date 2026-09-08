@@ -54,11 +54,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dev15";
+constexpr const char *kAddonVersion = "beta0.5-dev16";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dev15";
+constexpr const char *kBuildIdentity = "beta0.5-dev16";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -870,7 +870,7 @@ struct ChainConfig {
     // 1 quality, 2 balanced, 3 performance, 4 ultra, 5 custom.
     int work_mode = 0;
     float custom_work_scale = 1.0f;
-    float lighting_lock = 0.20f;
+    float lighting_lock = 0.0f;
     float edge_guard = 0.25f;
     float detail_stability = 0.0f; // Experimental spatial residual protection; 0 preserves old output.
     bool high_strength_protection = true; // Mode 2 composition only; does not reset NR history.
@@ -1347,7 +1347,7 @@ void NormalizeConfig(ChainConfig &config) {
     config.post_transfer_strength = config.transfer_strength;
     // Work request validity is checked against the previous effective pair at
     // each locked entry point; never silently normalize a rejected percentage.
-    config.lighting_lock = std::clamp(FiniteOr(config.lighting_lock, 0.20f), 0.0f, 1.0f);
+    config.lighting_lock = std::clamp(FiniteOr(config.lighting_lock, 0.0f), 0.0f, 1.0f);
     config.edge_guard = std::clamp(FiniteOr(config.edge_guard, 0.25f), 0.0f, 1.0f);
     config.detail_stability = std::isfinite(config.detail_stability)
         ? std::clamp(config.detail_stability, 0.0f, 1.0f) : 0.0f;
@@ -1493,7 +1493,7 @@ void ReloadConfig(bool force = false) {
             work_request.status == nr_work_config::Status::Disable);
     }
     g_work_config_loaded = true;
-    next.lighting_lock = ReadIniFloat(L"LightingLock", 0.20f);
+    next.lighting_lock = ReadIniFloat(L"LightingLock", 0.0f);
     next.edge_guard = ReadIniFloat(L"EdgeGuard", 0.25f);
     next.detail_stability = ReadIniFloat(L"DetailStability", 0.0f);
     next.layered_enhancement = GetPrivateProfileIntW(L"NRBeforeSR", L"LayeredEnhancement", 0, g_ini_path) != 0;
@@ -12396,13 +12396,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dev15 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dev16 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev15 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dev16 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "
