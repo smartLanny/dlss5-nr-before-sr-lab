@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -75,13 +76,13 @@ def external_build_script(source: str) -> str:
     # prepare-multi-api-beta.py already freezes these three provenance values
     # in the staged 047 script.  Accept both its generated form and the
     # original build-script form so this wrapper remains composable.
-    source_commit_generated = (
-        f"$SourceCommit = '{SOURCE_COMMIT}'\n"
-        "$LASTEXITCODE = 0")
+    source_commit_generated = re.compile(
+        r"\$SourceCommit = '[0-9a-f]{40}'\n\$LASTEXITCODE = 0")
     source_commit_original = "$SourceCommit = (& git -C $ProjectRoot rev-parse HEAD).Trim()"
-    if source.count(source_commit_generated) == 1:
-        source = source.replace(source_commit_generated,
-                                source_commit_generated, 1)
+    generated_matches = source_commit_generated.findall(source)
+    if len(generated_matches) == 1:
+        source = source.replace(generated_matches[0],
+                                f"$SourceCommit = '{SOURCE_COMMIT}'\n$LASTEXITCODE = 0", 1)
     else:
         source = once(source, source_commit_original,
                       f"$SourceCommit = '{SOURCE_COMMIT}'\n$LASTEXITCODE = 0")
