@@ -8,11 +8,11 @@ struct NrSubmittedFenceEvent {
     std::uint64_t registered_value = 0;
 };
 enum class NrFenceWaitFallback : unsigned { None, EventCreate, EventReset, Registration, EarlierRegistration, WaitFailed };
-enum class NrFenceWaitMethod : unsigned { Polling, Event, PollingFallback, EventThenPolling, AlreadyComplete };
+enum class NrFenceWaitMethod : unsigned { Polling, Event, PollingFallback, EventThenPolling, NotWaited };
 struct NrSubmittedFenceWaitResult {
     bool completed = false, removed = false;
     std::uint64_t before = 0, after = 0, elapsed_ms = 0;
-    NrFenceWaitMethod method = NrFenceWaitMethod::AlreadyComplete;
+    NrFenceWaitMethod method = NrFenceWaitMethod::NotWaited;
     NrFenceWaitFallback fallback = NrFenceWaitFallback::None;
     HRESULT registration_result = S_OK;
 };
