@@ -123,12 +123,16 @@ void PopulateCombinedEvidence() {
 
     auto &stored = g_post_store_evidence;
     stored = {};
+    stored.mode = 1;
     stored.frame = stored.feature_generation = wide;
     stored.boundary_trace_id = wide;
     stored.config = 7;
     stored.samples = stored.expected_samples = stored.changed = stored.expected_changed = stored.invalid = word;
     stored.before_hash = stored.expected_hash = stored.actual_hash = word;
     stored.expected_mean = stored.actual_mean = stored.expected_max = stored.actual_max = -std::numeric_limits<float>::max();
+    stored.source_physical = stored.source_view = stored.result_physical = stored.result_view = stored.result_uav = word;
+    stored.actual_nonfinite = stored.reference_nonfinite = true;
+    stored.comparison_known = stored.matches_expected = false;
     nr_post_boundary::Window window;
     window.trace = stored.boundary_trace_id;
     window.frame = stored.frame;
@@ -216,6 +220,15 @@ void PopulateCombinedEvidence() {
     proof.first_failure.kind = nr_recovery::FailureKind::WritebackMismatch;
     proof.first_failure.token = {details.current.key, details.current.signature, wide, {wide, wide}};
     proof.first_failure.token.key.scope.config_generation = 6;
+    stored.recovery_token = {details.current.key, details.current.signature, wide, {wide, wide}};
+    stored.recovery_token.key.scope.mode = 1;
+    stored.recovery_token.key.role = 1;
+    stored.recovery_target = {wide, wide, word};
+    g_pre_store_evidence = stored;
+    g_pre_store_evidence.mode = 2;
+    g_pre_store_evidence.frame = wide - 1;
+    g_pre_store_evidence.recovery_token.key.scope.mode = 2;
+    g_pre_store_evidence.recovery_token.key.role = 0;
 }
 
 void CheckMetadataPrivacy() {
@@ -356,6 +369,122 @@ void CheckUnknownReceipt() {
           "raw receipt serialization cannot promote an unavailable decision");
 }
 
+void CheckLatestStoreVersusHistoricalProof(reshade::api::effect_runtime &runtime) {
+    PopulateCombinedEvidence();
+    using namespace nr_compatibility_verdict;
+    fixture_decision = {};
+    auto &decision = fixture_decision;
+    decision.current = {true, 7, 41, 2, 2};
+    decision.resource.available = decision.resource.admitted = decision.resource.definitive = true;
+    decision.resource.scope = decision.current;
+    decision.resource.state = ResourceState::Ready;
+    decision.resource.reason = "admitted";
+    decision.resource.next_action = NextAction::None;
+    decision.observer = {FactState::Complete, decision.current, {}, true};
+    decision.command = decision.queue = decision.observer;
+    auto &recovery = decision.recovery;
+    recovery.available = recovery.attempted = recovery.correlated_window = true;
+    recovery.scope = decision.current;
+    recovery.state = RecoveryState::Succeeded;
+    recovery.attempt_id = recovery.proof_attempt_id = 17;
+    recovery.descriptor_verified = recovery.writeback_verified = true;
+    recovery.nr_success_streak = recovery.native_success_streak = recovery.submitted_count = 3;
+    recovery.first_failure = "unsupported-input-format";
+    recovery.first_failure_definitive = true;
+
+    auto &pre = g_pre_store_evidence;
+    pre = {};
+    pre.mode = 2; pre.config = 7; pre.feature_generation = 41; pre.frame = 102;
+    pre.source_physical = pre.source_view = pre.result_physical = pre.result_view = pre.result_uav = 10;
+    pre.samples = 2040; pre.expected_samples = 0; pre.invalid = 1;
+    pre.reference_nonfinite = true;
+    pre.recovery_token = {{{31, 1, 1, 41, 7, 2}, 701, 701, 0, 0}, {10, 10, 1, 1}, 17, {502, 4}};
+    pre.recovery_target = {1001, 1001, 0};
+    pre.before_hash = 0x13579BDFu; pre.actual_hash = 0x2468ACE0u;
+    auto &post = g_post_store_evidence;
+    post = pre;
+    post.mode = 1; post.config = 6; post.feature_generation = 40; post.frame = 103;
+    post.recovery_token = {{{31, 1, 1, 40, 6, 1}, 2001, 2001, 0, 1}, {10, 10, 1, 1}, 18, {602, 9}};
+    post.recovery_target = {2001, 2001, 0};
+
+    auto &details = fixture_recovery_details;
+    details = {};
+    details.current.input = decision;
+    details.current.key = pre.recovery_token.key;
+    details.current.signature = pre.recovery_token.signature;
+    details.current.frame = 502;
+    details.proof.state = nr_recovery::State::RecoverySucceeded;
+    details.proof.attempt_id = details.proof.proof_attempt_id = 17;
+    details.proof.proof_frame_id = 501; details.proof.proof_age = 1;
+    details.proof.proof_carrier_ordinal = 3;
+    details.proof.window_first_frame_id = 499; details.proof.window_last_frame_id = 501;
+    details.proof.window_first_ordinal = 1; details.proof.window_last_ordinal = 3;
+    details.proof.correlated_window = details.proof.descriptor_verified = details.proof.writeback_verified = true;
+    details.proof.nr_success_streak = details.proof.native_success_streak = details.proof.submitted_count = 3;
+    details.proof.proof_target = pre.recovery_target;
+    fixture_decision_snapshots = fixture_recovery_detail_snapshots = 0;
+    begin(runtime, false);
+    drain();
+    check(fixture_decision_snapshots == 2 && fixture_recovery_detail_snapshots == 2,
+          "latest-store capture still samples each independent decision/receipt once per boundary");
+    check(nr_core_feedback::g_full_report != nullptr && g_feedback_status == 3,
+          "latest unknown storage evidence is a complete collection, not a collection failure");
+    const auto &report = *nr_core_feedback::g_full_report;
+    const auto line = [&](const char *prefix) {
+        const auto start = report.find(prefix);
+        check(start != std::string::npos, "latest store role is explicitly serialized");
+        return report.substr(start, report.find('\n', start) - start);
+    };
+    const auto pre_line = line("end.store.pre=");
+    const auto post_line = line("end.store.post=");
+    check(pre_line.find("frame:102,") != std::string::npos && pre_line.find("carrierFrame:502,") != std::string::npos &&
+          pre_line.find("samples:2040,expected:0,invalid:1,actualNonfinite:0,referenceNonfinite:1,known:0,match:unknown,") != std::string::npos,
+          "LATEST_UNKNOWN_MUST_REMAIN_UNKNOWN");
+    check(pre_line.find("scopeMatchesDecision:1,attemptMatchesDecision:1,") != std::string::npos &&
+          pre_line.find("actualTarget:1001,") != std::string::npos &&
+          pre_line.find("expectedHash:unknown,") != std::string::npos && pre_line.find("expectedMean:unknown,") != std::string::npos,
+          "PRE retains its frozen scope/target and does not invent a missing expected comparison");
+    check(post_line.find("frame:103,") != std::string::npos && post_line.find("carrierFrame:602,") != std::string::npos &&
+          post_line.find("scopeMatchesDecision:0,attemptMatchesDecision:0,") != std::string::npos &&
+          post_line.find("actualTarget:2001,") != std::string::npos && post_line.find("known:0,match:unknown,") != std::string::npos,
+          "POST unknown sample keeps its separate historical configuration and actual target");
+    check(report.find("proofFrame:501,proofAge:1,proofOrdinal:3,proofTarget:1001,") != std::string::npos &&
+          report.find("state:recovery-succeeded,attemptId:17,proofAttemptId:17,") != std::string::npos,
+          "historical proof keeps frame 501 while latest actual PRE sample has diagnostic frame 102 and carrier 502");
+    check(report.find("decision.evidenceComplete=1\n") != std::string::npos &&
+          report.find("decision.nextAction=needs-visual-F7\n") != std::string::npos &&
+          report.find("decision.evidenceCompleteMeaning=enough evidence for the decision, not final visual acceptance\n") != std::string::npos,
+          "enough evidence for the next action is explicitly distinct from final visual acceptance");
+    std::filesystem::copy_file(nr_core_feedback::g_report_path, std::filesystem::path(output_root) / "latest-store.txt");
+
+    g_post_store_evidence = {};
+    auto absent = std::make_unique<FeedbackSession>();
+    FeedbackAppendActivity(*absent, "end");
+    const std::string missing = absent->report;
+    check(missing.find("end.store.pre=available:1,") != std::string::npos &&
+          missing.find("end.store.post=available:0,source:frozen-recording-and-readback-sample,mode:unknown,config:unknown,feature:unknown,frame:unknown,") != std::string::npos,
+          "an absent POST sample does not hide the separately available PRE evidence");
+    check(missing.find("samples:unknown,expected:unknown,invalid:unknown,actualNonfinite:unknown,referenceNonfinite:unknown,known:unknown,match:unknown,") != std::string::npos,
+          "an absent sample emits unknown rather than zero statistics or mismatch");
+
+    pre.frame = 104; pre.expected_samples = pre.samples; pre.invalid = 0;
+    pre.actual_nonfinite = pre.reference_nonfinite = false;
+    pre.comparison_known = pre.matches_expected = true;
+    pre.expected_hash = pre.actual_hash;
+    post = pre; post.mode = 1; post.frame = 105;
+    post.matches_expected = false; post.actual_hash ^= 1u;
+    auto comparable = std::make_unique<FeedbackSession>();
+    FeedbackAppendActivity(*comparable, "end");
+    const std::string known = comparable->report;
+    const auto pre_start = known.find("end.store.pre=");
+    const auto post_start = known.find("end.store.post=");
+    check(pre_start != std::string::npos && post_start != std::string::npos,
+          "both comparable frozen store roles remain explicit");
+    check(known.substr(pre_start, known.find('\n', pre_start) - pre_start).find("known:1,match:1,") != std::string::npos &&
+          known.substr(post_start, known.find('\n', post_start) - post_start).find("known:1,match:0,") != std::string::npos,
+          "known comparison is distinct from whether the frozen sample actually matched");
+}
+
 int main(int argc, char **argv) {
     check(argc == 2, "output directory supplied");
     output_root = std::filesystem::absolute(argv[1]).wstring();
@@ -369,6 +498,7 @@ int main(int argc, char **argv) {
     reshade::api::effect_runtime runtime;
     RunCombined(runtime, false);
     RunCombined(runtime, true);
+    CheckLatestStoreVersusHistoricalProof(runtime);
     CheckUnknownReceipt();
     DeleteCriticalSection(&g_chain_cs);
     std::printf("PASS combined actual F8 pipeline: %u checks; snapshot storage inputs only; no GPU/provider/game calls\n", checks);
