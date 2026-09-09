@@ -4235,20 +4235,18 @@ struct NrPostStoreEvidence {
 NrPostStoreEvidence g_post_store_evidence; // g_diagnostic_snapshot_lock
 NrPostStoreEvidence g_pre_store_evidence; // Same collector, distinct route history.
 void NrRecoveryStoredEvidence(const NrPostStoreEvidence& evidence) {
-    if (!evidence.recovery_token || !evidence.samples ||
-        evidence.samples != evidence.expected_samples) return;
-    // This conservative comparison is replaced by the format-specific stored
-    // value oracle when that adapter supplies a complete comparison receipt.
-    if (evidence.mode != 2 || evidence.result_view != DXGI_FORMAT_R16G16B16A16_FLOAT) return;
+    if (!evidence.recovery_token || !evidence.recovery_target || !evidence.samples) return;
+    // Unknown rounding/reference evidence is not a failed write. An actual
+    // nonfinite target, however, is a directly observed output failure even
+    // when no finite expected value could be formed for this sample.
+    if (!evidence.actual_nonfinite && !evidence.comparison_known) return;
     nr_recovery::WritebackProof proof{};
     proof.resource = evidence.recovery_target.resource;
     proof.resource_generation = evidence.recovery_target.resource_generation;
     proof.subresource = evidence.recovery_target.subresource;
     proof.actual_storage_read = true;
-    proof.finite = evidence.invalid == 0;
-    proof.matches_expected = evidence.expected_hash == evidence.actual_hash &&
-        evidence.expected_mean == evidence.actual_mean && evidence.expected_max == evidence.actual_max &&
-        evidence.expected_changed == evidence.changed;
+    proof.finite = !evidence.actual_nonfinite;
+    proof.matches_expected = evidence.comparison_known && evidence.matches_expected;
     AcquireSRWLockExclusive(&g_nr_recovery_lock);
     g_nr_recovery.RecordWriteback(evidence.recovery_token, proof);
     ReleaseSRWLockExclusive(&g_nr_recovery_lock);
