@@ -43,6 +43,29 @@ unused-target write. That negative control must show a changed expected result
 and an unchanged actual Output; normal edited and identity cases must report
 the correct stored result. Frozen build and game results are recorded separately.
 
+## Frozen validation and deployment
+
+Source `eea9fcf50c04b1f30de7196828b1ab8e1993cbad` passes all 40 local gates.
+The complete production WARP fixture passes 1938 post-output checks, including
+the unused-target negative control. The same source and cases pass 1939 checks
+on 10DE:2C58 (one extra adapter-selection check), without loading NGX. Both
+actual language DLLs load and draw in the private ReShade menu fixture, each
+completing 40 Presents. The earlier validation attempt stopped in the CPU
+colour-policy extraction seam; its missing optional probe variable was adapted
+without changing the tested policy. Its failed record remains preserved.
+
+- Chinese Core SHA-256: `f69dee52e21d12f63bab83505a6893b78a26d461bb6dfbdc2b4da13c93c639cf`
+- English Core SHA-256: `5f63dc4c41a8ff5951973a2ce81db924bf6284d854ee61984941b3e352441b59`
+- Validation SHA-256: `e6728ffde5448c2a5811a54c1fd06b2907de7e74dfd6707bfc5e4aad5bf31bf3`
+- Source manifest SHA-256: `da8c045c77c64e911a6f6300cc562af894889679707392ab6ed7d069364f30d2`
+
+Only the Chinese Core was deployed to the owner's reproduction installation.
+The prior queue.3 Core and current configuration were backed up; 16 existing
+DLL/configuration files have identical before/after hashes. The restore helper
+was checked without executing a rollback. No game/NGX result for output.1 has
+been reported yet. The extra sampled read/barrier can perturb timing, so this
+diagnostic does not establish unobserved frames' behavior.
+
 ## Owner validation
 
 Run SR→NR in the same scene for several seconds, then collect F8 once. A new
