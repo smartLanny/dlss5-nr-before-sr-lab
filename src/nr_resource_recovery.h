@@ -468,6 +468,17 @@ public:
         return r;
     }
 
+    // Waiting/ready metadata with no Begin has never owned NR work. It can be
+    // forgotten while native carriers are in flight without claiming GPU idle
+    // or weakening any actual-attempt/failure lifetime obligation.
+    bool ForgetUnattempted(const Key& key) noexcept {
+        bool forgotten = false;
+        for (auto& e : entries_) if (e.used && e.key == key && !e.attempt_id && !e.failure.present) {
+            e = {}; forgotten = true;
+        }
+        return forgotten;
+    }
+
     // The owner certifies these three independent facts from its real recording,
     // GPU retirement and readback collection state, not from this ledger's
     // Submitted event. Reclaiming successful transient entries does not erase
