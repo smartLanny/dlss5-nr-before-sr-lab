@@ -63,9 +63,16 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_color_policy.inl', 'src/nr_color_amplification.h', 'src/nr_precision_ui.h', 'scripts/build.ps1',
             'src/interop/nr_ngx_parameter_abi.h', 'src/nr_before_sr.cpp', 'src/nr_before_sr.rc',
             'src/nr_recommended_picture.inl', 'src/nr_work_config.h', 'src/nr_feedback_capture.inl', 'src/nr_feedback_core.inl',
+            'src/interop/nr_exposure_access_d3d12.inl', 'src/nr_exposure_semantic_evidence.inl',
+            'scripts/patch-exposure-access.py', 'scripts/patch-format-access.py',
+            'src/nr_feedback_limits.h', 'src/nr_diagnostic_bundle.inl', 'src/nr_feedback_report.inl',
+            'src/nr_native_format.h', 'src/nr_native_format_hooks.inl', 'src/nr_native_format_runtime.inl',
+            'src/nr_ngx_lifecycle.inl', 'src/nr_post_boundary_native.inl', 'src/nr_resource_semantics.h',
+            'src/nr_resource_recovery.h', 'src/nr_resource_recovery_runtime.inl', 'src/nr_resource_recovery_semantics.inl',
+            'src/nr_compatibility_runtime.inl', 'src/nr_compatibility_verdict.h', 'src/nr_compatibility_verdict_feedback.inl',
             'src/nr_feedback_text.h', 'src/nr_feedback_single_text.h', 'src/nr_f8_sequence.inl', 'src/nr_runtime_load_evidence.inl'})
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '35436118cef4e6f322eb489150840c222ecfc8d9')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'e3159e9bbfab45baf4b0e435174d64be43bff639')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '23b3296356cc8e941c00383560d95942725833f4')
 
 if __name__ == '__main__': unittest.main()
