@@ -5,7 +5,10 @@
 namespace nr_feedback_limits {
 inline constexpr unsigned int kMetadataBytes = 128u * 1024u;
 inline constexpr unsigned int kFinalStatusReserveBytes = 256u;
-inline constexpr unsigned int kMandatoryTailBytes = 64u * 1024u;
+// Actual full-width end snapshots (including timing) use <72 KiB. Leave room
+// for bounded worker fingerprints/inventory and the final collection status.
+inline constexpr unsigned int kMandatoryTailBytes = 80u * 1024u;
+inline constexpr unsigned int kModuleInventoryBytes = 4u * 1024u;
 // The timeline gate runs before an observation burst, which may also append
 // the bounded NGX/resource summary on observations 1 and 60.
 inline constexpr unsigned int kTimelineBurstBytes = 4u * 1024u;

@@ -20,7 +20,7 @@ void FeedbackAppendTiming(FeedbackSession &session, const char *prefix) {
         "%s.timing.capturedTicks=%llu\n%s.timing.aggregateScopeAvailable=%d\n"
         "%s.timing.aggregateScope=config:%llu,featureGeneration:%llu,mode:%u,device:%llu\n"
         "%s.timing.mixedScopes=%d\n%s.timing.scopedRecords=%llu\n%s.timing.unscopedRecords=%llu\n"
-        "%s.timing.scopeMeaning=aggregate CPU observations for this segment; mixedScopes forbids interpreting the whole histogram as one configuration or route; unscoped queue calls remain separately identified\n",
+        "%s.timing.scopeMeaning=aggregate CPU observations for this segment; mixedScopes forbids interpreting the whole histogram as one configuration or route; unscoped operations remain separately identified\n",
         prefix,s.clock_available,prefix,u(s.epoch_started_ticks),prefix,u(s.captured_ticks),
         prefix,s.aggregate_scope_available,prefix,u(s.aggregate_scope.config),u(s.aggregate_scope.feature),
         s.aggregate_scope.mode,u(s.aggregate_scope.device),prefix,s.mixed_scopes,

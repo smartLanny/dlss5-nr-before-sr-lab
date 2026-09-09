@@ -366,12 +366,21 @@ void Modules(FeedbackSession &s) {
     Handle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId()));
     MODULEENTRY32W entry{}; entry.dwSize = sizeof(entry);
     unsigned count = 0;
+    std::size_t inventory_bytes = 0;
     if (snapshot.value == INVALID_HANDLE_VALUE) { FeedbackAppend(s, "modules.status=unavailable\n"); return; }
     for (BOOL more = Module32FirstW(snapshot.value, &entry); more; more = Module32NextW(snapshot.value, &entry)) {
         if (!FeedbackModuleRelevant(entry.szModule)) continue;
         if (count == 32) { FeedbackAppend(s, "modules.truncated=1\n"); break; }
         char name[1024] = {}; WideToUtf8(entry.szModule, name, sizeof(name));
         const auto safe = nr_feedback_text::Sanitize(name);
+        // File-name inventory is optional. Keep the four named runtime-file
+        // fingerprints and final collection status available even when many
+        // unrelated add-ons have long UTF-8 names. Do not cut a UTF-8 name.
+        if (safe.size() + 32 > nr_feedback_limits::kModuleInventoryBytes - inventory_bytes) {
+            FeedbackAppend(s, "modules.truncated=1\nmodules.reason=name-byte-budget\n");
+            break;
+        }
+        inventory_bytes += safe.size() + 32;
         FeedbackAppend(s, "module.%u=%s\n", count++, safe.c_str());
     }
     FeedbackAppend(s, "modules.contract=name inventory plus bounded loaded-file fingerprints; no module bytes or process addresses exported\n");

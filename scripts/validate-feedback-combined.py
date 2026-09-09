@@ -178,7 +178,9 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
         # Lower both actual physical buffers while preserving the production
         # reserve relationships so this is a runtime capacity oracle.
         original = original.replace(before, 'kMetadataBytes = 32u * 1024u')
-        original = original.replace('kMandatoryTailBytes = 64u * 1024u',
+        if original.count('kMandatoryTailBytes = 80u * 1024u') != 1:
+            raise SystemExit('Tail reserve control anchor changed')
+        original = original.replace('kMandatoryTailBytes = 80u * 1024u',
                                     'kMandatoryTailBytes = 16u * 1024u')
         path.write_text(original, encoding='utf-8')
     if args.ascii_metadata_negative or args.disable_privacy_negative:
