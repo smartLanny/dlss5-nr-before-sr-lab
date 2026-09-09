@@ -4094,6 +4094,8 @@ struct NrSlot {
     bool awaiting_fence_signal = false;
     bool delta_stats_pending = false;
     bool delta_stats_capture_armed = false;
+    bool post_boundary_probe_recorded = false;
+    unsigned long long post_boundary_trace_id = 0;
     int diagnostic_mode = 0;
     unsigned long long diagnostic_feature_generation = 0;
     unsigned int diagnostic_width = 0;
@@ -4115,6 +4117,7 @@ struct NrSlot {
 
 struct NrPostStoreEvidence {
     unsigned long long frame=0,feature_generation=0,tick=0;
+    unsigned long long boundary_trace_id=0;
     unsigned int config=0,samples=0,expected_samples=0,changed=0,expected_changed=0,invalid=0;
     unsigned int before_hash=0,expected_hash=0,actual_hash=0;
     float expected_mean=0,actual_mean=0,expected_max=0,actual_max=0;
@@ -4571,6 +4574,7 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
     if (values[28] && values[39]) {
         NrPostStoreEvidence evidence;
         evidence.frame=slot.diagnostic_identity.frame_id;
+        evidence.boundary_trace_id=slot.post_boundary_trace_id;
         evidence.feature_generation=slot.diagnostic_feature_generation;
         evidence.config=slot.diagnostic_identity.config_generation;
         evidence.tick=GetTickCount64();
@@ -7016,6 +7020,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
 void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
                                 const ColorContract &color_contract) {
     CollectSlotDeltaStatsLocked(context, slot);
+    slot.post_boundary_probe_recorded=false;
     ArmStageCaptureLocked(context, slot);
     // The diagnostic UAV clear, atomics, copy and readback are valuable
     // evidence but should not tax every rendered frame. Sample the first
@@ -7360,6 +7365,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         ID3D12GraphicsCommandList_SetPipelineState(command_list,g_codec.post_store_probe);
         ID3D12GraphicsCommandList_Dispatch(command_list,(width+255)/256,(height+255)/256,1);
         Transition(command_list,slot.result,slot.result_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        slot.post_boundary_probe_recorded=true;
     }
     if (capture_delta) {
         UavBarrier(command_list, slot.delta_stats);
@@ -9406,8 +9412,9 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     if (!RecordVisibleTransferLocked(command_list, feature.generation, 1))
         return false;
     SetBypassReason(BypassReason::None);
-    PublishPostBoundary(substitution.original_output,substitution.native_boundary,
-        g_applied_nr_identity,feature.generation,reinterpret_cast<std::uint64_t>(g_codec.device));
+    if(slot.post_boundary_probe_recorded)
+        slot.post_boundary_trace_id=PublishPostBoundary(slot.result,substitution.native_boundary,
+            slot.diagnostic_identity,feature.generation,reinterpret_cast<std::uint64_t>(g_codec.device));
     return true;
 }
 
@@ -9468,6 +9475,7 @@ bool AllowExperimentalNullPsoCarrier() {
     return allowed;
 }
 #include "nr_command_state.inl"
+#include "nr_post_boundary_native.inl"
 std::atomic<bool> g_evaluate_hooks_ready{false};
 std::atomic<bool> g_evaluate_hooks_enabled{false};
 std::atomic<bool> g_evaluate_target_overflow{false};
@@ -9606,6 +9614,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         MarkLifecycleUncertain("missing ExecuteCommandLists trampoline");
         return;
     }
+    NrPostBoundarySubmitScope boundary_submission(queue,count,command_lists);
 
     // The detour stays installed after the first real NR submission, but an
     // ordinary game submission must not pay queue queries, locks, COM calls or
@@ -10317,6 +10326,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     // A front-colour rejection may select post without resetting its counters
     // to Mode2 on every Evaluate.
     g_compat_fallback_tick.store(0,std::memory_order_release);
+    RetirePostBoundaryBeforeEvaluate();
     NativeCommandStateScope before_state(command_list);
     if (!before_state.active) {
         LeaveCriticalSection(&g_chain_cs);
@@ -10361,8 +10371,11 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
-    NrNativeOutputTraceScope native_output_trace(after_sr.active?after_sr.original_output:nullptr,
-        before_state.command_list);
+    const bool trace_post_boundary=after_sr.active && after_sr.slot &&
+        after_sr.slot->delta_stats_capture_armed && after_sr.slot->snapshot_heap && g_codec.post_store_probe;
+    const unsigned boundary_coverage=trace_post_boundary?EnsurePostBoundaryNativeHooks(before_state.command_list):0;
+    NrNativeOutputTraceScope native_output_trace(trace_post_boundary?after_sr.original_output:nullptr,
+        before_state.command_list,boundary_coverage);
 #endif
     NgxResult result = original(command_list, handle, params, callback);
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
@@ -11924,7 +11937,7 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     if (!TryAcquireSRWLockExclusive(&g_present_observer_lock)) return;
     if (swapchain && swapchain->get_device()->get_api()==reshade::api::device_api::d3d12 &&
         swapchain->get_device()->get_native()==g_post_boundary_device.load(std::memory_order_acquire))
-        ClosePostBoundaryAtPresent();
+        ClosePostBoundaryAtPresent(swapchain->get_device()->get_native());
     if (swapchain != nullptr) {
         g_feedback_swap_color_space.store(static_cast<unsigned int>(swapchain->get_color_space()), std::memory_order_relaxed);
         if (swapchain->get_device()->get_api() == reshade::api::device_api::d3d12) {
