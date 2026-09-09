@@ -19,9 +19,10 @@ def main():
     hooks=[]
     for marker in ('NgxResult HookRelease(', 'NgxResult HookCoreRelease(', 'NgxResult HookDlssdRelease('):
         a,b=parser.block(source,marker);body=source[a:b]
-        assert body.count('feature.feature_id == 1 || feature.feature_id == 13')==1
+        retirement_guard = '        if (feature.feature_id == 1 || feature.feature_id == 13) {'
+        assert body.count(retirement_guard)==1
         if args.negative_control:
-            body=body.replace('feature.feature_id == 1 || feature.feature_id == 13','feature.feature_id == 1')
+            body=body.replace(retirement_guard,'        if (feature.feature_id == 1) {')
         hooks.append(body)
     prefix=r'''
 #include <atomic>
