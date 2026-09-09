@@ -54,11 +54,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "0.4.7beta";
+constexpr const char *kAddonVersion = "0.4.7beta-ds1.1";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "0.4.7beta";
+constexpr const char *kBuildIdentity = "0.4.7beta-ds1.1";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -400,6 +400,7 @@ std::atomic<unsigned long long> g_lifecycle_safe_bypass_frames{0};
 // continuous without a CPU fence stall. Unknown lists stay native, and an
 // actual queue mismatch at Execute is fail-closed and permanently diagnosed.
 std::atomic<unsigned long long> g_queue_affinity_admitted_frames{0};
+std::atomic<unsigned long long> g_queue_retired_admitted_frames{0};
 std::atomic<unsigned long long> g_queue_affinity_unknown_bypass_frames{0};
 std::atomic<unsigned long long> g_queue_affinity_prediction_bypass_frames{0};
 std::atomic<unsigned long long> g_queue_affinity_actual_mismatches{0};
@@ -4202,11 +4203,21 @@ struct CommandListQueueMarker {
 constexpr unsigned int kQueueMarkerMigrated = 1u;
 constexpr unsigned int kRequiredStableQueueSubmissions = 2u;
 
+enum class RecordingQueueProof : unsigned char {
+    None,
+    StableHistory,
+    CompletedDependencies,
+};
+
 struct LifecycleCommandList {
     unsigned long long token = 0;
     // Immutable prediction captured before plugin work is recorded. The
     // actual Execute queue is checked against this identity later.
     unsigned long long expected_queue_identity = 0;
+    // A fresh one-shot list need not predict its future queue when every NR
+    // dependency has completed. That proof is immutable and rechecked before
+    // actual Execute, where the real queue supplies the retirement fence.
+    RecordingQueueProof queue_proof = RecordingQueueProof::None;
     NrSlot *slots[kLifecycleUsesPerCommandList] = {};
     unsigned int slot_count = 0;
     NrContext *contexts[kLifecycleUsesPerCommandList] = {};
@@ -4788,12 +4799,15 @@ bool ReadLifecycleToken(ID3D12GraphicsCommandList *command_list,
 
 bool ReadLastSubmissionQueueMarker(
     ID3D12GraphicsCommandList *command_list,
-    CommandListQueueMarker &marker) {
+    CommandListQueueMarker &marker, bool *missing = nullptr) {
     marker = {};
+    if (missing != nullptr) *missing = false;
     if (command_list == nullptr) return false;
     UINT size = sizeof(marker);
-    return SUCCEEDED(ID3D12GraphicsCommandList_GetPrivateData(
-        command_list, kLastSubmissionQueueGuid, &size, &marker)) &&
+    const HRESULT result = ID3D12GraphicsCommandList_GetPrivateData(
+        command_list, kLastSubmissionQueueGuid, &size, &marker);
+    if (missing != nullptr) *missing = result == DXGI_ERROR_NOT_FOUND;
+    return SUCCEEDED(result) &&
         size == sizeof(marker) && marker.identity != 0;
 }
 
@@ -4981,11 +4995,21 @@ bool CanBeginContextUseLocked(ID3D12GraphicsCommandList *command_list,
                               const NrContext &context,
                               bool count_affinity_decision = true) {
     CommandListQueueMarker queue_marker = {};
+    bool missing_queue_marker = false;
+    const bool has_queue_marker = ReadLastSubmissionQueueMarker(
+        command_list, queue_marker, &missing_queue_marker);
     const bool has_stable_queue_marker =
-        ReadLastSubmissionQueueMarker(command_list, queue_marker) &&
+        has_queue_marker &&
         queue_marker.stable_submissions >= kRequiredStableQueueSubmissions &&
-        (queue_marker.flags & kQueueMarkerMigrated) == 0;
-    if (!has_stable_queue_marker) {
+        queue_marker.flags == 0;
+    const bool completed_dependencies = IsContextFenceCompleteLocked(context);
+    // Missing history is distinct from unreadable/corrupt or migrated history.
+    // The former needs no queue prediction after exact GPU retirement; the
+    // latter must never be relearned through this fallback.
+    if ((!has_queue_marker && !missing_queue_marker) ||
+        (has_queue_marker && (queue_marker.stable_submissions == 0 ||
+                              queue_marker.flags != 0)) ||
+        (!has_stable_queue_marker && !completed_dependencies)) {
         SetBypassReason(BypassReason::QueueAffinityUnverified);
         if (count_affinity_decision) {
             g_queue_contract_bypass_frames.fetch_add(
@@ -5016,13 +5040,18 @@ bool CanBeginContextUseLocked(ID3D12GraphicsCommandList *command_list,
             return false;
         }
     }
-    if (!IsContextFenceCompleteLocked(context)) {
+    if (!has_stable_queue_marker) {
+        if (count_affinity_decision)
+            g_queue_retired_admitted_frames.fetch_add(1, std::memory_order_relaxed);
+        return true;
+    }
+    if (!completed_dependencies) {
         // ReShade exposes this list before its actual ExecuteCommandLists queue
         // is known. A list that has previously been submitted on the same
         // concrete queue may safely append another temporal evaluation because
         // D3D12 preserves queue order. Capture validates the real queue again
-        // before Execute. New/unknown lists and predicted queue changes stay on
-        // native SR instead of stalling the CPU or injecting a private Wait.
+        // before Execute. New/unknown lists stay native until their prior NR
+        // dependencies finish, without stalling the CPU or adding a private Wait.
         if (context.last_submission_queue == nullptr) {
             if (count_affinity_decision)
                 g_queue_affinity_unknown_bypass_frames.fetch_add(
@@ -5055,6 +5084,11 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
     // bypass for this frame. Revalidate here under the same chain lock without
     // double-counting the queue-affinity diagnostic.
     if (!CanBeginContextUseLocked(command_list, context, false)) return false;
+    if (slot.awaiting_fence_signal || !IsSlotFenceCompleteLocked(slot)) {
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        g_lifecycle_safe_bypass_frames.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
     bool newly_created = false;
     LifecycleCommandList *record =
         FindOrCreateLifecycleCommandListLocked(command_list, newly_created);
@@ -5069,16 +5103,45 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
     }
 
     CommandListQueueMarker queue_marker = {};
-    if (!ReadLastSubmissionQueueMarker(command_list, queue_marker) ||
-        queue_marker.stable_submissions < kRequiredStableQueueSubmissions ||
-        (queue_marker.flags & kQueueMarkerMigrated) != 0) {
+    bool missing_queue_marker = false;
+    const bool has_queue_marker = ReadLastSubmissionQueueMarker(
+        command_list, queue_marker, &missing_queue_marker);
+    const bool has_stable_queue_marker = has_queue_marker &&
+        queue_marker.stable_submissions >= kRequiredStableQueueSubmissions &&
+        queue_marker.flags == 0;
+    if ((!has_queue_marker && !missing_queue_marker) ||
+        (has_queue_marker && (queue_marker.stable_submissions == 0 ||
+                              queue_marker.flags != 0))) {
         RollBackEmptyLifecycleCommandListLocked(
             command_list, record, newly_created);
         SetBypassReason(BypassReason::QueueAffinityUnverified);
         return false;
     }
-    if (record->expected_queue_identity != 0 &&
-        record->expected_queue_identity != queue_marker.identity) {
+    RecordingQueueProof proof = record->queue_proof;
+    if (proof == RecordingQueueProof::None) {
+        if (record->context_count != 0 || record->slot_count != 0 ||
+            record->expected_queue_identity != 0) {
+            MarkLifecycleUncertain("recorded NR dependencies lost their queue proof");
+            return false;
+        }
+        proof = has_stable_queue_marker ? RecordingQueueProof::StableHistory :
+                                         RecordingQueueProof::CompletedDependencies;
+    }
+    if (proof == RecordingQueueProof::CompletedDependencies &&
+        !IsContextFenceCompleteLocked(context)) {
+        RollBackEmptyLifecycleCommandListLocked(command_list, record, newly_created);
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        g_lifecycle_safe_bypass_frames.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+    if ((proof == RecordingQueueProof::StableHistory &&
+         (!has_stable_queue_marker ||
+          (record->expected_queue_identity != 0 &&
+           record->expected_queue_identity != queue_marker.identity))) ||
+        (proof == RecordingQueueProof::CompletedDependencies &&
+         record->expected_queue_identity != 0) ||
+        (proof != RecordingQueueProof::StableHistory &&
+         proof != RecordingQueueProof::CompletedDependencies)) {
         MarkLifecycleUncertain(
             "one recorded command list acquired conflicting queue predictions");
         RollBackEmptyLifecycleCommandListLocked(
@@ -5129,7 +5192,9 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
         return false;
     }
 
-    record->expected_queue_identity = queue_marker.identity;
+    record->queue_proof = proof;
+    record->expected_queue_identity = proof == RecordingQueueProof::StableHistory
+        ? queue_marker.identity : 0;
     if (context.pending_recording_token == 0)
         context.pending_recording_token = record->token;
     if (!has_context) {
@@ -5347,7 +5412,7 @@ bool CaptureSubmissionBatchLocked(
         if (!has_token) continue;
 
         if (!has_queue_marker || queue_marker.identity != queue_state->identity ||
-            (queue_marker.flags & kQueueMarkerMigrated) != 0) {
+            queue_marker.stable_submissions == 0 || queue_marker.flags != 0) {
             const unsigned long long mismatches =
                 g_queue_affinity_actual_mismatches.fetch_add(
                     1, std::memory_order_relaxed) + 1;
@@ -5367,8 +5432,14 @@ bool CaptureSubmissionBatchLocked(
                 "unknown or detached command-list marker before submission");
             return false;
         }
-        if (record->expected_queue_identity == 0 ||
-            record->expected_queue_identity != queue_state->identity) {
+        const bool stable_prediction =
+            record->queue_proof == RecordingQueueProof::StableHistory;
+        const bool completed_dependencies =
+            record->queue_proof == RecordingQueueProof::CompletedDependencies;
+        if ((stable_prediction && (record->expected_queue_identity == 0 ||
+             record->expected_queue_identity != queue_state->identity)) ||
+            (completed_dependencies && record->expected_queue_identity != 0) ||
+            (!stable_prediction && !completed_dependencies)) {
             const unsigned long long mismatches =
                 g_queue_affinity_actual_mismatches.fetch_add(
                     1, std::memory_order_relaxed) + 1;
@@ -5380,6 +5451,27 @@ bool CaptureSubmissionBatchLocked(
             batch.quarantine = true;
             MarkLifecycleUncertain(
                 "actual Execute queue contradicted immutable queue prediction");
+        }
+        if (completed_dependencies) {
+            bool complete = true;
+            for (unsigned int c = 0; c < record->context_count; ++c) {
+                const NrContext *context = record->contexts[c];
+                complete = complete && context != nullptr &&
+                    context->pending_recording_token == record->token &&
+                    !context->awaiting_fence_signal &&
+                    IsContextFenceCompleteLocked(*context);
+            }
+            for (unsigned int s = 0; s < record->slot_count; ++s) {
+                const NrSlot *slot = record->slots[s];
+                complete = complete && slot != nullptr &&
+                    slot->recording_command_lists != 0 &&
+                    !slot->awaiting_fence_signal && IsSlotFenceCompleteLocked(*slot);
+            }
+            if (!complete) {
+                batch.quarantine = true;
+                MarkLifecycleUncertain(
+                    "completed-dependency queue proof changed before actual Execute");
+            }
         }
         bool duplicate_in_execute = false;
         for (unsigned int record_index = 0;
@@ -12396,13 +12488,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain 0.4.7beta (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain 0.4.7beta-ds1.1 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain 0.4.7beta | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain 0.4.7beta-ds1.1 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

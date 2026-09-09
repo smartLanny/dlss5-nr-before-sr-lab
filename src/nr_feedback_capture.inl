@@ -121,13 +121,13 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix, RuntimeLoadClassName(load.classes[2]), prefix, load.search);
     FeedbackAppend(s, "%s.scope.config=%u\n%s.scope.epoch=%llu\n%s.scope.featureGeneration=%llu\n%s.scope.mode=%d\n"
         "%s.scope.nrSuccess=%llu\n%s.scope.transferSubmitted=%llu\n%s.queue.admitted=%llu\n%s.queue.unknownBypasses=%llu\n"
-        "%s.queue.predictionBypasses=%llu\n%s.queue.actualMismatches=%llu\n%s.queue.markerFailures=%llu\n"
+        "%s.queue.predictionBypasses=%llu\n%s.queue.actualMismatches=%llu\n%s.queue.markerFailures=%llu\n%s.queue.retiredAdmitted=%llu\n"
         "%s.scope.note=individual atomic observations; only compare matching config/epoch, never infer FPS\n",
         prefix, g_config_generation.load(), prefix, g_pipeline_stats_epoch.load(), prefix, g_pipeline_stats_generation.load(),
         prefix, g_pipeline_stats_mode.load(), prefix, g_pipeline_feature18_success.load(), prefix, g_pipeline_transfer_submitted.load(),
         prefix, g_queue_affinity_admitted_frames.load(), prefix, g_queue_affinity_unknown_bypass_frames.load(),
         prefix, g_queue_affinity_prediction_bypass_frames.load(), prefix, g_queue_affinity_actual_mismatches.load(),
-        prefix, g_queue_affinity_marker_failures.load(), prefix);
+        prefix, g_queue_affinity_marker_failures.load(), prefix, g_queue_retired_admitted_frames.load(), prefix);
 #endif
 #if defined(NR_HAS_COMMAND_STATE_EVIDENCE)
     const auto evidence = SnapshotCommandStateEvidence();
