@@ -1,4 +1,11 @@
 // Adapter from the one production semantic decision to the value-only journal.
+nr_recovery::ViewSignature NrRecoveryViewSignature(const NrResolvedColorView& result) {
+    // Identity follows the actual read/write interpretation. Source strength
+    // and observer-cache call numbers are diagnostics, not a new calculation:
+    // losing/re-observing the same native view must never unlock its failure.
+    return {result.plan.srv, result.plan.uav,
+        static_cast<unsigned>(result.semantic.contract), 1};
+}
 NrResolvedColorView NrRecoveryResolve(NrResolvedColorView result, bool post_sr) {
     auto* frame = g_nr_recovery_carrier;
     if (!frame) return result;
@@ -16,10 +23,7 @@ NrResolvedColorView NrRecoveryResolve(NrResolvedColorView result, bool post_sr) 
     if (frame->command_observed)
         input.command = {FactState::Complete, input.current, "actual-native-command-state-captured", true};
     snapshot.key = {frame->scopes[role], result.key.resource, result.key.resource, 0, role};
-    snapshot.signature = {result.plan.srv, result.plan.uav,
-        static_cast<unsigned>(result.semantic.source),
-        result.semantic.source == Source::ObservedNativeView ? result.evidence.first_call :
-            (static_cast<unsigned long long>(result.semantic.contract) + 1)};
+    snapshot.signature = NrRecoveryViewSignature(result);
     const auto semantic = result.semantic ?
         (result.semantic.source == Source::UniqueContract ? nr_recovery::SemanticState::Unique : nr_recovery::SemanticState::Exact) :
         (result.semantic.definitive ? nr_recovery::SemanticState::Rejected : nr_recovery::SemanticState::Waiting);

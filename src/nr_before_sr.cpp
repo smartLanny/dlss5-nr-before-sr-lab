@@ -7298,6 +7298,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
 void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
                                 const ColorContract &color_contract) {
     CollectSlotDeltaStatsLocked(context, slot);
+    if (!NrRecoveryMayRecord(slot)) return;
     slot.post_boundary_probe_recorded=false;
     ArmStageCaptureLocked(context, slot);
     // The diagnostic UAV clear, atomics, copy and readback are valuable
@@ -8988,6 +8989,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         (render_width!=width || render_height!=height) &&
         EnsureEditRestore(device,*slot,render_width,height);
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
+    if (!NrRecoveryMayRecord(*slot)) {
+        ReleaseCom(device);
+        return substitution;
+    }
     if (context->retired) {
         ReleaseCom(device);
         return substitution;
@@ -9488,6 +9493,10 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ReleaseCom(device);return substitution;
     }
     ArmDeltaStatsCaptureLocked(*slot, *context, color_contract);
+    if (!NrRecoveryMayRecord(*slot)) {
+        ReleaseCom(device);
+        return substitution;
+    }
     if (context->retired) {
         ReleaseCom(device);
         return substitution;

@@ -9,6 +9,7 @@ nr_recovery::Key g_nr_recovery_last_resources[64]{};
 std::atomic<unsigned long long> g_nr_recovery_frame{0};
 unsigned long long NrFormatDeviceIdentity(ID3D12Device*);
 unsigned long long NrFormatResourceIdentity(ID3D12Resource*);
+const char* NrRecoveryFailureReason(const nr_recovery::Failure&);
 
 struct NrRecoverySnapshot {
     nr_compatibility_verdict::Input input{};
@@ -214,4 +215,18 @@ bool NrRecoveryNeedsProbe(const NrSlot& slot) {
     // At most four extra sparse probes for this slot/interpretation; no extra
     // model calls. The regular periodic sample remains the fallback.
     return !proof.writeback_verified && proof.state != nr_recovery::State::Latched && slot.recovery_probe_count < 4;
+}
+bool NrRecoveryMayRecord(const NrSlot& slot) {
+    if (!slot.recovery_token) return true;
+    AcquireSRWLockShared(&g_nr_recovery_lock);
+    const auto proof = g_nr_recovery.Read(slot.recovery_token.key, slot.recovery_token.signature);
+    ReleaseSRWLockShared(&g_nr_recovery_lock);
+    if (proof.state != nr_recovery::State::Latched) return true;
+    if (auto* frame = g_nr_recovery_carrier) {
+        auto& input = frame->snapshot.input;
+        if (!input.first_block.unresolved)
+            input.first_block = {true, true, input.current, NrRecoveryFailureReason(proof.first_failure), true};
+    }
+    SetBypassReason(BypassReason::RuntimeRejected);
+    return false;
 }
