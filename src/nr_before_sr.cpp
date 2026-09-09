@@ -7153,7 +7153,6 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         g_config.color_strength, ActiveTransferStrength(g_config), g_config.color_protection);
     const float effective_color_strength = color_policy.effective_color_strength;
     const unsigned int base_codec_flags = source_flags |
-        (probe_post_store ? 131072u : 0u) |
         ((v2_combine && slot.edit_field_recorded && slot.edit_horizontal_recorded &&
           g_config.low_grid_edit_field && g_config.catmull_edit_restore &&
           g_config.mode==2 && g_config.color_strength<=0.000001f) ? 16384u : 0u) |
@@ -7244,7 +7243,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         // the clear visible before any diagnostic thread updates the buffer.
         UavBarrier(command_list, slot.delta_stats);
     }
-    const unsigned int codec_flags = base_codec_flags | (f8_armed?512u:0u);
+    const unsigned int codec_flags = base_codec_flags | (f8_armed?512u:0u) |
+        (probe_post_store ? 131072u : 0u);
     if (capture_delta) {
         slot.diagnostic_color_policy = color_policy;
         slot.diagnostic_color_strength = effective_color_strength;
