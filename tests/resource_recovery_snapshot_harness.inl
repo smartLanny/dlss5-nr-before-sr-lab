@@ -160,8 +160,107 @@ void FailedAndUnavailableRemainDistinct() {
           "overflow history neither erases nor hides a real failed interpretation");
 }
 
+// Real runtime carrier object with explicitly synthetic values. Passing no
+// command list avoids every device/COM call; only its value scope is supplied.
+struct CpuCarrier {
+    NrRecoveryCarrierScope runtime;
+    explicit CpuCarrier(ValueStream& values) : runtime(nullptr, values.key.scope.feature_generation) {
+        runtime.scopes[0] = values.key.scope;
+        runtime.carriers[0] = g_nr_recovery.ObserveCarrier(values.key.scope, values.key.role, values.next_frame++);
+        runtime.snapshot = g_nr_recovery_snapshot;
+        runtime.snapshot.frame = runtime.carriers[0].frame_id;
+        runtime.selected_role = 0;
+    }
+};
+void NativeViewValue(const nr_native_format::Key& key, unsigned format) {
+    nr_native_format::View view; view.Observe(format);
+    const auto call = g_nr_format_calls.fetch_add(1) + 1;
+    AcquireSRWLockExclusive(&g_nr_format_lock);
+    g_nr_format_ledger.Commit(key, view, call, true);
+    ReleaseSRWLockExclusive(&g_nr_format_lock);
+}
+NrResolvedColorView ResolvedValue(const nr_native_format::Key& key, unsigned format,
+                                  nr_resource_semantics::Source source, nr_resource_semantics::Contract contract) {
+    NrResolvedColorView result;
+    result.key = key; result.evidence = NrFormatEvidence(key);
+    result.plan.srv = format; result.plan.status = nr_format_access::Status::Ready;
+    result.semantic.access = result.plan; result.semantic.source = source;
+    result.semantic.contract = contract; result.semantic.definitive = true;
+    result.semantic.verdict = nr_resource_semantics::Verdict::Admit;
+    result.semantic.reason = "synthetic-CPU-resolved-view";
+    result.semantic.missing_evidence = "none"; result.semantic.next_action = "none";
+    return result;
+}
+void NativeCacheChurn(bool typed) {
+    using namespace nr_resource_semantics;
+    ValueStream stream(typed ? 404 : 405);
+    const unsigned format = typed ? 10u : 28u;
+    const auto contract = typed ? Contract::HdrDeclared : Contract::LdrEncoded;
+    const nr_native_format::Key native_key{stream.key.scope.device, stream.key.resource,
+                                         stream.key.scope.feature_generation, nr_native_format::Role::Color};
+    if (!typed) NativeViewValue(native_key, format);
+    const auto first_view = ResolvedValue(native_key, format, typed ? Source::TypedResource : Source::ObservedNativeView, contract);
+    stream.signature = NrRecoveryViewSignature(first_view);
+    stream.Publish({});
+    nr_recovery::Token failed;
+    {
+        CpuCarrier carrier(stream);
+        const auto resolved = NrRecoveryResolve(first_view, false);
+        failed = NrRecoveryBegin(resolved, false);
+        Check(static_cast<bool>(failed), "production Resolve/Begin admits the initial synthetic view");
+        NrRecoveryRecord(failed, nr_recovery::Stage::NrEvaluate, false, 0xBAD00019u);
+    }
+    if (typed) NativeViewValue(native_key, format);
+    const auto observed = ResolvedValue(native_key, format, Source::ObservedNativeView, contract);
+    {
+        CpuCarrier carrier(stream);
+        const auto resolved = NrRecoveryResolve(observed, false);
+        const auto retry = NrRecoveryBegin(resolved, false);
+        Check(NrRecoveryViewSignature(observed) == failed.signature && !resolved && !retry,
+              "SIGNATURE_SOURCE_ORACLE: stronger observation provenance cannot unlock the same failed read/write interpretation");
+    }
+    const auto before = NrFormatEvidence(native_key);
+    Check(before.Resolved() == format && before.first_call != 0, "actual native ledger contains the synthetic target view before churn");
+    for (unsigned i = 0; i != 256; ++i) {
+        const nr_native_format::Key other{native_key.device, 10000u + native_key.feature * 1000u + i,
+                                         native_key.feature, nr_native_format::Role::Color};
+        NativeViewValue(other, format);
+    }
+    Check(!NrFormatEvidence(native_key).Resolved(), "256 real native-ledger insertions evict the target observation");
+    if (typed) {
+        const auto fallback = ResolvedValue(native_key, format, Source::TypedResource, contract);
+        CpuCarrier carrier(stream);
+        const auto resolved = NrRecoveryResolve(fallback, false);
+        Check(!resolved && !NrRecoveryBegin(resolved, false), "typed physical fallback does not unlock the failed interpretation after native-cache loss");
+    }
+    NativeViewValue(native_key, format);
+    const auto reobserved = ResolvedValue(native_key, format, Source::ObservedNativeView, contract);
+    Check(reobserved.evidence.first_call != before.first_call && reobserved.evidence.Resolved() == format,
+          "re-observation has a genuinely new cache call identity but the same typed view");
+    {
+        CpuCarrier carrier(stream);
+        const auto resolved = NrRecoveryResolve(reobserved, false);
+        const auto retry = NrRecoveryBegin(resolved, false);
+        Check(NrRecoveryViewSignature(reobserved) == failed.signature && !resolved && !retry,
+              "SIGNATURE_CHURN_ORACLE: native-cache eviction and same-view re-observation cannot restart a failed interpretation");
+    }
+    const auto failure = g_nr_recovery.Read(failed.key, failed.signature);
+    Check(failure.state == nr_recovery::State::Latched && failure.first_failure.result == static_cast<std::int32_t>(0xBAD00019u),
+          "real runtime failure latch and first callback result survive native-ledger churn");
+    auto different = reobserved; ++different.plan.srv;
+    Check(!(NrRecoveryViewSignature(different) == failed.signature), "different selected read view remains a distinct interpretation");
+    different = reobserved; ++different.plan.uav;
+    Check(!(NrRecoveryViewSignature(different) == failed.signature), "different selected write view remains a distinct interpretation");
+    different = reobserved; different.semantic.contract = typed ? Contract::LdrEncoded : Contract::HdrDeclared;
+    Check(!(NrRecoveryViewSignature(different) == failed.signature), "different semantic contract remains a distinct interpretation");
+    std::printf("SNAPSHOT_CPU_NATIVE_CACHE physical=%s format=%u first_call=%llu reobserved_call=%llu retained_failure=%d\n",
+                typed ? "typed" : "typeless", format, static_cast<unsigned long long>(before.first_call),
+                static_cast<unsigned long long>(reobserved.evidence.first_call), failure.state == nr_recovery::State::Latched);
+}
+
 int Run(int, char**) {
     ReceiptOverflowHistory(); FrameCapacityHistory(); FailedAndUnavailableRemainDistinct();
+    NativeCacheChurn(true); NativeCacheChurn(false);
     std::printf("SNAPSHOT_CPU %s checks=%u failures=%u; actual production mapper/overflow adapter, synthetic value facts; no GPU/NGX/device\n",
                 failures ? "FAIL" : "PASS", checks, failures);
     return failures ? 41 : 0;
