@@ -47,7 +47,9 @@ void FeedbackAppend(FeedbackSession &s, const char *format, ...) {
 }
 
 #include "nr_compatibility_verdict_feedback.inl"
+#if NR_HAS_TIMING
 #include "nr_timing_feedback.inl"
+#endif
 
 const char *FeedbackStageBlockReason(const ChainConfig &config) {
     if (!config.enabled) return "NR disabled; current-chain screenshots and logs collected without enabling NR";
