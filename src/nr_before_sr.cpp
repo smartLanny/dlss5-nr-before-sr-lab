@@ -5636,7 +5636,7 @@ bool RecordVisibleTransferLocked(ID3D12GraphicsCommandList *command_list,
     if (recovery_token) {
         if (record->recovery_token_count < std::size(record->recovery_tokens))
             record->recovery_tokens[record->recovery_token_count++] = recovery_token;
-        else NrRecoveryReceiptOverflow();
+        else NrRecoveryReceiptOverflow(recovery_token);
     }
     ++record->bound_transfer_count;
     ++record->scoped_bound_transfer_count;
@@ -10053,7 +10053,7 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
             for (unsigned j = 0; record && j < record->recovery_token_count; ++j) {
                 if (batch.recovery_token_count < std::size(batch.recovery_tokens))
                     batch.recovery_tokens[batch.recovery_token_count++] = record->recovery_tokens[j];
-                else NrRecoveryReceiptOverflow();
+                else NrRecoveryReceiptOverflow(record->recovery_tokens[j]);
             }
         }
     }

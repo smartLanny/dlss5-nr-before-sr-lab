@@ -58,7 +58,9 @@ nr_compatibility_verdict::Input SnapshotNrCompatibilityVerdict() {
             recovery.failure_definitive = true;
         }
     }
-    if (snapshot.receipt_overflow || proof.capacity_unknown || proof.frame_evidence_lost) {
+    // Frame/receipt loss is retained history. The ledger's break ordinal and
+    // current window already reject incomplete proof and permit later recovery.
+    if (proof.capacity_unknown) {
         recovery.correlated_window = false;
         recovery.state = recovery.state == RecoveryState::Failed ? RecoveryState::Failed : RecoveryState::Unavailable;
     }

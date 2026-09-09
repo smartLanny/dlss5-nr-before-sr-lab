@@ -190,9 +190,13 @@ nr_recovery::Token NrRecoveryTransferRecorded(unsigned mode) {
     frame->transferred[role] = static_cast<bool>(token);
     return token;
 }
-void NrRecoveryReceiptOverflow() {
+void NrRecoveryReceiptOverflow(const nr_recovery::Token& token) {
     if (auto* frame = g_nr_recovery_carrier) frame->snapshot.receipt_overflow = true;
     AcquireSRWLockExclusive(&g_nr_recovery_lock);
+    // The missing receipt interrupts this exact stream now. Historical loss
+    // remains visible, but three later complete carriers and a new stored read
+    // may prove recovery without forcing an unrelated setting change.
+    g_nr_recovery.InterruptScope(token.key.scope, token.key.role);
     g_nr_recovery_snapshot.receipt_overflow = true;
     ReleaseSRWLockExclusive(&g_nr_recovery_lock);
 }
