@@ -22,8 +22,8 @@ class PictureIntegration(unittest.TestCase):
         self.assertEqual(args[0], 'rev-parse')
         return m.INTEGRATION_CORE_PINS[args[1].removeprefix('HEAD:')].encode()
 
-    def test_all_dline6_ancestors_required(self):
-        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e', '80a6379640cebbd70851d9929790ceee160ace57', '6a0ad7684683993328a7a98a9bea83ac76b01a64', 'ec338d7d9d69230f208b25e4fd457cc79d03c465', 'fa450c9ec2abf2aa48dbdd016b6164626260058b', '2b573c2beb2aa6ea1bacbc2ba4f13cdff49df2dc'))
+    def test_all_dline7_ancestors_required(self):
+        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e', '80a6379640cebbd70851d9929790ceee160ace57', '6a0ad7684683993328a7a98a9bea83ac76b01a64', 'ec338d7d9d69230f208b25e4fd457cc79d03c465', 'fa450c9ec2abf2aa48dbdd016b6164626260058b', '2b573c2beb2aa6ea1bacbc2ba4f13cdff49df2dc', '7182b3fd195c8cfb633eec5fa758f3826001a69f'))
         for missing in m.REQUIRED_ANCESTORS:
             with self.subTest(missing=missing), patch.object(m, 'is_ancestor', side_effect=lambda r, c: c != missing), patch.object(m, 'load') as load:
                 with self.assertRaisesRegex(ValueError, 'Missing integration ancestor'):
@@ -56,6 +56,11 @@ class PictureIntegration(unittest.TestCase):
 
     def test_pins_cover_actual_ui_composition_and_build_dependencies(self):
         self.assertEqual(set(m.INTEGRATION_CORE_PINS), {
+            'src/nr_face_capture_geometry.h',
+            'src/nr_face_diagnostic.h',
+            'src/nr_face_diagnostic_ui.inl',
+            'src/nr_face_region_selection.inl',
+            'src/nr_f8_gpu.inl',
             'src/nr_feedback_picture.inl',
             'config/nr_before_sr.ini',
             'scripts/patch-post-compat.py',
@@ -98,8 +103,8 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_native_command_record.inl',
             'src/interop/nr_post_area.hlsl',
         })
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'e61ca9454549b3391eebe902b8624c146879bfad')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '98f3b17ab6e1a9a2c5b1526d4619c547dee8f9ee')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '8a6fb1bc796826bc0550a96f43d08372ee87a04b')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '3d58a4cc8b92701808a62425980798a70673063b')
 
 if __name__ == '__main__': unittest.main()

@@ -39,6 +39,7 @@
 #include "nr_shortcut_edge.h"
 #include "nr_ui_activity.h"
 #include "nr_work_config.h"
+#include "nr_face_capture_geometry.h"
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
@@ -54,11 +55,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline6";
+constexpr const char *kAddonVersion = "beta0.5-dline7";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline6";
+constexpr const char *kBuildIdentity = "beta0.5-dline7";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -4198,6 +4199,9 @@ struct NrDiagnosticIdentity {
 unsigned long long g_next_nr_instance_id = 0;
 unsigned long long g_next_nr_frame_id = 0;
 NrDiagnosticIdentity g_applied_nr_identity = {};
+// Protected by the same chain lock as g_applied_nr_identity. This publishes
+// dimensions only; readiness of captured pixels still requires the exact fence.
+nr_face_capture_geometry::Sample g_face_capture_geometry = {};
 int g_applied_nr_mode = 0;
 NrDiagnosticIdentity g_last_sample_identity = {}; // diagnostic snapshot lock
 
@@ -4277,6 +4281,7 @@ struct NrStageCapture {
 
 struct NrSlot {
     NrCaptureParams capture_params = {};
+    nr_face_capture_geometry::OutputMapping face_output = {};
     NrStageCapture stage_capture = {};
     ID3D12Resource *key = nullptr;
     ID3D12Resource *source = nullptr;
@@ -7405,6 +7410,12 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     ID3D12GraphicsCommandList_Dispatch(
         command_list, (width + 7) / 8,
         ((pipeline==g_codec.restore_edit_horizontal ? model_height : height)+7)/8, 1);
+    if (any_combine) {
+        g_face_capture_geometry = {width, height, source_base_x, source_base_y,
+            destination_base_x, destination_base_y,
+            g_applied_nr_identity.config_generation,
+            g_applied_nr_identity.instance_id, GetTickCount64(), slot.face_output};
+    }
     if(f8_armed)g_f8_gpu.FinishDispatch(command_list,f8_capture.slot,f8_token);
     if (capture_stages) {
         UavBarrier(command_list, slot.stage_capture.buffer);
@@ -8408,6 +8419,26 @@ struct Substitution {
 
 #include "nr_rr_depth_adapter.inl"
 
+// Snapshot the current game's output mapping before native Evaluate can mutate
+// its parameter block. This is optional CPU metadata, never an NR admission gate.
+nr_face_capture_geometry::OutputMapping ResolveFaceCaptureOutput(
+    const NgxParams *params, const FeatureRecord &feature,
+    unsigned input_width, unsigned input_height) {
+    ID3D12Resource *output = nullptr;
+    if (!GetResource(params, "Output", &output) || !output) return {};
+    const auto desc = ID3D12Resource_GetDesc(output);
+    if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+        desc.DepthOrArraySize != 1 || desc.SampleDesc.Count != 1 ||
+        desc.Width > 16384 || desc.Height > 16384) return {};
+    unsigned x = 0, y = 0, width = 0, height = 0;
+    GetUInt(params, "DLSS.Output.Subrect.Base.X", &x);
+    GetUInt(params, "DLSS.Output.Subrect.Base.Y", &y);
+    if (!ResolveOutputExtentFromEvaluate(params, feature, output, x, y,
+        input_width, input_height, width, height)) return {};
+    if (x || y || width != desc.Width || height != desc.Height)
+        return {};
+    return {width, height, true};
+}
 
 Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                              const NgxHandle *sr_handle,
@@ -8900,6 +8931,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             slot->edit_horizontal_recorded=true;
         }
     }
+    slot->face_output = ResolveFaceCaptureOutput(sr_params, feature, render_width, render_height);
     DispatchCodec(command_list, *slot, g_codec.combine_v2,
                   render_width, render_height, color_contract,
                   (feature.create_flags & 1) != 0, color_x, color_y, 0, 0,
@@ -9216,6 +9248,7 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     substitution.guide_height = guide_height;
     substitution.color_contract = color_contract;
     substitution.guides = guides;
+    slot->face_output = ResolveFaceCaptureOutput(sr_params, feature, guide_width, guide_height);
     substitution.native_output_snapshot = slot->snapshots_native_output;
     // No Output/subrect mutation: native SR completes before the private snapshot.
     g_nr_transfer_attempted_frames.fetch_add(1,
@@ -11754,6 +11787,18 @@ DWORD WINAPI HookWorker(void *) {
 #include "nr_feedback_capture.inl"
 #include "nr_runtime_status.inl"
 #include "nr_feedback_core.inl"
+namespace nr_f8 {
+nr_face_capture_geometry::View SnapshotFaceDiagnosticGeometry(
+    unsigned display_width, unsigned display_height) {
+    EnterCriticalSection(&g_chain_cs);
+    const auto sample = g_face_capture_geometry;
+    const auto generation = g_config_generation.load(std::memory_order_relaxed);
+    const auto instance = g_applied_nr_identity.instance_id;
+    LeaveCriticalSection(&g_chain_cs);
+    return nr_face_capture_geometry::Resolve(sample, generation, instance,
+        GetTickCount64(), display_width, display_height);
+}
+}
 #include "nr_f8_sequence.inl"
 
 void ToggleMasterFromHotkey() {
@@ -11842,8 +11887,12 @@ void PollReportPathClipboard(HWND owner, ULONGLONG now_ms) {
     }
 }
 
+void ServiceFaceDiagnosticSelection(reshade::api::effect_runtime *runtime);
+void CleanupFaceDiagnosticSelection(reshade::api::effect_runtime *runtime);
+
 void OnReShadePresent(reshade::api::effect_runtime *runtime) {
     if (runtime == nullptr) return;
+    ServiceFaceDiagnosticSelection(runtime);
 
     static SRWLOCK screenshot_hotkey_lock = SRWLOCK_INIT;
     static bool screenshot_key_was_down = false;
@@ -12747,13 +12796,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline6 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline7 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline6 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline7 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "
@@ -12830,6 +12879,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::register_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
         reshade::register_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
+        reshade::register_event<reshade::addon_event::destroy_effect_runtime>(OnFaceSelectionRuntimeDestroyed);
         reshade::register_overlay(kSettingsOverlayName, DrawSettings);
         Log("Registered ReShade overlay, F6 toggle and '-' diagnostic screenshot "
             "hotkey (API %u).",
@@ -12842,6 +12892,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             reshade::unregister_event<reshade::addon_event::init_device>(
                 OnCommandStateInitDevice);
             reshade::unregister_overlay(kSettingsOverlayName, DrawSettings);
+            CleanupFaceDiagnosticSelection(nullptr);
+            reshade::unregister_event<reshade::addon_event::destroy_effect_runtime>(OnFaceSelectionRuntimeDestroyed);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
             reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
@@ -12859,6 +12911,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         }
         CloseHandle(worker);
     } else if (reason == DLL_PROCESS_DETACH && reserved == nullptr) {
+        CleanupFaceDiagnosticSelection(nullptr);
+        reshade::unregister_event<reshade::addon_event::destroy_effect_runtime>(OnFaceSelectionRuntimeDestroyed);
         reshade::unregister_event<reshade::addon_event::init_command_list>(
             OnCommandStateInitList);
         reshade::unregister_event<reshade::addon_event::init_device>(
