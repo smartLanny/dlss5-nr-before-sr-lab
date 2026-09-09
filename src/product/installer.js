@@ -178,7 +178,7 @@ function createInstaller(overrides = {}) {
     }
     await saveRefPlan(context, context.plan.receiptNext);
   }
-  async function applyRefUninstall(context, manifest, conflictRestores) {
+  async function applyRefUninstall(context, manifest, conflictRestores, mode = 'restore') {
     if (!context?.plan) return [];
     const { gameDir, exe } = context.input, restored = [], next = structuredClone(context.plan.receiptNext);
     for (const operation of context.plan.operations) {
@@ -186,7 +186,7 @@ function createInstaller(overrides = {}) {
       const mirror = journal.safePath(gameDir, operation.mirrorRel);
       if (await checkedHash(gameDir, mirror) !== operation.expectedMirrorSha256) refError('REF_MIRROR_CHANGED', '卸载前 Core 镜像已变化，整笔卸载将回滚。');
       const conflict = conflictRestores.find(item => relKey(item.sourceRel) === relKey(row.rel));
-      const restoredHash = row.original.existed ? row.original.sha256 : conflict?.sha256 || null;
+      const restoredHash = mode === 'clean' ? null : row.original.existed ? row.original.sha256 : conflict?.sha256 || null;
       const root = journal.safePath(gameDir, row.rel);
       if (await checkedHash(gameDir, root) !== restoredHash) refError('REF_MIRROR_CHANGED', '主 Core 的实际恢复结果与原收据不符，镜像未单独写入。');
       await journal.capture(gameDir, mirror);
@@ -913,7 +913,56 @@ function createInstaller(overrides = {}) {
     });
   }
 
-  async function uninstall({ gameDir, removeSettings = false, scan: suppliedScan }) {
+  async function previewUninstall({ gameDir, mode = 'restore', removeSettings = false, manifestOverride = null, projectedFiles = null }) {
+    if (!['restore', 'clean'].includes(mode)) throw appError('ERR_BAD_REQUEST');
+    const manifest = manifestOverride || readManifest(gameDir);
+    if (!manifest) throw appError('ERR_NOT_INSTALLED');
+    const exe = manifestExecutable(gameDir, manifest), changes = new Map(), retained = [];
+    const currentHash = file => projectedFiles && Object.hasOwn(projectedFiles, path.resolve(file).toLowerCase())
+      ? projectedFiles[path.resolve(file).toLowerCase()] : fs.existsSync(file) && fs.statSync(file).isFile() ? sha256(file) : null;
+    function add(file, role, after, source = null) {
+      const before = currentHash(file);
+      changes.set(path.resolve(file).toLowerCase(), { path: file, name: path.basename(file), role, source,
+        beforeSha256: before, afterSha256: after, action: before === after ? 'keep' : after === null ? 'remove' : before === null ? 'restore' : 'replace' });
+    }
+    for (const row of manifest.files) {
+      validateEntry(gameDir, manifest, row, journal.safePath);
+      const resolution = managedTargetForRow(gameDir, manifest, row), file = resolution.target, actual = currentHash(file);
+      if (resolution.ambiguous && !projectedFiles) throw appError('ERR_FILE_CHANGED', { rel: row.rel });
+      if (row.kind === 'config' && !removeSettings && !row.original.existed) { retained.push(row.rel); continue; }
+      if (actual && (row.kind !== 'config' || row.original.existed) && actual !== row.installedSha256)
+        throw appError('ERR_FILE_CHANGED', { rel: row.rel });
+      const restore = mode === 'restore' && row.original.existed;
+      const source = restore ? journal.safePath(gameDir, row.original.backupRel) : null;
+      if (restore && sha256(source) !== row.original.sha256) throw appError('ERR_BACKUP_INVALID', { rel: row.rel });
+      if (restore && resolution.original !== file) {
+        add(file, row.kind, null); add(resolution.original, row.kind, row.original.sha256, source);
+      } else add(file, row.kind, restore ? row.original.sha256 : null, source);
+    }
+    if (mode === 'restore') {
+      const conflicts = [...new Map([...(manifest.conflicts || [])].reverse().map(row => [row.sourceRel.toLowerCase(), row])).values()];
+      for (const row of conflicts) {
+        const source = journal.safePath(gameDir, row.backupRel);
+        if (!fs.existsSync(source) || sha256(source) !== row.sha256) throw appError('ERR_BACKUP_INVALID', { rel: row.sourceRel });
+        add(journal.safePath(gameDir, row.sourceRel), 'prior-conflict', row.sha256, source);
+      }
+    }
+    for (const row of manifest.sidecars || []) {
+      const file = journal.safePath(gameDir, row.rel);
+      if (currentHash(file) !== row.sha256) { if (fs.existsSync(file)) retained.push(row.rel); continue; }
+      const archive = journal.safePath(gameDir, path.join('_DLSS5_Backup', 'xiaofeng-sidecars', manifest.installId, row.rel));
+      if (currentHash(archive) !== null) throw appError('ERR_FILE_CHANGED', { rel: row.rel });
+      add(file, 'owned-sidecar', null); add(archive, 'sidecar-archive', row.sha256, file);
+    }
+    add(manifestPath(gameDir), 'installation-receipt', null);
+    const history = journal.safePath(gameDir, path.join('_DLSS5_Backup', 'xiaofeng-history', manifest.installId + '.json'));
+    changes.set(path.resolve(history).toLowerCase(), { path: history, name: path.basename(history), role: 'history-receipt',
+      action: 'archive-receipt', beforeSha256: currentHash(history), generated: true });
+    return { mode, exe, removeSettings, changes: [...changes.values()], retainedFiles: retained, backupsRetained: true, requiresConfirmation: true };
+  }
+
+  async function uninstall({ gameDir, removeSettings = false, mode = 'restore', scan: suppliedScan }) {
+    if (!['restore', 'clean'].includes(mode)) throw appError('ERR_BAD_REQUEST');
     const manifest = readManifest(gameDir);
     if (!manifest) throw appError('ERR_NOT_INSTALLED');
     const exePath = manifestExecutable(gameDir, manifest);
@@ -927,7 +976,7 @@ function createInstaller(overrides = {}) {
       // Restoring a filename twice cannot restore both versions. The first
       // quarantine contains the pre-install state; later copies remain in the
       // indexed history instead of producing a half-completed uninstall.
-      const conflictRestores = [...new Map([...(manifest.conflicts || [])].reverse()
+      const conflictRestores = mode === 'clean' ? [] : [...new Map([...(manifest.conflicts || [])].reverse()
         .map(row => [path.normalize(row.sourceRel).toLowerCase(), row])).values()];
       const ownedSidecars = [], retainedSidecars = [], archivedSidecars = [];
       for (const row of manifest.sidecars || []) {
@@ -993,7 +1042,7 @@ function createInstaller(overrides = {}) {
         if (row.kind === 'config' && !removeSettings && !row.original.existed) continue;
         const resolution = rowTargets.get(row), target = resolution.target;
         await journal.capture(gameDir, target);
-        if (row.original.existed) {
+        if (mode === 'restore' && row.original.existed) {
           const backup = journal.safePath(gameDir, row.original.backupRel);
           if (resolution.original !== target) {
             await journal.capture(gameDir, resolution.original);
@@ -1008,7 +1057,7 @@ function createInstaller(overrides = {}) {
         capture: target => journal.capture(gameDir, target)
       });
       if (restoreWarnings.length) throw appError(restoreWarnings[0].code, { warnings: restoreWarnings });
-      const reframeworkMirrors = await applyRefUninstall(refContext, manifest, conflictRestores);
+      const reframeworkMirrors = await applyRefUninstall(refContext, manifest, conflictRestores, mode);
       for (const row of ownedSidecars) {
         // Recheck after asynchronous restore operations. A changed sidecar is
         // retained; it must never prevent restoring the active game files.
@@ -1028,17 +1077,18 @@ function createInstaller(overrides = {}) {
       if (fs.existsSync(history)) throw appError('ERR_FILE_CHANGED', { rel: historyRel });
       await journal.capture(gameDir, history);
       await journal.atomicJson(history, { ...manifest, restoredAt: new Date().toISOString(),
-        restoration: { conflictSources: conflictRestores.map(row => row.sourceRel), retainedSidecars, archivedSidecars, reframeworkMirrors } });
+        restoration: { mode, conflictSources: conflictRestores.map(row => row.sourceRel), retainedSidecars, archivedSidecars, reframeworkMirrors } });
       const file = manifestPath(gameDir);
       await journal.capture(gameDir, file);
       if (fs.existsSync(file)) await fs.promises.unlink(file);
-      return { removed: true, settingsKept, warnings, reframeworkMirrors,
-        restoredOriginalFiles: [...manifest.files.filter(row => row.original.existed).map(row => row.rel), ...conflictRestores.map(row => row.sourceRel)],
+      return { removed: true, mode, settingsKept, warnings, reframeworkMirrors, backupsRetained: true,
+        notice: mode === 'clean' ? '本次受管安装已移除；安装前旧组件未重新放回，原件和历史备份均保留。' : undefined,
+        restoredOriginalFiles: [...manifest.files.filter(row => mode === 'restore' && row.original.existed).map(row => row.rel), ...conflictRestores.map(row => row.sourceRel)],
         historyRel, retainedSidecars, archivedConflictCopies: (manifest.conflicts || []).length - conflictRestores.length };
     });
   }
 
-  return { install, repair, upgradeAddon, toggleD3D12, disableCarrier, uninstall, diagnose, isAddonReShade };
+  return { install, repair, upgradeAddon, toggleD3D12, disableCarrier, uninstall, previewUninstall, diagnose, isAddonReShade };
 }
 
 module.exports = { createInstaller };

@@ -5,9 +5,9 @@ const path = require('path');
 const crypto = require('crypto');
 const { pathToFileURL } = require('url');
 const { assess, isDx11Only } = require('./game-support');
-const { annotateApi, steamEntryContext } = require('./api-evidence');
+const { annotateApi, steamEntryContext, executableApiEvidence } = require('./api-evidence');
 const { detectReEngine } = require('./re-engine-detection');
-const { createLaunchContext } = require('./launch-evidence');
+const { createLaunchContext, steamLaunchIdentity } = require('./launch-evidence');
 const { DX11_COMPAT_VERSION } = require('./constants');
 const { readManifest, manifestPath, manifestExecutable } = require('./manifest');
 const { MESSAGES } = require('./errors');
@@ -113,6 +113,7 @@ async function mapLimit(items, limit, worker) {
 function createLibraryService(overrides = {}) {
   const library = overrides.library || require('../library');
   const scanModule = overrides.scan || require('../core/scan');
+  const peReader = overrides.pe || pe;
 
   function samePath(left, right) {
     return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
@@ -201,19 +202,7 @@ function createLibraryService(overrides = {}) {
   }
 
   function apiEvidence(file) {
-    let imports = [];
-    try { imports = pe.getImports(file); } catch {}
-    const names = new Set(imports.map(name => path.basename(name).toLowerCase()));
-    if (names.has('d3d12.dll')) return { api: 'dxgi', apiLabel: 'DirectX 12', via: 'imports' };
-    if (names.has('d3d11.dll')) return { api: 'dxgi', apiLabel: 'DirectX 11', via: 'imports' };
-    if (names.has('dxgi.dll')) return { api: 'dxgi', apiLabel: 'DirectX (DXGI)', via: 'imports' };
-    try {
-      const markers = pe.findMarkers(file, ['D3D12CreateDevice', 'D3D11CreateDevice', 'CreateDXGIFactory']);
-      if (markers.has('D3D12CreateDevice')) return { api: 'dxgi', apiLabel: 'DirectX 12', via: 'strings' };
-      if (markers.has('D3D11CreateDevice')) return { api: 'dxgi', apiLabel: 'DirectX 11', via: 'strings' };
-      if (markers.has('CreateDXGIFactory')) return { api: 'dxgi', apiLabel: 'DirectX (DXGI)', via: 'strings' };
-    } catch {}
-    return null;
+    return executableApiEvidence(file, peReader);
   }
 
   function candidateScore(candidate, root) {
@@ -257,7 +246,7 @@ function createLibraryService(overrides = {}) {
       const evidence = apiEvidence(preferredExecutable);
       const selected = { path: preferredExecutable, rel: path.relative(root, preferredExecutable), name: path.basename(preferredExecutable),
         api: evidence?.api || 'unknown', apiLabel: evidence?.apiLabel || '图形 API 未知（已选择）', via: evidence?.via || 'manual-selection',
-        bitness: pe.getBitness(preferredExecutable), dx12: evidence?.apiLabel === 'DirectX 12' };
+        bitness: peReader.getBitness(preferredExecutable), dx12: evidence?.apiLabel === 'DirectX 12' };
       return applyChosen({ ...scan, exeCandidates: [...rows, selected] }, selected);
     }
     const best = [...rows]
@@ -276,7 +265,7 @@ function createLibraryService(overrides = {}) {
       const key = path.resolve(full).toLowerCase();
       if (existing.has(key)) return;
       let bitness = null;
-      try { bitness = pe.getBitness(full); } catch {}
+      try { bitness = peReader.getBitness(full); } catch {}
       if (!bitness) return;
       const rel = path.relative(root, full);
       const evidence = apiEvidence(full);
@@ -354,7 +343,7 @@ function createLibraryService(overrides = {}) {
       if (!relative.startsWith('..') && !path.isAbsolute(relative) && fs.existsSync(preferredPath)) {
         let bitness = null;
         let size = 0;
-        try { bitness = pe.getBitness(preferredPath); } catch {}
+        try { bitness = peReader.getBitness(preferredPath); } catch {}
         try { size = fs.statSync(preferredPath).size; } catch {}
         const name = path.basename(preferredPath);
         const evidence = apiEvidence(preferredPath);
@@ -395,7 +384,7 @@ function createLibraryService(overrides = {}) {
     }
     const finalSelected = selectedCandidate ? annotateApi({ ...scan, chosen: {
       ...selectedCandidate, rel: path.relative(gameRoot, selectedCandidate.path)
-    } }, gameRoot, { ...selectionSteamContext, documentsDir: overrides.documentsDir }).chosen : null;
+    } }, gameRoot, { ...selectionSteamContext, documentsDir: overrides.documentsDir, pe: peReader, launchMode: 'exe' }).chosen : null;
     return {
       root: gameRoot,
       name: defaultGameName(gameRoot),
@@ -406,6 +395,7 @@ function createLibraryService(overrides = {}) {
         api: finalSelected.api,
         apiLabel: finalSelected.apiLabel,
         apiResolution: finalSelected.apiResolution,
+        apiAssessment: finalSelected.apiAssessment,
         detectedApi: finalSelected.detectedApi,
         detectedApiResolution: finalSelected.detectedApiResolution,
         supportedApis: finalSelected.supportedApis,
@@ -418,7 +408,7 @@ function createLibraryService(overrides = {}) {
   }
 
   async function scanAll(state) {
-    const launchContext = createLaunchContext();
+    const launchContext = createLaunchContext(overrides.launchEvidence);
     const scans = new Map();
     const scanAt = dir => {
       const key = path.resolve(dir).toLowerCase();
@@ -512,8 +502,21 @@ function createLibraryService(overrides = {}) {
         .filter(value => value?.apiExecutable && scan.chosen && samePath(value.apiExecutable, scan.chosen.path) && value.api !== undefined);
       const apiOverride = boundOverrides[0]?.api || 'auto';
       const entryContext = steamEntryContext(scan.chosen?.path, discoveredGames);
-      scan = annotateApi(scan, game.dir, { ...launchContext(game),
-        steamAppId: game.launcher === 'Steam' ? String(game.id) : null, ...entryContext, documentsDir: overrides.documentsDir, apiOverride });
+      const steamIdentity = steamLaunchIdentity(scan.chosen?.path, discoveredGames);
+      const launchOverrides = [gameOverrides[path.resolve(game.dir).toLowerCase()], gameOverrides[path.resolve(sourceRoot).toLowerCase()],
+        ...Object.entries(gameOverrides).filter(([dir, value]) => value?.launchExecutable && scan.chosen &&
+          isInside(scan.chosen.path, dir) && (isInside(dir, game.dir) || isInside(game.dir, dir))).map(([, value]) => value)]
+        .filter(value => value?.launchExecutable && scan.chosen && samePath(value.launchExecutable, scan.chosen.path) && ['auto', 'steam', 'exe'].includes(value.launchMode));
+      const launchModeOverride = launchOverrides[0]?.launchMode || 'auto';
+      const launchMode = steamIdentity.steamIdentityVerified && (launchModeOverride === 'steam' || (launchModeOverride === 'auto' && game.launcher === 'Steam')) ? 'steam' : 'exe';
+      const launch = launchContext(steamIdentity.steamIdentityVerified
+        ? { ...game, launcher: 'Steam', id: steamIdentity.steamAppId, steamRoot: steamIdentity.steamRoot, launchMode } : { launchMode });
+      let runtimeEvidence = {};
+      if (typeof overrides.runtimeEvidence === 'function' && scan.chosen) {
+        try { runtimeEvidence = await overrides.runtimeEvidence({ game, exe: scan.chosen.path }) || {}; } catch { /* No bound evidence remains unobserved. */ }
+      }
+      scan = annotateApi(scan, game.dir, { ...runtimeEvidence, ...launch, pe: peReader,
+        steamAppId: steamIdentity.steamAppId || null, ...entryContext, documentsDir: overrides.documentsDir, apiOverride });
       let manifest = null;
       try { manifest = readManifest(game.dir); } catch {}
       const carrierEnabled = isDx11Only(scan.chosen);
@@ -531,6 +534,16 @@ function createLibraryService(overrides = {}) {
         name: (override && override.name) || game.name || scan.gameName || path.basename(game.dir),
         launcher: game.launcher || '本地游戏',
         appid: game.id || null,
+        steamAppId: steamIdentity.steamAppId || null,
+        verifiedSteamAppId: steamIdentity.steamAppId || null,
+        steamRoot: steamIdentity.steamRoot || null,
+        steamEntryRoot: steamIdentity.steamEntryRoot || null,
+        steamIdentityVerified: steamIdentity.steamIdentityVerified === true,
+        steamAccountVerified: launch.steamAccountVerified === true,
+        launchMode,
+        launchModeOverride,
+        launchExecutable: scan.chosen?.path || null,
+        launchUnavailableReason: launchModeOverride === 'steam' && !steamIdentity.steamIdentityVerified ? 'STEAM_IDENTITY_UNVERIFIED' : null,
         engine,
         dir: game.dir,
         rootAliases: [...new Set([sourceRoot, game.dir])],
@@ -542,6 +555,7 @@ function createLibraryService(overrides = {}) {
           api: scan.chosen.api,
           apiLabel: scan.chosen.apiLabel,
           apiResolution: scan.chosen.apiResolution,
+          apiAssessment: scan.chosen.apiAssessment,
           detectedApi: scan.chosen.detectedApi,
           detectedApiResolution: scan.chosen.detectedApiResolution,
           supportedApis: scan.chosen.supportedApis,

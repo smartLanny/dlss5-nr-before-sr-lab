@@ -33,6 +33,22 @@ const state = {
   routeDrafts: new Map(),
   installing: new Set()
 };
+let gamePageController = null;
+function openGamePage(id, initialTab = 'overview') {
+  if (!window.GamePageUi || typeof window.manager.assessGame !== 'function') return;
+  const show = () => {
+    state.expanded = null; state.activeView = 'game-detail';
+    document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === 'view-game-detail'));
+    document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.view === 'games'));
+    $('pageTitle').textContent = '游戏详情'; $('pageSubtitle').textContent = '检查兼容性，集中应用修改，保留恢复记录';
+    gamePageController ||= window.GamePageUi.mount($('view-game-detail'), window.manager, {
+      onBack: () => { gamePageController.discard(); switchView('games'); },
+      onChanged: async () => { state.games = mergeGameVisuals(state.games, unwrap(await window.manager.listGames())); renderGames(); }
+    });
+    void gamePageController.open(id, initialTab);
+  };
+  if (gamePageController?.hasDraft()) gamePageController.requestLeave(show); else show();
+}
 
 function unwrap(result) {
   if (!result || result.ok !== true) {
@@ -322,6 +338,7 @@ function visibleGames() {
 }
 
 function cardAction(game) {
+  if (typeof window === 'object' && typeof window.manager?.assessGame === 'function') return '<button class="button primary open-game-page-btn" type="button">查看详情</button><button class="button subtle rename-game-btn" type="button" title="修改游戏名称">改名</button>';
   const installBusy = Boolean(state.installing && state.installing.has(game.id));
   const installButton = `<button class="button primary install-btn${installBusy ? ' is-busy' : ''}" aria-live="polite" aria-busy="${installBusy}"${installBusy ? ' disabled' : ''}>${installBusy ? '<span class="button-spinner" aria-hidden="true"></span><span>正在安装…</span>' : '一键安装'}</button>`;
   const rename = '<button class="button subtle rename-game-btn" type="button" title="修改游戏名称">改名</button>';
@@ -707,7 +724,7 @@ function renderGames(options = {}) {
     <div class="game-card-head">
       ${poster(game)}
       <div class="game-meta"><div class="game-title"><h3>${escapeHtml(game.name)}</h3>${supportBadge(game)}</div><p>${escapeHtml(game.launcher)} · ${escapeHtml(game.chosen ? `${gameApiLabel(game.chosen)} / ${game.chosen.bitness} 位` : game.supportText)}</p>${game.chosen?.path ? `<p class="game-exe-path" title="${escapeHtml(game.chosen.path)}">${escapeHtml(game.chosen.path)}</p>` : ''}</div>
-      <div class="card-action">${cardAction(game)}<button class="expand-arrow" type="button" aria-label="展开或收起游戏详情" aria-expanded="${state.expanded === game.id}">⌄</button></div>
+      <div class="card-action">${cardAction(game)}${typeof window.manager.assessGame === 'function' ? '' : `<button class="expand-arrow" type="button" aria-label="展开或收起游戏详情" aria-expanded="${state.expanded === game.id}">⌄</button>`}</div>
     </div>
     ${state.expanded === game.id ? gameDetail(game) : ''}
   </article>`).join('');
@@ -798,6 +815,12 @@ function bindGameCards() {
   document.querySelectorAll('.game-card').forEach(card => {
     const id = card.dataset.id;
     const game = state.games.find(row => row.id === id);
+    if (typeof window.manager.assessGame === 'function') {
+      card.querySelector('.game-card-head').onclick = event => { if (!event.target.closest('.rename-game-btn')) openGamePage(id); };
+      const rename = card.querySelector('.rename-game-btn');
+      if (rename) rename.onclick = event => { event.stopPropagation(); confirmRenameGame(id); };
+      return;
+    }
     const detail = card.querySelector('.game-detail');
     if (detail?.querySelector('.preparation-host')) void loadPreparationCard(detail.querySelector('.preparation-host'), game);
     if (detail && !detail.detailTabController && window.GameDetailTabs) {
@@ -1272,6 +1295,7 @@ function confirmUninstall(id) {
 
 function openMaintenance(id) {
   if (state.busy) return;
+  if (typeof window.manager.assessGame === 'function') { openGamePage(id, 'maintenance'); return; }
   const game = state.games.find(row => row.id === id);
   if (!game || !window.gameMaintenanceUi) return;
   return window.gameMaintenanceUi.open({ game, manager: window.manager,
@@ -1368,6 +1392,9 @@ function closeModal(result = false) {
 }
 
 function switchView(view) {
+  if (state.activeView === 'game-detail' && gamePageController?.hasDraft()) {
+    gamePageController.requestLeave(() => { gamePageController.discard(); switchView(view); }); return;
+  }
   state.activeView = view;
   document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === `view-${view}`));
   document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.view === view));

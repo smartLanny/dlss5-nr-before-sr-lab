@@ -376,8 +376,9 @@ function createVulkanDeployment(options = {}) {
   }
   async function inspect(game) { return locked(() => inspectLocked(game)); }
 
-  async function prepare(game, recipe) {
-    return locked(async () => {
+  async function prepare(game, recipe, previewOnly = false) {
+    const run = previewOnly ? async work => { await noLinks(lockPath); if (fs.existsSync(lockPath)) fail('VULKAN_BUSY', 'Vulkan 部署正在进行，请稍后重新预览。'); return work(); } : locked;
+    return run(async () => {
       assertAdapters(); const target = validateGame(game);
       if (await readPending()) fail('VULKAN_RECOVERY_FIRST', '请先恢复未完成的 Vulkan 部署操作。');
       const launch = await inspectLaunchContext(target);
@@ -392,7 +393,7 @@ function createVulkanDeployment(options = {}) {
         const blockers = await receiptBlockers(receipt);
         if (blockers.length) fail('VULKAN_STATE_CHANGED', '现有 Vulkan layer 状态与收据不一致，未增加新引用。', { blockers });
       }
-      if (receipt?.refs.some(ref => samePath(ref.exe, target.exe))) return { prepared: false, unchanged: true, ...(await inspectLocked(target)) };
+      if (receipt?.refs.some(ref => samePath(ref.exe, target.exe))) return { prepared: false, unchanged: true, changes: [], ...(await inspectLocked(target)) };
 
       const tx = crypto.randomUUID(), targetDir = path.join(layerRoot, recipe.id);
       const targetManifest = path.join(targetDir, path.basename(recipe.layer.manifest));
@@ -468,7 +469,7 @@ function createVulkanDeployment(options = {}) {
           if (fs.existsSync(targetDir)) {
             const entries = await fsp.readdir(targetDir);
             if (entries.length) fail('VULKAN_FILE_CHANGED', 'Manager layer 目录已存在但没有有效收据。');
-            try { await fsp.rmdir(targetDir); }
+            try { if (!previewOnly) await fsp.rmdir(targetDir); }
             catch (error) { if (error.code === 'ENOTEMPTY' || error.code === 'EEXIST') fail('VULKAN_FILE_CHANGED', 'Manager layer 目录在重试前被外部创建。'); throw error; }
           }
           const registryBefore = await registryRead(targetManifest);
@@ -482,7 +483,7 @@ function createVulkanDeployment(options = {}) {
       const groupKey = activationGroupKey(target.exe);
       const sharedRefs = receipt?.refs.filter(item => refGroupKey(item) === groupKey) || [];
       const owner = sharedRefs.find(item => item.activation.ownerBefore && item.activation.ownerAfter) || sharedRefs.find(item => item.activation.mode === 'owned');
-      const activationAfter = owner ? (owner.activation.ownerAfter || owner.activation.after) : activationBefore.active ? activationBefore : { active: true, token: await activationToken(target.exe, `${PRODUCT}:${tx}`) };
+      const activationAfter = owner ? (owner.activation.ownerAfter || owner.activation.after) : activationBefore.active ? activationBefore : { active: true, token: previewOnly ? 'planned-owned-activation' : await activationToken(target.exe, `${PRODUCT}:${tx}`) };
       const ownerBefore = owner ? (owner.activation.ownerBefore || owner.activation.before) : activationBefore;
       const ownerAfter = owner ? (owner.activation.ownerAfter || owner.activation.after) : activationAfter;
       const ownsActivation = !activationBefore.active && !owner;
@@ -500,6 +501,7 @@ function createVulkanDeployment(options = {}) {
       const pending = { version: 1, product: PRODUCT, transactionId: tx, operation: 'prepare', stage: 'planned', beforeReceipt: receipt, targetReceipt,
         registry: layer.mode === 'owned' && !receipt ? { name: targetManifest, before: layer.registryBefore, after: layer.registryAfter } : null,
         activation: activationBefore.active ? null : { exe: target.exe, before: activationBefore, after: activationAfter }, files };
+      if (previewOnly) return deploymentPreview(pending, layer, false);
       await atomicJson(pendingPath, pending);
       try {
         if (files.length) {
@@ -526,12 +528,13 @@ function createVulkanDeployment(options = {}) {
     });
   }
 
-  async function restore(game) {
-    return locked(async () => {
+  async function restore(game, previewOnly = false) {
+    const run = previewOnly ? async work => { await noLinks(lockPath); if (fs.existsSync(lockPath)) fail('VULKAN_BUSY', 'Vulkan 部署正在进行，请稍后重新预览。'); return work(); } : locked;
+    return run(async () => {
       assertAdapters(); const target = validateGame(game); if (await readPending()) fail('VULKAN_RECOVERY_FIRST', '请先恢复未完成的 Vulkan 部署操作。');
-      const receipt = await readReceipt(); if (!receipt) return { restored: false, unchanged: true };
+      const receipt = await readReceipt(); if (!receipt) return { restored: false, unchanged: true, changes: [] };
       const index = receipt.refs.findIndex(ref => samePath(ref.exe, target.exe));
-      if (index < 0) return { restored: false, unchanged: true };
+      if (index < 0) return { restored: false, unchanged: true, changes: [] };
       const ref = receipt.refs[index]; await noLinks(ref.exe);
       if (await digestFile(ref.exe) !== ref.exeSha256 && fs.existsSync(ref.exe)) fail('VULKAN_GAME_CHANGED', '游戏 EXE 与 Vulkan 引用记录不一致。');
       let refs = receipt.refs.filter((_, i) => i !== index);
@@ -556,6 +559,11 @@ function createVulkanDeployment(options = {}) {
       const pending = { version: 1, product: PRODUCT, transactionId: tx, operation: 'restore', stage: 'planned', beforeReceipt: receipt, targetReceipt,
         activation: ref.activation.mode === 'owned' && !remainingGroupRefs.length ? { exe: ref.exe, before: ref.activation.before, after: ref.activation.after } : null,
         registry: !refs.length && receipt.layer.mode === 'owned' ? { name: receipt.layer.manifest, before: receipt.layer.registryBefore, after: receipt.layer.registryAfter } : null, files };
+      if (previewOnly) {
+        const currentRegistry = receipt.layer.registryScope === 'HKLM' ? await machineRead(receipt.layer.manifest) : await registryRead(receipt.layer.manifest);
+        if (!sameState(currentRegistry, receipt.layer.registryAfter)) fail('VULKAN_REGISTRY_CHANGED', 'Vulkan 注册值在恢复前已改变。');
+        return deploymentPreview(pending, receipt.layer, true);
+      }
       await atomicJson(pendingPath, pending);
       try {
         for (const item of files) {
@@ -576,7 +584,29 @@ function createVulkanDeployment(options = {}) {
 
   async function recover() { return locked(recoverLocked); }
 
-  return Object.freeze({ inspect, prepare, restore, recover, receiptPath, pendingPath, lockPath });
+  async function deploymentPreview(pending, layer, removing) {
+    const changes = pending.files.map(file => ({ path: file.target, name: path.basename(file.target), role: 'vulkan-layer',
+      beforeSha256: file.before.sha256 || null, afterSha256: file.after.sha256 || null, action: removing ? 'remove' : 'create' }));
+    if (!pending.files.length) for (const [file, hash] of [[layer.manifest, layer.manifestSha256 || pending.beforeReceipt?.recipe.manifestSha256],
+      [layer.library, layer.librarySha256 || pending.beforeReceipt?.recipe.librarySha256]])
+      changes.push({ path: file, name: path.basename(file), role: 'vulkan-layer', beforeSha256: hash, afterSha256: hash, action: 'keep', reused: layer.mode === 'reused' });
+    const registryChange = pending.registry;
+    changes.push({ path: `${layer.registryScope || 'HKCU'}\\${registry.identity.key}\\${layer.manifest}`, name: layer.manifest,
+      role: 'vulkan-registry', type: 'registry', action: registryChange ? removing ? 'restore' : 'create' : 'keep',
+      before: registryChange ? registryChange[removing ? 'after' : 'before'] : layer.registryAfter,
+      after: registryChange ? registryChange[removing ? 'before' : 'after'] : layer.registryAfter });
+    if (pending.activation) {
+      const file = path.join(path.dirname(pending.activation.exe), 'ReShade.ini');
+      changes.push({ path: file, name: 'ReShade.ini', role: 'vulkan-activation', beforeSha256: await digestFile(file),
+        ...(removing ? { afterSha256: null } : {}), action: removing ? 'archive-remove' : 'create' });
+    }
+    changes.push({ path: receiptPath, name: path.basename(receiptPath), role: 'receipt', beforeSha256: await digestFile(receiptPath),
+      ...(pending.targetReceipt ? {} : { afterSha256: null }), action: pending.targetReceipt ? pending.beforeReceipt ? 'update' : 'create' : 'remove' });
+    return { changes, owned: layer.mode === 'owned', reused: layer.mode === 'reused', refs: pending.targetReceipt?.refs.length || 0, runtimeVerified: false };
+  }
+
+  return Object.freeze({ inspect, prepare, restore, recover, previewPrepare: (game, recipe) => prepare(game, recipe, true),
+    previewRestore: game => restore(game, true), peek: inspectLocked, receiptPath, pendingPath, lockPath });
 }
 
 module.exports = { createVulkanDeployment, PRODUCT };

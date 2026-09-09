@@ -10,6 +10,7 @@ const { createFgComponents: createLegacy } = require('../src/product/fg-legacy-c
 const { ADDON, SHA256, sha256 } = require('../src/product/fg-mfgunlock-resources');
 const journal = require('../src/core/file-journal');
 const { createLaunchSettingsService } = require('../src/product/launch-settings-service');
+const { enhancementEvidence } = require('./helpers/enhancement-evidence');
 const resourceRoot = path.resolve(__dirname, '../resources');
 
 function fixture(t, overrides = {}) {
@@ -363,6 +364,7 @@ test('new components and launch settings own separate receipts and restore an ex
   const f = fixture(t), ini = path.join(f.dir, 'ReShade.ini');
   const original = '[GENERAL]\nPresetPath=user.ini\n'; fs.writeFileSync(ini, original);
   const settings = createLaunchSettingsService({ userData: path.join(f.root, 'user'), appDir: f.root,
+    getFeatureEvidence: async () => enhancementEvidence(),
     gameDirectory: () => f.game, gameExecutable: () => f.exe, detectHardware: async () => ({ series: ['RTX40'] }),
     environment: async () => ({ verified: true, running: [] }), peBitness: () => 64,
     assertComponents: async () => { if (!(await f.service.inspect('g')).ready) throw Object.assign(new Error('components required'), { code: 'SETTINGS_FG_COMPONENTS_REQUIRED' }); } });
@@ -380,6 +382,7 @@ test('workflow restores old fixed settings before asking component migration rea
   const { createFgWorkflow } = require('../src/product/fg-workflow');
   const f = fixture(t); fs.writeFileSync(path.join(f.dir, 'ReShade.ini'), '[GENERAL]\nPresetPath=user.ini\n');
   const settings = createLaunchSettingsService({ userData: path.join(f.root, 'user'), appDir: f.root, allowLegacyControl: true,
+    getFeatureEvidence: async () => enhancementEvidence(),
     gameDirectory: () => f.game, gameExecutable: () => f.exe, detectHardware: async () => ({ series: ['RTX40'] }),
     environment: async () => ({ verified: true, running: [] }), peBitness: () => 64,
     assertComponents: async (id, backend) => { const status = await (backend === 'rtx40' ? f.legacy : f.service).inspect(id); if (!status.ready) throw new Error(status.blockers.join('\n')); } });
@@ -391,4 +394,111 @@ test('workflow restores old fixed settings before asking component migration rea
   assert.equal(result.migrated, true); assert.equal((await f.service.inspect('g')).migrationPending, false);
   assert.equal(fs.existsSync(path.join(f.dir, 'RTX40MFG-Universal.json')), false);
   assert.match(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), /ForceMultiplier=3/);
+});
+
+test('confirmed external layout installs and restores only the pinned addon inside its own journal root', async t => {
+  const f = fixture(t), active = path.join(f.root, 'external', 'active'), closedRoots = [];
+  fs.mkdirSync(active, { recursive: true });
+  const ini = path.join(active, 'ReShade.ini'), nr = path.join(active, 'renodx-dlss.addon64');
+  fs.writeFileSync(ini, '[GENERAL]\nPresetPath=user.ini\n'); fs.writeFileSync(nr, 'existing NR');
+  const layout = { verified: true, mode: 'external', exe: f.exe, addonDirectory: active, activeConfigPath: ini };
+  const service = createFgComponents({ ...f.options, getLayout: () => layout, assertGameClosed: async root => closedRoots.push(root) });
+  const result = await service.prepare('g');
+  assert.equal(result.runtimeVerified, false); assert.equal(fs.existsSync(f.addon), false);
+  assert.equal(sha256(bytes(path.join(active, ADDON))), SHA256);
+  assert.equal(path.dirname(path.dirname(service.receiptFile('g'))), active);
+  assert.equal(closedRoots.every(root => root === f.game), true);
+  await service.restore('g');
+  assert.equal(fs.existsSync(path.join(active, ADDON)), false);
+  assert.equal(fs.readFileSync(nr, 'utf8'), 'existing NR'); assert.equal(fs.readFileSync(ini, 'utf8'), '[GENERAL]\nPresetPath=user.ini\n');
+  assert.equal(fs.existsSync(journal.pendingPath(active)), false); assert.equal(fs.existsSync(journal.pendingPath(f.game)), false);
+});
+
+test('external MFG interrupted copy is recoverable by its own owner without touching game peer files', async t => {
+  const f = fixture(t), active = path.join(f.root, 'active'); fs.mkdirSync(active);
+  const layout = { verified: true, mode: 'external', exe: f.exe, addonDirectory: active, activeConfigPath: path.join(active, 'ReShade.ini') };
+  const options = { ...f.options, getLayout: () => layout, copyFile: async (...args) => { await fsp.copyFile(...args); throw Object.assign(Error('interrupted external copy'), { preservePending: true }); } };
+  const service = createFgComponents(options);
+  await assert.rejects(service.prepare('g'), { code: 'errBackendRecovery' });
+  assert.equal((await service.inspectPending('g')).fileRecoveryPending, true);
+  const peer = path.join(f.dir, 'renodx-dlss.addon64'); fs.writeFileSync(peer, 'peer NR');
+  await createFgComponents({ ...f.options, getLayout: () => layout }).recoverPending('g');
+  assert.equal(fs.existsSync(path.join(active, ADDON)), false); assert.equal(fs.readFileSync(peer, 'utf8'), 'peer NR');
+});
+
+test('layout identity mismatch and outstanding local MFG receipts cannot silently relocate the addon', async t => {
+  const f = fixture(t), active = path.join(f.root, 'active'); fs.mkdirSync(active);
+  const layout = { verified: true, mode: 'external', exe: f.exe, addonDirectory: active, activeConfigPath: path.join(active, 'ReShade.ini') };
+  const service = createFgComponents({ ...f.options, getLayout: () => layout });
+  layout.exe = path.join(f.dir, 'Other.exe');
+  await assert.rejects(service.prepare('g'), { code: 'SETTINGS_FG_LAYOUT_UNVERIFIED' });
+  layout.exe = f.exe; await f.service.prepare('g');
+  assert.ok((await service.inspect('g')).blockers.some(text => text.includes('旧本地')));
+  await assert.rejects(service.prepare('g'), { code: 'SETTINGS_FG_BLOCKED' });
+  assert.equal(fs.existsSync(path.join(active, ADDON)), false);
+});
+
+test('NR and HDR addons are distinct from MFG, while a renamed identical MFG binary is still a conflict', async t => {
+  const f = fixture(t), dir = path.join(f.dir, 'addons', 'mfg-tools'); fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'renodx-dlss.addon64'), 'NR addon');
+  fs.writeFileSync(path.join(dir, 'renodx-hdr.addon64'), 'HDR addon');
+  assert.deepEqual((await f.service.inspect('g')).conflicts, []);
+  fs.copyFileSync(path.join(f.resources, 'fg-mfgunlock', ADDON), path.join(dir, 'renamed-addon.addon64'));
+  assert.ok((await f.service.inspect('g')).conflicts.some(text => text.includes('renamed-addon')));
+});
+test('owned module manifest comes from the verified MFG receipt and never blesses an unowned disk hash', async t => {
+  const f = fixture(t), active = path.join(f.root, 'active'); fs.mkdirSync(active);
+  const layout = { verified: true, mode: 'external', exe: f.exe, addonDirectory: active, activeConfigPath: path.join(active, 'ReShade.ini') };
+  const service = createFgComponents({ ...f.options, getLayout: () => layout }), addon = path.join(active, ADDON);
+  fs.copyFileSync(path.join(f.resources, 'fg-mfgunlock', ADDON), addon);
+  assert.deepEqual(await service.ownedModuleManifest('g'), []);
+  await service.prepare('g'); const receiptBefore = bytes(service.receiptFile('g'));
+  assert.deepEqual(await service.ownedModuleManifest('g'), [{ path: addon, name: ADDON, role: 'mfgunlock', sha256: SHA256, architecture: 64, owner: 'fg-mfgunlock' }]);
+  assert.deepEqual(bytes(service.receiptFile('g')), receiptBefore);
+  fs.writeFileSync(addon, 'changed MFG'); await assert.rejects(service.ownedModuleManifest('g'), { code: 'SETTINGS_FG_EXTERNAL_CHANGE' });
+  const receipt = JSON.parse(receiptBefore); receipt.files[0].after = sha256(bytes(addon)); fs.writeFileSync(service.receiptFile('g'), JSON.stringify(receipt));
+  await assert.rejects(service.ownedModuleManifest('g'), { code: 'SETTINGS_FG_RECEIPT' }); assert.equal(fs.readFileSync(addon, 'utf8'), 'changed MFG');
+});
+
+function specialService(f, source, options = {}) {
+  const runtimeDir = source === 'feeder' ? f.dir : path.join(f.root, source + '-profile'), addonDirectory = path.join(runtimeDir, 'addons');
+  fs.mkdirSync(addonDirectory, { recursive: true });
+  const layout = { source, mode: 'local', verified: true, exe: f.exe, runtimeDir, addonDirectory, activeConfigPath: path.join(runtimeDir, 'ReShade.ini') };
+  return { layout, service: createFgComponents({ ...f.options, getLayout: () => layout, ...options }) };
+}
+for (const source of ['vulkan', 'feeder']) test(`${source} without an FG record is not applicable and does not block restoration`, async t => {
+  const f = fixture(t), { service, layout } = specialService(f, source), peer = path.join(layout.addonDirectory, 'peer.addon64'); fs.writeFileSync(peer, 'fixed owner peer');
+  const status = await service.inspect('g'); assert.equal(status.notApplicable, true); assert.equal(status.needsCleanup, false); assert.equal(status.canPrepare, false);
+  assert.deepEqual(await service.ownedModuleManifest('g'), []); assert.equal((await service.restore('g')).unchanged, true);
+  assert.equal((await service.inspectMigration('g')).migrationPending, false); assert.equal((await service.inspectPending('g')).fileRecoveryPending, false);
+  assert.equal(fs.readFileSync(peer, 'utf8'), 'fixed owner peer');
+});
+test('fixed Vulkan still restores a previous local owner and refuses a changed owned MFG file', async t => {
+  for (const changed of [false, true]) {
+    const f = fixture(t); await f.service.prepare('g'); const { service, layout } = specialService(f, 'vulkan');
+    const peer = path.join(layout.addonDirectory, 'peer.addon64'); fs.writeFileSync(peer, 'Vulkan peer');
+    assert.equal((await service.inspect('g')).needsCleanup, true);
+    if (changed) {
+      fs.writeFileSync(f.addon, 'external change'); await assert.rejects(service.restore('g'), { code: 'SETTINGS_FG_EXTERNAL_CHANGE' });
+      assert.equal(fs.readFileSync(f.addon, 'utf8'), 'external change'); assert.equal(fs.existsSync(f.receipt), true);
+    } else { assert.equal((await service.restore('g')).restored, true); assert.equal(fs.existsSync(f.addon), false); }
+    assert.equal(fs.readFileSync(peer, 'utf8'), 'Vulkan peer');
+  }
+});
+test('fixed Vulkan preserves legacy local recovery and never ignores dedicated FG records', async t => {
+  const old = fixture(t); await old.legacy.prepare('g'); const legacySpecial = specialService(old, 'vulkan');
+  assert.equal((await legacySpecial.service.inspect('g')).legacyNeedsMigration, true);
+  assert.equal((await legacySpecial.service.restore('g')).restored, true); assert.equal(fs.existsSync(old.receipt), false);
+  const f = fixture(t), { service, layout } = specialService(f, 'vulkan');
+  const priorLayout = { ...layout, source: 'external', mode: 'external', activeConfigPath: path.join(layout.addonDirectory, 'ReShade.ini') };
+  const prior = createFgComponents({ ...f.options, getLayout: () => priorLayout }); await prior.prepare('g');
+  const addon = path.join(layout.addonDirectory, ADDON); fs.writeFileSync(addon, 'dedicated external change');
+  assert.equal((await service.inspect('g')).needsCleanup, true); await assert.rejects(service.restore('g'), { code: 'SETTINGS_FG_EXTERNAL_CHANGE' });
+  assert.equal(fs.existsSync(prior.receiptFile('g')), true); assert.equal(fs.readFileSync(addon, 'utf8'), 'dedicated external change');
+});
+test('special routes retain interrupted FG owner recovery even when no receipt was written yet', async t => {
+  const f = await interruptedNewAddon(t), { service } = specialService(f, 'vulkan');
+  assert.equal((await service.inspectPending('g')).fileRecoveryPending, true);
+  await assert.rejects(service.restore('g'), { code: 'SETTINGS_FG_FILE_RECOVERY_REQUIRED' });
+  await service.recoverPending('g'); assert.equal(fs.existsSync(f.pending), false); assert.equal(fs.existsSync(f.addon), false);
 });

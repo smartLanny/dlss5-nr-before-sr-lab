@@ -177,7 +177,7 @@ function createGameApiSettings(options = {}) {
     await assertGameClosed(id.entryRoot, id.exe);
   }
 
-  async function apply(game, api) {
+  async function apply(game, api, previewOnly = false) {
     const requested = text(api).toLowerCase();
     if (requested === 'auto') return noOp('auto');
     const id = identity(game);
@@ -202,6 +202,19 @@ function createGameApiSettings(options = {}) {
     if (!plan.changed) return noOp(requested);
 
     const exeHash = await hashFile(id.exe);
+    if (previewOnly) {
+      const backup = path.join(userData, 'game-api-backups', exeHash, `${plan.beforeSha256}.xml`);
+      await noLinks(backup);
+      let backupHash = null;
+      try { backupHash = hashBytes(await fs.readFile(backup)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      if (backupHash && backupHash !== plan.beforeSha256) fail('GAME_API_BACKUP_CONFLICT', 'RDR2 配置备份摘要冲突。');
+      return { applied: false, changed: true, api: requested, changes: [
+        { path: backup, name: path.basename(backup), role: 'game-api-backup', beforeSha256: backupHash,
+          afterSha256: plan.beforeSha256, action: backupHash ? 'keep' : 'create' },
+        { path: plan.file, name: path.basename(plan.file), role: 'game-api-settings', beforeSha256: plan.beforeSha256,
+          afterSha256: plan.afterSha256, action: 'replace', beforeApi: rawPlan.before?.api, afterApi: requested }
+      ] };
+    }
     const backup = await saveBackup(userData, exeHash, plan.beforeSha256, plan.beforeBytes);
     await closed(id);
     await noLinks(plan.file);
@@ -248,7 +261,7 @@ function createGameApiSettings(options = {}) {
     });
   }
 
-  return Object.freeze({ apply });
+  return Object.freeze({ apply, preview: (game, api) => apply(game, api, true) });
 }
 
 module.exports = { createGameApiSettings, RDR2_APP_ID, RDR2_KIND };

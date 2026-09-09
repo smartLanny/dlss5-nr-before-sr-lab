@@ -13,6 +13,16 @@ const explicit = value => ({ kind: 'explicit', value, location: 0, predefined: f
 const inherited = value => ({ kind: 'inherited', value, location: 1, predefined: true });
 const settings = (...pairs) => Object.fromEntries(pairs.map(([id, value]) => [id, value]));
 
+test('setting metadata remains explicitly driver-wide and validates a bounded enumeration', async () => {
+  let request;
+  const adapter = createNvapiProfileAdapter({ runner: async value => { request = value; return { ok: true, settingIds: [SR_OVERRIDE], version: 59597 }; } });
+  const result = await adapter.inspectSettings(EXE);
+  assert.equal(request.op, 'inspect-settings'); assert.equal(result.perGameSupport, false); assert.equal(result.version, 59597);
+  assert.deepEqual(result.settingIds, [SR_OVERRIDE]);
+  for (const result of [{ ok: true, settingIds: [123] }, { ok: true, settingIds: [SR_OVERRIDE, SR_OVERRIDE] }, { ok: true, settingIds: [], version: '595.97' }])
+    await assert.rejects(createNvapiProfileAdapter({ runner: async () => result }).inspectSettings(EXE), { code: 'NVAPI_INVALID_RESPONSE' });
+});
+
 test('read uses a normalized full path and returns explicit, inherited, and absent states intact', async () => {
   let request;
   const adapter = createNvapiProfileAdapter({ runner: async value => {

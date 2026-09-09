@@ -175,6 +175,52 @@ function createFeederService(options) {
     const evidence = await readFeederEvidence({ exeDir: target.dir, lastLaunch: row.lastLaunch });
     return { ...info, ...evidence, ready, components: files, blockers, reason: info.reason || blockers[0] || null };
   }
+  async function previewInstall(game, installOptions = {}) {
+    const target = selected(game), info = summary(game);
+    if (!info.available) fail(info.needsRecovery ? 'FEEDER_RECOVERY_FIRST' : 'FEEDER_UNAVAILABLE', info.reason);
+    await assertClosed(target);
+    if (pe.getBitness(target.exe) !== 64) fail('FEEDER_GAME_ARCH', 'Feeder 首批只支持真实 x64 EXE。');
+    const pkg = await runtime.verify(); pathBudget(target, pkg.recipe);
+    if (installOptions.version !== undefined && ![pkg.recipe.id, pkg.recipe.coreVersion].includes(installOptions.version)) fail('FEEDER_PACKAGE_LOCKED', 'Feeder 必须使用完整固定配套。');
+    const old = receipt(target); await noOtherRoute(target, Boolean(old));
+    const launch = await getBroker().inspect({ exe: target.exe });
+    if (launch?.elevated !== false || launch?.launchable !== true) fail('FEEDER_LAUNCH_UNCONFIRMED', '尚不能确认普通权限启动，未部署 Feeder。');
+    const previous = old ? await checkedInstalled(target, old, true) : null;
+    if (old && previous.files.every(file => file.valid)) await validateConfiguration(target, old.recipe);
+    const changes = [];
+    for (const spec of pkg.recipe.files) {
+      const file = resolveFile(target.dir, spec.target), before = await fileDigest(file);
+      const reused = !old && spec.role === 'loader' && before === spec.sha256;
+      if (!old && before && !reused) fail('FEEDER_FILE_CHANGED', 'Feeder 目标文件已存在，未覆盖。');
+      const after = old && before ? before : spec.sha256;
+      changes.push({ path: file, name: path.basename(file), role: spec.role || 'feeder-runtime', mutable: spec.mutable, reused,
+        beforeSha256: before, afterSha256: after, action: before === after ? 'keep' : 'create' });
+    }
+    changes.push({ path: target.receipt, name: path.basename(target.receipt), role: 'receipt', beforeSha256: await fileDigest(target.receipt), action: old ? 'update' : 'create' });
+    return { ...defaultState, changes, api: 'dx12', mode: 'local', version: pkg.recipe.coreVersion, packageId: pkg.recipe.id,
+      requiresAntiCheat: guards.antiCheatPresent(target.root) === true && !old?.antiCheatConfirmed, requiresConfirmation: true };
+  }
+  async function previewRestore(game) {
+    const target = selected(game); await assertClosed(target);
+    if (pending(target)) fail('FEEDER_RECOVERY_FIRST', 'Feeder 有未完成事务，请先恢复后重新预览。');
+    const row = receipt(target); if (!row) return { ...defaultState, changes: [], unchanged: true };
+    const checked = await checkedInstalled(target, row);
+    if (checked.blockers.length) fail('FEEDER_RESTORE_INCOMPLETE', 'Feeder 文件缺失，请先修复后恢复，避免丢失配置。', { blockers: checked.blockers });
+    const changes = [];
+    for (const item of [...row.files].reverse()) {
+      const file = resolveFile(target.root, item.rel), digest = checked.files.find(value => value.target === item.target).digest;
+      if (item.mutable && !item.reused) {
+        const archive = resolveFile(target.root, `_DLSS5_Backup/feeder-settings/${row.installId}/${item.target}`);
+        await noLinks(archive);
+        if (fs.existsSync(archive)) fail('FEEDER_ARCHIVE_EXISTS', 'Feeder 配置备份位置已有文件，未覆盖。');
+        changes.push({ path: archive, name: path.basename(archive), role: 'settings-archive', beforeSha256: null, afterSha256: digest, action: 'create' });
+      }
+      changes.push({ path: file, name: path.basename(file), role: 'feeder-runtime', beforeSha256: digest,
+        afterSha256: item.reused ? digest : null, action: item.reused ? 'keep' : 'remove', reused: item.reused });
+    }
+    changes.push({ path: target.receipt, name: path.basename(target.receipt), role: 'receipt', beforeSha256: await fileDigest(target.receipt), afterSha256: null, action: 'remove' });
+    return { ...defaultState, changes, requiresConfirmation: true, settingsArchived: true };
+  }
   async function install(game, installOptions = {}, beforeWrite = null) {
     const target = selected(game);
     return serial(target, async () => {
@@ -306,6 +352,6 @@ function createFeederService(options) {
     await noLinks(target.addonDir);
     return target.addonDir;
   }
-  return Object.freeze({ summary, inspect, diagnose: inspect, install, restore, launch, configDir, feedbackLogDirectory });
+  return Object.freeze({ summary, inspect, diagnose: inspect, install, restore, previewInstall, previewRestore, launch, configDir, feedbackLogDirectory });
 }
 module.exports = { createFeederService, PRODUCT, PROXIES };

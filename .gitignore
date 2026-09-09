@@ -28,3 +28,5 @@ resources/feeder-runtime/**
 resources/fg-mfgunlock/*.addon64
 dist-beta2-release/
 dist-beta2-final/
+dist-beta048/
+resources/loading-helper/*.exe

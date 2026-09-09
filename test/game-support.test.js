@@ -28,9 +28,9 @@ test('combined labels and dx12 flags never become pure DX11', () => {
     assert.equal(isDx11Only(chosen), false);
     assert.equal(classifyApi(chosen), 'mixed');
   }
-  assert.equal(isDx11Only({ apiLabel: 'DirectX 11', via: 'imports' }), false);
-  assert.equal(isDx11Only({ api: 'dx11', via: 'imports' }), false);
-  assert.equal(classifyApi({ api: 'dx11', via: 'imports' }), 'unknown');
+  assert.equal(isDx11Only({ apiLabel: 'DirectX 11', via: 'imports' }), true);
+  assert.equal(isDx11Only({ api: 'dx11', via: 'imports' }), true);
+  assert.equal(classifyApi({ api: 'dx11', via: 'imports' }), 'dx11');
 });
 
 test('an explicit resolved route wins over static hints without bypassing DLSS or x64 checks', () => {

@@ -121,8 +121,11 @@ if ($null -eq $install -or -not (Test-Path -LiteralPath $install -PathType Conta
   $expected = @(
     'resources\app.asar', 'icudtl.dat', 'resources.pak', 'snapshot_blob.bin', 'v8_context_snapshot.bin',
     'chrome_100_percent.pak', 'chrome_200_percent.pak', 'ffmpeg.dll', 'd3dcompiler_47.dll',
-    'libEGL.dll', 'libGLESv2.dll', 'vulkan-1.dll', 'vk_swiftshader.dll', 'vk_swiftshader_icd.json'
+    'vulkan-1.dll', 'vk_swiftshader.dll', 'vk_swiftshader_icd.json'
   )
+  if ((Test-Path -LiteralPath (Join-Path $install 'dxcompiler.dll')) -or (Test-Path -LiteralPath (Join-Path $install 'dxil.dll'))) {
+    $expected += @('dxcompiler.dll', 'dxil.dll')
+  } else { $expected += @('libEGL.dll', 'libGLESv2.dll') }
   foreach ($rel in $expected) {
     $check = Try-File (Join-Path $install $rel)
     Add-Check ('随包文件 ' + $rel) $(if ($check.ok) { 'OK' } else { 'FAIL' }) $(if ($check.ok) { ('{0:N0} bytes' -f $check.size) } else { Redact $check.reason })
@@ -131,7 +134,7 @@ if ($null -eq $install -or -not (Test-Path -LiteralPath $install -PathType Conta
     $localeCount = @(Get-ChildItem -LiteralPath (Join-Path $install 'locales') -File -Filter '*.pak' -ErrorAction Stop).Count
     Add-Check 'Electron locales' $(if ($localeCount -gt 0) { 'OK' } else { 'FAIL' }) ($localeCount.ToString() + ' 个 .pak')
   } catch { Add-Check 'Electron locales' 'FAIL' (Redact $_.Exception.Message) }
-  Add-Line '  注: 当前 Electron 33 实际发行目录不包含 version.dll，因此不把它列为缺失运行文件。'
+  Add-Line '  注: 当前配套按实际 Electron 运行库布局检查；version.dll 不属于管理器的必需运行文件。'
 }
 
 Add-Line ''

@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('node:crypto');
 const { PRODUCT, DX11_COMPAT_VERSION, INSTALLED_NAMES } = require('./constants');
 const { isDx11Only, classifyApi, assess } = require('./game-support');
 const { createStore } = require('./state-store');
@@ -17,6 +18,7 @@ const { detectGpu: readGpu } = require('./gpu');
 const { createArtService } = require('./art-service');
 const { readOtaPackage } = require('./ota');
 const { createFeedbackCollector } = require('./feedback');
+const { createExternalRuntime, RECEIPT: EXTERNAL_RECEIPT, PENDING: EXTERNAL_PENDING } = require('./external-runtime');
 const { resolveVersion } = require('./version-selection');
 const { resolvePayloadDirectory, inspectSource } = require('./payload-source');
 const { createVulkanService } = require('./vulkan-service');
@@ -36,6 +38,11 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   const store = createStore(path.join(userData, 'settings.json'));
   const library = overrides.library || createLibraryWorkerClient({ documentsDir });
   const installer = overrides.installer || createInstaller();
+  const externalDeployment = overrides.externalDeployment || createExternalRuntime({ userData,
+    guards: { ...require('../core/install-guards'), ...(overrides.assertGameClosed ? { assertGameClosed: overrides.assertGameClosed } : {}) },
+    ...overrides.externalDeploymentOptions });
+  const deploymentPlans = new Map();
+  const specialDeploymentPlans = new Map();
   const apiSettingsReader = overrides.apiSettingsReader || createRdr2ApiSettings({ documentsDir });
   const gameApiSettings = overrides.gameApiSettings || createGameApiSettings({ userData, settings: apiSettingsReader,
     assertGameClosed: overrides.assertGameClosed || require('../core/install-guards').assertGameClosed });
@@ -95,6 +102,20 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   const vulkanRoute = game => classifyApi(game?.scan?.chosen) === 'vulkan';
   const vulkanOwned = game => vulkan.summary(game).installed === true;
   const feederOwned = game => feeder.summary(game).installed === true;
+  const hasExternalRecord = game => fs.existsSync(path.join(game.dir, EXTERNAL_RECEIPT)) || fs.existsSync(path.join(game.dir, EXTERNAL_PENDING));
+  const externalOwned = game => hasExternalRecord(game) && externalDeployment.owned(game);
+  function gameLayout(game) {
+    if (hasExternalRecord(game)) return externalDeployment.getLayout(game);
+    if (feederOwned(game) || vulkanOwned(game)) {
+      const isFeeder = feederOwned(game), config = isFeeder ? feeder.configDir(game, 'reshade') : vulkan.configDir(game);
+      const addon = isFeeder ? feeder.configDir(game, 'nr') : path.join(config, 'addons');
+      return { mode: 'local', source: isFeeder ? 'feeder' : 'vulkan', exe: game.scan?.chosen?.path,
+        gameRoot: game.dir, loaderDir: path.dirname(game.scan.chosen.path), runtimeDir: config, addonDir: addon,
+        addonDirectory: addon, activeConfigPath: path.join(config, 'ReShade.ini'), reshadeConfigDir: config,
+        nrConfigDir: addon, logDirs: [config, addon], verified: true, blockers: [], needsRecovery: false };
+    }
+    return externalDeployment.getLayout(game);
+  }
   function feederRouteSelection(game, api) {
     const chosen = game.scan?.chosen;
     if (!chosen) throw appError('ERR_NO_GAME_EXE');
@@ -134,6 +155,11 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     throw Object.assign(new Error('Vulkan 与原有 DX11 / DX12 加载方式不同。请先卸载当前插件并恢复备份，再选择新的 API 安装。'), { code: 'VULKAN_RESTORE_FIRST' });
   }
   async function settingDirectory(game, kind = 'nr') {
+    if (externalOwned(game)) {
+      const layout = gameLayout(game);
+      await require('./launch-safety').noLinks(kind === 'nr' ? path.join(layout.nrConfigDir, 'nr_before_sr.ini') : layout.activeConfigPath);
+      return kind === 'nr' ? layout.nrConfigDir : layout.reshadeConfigDir;
+    }
     if (feederOwned(game)) return feeder.configDir(game, kind);
     if (vulkanOwned(game)) {
       const basePath = vulkan.configDir(game);
@@ -420,6 +446,18 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   }
 
   async function diagnoseGame(game) {
+    if (externalOwned(game) || fs.existsSync(path.join(game.dir, EXTERNAL_PENDING))) {
+      const state = await externalDeployment.inspect(game);
+      return { payload: { selectedVersion: state.version, ready: state.ready }, diagnostic: {
+        installed: true, complete: state.ready, payloadVersion: state.version, version: state.version,
+        deployment: state, runtimeVerified: false, routeMismatch: state.api !== classifyApi(game.scan?.chosen),
+        components: [
+          { key: 'deployment', label: '运行目录', ok: state.verified && !state.pending,
+            detail: state.pending ? '外置部署未完成，请先恢复。' : state.runtimeDir || state.blockers?.join('；') },
+          ...state.files.map(row => ({ key: row.kind, label: row.name, file: path.join(state.runtimeDir || '', row.name),
+            ok: row.valid, detail: row.valid ? row.mutable ? '当前个人配置' : '摘要与部署记录一致' : row.reason || '文件缺失或摘要改变' }))
+        ] } };
+    }
     if (feederOwned(game)) {
       const raw = await feeder.inspect(game);
       return { payload: { selectedVersion: raw.coreVersion, ready: raw.available }, diagnostic: {
@@ -473,6 +511,11 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   }
 
   async function repairGame(game, options = {}) {
+      if (externalOwned(game)) {
+        const payload = await externalPayload(game, options.version);
+        const plan = await externalDeployment.preview(game, { mode: 'external', payload, version: payload.version });
+        return externalDeployment.apply(plan.planId, options);
+      }
       if (feederOwned(game)) return feeder.install(game, options);
       requireNoFeeder(game);
       if (vulkanOwned(game) || vulkanRoute(game)) return vulkan.install(game, options);
@@ -500,7 +543,11 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     const routed = vulkanRoute(game);
     const refInput = reframeworkInput(game);
     const refAdapter = refInput && REFRAMEWORK_ADAPTERS.find(row => row.executable.toLowerCase() === path.basename(refInput.exe).toLowerCase());
-    return { ...safe, vulkan: vk, feeder: feed,
+    let deployment = null;
+    if (hasExternalRecord(game)) try { deployment = externalDeployment.getLayout(game); }
+    catch (error) { deployment = { mode: 'external', verified: false, needsRecovery: true, blockers: [error.message] }; }
+    return { ...safe, vulkan: vk, feeder: feed, deployment,
+      ...(deployment?.mode === 'external' ? { installed: true, addonVersion: deployment.version || safe.addonVersion } : {}),
       enhancementRoute: feed.installed ? 'feeder-dx12' : vk.installed ? 'vulkan' : safe.installed ? 'native-dlss' : null,
       hasNativeDlss: enhancements.nativeDlssAvailable,
       nativeFgAvailable: enhancements.nativeFgAvailable,
@@ -534,7 +581,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     } catch (recoveryError) { error.details = { ...error.details, gameApiRollbackFailed: true }; error.recoveryError = recoveryError; }
   }
 
-  async function applyGameRoute(id, options = {}) {
+  async function applyGameRoute(id, options = {}, internal = {}) {
     if (!options || typeof options !== 'object' || Array.isArray(options) ||
         Object.keys(options).some(key => !['api', 'version', 'allowAntiCheat'].includes(key)) ||
         !['auto', 'dx11', 'dx12', 'vulkan'].includes(options.api) ||
@@ -575,7 +622,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         [key]: { ...state.gameOverrides[key], api: options.api, apiExecutable: chosen.path } } });
       preferenceWritten = true;
       if (nextApi === 'vulkan') result = await vulkan.install(routed, options);
-      else if (imported) result = await repairGame(routed, options);
+      else if (imported || externalOwned(game)) result = await repairGame(routed, options);
       else {
         await prepareExistingReframework(routed, options);
         const operation = manifest ? installer.repair : installer.install;
@@ -586,6 +633,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       if (preferenceWritten || settingChange?.changed) await rollbackApiChoice(error, state, key, settingChange);
       throw error;
     }
+    internal.onAppliedState?.({ state, key, settingChange });
     return refreshAfterMutation({ ...result, appliedRoute: { api: nextApi, version: nextApi === 'vulkan' ? options.version : payload?.version || imported?.id,
       gameSettingsSynced: settingChange?.applied === true } });
   }
@@ -691,7 +739,12 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   async function validateLaunch(id) {
     const game = findGame(id);
     if (!game.scan || !game.scan.chosen || !game.scan.chosen.path) throw appError('ERR_NO_GAME_EXE');
-    if (feederOwned(game)) {
+    if (hasExternalRecord(game)) await externalDeployment.assertReady(game);
+    if (externalOwned(game)) {
+      const state = await externalDeployment.inspect(game);
+      if (!state.ready) throw Object.assign(new Error(state.blockers?.join('；') || '外置组件未就绪，请先检查或修复。'), { code: 'DEPLOYMENT_NOT_READY' });
+      if (state.api !== classifyApi(game.scan.chosen)) throw appError('ERR_API_ROUTE_PENDING');
+    } else if (feederOwned(game)) {
       // The Feeder service checks its fixed package and ordinary-privilege
       // launch immediately before process creation, independently of SR/FG.
     } else if (vulkanOwned(game)) {
@@ -707,6 +760,432 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     const exe = game.scan.chosen.path;
     if (typeof exe !== 'string' || !path.isAbsolute(exe) || path.extname(exe).toLowerCase() !== '.exe' || !fs.existsSync(exe)) throw appError('ERR_NO_GAME_EXE');
     return exe;
+  }
+
+  function uninstallRequest(request) {
+    const value = typeof request === 'boolean' ? { removeSettings: request, mode: 'restore' } : request || {};
+    if (typeof value !== 'object' || Array.isArray(value) ||
+        Object.keys(value).some(key => !['mode', 'removeSettings'].includes(key)) ||
+        value.mode !== undefined && !['restore', 'clean'].includes(value.mode) ||
+        value.removeSettings !== undefined && typeof value.removeSettings !== 'boolean') throw appError('ERR_BAD_REQUEST');
+    return { mode: value.mode || 'restore', removeSettings: value.removeSettings === true };
+  }
+  async function externalPayload(game, requested) {
+    const state = await externalDeployment.inspect(game), version = requested || state.version;
+    const imported = importedAddon(version);
+    if (!imported) return selectedPayload(game, version);
+    if (state.api === 'dx11' && (imported.compatibility !== 'dx11' || !imported.carrierFile || !imported.bridgeFile))
+      throw appError('ERR_PAYLOAD_MISSING', { file: 'DX11 配套核心与桥接器' });
+    const payload = { version: imported.id, versionInfo: { compatibility: imported.compatibility } };
+    for (const kind of ['addon', 'bridge', 'runtime', 'carrier']) {
+      const current = state.files.find(row => row.kind === kind); if (!current) continue;
+      const provided = kind === 'addon' ? imported.file : kind === 'bridge' ? imported.bridgeFile : kind === 'carrier' ? imported.carrierFile : null;
+      const expected = kind === 'addon' ? imported.addonSha256 : kind === 'bridge' ? imported.bridgeSha256 : kind === 'carrier' ? imported.carrierSha256 : null;
+      payload[kind] = { file: provided || path.join(state.runtimeDir, current.name), actual: provided ? expected : current.sha256 };
+    }
+    return payload;
+  }
+  function deploymentApi(game, requested) {
+    const chosen = game.scan?.chosen;
+    if (!chosen) throw appError('ERR_NO_GAME_EXE');
+    let detected = chosen.detectedApiResolution || { api: chosen.detectedApi || classifyApi(chosen) };
+    if (requested === 'auto' && chosen.apiSettings?.kind === 'rdr2-system-xml') {
+      const current = apiSettingsReader.read({ ...chosen.apiSettings, exe: chosen.path });
+      detected = { api: current.api || 'unknown', source: 'game-settings', evidence: [] };
+    }
+    const api = requested === 'auto' ? detected.api : requested || classifyApi(chosen);
+    if (!['dx11', 'dx12'].includes(api)) throw appError('ERR_API_SELECTION_REQUIRED');
+    if (chosen.supportedApis && !chosen.supportedApis.includes(api)) throw appError('ERR_UNSUPPORTED_API');
+    return { api, routed: { ...game, scan: { ...game.scan, chosen: { ...chosen, apiResolution: { api, source: requested === 'auto' ? detected.source : 'override',
+      evidence: detected.evidence || [] } }, componentSelection: { dx11Carrier: api === 'dx11' } } } };
+  }
+  async function previewDeployment(id, request = {}, internal = {}) {
+    if (!request || typeof request !== 'object' || Array.isArray(request) ||
+        Object.keys(request).some(key => !['mode', 'version', 'api', 'loadingMode'].includes(key)) ||
+        !['local', 'external'].includes(request.mode) || request.api !== undefined && !['auto', 'dx11', 'dx12', 'vulkan'].includes(request.api) ||
+        request.loadingMode !== undefined && !['proxy', 'helper'].includes(request.loadingMode))
+      throw appError('ERR_BAD_REQUEST');
+    const game = findGame(id);
+    if (feederOwned(game) || vulkanOwned(game) || request.api === 'vulkan' || vulkanRoute(game) && request.api === undefined) {
+      if (request.loadingMode === 'helper') throw Object.assign(new Error('Vulkan 和 Feeder 固定配套使用各自的加载方式。'), { code: 'SPECIAL_LOADING_MODE_LOCKED' });
+      return previewSpecialDeployment(id, { route: feederOwned(game) ? 'feeder' : 'vulkan', api: request.api, version: request.version });
+    }
+    requireNoFeeder(game); requireKnownVulkanOwnership(game);
+    if (vulkanOwned(game)) routeRestoreFirst();
+    await externalDeployment.assertReady(game);
+    const state = store.read(), preference = request.api || game.apiOverride || classifyApi(game.scan?.chosen);
+    const { api, routed } = deploymentApi(game, preference);
+    const current = await externalDeployment.inspect(game), manifest = readManifest(game.dir);
+    const targetVersion = request.version || (current.mode === 'external' ? current.version : selectedVersionForGame(routed));
+    const fromApi = current.mode === 'external' ? current.api : manifest?.deploymentApi || classifyApi(game.scan?.chosen);
+    const sameApi = fromApi === api;
+    let migration = null, migrationRequest = null, phases = [], changes = [], payload = null;
+    if (current.mode === 'external' && sameApi) {
+      payload = targetVersion !== current.version || request.version ? await externalPayload(routed, targetVersion) : null;
+      migrationRequest = { mode: request.mode, loadingMode: request.loadingMode, api, version: targetVersion, payload };
+      migration = await externalDeployment.preview(routed, migrationRequest, internal);
+      phases = [request.mode === 'external' ? 'external-update' : 'restore-local'];
+      changes = migration.changes;
+    } else if (manifest && current.mode !== 'external' && request.mode === 'external' && sameApi) {
+      payload = targetVersion !== manifest.payloadVersion || request.version ? selectedPayload(routed, targetVersion) : null;
+      migrationRequest = { mode: 'external', loadingMode: request.loadingMode, api, version: targetVersion, payload };
+      migration = await externalDeployment.preview(routed, migrationRequest, internal);
+      phases = ['external-migration']; changes = migration.changes;
+    } else {
+      if (current.mode === 'external') {
+        migrationRequest = { mode: 'local' };
+        migration = await externalDeployment.preview(game, migrationRequest, internal);
+        phases.push('restore-local'); changes.push(...migration.changes.map(row => ({ ...row, phase: 'restore-local' })));
+      }
+      payload = selectedPayload(routed, targetVersion);
+      const support = assess(routed.scan, { allowDx11: payload.versionInfo?.compatibility === 'dx11' });
+      if (!support.supported) throw appError(support.code);
+      phases.push(manifest ? 'local-update' : 'local-install');
+      const directory = path.dirname(game.scan.chosen.path);
+      for (const kind of ['addon', 'bridge', 'runtime', ...(!manifest ? ['reshade', 'config'] : []), ...(api === 'dx11' ? ['carrier'] : [])]) {
+        const row = payload[kind]; if (!row) continue;
+        const file = path.join(directory, require('./constants').INSTALLED_NAMES[kind]);
+        const before = fs.existsSync(file) && fs.statSync(file).isFile() ? sha256(file) : null;
+        changes.push({ path: file, name: path.basename(file), role: kind, phase: 'local-install',
+          beforeSha256: before, afterSha256: row.actual, action: before === row.actual ? 'keep' : before === null ? 'create' : 'replace' });
+      }
+      if (request.mode === 'external') {
+        phases.push('external-migration');
+        const location = externalDeployment.location(routed);
+        for (const kind of ['addon', 'bridge', 'runtime', 'config', ...(api === 'dx11' ? ['carrier'] : [])]) {
+          const row = payload[kind]; if (!row) continue;
+          const file = path.join(location.runtimeDir, require('./constants').INSTALLED_NAMES[kind]);
+          changes.push({ path: file, name: path.basename(file), role: kind, phase: 'external-migration',
+            beforeSha256: null, afterSha256: row.actual, action: 'create' });
+        }
+        if (request.loadingMode === 'helper') {
+          const existingName = ['dxgi.dll', 'd3d12.dll'].find(name => fs.existsSync(path.join(directory, name)));
+          const loaderName = existingName || INSTALLED_NAMES.reshade;
+          const loaderHash = existingName ? sha256(path.join(directory, existingName)) : payload.reshade.actual;
+          changes.push({ path: path.join(location.runtimeDir, 'ReShade64.dll'), name: 'ReShade64.dll',
+            role: 'profile-loader', phase: 'external-migration', beforeSha256: null, afterSha256: loaderHash, action: 'create' });
+          changes.push({ path: path.join(directory, loaderName), name: loaderName, role: 'game-proxy', phase: 'external-migration',
+            beforeSha256: loaderHash, afterSha256: null, action: 'remove' });
+        }
+        changes.push({ path: path.join(directory, 'ReShade.ini'), name: 'ReShade.ini', role: 'reshade-config',
+          phase: 'external-migration', action: 'update-base-path', destination: location.runtimeDir });
+      }
+    }
+    const planId = crypto.randomUUID();
+    deploymentPlans.set(planId, { id, request: { ...request, api: preference, version: targetVersion }, api, routed,
+      fromMode: current.mode, fromApi, fromVersion: current.version, hadManifest: Boolean(manifest),
+      migration, migrationRequest, phases, expires: Date.now() + 5 * 60 * 1000,
+      exe: game.scan.chosen.path, exeHash: await require('./external-runtime').digest(game.scan.chosen.path), preferenceBefore: state });
+    const proposedLayout = request.mode === 'external' ? externalDeployment.location(routed) : gameLayout(game);
+    const loadingMode = request.mode === 'external' ? request.loadingMode || current.loadingMode || 'proxy' : 'proxy';
+    return { planId, gameId: id, fromMode: current.mode, toMode: request.mode, mode: request.mode,
+      version: targetVersion, api, loadingMode, phases, changes, layout: migration?.layout || { ...proposedLayout, loadingMode,
+        loaderPath: loadingMode === 'helper' ? path.join(proposedLayout.runtimeDir, 'ReShade64.dll') : null },
+      retainedAddons: migration?.retainedAddons || [], requiresFgRestore: migration?.requiresFgRestore === true,
+      requiresAntiCheat: Boolean(require('../core/install-guards').antiCheatPresent(game.dir)), requiresConfirmation: true, runtimeVerified: false };
+  }
+  async function applyDeployment(planId, consent = {}) {
+    if (specialDeploymentPlans.has(planId)) return applySpecialDeployment(planId, consent);
+    const plan = deploymentPlans.get(planId); deploymentPlans.delete(planId);
+    if (!plan || plan.expires < Date.now()) throw Object.assign(new Error('部署预览已过期，请重新检查。'), { code: 'DEPLOYMENT_PLAN_EXPIRED' });
+    let game = findGame(plan.id), completed = [], result, settingChange, preferenceWritten = false;
+    if (game.scan?.chosen?.path !== plan.exe || await require('./external-runtime').digest(plan.exe) !== plan.exeHash)
+      throw Object.assign(new Error('预览后游戏 EXE 已变化。'), { code: 'DEPLOYMENT_PLAN_CHANGED' });
+    await externalDeployment.assertReady(game);
+    const preferenceKey = pathKey(game.dir);
+    const preferenceBefore = store.read();
+    for (const key of ['api', 'apiExecutable']) if ((preferenceBefore.gameOverrides[preferenceKey]?.[key] || null) !==
+        (plan.preferenceBefore.gameOverrides[preferenceKey]?.[key] || null))
+      throw Object.assign(new Error('预览后的游戏 API 选择已改变，请重新检查。'), { code: 'DEPLOYMENT_PLAN_CHANGED' });
+    if (plan.migration?.requiresFgRestore) {
+      plan.migration = await externalDeployment.preview(plan.fromMode === 'external' && plan.fromApi !== plan.api ? game : plan.routed,
+        plan.migrationRequest);
+    }
+    try {
+      if (plan.phases.every(phase => ['external-update', 'external-migration', 'restore-local'].includes(phase))) {
+        settingChange = await gameApiSettings.apply(game, plan.request.api);
+        await store.write({ gameOverrides: { ...preferenceBefore.gameOverrides, [preferenceKey]: {
+          ...preferenceBefore.gameOverrides[preferenceKey], api: plan.request.api, apiExecutable: plan.exe } } });
+        preferenceWritten = true;
+        result = await externalDeployment.apply(plan.migration.planId, consent);
+        completed.push(...plan.phases);
+      } else {
+        if (plan.fromMode === 'external') {
+          result = await externalDeployment.apply(plan.migration.planId, consent); completed.push('restore-local');
+        }
+        result = await applyGameRoute(plan.id, { api: plan.request.api, version: plan.request.version, allowAntiCheat: consent.allowAntiCheat === true },
+          { onAppliedState: applied => { settingChange = applied.settingChange; } });
+        preferenceWritten = true; completed.push(plan.hadManifest ? 'local-update' : 'local-install');
+        if (plan.request.mode === 'external') {
+          game = findGame(plan.id);
+          const next = await externalDeployment.preview(game, { mode: 'external', loadingMode: plan.request.loadingMode, api: plan.api });
+          result = await externalDeployment.apply(next.planId, consent); completed.push('external-migration');
+        }
+      }
+      return refreshAfterMutation({ ...result, applied: true, completedPhases: completed,
+        appliedRoute: { api: plan.api, version: plan.request.version, mode: plan.request.mode }, runtimeVerified: false });
+    } catch (error) {
+      if (preferenceWritten || settingChange?.changed) await rollbackApiChoice(error, preferenceBefore, preferenceKey, settingChange);
+      const pending = fs.existsSync(path.join(game.dir, EXTERNAL_PENDING));
+      // A newly created ordinary installation is an independently recoverable
+      // stage. Revert it only after the external owner has restored its files.
+      if (!plan.hadManifest && completed.includes('local-install') && !pending) {
+        try {
+          const reverted = await installer.uninstall({ gameDir: game.dir, mode: 'restore', removeSettings: false, scan: game.scan });
+          if (!reverted?.removed) throw appError('ERR_BACKUP_INVALID');
+          completed.push('local-install-reverted');
+        } catch (cause) { error.compensationError = cause; }
+      }
+      error.details = { ...error.details, completedPhases: completed, needsRecovery: pending || Boolean(error.compensationError) };
+      throw error;
+    }
+  }
+  async function previewUninstall(id, request = {}, internal = {}) {
+    const game = findGame(id), options = uninstallRequest(request);
+    if (feederOwned(game) || vulkanOwned(game)) {
+      const route = feederOwned(game) ? 'feeder' : 'vulkan';
+      const result = await (route === 'feeder' ? feeder : vulkan).previewRestore(game);
+      return { ...result, gameId: id, mode: options.mode, phases: [`${route}-restore`],
+        changes: result.changes.map(row => ({ ...row, phase: `${route}-restore` })), requiresFgRestore: false };
+    }
+    let migration = null, projection = null, currentManifest = null;
+    if (externalOwned(game)) {
+      migration = await externalDeployment.preview(game, { mode: 'local' }, internal);
+      projection = Object.fromEntries(migration.changes.filter(row => row.afterSha256 !== undefined).map(row => [path.resolve(row.path).toLowerCase(), row.afterSha256]));
+      currentManifest = migration.projectedManifest;
+    }
+    const result = await installer.previewUninstall({ gameDir: game.dir, ...options, manifestOverride: currentManifest, projectedFiles: projection });
+    return { ...result, gameId: id, requiresFgRestore: migration?.requiresFgRestore === true,
+      phases: migration ? ['restore-local', 'uninstall'] : ['uninstall'],
+      changes: [...(migration?.changes || []).map(row => ({ ...row, phase: 'restore-local' })),
+        ...result.changes.map(row => ({ ...row, phase: 'uninstall' }))] };
+  }
+
+  function specialRouteGame(game, request) {
+    if (request.route === 'feeder') {
+      const vk = vulkan.summary(game);
+      if (vk.installed || vk.needsRecovery) routeRestoreFirst();
+      if (readManifest(game.dir)) throw Object.assign(new Error('先恢复原生 DLSS 配套，再准备 Feeder。'), { code: 'FEEDER_ROUTE_CONFLICT' });
+      if (feederOwned(game) && classifyApi(game.scan.chosen) !== 'dx12') throw Object.assign(new Error('请先恢复已有 Feeder 配套，再更改其 API 绑定。'), { code: 'FEEDER_RESTORE_FIRST' });
+      return feederRouteSelection(game, request.api || 'dx12');
+    }
+    requireNoFeeder(game); requireKnownVulkanOwnership(game);
+    if (readManifest(game.dir) || externalOwned(game)) routeRestoreFirst();
+    const chosen = game.scan?.chosen; if (!chosen) throw appError('ERR_NO_GAME_EXE');
+    const api = request.api === 'auto' ? chosen.detectedApiResolution?.api || chosen.detectedApi : request.api || 'vulkan';
+    if (api !== 'vulkan') throw appError('ERR_UNSUPPORTED_API');
+    if (Array.isArray(chosen.supportedApis) && !chosen.supportedApis.includes(api)) throw appError('ERR_UNSUPPORTED_API');
+    return { ...game, apiOverride: request.api || 'vulkan', scan: { ...game.scan,
+      chosen: { ...chosen, apiResolution: { api: 'vulkan', source: 'override', evidence: [] } }, componentSelection: { dx11Carrier: false } } };
+  }
+  const specialFingerprint = preview => crypto.createHash('sha256').update(JSON.stringify(preview.changes)).digest('hex');
+  async function specialPreviewWithSettings(game, routed, request, owner) {
+    const preview = await owner.previewInstall(routed, { version: request.version });
+    const requestedApi = request.api || preview.api;
+    const settings = await gameApiSettings.preview?.(game, requestedApi);
+    const before = store.read().gameOverrides[pathKey(game.dir)] || {};
+    const selectedBefore = { api: before.api || null, apiExecutable: before.apiExecutable || null };
+    const selectedAfter = { api: requestedApi, apiExecutable: game.scan.chosen.path };
+    preview.changes.push(...(settings?.changes || []), { path: path.join(userData, 'settings.json'), name: 'settings.json',
+      role: 'manager-api-preference', gameId: game.id, before: selectedBefore, after: selectedAfter,
+      action: JSON.stringify(selectedBefore) === JSON.stringify(selectedAfter) ? 'keep' : 'update' });
+    return preview;
+  }
+  async function previewSpecialDeployment(id, request = {}) {
+    if (!request || typeof request !== 'object' || Array.isArray(request) ||
+        Object.keys(request).some(key => !['route', 'api', 'version'].includes(key)) || !['vulkan', 'feeder'].includes(request.route) ||
+        request.api !== undefined && !['auto', 'dx12', 'vulkan'].includes(request.api) ||
+        request.version !== undefined && (typeof request.version !== 'string' || !request.version || request.version.length > 100)) throw appError('ERR_BAD_REQUEST');
+    const game = findGame(id), routed = specialRouteGame(game, request), owner = request.route === 'feeder' ? feeder : vulkan;
+    const preview = await specialPreviewWithSettings(game, routed, request, owner);
+    const planId = crypto.randomUUID(), normalized = { ...request, api: request.api || preview.api, version: preview.packageId || preview.version };
+    specialDeploymentPlans.set(planId, { id, request: normalized, expires: Date.now() + 5 * 60 * 1000,
+      exe: game.scan.chosen.path, exeHash: await require('./external-runtime').digest(game.scan.chosen.path),
+      preferenceBefore: store.read().gameOverrides[pathKey(game.dir)] || {}, fingerprint: specialFingerprint(preview) });
+    return { ...preview, planId, gameId: id, fromMode: gameLayout(game).mode, toMode: preview.mode,
+      loadingMode: 'proxy', phases: [`${request.route}-install`], changes: preview.changes.map(row => ({ ...row, phase: `${request.route}-install` })) };
+  }
+  async function applySpecialDeployment(planId, consent = {}) {
+    const plan = specialDeploymentPlans.get(planId); specialDeploymentPlans.delete(planId);
+    if (!plan || plan.expires < Date.now()) throw Object.assign(new Error('部署预览已过期，请重新检查。'), { code: 'DEPLOYMENT_PLAN_EXPIRED' });
+    const game = findGame(plan.id), state = store.read(), key = pathKey(game.dir), before = state.gameOverrides[key] || {};
+    if (game.scan?.chosen?.path !== plan.exe || await require('./external-runtime').digest(plan.exe) !== plan.exeHash ||
+        ['api', 'apiExecutable'].some(field => (before[field] || null) !== (plan.preferenceBefore[field] || null)))
+      throw Object.assign(new Error('预览后游戏 EXE 或 API 选择已变化。'), { code: 'DEPLOYMENT_PLAN_CHANGED' });
+    const routed = specialRouteGame(game, plan.request), owner = plan.request.route === 'feeder' ? feeder : vulkan;
+    const fresh = await specialPreviewWithSettings(game, routed, plan.request, owner);
+    if (specialFingerprint(fresh) !== plan.fingerprint) throw Object.assign(new Error('预览后配套文件或加载状态已变化，请重新检查。'), { code: 'DEPLOYMENT_PLAN_CHANGED' });
+    if (plan.request.route === 'vulkan') return applyGameRoute(plan.id, { api: plan.request.api, version: fresh.packageId, allowAntiCheat: consent.allowAntiCheat === true });
+    let settingChange, preferenceWritten = false, result;
+    try {
+      result = await feeder.install(routed, { version: plan.request.version, allowAntiCheat: consent.allowAntiCheat === true }, async () => {
+        settingChange = await gameApiSettings.apply(game, plan.request.api);
+        await store.write({ gameOverrides: { ...state.gameOverrides, [key]: { ...before, api: plan.request.api, apiExecutable: plan.exe } } });
+        preferenceWritten = true;
+      });
+    } catch (error) {
+      if (preferenceWritten || settingChange?.changed) await rollbackApiChoice(error, state, key, settingChange);
+      throw error;
+    }
+    return refreshAfterMutation({ ...result, applied: true, appliedRoute: { api: 'dx12', version: result.coreVersion, mode: 'local' },
+      completedPhases: ['feeder-install'], runtimeVerified: false });
+  }
+  async function inspectDeployment(id) {
+    const game = findGame(id), feed = feeder.summary(game), vk = vulkan.summary(game);
+    const feederState = feed.installed || feed.needsRecovery, vulkanState = vk.installed || vk.needsRecovery;
+    if (feederState && vulkanState) throw Object.assign(new Error('同一游戏同时存在多个固定配套的恢复记录，请保留现场核对，未接管其他路线。'), { code: 'DEPLOYMENT_OWNER_CONFLICT' });
+    if (feederState || vulkanState) {
+      const route = feederState ? 'feeder' : 'vulkan', summary = feederState ? feed : vk;
+      const state = await (feederState ? feeder.inspect(game) : vulkan.diagnose(game));
+      const pending = summary.needsRecovery === true || state.pending === true || state.needsRecovery === true || state.status === 'pending';
+      return { ...state, source: route, route, mode: feederState ? 'local' : 'external',
+        pending, needsRecovery: pending, runtimeVerified: false };
+    }
+    return externalDeployment.inspect(game);
+  }
+  async function recoverDeployment(id) {
+    const game = findGame(id);
+    const native = hasExternalRecord(game) ? await externalDeployment.recover(game) : { recovered: false };
+    const before = await inspectDeployment(id);
+    if (['feeder', 'vulkan'].includes(before.source)) {
+      if (!before.pending && !before.needsRecovery) return { ...native, source: before.source,
+        recovered: native.recovered === true, unchanged: native.recovered !== true, runtimeVerified: false };
+      const result = await (before.source === 'feeder' ? feeder.restore(game) : vulkan.restore(game));
+      const after = await inspectDeployment(id);
+      if (after.pending || after.needsRecovery) throw Object.assign(new Error('原固定配套仍有未完成的恢复记录，统一操作记录已保留。'), { code: 'DEPLOYMENT_RECOVERY_REQUIRED' });
+      return refreshAfterMutation({ ...result, source: before.source, recovered: true, runtimeVerified: false,
+        notice: before.source === 'vulkan'
+          ? '未完成的 Vulkan 部署已由原绑定恢复，运行配置已归档；此前已完成的其他设置仍保留。'
+          : 'Feeder 的未完成文件事务已由固定配套恢复；此前已完成的其他设置仍保留。' });
+    }
+    return refreshAfterMutation(native);
+  }
+  async function gameModuleManifest(id) {
+    try {
+      const game = findGame(id), exe = game.scan?.chosen?.path;
+      const { noLinks, digestFile, inside } = require('./launch-safety');
+      const same = require('./game-processes').same;
+      if (!path.isAbsolute(exe || '')) return [];
+      await noLinks(exe);
+      const readOwned = async (file, max = 512 * 1024) => {
+        await noLinks(file); const stat = await fs.promises.stat(file);
+        if (!stat.isFile() || stat.size > max) throw new Error('invalid owner record');
+        return JSON.parse(await fs.promises.readFile(file, 'utf8'));
+      };
+      const modules = [], binary = /\.(?:dll|asi|addon(?:32|64)?)$/i, hash = /^[a-f0-9]{64}$/i;
+      const add = async (file, role, expected, version, owner, architecture = 64) => {
+        if (!path.isAbsolute(file || '') || !binary.test(file) || !hash.test(expected || '') || typeof role !== 'string' || !role) throw new Error('invalid expected module');
+        await noLinks(file);
+        const old = modules.find(row => same(row.path, file));
+        if (old) { if (old.role !== role || old.sha256 !== expected) throw new Error('conflicting module roles'); return; }
+        modules.push({ path: file, name: path.basename(file), role, sha256: expected, architecture, version: version || null, owner });
+      };
+      const nativeRoles = { addon: 'core', reshade: 'reshade', bridge: 'chain', runtime: 'nr-runtime', carrier: 'carrier' };
+      const nativeModule = async (manifest, row, owner) => {
+        const role = nativeRoles[row.kind]; if (!role) return;
+        const file = path.resolve(game.dir, row.rel);
+        if (!same(path.dirname(file), path.dirname(exe)) || (row.kind === 'reshade'
+          ? !/^(?:dxgi|d3d12)\.dll$/i.test(path.basename(file)) : path.basename(file) !== INSTALLED_NAMES[row.kind])) throw new Error('module target does not match its owner');
+        await add(file, role, row.installedSha256, manifest.payloadVersion, owner);
+      };
+      const feed = feeder.summary(game), vk = vulkan.summary(game);
+      if ((feed.installed || feed.needsRecovery) && (vk.installed || vk.needsRecovery)) return [];
+      if (feed.installed || feed.needsRecovery) {
+        if (!feed.installed || feed.needsRecovery) return [];
+        // summary validates this receipt against the code-pinned Feeder recipe.
+        const row = await readOwned(path.join(game.dir, require('./feeder-runtime').RECEIPT));
+        const cores = row.recipe.files.filter(item => item.role === 'core' && item.mutable === false);
+        if (cores.length !== 1 || !same(path.resolve(game.dir, row.game.exe), exe)) return [];
+        for (const spec of row.recipe.files.filter(item => item.mutable === false && binary.test(item.target))) {
+          const owned = row.files.find(item => item.target === spec.target), file = owned && path.resolve(game.dir, owned.rel);
+          if (!owned || owned.sha256 !== spec.sha256 || !inside(game.dir, file)) return [];
+          await add(file, spec.role === 'loader' ? 'reshade' : spec.role, spec.sha256, row.recipe.coreVersion, 'feeder');
+        }
+      } else if (vk.installed || vk.needsRecovery) {
+        if (!vk.installed || vk.needsRecovery || fs.existsSync(path.join(userData, 'vulkan-deployment/pending.json'))) return [];
+        const basePath = vulkan.configDir(game); if (!path.isAbsolute(basePath || '')) return [];
+        const identity = require('./vulkan-runtime-profile').createVulkanRuntimeProfile({ userData });
+        const receipt = await readOwned(path.join(basePath, '.xiaofeng-vulkan-runtime.json'), 128 * 1024);
+        const checked = identity.identifyReceipt({ receipt, basePath, exe });
+        const packaged = resourcesPath && path.join(resourcesPath, 'vulkan-runtime/recipe.json');
+        const source = await readOwned(packaged && fs.existsSync(packaged) ? packaged : path.join(appDir, 'resources/vulkan-runtime/recipe.json'));
+        const sourceIdentity = identity.location({ exe, recipe: source });
+        if (sourceIdentity.fingerprint !== checked.recipe.fingerprint || source.id !== vk.packageId || source.coreVersion !== vk.coreVersion) return [];
+        // The runtime receipt retains path/hash identity. The matching fixed
+        // recipe supplies the Core role, including the distributed Chinese name.
+        const cores = source.files.filter(item => item.mutable === false && (item.role === 'core' ||
+          /project Core/i.test(item.license || '') && /^[a-f0-9]{64}$/i.test(item.identity?.sourceManifestSha256 || item.provenance?.sourceManifestSha256 || '')));
+        if (cores.length !== 1) return [];
+        for (const spec of source.files.filter(item => item.mutable === false && binary.test(item.target))) {
+          const owned = checked.recipe.files.find(item => same(path.join(basePath, item.target), path.join(basePath, spec.target)));
+          if (!owned || owned.sha256 !== spec.sha256) return [];
+          const file = path.resolve(basePath, owned.target); if (!inside(basePath, file)) return [];
+          const role = spec === cores[0] ? 'core' : spec.role || ({ 'nrchain_nvngx.dll': 'chain', 'nvngx_dlssnr.dll': 'nr-runtime' })[path.basename(file).toLowerCase()] || 'provider';
+          await add(file, role, owned.sha256, checked.recipe.coreVersion, 'vulkan-profile');
+        }
+        // The implicit ReShade loader belongs to the layer owner, outside the
+        // per-game Core profile. Missing or invalid layer authority stays absent.
+        try {
+          const layerSourceFile = resourcesPath && path.join(resourcesPath, 'vulkan-reshade/recipe.json');
+          const layerSource = await readOwned(layerSourceFile && fs.existsSync(layerSourceFile) ? layerSourceFile : path.join(appDir, 'resources/vulkan-reshade/recipe.json'));
+          const layerReceipt = await readOwned(path.join(userData, 'vulkan-deployment/receipt.json'), 2 * 1024 * 1024);
+          const layer = layerReceipt.layer, refs = layerReceipt.refs?.filter(row => same(row.exe, exe));
+          if (layerReceipt.version !== 1 || layerReceipt.product !== 'xiaofeng-vulkan-deployment' || layerSource.version !== 1 || layerSource.architecture !== 64 ||
+              !/^[a-z0-9][a-z0-9._-]{0,79}$/i.test(layerSource.id || '') || !/^[a-z0-9][a-z0-9._-]{0,79}$/i.test(layerSource.release || '') ||
+              typeof layerSource.layer?.manifest !== 'string' || path.basename(layerSource.layer.manifest) !== layerSource.layer.manifest ||
+              typeof layerSource.layer?.library !== 'string' || path.basename(layerSource.layer.library) !== layerSource.layer.library ||
+              layerReceipt.registry?.scope !== 'HKCU' || layerReceipt.registry?.view !== '64' || layerReceipt.registry?.key !== 'Software\\Khronos\\Vulkan\\ImplicitLayers' ||
+              refs?.length !== 1 || !hash.test(refs[0].exeSha256 || '') || !['owned', 'reused'].includes(layer?.mode) ||
+              !path.isAbsolute(layer.library || '') || !path.isAbsolute(layer.manifest || '') ||
+              layerReceipt.recipe?.id !== layerSource.id || layerReceipt.recipe.release !== layerSource.release ||
+              layerReceipt.recipe.manifestSha256 !== layerSource.layer?.manifestSha256 || layerReceipt.recipe.librarySha256 !== layerSource.layer?.librarySha256)
+            throw new Error('unmatched Vulkan layer owner');
+          const expected = layer.mode === 'owned' ? layerReceipt.recipe.librarySha256 : layer.librarySha256;
+          const expectedManifest = layer.mode === 'owned' ? layerReceipt.recipe.manifestSha256 : layer.manifestSha256;
+          if (layer.mode === 'owned') {
+            const directory = path.join(userData, 'vulkan-deployment/layers', layerSource.id);
+            if (!same(layer.library, path.join(directory, layerSource.layer.library)) || !same(layer.manifest, path.join(directory, layerSource.layer.manifest))) throw new Error('Vulkan layer path changed');
+          }
+          const manifest = await readOwned(layer.manifest, 64 * 1024);
+          if (!hash.test(expectedManifest || '') || await digestFile(layer.manifest) !== expectedManifest || manifest.layer?.name !== layerSource.layer.name ||
+              manifest.layer?.type !== 'GLOBAL' || !manifest.layer.disable_environment || typeof manifest.layer.library_path !== 'string' ||
+              !same(path.resolve(path.dirname(layer.manifest), manifest.layer.library_path), layer.library)) throw new Error('Vulkan layer manifest changed');
+          await add(layer.library, 'reshade', expected, layerSource.release, `vulkan-layer-${layer.mode}`);
+        } catch { /* Core authority alone cannot promote the missing loader. */ }
+      } else if (externalOwned(game)) {
+        const current = externalDeployment.getLayout(game);
+        if (!current.verified || current.needsRecovery || current.blockers?.length || !same(current.exe, exe)) return [];
+        for (const row of current.moduleManifest) {
+          if (!inside(current.runtimeDir, row.path)) return [];
+          const role = row.role === 'reshade' && current.loadingMode !== 'helper' ? 'inactive-loader' : row.role;
+          await add(row.path, role, row.sha256, current.version, 'external', row.architecture);
+        }
+        if (!modules.some(row => row.role === 'reshade')) {
+          const saved = await readOwned(path.join(game.dir, EXTERNAL_RECEIPT));
+          const manifest = saved.currentManifest || saved.localManifest;
+          assertManifestExecutable(game.dir, manifest, exe);
+          for (const row of manifest.files.filter(item => item.kind === 'reshade')) await nativeModule(manifest, row, 'external-game-proxy');
+          if (!modules.some(row => row.role === 'reshade') && saved.proxy)
+            await add(path.join(path.dirname(exe), saved.proxy.name), 'reshade', saved.proxy.sha256, current.version, 'external-game-proxy');
+        }
+      } else {
+        if (fs.existsSync(path.join(game.dir, '_DLSS5_Backup/pending-switch.json')) || fs.existsSync(path.join(game.dir, EXTERNAL_PENDING))) return [];
+        await noLinks(manifestPath(game.dir)); const manifest = readManifest(game.dir);
+        if (!manifest) return [];
+        assertManifestExecutable(game.dir, manifest, exe);
+        for (const row of manifest.files) await nativeModule(manifest, row, 'native');
+      }
+      return modules;
+    } catch { return []; }
+  }
+  async function gameCoreIdentity(id) {
+    try {
+      const modules = await gameModuleManifest(id), cores = modules.filter(row => row.role === 'core');
+      if (cores.length !== 1) return null;
+      const core = cores[0];
+      if (!core.version || await require('./launch-safety').digestFile(core.path) !== core.sha256 || require('../core/pe').getBitness(core.path) !== 64) return null;
+      return { path: core.path, sha256: core.sha256, version: core.version, verified: true };
+    } catch { return null; }
   }
 
   return {
@@ -743,6 +1222,18 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     listGames: () => collectionFresh ? games.map(publicGame) : refresh(),
     dispose: () => library.dispose?.(),
     gameDirectory: id => findGame(id).dir,
+    getLayout: id => gameLayout(findGame(id)),
+    gameModuleManifest,
+    gameCoreIdentity,
+    inspectDeployment,
+    previewDeployment,
+    applyDeployment,
+    previewSpecialDeployment,
+    applySpecialDeployment,
+    restoreDeployment: async (id, consent = {}) => refreshAfterMutation(await externalDeployment.restore(findGame(id), consent)),
+    recoverDeployment,
+    assertDeploymentReady: id => externalDeployment.assertReady(findGame(id)),
+    previewUninstall,
     gameScan: id => structuredClone(findGame(id).scan),
     gamesInDirectory: dir => games.filter(game => pathKey(game.dir) === pathKey(dir)).map(game => ({
       id: game.id, executable: game.scan?.chosen?.path || null
@@ -783,17 +1274,28 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       await store.write({ scanFolders: [...state.scanFolders, dir] });
       return refreshCollection(games);
     },
-    dismissGame: async id => {
+    dismissGame: async (id, options = {}) => {
       const game = findGame(id);
+      if (options.libraryOnly === true && (feederOwned(game) || vulkanOwned(game) || hasExternalRecord(game) || readManifest(game.dir)))
+        throw Object.assign(new Error('请先选择卸载方式并完成恢复，再移出游戏库。'), { code: 'LIBRARY_RESTORE_FIRST' });
+      if (options.libraryOnly === true) {
+        requireNoFeeder(game); requireKnownVulkanOwnership(game);
+        if (fs.existsSync(path.join(game.dir, '_DLSS5_Backup/pending-switch.json')))
+          throw Object.assign(new Error('请先恢复未完成的组件操作，再移出游戏库。'), { code: 'LIBRARY_RESTORE_FIRST' });
+      }
+      if (options.libraryOnly !== true) {
       if (feederOwned(game)) await feeder.restore(game);
       requireNoFeeder(game);
       requireKnownVulkanOwnership(game);
       if (vulkanOwned(game)) await vulkan.restore(game);
+      if (hasExternalRecord(game)) await externalDeployment.recover(game);
+      if (externalOwned(game)) await externalDeployment.restore(game, { allowAntiCheat: true });
       // Removing a library entry also removes this tool's NR deployment. Never
       // hide the game while an incomplete restore still needs the user's attention.
       if (readManifest(game.dir)) {
         const result=await installer.uninstall({gameDir:game.dir,removeSettings:false,scan:game.scan});
         if (result?.removed !== true) throw appError('ERR_BACKUP_INVALID',{operation:'dismiss-uninstall',removed:false,warnings:result?.warnings||[]});
+      }
       }
       const state = store.read();
       const executable = game.scan?.chosen?.path || null;
@@ -954,6 +1456,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     },
     install: async (id, options = {}) => {
       const game = findGame(id);
+      if (externalOwned(game)) return refreshAfterMutation(await repairGame(game, options));
+      if (hasExternalRecord(game)) await externalDeployment.assertReady(game);
       if (feederOwned(game)) return refreshAfterMutation(await feeder.install(game, options));
       requireNoFeeder(game);
       requireKnownVulkanOwnership(game);
@@ -966,6 +1470,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     repair: async (id, options = {}) => refreshAfterMutation(await repairGame(findGame(id), options)),
     upgradeAddon: async (id, version, options = {}) => {
       const game = findGame(id);
+      if (externalOwned(game)) return refreshAfterMutation(await repairGame(game, { ...options, version }));
       requireNoFeeder(game);
       if (vulkanOwned(game) || vulkanRoute(game)) return refreshAfterMutation(await vulkan.install(game, { ...options, version }));
       const imported = importedAddon(version);
@@ -976,6 +1481,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     },
     toggleD3D12: async (id, enabled, options = {}) => {
       const game = findGame(id);
+      if (externalOwned(game)) throw Object.assign(new Error('请先恢复普通运行目录，再调整加载器槽位。'), { code: 'DEPLOYMENT_RESTORE_FIRST' });
       requireNoFeeder(game);
       if (vulkanOwned(game) || vulkanRoute(game)) routeRestoreFirst();
       const result = await installer.toggleD3D12({ gameDir: game.dir, enabled: enabled === true, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
@@ -997,12 +1503,15 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       }
       return true;
     },
-    uninstall: async (id, removeSettings = false) => {
+    uninstall: async (id, request = false) => {
       const game = findGame(id);
+      const { mode, removeSettings } = uninstallRequest(request);
+      if (hasExternalRecord(game)) await externalDeployment.recover(game);
+      if (externalOwned(game)) await externalDeployment.restore(game, { allowAntiCheat: true });
       if (feederOwned(game)) return refreshAfterMutation(await feeder.restore(game));
       requireNoFeeder(game);
       if (vulkanOwned(game)) return refreshAfterMutation(await vulkan.restore(game));
-      const result = await installer.uninstall({ gameDir: game.dir, removeSettings, scan: game.scan });
+      const result = await installer.uninstall({ gameDir: game.dir, mode, removeSettings, scan: game.scan });
       if (result?.removed !== true) {
         const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
         const warning = warnings.find(row => row && typeof row.code === 'string' && Object.hasOwn(MESSAGES, row.code));
@@ -1012,6 +1521,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     },
     restoreManagedForCleanup: async id => {
       const game = findGame(id);
+      if (hasExternalRecord(game)) await externalDeployment.recover(game);
+      if (externalOwned(game)) await externalDeployment.restore(game, { allowAntiCheat: true });
       let result = { restored: false, unchanged: true };
       if (feederOwned(game)) result = await feeder.restore(game);
       else if (vulkanOwned(game)) result = await vulkan.restore(game);
@@ -1115,7 +1626,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         }
       } catch {}
       try {
-        if (vulkanOwned(game)) managedLogDirs = [await settingDirectory(game, 'reshade'), await settingDirectory(game)];
+        if (externalOwned(game)) managedLogDirs = gameLayout(game).logDirs;
+        else if (vulkanOwned(game)) managedLogDirs = [await settingDirectory(game, 'reshade'), await settingDirectory(game)];
         else if (reframeworkInput(game)) managedLogDirs = [await settingDirectory(game)];
       }
       catch { /* A broken binding must still allow exporting its diagnosis. */ }
@@ -1137,6 +1649,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     },
     writeNrSettings: async (id, patch) => {
       const game = findGame(id);
+      if (hasExternalRecord(game)) await externalDeployment.assertReady(game);
       const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
       return writeConfig(file, patch);
     },
@@ -1150,12 +1663,14 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     },
     writeGameHotkey: async (id, target, binding) => {
       const game = findGame(id);
+      if (hasExternalRecord(game)) await externalDeployment.assertReady(game);
       const executableDir = await settingDirectory(game, 'reshade');
       if (target !== 'reshade') throw appError('ERR_HOTKEY_UNSUPPORTED');
       return writeReShadeHotkey(path.join(executableDir, 'ReShade.ini'), binding);
     },
     applyDefault: async id => {
       const game = findGame(id);
+      if (hasExternalRecord(game)) await externalDeployment.assertReady(game);
       const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
       const patch = defaultPatch(vulkanOwned(game) ? '' : readManifest(game.dir)?.payloadVersion);
       let current = '';
@@ -1169,6 +1684,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     },
     applyRecommended: async id => {
       const game = findGame(id);
+      if (hasExternalRecord(game)) await externalDeployment.assertReady(game);
       const file = path.join(await settingDirectory(game), 'nr_before_sr.ini');
       const patch = defaultPatch(vulkanOwned(game) ? '' : readManifest(game.dir)?.payloadVersion);
       let current = '';

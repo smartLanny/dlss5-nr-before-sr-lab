@@ -23,6 +23,10 @@ function createFgWorkflow({ settings, components, assertClosed }) {
     const request = policy.validateRequest('fg', input);
     if (request.backend !== 'mfgunlock' || request.mode === 'restore') throw failure('SETTINGS_FG_WORKFLOW', '此入口仅准备新版 MFG Unlock。');
     await ready(id);
+    if (typeof settings.assessEligibility === 'function') {
+      const eligibility = await settings.assessEligibility(id, 'fg', request);
+      if (!eligibility.eligible) throw failure('SETTINGS_BLOCKED', eligibility.blockers.map(row => row.message).join('\n'), { eligibility, gameStarted: false });
+    }
     const previous = await settings.inspect(id), initial = await components.inspect(id);
     if (initial.route !== 'compatibility') throw failure('SETTINGS_FG_ROUTE_MISMATCH', '当前显卡不使用 RTX40 MFG Unlock。');
     if (initial.migrationPending) throw failure('SETTINGS_FG_MIGRATION_PENDING', '上次补帧迁移尚未完成，请先恢复。', { migrationToken: initial.migrationToken });
@@ -41,9 +45,9 @@ function createFgWorkflow({ settings, components, assertClosed }) {
         migrationToken = migrated.migrationToken;
       }
       prepared = await components.prepare(id, { allowAntiCheat: options.allowAntiCheat === true, migrationToken });
-      const plan = await settings.preview(id, 'fg', request);
+      const plan = await settings.preview(id, 'fg', request, { reapplyExternalChanges: options.reapplyExternalChanges === true });
       configAttempted = true;
-      const result = await settings.apply(plan.id, { confirm: true, automatic: true });
+      const result = await settings.apply(plan.id, { confirm: true, automatic: options.reapplyExternalChanges !== true });
       await settings.save(id, 'fg', request);
       if (migrationToken) await components.commitMigration(id, migrationToken);
       if (prepared.undoToken) await components.commitPrepare(id, prepared.undoToken);

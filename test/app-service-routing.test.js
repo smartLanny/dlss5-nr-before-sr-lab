@@ -41,7 +41,7 @@ function makePayload(t, root) {
   return payloadRoot;
 }
 
-function makeService(t) {
+function makeService(t, extraOverrides = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-api-service-'));
   const gameDir = path.join(root, 'game');
   const exeDir = path.join(gameDir, 'Binaries', 'Win64');
@@ -70,7 +70,7 @@ function makeService(t) {
   };
   const library = createLibraryService({ scan: scanModule, library: { discover: () => ({ games: [], roots: [] }), dedupe: rows => rows } });
   const installer = createInstaller({ journal, scan: scanModule, guards: { antiCheatPresent: () => false, assertGameClosed: async () => {} }, pe: { getBitness: () => 64 } });
-  const service = createAppService({ userData: path.join(root, 'user-data'), resourcesPath: path.join(root, 'resources'), appDir: root, version: '0.4.5', overrides: { library, installer, detectGpu: () => ({ family: 'RTX40', series: ['RTX 4070'], vendor: 'NVIDIA' }) } });
+  const service = createAppService({ userData: path.join(root, 'user-data'), resourcesPath: path.join(root, 'resources'), appDir: root, version: '0.4.5', overrides: { library, installer, detectGpu: () => ({ family: 'RTX40', series: ['RTX 4070'], vendor: 'NVIDIA' }), ...extraOverrides } });
   return { root, gameDir, exe, payloadDir, service, scan, library, installer };
 }
 
@@ -81,6 +81,59 @@ async function externalFixture(t) {
   const bundleFile=path.join(external,'bundle.json'),bundle=JSON.parse(fs.readFileSync(bundleFile,'utf8'));bundle.versions['0.3.3.5'].files[PAYLOAD_FILES.addon]=sha256(addon);fs.writeFileSync(bundleFile,JSON.stringify(bundle));
   return {...f,id,external,addon,bundleFile};
 }
+
+test('unified deployment performs a first external install and routes NR, hotkeys, diagnosis and uninstall to its active profile', async t => {
+  const f = makeService(t, { assertGameClosed: async () => {},
+    externalDeploymentOptions: { guards: { assertGameClosed: async () => {}, antiCheatPresent: () => false }, pe: { getImports: () => [] } } });
+  await f.service.addManualGame(f.gameDir);
+  const id = (await f.service.boot()).games[0].id;
+  const plan = await f.service.previewDeployment(id, { mode: 'external', api: 'dx12', version: '0.3.3.5' });
+  assert.deepEqual(plan.phases, ['local-install', 'external-migration']);
+  assert.ok(plan.changes.some(row => row.phase === 'external-migration' && row.name === PAYLOAD_FILES.addon));
+  await f.service.applyDeployment(plan.planId);
+  const layout = f.service.getLayout(id);
+  assert.equal(layout.mode, 'external'); assert.equal(layout.verified, true);
+  await f.service.writeNrSettings(id, { Intensity: 1.6 });
+  assert.match(fs.readFileSync(path.join(layout.nrConfigDir, 'nr_before_sr.ini'), 'utf8'), /Intensity=1.6/);
+  await f.service.writeGameHotkey(id, 'reshade', { key: 35 });
+  assert.match(fs.readFileSync(layout.activeConfigPath, 'utf8'), /KeyOverlay=35,0,0,0/);
+  assert.equal((await f.service.readGameHotkeys(id)).reshade.key, 35);
+  const diagnosis = await f.service.diagnose(id);
+  assert.equal(diagnosis.complete, true); assert.equal(diagnosis.deployment.mode, 'external');
+  fs.writeFileSync(path.join(layout.runtimeDir, 'nr-before-sr.log'), 'external Core log marker');
+  const report = await f.service.collectFeedback(id);
+  assert.match(report.text, /external Core log marker/);
+  const uninstall = await f.service.previewUninstall(id, { mode: 'clean' });
+  assert.deepEqual(uninstall.phases, ['restore-local', 'uninstall']);
+  assert.ok(uninstall.changes.some(row => row.phase === 'uninstall' && row.name === PAYLOAD_FILES.addon && row.afterSha256 === null));
+  const result = await f.service.uninstall(id, { mode: 'clean' });
+  assert.equal(result.removed, true); assert.equal(result.mode, 'clean');
+  assert.equal(fs.existsSync(path.join(path.dirname(f.exe), PAYLOAD_FILES.addon)), false);
+});
+
+test('planned FG restoration can be previewed but must finish before external deployment applies', async t => {
+  const f = makeService(t, { assertGameClosed: async () => {},
+    externalDeploymentOptions: { guards: { assertGameClosed: async () => {}, antiCheatPresent: () => false }, pe: { getImports: () => [] } } });
+  await f.service.addManualGame(f.gameDir);
+  const id = (await f.service.boot()).games[0].id;
+  await f.service.setGameApi(id, 'dx12'); await f.service.install(id, { version: '0.3.3.5' });
+  const fg = path.join(f.gameDir, '_DLSS5_Backup', 'xiaofeng-fg-components.json');
+  fs.writeFileSync(fg, '{}');
+  const request = { mode: 'external', api: 'dx12', version: '0.3.3.5' };
+  await assert.rejects(f.service.previewDeployment(id, request), { code: 'DEPLOYMENT_FG_RESTORE_FIRST' });
+  const blocked = await f.service.previewDeployment(id, request, { plannedFgRestore: true });
+  assert.equal(blocked.requiresFgRestore, true);
+  await assert.rejects(f.service.applyDeployment(blocked.planId), { code: 'DEPLOYMENT_FG_RESTORE_FIRST' });
+  const plan = await f.service.previewDeployment(id, request, { plannedFgRestore: true });
+  fs.unlinkSync(fg);
+  fs.writeFileSync(path.join(path.dirname(f.exe), 'ReShade.ini'), '[UserFilter]\nKeptAfterFgRestore=1\n');
+  const oldState = f.service.store.read();
+  const otherKey = path.join(f.root, 'another-game').toLowerCase();
+  await f.service.store.write({ gameOverrides: { ...oldState.gameOverrides, [otherKey]: { api: 'dx11', apiExecutable: path.join(otherKey, 'other.exe') } } });
+  await f.service.applyDeployment(plan.planId);
+  assert.match(fs.readFileSync(f.service.getLayout(id).activeConfigPath, 'utf8'), /KeptAfterFgRestore=1/);
+  assert.equal(f.service.store.read().gameOverrides[otherKey].api, 'dx11');
+});
 
 test('historical hotfix Add-on restored by uninstall stays visible and can be reversibly isolated', async t => {
   const f = await externalFixture(t), name = 'DLSS5-AI渲染超分版-beta0.4.6-hotfix.1-@野生的装机宅-Bilibili.addon64';

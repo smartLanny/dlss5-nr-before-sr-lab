@@ -22,7 +22,9 @@ function createMfgUnlockComponents(options = {}) {
   if (typeof options.gameDirectory !== 'function' || typeof options.gameExecutable !== 'function') fail('SETTINGS_FG_INIT', 'FG 组件服务缺少游戏路径依赖。');
   const journal = options.journal || journalDefault, pe = options.pe || peDefault;
   const guards = options.guards || createInstallGuards();
-  const assertGameClosed = options.assertGameClosed || guards.assertGameClosed;
+  const rawAssertClosed = options.assertGameClosed || guards.assertGameClosed;
+  const sourceRoots = new Map();
+  const assertGameClosed = (root, exe) => rawAssertClosed(sourceRoots.get(path.resolve(root).toLowerCase()) || root, exe);
   const antiCheatPresent = options.antiCheatPresent || guards.antiCheatPresent;
   const scan = options.scan || (async () => ({})), detectHardware = options.detectHardware || detectGpuAsync;
   const legacy = createLegacyFgComponents(options);
@@ -31,14 +33,64 @@ function createMfgUnlockComponents(options = {}) {
   const undos = new Map();
   const resources = fs.existsSync(path.join(options.resourcesPath || '', 'fg-mfgunlock', 'manifest.json'))
     ? path.join(options.resourcesPath, 'fg-mfgunlock') : path.join(options.appDir || '', 'resources', 'fg-mfgunlock');
-  function target(id) {
+  function target(id, originalLayout = false) {
     const game = options.gameDirectory(id), exe = options.gameExecutable(id);
     if (typeof game !== 'string' || typeof exe !== 'string' || !path.isAbsolute(game) || !path.isAbsolute(exe) || path.extname(exe).toLowerCase() !== '.exe') fail('SETTINGS_FG_TARGET', '游戏 EXE 无效。');
     const rel = path.relative(path.resolve(game), path.resolve(exe));
     if (!rel || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) fail('SETTINGS_FG_TARGET', '游戏 EXE 不在所选目录内。');
-    return { game: path.resolve(game), exe: path.resolve(exe), dir: path.dirname(path.resolve(exe)) };
+    const sourceGame = path.resolve(game), exeDir = path.dirname(path.resolve(exe));
+    let dir = exeDir, transactionRoot = sourceGame, configFile = path.join(exeDir, 'ReShade.ini'), layout = null;
+    if (!originalLayout && typeof options.getLayout === 'function') {
+      layout = options.getLayout(id);
+      if (layout?.verified !== true || layout.needsRecovery || layout.blockers?.length || !same(layout.exe, exe) ||
+          typeof layout.addonDirectory !== 'string' || !path.isAbsolute(layout.addonDirectory) ||
+          typeof layout.activeConfigPath !== 'string' || !path.isAbsolute(layout.activeConfigPath))
+        fail('SETTINGS_FG_LAYOUT_UNVERIFIED', '尚未确认此游戏实际使用的 ReShade Add-on 与配置目录。');
+      dir = path.resolve(layout.addonDirectory); configFile = path.resolve(layout.activeConfigPath);
+      const relative = path.relative(sourceGame, dir);
+      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        if (layout.mode !== 'external' || !same(path.dirname(configFile), dir)) fail('SETTINGS_FG_LAYOUT_UNVERIFIED', '外置 MFG 布局没有可核对的专属配置范围。');
+        transactionRoot = dir;
+      }
+    }
+    sourceRoots.set(transactionRoot.toLowerCase(), sourceGame);
+    return { id, sourceGame, game: transactionRoot, exe: path.resolve(exe), exeDir, dir, configFile, layout };
   }
   const receiptFile = t => journal.safePath(t.game, path.join('_DLSS5_Backup', 'xiaofeng-fg-components.json'));
+  async function recoveryContext(id) {
+    const layout = typeof options.getLayout === 'function' ? options.getLayout(id) : null;
+    if (!['vulkan', 'feeder'].includes(layout?.source)) return { t: target(id), special: false, applicable: true };
+    const original = target(id, true);
+    if (!same(layout.exe, original.exe) || !path.isAbsolute(layout.addonDirectory || '') || !path.isAbsolute(layout.activeConfigPath || '') || !path.isAbsolute(layout.runtimeDir || ''))
+      fail('SETTINGS_FG_LAYOUT_UNVERIFIED', '专属运行目录没有可核对的目标身份。');
+    const candidates = new Map([[original.game.toLowerCase(), original]]);
+    for (const root of [layout.runtimeDir, layout.addonDirectory, path.dirname(layout.activeConfigPath)]) {
+      const game = path.resolve(root); if (candidates.has(game.toLowerCase())) continue;
+      const t = { ...original, game, dir: path.resolve(layout.addonDirectory), configFile: path.resolve(layout.activeConfigPath), layout };
+      // Only the fixed deployment's declared scope is inspected. Receipt paths
+      // never choose a new recovery directory.
+      journal.safePath(t.game, path.relative(t.game, path.join(t.dir, ADDON)));
+      sourceRoots.set(game.toLowerCase(), original.sourceGame); candidates.set(game.toLowerCase(), t);
+    }
+    const owned = [];
+    for (const t of candidates.values()) {
+      await noLinks(t.game); await noLinks(receiptFile(t));
+      const migration = journal.safePath(t.game, path.join('_DLSS5_Backup', 'xiaofeng-fg-migration.json')); await noLinks(migration);
+      const pending = await fileRecovery.inspect(t);
+      if (fs.existsSync(receiptFile(t)) || fs.existsSync(migration) || pending.fileRecoveryPending || pending.fileOperationActive) owned.push({ t, pending });
+    }
+    if (owned.length > 1) fail('SETTINGS_FG_OWNER_CONFLICT', '多个原目录仍有 FG 恢复记录，请先处理各自恢复入口；未忽略或合并记录。');
+    const chosen = owned[0];
+    if (chosen && !same(chosen.t.game, original.game) && (layout.verified !== true || layout.needsRecovery || layout.blockers?.length))
+      fail('SETTINGS_FG_LAYOUT_UNVERIFIED', '专属目录中的旧 FG 记录需要先恢复有效部署身份。');
+    return { t: chosen?.t || original, pending: chosen?.pending, special: true, applicable: Boolean(chosen), source: layout.source };
+  }
+  function specialStatus(context, extra = {}) {
+    return { backend: BACKEND, id: ID, route: 'not-applicable', ready: !context.applicable, managed: context.applicable, receipt: false,
+      needsCleanup: context.applicable, legacyNeedsMigration: false, migrationReady: false, migrationPending: false, canPrepare: false,
+      conflicts: [], blockers: context.applicable ? ['专属运行路线仍有原 FG 记录，需要先按原归属恢复。'] : [], missing: [], components: [],
+      exe: context.t.exe, api: context.source, runtimeVerified: false, notApplicable: !context.applicable, ...context.pending, ...extra };
+  }
   async function receipt(t) {
     const file = receiptFile(t); await noLinks(file); if (!fs.existsSync(file)) return null;
     let value;
@@ -55,10 +107,10 @@ function createMfgUnlockComponents(options = {}) {
     if (options.inspectFgRuntime) return options.inspectFgRuntime({ applicationDirectory: t.dir, gameDirectory: t.game, exe: t.exe, observed });
     const suppliedValue = observed?.fgRuntime?.file;
     const supplied = typeof suppliedValue === 'string' && path.isAbsolute(suppliedValue) ? suppliedValue : null;
-    const candidates = [supplied, ...(observed?.dlssgFiles || []).map(row => typeof row === 'string' ? row : row.path), path.join(t.dir, 'nvngx_dlssg.dll')]
+    const candidates = [supplied, ...(observed?.dlssgFiles || []).map(row => typeof row === 'string' ? row : row.path), path.join(t.exeDir, 'nvngx_dlssg.dll')]
       .filter(value => typeof value === 'string' && path.isAbsolute(value));
     const found = [...new Set(candidates)].filter(file => fs.existsSync(file));
-    const local = path.join(t.dir, 'nvngx_dlssg.dll');
+    const local = path.join(t.exeDir, 'nvngx_dlssg.dll');
     const file = supplied && fs.existsSync(supplied) ? supplied : fs.existsSync(local) ? local : found.length === 1 ? found[0] : null;
     if (!file) return { status: 'unknown', ready: false, message: found.length > 1 ? '发现多个 DLSS-G 运行库，尚未确定游戏采用的版本。' : '未找到可验证的 DLSS-G 运行库；需要游戏已有 310.x 或更新版本。' };
     try {
@@ -70,26 +122,43 @@ function createMfgUnlockComponents(options = {}) {
     } catch { return { status: 'unknown', ready: false, file, message: '无法安全读取 DLSS-G 运行库。' }; }
   }
   async function inventory(t) {
-    const files = [], problems = [], pending = [{ dir: t.dir, depth: 0 }]; let count = 0;
+    const files = [], problems = [], pending = [...new Set([t.dir, t.exeDir])].map(dir => ({ dir, depth: 0 })), visited = new Set(); let count = 0;
     while (pending.length) {
-      const next = pending.pop(); await noLinks(next.dir);
+      const next = pending.pop(); if (visited.has(next.dir.toLowerCase())) continue; visited.add(next.dir.toLowerCase()); await noLinks(next.dir);
+      if (!fs.existsSync(next.dir)) continue;
       for (const entry of fs.readdirSync(next.dir, { withFileTypes: true })) {
         if (++count > 20000) return { files, problems: [...problems, '组件目录过大，无法排除第二套 MFG。'] };
         const file = path.join(next.dir, entry.name), rel = path.relative(t.game, file);
         if (entry.isSymbolicLink()) { if (COMPETING.test(rel) || /^(scripts|plugins|addons)$/i.test(entry.name)) problems.push(`组件路径是链接：${rel}`); continue; }
-        if (entry.isFile() && COMPETING.test(rel) && /\.(?:dll|asi|addon64|addon32|json|lua)$/i.test(entry.name)) { await noLinks(file); files.push({ rel, file, hash: hashFile(file) }); }
+        if (entry.isFile() && /\.(?:dll|asi|addon64|addon32|json|lua)$/i.test(entry.name)) {
+          // Directory names do not turn a separate NR/HDR addon into MFG.
+          // The pinned binary's hash still catches renamed duplicate copies.
+          const named = COMPETING.test(entry.name) || /^init\.lua$/i.test(entry.name) && COMPETING.test(path.basename(path.dirname(file)));
+          if (named || /\.addon64$/i.test(entry.name)) {
+            await noLinks(file); const hash = hashFile(file);
+            if (named || hash === SHA256) files.push({ rel, file, hash });
+          }
+        }
         if (entry.isDirectory() && next.depth < 6 && (next.depth > 0 || /^(scripts|plugins|addons|asi|reframework)$/i.test(entry.name) || COMPETING.test(entry.name))) pending.push({ dir: file, depth: next.depth + 1 });
       }
     }
     return { files, problems };
   }
   async function inspect(id) {
+    const context = await recoveryContext(id);
+    if (context.special) {
+      if (!context.applicable) return specialStatus(context);
+      const owned = await receipt(context.t), pending = await migrations.read(context.t);
+      return specialStatus(context, { receipt: Boolean(owned), legacyNeedsMigration: owned?.version === 1, migrationPending: Boolean(pending), migrationToken: pending?.token || null });
+    }
     const t = target(id); await noLinks(t.exe);
     const fileState = await fileRecovery.inspect(t);
     const observed = await scan(id), hardware = await detectHardware();
     const series = [...new Set(Array.isArray(hardware?.series) ? hardware.series : [])];
     const route = series.length === 1 && series[0] === 'RTX50' ? 'native' : series.length === 1 && series[0] === 'RTX40' ? 'compatibility' : 'unsupported';
     const conflicts = [], blockers = [], missing = [], components = [];
+    if (!same(t.game, t.sourceGame) && fs.existsSync(path.join(t.sourceGame, '_DLSS5_Backup', 'xiaofeng-fg-components.json')))
+      blockers.push('旧本地 MFG 组件仍有受管记录，请先在原布局恢复后再使用外置 MFG。');
     let owned = null, pending = null, legacyPlan = null, manifest = null, fgRuntime = null;
     try { owned = await receipt(t); } catch (error) { conflicts.push(error.message); }
     try { pending = await migrations.read(t); } catch (error) { conflicts.push(error.message); }
@@ -117,16 +186,16 @@ function createMfgUnlockComponents(options = {}) {
       if (observed?.api !== 'dx12') blockers.push(observed?.api === 'vulkan' ? 'MFG Unlock 的 Vulkan 路径仍属实验性，此准备入口仅支持 DirectX 12。' : '请先确认游戏实际使用 DirectX 12。');
       if (observed?.streamlineFg !== true) blockers.push('未确认游戏已有 Streamline DLSS Frame Generation；此组件不会为没有 FG 的游戏添加 FG。');
       if (observed?.reshadeAddon !== true) blockers.push('请先准备并确认支持完整 Add-on 的 ReShade。');
-      if (observed?.reshadeAddonDirectory && !same(observed.reshadeAddonDirectory, t.dir)) blockers.push('当前 ReShade 使用自定义 Add-on 目录，此入口不会猜测或写入其他位置。');
-      const iniFile = path.join(t.dir, 'ReShade.ini'); await noLinks(iniFile);
-      const layout = inspectAddonLayout(t.dir, options.environment || process.env);
+      if (observed?.reshadeAddonDirectory && !same(observed.reshadeAddonDirectory, t.dir)) blockers.push('扫描到的 Add-on 目录与已确认活动布局不同，请先刷新布局。');
+      const iniFile = t.configFile; await noLinks(iniFile);
+      const layout = t.layout ? { ok: true } : inspectAddonLayout(t.dir, options.environment || process.env);
       // NR owns its own direct-load compatibility checks. MFG needs the actual
       // local INI/add-on directory and separately checks competing MFG entries.
       if (!layout.ok && layout.code !== 'ERR_ADDON_DIRECT_LOAD') blockers.push('ReShade 的活动配置或 Add-on 目录不是已确认的游戏 EXE 目录。');
       if (layout.ok || layout.code === 'ERR_ADDON_DIRECT_LOAD') {
         const direct = fs.existsSync(iniFile) ? addonValues(fs.readFileSync(iniFile, 'utf8')).get('LoadFromDllMain') || [] : [];
         for (const entry of direct.filter(name => COMPETING.test(name))) {
-          const file = path.resolve(t.dir, entry);
+          const file = path.resolve(path.dirname(iniFile), entry);
           if (fs.existsSync(file) && !same(file, path.join(t.dir, ADDON)) && !managedOld.has(path.relative(t.game, file).toLowerCase())) conflicts.push(`ReShade 直接加载了另一套 MFG：${entry}。`);
         }
       }
@@ -145,11 +214,12 @@ function createMfgUnlockComponents(options = {}) {
       legacyNeedsMigration, migrationReady, migrationPending: Boolean(pending), migrationToken: pending?.token || null, migrationState: pending?.state || null,
       conflicts: [...new Set(conflicts)], blockers: [...new Set(allBlockers)], missing, canPrepare: route === 'compatibility' && !legacyNeedsMigration && !blockers.length && !conflicts.length && !ready,
       components, api: observed?.api || 'unknown', exe: t.exe, fgRuntime, runtimeVerified: false, panel: 'MFG Unlock', configurationReadAt: 'process-attach',
+      addonDirectory: t.dir, activeConfigPath: t.configFile, transactionRoot: t.game,
       retained: legacyPlan?.retained || [], resourceId: manifest?.id || null };
   }
   async function guard(t, operation, allowAntiCheat) {
     await assertGameClosed(t.game, t.exe);
-    if (antiCheatPresent(t.game) && allowAntiCheat !== true) throw appError('ERR_ANTI_CHEAT_CONFIRM', { operation });
+    if (antiCheatPresent(t.sourceGame) && allowAntiCheat !== true) throw appError('ERR_ANTI_CHEAT_CONFIRM', { operation });
   }
   async function prepare(id, { allowAntiCheat = false, migrationToken = null } = {}) {
     const t = target(id); await guard(t, 'prepare-fg-components', allowAntiCheat);
@@ -208,8 +278,9 @@ function createMfgUnlockComponents(options = {}) {
     });
     undos.delete(token); return result;
   }
-  async function restoreLegacy(id, restoreOptions = {}) {
-    const t = target(id);
+  async function restoreLegacy(id, restoreOptions = {}, recoveryTarget = null) {
+    const t = recoveryTarget || target(id);
+    if (!same(t.game, t.sourceGame)) fail('SETTINGS_FG_RECEIPT', '旧版 FG 的恢复记录必须保留在原游戏目录。');
     const adapter = createLegacyFgComponents({ ...options, journal: { ...journal,
       transaction: (_game, work) => fileRecovery.transaction(t, 'legacy-restore', work) } });
     return adapter.restore(id, { ...restoreOptions, beforeMutation: async plan => {
@@ -236,10 +307,12 @@ function createMfgUnlockComponents(options = {}) {
     return { ...result, migrated: true, backend: BACKEND, id: ID, migrationToken: record.token, migrationPending: true };
   }
   async function restore(id) {
-    const t = target(id); await noLinks(t.exe);
+    const context = await recoveryContext(id), t = context.t; await noLinks(t.exe);
+    if (context.special && !context.applicable) return { restored: false, unchanged: true, notApplicable: true, source: context.source };
+    if (context.pending?.fileRecoveryPending || context.pending?.fileOperationActive) fail('SETTINGS_FG_FILE_RECOVERY_REQUIRED', 'FG 文件操作尚未恢复，请先处理原组件事务。');
     if (await migrations.read(t)) fail('SETTINGS_FG_MIGRATION_PENDING', '迁移快照仍在，请使用迁移恢复入口。');
     const prior = await receipt(t); if (!prior) return { restored: false, unchanged: true };
-    if (prior.version === 1) return restoreLegacy(id, { retainSharedLoaders: true });
+    if (prior.version === 1) return restoreLegacy(id, { retainSharedLoaders: true }, t);
     await assertGameClosed(t.game, t.exe);
     const row = prior.files[0], addon = journal.safePath(t.game, row.rel);
     const check = async () => { await noLinks(addon); const now = await receipt(t);
@@ -254,13 +327,27 @@ function createMfgUnlockComponents(options = {}) {
       return { restored: true, retained: row.mode === 'adopted' ? [row.rel] : [], runtimeVerified: false };
     });
   }
-  return Object.freeze({ inspect, prepare, restore, migrateLegacy, rollbackPrepare,
-    inspectPending: id => fileRecovery.inspect(target(id)),
-    recoverPending: id => fileRecovery.recover(target(id)),
-    inspectMigration: async id => { const t = target(id), pending = await migrations.read(t); return { migrationPending: Boolean(pending), migrationToken: pending?.token || null, ...await fileRecovery.inspect(t) }; },
+  async function ownedModuleManifest(id) {
+    const context = await recoveryContext(id), t = context.t;
+    if (context.special && !context.applicable) return [];
+    if (context.special) fail('SETTINGS_FG_UNSUPPORTED', '专属运行路线的旧 FG 记录仅供恢复，不能用作当前加载允许清单。');
+    const fileState = await fileRecovery.inspect(t);
+    if (fileState.fileRecoveryPending || fileState.fileOperationActive || await migrations.read(t)) fail('SETTINGS_FG_FILE_RECOVERY_REQUIRED', 'FG 记录尚未恢复，不能签发加载允许清单。');
+    if (!same(t.game, t.sourceGame) && fs.existsSync(path.join(t.sourceGame, '_DLSS5_Backup', 'xiaofeng-fg-components.json')))
+      fail('SETTINGS_FG_OWNER_CONFLICT', '旧本地 FG 记录尚未恢复，不能为外置组件签发允许清单。');
+    const owned = await receipt(t); if (!owned) return [];
+    if (owned.version !== 2) fail('SETTINGS_FG_MIGRATION_REQUIRED', '旧 FG 记录需要先恢复或迁移，不能当作 MFG Unlock 的加载身份。');
+    const row = owned.files[0], file = journal.safePath(t.game, row.rel); await noLinks(file);
+    if (hashFile(file) !== row.after || pe.getBitness(file) !== 64) fail('SETTINGS_FG_EXTERNAL_CHANGE', 'MFG Unlock 文件与受管记录的固定摘要或位数不一致。');
+    return [{ path: file, name: ADDON, role: 'mfgunlock', sha256: row.after, architecture: 64, owner: 'fg-mfgunlock' }];
+  }
+  return Object.freeze({ inspect, prepare, restore, migrateLegacy, rollbackPrepare, ownedModuleManifest,
+    inspectPending: async id => { const context = await recoveryContext(id); return fileRecovery.inspect(context.t); },
+    recoverPending: async id => { const context = await recoveryContext(id); return fileRecovery.recover(context.t); },
+    inspectMigration: async id => { const { t } = await recoveryContext(id), pending = await migrations.read(t); return { migrationPending: Boolean(pending), migrationToken: pending?.token || null, ...await fileRecovery.inspect(t) }; },
     commitPrepare: (id, token) => { const t = target(id), undo = undos.get(token); if (undo && !same(undo.t.exe, t.exe)) fail('SETTINGS_FG_UNDO_TOKEN', 'FG 撤销凭据属于另一游戏。'); undos.delete(token); return { committed: true }; },
-    rollbackMigration: (id, token) => migrations.finish(id, target(id), token, true),
-    commitMigration: (id, token) => migrations.finish(id, target(id), token, false),
+    rollbackMigration: async (id, token) => migrations.finish(id, (await recoveryContext(id)).t, token, true),
+    commitMigration: async (id, token) => migrations.finish(id, (await recoveryContext(id)).t, token, false),
     receiptFile: id => receiptFile(target(id)) });
 }
 module.exports = { createMfgUnlockComponents };

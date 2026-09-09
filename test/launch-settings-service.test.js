@@ -7,6 +7,7 @@ const path = require('path');
 const { createLaunchSettingsService } = require('../src/product/launch-settings-service');
 const policy = require('../src/product/launch-settings-policy');
 const { DRS } = require('../src/product/launch-profile-plan');
+const { enhancementEvidence } = require('./helpers/enhancement-evidence');
 
 const absent = () => ({ kind: 'absent', value: null, location: null, predefined: null });
 const explicit = value => ({ kind: 'explicit', value, location: 0, predefined: false });
@@ -36,6 +37,7 @@ function fixture(t, options = {}) {
     // Historical fixtures exercise protocol-11 receipt creation/restoration.
     // Production omits this escape hatch and refuses new legacy requests.
     allowLegacyControl: true,
+    getFeatureEvidence: async () => enhancementEvidence(),
     gameDirectory: () => game, gameExecutable: () => exe, driver, legacySrModel: legacy,
     detectHardware: async () => ({ family: options.family || 'RTX50', series: [options.family || 'RTX50'] }),
     environment: async () => ({ verified: true, running: [] }), peBitness: () => 64, ...(options.service || {}) });
@@ -50,6 +52,166 @@ test('generic launch recovery cannot bypass REFramework ownership checks', async
   const before = f.driver.peek();
   await assert.rejects(f.service.recover('g'), { code: 'REF_RECOVERY_REQUIRED' });
   assert.equal(fs.readFileSync(pending, 'utf8'), bytes); assert.deepEqual(f.driver.peek(), before);
+});
+
+test('missing evidence cannot write, and confirmation persists only for this EXE content and domain', async t => {
+  const evidence = enhancementEvidence({ gameSetting: { state: 'unknown', source: null } });
+  const f = fixture(t, { service: { getFeatureEvidence: async () => evidence } });
+  const request = { backend: 'native', quality: 'quality', preset: 'K' };
+  let plan = await f.service.preview('g', 'sr', request);
+  assert.equal(plan.eligibility.state, 'waiting-confirmation');
+  await assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'SETTINGS_BLOCKED' });
+  const confirmed = await f.service.confirmGameFeature('g', 'sr', { enabled: true });
+  assert.equal(confirmed.eligible, true); assert.equal(confirmed.runtimeVerified, false);
+  assert.equal((await f.service.assessEligibility('g', 'fg')).eligible, false);
+  plan = await f.service.preview('g', 'sr', request); await f.service.apply(plan.id, { confirm: true });
+  fs.writeFileSync(f.exe, 'updated executable');
+  assert.equal((await f.service.inspectGameFeatureConfirmation('g', 'sr')).confirmation, null);
+  assert.equal((await f.service.assessEligibility('g', 'sr')).eligible, false);
+});
+
+test('observed game-off revokes confirmation and cannot be overridden by confirming again', async t => {
+  let gameSetting = { state: 'unknown' };
+  const f = fixture(t, { service: { getFeatureEvidence: async () => enhancementEvidence({ gameSetting }) } });
+  await f.service.confirmGameFeature('g', 'sr', { enabled: true });
+  gameSetting = { state: 'off', source: 'game-config' };
+  await assert.rejects(f.service.confirmGameFeature('g', 'sr', { enabled: true }), { code: 'SETTINGS_CONFIRMATION_BLOCKED' });
+  assert.equal((await f.service.inspectGameFeatureConfirmation('g', 'sr')).confirmation, null);
+  gameSetting = { state: 'unknown' };
+  assert.equal((await f.service.assessEligibility('g', 'sr')).state, 'waiting-confirmation');
+});
+
+test('game switch recheck between preview and apply blocks every write', async t => {
+  let gameSetting = { state: 'on', source: 'game-config' };
+  const f = fixture(t, { service: { getFeatureEvidence: async () => enhancementEvidence({ gameSetting }) } });
+  const plan = await f.service.preview('g', 'sr', { backend: 'native', quality: 'quality', preset: 'K' });
+  const before = f.driver.peek(); gameSetting = { state: 'off', source: 'game-config' };
+  await assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'SETTINGS_BLOCKED' });
+  assert.deepEqual(f.driver.peek(), before); assert.deepEqual(await f.service.pending('g'), []);
+});
+
+test('external NVIDIA change requires explicit reapply and launch performs no driver write', async t => {
+  const f = fixture(t), request = { backend: 'native', quality: 'performance', preset: 'auto' };
+  await f.service.apply((await f.service.preview('g', 'sr', request)).id, { confirm: true }); await f.service.save('g', 'sr', request);
+  const changed = f.driver.peek(); changed.settings[DRS.srPreset] = explicit(11); f.driver.set(changed);
+  let writes = 0; f.driver.write = async () => { writes++; throw Error('launch must not write'); };
+  assert.equal((await f.service.beforeLaunch('g'))[0].code, 'SETTINGS_REQUIRE_REAPPLY');
+  assert.equal(writes, 0); assert.deepEqual(f.driver.peek(), changed);
+});
+
+test('component-preparation preview shows real operations but cannot itself be applied', async t => {
+  let ready = false;
+  const f = fixture(t, { family: 'RTX40', service: { assertComponents: async () => { if (!ready) throw Object.assign(Error('prepare addon'), { code: 'SETTINGS_COMPONENTS_NOT_READY' }); } } });
+  const request = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
+  await assert.rejects(f.service.preview('g', 'fg', request), { code: 'SETTINGS_COMPONENTS_NOT_READY' });
+  const plan = await f.service.preview('g', 'fg', request, { allowComponentPreparation: true });
+  assert.equal(plan.preparation.required, true); assert.equal(plan.eligibility.eligible, true); assert.ok(plan.operations.length);
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'ReShade.ini')), false);
+  ready = true; await assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'SETTINGS_PREPARATION_REQUIRED' });
+  const fresh = await f.service.preview('g', 'fg', request); await f.service.apply(fresh.id, { confirm: true });
+  assert.match(fs.readFileSync(path.join(f.exeDir, 'ReShade.ini'), 'utf8'), /ForceMultiplier=3/);
+});
+
+test('recommended model refuses unknown in-game quality when only the model is requested', async t => {
+  const f = fixture(t);
+  await assert.rejects(f.service.preview('g', 'sr', { backend: 'native', quality: 'preserve', preset: 'auto' }), { code: 'SETTINGS_PRESET_UNKNOWN' });
+});
+
+test('explicit driver reapply rebases only external keys and never accepts a changed profile association', async t => {
+  const f = fixture(t), request = { backend: 'native', quality: 'performance', preset: 'M' };
+  await f.service.apply((await f.service.preview('g', 'sr', request)).id, { confirm: true });
+  const changed = f.driver.peek(); changed.settings[DRS.srPreset] = explicit(11); f.driver.set(changed);
+  await assert.rejects(f.service.preview('g', 'sr', request), { code: 'SETTINGS_EXTERNAL_CHANGE' });
+  const plan = await f.service.preview('g', 'sr', request, { reapplyExternalChanges: true });
+  assert.equal(plan.externalChanges.length, 1); assert.equal(plan.externalChanges[0].current.value, 11);
+  await f.service.apply(plan.id, { confirm: true }); await f.service.restore('g', 'sr');
+  assert.equal(f.driver.peek().settings[DRS.srPreset].value, 11);
+  assert.equal(f.driver.peek().settings[DRS.srMode].kind, 'absent');
+  await f.service.apply((await f.service.preview('g', 'sr', request)).id, { confirm: true });
+  const other = f.driver.peek(); other.profile.name = 'different profile'; f.driver.set(other);
+  await assert.rejects(f.service.preview('g', 'sr', request, { reapplyExternalChanges: true }), { code: 'SETTINGS_EXTERNAL_CHANGE' });
+});
+
+test('explicit no-change Apply records existing driver values without rewriting them or inventing runtime proof', async t => {
+  const f = fixture(t), request = { backend: 'native', quality: 'quality', preset: 'K' };
+  const existing = f.driver.peek(); existing.profile = { name: 'External game profile', appName: f.exe, exclusive: true, owned: false };
+  for (const op of policy.nativeSr(request, { series: ['RTX50'] }).operations) existing.settings[op.id] = explicit(op.value);
+  f.driver.set(existing); let writes = 0; const write = f.driver.write; f.driver.write = async (...args) => { writes++; return write(...args); };
+  const plan = await f.service.preview('g', 'sr', request); assert.equal(plan.recordOnly, true);
+  const result = await f.service.apply(plan.id, { confirm: true }); await f.service.save('g', 'sr', request);
+  assert.equal(result.configurationUnchanged, true); assert.equal(result.runtimeVerified, false); assert.equal(writes, 0);
+  assert.equal((await f.service.beforeLaunch('g'))[0].noOp, true);
+  await f.service.restore('g', 'sr'); assert.deepEqual(f.driver.peek(), existing);
+});
+
+test('explicit no-change MFG Apply adopts the current key baseline and still detects external drift', async t => {
+  const f = fixture(t, { family: 'RTX40' }), file = path.join(f.exeDir, 'ReShade.ini'), request = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
+  const original = '[RenoDX.MFGUnlock]\nEnabled=1\nForceMultiplier=3\n'; fs.writeFileSync(file, original);
+  const plan = await f.service.preview('g', 'fg', request); assert.equal(plan.recordOnly, true);
+  await f.service.apply(plan.id, { confirm: true }); await f.service.save('g', 'fg', request);
+  assert.equal((await f.service.beforeLaunch('g'))[0].noOp, true); assert.equal(fs.readFileSync(file, 'utf8'), original);
+  fs.writeFileSync(file, original.replace('Multiplier=3', 'Multiplier=4'));
+  assert.equal((await f.service.beforeLaunch('g'))[0].code, 'SETTINGS_REQUIRE_REAPPLY');
+});
+
+test('explicit MFG reapply preserves external values as the new restore baseline', async t => {
+  const f = fixture(t, { family: 'RTX40' }), file = path.join(f.exeDir, 'ReShade.ini'), request = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
+  await f.service.apply((await f.service.preview('g', 'fg', request)).id, { confirm: true });
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('ForceMultiplier=3', 'ForceMultiplier=4'));
+  const plan = await f.service.preview('g', 'fg', request, { reapplyExternalChanges: true });
+  assert.equal(plan.externalChanges[0].key, 'ForceMultiplier');
+  await f.service.apply(plan.id, { confirm: true }); await f.service.restore('g', 'fg');
+  assert.match(fs.readFileSync(file, 'utf8'), /ForceMultiplier=4/);
+});
+
+function externalFixture(t) {
+  let f;
+  const location = { verified: true, mode: 'external' };
+  f = fixture(t, { family: 'RTX40', service: { getLayout: () => location } });
+  const active = path.join(f.root, 'external', 'active'); fs.mkdirSync(active, { recursive: true });
+  Object.assign(location, { exe: f.exe, activeConfigPath: path.join(active, 'ReShade.ini'), reshadeConfigDir: active });
+  return { ...f, active, location, pending: path.join(f.game, '_DLSS5_Backup/launch-external-config-pending.json') };
+}
+
+test('external MFG config apply and restore use the verified active INI and preserve local and NR settings', async t => {
+  const f = externalFixture(t), local = path.join(f.exeDir, 'ReShade.ini'), ini = f.location.activeConfigPath;
+  fs.writeFileSync(local, 'local peer config'); fs.writeFileSync(ini, '[RenoDX]\nStrength=0.5\n');
+  const request = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
+  const plan = await f.service.preview('g', 'fg', request); await f.service.apply(plan.id, { confirm: true });
+  assert.match(fs.readFileSync(ini, 'utf8'), /ForceMultiplier=3/);
+  assert.equal((await f.service.inspect('g')).applied.fg.readbackVerified, true);
+  assert.equal(fs.existsSync(f.pending), false);
+  fs.appendFileSync(ini, '[HDR]\nEnabled=1\n');
+  await f.service.restore('g', 'fg');
+  assert.match(fs.readFileSync(ini, 'utf8'), /Strength=0.5/); assert.match(fs.readFileSync(ini, 'utf8'), /\[HDR\]/);
+  assert.doesNotMatch(fs.readFileSync(ini, 'utf8'), /ForceMultiplier/);
+  assert.equal(fs.readFileSync(local, 'utf8'), 'local peer config');
+});
+
+test('external config identity change after preview blocks writes before pending creation', async t => {
+  const f = externalFixture(t), request = { backend: 'mfgunlock', mode: 'follow' };
+  const plan = await f.service.preview('g', 'fg', request);
+  const other = path.join(f.root, 'other-active'); fs.mkdirSync(other);
+  f.location.activeConfigPath = path.join(other, 'ReShade.ini'); f.location.reshadeConfigDir = other;
+  await assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'SETTINGS_LAYOUT_CHANGED' });
+  assert.equal(fs.existsSync(f.pending), false); assert.equal(fs.existsSync(f.location.activeConfigPath), false);
+});
+
+test('external-config recovery rejects foreign owners and preserves an external writer after interruption', async t => {
+  for (const altered of ['none', 'owner', 'external']) {
+    const f = externalFixture(t), ini = f.location.activeConfigPath, beforeText = '[NR]\nValue=old\n', after = '[NR]\nValue=new\n';
+    fs.writeFileSync(ini, altered === 'external' ? 'external replacement' : after);
+    fs.mkdirSync(path.dirname(f.pending), { recursive: true });
+    const row = { version: 1, owner: altered === 'owner' ? 'external-core-migration' : 'launch-mfg-config',
+      transactionId: '22222222-2222-2222-2222-222222222222', domain: 'fg', restoring: false, exe: f.exe,
+      configFile: ini, beforeText, beforeHash: policy.hash(beforeText), afterHash: policy.hash(after) };
+    fs.writeFileSync(f.pending, JSON.stringify(row));
+    if (altered === 'none') { await f.service.recover('g'); assert.equal(fs.readFileSync(ini, 'utf8'), beforeText); assert.equal(fs.existsSync(f.pending), false); }
+    else {
+      await assert.rejects(f.service.recover('g'), { code: altered === 'owner' ? 'SETTINGS_RECEIPT_INVALID' : 'SETTINGS_EXTERNAL_CHANGE' });
+      assert.equal(fs.readFileSync(ini, 'utf8'), altered === 'external' ? 'external replacement' : after); assert.equal(fs.existsSync(f.pending), true);
+    }
+  }
 });
 
 test('new MFG config is scoped to ReShade.ini, restores missing files, and refuses stale/legacy requests', async t => {
@@ -99,11 +261,13 @@ test('native SR owns four keys, leaves FG isolated and restores through the shar
   assert.deepEqual(await f.service.pending('g'), []);
 });
 
-test('automatic SR model resolves per hardware while preserving the saved auto selection', async t => {
-  for (const [family,preset] of [['RTX30',11],['RTX40',13],['RTX50',13]]) {
-    const f=fixture(t,{family}), request={backend:'native',quality:'quality',preset:'auto'};
+test('recommended SR model follows the selected quality and launch never applies saved drafts', async t => {
+  for (const [quality,preset] of [['quality',11],['balanced',11],['performance',13],['ultraPerformance',12],['dlaa',11]]) {
+    const f=fixture(t,{family:'RTX40'}), request={backend:'native',quality,preset:'auto'};
     await f.service.save('g','sr',request);
-    const result=await f.service.beforeLaunch('g'); assert.equal(result[0].applied,true);
+    const result=await f.service.beforeLaunch('g'); assert.equal(result[0].code,'SETTINGS_REQUIRE_APPLY');
+    await f.service.apply((await f.service.preview('g','sr',request)).id,{confirm:true});
+    assert.equal((await f.service.beforeLaunch('g'))[0].noOp,true);
     assert.equal(f.driver.peek().settings[DRS.srPreset].value,preset);
     assert.equal((await f.service.inspect('g')).requests.sr.request.preset,'auto');
     await f.service.restore('g','sr'); assert.equal(f.driver.peek().profile,null);
@@ -192,7 +356,7 @@ test('RTX40 control v11 requires manual review for latent debug and restores onl
   const f = fixture(t, { family: 'RTX40' }), file = path.join(f.exeDir, policy.FILES.rtx40);
   const original = '{"version":11,"followGame":true,"mode":"follow","multiplier":2,"generatedOnlyDebug":true,"other":7}\n';
   fs.writeFileSync(file, original); await f.service.save('g', 'fg', { backend: 'rtx40', mode: 'fixed', multiplier: 3 });
-  const auto = await f.service.beforeLaunch('g'); assert.equal(auto[0].code, 'SETTINGS_REVIEW_REQUIRED'); assert.equal(fs.readFileSync(file, 'utf8'), original);
+  const auto = await f.service.beforeLaunch('g'); assert.equal(auto[0].code, 'SETTINGS_REQUIRE_APPLY'); assert.equal(fs.readFileSync(file, 'utf8'), original);
   const plan = await f.service.preview('g', 'fg'); assert.equal(plan.requiresReview, true); await f.service.apply(plan.id, { confirm: true });
   const changed = JSON.parse(fs.readFileSync(file, 'utf8')); assert.equal(changed.multiplier, 3); assert.equal(changed.other, 7);
   await f.service.restore('g', 'fg'); assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), JSON.parse(original));
@@ -244,6 +408,7 @@ test('after restore an EXE change can use the new editor without reviving the le
   await f.service.restore('g', 'sr');
   const nextExe = path.join(f.exeDir, 'Other.exe'); fs.writeFileSync(nextExe, 'synthetic');
   const next = createLaunchSettingsService({ userData: path.join(f.root, 'user'), appDir: f.root,
+    getFeatureEvidence: async () => enhancementEvidence(),
     gameDirectory: () => f.game, gameExecutable: () => nextExe, driver: f.driver,
     detectHardware: () => ({ family: 'RTX50', series: ['RTX50'] }), environment: async () => ({ verified: true, running: [] }), peBitness: () => 64 });
   assert.deepEqual((await next.inspect('g')).applied, {});

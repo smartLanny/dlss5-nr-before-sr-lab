@@ -13,7 +13,9 @@ const { verifyExecutable } = require('./verify-execution-level');
 const STARTUP_FILES = [
   'main.js', 'preload.js', 'src/product/startup-diagnostics.js', 'src/product/startup-elevation.js',
   'src/product/startup-handoff.js', 'src/renderer/index.html', 'src/renderer/startup-ui.js',
-  'src/renderer/renderer.js', 'src/renderer/style.css'
+  'src/renderer/renderer.js', 'src/renderer/style.css', 'src/renderer/game-page-ui.js', 'src/renderer/game-page.css',
+  'src/product/operation-elevation.js', 'src/product/operation-worker.js', 'src/product/operation-plan.js',
+  'src/product/game-assessment.js', 'src/product/launch-session.js', 'src/product/loading-helper.js'
 ];
 const RUNTIME_FILES = [
   'chrome_100_percent.pak', 'chrome_200_percent.pak', 'd3dcompiler_47.dll', 'ffmpeg.dll', 'icudtl.dat',
@@ -107,8 +109,8 @@ function startupContract(read) {
   return [
     { name: 'sandbox-default', ok: /sandbox\s*:\s*true/.test(main) && !/appendSwitch\s*\(\s*['"]no-sandbox['"]/.test(main) },
     { name: 'context-isolation', ok: /contextIsolation\s*:\s*true/.test(main) && /nodeIntegration\s*:\s*false/.test(main) },
-    { name: 'startup-ipc', ok: ['startup-context', 'startup-restart-elevated', 'startup-renderer-ready'].every(name => main.includes(name) && preload.includes(name)) },
-    { name: 'explicit-elevation', ok: main.includes("hasSwitch('as-admin')") && main.includes("mode: 'on-demand'") },
+    { name: 'startup-ipc', ok: ['startup-context', 'game-operation-apply-elevated', 'startup-renderer-ready'].every(name => main.includes(name) && preload.includes(name)) },
+    { name: 'explicit-operation-elevation', ok: main.includes('game-operation-apply-elevated') && main.includes('operation-worker') && main.includes('createOperationElevation') },
     { name: 'startup-ui', ok: /<script\s+src=["']startup-ui\.js["']/.test(html) && /startupReady/.test(preload) }
   ];
 }
@@ -147,7 +149,11 @@ async function verifyManagerRelease({ directory, sourceRoot = path.resolve(__dir
       rows.push({ kind: 'app-source', file, bytes: bytes.length, sha256, expectedSha256: expected.sha256, ok: sha256 === expected.sha256 && bytes.length === expected.bytes });
     } catch (error) { rows.push({ kind: 'app-source', file, ok: false, error: error.message }); }
   }
-  const runtime = [...RUNTIME_FILES, ...walk(path.join(electronDist, 'locales')).map(file => `locales/${file}`)];
+  const major = Number(fs.readFileSync(path.join(electronDist, 'version'), 'utf8').trim().split('.')[0]);
+  // Electron 44's official Windows archive embeds ANGLE and ships the DXC
+  // compiler pair. Compare the exact trusted runtime family, including DXC.
+  const runtimeFiles = major === 44 ? [...RUNTIME_FILES.filter(file => !['libEGL.dll', 'libGLESv2.dll'].includes(file)), 'dxcompiler.dll', 'dxil.dll'] : RUNTIME_FILES;
+  const runtime = [...runtimeFiles, ...walk(path.join(electronDist, 'locales')).map(file => `locales/${file}`)];
   for (const file of runtime) await compareFile('electron-runtime', file, path.join(electronDist, file));
   await compareFile('electron-runtime', 'LICENSE.electron.txt', path.join(electronDist, 'LICENSE'));
   for (const row of sourceCopies(sourceRoot, sourcePackage.build.extraResources, 'resources'))

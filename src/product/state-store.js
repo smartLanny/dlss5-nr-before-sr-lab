@@ -62,8 +62,12 @@ function normalizeGameOverrides(value) {
     const api = ['dx9', 'dx10', 'dx11', 'dx12', 'vulkan', 'opengl'].includes(row.api) ? row.api : 'auto';
     const apiExecutable = absolutePath(row.apiExecutable)
       ? path.resolve(row.apiExecutable) : null;
-    if (!name && !icon && (api === 'auto' || !apiExecutable)) continue;
-    out[dir] = { name, icon, api, apiExecutable };
+    const launchMode = ['steam', 'exe'].includes(row.launchMode) ? row.launchMode : 'auto';
+    const launchExecutable = absolutePath(row.launchExecutable) && /\.exe$/i.test(row.launchExecutable)
+      ? path.resolve(row.launchExecutable) : null;
+    if (!name && !icon && (api === 'auto' || !apiExecutable) && (launchMode === 'auto' || !launchExecutable)) continue;
+    out[dir] = { name, icon, api, apiExecutable,
+      ...(launchExecutable ? { launchMode, launchExecutable } : {}) };
   }
   return out;
 }

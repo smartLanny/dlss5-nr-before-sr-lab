@@ -242,10 +242,10 @@ function createVulkanService(options = {}) {
       packageId: row?.packageId || source?.recipe.id || null, reason, experimental: true };
   }
   function configDir(game) { return bound(game)?.basePath || null; }
-  async function inspectBound(row) {
+  async function inspectBound(row, readOnly = false) {
     const target = { id: row.gameId, exe: row.exe };
     const results = await Promise.allSettled([profile.inspect({ exe: row.exe, basePath: row.basePath }),
-      getDeployment().inspect(target), activation.read(row.exe)]);
+      (readOnly ? getDeployment().peek(target) : getDeployment().inspect(target)), activation.read(row.exe)]);
     const components = Object.fromEntries(['profile', 'deployment', 'activation'].map((name, index) => [name,
       results[index].status === 'fulfilled' ? results[index].value : { ready: false, error: errorData(results[index].reason) }]));
     const blockers = Object.values(components).flatMap(value => value.error ? [value.error.message] : value.blockers || []);
@@ -265,6 +265,49 @@ function createVulkanService(options = {}) {
         blockers: info.needsRecovery ? [info.reason] : [], components: {} };
     }
     return inspectBound(row);
+  }
+  async function previewInstall(game, installOptions = {}) {
+    const target = selected(game), state = bindings(), row = bound(game, state);
+    assertSelected(row, target);
+    if (state.bindings.some(item => !same(item.exe, target.exe) && same(path.dirname(item.exe), path.dirname(target.exe))))
+      fail('VULKAN_DIRECTORY_BOUND', '同目录的另一 EXE 已绑定 Vulkan profile，共享 ReShade.ini 不能指向不同配套。');
+    if (!row) assertNoOrphan(game);
+    if (!vulkanRoute(game)) fail('VULKAN_API_REQUIRED', '请先确认所选 EXE 使用 Vulkan，再安装该配套。');
+    await assertHardware();
+    if (game.scan.chosen.bitness !== 64 || pe.getBitness(target.exe) !== 64) fail('VULKAN_GAME_ARCH', '当前 Vulkan 配套仅支持 x64 游戏。');
+    const source = packages(target.exe), requested = installOptions.version ?? installOptions.packageId ?? installOptions.coreVersion;
+    if (requested !== undefined && requested !== source.recipe.id && requested !== source.recipe.coreVersion)
+      fail('VULKAN_PACKAGE_LOCKED', 'Vulkan Core 必须使用当前固定配套，不能单独切换核心版本。');
+    await closed(target); assertNoNativeReceipt(target);
+    if (row) {
+      if (row.phase !== 'installed') fail('VULKAN_RECOVERY_FIRST', '请先恢复未完成的 Vulkan 安装，再重试。');
+      if (!same(row.basePath, source.place.basePath)) fail('VULKAN_PACKAGE_LOCKED', 'Vulkan Core 属于固定配套，切换版本前请先恢复原配套。');
+      const current = await inspectBound(row, true);
+      if (!current.ready) fail('VULKAN_STATE_CHANGED', '已有 Vulkan 配套未通过检查，请先诊断或恢复。', { blockers: current.blockers });
+    } else if (fs.existsSync(path.join(path.dirname(target.exe), 'ReShade.ini')))
+      fail('VULKAN_EXTERNAL_RESHADE', '游戏已有未知 ReShade.ini，未自动接管；请先核对并用原工具恢复。');
+    const launch = await getBroker().inspect({ exe: target.exe });
+    if (!launch || launch.elevated !== false || launch.launchable !== true)
+      fail('VULKAN_ELEVATED_HKCU', '当前启动方式不能证明游戏以普通权限读取 Vulkan 用户加载层，未安装。');
+    const runtime = await profile.previewPrepare({ exe: target.exe, recipe: source.recipe, packageRoot: source.packageRoot });
+    const layer = await getDeployment().previewPrepare({ id: target.id, exe: target.exe }, source.layer);
+    const changes = [...runtime.changes, ...layer.changes];
+    for (const change of changes) if (change.role === 'vulkan-activation') change.destination = source.place.basePath;
+    changes.push({ path: bindingPath, name: path.basename(bindingPath), role: 'receipt',
+      beforeSha256: await require('./launch-safety').digestFile(bindingPath), action: row ? 'keep' : fs.existsSync(bindingPath) ? 'update' : 'create' });
+    return { changes, route: 'vulkan', api: 'vulkan', mode: 'external', version: source.recipe.coreVersion,
+      packageId: source.recipe.id, runtimeVerified: false, requiresAntiCheat: guards.antiCheatPresent(target.dir) === true && !row?.antiCheatConfirmed,
+      requiresConfirmation: true, layout: { source: 'vulkan', exe: target.exe, runtimeDir: source.place.basePath, reshadeConfigDir: source.place.basePath } };
+  }
+  async function previewRestore(game) {
+    const row = bound(game);
+    if (!row) { assertNoOrphan(game); return { changes: [], route: 'vulkan', unchanged: true, runtimeVerified: false }; }
+    const target = { id: row.gameId, exe: row.exe, dir: row.dir }; await closed(target);
+    if (row.phase !== 'installed') fail('VULKAN_RECOVERY_FIRST', 'Vulkan 有未完成操作，请先恢复后重新预览。');
+    const layer = await getDeployment().previewRestore(target), runtime = await profile.previewArchive({ exe: row.exe, basePath: row.basePath });
+    const changes = [...layer.changes, ...runtime.changes,
+      { path: bindingPath, name: path.basename(bindingPath), role: 'receipt', beforeSha256: await require('./launch-safety').digestFile(bindingPath), action: 'update' }];
+    return { changes, route: 'vulkan', mode: 'external', runtimeVerified: false, requiresConfirmation: true, archived: true };
   }
   async function install(game, installOptions = {}) {
     return serial(async () => {
@@ -394,7 +437,7 @@ function createVulkanService(options = {}) {
       return { ...launched, gameStarted: true, evidenceSaved, loaded: 'unknown', processed: 'unknown', runtimeVerified: false };
     });
   }
-  return Object.freeze({ summary, install, diagnose, restore, launch, configDir, bindingPath });
+  return Object.freeze({ summary, install, diagnose, restore, previewInstall, previewRestore, launch, configDir, bindingPath });
 }
 
 module.exports = { createVulkanService };

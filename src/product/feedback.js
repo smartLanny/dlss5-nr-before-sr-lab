@@ -205,4 +205,4 @@ function createFeedbackCollector({ userData, productVersion = '0.0.0', resolveFe
   return { record, buildReport, readOperations, operationsFile };
 }
 
-module.exports = { createFeedbackCollector, redactPath, trimText };
+module.exports = { createFeedbackCollector, redactPath, trimText, safeJson };

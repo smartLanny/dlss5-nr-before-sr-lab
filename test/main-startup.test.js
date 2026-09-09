@@ -44,26 +44,48 @@ function harness(options = {}) {
     isDestroyed() { return false; } isMinimized() { return false; } show() { this.shown = true; } focus() {} restore() {} minimize() {} close() { this.emit('closed'); }
     loadFile() { return options.loadFileError ? Promise.reject(new Error('fixture loadFile failure')) : Promise.resolve(); }
   }
-  const ipcMain = new EventEmitter(); ipcMain.handle = (name, fn) => handles.set(name, fn);
+  const ipcMain = new EventEmitter(); ipcMain.handle = (name, fn) => handles.set(name, (event, ...args) => fn(event && Object.hasOwn(event, 'sender') ? event : { ...event, sender: latestWindow?.webContents }, ...args));
   const dialog = { async showMessageBox(arg) { dialogs.push(arg); if (options.dialogFailure) throw new Error('dialog unavailable'); return { response: options.dialogResponse ?? 1 }; },
     async showSaveDialog() { return { canceled: true }; }, showErrorBox(title, detail) { errors.push({ title, detail }); }, async showOpenDialog() { return { canceled: true, filePaths: [] }; } };
-  const electron = { app, BrowserWindow, ipcMain, dialog, shell: { showItemInFolder() {}, async openExternal() {}, async openPath() { return ''; } }, clipboard: { writeText() {} } };
-  const service = { store: { readRecoveryStatus: () => ({ state: 'ok' }) }, withError: options.withError || (fn => fn()), install: options.install || (async () => ({})),
+  const electron = { app, BrowserWindow, ipcMain, dialog, shell: { showItemInFolder() {}, async openExternal(url) { options.externalUrls?.push(url); }, async openPath() { return ''; } }, clipboard: { writeText() {} } };
+  const service = { store: { readRecoveryStatus: () => ({ state: 'ok' }), read: () => ({ gameOverrides: {} }) }, withError: options.withError || (fn => fn()), install: options.install || (async () => ({})),
+    boot: async () => ({}), refresh: async () => ({}), listGames: async () => [{ id: 'game', name: 'Fixture Game' }], product: {},
+    getLayout: () => ({ mode: 'local', loadingMode: 'proxy', runtimeDir: 'C:\\game', activeConfigPath: 'C:\\game\\ReShade.ini' }),
+    inspectDeployment: async () => ({ installed: false, needsRecovery: false }),
     gameDirectory: () => 'C:\\game', gameExecutable: () => 'C:\\game\\game.exe',
     gameScan: () => ({ primaryDlss: options.noNativeDlss ? null : { name: 'nvngx_dlss.dll' },
       streamlineFiles: options.noNativeFg ? [] : [{ name: 'sl.interposer.dll' }, { name: 'sl.dlss_g.dll' }], chosen: {}, reshade: {} }),
     reShadeSource: () => null, refreshAfterMutation: async value => value, importAddonFile: async () => {}, dispose() {}, ...options.appService };
-  const launchSettings = { assertReady: async () => {}, pending: async () => [], restore: async () => {}, inspect: async () => ({ requests: {}, applied: {} }), ...options.launchService };
+  const launchSettings = { assertReady: async () => {}, pending: async () => [], restore: async () => {}, hasOwnedState: async () => false, inspect: async () => ({ requests: {}, applied: {} }),
+    assessEligibility: async (_id, domain) => { const missing = domain === 'sr' ? options.noNativeDlss : options.noNativeFg; return { eligible: !missing, blockers: missing ? [{ code: domain === 'sr' ? 'ERR_NO_DLSS' : 'SETTINGS_NO_NATIVE_FG', message: 'fixture native integration missing' }] : [] }; }, ...options.launchService };
   const fgComponents = options.fgComponents || { inspect: async () => ({ route: 'native', ready: true }) };
   const business = {
-    './src/product/app-service': { createAppService: () => service }, './src/product/sr-model-service': { createSrModelService: () => ({ read() {} }) },
+    './src/product/app-service': { createAppService: () => service }, './src/product/sr-model-service': { createSrModelService: () => ({ read() {}, migrationInfo: async () => ({ baselineCaptured: false }), ...options.srService }) },
     './src/product/launch-settings-service': { createLaunchSettingsService: () => launchSettings },
     './src/product/launch-coordinator': { createLaunchCoordinator: () => ({ serialize: options.serialize || (fn => fn()),
-      assertMutationReady: options.assertMutationReady || (async () => {}), restoreForUninstall: options.restoreForUninstall || (async () => {}), inspect: async () => {}, launch: async () => ({ launchSettings: [] }) }) },
+      assertMutationReady: options.assertMutationReady || (async () => {}), restoreForUninstall: options.restoreForUninstall || (async () => {}),
+      inspect: options.coordinatorInspect || (async () => ({})), removeLibraryEntry: options.removeLibraryEntry || (async () => ({})), launch: async () => ({ launchSettings: [] }) }) },
     './src/core/install-guards': { assertGameClosed: options.assertGameClosed || (async () => {}) }, './src/product/fg-components': { createFgComponents: () => fgComponents },
     './src/product/game-preparation': { createGamePreparation: () => ({ assertReady: async () => {}, inspect: async () => ({ pending: false }), ...options.preparationService }) },
     './src/product/game-environment': { createGameEnvironment: () => ({ assertReady: async () => {}, inspect: async () => ({ pending: false }), ...options.environmentService }) },
-    './src/product/game-support': { classifyApi: () => 'dx12' }
+    './src/product/game-support': { classifyApi: () => 'dx12' },
+    './src/product/operation-plan': { createOperationPlans: () => ({ assertReady: async () => {}, ...options.operationService }) },
+    './src/product/operation-elevation': { createOperationElevation: () => ({ assertAvailable: async () => {}, inspect: async () => ({ active: false, canRecover: false }), recover: async () => ({}), ...options.elevationService }) },
+    './src/product/operation-worker': { workerArguments: require('../src/product/operation-worker').workerArguments,
+      runOperationWorker: async opts => { logs.push({ stage: 'worker-entry', details: opts.args }); if (options.initializeWorker) await opts.initialize(); return options.workerResult || { ok: true }; } },
+    './src/product/game-processes': { createGameProcesses: () => ({}) },
+    './src/product/runtime-verification': { createRuntimeVerification: () => ({}), emptyVerification: require('../src/product/runtime-verification').emptyVerification },
+    './src/product/game-launch-broker': { createGameLaunchBroker: () => ({}) },
+    './src/product/launch-session': { createLaunchSessions: () => ({ dispose: async () => {} }) },
+    './src/product/loading-helper': { createLoadingHelper: () => ({}) },
+    './src/product/game-verification-records': { createGameVerificationRecords: () => ({
+      inspect: async () => null,
+      record: async () => { throw new Error('Unexpected visual observation write in startup fixture.'); },
+      ...options.verificationRecords
+    }) },
+    './src/product/component-assessment': require('../src/product/component-assessment'),
+    './src/product/game-assessment': { createGameAssessment: () => ({ assess: async () => options.assessment || {} }) },
+    './src/product/feedback': require('../src/product/feedback')
   };
   const fakeProcess = new EventEmitter(); Object.assign(fakeProcess, { argv: options.argv || ['electron', mainFile], env: { SystemRoot: 'C:\\Windows', ...(options.env || {}) }, platform: 'win32',
     execPath: 'C:\\Program Files\\Manager\\manager.exe', resourcesPath: 'C:\\resources', pid: 1234,
@@ -203,14 +225,10 @@ test('single-instance without acknowledgement explains the hidden-window conditi
   assert.match(h.errors[0].detail, /已有管理器进程，但没有确认窗口已显示/); assert.match(h.errors[0].detail, /不会自动结束进程或删除单实例文件/);
 });
 
-test('UAC child launch failure is logged and shown without invoking a real elevation prompt', async () => {
-  const denied = Object.assign(new Error('fixture UAC denied'), { code: 'EACCES' });
-  const h = harness({ packaged: false, argv: ['electron', mainFile, '--as-admin'],
-    execResults: [{ error: null, stdout: 'False' }, { error: denied, stdout: '' }] }); await settle(14);
-  assert.equal(saw(h, 'elevation-requested'), true); assert.equal(saw(h, 'elevation-failed'), true); assert.equal(h.errors.length, 1);
-  assert.match(h.errors[0].detail, /未能启动管理员进程/); assert.equal(h.app.exitCode, 1);
+test('legacy administrator startup flag never launches UAC or replaces the ordinary window',async()=>{
+  const h=harness({argv:['electron',mainFile,'--as-admin']}); await settle();
+  assert.equal(h.execCalls.length,0);assert.equal(saw(h,'legacy-whole-app-elevation-ignored'),true);assert.ok(h.window);assert.equal(h.app.quitCalls,0);h.window.emit('closed');
 });
-
 test('native dialog failure falls back to showErrorBox instead of a silent rejection', async () => {
   const h = harness({ requireFailure: './src/product/app-service', dialogFailure: true }); await settle();
   assert.equal(saw(h, 'error-dialog-failed'), true); assert.equal(h.errors.length, 1); assert.match(h.errors[0].detail, /启动诊断\.cmd/);
@@ -222,60 +240,38 @@ test('failure before app readiness synchronously shows an error box and exits', 
   assert.equal(saw(h, 'startup-failure'), true);
 });
 
-test('an elevation-attempted process that is still non-admin refuses a second spawn', async () => {
-  const h = harness({ packaged: false, argv: ['electron', mainFile, '--as-admin', '--elevation-attempted'], execResults: [{ error: null, stdout: 'False' }] }); await settle(12);
-  assert.equal(h.execCalls.length, 1, 'only the administrator check runs'); assert.equal(saw(h, 'elevation-requested'), false);
-  assert.equal(h.errors.length, 1); assert.match(h.errors[0].detail, /已停止重启循环/); assert.equal(h.app.exitCode, 1);
+test('old elevation retry flags cannot trigger a new administrator process',async()=>{
+  const h=harness({argv:['electron',mainFile,'--as-admin','--elevation-attempted']}); await settle();
+  assert.equal(h.execCalls.length,0);assert.equal(saw(h,'instance-lock-released'),false);assert.ok(h.window);h.window.emit('closed');
 });
-
-test('portable elevation targets the original shell instead of its temporary inner executable', async t => {
-  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'xiaofeng-portable-shell-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const portable = path.join(root, '小枫 portable.exe'); fs.writeFileSync(portable, 'shell');
-  const h = harness({ packaged: false, argv: ['electron', mainFile, '--as-admin'], env: { PORTABLE_EXECUTABLE_FILE: portable, PORTABLE_EXECUTABLE_DIR: path.join(root, 'temporary-inner') },
-    execResults: [{ error: null, stdout: 'False' }, { error: null, stdout: '4321' }] }); await settle(14);
-  assert.equal(h.execCalls.length, 2); const command = h.execCalls[1].args.at(-1);
-  assert.match(command, new RegExp(portable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))); assert.doesNotMatch(command, /temporary-inner/);
-  assert.equal(saw(h, 'elevation-child-started'), true); assert.equal(h.app.quitCalls, 1);
+test('a portable launcher environment does not cause a whole-application elevated restart',async()=>{
+  const h=harness({argv:['manager.exe','--as-admin'],env:{PORTABLE_EXECUTABLE_FILE:'C:\portable.exe'}});await settle();
+  assert.equal(h.execCalls.length,0);assert.equal(h.app.quitCalls,0);assert.ok(h.window);h.window.emit('closed');
 });
-
 test('startup context is read-only, identifies compatibility mode and does not trust a packaged admin manifest', async () => {
   const h = harness({ argv: ['manager.exe', '--no-sandbox'], execResults: [{ error: null, stdout: 'False' }] }); await settle();
   const context = h.handles.get('startup-context');
   const foreign = await context({ sender: {} }); assert.equal(foreign.ok, false); assert.equal(h.execCalls.length, 0);
   const result = await context({ sender: h.window.webContents });
   assert.equal(result.ok, true); assert.equal(result.value.privilege, 'standard'); assert.equal(result.value.mode, 'compatibility');
-  assert.equal(result.value.sandbox, false); assert.equal(result.value.canRestartElevated, true);
+  assert.equal(result.value.sandbox, false); assert.equal(result.value.canRestartElevated, false);
   assert.equal(h.execCalls.length, 1); assert.doesNotMatch(h.execCalls[0].args.at(-1), /Start-Process|RunAs/);
   assert.equal(saw(h, 'elevation-requested'), false); h.window.emit('closed');
 });
 
-test('explicit administrator restart serializes the handoff and preserves the normal window on UAC cancellation', async () => {
-  const denied = Object.assign(new Error('fixture UAC denied'), { code: 'EACCES' }); let serialized = 0;
-  const h = harness({ serialize: fn => { serialized++; return fn(); },
-    execResults: [{ error: null, stdout: 'False' }, { error: denied, stdout: '' }] }); await settle();
-  const restart = h.handles.get('startup-restart-elevated');
-  assert.equal((await restart({ sender: h.window.webContents }, {})).error.code, 'CONFIRM_REQUIRED');
-  assert.equal((await restart({ sender: {} }, { confirm: true })).error.code, 'CONFIRM_REQUIRED'); assert.equal(h.execCalls.length, 0);
-  const result = await restart({ sender: h.window.webContents }, { confirm: true });
-  assert.equal(result.ok, false); assert.equal(result.error.code, 'STARTUP_ADMIN_RESTART_FAILED'); assert.match(result.error.message, /当前窗口已保留/);
-  assert.equal(serialized, 1); assert.equal(h.app.quitCalls, 0);
-  assert.equal(saw(h, 'instance-lock-released'), true);
-  assert.equal(h.logs.filter(row => row.stage === 'instance-lock-requested').length, 2, 'normal instance reacquires its released lock');
-  assert.match(h.execCalls[1].args.at(-1), /--as-admin/); assert.doesNotMatch(h.execCalls[1].args.at(-1), /--no-sandbox/);
-  h.window.emit('closed');
+test('retired administrator-restart IPC cannot request UAC or release the normal single-instance lock',async()=>{
+  const h=harness();await settle();
+  const result=await h.handles.get('startup-restart-elevated')({sender:h.window.webContents},{confirm:true});
+  assert.equal(result.ok,false);assert.equal(result.error.code,'STARTUP_WHOLE_APP_ELEVATION_DISABLED');
+  assert.equal(h.execCalls.length,0);assert.equal(h.app.quitCalls,0);assert.equal(saw(h,'instance-lock-released'),false);h.window.emit('closed');
 });
-
-test('a surviving administrator PID cannot close the original window without a new ready session', async () => {
-  const h = harness({ execResults: [{ error: null, stdout: 'False' }, { error: null, stdout: '4321' }],
-    handoffWait: async () => { throw Object.assign(new Error('fixture process alive without renderer-ready'), { code: 'STARTUP_CHILD_NOT_READY' }); } });
-  await settle();
-  const result = await h.handles.get('startup-restart-elevated')({ sender: h.window.webContents }, { confirm: true });
-  assert.equal(result.ok, false); assert.equal(result.error.code, 'STARTUP_CHILD_NOT_READY');
-  assert.equal(saw(h, 'elevation-child-started'), true); assert.equal(saw(h, 'handoff-cancelled'), true);
-  assert.equal(h.app.quitCalls, 0); assert.equal(h.logs.filter(row => row.stage === 'instance-lock-requested').length, 2);
-  h.window.emit('closed');
+test('explicit one-shot application delegates the bound preview and keeps the ordinary window alive',async()=>{
+  const calls=[];const h=harness({elevationService:{apply:async(...args)=>{calls.push(args);return {applied:true,elevated:true};}}});await settle();
+  const consent={confirm:true,fingerprint:'a'.repeat(64)};
+  const result=await h.handles.get('game-operation-apply-elevated')({},'game','11111111-1111-4111-8111-111111111111',consent);
+  assert.equal(result.applied,true);assert.equal(calls.length,1);assert.equal(calls[0][0],'game');assert.equal(calls[0][2],consent);
+  assert.equal(h.app.quitCalls,0);assert.equal(saw(h,'instance-lock-released'),false);h.window.emit('closed');
 });
-
 test('permission recovery retains the game guard, original error and transaction state without an automatic retry', async () => {
   const { normalizeError } = require('../src/product/errors'); let guarded = 0, writes = 0;
   const h = harness({ withError: async work => { try { return { ok: true, value: await work() }; } catch (error) { return { ok: false, error: normalizeError(error) }; } },
@@ -285,7 +281,7 @@ test('permission recovery retains the game guard, original error and transaction
   const result = await h.handles.get('game-install')({ sender: h.window.webContents }, 'game');
   assert.equal(guarded, 1); assert.equal(writes, 1); assert.equal(result.ok, false); assert.equal(result.error.code, 'EACCES');
   assert.equal(result.error.details.pending, true); assert.equal(result.error.details.recoveryStateKnown, false);
-  assert.equal(result.error.details.recoveryAction, 'restart-elevated'); assert.match(result.error.message, /设置 → 以管理员身份重启/);
+  assert.equal(result.error.details.recoveryAction, 'recover-repreview-elevated-operation'); assert.match(result.error.message, /重新预览/);
   assert.equal(h.execCalls.length, 0); assert.equal(h.app.quitCalls, 0);
   h.window.emit('closed');
 });
@@ -440,4 +436,146 @@ test('FG file recovery remains serialized and reachable through pending preparat
   assert.equal((await h.handles.get('fg-components-recover')({}, 'g')).restored, true);
   assert.deepEqual(calls, ['serialized', 'closed', 'fg-owner', 'settings-ready']);
   await assert.rejects(h.handles.get('game-install')({}, 'g'), { code: 'PREPARATION_PENDING' });
+});
+
+
+test('one-shot worker initializes trusted services without a BrowserWindow, renderer IPC or GUI instance lock',async()=>{
+  const h=harness({initializeWorker:true,argv:['manager.exe','--operation-worker=22222222-2222-4222-8222-222222222222','--operation-request-hash='+ 'a'.repeat(64)]});await settle();
+  assert.equal(saw(h,'worker-entry'),true);assert.equal(saw(h,'business-modules-loaded'),true);assert.equal(saw(h,'instance-lock-requested'),false);
+  assert.equal(h.window,null);assert.equal(h.handles.size,0);assert.equal(h.app.exitCode,0);
+});
+test('invalid worker arguments exit with visible parent-reportable failure rather than opening an admin GUI',async()=>{
+  const h=harness({argv:['manager.exe','--operation-worker=../../other']});await settle();
+  assert.equal(h.window,null);assert.equal(h.app.exitCode,1);assert.equal(h.dialogs.length,0);assert.equal(saw(h,'operation-worker-startup-failed'),true);
+});
+test('ordinary mutations are rejected before entering the queue while a one-shot worker is active',async()=>{
+  let writes=0,queued=0;const h=harness({elevationService:{busy:true},serialize:async fn=>{queued++;return fn();},install:async()=>writes++});await settle();
+  await assert.rejects(h.handles.get('game-install')({},'game'),{code:'ERR_JOB_BUSY'});
+  assert.equal(writes,0);assert.equal(queued,0);h.window.emit('closed');
+});
+
+test('feedback build preserves original text and appends the current four evidence levels with path preferences',async()=>{
+  const assessment={schema:1,gameId:'game',assessedAt:'fixture-time',layout:{exe:'C:/Users/Alice/Games/Game.exe'},
+    api:{observedApi:'dx12',evidence:['C:/Users/Alice/Games/native.log']},launch:{session:{nonce:'fresh-session',historical:false}},
+    verification:{helper:{status:'passed',detail:'this helper session'},core:{status:'passed',detail:'specific Core'},nr:{status:'bypassed',detail:'unsupported format'},visual:{status:'unverified',detail:'comparison needed'}}};
+  const h=harness({assessment,appService:{collectFeedback:async()=>({text:'ORIGINAL REPORT\n',suggestedName:'report.txt'})}});await settle();
+  const report=await h.handles.get('feedback-build')({},'game',{includePaths:false});
+  assert.ok(report.text.startsWith('ORIGINAL REPORT\n'));assert.match(report.text,/\[本次会话验收\]/);assert.match(report.text,/NR 处理：bypassed/);
+  assert.equal(report.verification.visual.status,'unverified');assert.equal(report.launchSession.nonce,'fresh-session');assert.equal(report.report.assessmentIdentity.gameId,'game');
+  assert.doesNotMatch(report.text,/Alice/);assert.match(report.text,/%USERNAME%/);
+  const full=await h.handles.get('feedback-build')({},'game',{includePaths:true});assert.match(full.text,/Alice/);h.window.emit('closed');
+});
+
+test('external help routes accept fixed keys and verified game names rather than arbitrary URLs',async()=>{
+  const urls=[],h=harness({externalUrls:urls});await settle();
+  assert.equal(await h.handles.get('open-external')({},'https://untrusted.example'),false);
+  assert.equal(await h.handles.get('open-external')({},'gameCompatibility:missing'),false);
+  await h.handles.get('open-external')({},'antiCheatPolicy');await h.handles.get('open-external')({},'gameCompatibility:game');
+  assert.deepEqual(urls,['https://help.steampowered.com/zh-cn/faqs/view/571A-97DA-70E9-FF74','https://www.google.com/search?q='+encodeURIComponent('Fixture Game ReShade 反作弊 兼容性')]);
+  h.window.emit('closed');
+});
+
+test('visual observation IPC keeps the trusted sender gate and forwards the bound input and owner failures', async () => {
+  const calls = [], input = { sessionId: 'current-fixture-session', sameScene: true, result: 'changed', note: 'same scene', evidenceLabel: 'F8 comparison' };
+  const value = { recorded: true, record: { source: 'user-comparison', automaticVerification: false } };
+  const h = harness({ verificationRecords: { record: async (id, request) => {
+    calls.push({ id, request });
+    if (request.sessionId !== input.sessionId) throw Object.assign(new Error('fixture session mismatch'), { code: 'ASSESSMENT_SESSION' });
+    return value;
+  } } });
+  await settle();
+  try {
+    const record = h.handles.get('game-visual-record'); assert.equal(typeof record, 'function');
+    await assert.rejects(record({ sender: new EventEmitter() }, 'game', input), { code: 'IPC_SENDER' }); assert.equal(calls.length, 0);
+    assert.equal(await record({}, 'game', input), value); assert.equal(calls[0].id, 'game'); assert.equal(calls[0].request, input);
+    assert.equal(value.record.automaticVerification, false);
+    await assert.rejects(record({}, 'game', { ...input, sessionId: 'stale-fixture-session' }), { code: 'ASSESSMENT_SESSION' });
+    assert.equal(calls.length, 2);
+  } finally { h.window.emit('closed'); }
+});
+
+test('remaining-file cleanup preview only reads ownership and never invokes restoration', async () => {
+  const calls = [], preview = { planId: 'read-only-preview', candidates: [] }, forbidden = async () => { calls.push('restore'); throw new Error('Preview must not restore.'); };
+  let serialized = false;
+  const h = harness({ serialize: async work => { assert.equal(serialized, false); serialized = true; try { return await work(); } finally { serialized = false; } },
+    restoreForUninstall: forbidden,
+    appService: { inspectDeployment: async id => { assert.equal(serialized, true); assert.equal(id, 'game'); calls.push('deployment'); return { installed: false }; }, restoreManagedForCleanup: forbidden },
+    coordinatorInspect: async () => { calls.push('components'); return { fgComponents: { managed: false, receipt: false } }; },
+    srService: { migrationInfo: async () => { calls.push('legacy'); return { baselineCaptured: false }; }, prepareMigration: forbidden },
+    launchService: { hasOwnedState: async () => { calls.push('settings'); return false; }, restore: forbidden },
+    environmentService: { restore: forbidden, preview: async id => { assert.equal(serialized, true); assert.equal(id, 'game'); calls.push('preview'); return preview; } } });
+  await settle();
+  try {
+    assert.equal(await h.handles.get('game-environment-preview-clean')({}, 'game'), preview);
+    assert.deepEqual(calls, ['deployment', 'components', 'legacy', 'settings', 'preview']);
+  } finally { h.window.emit('closed'); }
+});
+
+test('cleanup preview blocks every managed owner and pending FG record without restoring or previewing files', async () => {
+  const cases = [
+    { deployment: { installed: true } }, { deployment: { needsRecovery: true } }, { ownedSettings: true }, { legacy: { baselineCaptured: true } },
+    ...['installed', 'needsRecovery', 'needsCleanup', 'managed', 'receipt', 'fileRecoveryPending', 'fileOperationActive', 'migrationPending'].map(flag => ({ fgComponents: { [flag]: true } }))
+  ];
+  for (const state of cases) {
+    let previews = 0, restores = 0;
+    const forbidden = async () => { restores++; throw new Error('Pure preview cannot restore an owner.'); };
+    const h = harness({ restoreForUninstall: forbidden,
+      appService: { inspectDeployment: async () => state.deployment || {}, restoreManagedForCleanup: forbidden },
+      coordinatorInspect: async () => ({ fgComponents: state.fgComponents || {} }),
+      srService: { migrationInfo: async () => state.legacy || {}, prepareMigration: forbidden },
+      launchService: { hasOwnedState: async () => state.ownedSettings === true, restore: forbidden },
+      environmentService: { restore: forbidden, preview: async () => { previews++; return {}; } } });
+    await settle();
+    try {
+      await assert.rejects(h.handles.get('game-environment-preview-clean')({}, 'game'), { code: 'ENVIRONMENT_RESTORE_FIRST' }, JSON.stringify(state));
+      assert.equal(previews, 0); assert.equal(restores, 0);
+    } finally { h.window.emit('closed'); }
+  }
+});
+
+test('library removal serializes metadata work after all recovery guards without invoking restore', async () => {
+  const checks = [], result = { dismissed: true, libraryOnly: true }; let serialized = false, restores = 0, removes = 0;
+  const guard = name => async id => { assert.equal(serialized, true); assert.equal(id, 'game'); checks.push(name); };
+  const h = harness({ serialize: async work => { serialized = true; try { return await work(); } finally { serialized = false; } },
+    operationService: { assertReady: guard('operation') }, preparationService: { assertReady: guard('preparation') }, environmentService: { assertReady: guard('environment') },
+    restoreForUninstall: async () => restores++, appService: { restoreManagedForCleanup: async () => restores++ },
+    removeLibraryEntry: async id => { assert.equal(serialized, true); assert.equal(id, 'game');
+      assert.ok(['operation', 'preparation', 'environment'].every(name => checks.includes(name))); removes++; return result; } });
+  await settle();
+  try { assert.equal(await h.handles.get('game-library-remove')({}, 'game'), result); assert.equal(removes, 1); assert.equal(restores, 0); }
+  finally { h.window.emit('closed'); }
+});
+
+test('library removal cannot bypass any recovery guard, active worker, or the current-window sender', async () => {
+  for (const name of ['operation', 'preparation', 'environment', 'worker', 'sender']) {
+    let removes = 0;
+    const blocker = async () => { throw Object.assign(new Error(name + ' pending'), { code: 'FIXTURE_RECOVERY_PENDING' }); };
+    const h = harness({ removeLibraryEntry: async () => removes++, ...(name === 'operation' ? { operationService: { assertReady: blocker } } : {}),
+      ...(name === 'preparation' ? { preparationService: { assertReady: blocker } } : {}), ...(name === 'environment' ? { environmentService: { assertReady: blocker } } : {}),
+      ...(name === 'worker' ? { elevationService: { busy: true } } : {}) });
+    await settle();
+    try {
+      await assert.rejects(h.handles.get('game-library-remove')(name === 'sender' ? { sender: new EventEmitter() } : {}, 'game'),
+        { code: name === 'worker' ? 'ERR_JOB_BUSY' : name === 'sender' ? 'IPC_SENDER' : 'FIXTURE_RECOVERY_PENDING' });
+      assert.equal(removes, 0);
+    } finally { h.window.emit('closed'); }
+  }
+});
+
+test('component assessment construction does not eagerly read a game or module owner', async () => {
+  const reads = [], read = name => () => { reads.push(name); throw new Error('Eager component read: ' + name); };
+  const h = harness({ appService: { getLayout: read('layout'), gameModuleManifest: read('modules') }, fgComponents: { ownedModuleManifest: read('fg-modules') } });
+  await settle();
+  try { assert.ok(h.window); assert.equal(saw(h, 'startup-failure'), false); assert.deepEqual(reads, []); }
+  finally { h.window?.emit('closed'); }
+});
+
+test('preload separates library-only removal and pure cleanup preview from restoration IPC', async () => {
+  const calls = []; let api;
+  const electron = { contextBridge: { exposeInMainWorld: (name, value) => { assert.equal(name, 'manager'); api = value; } },
+    ipcRenderer: { invoke: async (...args) => { calls.push(args); return args[0]; }, send() {}, on() {}, removeListener() {} }, webUtils: { getPathForFile() {} } };
+  const file = path.resolve(__dirname, '../preload.js');
+  new vm.Script(fs.readFileSync(file, 'utf8'), { filename: file }).runInNewContext({ require: name => { assert.equal(name, 'electron'); return electron; }, Object });
+  assert.equal(await api.removeGame('game'), 'game-library-remove'); assert.equal(await api.previewEnvironmentCleanup('game'), 'game-environment-preview-clean');
+  assert.deepEqual(calls, [['game-library-remove', 'game'], ['game-environment-preview-clean', 'game']]);
 });

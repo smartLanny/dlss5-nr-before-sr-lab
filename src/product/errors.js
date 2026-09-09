@@ -7,7 +7,7 @@ const MESSAGES = Object.freeze({
   ERR_INSTALL_EXE_CHANGED: '当前选择的游戏程序与已有安装备份不一致。为避免同时修改两个目录，已停止操作；请重新选择原安装程序并恢复或卸载后，再安装到新程序。',
   ERR_OTA_CORE_ONLY: '这是仅供 D3D12 验收的核心测试包，不能作为 Manager OTA 导入。请使用配套的管理器更新包。',
   ERR_UNSUPPORTED_API: '所选组件不支持这条图形路线。DirectX 11 需要包含配套 carrier 的兼容包；其他图形 API 暂不支持。',
-  ERR_API_SELECTION_REQUIRED: '图形 API 证据不足或存在多条路线，请展开游戏卡片，按游戏的实际启动设置选择 DirectX 11 或 DirectX 12。',
+  ERR_API_SELECTION_REQUIRED: '图形 API 证据不足或存在多条路线，请进入游戏详情，按游戏的实际启动设置选择 API。',
   ERR_API_ROUTE_PENDING: '游戏 API 选择与已部署组件不一致，请先点击修复或应用版本，再启动游戏。',
   ERR_CARRIER_NOT_SELECTED: 'DX11 兼容桥接尚未就绪。请确认游戏 API 为 DirectX 11，再使用完整配套组件安装或修复；桥接会自动配置。',
   ERR_UNSUPPORTED_BITNESS: '当前基础版只支持 64 位游戏。',
@@ -15,8 +15,8 @@ const MESSAGES = Object.freeze({
   ERR_EMULATOR_UNSUPPORTED: '当前基础版暂不自动安装到模拟器。',
   ERR_ANTI_CHEAT_CONFIRM: '检测到可能的反作弊组件。继续安装可能导致游戏无法启动、触发安全策略或封禁风险；管理器不会修改或绕过反作弊文件。请确认后继续。',
   ERR_GAME_RUNNING: '请先关闭游戏，再进行安装、修复或卸载。',
-  ERR_PROCESS_CHECK: '无法确认游戏是否已关闭，请稍后重试或以管理员身份运行。',
-  ERR_NO_WRITE_ACCESS: '没有游戏目录写入权限，请以管理员身份运行管理器。',
+  ERR_PROCESS_CHECK: '无法确认游戏是否已关闭，请退出游戏后重新检查。若检查受权限限制，可在具体变更预览中选择本次以管理员权限应用。',
+  ERR_NO_WRITE_ACCESS: '没有游戏目录写入权限。请先恢复未完成事务，再重新预览，并选择本次以管理员权限应用。',
   ERR_PAYLOAD_MISSING: '缺少安装组件，操作未完成。请重新选择完整组件目录，或重新下载完整安装包后重试。',
   ERR_PAYLOAD_HASH: '安装组件校验不匹配，文件可能损坏或混用了版本。请重新选择同一版本的完整组件目录，或重新下载完整安装包。',
   ERR_PAYLOAD_SOURCE_INVALID: '所选目录不是有效的组件目录。请选择包含有效 bundle.json 和配套文件的目录。',
@@ -40,7 +40,7 @@ const MESSAGES = Object.freeze({
   ERR_JOB_BUSY: '当前游戏已有操作正在进行。',
   ERR_INTERNAL: '操作失败，尚未确认完成。请在“修复”页保存反馈，附上刚才的操作步骤。',
   ENOENT: '所需文件或目录不存在。请检查路径及文件是否被移动，重新选择后重试。',
-  EACCES: '无法访问所需文件或目录。请检查目录权限，并以管理员身份重新运行管理器。',
+  EACCES: '无法访问所需文件或目录。请检查目录权限，先恢复未完成事务；需要提权时，重新预览并选择本次以管理员权限应用。',
   EPERM: '系统拒绝修改文件。请关闭占用程序并检查目录权限，再重试。',
   EBUSY: '文件正在被占用。请完全退出游戏及相关工具后重试。',
   ENOSPC: '磁盘空间不足，操作未完成。请释放游戏目录和备份目录所在磁盘的空间后重试。',
@@ -127,7 +127,7 @@ function normalizeError(error) {
     errBackendRecovery: 'ERR_BACKUP_INVALID'
   };
   const code = Object.hasOwn(codeMap, originalCode) ? codeMap[originalCode] : originalCode || 'ERR_INTERNAL';
-  const vulkanError = /^(VULKAN_|FEEDER_|GAME_LAUNCH_|GAME_API_|RDR2_|REGISTRY_|REF_|PREPARATION_|ENVIRONMENT_)[A-Z_]+$/.test(code);
+  const vulkanError = /^(VULKAN_|FEEDER_|SPECIAL_|GAME_LAUNCH_|GAME_API_|RDR2_|REGISTRY_|REF_|PREPARATION_|ENVIRONMENT_|DEPLOYMENT_|OPERATION_|LAUNCH_|HELPER_|ASSESSMENT_)[A-Z_]+$/.test(code);
   const details = safeDetails(incoming.details || incoming.params || {});
   for (const field of ['phase', 'gameStarted', 'recoveryStateKnown', 'recoverableDomains']) {
     if (details[field] === undefined && incoming[field] !== undefined) Object.assign(details, safeDetails({ [field]: incoming[field] }));

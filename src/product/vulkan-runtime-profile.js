@@ -283,7 +283,7 @@ function createVulkanRuntimeProfile(options = {}) {
     return { root, sources };
   }
 
-  async function prepare(input) {
+  async function prepare(input, previewOnly = false) {
     const exe = validateExe(input?.exe);
     await noLinks(exe);
     let exeStat;
@@ -299,8 +299,17 @@ function createVulkanRuntimeProfile(options = {}) {
     if (fs.existsSync(place.basePath)) {
       const current = await inspect({ exe, recipe, basePath: place.basePath });
       if (!current.ready) fail('VULKAN_RUNTIME_CHANGED', '已有 Vulkan 运行资产缺失或被修改，未覆盖用户文件。', { blockers: current.blockers });
-      return { ...location({ exe, recipe }), files: current.files, reused: true };
+      return { ...location({ exe, recipe }), files: current.files, reused: true,
+        ...(previewOnly ? { changes: await Promise.all(current.files.map(async file => {
+          const digest = await digestFile(file.file);
+          return { path: file.file, name: path.basename(file.file), role: 'vulkan-runtime', beforeSha256: digest, afterSha256: digest, action: 'keep' };
+        })) } : {}) };
     }
+    if (previewOnly) return { ...location({ exe, recipe }), reused: false, changes: [
+      ...recipe.files.map(file => ({ path: resolveContained(place.basePath, file.target), name: path.basename(file.target), role: 'vulkan-runtime',
+        beforeSha256: null, afterSha256: file.sha256, action: 'create' })),
+      { path: path.join(place.basePath, RECEIPT), name: RECEIPT, role: 'receipt', beforeSha256: null, action: 'create' }
+    ] };
     await noLinks(place.exeRoot);
     await fsp.mkdir(place.exeRoot, { recursive: true });
     const stage = path.join(place.exeRoot, `.${place.packageId}.${crypto.randomUUID()}.stage`);
@@ -356,7 +365,30 @@ function createVulkanRuntimeProfile(options = {}) {
     return { archived: true, archivePath, basePath, coreVersion: received.recipe.coreVersion, packageId: received.recipe.id };
   }
 
-  return { location, prepare, inspect, archive, identifyReceipt, pathBudget, assertPathBudget, runtimeRoot, archiveRoot };
+  async function previewArchive(input) {
+    const exe = validateExe(input?.exe), basePath = path.resolve(input?.basePath || '');
+    locationKind(exe, basePath); await noLinks(basePath);
+    const received = await readReceipt(basePath);
+    if (!samePath(received.value.exe, exe) || path.basename(basePath).toLowerCase() !== received.value.packageId.toLowerCase())
+      fail('VULKAN_RUNTIME_EXE_CHANGED', '归档记录与游戏 EXE 不一致。');
+    const destinationRoot = path.join(archiveRoot, received.value.exeId, received.value.packageId), changes = [];
+    async function visit(dir) {
+      await noLinks(dir);
+      for (const entry of await fsp.readdir(dir, { withFileTypes: true })) {
+        const file = path.join(dir, entry.name); await noLinks(file);
+        if (entry.isDirectory()) await visit(file);
+        else if (entry.isFile()) {
+          if (changes.length >= 4096) fail('VULKAN_RUNTIME_ARCHIVE_TOO_LARGE', '运行目录文件数量超出可检查范围。');
+          changes.push({ path: file, name: entry.name, role: entry.name === RECEIPT ? 'receipt' : 'vulkan-runtime',
+            action: 'archive', beforeSha256: await digestFile(file), afterSha256: null, destinationDirectory: destinationRoot, relativePath: path.relative(basePath, file) });
+        } else fail('VULKAN_RUNTIME_ARCHIVE_INVALID', '运行目录出现非普通文件，未归档。');
+      }
+    }
+    await visit(basePath);
+    return { basePath, destinationRoot, changes, runtimeVerified: false };
+  }
+  return { location, prepare, inspect, archive, previewPrepare: input => prepare(input, true), previewArchive,
+    identifyReceipt, pathBudget, assertPathBudget, runtimeRoot, archiveRoot };
 }
 
 module.exports = { createVulkanRuntimeProfile, MAX_PATH_CHARS };

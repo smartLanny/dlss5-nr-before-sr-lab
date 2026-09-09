@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const execute = promisify(require('node:child_process').execFile);
 const { noLinks, inside, atomicJson } = require('./launch-safety');
+const { inspectComponentClues } = require('./component-assessment');
 const PRODUCT = 'xiaofeng-environment-cleanup';
 const RECEIPT = '_DLSS5_Backup/xiaofeng-environment.json';
 const DIRECTORY = '_DLSS5_Backup/environment-cleanup';
@@ -44,7 +45,7 @@ function createGameEnvironment(options) {
     // exposes incomplete bytes at the live path. File.Replace is used only
     // for an already validated manager JSON receipt during rollback.
     const literal = file => `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(file).toString('base64')}'))`;
-    const script = `$ErrorActionPreference='Stop'; [IO.File]::${replace ? 'Replace' : 'Move'}(${literal(temp)},${literal(targetFile)}${replace ? ',$null' : ''});`;
+    const script = `$ErrorActionPreference='Stop'; [IO.File]::${replace ? 'Replace' : 'Move'}(${literal(temp)},${literal(targetFile)}${replace ? ',[NullString]::Value' : ''});`;
     try {
       await execute(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'),
         ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
@@ -133,11 +134,17 @@ function createGameEnvironment(options) {
       if (!graphicsFile(t, rel)) continue;
       const file = journal.safePath(t.game, rel), sha256 = await digest(file), bytes = (await fsp.stat(file)).size;
       const addon = /\.addon(?:32|64)?$/i.test(entry.name);
-      const recognized = addon ? /(?:dlss5|nr[-_ ]?before[-_ ]?sr)/i.test(entry.name) ? 'DLSS 5 / NR 历史核心 Add-on' : 'ReShade Add-on' : ['ReShade', 'OptiScaler', 'Ultimate ASI Loader', 'REFramework'].find(label => pe.versionMentions(file, label)) || null;
+      const clues = addon ? await inspectComponentClues(file) : null;
+      const recognized = addon ? clues.classification === 'unknown' ? 'ReShade Add-on（来源未确认）' : clues.label : ['ReShade', 'OptiScaler', 'Ultimate ASI Loader', 'REFramework'].find(label => pe.versionMentions(file, label)) || null;
       const systemRuntime = !recognized && pe.versionMentions(file, 'Microsoft');
+      const preserveAddon = addon && (!['core', 'native-carrier'].includes(clues.classification) || clues.evidence.some(row =>
+        ['renodx-hdr', 'renodx-other', 'renodx-generic-nr', 'renodx-dlss5', 'mfgunlock', 'other-mod'].includes(row.classification)));
       candidates.push({ name: entry.name, rel, sha256, bytes, kind: recognized || (systemRuntime ? '游戏或系统运行组件' : '来源未确认的代理 DLL'),
-        selectable: !systemRuntime, selectedByDefault: Boolean(recognized),
-        note: recognized ? '可备份隔离，撤销清理时按原摘要恢复。' : systemRuntime ? '可能属于游戏本体，不列入清理。' : '可能是其他模组，也可能是游戏所需文件；不会自动选中。' });
+        selectable: !systemRuntime, selectedByDefault: Boolean(recognized) && !preserveAddon,
+        ...(clues ? { classification: clues.classification, source: clues.source, confidence: clues.confidence, evidence: clues.evidence } : {}),
+        note: preserveAddon ? 'HDR、其他模组或来源不明 Add-on 默认保留；需要清理时可明确选中，仍按原摘要备份和恢复。' : recognized ?
+          addon && clues.confidence === 'hint' ? '仅名称提示可能属于旧核心；请核对后选择，清理时按原摘要备份。' : '可备份隔离，撤销清理时按原摘要恢复。' :
+          systemRuntime ? '可能属于游戏本体，不列入清理。' : '可能是其他模组，也可能是游戏所需文件；不会自动选中。' });
     }
     if (candidates.length > 64) fail('TOO_MANY_FILES', '同目录插件过多，未自动扩大清理范围。');
     const planId = crypto.randomUUID(), plan = { id, planId, exe: t.exe, exeHash: await digest(t.exe, 512 * 1024 * 1024), candidates, expires: Date.now() + 5 * 60 * 1000 };

@@ -16,6 +16,15 @@ function fixture(t, value) {
 const ioWith = (sync = {}, promises = {}) => ({ ...fs, ...sync, promises: { ...fs.promises, ...promises } });
 const nativeError = code => Object.assign(new Error(`injected ${code}`), { code });
 
+test('launch preferences retain their own EXE binding without borrowing API identity', t => {
+  const f = fixture(t), exe = path.join(f.root, 'game.exe');
+  const result = validate({ version: 1, gameOverrides: { [f.root]: { launchMode: 'steam', launchExecutable: exe } } });
+  assert.equal(result.gameOverrides[f.root.toLowerCase()].launchMode, 'steam');
+  assert.equal(result.gameOverrides[f.root.toLowerCase()].launchExecutable, exe);
+  const invalid = validate({ version: 1, gameOverrides: { [f.root]: { launchMode: 'steam', apiExecutable: exe } } });
+  assert.deepEqual(invalid.gameOverrides, {});
+});
+
 test('an absent config starts normally and the first write creates only current settings', async t => {
   const f = fixture(t);
   assert.deepEqual(f.store.read(), validate(null)); assert.equal(f.store.readRecoveryStatus().state, 'missing');

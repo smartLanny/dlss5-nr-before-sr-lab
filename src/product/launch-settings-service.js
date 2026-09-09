@@ -10,6 +10,8 @@ const { fail, inside, noLinks, digestFile, atomicJson } = require('./launch-safe
 const { detectGpuAsync: detectGpu } = require('./gpu');
 const { createInstallGuards } = require('../core/install-guards');
 const pe = require('../core/pe');
+const { inspectNativeEnhancementCapabilities, assessEnhancementState } = require('./game-enhancement-capabilities');
+const { createGameFeatureConfirmations } = require('./game-feature-confirmations');
 
 const DRIVER_IDS = [...policy.IDS.sr, ...policy.IDS.fg];
 const clone = value => structuredClone(value);
@@ -32,6 +34,7 @@ function createLaunchSettingsService(options = {}) {
   const requestFile = path.join(userData, 'launch-settings-requests.json');
   const plans = new Map();
   const scopeReads = new Map();
+  const confirmations = createGameFeatureConfirmations({ file: path.join(userData, 'game-feature-confirmations.json'), resolveExecutable: id => target(id).exe });
   let serial = Promise.resolve();
   const serialize = work => { const next = serial.then(work, work); serial = next.catch(() => {}); return next; };
 
@@ -41,8 +44,76 @@ function createLaunchSettingsService(options = {}) {
         !inside(dir, exe) || path.extname(exe).toLowerCase() !== '.exe') fail('ERR_UNKNOWN_GAME', '游戏 EXE 绑定无效。');
     return { id, dir: path.resolve(dir), exe: path.resolve(exe), key: path.resolve(dir).toLowerCase() };
   }
+  async function featureEvidence(id, domain) {
+    const t = target(id), scan = typeof options.scan === 'function' ? await options.scan(id) : {};
+    const native = inspectNativeEnhancementCapabilities(scan);
+    const present = domain === 'sr' ? native.nativeDlssAvailable : native.nativeFgAvailable;
+    const supplied = typeof options.getFeatureEvidence === 'function' ? await options.getFeatureEvidence(id, domain) : {};
+    let metadata = supplied.driver;
+    if (!metadata) {
+      try { metadata = typeof driver.inspectSettings === 'function' ? await driver.inspectSettings(t.exe) : { available: false }; }
+      catch (error) { metadata = { available: false, source: 'unavailable', code: error.code }; }
+    }
+    return { staticEvidence: native, support: scan?.enhancementSupport?.[domain] || (present
+      ? { status: 'supported', source: 'native-integration', staticOnly: true, official: false, evidence: ['verified-x64-native-components'] }
+      : { status: 'unknown', source: null, staticOnly: true, evidence: [] }),
+      gameSetting: scan?.gameSettings?.[domain] || { state: 'unknown', source: null }, ...supplied, driver: metadata };
+  }
+  async function assessEligibility(id, domain, input) {
+    const t = target(id), evidence = await featureEvidence(id, domain), hardware = await detectHardware();
+    const binding = await confirmations.inspect(id, domain, evidence.gameSetting);
+    const request = input || { backend: domain === 'sr' ? 'native' : hardware.series?.includes('RTX40') ? 'mfgunlock' : 'nvidia' };
+    let requiredSettingIds = policy.IDS[domain], minimumDriverVersion = 57216;
+    if (domain === 'sr' && request.quality && request.quality !== 'game') {
+      const compiled = policy.nativeSr(request, hardware);
+      requiredSettingIds = compiled.operations.map(row => row.id);
+      const preset = compiled.operations.find(row => row.id === policy.IDS.sr[3])?.value;
+      // 595.97 is the verified March 2026 baseline for the current 4.5 choices.
+      if (preset === 12 || preset === 13) minimumDriverVersion = 59597;
+    }
+    if (domain === 'fg' && (request.mode === 'dynamic' || request.multiplier > 4)) minimumDriverVersion = 59597;
+    const context = { domain, request: { ...request, requiredSettingIds, minimumDriverVersion },
+      game: { ...evidence, exe: t.exe, exeIdentity: binding.exeIdentity }, hardware, driver: evidence.driver, confirmation: binding.confirmation };
+    const result = assessEnhancementState(context);
+    // An optional host assessor may add constraints, never erase this boundary.
+    if (typeof options.assessEligibility === 'function') {
+      const additional = await options.assessEligibility(id, domain, request, context);
+      if (additional?.blockers?.length) { result.blockers.push(...additional.blockers); result.eligible = false; result.canConfirm = false; }
+    }
+    return result;
+  }
+  async function confirmGameFeature(id, domain, input) {
+    const state = await assessEligibility(id, domain);
+    const blocking = state.blockers.filter(row => row.code !== 'SETTINGS_GAME_CONFIRMATION_REQUIRED');
+    if (blocking.length) fail('SETTINGS_CONFIRMATION_BLOCKED', blocking.map(row => row.message).join('\n'), { blockers: blocking });
+    const evidence = await featureEvidence(id, domain);
+    await confirmations.confirm(id, domain, input, evidence.gameSetting);
+    return assessEligibility(id, domain);
+  }
+  async function inspectGameFeatureConfirmation(id, domain) {
+    const evidence = await featureEvidence(id, domain);
+    return confirmations.inspect(id, domain, evidence.gameSetting);
+  }
   function receiptFile(t) { return path.join(t.dir, '_DLSS5_Backup', 'xiaofeng-launch-settings.json'); }
   function driverPendingFile(t) { return path.join(t.dir, '_DLSS5_Backup', 'launch-driver-pending.json'); }
+  function externalPendingFile(t) { return path.join(t.dir, '_DLSS5_Backup', 'launch-external-config-pending.json'); }
+  function configuration(t, backend, row = null) {
+    if (backend !== 'mfgunlock' || typeof options.getLayout !== 'function') {
+      const file = path.join(path.dirname(t.exe), row?.name || policy.FILES[backend]);
+      if (row?.configFile && !samePath(row.configFile, file)) fail('SETTINGS_LAYOUT_CHANGED', '配置位置已改变，请先恢复原布局中的设置。');
+      return { file, external: false, root: t.dir };
+    }
+    const layout = options.getLayout(t.id);
+    if (layout?.verified !== true || layout.needsRecovery || layout.blockers?.length || !samePath(layout.exe, t.exe) ||
+        typeof layout.activeConfigPath !== 'string' || !path.isAbsolute(layout.activeConfigPath) ||
+        typeof layout.reshadeConfigDir !== 'string' || !samePath(path.dirname(layout.activeConfigPath), layout.reshadeConfigDir) ||
+        path.basename(layout.activeConfigPath).toLowerCase() !== 'reshade.ini') fail('SETTINGS_LAYOUT_UNVERIFIED', '尚未确认此游戏实际使用的 ReShade 配置位置。');
+    if (row?.configFile && !samePath(row.configFile, layout.activeConfigPath)) fail('SETTINGS_LAYOUT_CHANGED', '当前活动配置与已应用记录不一致，请先恢复原布局。');
+    // Historical local receipts must not be silently rebound to an external INI.
+    if (row && !row.configFile && !samePath(layout.activeConfigPath, path.join(path.dirname(t.exe), row.name)))
+      fail('SETTINGS_LAYOUT_CHANGED', '请先恢复旧本地 MFG 设置，再切换外置配置。');
+    return { file: layout.activeConfigPath, external: !inside(t.dir, layout.activeConfigPath), root: layout.reshadeConfigDir };
+  }
   function readJson(file, fallback) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return clone(fallback); } }
   function requests() {
     if (!fs.existsSync(requestFile)) return stateEmpty();
@@ -93,6 +164,7 @@ function createLaunchSettingsService(options = {}) {
       } else {
         if (!policy.validConfigName(row.name, row.backend) || typeof row.baselineText !== 'string' || Buffer.byteLength(row.baselineText) > 1024 * 1024 || !row.lastValues || typeof row.lastValues !== 'object') fail('SETTINGS_RECEIPT_INVALID', '配置文件恢复范围无效。');
         if (row.baselineMissing !== undefined && (typeof row.baselineMissing !== 'boolean' || row.backend !== 'mfgunlock')) fail('SETTINGS_RECEIPT_INVALID', '配置文件初始状态无效。');
+        if (row.configFile !== undefined && (row.backend !== 'mfgunlock' || typeof row.configFile !== 'string' || !path.isAbsolute(row.configFile))) fail('SETTINGS_RECEIPT_INVALID', '配置文件绑定无效。');
         const allowedKeys = Object.keys(policy.values(row.baselineText, row.backend));
         if (Object.keys(row.lastValues).some(key => !allowedKeys.includes(key))) fail('SETTINGS_RECEIPT_INVALID', '配置文件恢复键无效。');
       }
@@ -105,6 +177,7 @@ function createLaunchSettingsService(options = {}) {
     const t = target(id), rows = [];
     if (fs.existsSync(journal.pendingPath(t.dir))) rows.push({ kind: 'file-journal', file: journal.pendingPath(t.dir) });
     if (fs.existsSync(driverPendingFile(t))) rows.push({ kind: 'driver-receipt', file: driverPendingFile(t) });
+    if (fs.existsSync(externalPendingFile(t))) rows.push({ kind: 'external-config', file: externalPendingFile(t) });
     return rows;
   }
   async function assertReady(id) { const rows = await pending(id); if (rows.length) fail('SETTINGS_RECOVERY_FIRST', '上次文件或驱动设置尚未恢复，请先完成恢复。', { pending: rows }); return true; }
@@ -112,7 +185,7 @@ function createLaunchSettingsService(options = {}) {
     const dir = options.gameDirectory(id);
     if (typeof dir !== 'string' || !path.isAbsolute(dir)) fail('ERR_UNKNOWN_GAME', '游戏目录无效。');
     const meta = journal.safePath(dir, '_DLSS5_Backup/xiaofeng-launch-settings.json');
-    if (fs.existsSync(journal.pendingPath(dir)) || fs.existsSync(path.join(dir, '_DLSS5_Backup/launch-driver-pending.json'))) return true;
+    if (fs.existsSync(journal.pendingPath(dir)) || fs.existsSync(path.join(dir, '_DLSS5_Backup/launch-driver-pending.json')) || fs.existsSync(path.join(dir, '_DLSS5_Backup/launch-external-config-pending.json'))) return true;
     if (!fs.existsSync(meta)) return false;
     let value; try { value = JSON.parse(fs.readFileSync(meta, 'utf8')); } catch { fail('SETTINGS_RECEIPT_INVALID', '启动设置恢复记录无法解析。'); }
     if (!value || value.version !== 1 || !value.applied || typeof value.applied !== 'object') fail('SETTINGS_RECEIPT_INVALID', '启动设置恢复记录无效。');
@@ -146,9 +219,10 @@ function createLaunchSettingsService(options = {}) {
       let readbackVerified = false;
       try {
         if (['native', 'nvidia'].includes(value.backend)) { driverCurrent ||= await driver.read(t.exe, DRIVER_IDS); readbackVerified = policy.same(driverCurrent.profile, value.profile) && policy.same(subset(driverCurrent, value.ids), value.lastValues); }
-        else { const text = await policy.readText(path.join(path.dirname(t.exe), value.name)); const now = policy.values(text, value.backend); readbackVerified = Object.keys(value.lastValues).every(key => policy.same(now[key], value.lastValues[key])); }
+        else { const file = value.backend === 'mfgunlock' ? configuration(t, value.backend, value).file : path.join(path.dirname(t.exe), value.name); const text = await policy.readText(file); const now = policy.values(text, value.backend); readbackVerified = Object.keys(value.lastValues).every(key => policy.same(now[key], value.lastValues[key])); }
       } catch {}
-      applied[domain] = { ...value, readbackVerified };
+      if (value.exeHash && value.exeHash !== await digestFile(t.exe)) readbackVerified = false;
+      applied[domain] = { ...value, readbackVerified, requiresReapply: !readbackVerified, runtimeVerified: false };
     }
     let legacy = null;
     if (legacySrModel?.migrationInfo) {
@@ -167,7 +241,12 @@ function createLaunchSettingsService(options = {}) {
       }
       driverScope=await scopeReads.get(t.exe).promise;
     }
-    return { hardware: await detectHardware(), requests: visibleRequests, applied, legacy, driverScope, pending: pendingRows, notice, receiptError, runtimeVerified: false,
+    const featureStates = {};
+    for (const domain of ['sr', 'fg']) {
+      try { featureStates[domain] = await assessEligibility(id, domain); }
+      catch (error) { featureStates[domain] = { domain, eligible: false, state: 'unavailable', blockers: [{ code: error.code || 'SETTINGS_EVIDENCE_UNAVAILABLE', message: error.message }], runtimeVerified: false }; }
+    }
+    return { hardware: await detectHardware(), requests: visibleRequests, applied, legacy, driverScope, featureStates, pending: pendingRows, notice, receiptError, runtimeVerified: false,
       note: '配置读回只证明文件或驱动请求已保存，不代表游戏实际采用。' };
   }
   async function assertStopped(t) {
@@ -176,19 +255,32 @@ function createLaunchSettingsService(options = {}) {
     if (!env || env.verified !== true) fail('PROCESS_UNKNOWN', '无法确认游戏已退出，暂不写入启动设置。');
     if (Array.isArray(env.running) && env.running.length) fail('GAME_RUNNING', '游戏仍在运行，请完全退出后重试。');
   }
-  async function preview(id, domain, input) {
+  async function preview(id, domain, input, previewOptions = {}) {
     const t = target(id); await assertReady(id); await noLinks(t.exe);
     const saved = requestRow(id, domain), request = policy.validateRequest(domain, input || saved?.request);
     const currentReceipt = receipt(t), old = currentReceipt.applied[domain] || null, restoring = policy.isRestore(domain, request);
     if (request.backend === 'rtx40' && !restoring && options.allowLegacyControl !== true)
       fail('SETTINGS_FG_MIGRATION_REQUIRED', '旧补帧方案只保留恢复能力，请先迁移并重新选择设置。');
-    if (domain === 'fg' && !restoring && options.assertComponents) await options.assertComponents(id, request.backend);
+    let preparation = null;
+    if (domain === 'fg' && !restoring && options.assertComponents) {
+      try { await options.assertComponents(id, request.backend); }
+      catch (error) {
+        if (previewOptions.allowComponentPreparation === true && request.backend === 'mfgunlock' &&
+            ['SETTINGS_COMPONENTS_NOT_READY', 'SETTINGS_FG_COMPONENTS_REQUIRED'].includes(error.code))
+          preparation = { required: true, backend: 'mfgunlock', code: error.code, message: error.message };
+        else throw error;
+      }
+    }
     if (old && !samePath(old.exe, t.exe)) fail('SETTINGS_EXE_CHANGED', '请先恢复原 EXE 的启动设置。');
     if (old && old.backend !== request.backend && !restoring) fail('SETTINGS_RESTORE_FIRST', '请先恢复当前设置后端。');
     const plan = { id: crypto.randomUUID(), expires: Date.now() + 120000, gameId: id, domain, request, backend: restoring && old ? old.backend : request.backend,
-      target: t, exeHash: await digestFile(t.exe), restoring, old: clone(old), receipt: currentReceipt, warnings: [], blockers: [], driver: null, change: null, operations: [], noOp: false, requiresReview: false };
+      target: t, exeHash: await digestFile(t.exe), restoring, old: clone(old), receipt: currentReceipt, preparation, warnings: [], blockers: [], externalChanges: [], driver: null, change: null, operations: [], noOp: false, requiresReview: false };
     const hardware = await detectHardware();
     const series = [...new Set(Array.isArray(hardware?.series) ? hardware.series : [])];
+    if (!restoring) {
+      plan.eligibility = await assessEligibility(id, domain, request);
+      plan.blockers.push(...plan.eligibility.blockers.map(row => row.message));
+    }
     if (restoring && !old) plan.noOp = true;
     else if (['native', 'nvidia'].includes(plan.backend)) {
       if (plan.backend === 'nvidia' && !restoring && !(series.length === 1 && series[0] === 'RTX50')) plan.blockers.push('未唯一确认 RTX 50，官方 FG 请求不会写入。');
@@ -196,9 +288,14 @@ function createLaunchSettingsService(options = {}) {
       const operations = restoring ? [] : (plan.backend === 'native' ? policy.nativeSr(request, hardware) : policy.nativeFg(request)).operations;
       plan.operations = clone(operations);
       const ids = restoring ? old.ids : [...new Set([...(old?.ids || []), ...operations.map(row => row.id)])];
-      if (old && (!policy.same(before.profile, old.profile) || !policy.same(subset(before, old.ids), old.lastValues)))
-        fail('SETTINGS_EXTERNAL_CHANGE', '驱动配置身份或设置已被其他工具改变。');
+      if (old && !policy.same(before.profile, old.profile)) fail('SETTINGS_EXTERNAL_CHANGE', '驱动配置身份或关联范围已被其他工具改变，不能沿用原恢复记录。');
+      const changed = old ? old.ids.filter(id => !policy.same(before.settings[id], old.lastValues[id])) : [];
+      if (changed.length && (restoring || previewOptions.reapplyExternalChanges !== true)) fail('SETTINGS_EXTERNAL_CHANGE', '驱动设置已被其他工具改变，请显式重新预览当前值后应用。');
       const baseline = clone(old?.baseline || before);
+      for (const id of changed) {
+        baseline.settings[id] = clone(before.settings[id]);
+        plan.externalChanges.push({ kind: 'driver-setting', id, previousApplied: clone(old.lastValues[id]), current: clone(before.settings[id]) });
+      }
       for (const settingId of ids) if (!old?.ids.includes(settingId)) baseline.settings[settingId] = clone(before.settings[settingId]);
       if (restoring) {
         for (const settingId of ids) after.settings[settingId] = clone(baseline.settings[settingId]);
@@ -212,13 +309,21 @@ function createLaunchSettingsService(options = {}) {
     } else {
       if (['rtx40', 'mfgunlock'].includes(plan.backend) && !restoring && !(series.length === 1 && series[0] === 'RTX40')) plan.blockers.push('未唯一确认 RTX 40，社区 FG 请求不会写入。');
       const controlRoot = path.dirname(t.exe);
-      const name = old?.name || await policy.controlPath(controlRoot, plan.backend), file = path.join(controlRoot, name);
+      const name = old?.name || await policy.controlPath(controlRoot, plan.backend);
+      const location = plan.backend === 'mfgunlock' ? configuration(t, plan.backend, old) : { file: path.join(controlRoot, name), external: false };
+      const file = location.file;
       const beforeFile = await policy.readText(file, true);
       if (beforeFile === null && (plan.backend !== 'mfgunlock' || old || restoring)) fail('SETTINGS_BACKEND_MISSING', '没有找到该后端的现有配置。');
       const before = beforeFile ?? '';
       const currentValues = policy.values(before, plan.backend);
-      if (old && !policy.same(Object.fromEntries(Object.keys(old.lastValues).map(key => [key, currentValues[key]])), old.lastValues)) fail('SETTINGS_EXTERNAL_CHANGE', '本工具接管的配置键已被外部修改。');
+      const changed = old ? Object.keys(old.lastValues).filter(key => !policy.same(currentValues[key], old.lastValues[key])) : [];
+      if (changed.length && (restoring || previewOptions.reapplyExternalChanges !== true)) fail('SETTINGS_EXTERNAL_CHANGE', '本工具接管的配置键已被外部修改，请显式重新预览当前值后应用。');
       let content, baselineText = old?.baselineText ?? before;
+      if (changed.length) {
+        const priorBaseline = policy.values(baselineText, plan.backend);
+        baselineText = policy.restoreText(baselineText, before, Object.fromEntries(changed.map(key => [key, priorBaseline[key]])), plan.backend);
+        plan.externalChanges.push(...changed.map(key => ({ kind: 'config-key', key, previousApplied: old.lastValues[key], current: currentValues[key] })));
+      }
       const baselineMissing = old?.baselineMissing === true || !old && beforeFile === null;
       if (restoring) content = policy.restoreText(before, baselineText, old.lastValues, plan.backend);
       else { const result = policy.compileFile(before, request); content = result.content; plan.warnings.push(...result.warnings); plan.requiresReview = result.requiresReview === true; }
@@ -236,19 +341,53 @@ function createLaunchSettingsService(options = {}) {
       plan.operations = keys.map(key => ({ action: restoring ? 'restore-config-key' : 'set-config-key', key }));
       const owned = [...new Set([...Object.keys(old?.lastValues || {}), ...keys])];
       const deleteAfter = restoring && baselineMissing && content.trim() === '';
-      plan.change = { name, file, beforeHash: beforeFile === null ? null : policy.hash(before), afterHash: deleteAfter ? null : policy.hash(content), content, baselineText,
+      plan.change = { name, file, external: location.external, beforeText: beforeFile, beforeHash: beforeFile === null ? null : policy.hash(before), afterHash: deleteAfter ? null : policy.hash(content), content, baselineText,
         baselineMissing, deleteAfter,
         lastValues: Object.fromEntries(owned.map(key => [key, afterValues[key]])) };
       plan.noOp = !restoring && plan.change.beforeHash === plan.change.afterHash;
     }
+    if (plan.externalChanges.length) {
+      plan.requiresReview = true; plan.noOp = false;
+      plan.warnings.push('已按本次明确重应用请求更新被外部修改的键；以后恢复将保留这些外部新值。');
+    }
+    // Explicit Apply may validate values already installed by another tool.
+    // Record that exact baseline without issuing redundant backend writes, so
+    // a subsequent read-only launch can distinguish this from an unapproved draft.
+    if (!restoring && plan.noOp && (!old || !policy.same(old.request, request) || old.exeHash !== plan.exeHash)) {
+      plan.recordOnly = true; plan.noOp = false;
+      if (plan.change && !Object.keys(plan.change.lastValues).length) plan.change.lastValues = policy.values(plan.change.content, plan.backend);
+    }
     plans.set(plan.id, plan);
     return { id: plan.id, gameId: id, domain, backend: plan.backend, request, exe: t.exe,
       destination: plan.driver ? 'NVIDIA 每游戏配置' : plan.change ? path.relative(t.dir, plan.change.file) : null,
-      operations: clone(plan.operations), warnings: plan.warnings, blockers: plan.blockers,
-      noOp: plan.noOp, requiresReview: plan.requiresReview, driverSettings: plan.driver?.ids || [], runtimeVerified: false };
+      operations: clone(plan.operations), externalChanges: clone(plan.externalChanges), warnings: plan.warnings, blockers: plan.blockers,
+      noOp: plan.noOp, recordOnly: plan.recordOnly === true, requiresReview: plan.requiresReview, preparation, eligibility: plan.eligibility || null, driverSettings: plan.driver?.ids || [], runtimeVerified: false };
   }
   function sameOwned(actual, expected, ids) { return ids.every(id => expected.settings[id].kind === 'explicit'
     ? policy.same(actual.settings[id], expected.settings[id]) : actual.settings[id].kind !== 'explicit'); }
+  async function restoreExternalPending(t, forceRestore = false) {
+    const file = externalPendingFile(t); await noLinks(file); if (!fs.existsSync(file)) return false;
+    if (fs.statSync(file).size > 2 * 1024 * 1024) fail('SETTINGS_RECEIPT_INVALID', '外置配置恢复记录过大。');
+    const row = readJson(file, null);
+    if (row?.version !== 1 || row.owner !== 'launch-mfg-config' || !samePath(row.exe, t.exe) || row.domain !== 'fg' ||
+        !/^[a-f0-9-]{36}$/.test(row.transactionId || '') || typeof row.restoring !== 'boolean' ||
+        !(row.beforeText === null || typeof row.beforeText === 'string' && Buffer.byteLength(row.beforeText) <= 1024 * 1024) ||
+        row.beforeHash !== (row.beforeText === null ? null : policy.hash(row.beforeText)) ||
+        !(row.afterHash === null || /^[a-f0-9]{64}$/.test(row.afterHash))) fail('SETTINGS_RECEIPT_INVALID', '外置 MFG 配置恢复记录无效。');
+    const location = configuration(t, 'mfgunlock', { name: 'ReShade.ini', configFile: row.configFile });
+    if (!location.external) fail('SETTINGS_LAYOUT_CHANGED', '外置恢复范围与当前布局不一致。');
+    const actual = await digestFile(location.file); await noLinks(location.file);
+    if (actual !== row.beforeHash && actual !== row.afterHash) fail('SETTINGS_EXTERNAL_CHANGE', '外置配置在操作中断后被其他程序修改，已保留恢复记录。');
+    const state = receipt(t);
+    const committed = !forceRestore && !fs.existsSync(journal.pendingPath(t.dir)) && state.lastTransaction?.id === row.transactionId &&
+      state.lastTransaction?.domain === 'fg' && state.lastTransaction?.restoring === row.restoring && actual === row.afterHash;
+    if (!committed && actual !== row.beforeHash) {
+      if (row.beforeText === null) await fsp.unlink(location.file);
+      else await fsp.writeFile(location.file, row.beforeText, 'utf8');
+      if (await digestFile(location.file) !== row.beforeHash) fail('WRITE_VERIFY_FAILED', '外置配置恢复后校验失败。');
+    }
+    await fsp.unlink(file); return !committed;
+  }
   async function restoreDriverPending(t, forceRestore = false) {
     const file = driverPendingFile(t); if (!fs.existsSync(file)) return false;
     const row = readJson(file, null);
@@ -306,14 +445,16 @@ function createLaunchSettingsService(options = {}) {
         })) fail('SETTINGS_FG_FILE_RECOVERY_REQUIRED', '补帧组件文件操作未完成，请在 FG 区域选择“恢复未完成组件操作”。');
       }
       const driverRestored = await restoreDriverPending(t);
+      const externalRestored = await restoreExternalPending(t);
       const filesRestored = fs.existsSync(journal.pendingPath(t.dir)) ? await journal.recover(t.dir) : false;
-      return { recovered: driverRestored || filesRestored, driverRestored, filesRestored };
+      return { recovered: driverRestored || externalRestored || filesRestored, driverRestored, externalRestored, filesRestored };
     });
   }
   async function apply(planId, consent = {}) {
     return serialize(async () => {
       let plan = plans.get(planId); plans.delete(planId);
       if (!plan || plan.expires < Date.now()) fail('PLAN_EXPIRED', '预览已过期。');
+      if (plan.preparation) fail('SETTINGS_PREPARATION_REQUIRED', '请先准备组件，再重新预览并应用设置。');
       if (consent.confirm !== true) fail('CONFIRM_REQUIRED', '请确认预览后再应用。');
       if (consent.automatic === true && plan.requiresReview && !plan.noOp) fail('SETTINGS_REVIEW_REQUIRED', '兼容补帧组件已启用“仅显示生成帧”调试模式。请先在组件中关闭此模式，再重试；当前配置与备份已保留。');
       if (plan.blockers.length) fail('SETTINGS_BLOCKED', plan.blockers.join('\n'));
@@ -322,6 +463,12 @@ function createLaunchSettingsService(options = {}) {
       await noLinks(t.exe);
       if (!plan.restoring && peBitness(t.exe) !== 64) fail('SETTINGS_EXE_INVALID', '启动设置只支持当前绑定的 Windows x64 游戏 EXE。');
       if (!plan.restoring && (!plan.exeHash || await digestFile(t.exe) !== plan.exeHash)) fail('SETTINGS_EXE_CHANGED', '游戏 EXE 在预览后改变。');
+      if (plan.change && plan.backend === 'mfgunlock' && !samePath(configuration(t, plan.backend, plan.old).file, plan.change.file))
+        fail('SETTINGS_LAYOUT_CHANGED', '活动配置在预览后改变，请重新核对。');
+      if (!plan.restoring) {
+        const eligibility = await assessEligibility(plan.gameId, plan.domain, plan.request);
+        if (!eligibility.eligible) fail('SETTINGS_BLOCKED', eligibility.blockers.map(row => row.message).join('\n'), { eligibility });
+      }
       await assertStopped(t);
       if (plan.domain === 'fg' && !plan.restoring && options.assertComponents) await options.assertComponents(plan.gameId, plan.request.backend);
       if (plan.domain === 'sr' && legacySrModel?.migrationInfo) {
@@ -348,8 +495,15 @@ function createLaunchSettingsService(options = {}) {
       try { result = await journal.transaction(t.dir, async () => {
         const metaFile = receiptFile(t); await journal.capture(t.dir, metaFile);
         const currentReceipt = receipt(t, { allowEmptyRebind: !plan.old && Object.keys(plan.receipt.applied).length === 0 });
-        if (plan.change) {
-          await journal.capture(t.dir, plan.change.file);
+        if (plan.change && plan.recordOnly) {
+          await noLinks(plan.change.file);
+          if (await digestFile(plan.change.file) !== plan.change.beforeHash) fail('FILE_CHANGED', '配置在预览后改变。');
+        } else if (plan.change) {
+          if (plan.change.external) {
+            const row = { version: 1, owner: 'launch-mfg-config', transactionId, domain: 'fg', restoring: plan.restoring, exe: t.exe,
+              configFile: plan.change.file, beforeText: plan.change.beforeText, beforeHash: plan.change.beforeHash, afterHash: plan.change.afterHash };
+            await noLinks(plan.change.file); await atomicJson(externalPendingFile(t), row);
+          } else await journal.capture(t.dir, plan.change.file);
           if (await digestFile(plan.change.file) !== plan.change.beforeHash) fail('FILE_CHANGED', '配置在预览后改变。');
           await noLinks(plan.change.file);
           if (plan.change.deleteAfter) await fsp.unlink(plan.change.file);
@@ -360,6 +514,8 @@ function createLaunchSettingsService(options = {}) {
         if (plan.driver) {
           const current = await driver.read(t.exe, DRIVER_IDS);
           if (!policy.same(current, plan.driver.before)) fail('SETTINGS_EXTERNAL_CHANGE', '驱动配置在预览后改变。');
+          if (plan.recordOnly) driverAfter = current;
+          else {
           const pendingFile = driverPendingFile(t), row = { version: 1, transactionId, domain: plan.domain, restoring: plan.restoring, exe: t.exe, ids: plan.driver.ids, before: current, desired: plan.driver.after, after: null };
           await noLinks(pendingFile); await atomicJson(pendingFile, row);
           try { driverAfter = await driver.write(t.exe, current, plan.driver.after); row.after = driverAfter; await atomicJson(pendingFile, row); }
@@ -367,26 +523,33 @@ function createLaunchSettingsService(options = {}) {
             try { await restoreDriverPending(t); } catch (recoveryError) { throw Object.assign(new Error('驱动设置恢复未完成。'), { code: 'SETTINGS_RECOVERY_FIRST', cause: error, recoveryError }); }
             throw error;
           }
+          }
         }
         const next = clone(currentReceipt.applied);
         if (plan.restoring) delete next[plan.domain];
-        else if (plan.driver) next[plan.domain] = { exe: t.exe, backend: plan.backend, request: plan.request, profile: driverAfter.profile, ids: plan.driver.ids,
+        else if (plan.driver) next[plan.domain] = { exe: t.exe, exeHash: plan.exeHash, backend: plan.backend, request: plan.request, profile: driverAfter.profile, ids: plan.driver.ids,
           baseline: plan.driver.baseline, lastValues: subset(driverAfter, plan.driver.ids), runtimeVerified: false };
-        else next[plan.domain] = { exe: t.exe, backend: plan.backend, request: plan.request, name: plan.change.name,
+        else next[plan.domain] = { exe: t.exe, exeHash: plan.exeHash, backend: plan.backend, request: plan.request, name: plan.change.name,
+          ...(plan.backend === 'mfgunlock' ? { configFile: plan.change.file } : {}),
           baselineText: plan.change.baselineText, ...(plan.backend === 'mfgunlock' ? { baselineMissing: plan.change.baselineMissing } : {}),
           lastValues: plan.change.lastValues, runtimeVerified: false };
         if (plan.driver && !Object.values(currentReceipt.applied).some(value => ['native', 'nvidia'].includes(value.backend)))
           currentReceipt.driverOriginalProfile = clone(plan.driver.before.profile);
         currentReceipt.applied = next; currentReceipt.lastTransaction = { id: transactionId, domain: plan.domain, restoring: plan.restoring }; await writeReceipt(t, currentReceipt);
-        return { applied: true, transaction: 'file-journal', runtimeVerified: false };
+        return { applied: true, transaction: 'file-journal', configurationUnchanged: plan.recordOnly === true, runtimeVerified: false };
       }); } catch (error) {
+        if (plan.change?.external && fs.existsSync(externalPendingFile(t))) {
+          try { await restoreExternalPending(t, true); }
+          catch (recoveryError) { throw Object.assign(new Error('外置配置恢复未完成，请先恢复。'), { code: 'SETTINGS_RECOVERY_FIRST', cause: error, recoveryError }); }
+        }
         if (plan.driver && fs.existsSync(driverPendingFile(t))) {
           try { await restoreDriverPending(t, true); }
           catch (recoveryError) { throw Object.assign(new Error('驱动设置恢复未完成。'), { code: 'SETTINGS_RECOVERY_FIRST', cause: error, recoveryError }); }
         }
         throw error;
       }
-      if (plan.driver) await fsp.unlink(driverPendingFile(t));
+      if (plan.driver && !plan.recordOnly) await fsp.unlink(driverPendingFile(t));
+      if (plan.change?.external && !plan.recordOnly) await fsp.unlink(externalPendingFile(t));
       return result;
     });
   }
@@ -400,16 +563,24 @@ function createLaunchSettingsService(options = {}) {
     return result;
   }
   async function beforeLaunch(id) {
-    const t = target(id), rows = requests().games[t.key] || {}, outcomes = [];
+    const t = target(id), rows = requests().games[t.key] || {}, outcomes = [], state = await inspect(id);
     for (const domain of ['sr', 'fg']) {
       const row = rows[domain]; if (!row) continue;
       if (!samePath(row.exe, t.exe)) { outcomes.push({ domain, applied: false, code: 'SETTINGS_EXE_CHANGED', reason: '请求属于另一个 EXE。' }); continue; }
-      try { const plan = await preview(id, domain, row.request); const result = await apply(plan.id, { confirm: true, automatic: true }); outcomes.push({ domain, ...result }); }
+      try {
+        const applied = state.applied[domain];
+        if (!applied || !policy.same(applied.request, row.request)) fail('SETTINGS_REQUIRE_APPLY', '存在尚未应用的设置，请在统一应用页确认后应用。');
+        if (!applied.readbackVerified) fail('SETTINGS_REQUIRE_REAPPLY', '配置已被 NVIDIA App 或其他程序改变，请核对当前值并明确重新应用；启动时不会自动覆盖。');
+        const eligibility = await assessEligibility(id, domain, row.request);
+        if (!eligibility.eligible) fail('SETTINGS_BLOCKED', eligibility.blockers.map(row => row.message).join('\n'));
+        outcomes.push({ domain, applied: false, skipped: true, noOp: true, readbackVerified: true, runtimeVerified: false });
+      }
       catch (error) { outcomes.push({ domain, applied: false, code: error.code || 'SETTINGS_FAILED', reason: error.message }); }
     }
     return outcomes;
   }
   return Object.freeze({ inspect, savedRequests, save, preview, apply, beforeLaunch, recover, restore, pending, assertReady, hasSrRequest, hasOwnedState,
+    assessEligibility, confirmGameFeature, inspectGameFeatureConfirmation,
     requestFile, receiptFile: id => receiptFile(target(id)), driverPendingFile: id => driverPendingFile(target(id)) });
 }
 

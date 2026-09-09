@@ -21,9 +21,9 @@ function classifyApi(chosen) {
   if (direct && !['dx11', 'dx12'].includes(direct)) return direct;
   if (chosen.api && !direct && !['dxgi', 'unknown'].includes(String(chosen.api).toLowerCase())) return 'unsupported';
   if (dx12) return 'dx12';
-  // A scanner's import/string result is a capability hint, not a runtime
-  // choice. In particular, a D3D11 bootstrapper may load a D3D12 engine.
-  if (dx11) return chosen.via || chosen.dynamic ? 'unknown' : 'dx11';
+  // API detection and bridge admission are independent. annotateApi resolves
+  // multi-backend engines and current settings before this legacy fallback.
+  if (dx11) return 'dx11';
   return 'unknown';
 }
 

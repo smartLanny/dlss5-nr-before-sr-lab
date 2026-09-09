@@ -72,7 +72,8 @@ function apiFixture(t, options = {}) {
   }
   const reader = createRdr2ApiSettings({ documentsDir }), feeder = f.service(options.feederOverrides);
   const library = { async scanAll(state) {
-    const settings = options.rdr2 ? reader.read({ exe: f.exe, steamAppId: '1174180', entryRoot: f.gameRoot }) : null;
+    const settings = options.rdr2 ? { ...reader.read({ exe: f.exe, steamAppId: '1174180', entryRoot: f.gameRoot }),
+      kind: 'rdr2-system-xml', exe: f.exe, steamAppId: '1174180', entryRoot: f.gameRoot } : null;
     const detectedApi = settings?.api || options.detectedApi || 'unknown';
     const saved = state.gameOverrides[path.resolve(f.gameRoot).toLowerCase()];
     const bound = saved?.apiExecutable?.toLowerCase() === f.exe.toLowerCase() && saved.api !== 'auto';
@@ -89,6 +90,39 @@ function apiFixture(t, options = {}) {
       detectGpu: () => f.hardware, assertGameClosed: async () => {} } });
   return { ...f, app, feeder, settingsFile, key: path.resolve(f.gameRoot).toLowerCase() };
 }
+
+test('Feeder previews are read-only and enumerate reused loaders and exact mutable-setting archives', async t => {
+  const f = fixture(t), service = f.service();
+  fs.copyFileSync(path.join(f.packageRoot, 'dxgi.dll'), f.file('dxgi.dll'));
+  const preview = await service.previewInstall(f.game);
+  assert.equal(preview.changes.filter(row => row.role !== 'receipt').length, f.recipe.files.length);
+  assert.ok(preview.changes.some(row => row.path === f.file('dxgi.dll') && row.action === 'keep' && row.reused));
+  assert.equal(fs.existsSync(f.receipt), false); assert.equal(fs.existsSync(path.join(f.exeDir, DIRECTORY)), false);
+  await service.install(f.game);
+  const ini = f.file(`${DIRECTORY}/addons/nr_before_sr.ini`); fs.appendFileSync(ini, 'UserValue=123\n');
+  const before = fs.readFileSync(f.receipt), restore = await service.previewRestore(f.game);
+  const archived = restore.changes.find(row => row.role === 'settings-archive' && row.path.endsWith('nr_before_sr.ini'));
+  assert.equal(archived.afterSha256, sha(fs.readFileSync(ini))); assert.equal(fs.existsSync(archived.path), false);
+  assert.ok(restore.changes.some(row => row.path === f.file('dxgi.dll') && row.action === 'keep'));
+  assert.deepEqual(fs.readFileSync(f.receipt), before); assert.equal(fs.existsSync(journal.pendingPath(f.gameRoot)), false);
+});
+
+test('unified Feeder preview includes RDR2 settings and rejects drift before any install write', async t => {
+  const f = apiFixture(t, { rdr2: true }); await f.app.refresh();
+  const original = fs.readFileSync(f.settingsFile);
+  const plan = await f.app.previewSpecialDeployment('test', { route: 'feeder', api: 'dx12' });
+  assert.equal(plan.packageId, f.recipe.id);
+  assert.ok(plan.changes.some(row => row.path === f.settingsFile && row.role === 'game-api-settings' && row.action === 'replace'));
+  assert.equal(fs.existsSync(f.receipt), false); assert.deepEqual(fs.readFileSync(f.settingsFile), original);
+  fs.appendFileSync(f.settingsFile, '\n<!-- external preference change -->');
+  await assert.rejects(f.app.applySpecialDeployment(plan.planId), { code: 'DEPLOYMENT_PLAN_CHANGED' });
+  assert.equal(fs.existsSync(f.receipt), false);
+  const fresh = await f.app.previewSpecialDeployment('test', { route: 'feeder', api: 'dx12' });
+  assert.equal((await f.app.applySpecialDeployment(fresh.planId)).installed, true);
+  assert.match(fs.readFileSync(f.settingsFile, 'utf8'), /kSettingAPI_DX12/);
+  const restore = await f.app.previewUninstall('test', { mode: 'restore' });
+  assert.ok(restore.changes.some(row => row.role === 'settings-archive'));
+});
 
 test('AppService commits an EXE-bound DX12 choice before installing Feeder for an unknown API', async t => {
   const f = apiFixture(t), [before] = await f.app.refresh();

@@ -54,6 +54,10 @@ function fixture(t, options = {}) {
         coreVersion: CORE_VERSION, packageId: PACKAGE_ID, reason: options.vulkanAvailable === false ? '固定 Vulkan 包缺失' : null, experimental: true };
     },
     configDir() { return configDir; },
+    async previewInstall(game) { return { route: 'vulkan', api: 'vulkan', mode: 'external', version: CORE_VERSION, packageId: PACKAGE_ID,
+      changes: [{ path: path.join(configDir, 'core.addon64'), name: 'core.addon64', role: 'vulkan-runtime', action: 'create', beforeSha256: null,
+        afterSha256: 'a'.repeat(64) }], runtimeVerified: false }; },
+    async previewRestore() { return { changes: [{ path: path.join(configDir, 'core.addon64'), name: 'core.addon64', role: 'vulkan-runtime', action: 'archive' }] }; },
     async install(game, installOptions) { calls.vulkan.push(['install', game.id, structuredClone(installOptions)]); owned.add(game.scan.chosen.path.toLowerCase()); return { installed: true, packageId: PACKAGE_ID }; },
     async diagnose(game) { calls.vulkan.push(['diagnose', game.id]); return { ready: diagnosisComplete,
       components: { profile: { ready: diagnosisComplete }, deployment: { ready: diagnosisComplete }, activation: { active: diagnosisComplete } },
@@ -106,6 +110,20 @@ function writeNativeManifest(f, api = 'dx12') {
   fs.mkdirSync(path.dirname(manifestPath(f.gameDir)), { recursive: true });
   fs.writeFileSync(manifestPath(f.gameDir), JSON.stringify(value));
 }
+
+test('unified Vulkan deployment preview dispatches the fixed package and apply never calls the native installer', async t => {
+  const f = fixture(t); await f.service.boot(); const before = f.service.store.read();
+  const preview = await f.service.previewDeployment(f.gameId, { mode: 'external', api: 'vulkan', version: PACKAGE_ID });
+  assert.equal(preview.api, 'vulkan'); assert.equal(preview.packageId, PACKAGE_ID);
+  assert.ok(preview.changes.some(row => row.role === 'manager-api-preference'));
+  assert.deepEqual(f.service.store.read(), before); assert.deepEqual(f.calls.installer, []);
+  assert.equal((await f.service.applyDeployment(preview.planId)).installed, true);
+  assert.deepEqual(f.calls.vulkan.filter(row => row[0] === 'install').map(row => row[2]), [{ api: 'vulkan', version: PACKAGE_ID, allowAntiCheat: false }]);
+  assert.deepEqual(f.calls.installer, []);
+  const removal = await f.service.previewUninstall(f.gameId, { mode: 'restore' });
+  assert.deepEqual(removal.phases, ['vulkan-restore']); assert.equal(removal.changes[0].action, 'archive');
+  await assert.rejects(f.service.previewDeployment(f.gameId, { mode: 'external', api: 'vulkan', loadingMode: 'helper' }), { code: 'SPECIAL_LOADING_MODE_LOCKED' });
+});
 
 test('Vulkan install, repair and upgrade keep the exact package route away from native installer and carrier', async t => {
   const f = fixture(t); await f.service.boot();

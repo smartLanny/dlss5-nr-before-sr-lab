@@ -91,11 +91,22 @@ test('missing ASAR and an injected non-directory TEMP are reported without modif
   assert.equal(fs.readFileSync(tempFile, 'utf8'), 'keep'); assert.deepEqual(fs.readdirSync(f.install, { recursive: true }).map(String).sort(), before);
 });
 
-test('current installed Manager can be inspected read-only with its actual Electron 33 file set', t => {
+test('current installed Manager can be inspected read-only with its actual runtime file set', t => {
   if (process.platform !== 'win32') return t.skip('Windows-only helper'); const shell = pwsh(); if (!shell) return t.skip('pwsh.exe unavailable');
   const installed = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'xiaofeng-dlss5-manager'); if (!fs.existsSync(installed)) return t.skip('current Manager is not installed');
   const f = fixture(t); f.install = installed; const before = fs.readdirSync(installed).sort(); const result = run(shell, f);
   assert.equal(result.status, 0, result.stderr || result.stdout); const report = fs.readFileSync(f.output, 'utf8');
-  assert.match(report, /\[OK\] 主程序 EXE/); assert.match(report, /当前 Electron 33 实际发行目录不包含 version\.dll/);
+  assert.match(report, /\[OK\] 主程序 EXE/); assert.match(report, /version\.dll 不属于管理器的必需运行文件/);
   assert.deepEqual(fs.readdirSync(installed).sort(), before);
+});
+
+test('Electron 44 DXC runtime pair is checked without falsely requiring separate ANGLE DLLs', t => {
+  if (process.platform !== 'win32') return t.skip('Windows-only helper'); const shell = pwsh(); if (!shell) return t.skip('pwsh.exe unavailable');
+  const f = fixture(t);
+  for (const name of ['libEGL.dll', 'libGLESv2.dll']) fs.unlinkSync(path.join(f.install, name));
+  for (const name of ['dxcompiler.dll', 'dxil.dll']) fs.writeFileSync(path.join(f.install, name), name);
+  assert.equal(run(shell, f).status, 0);
+  const report = fs.readFileSync(f.output, 'utf8'); assert.match(report, /\[OK\] 随包文件 dxcompiler\.dll/); assert.doesNotMatch(report, /\[FAIL\].*libEGL/);
+  fs.unlinkSync(path.join(f.install, 'dxil.dll')); assert.equal(run(shell, f).status, 2);
+  assert.match(fs.readFileSync(f.output, 'utf8'), /\[FAIL\] 随包文件 dxil\.dll/);
 });

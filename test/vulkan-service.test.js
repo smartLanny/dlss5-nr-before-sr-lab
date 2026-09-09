@@ -92,6 +92,29 @@ test('summary only reads metadata and missing/unaccepted packages stay unavailab
   assert.equal(service.summary(game).available, false); assert.match(service.summary(game).reason, /尚未提供/);
 });
 
+test('Vulkan previews list concrete runtime, layer, registry and activation effects without publishing any state', async t => {
+  const f = fixture(t), game = f.game('preview'), service = f.create();
+  const preview = await service.previewInstall(game);
+  assert.equal(preview.api, 'vulkan'); assert.equal(preview.packageId, f.runtime.id);
+  assert.ok(preview.changes.some(row => row.path.endsWith('core.addon64') && row.afterSha256 === hash('pe64-core')));
+  assert.ok(preview.changes.some(row => row.role === 'vulkan-registry' && row.action === 'create' && row.after.data === 0));
+  assert.ok(preview.changes.some(row => row.path === path.join(game.dir, 'ReShade.ini') && row.action === 'create'));
+  assert.equal(fs.existsSync(f.userData), false); assert.equal(f.values.size, 0);
+  assert.equal(f.calls.some(call => ['profile-start', 'profile-published', 'registry-add', 'activate'].includes(call)), false);
+  await service.install(game);
+  const basePath = service.configDir(game), settings = path.join(basePath, 'nr_before_sr.ini');
+  fs.writeFileSync(settings, 'personal setting');
+  const before = read(f.bindingPath), values = [...f.values], config = fs.readFileSync(path.join(game.dir, 'ReShade.ini'));
+  const removal = await service.previewRestore(game);
+  assert.ok(removal.changes.some(row => row.path === settings && row.action === 'archive' && row.beforeSha256 === hash('personal setting')));
+  assert.ok(removal.changes.some(row => row.role === 'vulkan-registry' && row.after.exists === false));
+  assert.deepEqual(read(f.bindingPath), before); assert.deepEqual([...f.values], values);
+  assert.deepEqual(fs.readFileSync(path.join(game.dir, 'ReShade.ini')), config);
+  assert.equal(fs.existsSync(path.join(f.userData, 'vulkan-runtime-archive')), false);
+  assert.equal(fs.existsSync(path.join(f.userData, 'vulkan-deployment', 'pending.json')), false);
+  assert.equal(fs.existsSync(path.join(f.userData, 'vulkan-deployment', 'operation.lock')), false);
+});
+
 test('Vulkan package selection is independent of the saved API and retains real blockers', t => {
   const f = fixture(t), game = f.game('draft-selection'), service = f.create();
   for (const api of ['unknown', 'mixed', 'dx12']) {

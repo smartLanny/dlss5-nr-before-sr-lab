@@ -179,7 +179,17 @@ function createNvapiProfileAdapter({ runner = nativeRunner, scriptPath } = {}) {
     if (!result?.ok) errorFrom(result, 'NVAPI_READ_FAILED');
     return scopeInfo(result.scope);
   }
-  return Object.freeze({ read, write, inspectScope });
+  async function inspectSettings(exe) {
+    const result = await runner({ op: 'inspect-settings', exe: exePath(exe) }, scriptPath);
+    if (!result?.ok) errorFrom(result, 'NVAPI_READ_FAILED');
+    if (!Array.isArray(result.settingIds) || result.settingIds.length > ALLOWED_IDS.length ||
+        result.settingIds.some(id => !Number.isInteger(id) || !ALLOWED.has(id)) || new Set(result.settingIds).size !== result.settingIds.length)
+      fail('NVAPI_INVALID_RESPONSE', '驱动设置枚举结果无效。');
+    if (result.version != null && (!Number.isInteger(result.version) || result.version < 1 || result.version > 999999))
+      fail('NVAPI_INVALID_RESPONSE', '驱动版本查询结果无效。');
+    return { available: true, settingIds: [...result.settingIds], source: 'nvapi-drs-enumeration', perGameSupport: false, version: result.version ?? null };
+  }
+  return Object.freeze({ read, write, inspectScope, inspectSettings });
 }
 
 module.exports = { ALLOWED_IDS, createNvapiProfileAdapter };

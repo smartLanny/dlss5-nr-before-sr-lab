@@ -18,6 +18,10 @@ function fakePe(files) {
 function scan(api = 'dxgi') {
   return { chosen: { path: 'C:/games/demo/game.exe', api, apiLabel: 'old label', dx12: false } };
 }
+function runtimeFor(exe, api, now = Date.now() + 100) {
+  return { now, runtimeSession: { id: 'current-session', pid: 321, exe, startedAt: now - 1000, alive: true },
+    logEvidence: { exe, api, bound: true, sessionId: 'current-session', pid: 321, processStartedAt: now - 1000, observedAt: now, kind: 'swapchain' } };
+}
 
 test('static DX12 evidence resolves DX12 and preserves existing fields', () => {
   const out = annotateApi(scan(), 'C:/games/demo', { pe: fakePe({ 'C:/games/demo/game.exe': { imports: ['d3d12.dll'] } }) });
@@ -26,9 +30,11 @@ test('static DX12 evidence resolves DX12 and preserves existing fields', () => {
   assert.match(out.chosen.apiResolution.evidence[0], /d3d12/);
 });
 
-test('single DX11 evidence remains unknown', () => {
+test('single DX11 defaults automatically while its bridge remains unverified', () => {
   const out = annotateApi(scan(), 'C:/games/demo', { pe: fakePe({ 'C:/games/demo/game.exe': { imports: ['d3d11.dll'] } }) });
-  assert.equal(out.chosen.apiResolution.api, 'unknown');
+  assert.equal(out.chosen.apiResolution.api, 'dx11');
+  assert.equal(out.chosen.apiAssessment.bridgeStatus.status, 'required');
+  assert.equal(out.chosen.apiAssessment.observedApi, null);
 });
 
 test('DX11 EXE plus DX12 engine module is mixed', () => {
@@ -46,13 +52,15 @@ test('Steam Requiem resolves its documented DX12 entry without treating static D
   const options = { pe, steamAppId: '3764200', engineModules: [loader] };
   const result = annotateApi(input, root, options);
   assert.equal(result.chosen.detectedApi, 'dx12'); assert.equal(result.chosen.detectedApiResolution.source, 'game-entry');
-  assert.equal(annotateApi(input, root, { ...options, steamAppId: 'other' }).chosen.detectedApi, 'unknown');
-  assert.equal(annotateApi({ chosen: { ...input.chosen, path: root + '/bin/re9.exe' } }, root, options).chosen.detectedApi, 'unknown');
+  assert.equal(annotateApi(input, root, { ...options, steamAppId: 'other' }).chosen.detectedApi, 'dx11');
+  assert.equal(annotateApi({ chosen: { ...input.chosen, path: root + '/bin/re9.exe' } }, root, options).chosen.detectedApi, 'dx11');
   const explicit = annotateApi(input, root, { ...options, apiOverride: 'dx11' });
   assert.equal(explicit.chosen.detectedApi, 'dx12'); assert.equal(explicit.chosen.apiResolution.api, 'dx11');
-  const conflict = annotateApi(input, root, { ...options, logEvidence: { exe, bound: true, api: 'dx11', apis: ['dx11'] } });
+  const conflict = annotateApi(input, root, { ...options, ...runtimeFor(exe, 'dx11') });
   assert.equal(conflict.chosen.detectedApi, 'mixed', 'a bound runtime conflict still requires review');
-  assert.equal(annotateApi(input, root, { ...options, launchArguments: '-dx11' }).chosen.detectedApi, 'mixed');
+  assert.equal(annotateApi(input, root, { ...options, launchArguments: '-dx11' }).chosen.detectedApi, 'dx12');
+  assert.equal(annotateApi(input, root, { ...options, launchMode: 'steam', launchArgumentsApplied: true,
+    launchArgumentsSource: 'steam-active-account', launchArguments: '-dx11' }).chosen.detectedApi, 'mixed');
 });
 
 test('large EXEs still use bounded import metadata without scanning all marker bytes', t => {
@@ -77,7 +85,8 @@ test('documented BG3 entry points require Steam identity and exact path, while m
     const result=annotateApi(scanFor(exe),root,{pe,steamAppId:'1086940'});
     assert.equal(result.chosen.detectedApi,api);assert.equal(result.chosen.detectedApiResolution.source,'game-entry');
   }
-  assert.equal(annotateApi(scanFor(dx),root,{pe,steamAppId:'999'}).chosen.detectedApi,'unknown');
+  assert.equal(annotateApi(scanFor(dx),root,{pe,steamAppId:'999'}).chosen.detectedApi,'dx11');
+  assert.notEqual(annotateApi(scanFor(dx),root,{pe,steamAppId:'999'}).chosen.apiResolution.source,'game-entry');
   assert.equal(annotateApi(scanFor(vk),root,{pe,steamAppId:'1086940',logEvidence:{bound:false,apis:['dx12'],evidence:'旧 carrier 创建过 DX12 设备'}}).chosen.detectedApi,'vulkan');
   assert.equal(annotateApi(scanFor(root+'/other/bg3.exe'),root,{pe,steamAppId:'1086940'}).chosen.detectedApi,'unknown');
   const override=annotateApi(scanFor(vk),root,{pe,steamAppId:'1086940',apiOverride:'dx11'});
@@ -121,7 +130,7 @@ test('unbound runtime log and launch argument remain clues', () => {
 test('only rigorously bound runtime log can resolve DX12', () => {
   const out = annotateApi(scan(), 'C:/games/demo', {
     pe: fakePe({ 'C:/games/demo/game.exe': {} }),
-    logEvidence: { exe: 'C:/games/demo/game.exe', api: 'dx12', bound: true }
+    ...runtimeFor('C:/games/demo/game.exe', 'dx12')
   });
   assert.equal(out.chosen.apiResolution.api, 'dx12');
   assert.equal(out.chosen.apiResolution.source, 'runtime-log');
@@ -133,14 +142,14 @@ test('known incompatible API remains explicit and separate from install support'
   assert.equal(out.chosen.detectedApi, 'vulkan');
 });
 
-test('raw API names and flags cannot hide mixed evidence or prove a DX11 import route', () => {
+test('raw API names preserve multiple capabilities and a unique DX11 default', () => {
   for (const fields of [{ api: 'dx11', dx12: true }, { api: 'dx12', dx11: true }, { apiLabel: 'DX11 / DX12' }]) {
     const input = scan(); Object.assign(input.chosen, fields);
     const out = annotateApi(input, 'C:/games/demo', { pe: fakePe({}) });
     assert.equal(out.chosen.apiResolution.api, 'mixed');
   }
   const out = annotateApi(scan('dx11'), 'C:/games/demo', { pe: fakePe({}) });
-  assert.equal(out.chosen.apiResolution.api, 'unknown');
+  assert.equal(out.chosen.apiResolution.api, 'dx11');
 });
 
 test('manual route keeps the independently detected API evidence', () => {
@@ -158,12 +167,13 @@ test('default PE reader handles a real bounded temporary fixture', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('launch argument conflict is conservatively mixed', () => {
+test('unused launch arguments do not conflict with the actual direct EXE route', () => {
   const out = annotateApi(scan(), 'C:/games/demo', {
     pe: fakePe({ 'C:/games/demo/game.exe': { imports: ['d3d12.dll'] } }),
     launchArguments: '--renderer d3d11'
   });
-  assert.equal(out.chosen.apiResolution.api, 'mixed');
+  assert.equal(out.chosen.apiResolution.api, 'dx12');
+  assert.deepEqual(out.chosen.apiAssessment.conflicts, []);
 });
 
 test('combined labels alone never become pure DX11 and unknown stays selectable', () => {
@@ -193,10 +203,11 @@ test('actual ReShade header is EXE-bound but device creation is only historical 
   fs.writeFileSync(log, `Initializing crosire's ReShade version '6.8.0.0' loaded from 'dxgi.dll' into '${exe}' ...\nRedirecting D3D12CreateDevice(...)\n`);
   const input = { chosen: { path: exe, api: 'dxgi', apiLabel: 'DirectX 11', via: 'imports' } };
   const output = annotateApi(input, root, { pe: fakePe({}) });
-  assert.equal(output.chosen.apiResolution.api, 'unknown');
+  assert.equal(output.chosen.apiResolution.api, 'dx11');
+  assert.equal(output.chosen.apiAssessment.observedApi, null);
   assert.ok(output.chosen.apiResolution.evidence.some(line => /历史.*dx12/.test(line)));
   fs.writeFileSync(log, `Initializing crosire's ReShade version '6.8.0.0' into '${path.join(root, 'other.exe')}' ...\nRedirecting D3D12CreateDevice(...)\n`);
-  assert.equal(annotateApi(input, root, { pe: fakePe({}) }).chosen.apiResolution.api, 'unknown');
+  assert.equal(annotateApi(input, root, { pe: fakePe({}) }).chosen.apiResolution.api, 'dx11');
 });
 
 test('unbound historical multi-device logs cannot downgrade a DX12 game to mixed', () => {
@@ -210,7 +221,10 @@ test('unbound historical multi-device logs cannot downgrade a DX12 game to mixed
   const conflicting = annotateApi(scan(), 'C:/games/demo', {
     pe: fakePe({ [exe]: { imports: ['d3d12.dll'] } }), logEvidence: { exe, bound: true, api: 'dx11', apis: ['dx11'] }
   });
-  assert.equal(conflicting.chosen.detectedApi, 'mixed', 'a rigorously bound real conflict still blocks automatic selection');
+  assert.equal(conflicting.chosen.detectedApi, 'dx12', 'bound alone cannot prove a live process session');
+  const observed = annotateApi(scan(), 'C:/games/demo', { pe: fakePe({ [exe]: { imports: ['d3d12.dll'] } }), ...runtimeFor(exe, 'dx11') });
+  assert.equal(observed.chosen.detectedApi, 'dx11', 'a current swapchain supersedes a static capability');
+  assert.equal(observed.chosen.apiAssessment.confidence, 'confirmed');
 });
 
 test('manual renderer identity requires the exact discovered Steam entry path', () => {
@@ -251,7 +265,7 @@ test('RDR2 discovers the exact Steam entry and saved API overrides dual static c
   assert.equal(manual.apiResolution.api, 'dx12'); assert.equal(manual.detectedApi, 'vulkan');
   fs.writeFileSync(file, xml('DX12'));
   assert.equal(annotateApi(input, root, context).chosen.apiResolution.api, 'dx12');
-  const conflicting = annotateApi(input, root, { ...context, logEvidence: { exe, bound: true, api: 'vulkan', apis: ['vulkan'] } }).chosen;
+  const conflicting = annotateApi(input, root, { ...context, ...runtimeFor(exe, 'vulkan') }).chosen;
   assert.equal(conflicting.detectedApi, 'mixed');
   fs.unlinkSync(file);
   const unknown = annotateApi(input, root, context).chosen;

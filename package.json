@@ -1,6 +1,6 @@
 {
   "name": "xiaofeng-dlss5-manager",
-  "version": "0.4.7-beta.2",
+  "version": "0.4.8-beta.1",
   "private": true,
   "description": "A beginner-friendly desktop manager for the DLSS 5 NR-before-SR add-on.",
   "main": "main.js",
@@ -14,24 +14,26 @@
     "verify:vendor": "node scripts/verify-vendor.js",
     "verify:payload": "node scripts/verify-payload.js",
     "icon": "electron scripts/build-icon.js",
-    "build": "node scripts/prepare-core-catalog.js && npm run icon && npm run verify:vendor && npm run verify:payload && npm run verify:fg-components && npm run verify:fg-mfgunlock && npm run verify:feeder-runtime && electron-builder --win",
-    "build:portable": "node scripts/prepare-core-catalog.js && npm run icon && npm run verify:vendor && npm run verify:payload && npm run verify:fg-components && npm run verify:fg-mfgunlock && npm run verify:feeder-runtime && electron-builder --win portable",
+    "build": "node scripts/prepare-core-catalog.js && npm run icon && npm run verify:vendor && npm run verify:payload && npm run verify:fg-components && npm run verify:fg-mfgunlock && npm run verify:feeder-runtime && npm run verify:loading-helper && electron-builder --win",
+    "build:portable": "node scripts/prepare-core-catalog.js && npm run icon && npm run verify:vendor && npm run verify:payload && npm run verify:fg-components && npm run verify:fg-mfgunlock && npm run verify:feeder-runtime && npm run verify:loading-helper && electron-builder --win portable",
     "verify:fg-components": "node scripts/verify-fg-components.js",
     "verify:execution-level": "node scripts/verify-execution-level.js",
     "build:external": "npm run icon && npm run verify:vendor && npm run verify:fg-components && npm run verify:fg-mfgunlock && electron-builder --win --config scripts/external-build-config.cjs && npm run verify:external",
     "verify:external": "node scripts/verify-external-package.cjs dist-external/win-unpacked",
     "verify:fg-mfgunlock": "node scripts/verify-fg-mfgunlock.js",
-    "verify:feeder-runtime": "node scripts/verify-feeder-runtime.js"
+    "verify:feeder-runtime": "node scripts/verify-feeder-runtime.js",
+    "verify:loading-helper": "node scripts/verify-loading-helper.js",
+    "test:game-page": "electron test/game-page-frontend.electron.cjs"
   },
   "dependencies": {
     "yauzl": "^2.10.0"
   },
   "devDependencies": {
-    "electron": "^33.2.0",
+    "electron": "44.3.0",
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "buildVersion": "0.4.7.2",
+    "buildVersion": "0.4.8.1",
     "appId": "com.xiaofeng.dlss5.manager",
     "productName": "DLSS 5 AI 超分管理器",
     "files": [
@@ -126,11 +128,19 @@
           "dinput8.dll",
           "LICENSE"
         ]
+      },
+      {
+        "from": "resources/loading-helper",
+        "to": "loading-helper",
+        "filter": [
+          "component.json",
+          "dlss5-load-helper.exe"
+        ]
       }
     ],
     "extraFiles": [
       {
-        "from": "docs/manager-0.4.7-beta.2-use.txt",
+        "from": "docs/manager-0.4.8-beta.1-use.txt",
         "to": "使用说明.txt"
       },
       {

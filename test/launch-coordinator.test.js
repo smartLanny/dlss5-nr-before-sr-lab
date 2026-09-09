@@ -26,6 +26,20 @@ test('managed launch selects one SR writer and applies settings before launch', 
   await assert.rejects(f.module.writeLegacySr('a', 'm'), { code: 'SETTINGS_OWNERSHIP' });
   assert.ok(!f.calls.includes('legacy-write'));
 });
+test('library-only removal refuses owned settings and never restores files or driver state', async () => {
+  const f = fixture({ hasOwnedState: async () => true });
+  f.legacySrModel.migrationInfo = async () => ({ baselineCaptured: false });
+  f.service.dismissGame = async () => { throw new Error('must not dismiss'); };
+  await assert.rejects(f.module.removeLibraryEntry('a'), { code: 'LIBRARY_RESTORE_FIRST' });
+  assert.deepEqual(f.calls, ['ready']);
+});
+test('library-only removal passes metadata-only intent without installing or uninstalling', async () => {
+  const f = fixture({ hasOwnedState: async () => false });
+  f.legacySrModel.migrationInfo = async () => ({ baselineCaptured: false });
+  f.service.dismissGame = async (id, options) => { assert.equal(id, 'a'); assert.deepEqual(options, { libraryOnly: true }); return []; };
+  assert.deepEqual(await f.module.removeLibraryEntry('a'), []);
+  assert.deepEqual(f.calls, ['ready']);
+});
 test('legacy-only selection is retained until new SR settings explicitly take ownership', async () => {
   const f = fixture({ hasSrRequest: async () => false });
   await f.module.launch('a');

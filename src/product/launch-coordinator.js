@@ -2,7 +2,7 @@
 const path = require('path');
 const fs = require('fs');
 
-function createLaunchCoordinator({ service, settings, legacySrModel, guards, components }) {
+function createLaunchCoordinator({ service, settings, legacySrModel, guards, components, launchGame, explicitApply = false }) {
   let queue = Promise.resolve();
   function serialize(work) {
     const current = queue.then(work, work);
@@ -68,7 +68,11 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
     let srModel = null;
     try {
       if (!await settings.hasSrRequest(id)) {
-        srModel = await legacySrModel.applyBeforeLaunch(id);
+        if (explicitApply) {
+          const legacy = await legacySrModel.migrationInfo(id);
+          if (legacy.configured || legacy.baselineCaptured) throw Object.assign(new Error('此游戏仍有旧版 SR 选择，请先在增强设置中预览并应用或恢复；启动不会自动写入旧设置。'), { code: 'SETTINGS_LEGACY_APPLY_REQUIRED' });
+          srModel = { ...legacy, apply: { ok: true, skipped: true } };
+        } else srModel = await legacySrModel.applyBeforeLaunch(id);
         if (srModel?.apply?.ok !== true) throw Object.assign(new Error(srModel?.apply?.error || 'SR 模型应用失败，未启动游戏。'),
           { code: 'SETTINGS_APPLY_FAILED' });
       }
@@ -77,7 +81,7 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
       // Keep already completed FG/SR outcomes visible in both cases.
       throw await launchFailure(id, error, 'legacy-sr', launchSettings);
     }
-    try { return { launched: await service.launch(id), srModel, launchSettings }; }
+    try { return { launched: await (launchGame || service.launch)(id), srModel, launchSettings }; }
     catch (error) { throw await launchFailure(id, error, 'process-spawn', launchSettings); }
   }
   async function restoreForUninstall(id) {
@@ -101,6 +105,12 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
       return { ...snapshot, fgComponents };
     },
     assertMutationReady: id => settings.assertReady(id),
+    async removeLibraryEntry(id) {
+      await settings.assertReady(id);
+      if (await settings.hasOwnedState(id) || hasComponentReceipt(id) || (await legacySrModel.migrationInfo(id))?.baselineCaptured)
+        throw Object.assign(new Error('请先恢复超分补帧设置与组件，再移出游戏库。'), { code: 'LIBRARY_RESTORE_FIRST' });
+      return service.dismissGame(id, { libraryOnly: true });
+    },
     async dismiss(id) {
       if (!service.gameExecutable(id)) {
         if (hasComponentReceipt(id) || await settings.hasOwnedState(id) || (await legacySrModel.migrationInfo(id))?.baselineCaptured) {

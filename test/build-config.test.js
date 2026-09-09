@@ -11,11 +11,12 @@ test('Windows GUI and portable launch normally without requiring elevation', () 
   assert.equal(packageJson.build.portable.requestExecutionLevel, 'user');
 });
 
-test('portable startup hands off to a UAC-elevated process when needed', () => {
-  const main = fs.readFileSync(require.resolve('../src/product/startup-elevation.js'), 'utf8');
-  assert.match(main, /Start-Process/);
-  assert.match(main, /-Verb RunAs/);
-  assert.match(main, /WindowsBuiltInRole/);
+test('portable GUI exposes single-operation elevation and refuses whole-app elevation', async () => {
+  const service = require('../src/product/startup-elevation').createStartupElevation({
+    app: { commandLine: { hasSwitch: () => false } }, processInfo: { platform: 'win32' }, runPowerShell: async () => 'false' });
+  const state = await service.context();
+  assert.equal(state.privilege, 'standard'); assert.equal(state.canRestartElevated, false); assert.equal(state.canElevateOperation, true);
+  await assert.rejects(service.relaunchAsAdministrator(), { code: 'STARTUP_WHOLE_APP_ELEVATION_DISABLED' });
 });
 
 test('public DX11 compatibility identity and matched carrier name are exact', () => {

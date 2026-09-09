@@ -35,9 +35,10 @@ function isRestore(domain, request) { return domain === 'sr' ? request.quality =
 function nativeSr(request, hardware) {
   if (request.preset === 'auto') {
     const series = [...new Set((hardware?.series || []).filter(s => /^RTX(?:20|30|40|50)$/.test(s)))];
-    if (hardware?.family === 'mixed' || hardware?.source === 'unavailable' || series.length !== 1 || !['RTX30','RTX40','RTX50'].includes(series[0]))
-      fail('SETTINGS_GPU_UNKNOWN','无法唯一确认 RTX 30 / 40 / 50 显卡，请手动选择 SR 模型。');
-    request = {...request,preset:series[0] === 'RTX30' ? 'K' : 'M'};
+    if (hardware?.family === 'mixed' || hardware?.source === 'unavailable' || series.length !== 1 || !['RTX20','RTX30','RTX40','RTX50'].includes(series[0]))
+      fail('SETTINGS_GPU_UNKNOWN','无法唯一确认 RTX 显卡，请先刷新显卡信息。');
+    if (request.quality === 'preserve') fail('SETTINGS_PRESET_UNKNOWN', '跟随游戏档位时无法推断推荐模型，请选择明确模型或先选择画质档位。');
+    request = {...request,preset:request.quality === 'performance' ? 'M' : request.quality === 'ultraPerformance' ? 'L' : 'K'};
   }
   if (request.quality === 'preserve') return { operations:[{action:'set-dword',id:DRS.srOverride,value:1},{action:'set-dword',id:DRS.srPreset,value:{K:11,L:12,M:13}[request.preset]}] };
   return compiler.planNvidiaSr(withoutBackend(request));
