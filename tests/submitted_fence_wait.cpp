@@ -240,6 +240,29 @@ void Timing() {
     Check(value.recent_count == nr_timing::kRecentCount && value.recent_overwritten == 16 && value.observed == 80 &&
           value.recent.front().identity.frame == 1016 && value.recent.back().identity.frame == 1079 &&
           bins == value.stages[0].measured, "bounded recent history reports loss while complete phase histograms retain every measured carrier");
+    {
+        NrTimingCarrierScope old_frame; old_frame.Begin(2000, 2, 5, 1, 3);
+        const auto frozen = NrTimingCurrentIdentity();
+        NrTimingSetWaitPolicy(0, 12);
+        const auto late_origin = NrTimingDiagnosticRecorded();
+        Check(late_origin.epoch == frozen.epoch && late_origin.wait.phase == frozen.wait.phase &&
+              late_origin.frame == frozen.frame,
+              "ACTIVE_CARRIER_EPOCH_ORACLE: old carrier cannot relabel a later diagnostic recording as the new phase");
+        NrTimingCallNr([] { return 1; });
+        {
+            NrTimingCarrierScope nested; nested.Begin(2001, 2, 5, 1, 3);
+            Check(NrTimingCurrentIdentity().epoch == NrTimingPolicySnapshot().epoch &&
+                  NrTimingCurrentIdentity().wait.phase == 12,
+                  "a newly entered carrier obtains the current phase independently of an older enclosing carrier");
+        }
+        { NrTimingScope late_native(nr_timing::Stage::NativeEvaluate); }
+    }
+    value = Snapshot();
+    Check(value.observed == 1 && value.excluded_old_epoch == 3 && value.recent_count == 1 &&
+          value.recent[0].identity.frame == 2001 &&
+          value.stages[static_cast<unsigned>(nr_timing::Stage::NrEvaluate)].count == 0 &&
+          value.stages[static_cast<unsigned>(nr_timing::Stage::NativeEvaluate)].count == 0,
+          "ACTIVE_CARRIER_EPOCH_ORACLE: stages started after switching phase retain the carrier's frozen epoch and are excluded");
 }
 }
 int main() {
