@@ -57,6 +57,8 @@ def package(build: Path, output: Path) -> dict:
                 'validate-native-format-observer.py', 'validate-compatibility-verdict.py',
                 'validate-compatibility-verdict-feedback.py', 'validate-feedback-combined.py',
                 'combined F8 capacity UTF8 privacy and end-verdict negative controls',
+                'combined F8 current unknown store cannot inherit historical match',
+                'production recovery snapshot permits fresh proof after historical evidence loss CPU',
                 'production layered NGX lifecycle and ownership with actual Win32 locks',
                 'production native boundary detours and immutable scoped window CPU',
                 'production typed native color admission descriptors and storage WARP',

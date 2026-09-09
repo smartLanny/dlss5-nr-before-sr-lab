@@ -159,7 +159,7 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         "config:%s,featureGeneration:%s,requestedMode:%s,effectiveMode:%s,"
         "keyConfig:%s,keyFeature:%s,keyFeatureGeneration:%s,keyMode:%s,"
         "device:%s,deviceGeneration:%s,resource:%s,resourceGeneration:%s,subresource:%s,role:%s,carrierFrame:%s,"
-        "srv:%s,uav:%s,provenance:%s,evidenceId:%s,state:%s,attemptId:%s,proofAttemptId:%s,"
+        "srv:%s,uav:%s,interpretationContract:%s,interpretationVersion:%s,state:%s,attemptId:%s,proofAttemptId:%s,"
         "proofFrame:%s,proofAge:%s,proofOrdinal:%s,proofTarget:%s,proofTargetGeneration:%s,proofTargetSubresource:%s,"
         "correlatedWindow:%d,windowFirstFrame:%s,windowLastFrame:%s,windowFirstOrdinal:%s,windowLastOrdinal:%s,"
         "failurePresent:%d,failureHistorical:%d,failureStage:%s,failureResult:%s,failureKind:%s,"
@@ -200,6 +200,8 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         number(failure_key.resource, failure.present && failure_key.resource).c_str(),
         number(failure_key.role, failure.present && failure_key.resource).c_str(),
         proof.capacity_unknown, proof.frame_evidence_lost, current.receipt_overflow);
+    FeedbackAppend(s, "%s.recovery.receiptMeaning=interpretationContract is the semantic contract, not observation source; "
+        "frameLost and receiptOverflow are historical flags; current proof must follow the most recent interruption\n", prefix);
 #endif
 #if defined(NR_HAS_EXPOSURE_SEMANTIC_EVIDENCE)
     const auto exposure_semantic = SnapshotNrExposureSemantic();

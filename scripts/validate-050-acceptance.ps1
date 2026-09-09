@@ -62,11 +62,15 @@ try {
         if ($LASTEXITCODE) { throw "Compatibility report gate failed: $($Pair[0])" }
         $Checks.Add($Pair[0])
     }
-    foreach ($Control in @('old-capacity-negative','omit-end-verdict-negative','ascii-metadata-negative','disable-privacy-negative')) {
+    foreach ($Control in @('old-capacity-negative','omit-end-verdict-negative','ascii-metadata-negative','disable-privacy-negative','unknown-store-negative')) {
         & python (Join-Path $PSScriptRoot 'validate-feedback-combined.py') --compiler $Compiler --output-dir (Join-Path $Output $Control) "--$Control"
         if ($LASTEXITCODE) { throw "Combined report negative oracle failed: $Control" }
     }
     $Checks.Add('combined F8 capacity UTF8 privacy and end-verdict negative controls')
+    $Checks.Add('combined F8 current unknown store cannot inherit historical match')
+    & python (Join-Path $PSScriptRoot 'validate-resource-recovery-runtime.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'resource-recovery-snapshot-cpu') --snapshot-cpu
+    if ($LASTEXITCODE) { throw 'Recovery snapshot interruption and observation-cache gate failed.' }
+    $Checks.Add('production recovery snapshot permits fresh proof after historical evidence loss CPU')
     & python (Join-Path $PSScriptRoot 'validate-ngx-lifecycle.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output-dir (Join-Path $Output 'ngx-lifecycle')
     if ($LASTEXITCODE) { throw 'Layered native NGX lifecycle gate failed.' }
     $Checks.Add('production layered NGX lifecycle and ownership with actual Win32 locks')
