@@ -269,6 +269,17 @@ void TestCaptureAndReset(const std::filesystem::path &directory) {
     };
     Check(index(L"JitterMode") < index(L"JitterPolicyVersion"), "full save publishes value before marker");
 }
+void TestPackagedDefaults(const wchar_t *source) {
+    SetFileAttributesW(g_ini_path, FILE_ATTRIBUTE_NORMAL);
+    DeleteFileW(g_ini_path);
+    Check(CopyFileW(source, g_ini_path, TRUE) != 0, "copy actual shipped INI into the isolated fixture");
+    ResetSession();
+    Check(Int(L"JitterMode", -1) == 0 && Int(L"JitterPolicyVersion", -1) == 1,
+          "actual shipped INI requests off under policy version one");
+    Check(Load().jitter_mode == NrJitterMode::Legacy && writes.empty() &&
+          !SnapshotConfigPolicyMigrationStatus().visible,
+          "actual shipped defaults load off without rerunning the upgrade");
+}
 int wmain(int argc, wchar_t **argv) {
     InitializeCriticalSection(&g_chain_cs);
     if (argc < 2) return 2;
@@ -285,6 +296,8 @@ int wmain(int argc, wchar_t **argv) {
         Check(ChainConfig{}.jitter_mode == NrJitterMode::Legacy &&
               NrTuningSignature{}.jitter_mode == NrJitterMode::Legacy, "both in-memory jitter defaults are off");
         TestLegacy(directory); TestMissingAndCompleted(); TestFailures(directory); TestCaptureAndReset(directory);
+        Check(argc == 3, "actual shipped INI is supplied to the policy test");
+        if (argc == 3) TestPackagedDefaults(argv[2]);
     }
     DeleteCriticalSection(&g_chain_cs);
     std::printf("jitter policy Win32: %d checks / %d failures\n", checks, failures);

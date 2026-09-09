@@ -79,7 +79,7 @@ def run(compiler, code, directory, expected=None):
     execute([compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror',
              '-Wno-unused-function', '-static', '-municode', '-I', str(ROOT / 'src'),
              str(cpp), '-o', str(exe)], check=True)
-    result = execute([str(exe), str(directory)], text=True, capture_output=True)
+    result = execute([str(exe), str(directory), str(ROOT / 'config/nr_before_sr.ini')], text=True, capture_output=True)
     (directory / 'run.txt').write_text(result.stdout + result.stderr, encoding='utf-8')
     if expected:
         assert result.returncode == 23 and ('FAIL ' + expected) in result.stdout, result.stdout + result.stderr
@@ -140,7 +140,7 @@ def main():
             run(args.compiler, code.replace(original, mutation), directory / name, expected)
             negatives.append({'name': name, 'compiled': True, 'behavioral_rejection': True, 'expected_assertion': expected})
             print('PASS compiled negative control:', name)
-    paths = [args.source, ROOT / 'src/nr_config_policy.h', ROOT / 'src/nr_config_policy_runtime.inl',
+    paths = [args.source, ROOT / 'config/nr_before_sr.ini', ROOT / 'src/nr_config_policy.h', ROOT / 'src/nr_config_policy_runtime.inl',
              ROOT / 'src/nr_recommended_picture.inl', ROOT / 'src/nr_work_config.h',
              ROOT / 'tests/config_policy_win32.cpp.in', Path(__file__)]
     receipt = {
