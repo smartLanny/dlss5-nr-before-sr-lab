@@ -1,11 +1,17 @@
 // Control runs under g_control, metadata under g_lock. Never acquire g_chain_cs
 // while holding g_lock. GPU callbacks only publish small immutable records.
+#include "nr_face_diagnostic.h"
 namespace nr_f8 {
-constexpr unsigned kFrames = 16, kSlots = 17, kGroups = 7;
+constexpr unsigned kFrames = 16, kSlots = 17, kGroups = nr_face_diagnostic::kGroups;
 constexpr unsigned kCurrentRoiFrames = 3, kMatrixRoiFrames = 2, kRoiSide = 512;
 enum class Status { Idle, Requested, Running, Packaging, Complete, Partial, Failed };
-enum class Comparison { ShareMatrix, Current, Strength, Protection, Jitter };
-struct Options { Comparison comparison = Comparison::Current; bool custom_roi = false; unsigned x = 0, y = 0; bool full_screen = false; };
+enum class Comparison { ShareMatrix, Current, Strength, Protection, Jitter, FaceDiagnostic };
+const char *GroupLabel(Comparison kind,unsigned index);
+struct Options {
+    Comparison comparison = Comparison::Current;
+    bool custom_roi = false; unsigned x = 0, y = 0; bool full_screen = false;
+    float center_x = .5f, center_y = .5f; // FaceDiagnostic only, normalized source coordinates.
+};
 struct Frame {
     NrStageCaptureInfo info = {};
     NrCaptureParams params = {};
@@ -36,10 +42,14 @@ struct Session {
     Group groups[kGroups] = {};
     unsigned group = 0, group_count = 3;
     bool restored = false, post_restored = false, partial = false;
+    bool face_geometry_set = false, face_abort = false;
+    NrStageCaptureInfo face_geometry = {};
+    unsigned display_width = 0, display_height = 0;
     UINT64 payload_bytes = 0;
     wchar_t directory[1024] = {};
     FeedbackSession activity = {};
     nr_core_feedback::PairSnapshot core_pair = {};
+    wchar_t core_report[1024] = {}, core_zip[1024] = {};
     reshade::api::effect_runtime *runtime = nullptr;
 };
 #include "nr_f8_stream.inl"
@@ -57,6 +67,47 @@ Options g_options = {};
 unsigned long long g_next_session = 0;
 wchar_t g_last_zip[1024] = {};
 
+struct FaceDiagnosticProgress {
+    bool visible = false, active = false, roi_ready = false, screenshot_ready = false, restored = false;
+    Status status = Status::Idle;
+    unsigned group = 0, total = 0;
+    char reason[160] = {};
+};
+FaceDiagnosticProgress g_face_progress = {}; // g_lock; keeps the last restore/package outcome.
+const char *GroupLabel(Comparison kind, unsigned index) {
+    if (kind == Comparison::FaceDiagnostic)
+        return index < nr_face_diagnostic::kGroups ? nr_face_diagnostic::kLabels[index] : "invalid-face-group";
+    if (kind == Comparison::Current) return "current";
+    if (kind == Comparison::ShareMatrix) {
+        const char *labels[] = {"original", "pre-50", "pre-75", "pre-100", "post-50", "post-75", "post-100"};
+        return index < 7 ? labels[index] : "invalid-matrix-group";
+    }
+    return kind == Comparison::Strength ? "strength" : kind == Comparison::Protection ? "protection" : "jitter";
+}
+FaceDiagnosticProgress SnapshotFaceDiagnosticProgress() {
+    AcquireSRWLockShared(&g_lock);
+    auto result = g_face_progress;
+    if (result.visible) result.status = g_status.load();
+    if (g_session && g_session->options.comparison == Comparison::FaceDiagnostic) {
+        const auto &s = *g_session; const auto &g = s.groups[s.group];
+        result.visible = true; result.group = s.group; result.total = s.group_count;
+        result.roi_ready = g.frames[0].valid; result.screenshot_ready = g.shot_received;
+        result.restored = s.restored;
+        std::snprintf(result.reason, sizeof(result.reason), "%s", g.reason);
+    }
+    result.active = result.visible && (result.status == Status::Requested || result.status == Status::Running);
+    ReleaseSRWLockShared(&g_lock);
+    return result;
+}
+void UnchangedFaceFailure(const char *reason) {
+    AcquireSRWLockExclusive(&g_lock);
+    if(g_options.comparison==Comparison::FaceDiagnostic && g_face_progress.visible) {
+        g_face_progress.restored=true;
+        std::snprintf(g_face_progress.reason,sizeof(g_face_progress.reason),"%s",reason);
+    }
+    ReleaseSRWLockExclusive(&g_lock);
+}
+
 bool IsActive() { const auto s=g_status.load(); return s==Status::Requested || s==Status::Running; }
 void RequestSettingsFeedbackPage() {
     g_settings_feedback_page_requested.store(true, std::memory_order_release);
@@ -73,6 +124,7 @@ void Cancel() {
     g_cancel.store(true, std::memory_order_release);
     if (g_status.load(std::memory_order_acquire)==Status::Requested) {
         nr_core_feedback::Cancel();
+        UnchangedFaceFailure("cancelled before changing settings");
         g_status.store(Status::Failed, std::memory_order_release);
     }
     ReleaseSRWLockExclusive(&g_control);
@@ -92,19 +144,30 @@ bool RequestCore() {
 }
 bool RequestWithOptions(const Options &options) {
     AcquireSRWLockExclusive(&g_control);
-    bool accepted = !IsActive() && g_status.load()!=Status::Packaging && StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request(true);
+    const bool face = options.comparison == Comparison::FaceDiagnostic;
+    const bool valid_face = !face || (!options.full_screen &&
+        nr_face_diagnostic::ValidCenter(options.center_x, options.center_y) && SnapshotConfig().enabled);
+    bool accepted = valid_face && !IsActive() && g_status.load()!=Status::Packaging && StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request(true);
     if (accepted) {
         g_options=options; g_cancel.store(false);
-        AcquireSRWLockExclusive(&g_lock); g_last_zip[0]=0; ReleaseSRWLockExclusive(&g_lock);
+        AcquireSRWLockExclusive(&g_lock); g_last_zip[0]=0;
+        g_face_progress={};g_face_progress.visible=face;g_face_progress.total=face?nr_face_diagnostic::kGroups:0;
+        ReleaseSRWLockExclusive(&g_lock);
         g_status.store(Status::Requested);
     }
     ReleaseSRWLockExclusive(&g_control);
     return accepted;
 }
+bool RequestFaceDiagnostic(float center_x = .5f, float center_y = .5f) {
+    Options options; options.comparison = Comparison::FaceDiagnostic;
+    options.center_x = center_x; options.center_y = center_y;
+    return RequestWithOptions(options);
+}
 bool RequestFullscreen(Comparison kind = Comparison::Current) {
     return RequestWithOptions({kind, false, 0, 0, true});
 }
 ChainConfig GroupConfig(const ChainConfig &base, Comparison kind, unsigned index) {
+    if (kind == Comparison::FaceDiagnostic) return nr_face_diagnostic::GroupConfig(base,index);
     ChainConfig c=base;
     if (kind==Comparison::ShareMatrix) {
         c.enabled=index!=0;
@@ -137,6 +200,18 @@ void Break(Group &g, const char *reason) {
     g.partial=true; g.sealed=true;
     if (!g.reason[0]) std::snprintf(g.reason,sizeof(g.reason),"%s",reason);
 }
+bool SameFaceGeometry(const NrStageCaptureInfo &a,const NrStageCaptureInfo &b) {
+    // Model tuning deliberately recreates Feature 18; its instance may change between groups.
+    return a.feature_generation==b.feature_generation &&
+        a.mode==b.mode && (a.codec_flags&~(8u|512u))==(b.codec_flags&~(8u|512u)) &&
+        a.source_width==b.source_width && a.source_height==b.source_height &&
+        a.model_width==b.model_width && a.model_height==b.model_height &&
+        a.source_format==b.source_format && a.result_format==b.result_format &&
+        a.source_base_x==b.source_base_x && a.source_base_y==b.source_base_y &&
+        a.destination_base_x==b.destination_base_x && a.destination_base_y==b.destination_base_y &&
+        a.has_pre_exposure==b.has_pre_exposure && a.has_exposure_scale==b.has_exposure_scale &&
+        a.proxy_curve==b.proxy_curve && a.proxy_scale==b.proxy_scale && a.work_linear_scale==b.work_linear_scale;
+}
 
 // Called only for an actual successful composition, under the chain lock.
 // Frames are reserved at record time; readiness is driven by exact-fence pixels.
@@ -150,6 +225,15 @@ bool ReserveFrame(NrStageCaptureInfo &info, const NrCaptureParams &params, Frame
             GetTickCount64()-g.started>=3000 && info.identity.warmed_up &&
             info.identity.since_reset>=64 && info.identity.config_generation==g.generation &&
             g.generation==g_config_generation.load() && info.mode==g.expected_mode) {
+            if(s->options.comparison==Comparison::FaceDiagnostic) {
+                if(params.reset || !nr_face_diagnostic::MatchesApplied(g.requested,info.identity.tuning))
+                    Break(g,"face diagnostic reset or actual model tuning does not match this group");
+                else if(s->face_geometry_set && !SameFaceGeometry(s->face_geometry,info))
+                    Break(g,"face diagnostic source/model geometry, route or colour contract changed");
+                else if(!info.source_width || !info.source_height || !info.model_width || !info.model_height)
+                    Break(g,"face diagnostic source/model dimensions unavailable");
+                if(g.partial)s->face_abort=true;
+            }
             if (g.count>0 && g.count<g.roi_target) {
                 const auto &last=g.frames[g.count-1].info;
                 if (last.identity.instance_id!=info.identity.instance_id ||
@@ -180,6 +264,11 @@ bool ReserveFrame(NrStageCaptureInfo &info, const NrCaptureParams &params, Frame
                     info.height=info.region_height=std::min(kRoiSide,info.source_height);
                     info.region_x=s->options.custom_roi?std::min(s->options.x,info.source_width-info.width):(info.source_width-info.width)/2;
                     info.region_y=s->options.custom_roi?std::min(s->options.y,info.source_height-info.height):(info.source_height-info.height)/2;
+                    if(s->options.comparison==Comparison::FaceDiagnostic) {
+                        const auto roi=nr_face_diagnostic::ResolveRoi(info.source_width,info.source_height,s->options.center_x,s->options.center_y);
+                        info.region_x=roi.x;info.region_y=roi.y;info.width=info.region_width=roi.width;info.height=info.region_height=roi.height;
+                        if(!s->face_geometry_set){s->face_geometry=info;s->face_geometry_set=true;}
+                    }
                 }
                 const UINT64 bytes=static_cast<UINT64>(info.width)*info.height*80u+16u;
                 if (bytes>nr_f8_budget::kPayloadLimit-s->payload_bytes) {
@@ -202,6 +291,9 @@ struct ReadbackJob {
     FrameTicket ticket; NrStageCaptureInfo info; NrCaptureParams params;
     ChainConfig requested, actual; ID3D12Resource *readback; UINT64 bytes; bool ok;
     wchar_t spool[1024] = {};
+    const char *group_label = nullptr;
+    bool face = false; float center_x = .5f, center_y = .5f;
+    NrStageCaptureInfo expected = {};
 };
 DWORD WINAPI ReadbackWorker(void *opaque) {
     auto *job=static_cast<ReadbackJob *>(opaque);
@@ -216,7 +308,7 @@ DWORD WINAPI ReadbackWorker(void *opaque) {
             job->info.gpu_source_to_canonical=e[2];job->info.gpu_pre_exposure=e[3];
             HANDLE file=CreateFileW(job->spool,GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
             ok=file!=INVALID_HANDLE_VALUE;
-            if(ok){ok=WriteRecord(file,job->ticket,job->info,job->params,job->requested,job->actual,mapped,job->bytes-16,true);CloseHandle(file);}
+            if(ok){ok=WriteRecord(file,job->ticket,job->info,job->params,job->requested,job->actual,mapped,job->bytes-16,true,job->group_label,job->face,job->center_x,job->center_y,&job->expected);CloseHandle(file);}
             const D3D12_RANGE written={0,0};ID3D12Resource_Unmap(job->readback,0,&written);
         }
     }
@@ -244,6 +336,9 @@ void RawReady(FrameTicket ticket,NrStageCaptureInfo info,ID3D12Resource *readbac
         if(g_session && g_session->id==ticket.session && ticket.group<g_session->group_count && ticket.index<kSlots) {
             const auto &g=g_session->groups[ticket.group];job->requested=g.requested;job->actual=g.actual;
             job->params=g.frames[ticket.index].params;
+            job->group_label=GroupLabel(g_session->options.comparison,ticket.group);
+            job->face=g_session->options.comparison==Comparison::FaceDiagnostic;
+            job->center_x=g_session->options.center_x;job->center_y=g_session->options.center_y;job->expected=g_session->face_geometry;
             swprintf_s(job->spool,L"%ls\\frame-%u-%u.tmp",g_session->directory,ticket.group,ticket.index);current=true;
         }
         ReleaseSRWLockExclusive(&g_lock);
@@ -266,6 +361,13 @@ void Screenshot(reshade::api::effect_runtime *runtime,const char *path) {
         const bool exact_postfix=extension && extension[1] && stem_length>=tag_length &&
             std::memcmp(basename+stem_length-tag_length,tag,tag_length)==0;
         if(g.shot_requested && !g.shot_received && exact_postfix) {
+            if(g_session->options.comparison==Comparison::FaceDiagnostic) {
+                unsigned w=0,h=0;runtime->get_screenshot_width_and_height(&w,&h);
+                if(w!=g_session->display_width || h!=g_session->display_height) {
+                    Break(g,"face diagnostic display dimensions changed before screenshot callback");g_session->face_abort=true;
+                    ReleaseSRWLockExclusive(&g_lock);return;
+                }
+            }
             wchar_t decoded[1024]={},canonical[1024]={};
             if(MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path,-1,decoded,1024)) {
                 const DWORD n=GetFullPathNameW(decoded,1024,canonical,nullptr);
@@ -286,12 +388,23 @@ bool Complete(const Group &g) {
     if (g.overview_target && !g.frames[kFrames].valid) return false;
     return true;
 }
+bool FaceScreenshotFits(const wchar_t *path,unsigned width,unsigned height) {
+    HANDLE h=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+    if(h==INVALID_HANDLE_VALUE)return false;
+    unsigned char header[24]={};DWORD got=0;LARGE_INTEGER size={};
+    bool ok=GetFileSizeEx(h,&size) && size.QuadPart>=24 && size.QuadPart<=static_cast<LONGLONG>(nr_bundle::kCopyLimit) &&
+        ReadFile(h,header,sizeof(header),&got,nullptr) && got==sizeof(header);
+    CloseHandle(h);
+    const unsigned char signature[]={137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82};
+    const auto be=[&](unsigned at){return (unsigned(header[at])<<24)|(unsigned(header[at+1])<<16)|(unsigned(header[at+2])<<8)|header[at+3];};
+    return ok && std::memcmp(header,signature,sizeof(signature))==0 && be(16)==width && be(20)==height;
+}
 void WriteTimeline(FILE *out,const Session &s) {
-    std::fprintf(out,"group,index,overview,valid,instance,frame,config,sinceReset,mode,sourceW,sourceH,modelW,modelH,roiX,roiY,sampleW,sampleH,stride,sourceBaseX,sourceBaseY,outputBaseX,outputBaseY,sourceFormat,outputFormat,reset,resetKnown,gameJitterValid,gameJitterX,gameJitterY,nrJitterForwarded,nrJitterX,nrJitterY,gameMvValid,gameMvX,gameMvY,nrMvX,nrMvY,depthW,depthH,mvW,mvH,preExposure,hasPreExposure,exposureScale,hasExposureScale,gpuRawExposure,gpuResolvedExposure,gpuSourceToCanonical,gpuPreExposure,transfer,color,maxLumaRatio,proxyScale,proxyCurve,frameConfidence,detailStability,lightingLock,motionRequested,motionAvailable,modelIntensity,skinStructure\n");
+    std::fprintf(out,"group,index,overview,valid,instance,frame,config,sinceReset,mode,sourceW,sourceH,modelW,modelH,roiX,roiY,sampleW,sampleH,stride,sourceBaseX,sourceBaseY,outputBaseX,outputBaseY,sourceFormat,outputFormat,reset,resetKnown,gameJitterValid,gameJitterX,gameJitterY,nrJitterForwarded,nrJitterX,nrJitterY,gameMvValid,gameMvX,gameMvY,nrMvX,nrMvY,depthW,depthH,mvW,mvH,preExposure,hasPreExposure,exposureScale,hasExposureScale,gpuRawExposure,gpuResolvedExposure,gpuSourceToCanonical,gpuPreExposure,transfer,color,maxLumaRatio,proxyScale,proxyCurve,frameConfidence,detailStability,lightingLock,motionRequested,motionAvailable,modelIntensity,skinStructure,groupName,localTone,localStructure,style,autoMask,uiCorrection\n");
     for(unsigned g=0;g<s.group_count;++g) for(unsigned row=0;row<s.groups[g].count+(s.groups[g].overview_reserved?1u:0u);++row) {
         const unsigned i=row<s.groups[g].count?row:kFrames;
         const auto &f=s.groups[g].frames[i];const auto &n=f.info;const auto &p=f.params;
-        std::fprintf(out,"%u,%u,%d,%d,%llu,%llu,%u,%u,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%.9g,%.9g,%d,%.9g,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%u,%u,%u,%u,%.9g,%d,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%u,%.9g,%.9g,%.9g,%d,0,%.9g,%.9g\n",
+        std::fprintf(out,"%u,%u,%d,%d,%llu,%llu,%u,%u,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%.9g,%.9g,%d,%.9g,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%u,%u,%u,%u,%.9g,%d,%.9g,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%u,%.9g,%.9g,%.9g,%d,0,%.9g,%.9g,%s,%.9g,%.9g,%u,%d,%d\n",
             g,i,i==kFrames,f.valid,n.identity.instance_id,n.identity.frame_id,n.identity.config_generation,n.identity.since_reset,n.mode,
             n.source_width,n.source_height,n.model_width,n.model_height,n.region_x,n.region_y,n.width,n.height,n.stride,
             n.source_base_x,n.source_base_y,n.destination_base_x,n.destination_base_y,n.source_format,n.result_format,
@@ -299,7 +412,8 @@ void WriteTimeline(FILE *out,const Session &s) {
             p.game_mv_valid,p.game_mv_x,p.game_mv_y,p.nr_mv_x,p.nr_mv_y,p.depth_width,p.depth_height,p.mv_width,p.mv_height,
             n.pre_exposure,n.has_pre_exposure,n.exposure_scale,n.has_exposure_scale,n.gpu_raw_exposure,n.gpu_resolved_exposure,n.gpu_source_to_canonical,n.gpu_pre_exposure,
             n.transfer_strength,n.color_strength,n.max_luma_ratio,n.proxy_scale,n.proxy_curve,n.frame_confidence,n.detail_stability,n.lighting_lock,n.motion_requested,
-            n.identity.tuning.intensity,n.identity.tuning.skin_structure);
+            n.identity.tuning.intensity,n.identity.tuning.skin_structure,GroupLabel(s.options.comparison,g),
+            n.identity.tuning.local_tone,n.identity.tuning.local_structure,n.identity.tuning.style,n.identity.tuning.auto_mask,n.identity.tuning.ui_correction);
     }
 }
 DWORD WINAPI PackageWorker(void *opaque) {
@@ -312,11 +426,20 @@ DWORD WINAPI PackageWorker(void *opaque) {
         "artifact.hashMeasurement=loaded-path-file-once-worker\n",
         kSourceCommit, kSourceDirty ? 1 : 0, module_identity.sha256, module_identity.status);nr_bundle::Result result={};result.status=nr_bundle::Status::Failed;
     bool complete=s->restored && s->post_restored && !s->partial;
+    const bool face=s->options.comparison==Comparison::FaceDiagnostic;
+    if(face)for(unsigned i=0;i<s->group_count;++i) {
+        auto &g=s->groups[i];
+        if(g.shot_received && !FaceScreenshotFits(g.screenshot,s->display_width,s->display_height)) {
+            Break(g,"face diagnostic screenshot is not the expected full-size PNG or exceeds 64 MiB");g.shot_received=false;
+        }
+    }
     for(unsigned i=0;i<s->group_count;++i)complete=Complete(s->groups[i]) && complete;
     FeedbackAppend(s->activity,"format=DLSS5-F8-v4\nsession=%llu\ncomparison=%u\ngroups=%u\ncapture.complete=%d\nconfig.restored=%d\npostConfig.restored=%d\nconfig.writesToIni=0\ncapture.order=sequential; keep the scene and camera fixed\ncapture.sameFrameClaim=0\nnativeSrOutput=not-obtained\nmvDepthPixels=not-obtained; resource read contract unavailable\nmotionProtection=unavailable\npayloadBytes=%llu\ngpuBudgetBytes=%llu\ncpuBudgetBytes=%llu\n",
         s->id,static_cast<unsigned>(s->options.comparison),s->group_count,complete,s->restored,s->post_restored,s->payload_bytes,nr_f8_budget::kGpuLimit,nr_f8_budget::kCpuLimit);
     FeedbackAppend(s->activity,"capture.fullScreen=%d\ncapture.displayFile=original-runtime-screenshot; no crop or resize\ncapture.gpuPlanes=%s\n",
         s->options.full_screen, s->options.full_screen?"not-requested":"bounded-ROI-and-optional-overview");
+    if(face)FeedbackAppend(s->activity,"faceDiagnostic.version=1\nfaceDiagnostic.centerX=%.9g\nfaceDiagnostic.centerY=%.9g\nfaceDiagnostic.roiTarget=1\nfaceDiagnostic.stability=minimum-3000ms-and-64-NR-evaluations-after-reset; exact-fence-ROI-before-display-request\nfaceDiagnostic.displayWidth=%u\nfaceDiagnostic.displayHeight=%u\nfaceDiagnostic.moduleInventory=paired-core-package\nfaceDiagnostic.isMaskProof=0\n",
+        s->options.center_x,s->options.center_y,s->display_width,s->display_height);
     auto *job=nr_bundle::CreateJob(s->directory,s->activity.report);
     if(job) {
         nr_bundle::AddFile(*job,g_log_path,"logs/nr-current.log",nr_bundle::FileKind::LogTail,true);
@@ -328,7 +451,13 @@ DWORD WINAPI PackageWorker(void *opaque) {
             FeedbackAddLogBeside(*job,reshade_path,L"ReShade.log","logs/reshade-module-dir.log",true);
         nr_bundle::AddFile(*job,g_ini_path,"settings/nr_before_sr.ini",nr_bundle::FileKind::Copy,false);
         nr_bundle::AddFile(*job,g_reshade_ini_path,"settings/ReShade.ini",nr_bundle::FileKind::Copy,false);
-        FeedbackAddModules(*job,s->activity);
+        if(face) {
+            nr_bundle::AddFile(*job,s->core_report,"core/feedback.txt",nr_bundle::FileKind::Copy,true);
+            nr_bundle::AddFile(*job,s->core_zip,"core/paired-archive",nr_bundle::FileKind::HashOnly,true);
+            char core_report[4096]={},core_zip[4096]={};WideToUtf8(s->core_report,core_report,sizeof(core_report));WideToUtf8(s->core_zip,core_zip,sizeof(core_zip));
+            FeedbackAppend(s->activity,"core.reportPath=%s\ncore.archivePath=%s\ncore.archiveIdentity=core/paired-archive manifest SHA256\n",core_report,core_zip);
+        }
+        if(!face)FeedbackAddModules(*job,s->activity); // The paired core package owns D7 module inventory; retain slots for nine image groups.
         nr_bundle::CopyText(job->metadata,sizeof(job->metadata),s->activity.report);
         wchar_t path[1024]={};swprintf_s(path,L"%ls\\timeline.csv",s->directory);FILE *file=nullptr;
         _wfopen_s(&file,path,L"wb");
@@ -361,6 +490,12 @@ DWORD WINAPI PackageWorker(void *opaque) {
             }
             JsonBuffer settings;
             settings.Append("{\"schema\":1,\"group\":%u,\"configGeneration\":%u,\"expectedMode\":%d,\"rrAtStart\":%d,\"requestedPostPercent\":%u,\"actualPostPercent\":%u,\"snapshotMeaning\":\"applied-settings-at-group-start; not execution proof\"",i,g.generation,g.expected_mode,g.rr_at_start,g.requested_post_percent,g.actual_post_percent);
+            settings.Append(",\"groupName\":\"%s\",\"complete\":%d,\"reason\":\"%s\"",GroupLabel(s->options.comparison,i),Complete(g),g.reason);
+            if(face) {
+                const auto &e=s->face_geometry;
+                settings.Append(",\"faceDiagnostic\":{\"centerX\":%.9g,\"centerY\":%.9g,\"roiX\":%u,\"roiY\":%u,\"roiWidth\":%u,\"roiHeight\":%u,\"expectedSourceWidth\":%u,\"expectedSourceHeight\":%u,\"expectedModelWidth\":%u,\"expectedModelHeight\":%u,\"displayWidth\":%u,\"displayHeight\":%u,\"roiTarget\":1,\"screenshotAfterValidGpuRecord\":true}",
+                    s->options.center_x,s->options.center_y,e.region_x,e.region_y,e.width,e.height,e.source_width,e.source_height,e.model_width,e.model_height,s->display_width,s->display_height);
+            }
             ConfigJson(settings,"requested",g.requested);ConfigJson(settings,"actual",g.actual);settings.Append("}\n");
             swprintf_s(path,L"%ls\\group-%u-settings.json",s->directory,i);
             std::snprintf(name,sizeof(name),"groups/%u/settings.json",i);
@@ -376,10 +511,16 @@ DWORD WINAPI PackageWorker(void *opaque) {
             else nr_bundle::AddMissing(*job,name,"matching screenshot callback was not received",true);
             if(!Complete(g)){std::snprintf(name,sizeof(name),"groups/%u/incomplete",i);nr_bundle::AddMissing(*job,name,g.reason[0]?g.reason:"missing exact-fence ROI, overview or screenshot",true);}
         }
-        result=nr_bundle::Run(*job);nr_bundle::DestroyJob(job);
+        const bool registrations_ok=job->rejected_inputs==0;
+        result=nr_bundle::Run(*job);complete=complete && registrations_ok;nr_bundle::DestroyJob(job);
     }
     AcquireSRWLockExclusive(&g_lock);
     if(result.zip_path[0])wcscpy_s(g_last_zip,result.zip_path);
+    if(face && !(complete && result.required_complete)) {
+        const char *reason="face diagnostic package is partial; inspect manifest and paired core report";
+        for(unsigned i=0;i<s->group_count;++i)if(s->groups[i].reason[0]){reason=s->groups[i].reason;break;}
+        std::snprintf(g_face_progress.reason,sizeof(g_face_progress.reason),"%s",reason);
+    }
     g_status.store(result.status==nr_bundle::Status::Failed?Status::Failed:complete && result.required_complete?Status::Complete:Status::Partial);
     ReleaseSRWLockExclusive(&g_lock);
     // Every path was generated in this unique session directory, never discovered recursively.
@@ -390,7 +531,8 @@ DWORD WINAPI PackageWorker(void *opaque) {
 void StartGroup(Session &s) {
     const unsigned index=s.group;
     const ChainConfig requested=GroupConfig(s.original,s.options.comparison,index);
-    const bool rr_pre_skip=s.options.comparison!=Comparison::Current && requested.enabled && requested.mode==2 &&
+    const bool face=s.options.comparison==Comparison::FaceDiagnostic;
+    const bool rr_pre_skip=s.options.comparison!=Comparison::Current && !face && requested.enabled && requested.mode==2 &&
         IsRayReconstructionRouteObserved();
     const unsigned requested_post=GroupPostPercent(s.options.comparison,index,s.post_original.percent);
     const bool group_uses_post=GroupUsesPostOptions(s.options.comparison,index);
@@ -404,8 +546,8 @@ void StartGroup(Session &s) {
     Group &g=s.groups[index];g.requested=requested;g.actual=actual;g.generation=g_config_generation.load();
     g.requested_post_percent=requested_post;g.actual_post_percent=actual_post.percent;
     g.rr_at_start=IsRayReconstructionRouteObserved();
-    g.expected_mode=s.options.comparison==Comparison::Current && g.rr_at_start?1:requested.mode;
-    g.roi_target=s.options.full_screen?0:s.options.comparison==Comparison::Current?kCurrentRoiFrames:kMatrixRoiFrames;
+    g.expected_mode=(s.options.comparison==Comparison::Current || face) && g.rr_at_start?1:requested.mode;
+    g.roi_target=s.options.full_screen?0:face?1:s.options.comparison==Comparison::Current?kCurrentRoiFrames:kMatrixRoiFrames;
     g.overview_target=!s.options.full_screen && s.options.comparison==Comparison::Current;
     g.sealed=s.options.full_screen; // Full display images do not request raw GPU planes.
     g.applied=rr_pre_skip || (post_applied && SameConfig(requested,actual) &&
@@ -421,6 +563,13 @@ void Finish(Session *s) {
     ChainConfig restored=SnapshotConfig();restored.perf_epoch=s->original.perf_epoch;
     s->restored=SameConfig(s->original,restored);
     s->post_restored=!UsesPostOptions(s->options.comparison) || nr_post_settings::Read().percent==s->post_original.percent;
+    if(s->options.comparison==Comparison::FaceDiagnostic) {
+        AcquireSRWLockExclusive(&g_lock);auto &p=g_face_progress;
+        p.visible=true;p.active=false;p.group=s->group;p.total=s->group_count;p.restored=s->restored && s->post_restored;
+        p.roi_ready=s->groups[s->group].frames[0].valid;p.screenshot_ready=s->groups[s->group].shot_received;
+        std::snprintf(p.reason,sizeof(p.reason),"%s",s->groups[s->group].reason);
+        ReleaseSRWLockExclusive(&g_lock);
+    }
     g_config_hold.store(false);
     FeedbackAppendActivity(s->activity,"end");
     if(!QueueUserWorkItem(PackageWorker,s,WT_EXECUTEDEFAULT)) {
@@ -430,23 +579,26 @@ void Finish(Session *s) {
 // Caller holds g_control. A watchdog calls this with no runtime so stopped
 // Presents cannot strand transient settings. Screenshots only run on Present.
 void Tick(reshade::api::effect_runtime *runtime) {
-    bool advance=false,finish=false,shot=false;char tag[80]={};
+    bool advance=false,finish=false,shot=false,face_shot=false;char tag[80]={};
     AcquireSRWLockExclusive(&g_lock);Session *s=g_session;
     if(s && s->group<s->group_count) {
         Group &g=s->groups[s->group];const auto age=GetTickCount64()-g.started;
-        if(g_cancel.load() || age>=30000) {
+        const bool face=s->options.comparison==Comparison::FaceDiagnostic;
+        if(g_cancel.load() || age>=30000 || (face && (s->face_abort || g.partial))) {
             Break(g,g_cancel.load()?"cancelled":age>=30000?"group timeout; missing pixels retained as partial":"Ray Reconstruction owns the rendering path");
             s->partial=true;finish=true;
         } else {
             const bool rr_now=IsRayReconstructionRouteObserved();
-            if(s->options.comparison==Comparison::Current && rr_now!=g.rr_at_start)
+            if((s->options.comparison==Comparison::Current || face) && rr_now!=g.rr_at_start)
                 Break(g,"RR route changed during current-state capture; mixed-route pixels were not combined");
-            else if(g.requested.enabled && ((s->options.comparison!=Comparison::Current && g.requested.mode==2 && rr_now) || OtherNrOwnerActive()))
-                Break(g,s->options.comparison!=Comparison::Current && g.requested.mode==2 && rr_now
+            else if(g.requested.enabled && ((s->options.comparison!=Comparison::Current && !face && g.requested.mode==2 && rr_now) || OtherNrOwnerActive()))
+                Break(g,s->options.comparison!=Comparison::Current && !face && g.requested.mode==2 && rr_now
                     ?"NR -> SR comparison skipped: Ray Reconstruction is active; only post-RR ordering may be sampled"
                     :"another NR addon owns this path; only screenshots/logs available");
-            if(runtime && runtime==s->runtime && !g.shot_requested && age>=3000) {
+            if(face && g.partial){s->partial=true;finish=true;}
+            if(!finish && runtime && runtime==s->runtime && !g.shot_requested && age>=3000 && (!face || g.frames[0].valid)) {
                 g.shot_requested=true;g.shot_present=g_present.load();shot=true;
+                face_shot=face;
                 std::snprintf(tag,sizeof(tag),"DLSS5_F8_%llu_%u",s->id,s->group);
             }
             const unsigned expected=g.count+(g.overview_reserved?1u:0u);
@@ -456,7 +608,10 @@ void Tick(reshade::api::effect_runtime *runtime) {
         }
     }
     ReleaseSRWLockExclusive(&g_lock);
-    if(shot)runtime->save_screenshot(tag); // failure is recorded by the bounded callback timeout
+    if(shot) {
+        if(face_shot)runtime->open_overlay(false,reshade::api::input_source::mouse);
+        runtime->save_screenshot(tag); // failure is recorded by the bounded callback timeout
+    }
     if(finish && s)Finish(s);else if(advance && s)StartGroup(*s);
 }
 DWORD WINAPI Watchdog(void *opaque) {
@@ -472,22 +627,38 @@ void Present(reshade::api::effect_runtime *runtime) {
     ++g_present;
     if(!TryAcquireSRWLockExclusive(&g_control))return;
     if(g_status.load()==Status::Requested) {
-        if(g_cancel.load()){nr_core_feedback::Cancel();g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;}
+        if(g_cancel.load()){nr_core_feedback::Cancel();UnchangedFaceFailure("cancelled before changing settings");g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;}
         if(nr_core_feedback::Busy()){ReleaseSRWLockExclusive(&g_control);return;}
         HMODULE pinned=nullptr;
         auto *s=new(std::nothrow) Session{};
         if(!s || !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,reinterpret_cast<LPCWSTR>(&Watchdog),&pinned)){
-            delete s;g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;
+            delete s;UnchangedFaceFailure("capture session allocation or module pin failed before changing settings");g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;
         }
-        if(!FeedbackCreateDirectory(s->directory)){delete s;g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;}
+        if(!FeedbackCreateDirectory(s->directory)){delete s;UnchangedFaceFailure("capture directory creation failed before changing settings");g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;}
         s->id=++g_next_session;s->options=g_options;s->runtime=runtime;s->started=GetTickCount64();
         s->core_pair=nr_core_feedback::SnapshotPair();
+#if defined(NR_HAS_CORE_TEXT_REPORT)
+        AcquireSRWLockShared(&g_feedback_lock);
+        wcscpy_s(s->core_report,nr_core_feedback::g_report_path);wcscpy_s(s->core_zip,g_feedback_last_zip);
+        ReleaseSRWLockShared(&g_feedback_lock);
+#endif
         s->partial=!s->core_pair.ready || !s->core_pair.complete;
         s->group_count=s->options.comparison==Comparison::Current?1:s->options.comparison==Comparison::ShareMatrix?7:
+            s->options.comparison==Comparison::FaceDiagnostic?nr_face_diagnostic::kGroups:
             (s->options.comparison==Comparison::Protection || s->options.comparison==Comparison::Jitter)?2:3;
+        const bool face=s->options.comparison==Comparison::FaceDiagnostic;
+        if(face) {
+            if(runtime)runtime->get_screenshot_width_and_height(&s->display_width,&s->display_height);
+            const char *reason=!SnapshotConfig().enabled?"NR was disabled before face diagnostic started":
+                !nr_face_diagnostic::AdmitDisplay(s->display_width,s->display_height)?"full display plus nine face ROIs exceed existing archive budget or display dimensions unavailable":nullptr;
+            if(reason) {
+                UnchangedFaceFailure(reason);
+                delete s;g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;
+            }
+        }
         const UINT64 roi_bytes=static_cast<UINT64>(kRoiSide)*kRoiSide*80u+16u;
         const UINT64 overview_reserve=s->options.comparison==Comparison::Current?40ull*1024*1024+16u:0u;
-        if(roi_bytes*s->group_count*(s->options.comparison==Comparison::Current?kCurrentRoiFrames:kMatrixRoiFrames)+overview_reserve>
+        if(roi_bytes*s->group_count*(face?1:s->options.comparison==Comparison::Current?kCurrentRoiFrames:kMatrixRoiFrames)+overview_reserve>
             nr_f8_budget::kPayloadLimit){delete s;g_status.store(Status::Failed);ReleaseSRWLockExclusive(&g_control);return;}
         g_config_hold.store(true);s->original=SnapshotConfig();s->post_original=nr_post_settings::Read();
         FeedbackAppend(s->activity,"build=%s\n",kBuildIdentity);FeedbackAppendActivity(s->activity,"start");
@@ -496,6 +667,16 @@ void Present(reshade::api::effect_runtime *runtime) {
         if(!QueueUserWorkItem(Watchdog,reinterpret_cast<void *>(static_cast<std::uintptr_t>(s->id)),WT_EXECUTEDEFAULT)){s->partial=true;Finish(s);}
     }
     Tick(runtime);ReleaseSRWLockExclusive(&g_control);
+}
+void RuntimeDestroyed(reshade::api::effect_runtime *runtime) {
+    AcquireSRWLockExclusive(&g_control);
+    if(g_status.load()==Status::Requested){nr_core_feedback::Cancel();UnchangedFaceFailure("runtime destroyed before changing settings");g_status.store(Status::Failed);}
+    AcquireSRWLockExclusive(&g_lock);auto *s=g_session;
+    const bool current=s && s->runtime==runtime;
+    if(current){Break(s->groups[s->group],"capture runtime destroyed");s->partial=true;s->runtime=nullptr;}
+    ReleaseSRWLockExclusive(&g_lock);
+    if(current)Finish(s);
+    ReleaseSRWLockExclusive(&g_control);
 }
 void F8Tooltip(const char *text) {
     if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {

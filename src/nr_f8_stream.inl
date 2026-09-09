@@ -37,7 +37,9 @@ void ConfigJson(JsonBuffer &b,const char *key,const ChainConfig &c) {
     b.Float("lightGlow",c.light_glow);b.Float("lightPresetColor",c.light_preset_color);b.Append("}");
 }
 JsonBuffer FrameJson(const NrStageCaptureInfo &n,const NrCaptureParams &p,
-                     const ChainConfig &requested,const ChainConfig &actual) {
+                     const ChainConfig &requested,const ChainConfig &actual,
+                     const char *label=nullptr,bool face=false,float center_x=.5f,float center_y=.5f,
+                     const NrStageCaptureInfo *expected=nullptr) {
     JsonBuffer b;
     b.Append("{\"schema\":4,\"mode\":%d,\"codecFlags\":%u,\"sourceFormat\":%u,\"resultFormat\":%u,\"sourceBaseX\":%u,\"sourceBaseY\":%u,\"destinationBaseX\":%u,\"destinationBaseY\":%u,\"regionWidth\":%u,\"regionHeight\":%u,\"sinceReset\":%u,\"evaluation\":%u,\"warmedUp\":%d,\"resetKnown\":%d,\"reset\":%d,\"gameJitterValid\":%d,\"nrJitterForwarded\":%d,\"gameMvValid\":%d,\"depthWidth\":%u,\"depthHeight\":%u,\"mvWidth\":%u,\"mvHeight\":%u,\"hasPreExposure\":%d,\"hasExposureScale\":%d,\"motionAvailable\":false",
         n.mode,n.codec_flags,n.source_format,n.result_format,n.source_base_x,n.source_base_y,n.destination_base_x,n.destination_base_y,n.region_width,n.region_height,n.identity.since_reset,n.identity.evaluation,n.identity.warmed_up,p.reset_known,p.reset,p.game_jitter_valid,p.nr_jitter_forwarded,p.game_mv_valid,p.depth_width,p.depth_height,p.mv_width,p.mv_height,n.has_pre_exposure,n.has_exposure_scale);
@@ -67,6 +69,11 @@ JsonBuffer FrameJson(const NrStageCaptureInfo &n,const NrCaptureParams &p,
     b.Append(",\"appliedTuning\":{\"style\":%u,\"autoMask\":%d,\"uiCorrection\":%d",n.identity.tuning.style,n.identity.tuning.auto_mask,n.identity.tuning.ui_correction);
     b.Float("intensity",n.identity.tuning.intensity);b.Float("skin",n.identity.tuning.skin_structure);
     b.Float("localTone",n.identity.tuning.local_tone);b.Float("localStructure",n.identity.tuning.local_structure);b.Append("}");
+    if(label)b.Append(",\"groupName\":\"%s\"",label);
+    if(face && expected) {
+        b.Append(",\"faceDiagnostic\":{\"centerX\":%.9g,\"centerY\":%.9g,\"roiX\":%u,\"roiY\":%u,\"roiWidth\":%u,\"roiHeight\":%u,\"expectedSourceWidth\":%u,\"expectedSourceHeight\":%u,\"expectedModelWidth\":%u,\"expectedModelHeight\":%u,\"expectedSourceBaseX\":%u,\"expectedSourceBaseY\":%u,\"expectedDestinationBaseX\":%u,\"expectedDestinationBaseY\":%u,\"expectedSourceFormat\":%u,\"expectedResultFormat\":%u,\"expectedMode\":%d,\"sameFrameDisplayClaim\":false}",
+            center_x,center_y,n.region_x,n.region_y,n.region_width,n.region_height,expected->source_width,expected->source_height,expected->model_width,expected->model_height,expected->source_base_x,expected->source_base_y,expected->destination_base_x,expected->destination_base_y,expected->source_format,expected->result_format,expected->mode);
+    }
     ConfigJson(b,"requested",requested);ConfigJson(b,"actual",actual);b.Append("}");return b;
 }
 bool WriteBytes(HANDLE h,const void *data,UINT64 size) {
@@ -81,10 +88,12 @@ bool WriteBytes(HANDLE h,const void *data,UINT64 size) {
 bool U32(HANDLE h,unsigned v) { unsigned char b[4];for(unsigned i=0;i<4;++i)b[i]=static_cast<unsigned char>(v>>(i*8));return WriteBytes(h,b,4); }
 bool U64(HANDLE h,unsigned long long v) { return U32(h,static_cast<unsigned>(v)) && U32(h,static_cast<unsigned>(v>>32)); }
 bool WriteRecord(HANDLE h,FrameTicket ticket,const NrStageCaptureInfo &n,const NrCaptureParams &p,
-                 const ChainConfig &requested,const ChainConfig &actual,const void *pixels,UINT64 bytes,bool valid) {
-    const JsonBuffer json=FrameJson(n,p,requested,actual);
-    const UINT64 expected=static_cast<UINT64>(n.width)*n.height*80u;
-    if(!json.ok || (valid && (!pixels || bytes!=expected || bytes>40ull*1024*1024)))return false;
+                 const ChainConfig &requested,const ChainConfig &actual,const void *pixels,UINT64 bytes,bool valid,
+                 const char *label=nullptr,bool face=false,float center_x=.5f,float center_y=.5f,
+                 const NrStageCaptureInfo *expected=nullptr) {
+    const JsonBuffer json=FrameJson(n,p,requested,actual,label,face,center_x,center_y,expected);
+    const UINT64 expected_bytes=static_cast<UINT64>(n.width)*n.height*80u;
+    if(!json.ok || (valid && (!pixels || bytes!=expected_bytes || bytes>40ull*1024*1024)))return false;
     if(!valid)bytes=0;
     const bool ok=U32(h,ticket.index) && U32(h,valid?1:0) && U64(h,ticket.session) && U64(h,n.identity.frame_id) &&
         U64(h,n.identity.instance_id) && U64(h,n.feature_generation) && U32(h,n.identity.config_generation) &&
@@ -111,7 +120,8 @@ bool WriteChunk(const wchar_t *path,const Session &s,unsigned group,unsigned chu
     bool ok=WriteBytes(h,"F8CHK004",8) && U32(h,4) && U32(h,group) && U32(h,chunk) && U32(h,count) && U32(h,g.roi_target) && U32(h,5);
     for(unsigned i=begin;ok && i<begin+count;++i) {
         const auto &f=g.frames[i];
-        ok=f.valid?CopyRecord(h,f.spool):WriteRecord(h,{s.id,group,i},f.info,f.params,g.requested,g.actual,nullptr,0,false);
+        ok=f.valid?CopyRecord(h,f.spool):WriteRecord(h,{s.id,group,i},f.info,f.params,g.requested,g.actual,nullptr,0,false,
+            GroupLabel(s.options.comparison,group),s.options.comparison==Comparison::FaceDiagnostic,s.options.center_x,s.options.center_y,&s.face_geometry);
     }
     LARGE_INTEGER size={};if(!GetFileSizeEx(h,&size) || size.QuadPart>64ll*1024*1024)ok=false;
     CloseHandle(h);if(!ok)DeleteFileW(path);return ok;

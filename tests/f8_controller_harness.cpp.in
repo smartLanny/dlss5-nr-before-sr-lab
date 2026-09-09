@@ -18,7 +18,13 @@
 #include "nr_light_style.h"
 #include "nr_diagnostic_bundle.inl"
 namespace reshade { namespace api {
-struct effect_runtime { unsigned shots=0; std::string tag; bool save_screenshot(const char *p){++shots;tag=p;return true;} };
+enum class input_source { mouse };
+struct effect_runtime {
+    unsigned shots=0,closes=0,width=3840,height=2160; std::string tag;
+    bool save_screenshot(const char *p){++shots;tag=p;return true;}
+    bool open_overlay(bool open,input_source){if(!open)++closes;return false;}
+    void get_screenshot_width_and_height(unsigned *w,unsigned *h){*w=width;*h=height;}
+};
 } namespace internal { HMODULE get_reshade_module_handle(){return GetModuleHandleW(nullptr);} } }
 enum class NrJitterMode : int { Legacy=0, GameInputPixel=1 };
 CHAIN_CONFIG
@@ -50,6 +56,7 @@ bool RequestForCapture(Options value){if(value.percent<50 || value.percent>100)r
 ChainConfig config={};unsigned config_calls=0,stage_status=0,dir_count=0;bool rr=false,pin_fail=false,queue_fail=false;
 ULONGLONG test_clock=100000;
 std::wstring output_root;wchar_t g_log_path[1024]={},g_ini_path[1024]={},g_reshade_ini_path[1024]={};
+SRWLOCK g_feedback_lock=SRWLOCK_INIT;wchar_t g_feedback_last_zip[1024]={};
 const char *kBuildIdentity="beta0.4.2-controller-fixture";
 constexpr const char *kSourceCommit="fixture";constexpr bool kSourceDirty=true;
 struct ModuleIdentity { const char *sha256="fixture-unavailable", *status="fixture"; };
@@ -87,6 +94,8 @@ OVERLAY_SNAPSHOT
 #define GetModuleHandleExW TestPin
 #include "nr_feedback_text.h"
 namespace nr_core_feedback {
+#define NR_HAS_CORE_TEXT_REPORT 1
+wchar_t g_report_path[1024]={};
 struct PairSnapshot { char session[96]="DLSS5_CORE_fixture"; unsigned config=1; bool ready=true,complete=true; };
 unsigned cancel_calls=0;
 bool Busy(){return false;}
@@ -114,7 +123,7 @@ void Shot(reshade::api::effect_runtime &r){
     const std::wstring old=g_session->groups[g_session->group].screenshot;
     Screenshot(&r,(std::string(utf8)+".more").c_str());Check(old==g_session->groups[g_session->group].screenshot,"duplicate cannot replace");
 }
-NrStageCaptureInfo Info(unsigned long long frame,unsigned width,unsigned height){NrStageCaptureInfo n={};n.identity.frame_id=frame;n.identity.instance_id=7;n.identity.config_generation=g_config_generation;n.identity.since_reset=64;n.identity.warmed_up=true;n.identity.evaluation=frame;n.identity.tuning.intensity=config.intensity;n.feature_generation=8;n.mode=config.mode;n.source_width=n.model_width=width;n.source_height=n.model_height=height;n.codec_flags=513;n.source_format=n.result_format=10;return n;}
+NrStageCaptureInfo Info(unsigned long long frame,unsigned width,unsigned height){NrStageCaptureInfo n={};n.identity.frame_id=frame;n.identity.instance_id=7;n.identity.config_generation=g_config_generation;n.identity.since_reset=64;n.identity.warmed_up=true;n.identity.evaluation=frame;n.identity.tuning.intensity=config.intensity;n.identity.tuning.local_tone=config.local_tone;n.identity.tuning.local_structure=config.local_structure;n.identity.tuning.skin_structure=config.auto_mask?config.skin_structure:-1.f;n.identity.tuning.auto_mask=config.auto_mask;n.identity.tuning.ui_correction=config.ui_correction;n.identity.tuning.style=config.style;n.feature_generation=8;n.mode=config.mode;n.source_width=n.model_width=width;n.source_height=n.model_height=height;n.codec_flags=513;n.source_format=n.result_format=10;return n;}
 void DeliverFrame(unsigned long long frame,unsigned width=3840,unsigned height=2160,bool map_fail=false){
     auto n=Info(frame,width,height);if(g_session)n.mode=g_session->groups[g_session->group].expected_mode;NrCaptureParams p={};p.game_jitter_valid=true;p.game_jitter_x=.25f;p.game_jitter_y=-.25f;p.reset_known=true;FrameTicket t={};
     Check(ReserveFrame(n,p,t),"production frame reservation");
@@ -297,7 +306,9 @@ void TestBudgetAndLegacyFailure(){
 }
 int main(int argc,char **argv){Check(argc==2,"output argument");wchar_t wide[1024]={};MultiByteToWideChar(CP_UTF8,0,argv[1],-1,wide,1024);output_root=wide;output_root+=L"\\run-"+std::to_wstring(GetCurrentProcessId());Check(CreateDirectoryW(output_root.c_str(),nullptr)!=FALSE,"unique fixture directory");
     const std::wstring log=output_root+L"\\fixture.log";wcscpy_s(g_log_path,log.c_str());wcscpy_s(g_ini_path,log.c_str());wcscpy_s(g_reshade_ini_path,log.c_str());FILE *f=nullptr;_wfopen_s(&f,log.c_str(),L"wb");std::fputs("fixture-only=true\n",f);std::fclose(f);
+    wcscpy_s(nr_core_feedback::g_report_path,g_log_path);wcscpy_s(g_feedback_last_zip,g_log_path);
     TestFullscreen();
+    TestFaceDiagnostic();
     TestDefaultsAndPictures();TestContinuous(3840,2160);TestContinuous(3840,2400);TestShareMatrix();TestCurrentRrRoute();TestPartialAndRestore();TestFailuresAndLateDelivery();TestBudgetAndLegacyFailure();
     std::printf("PASS production F8 controller/stream/ZIP: %u checks\n",checks);return 0;
 }
