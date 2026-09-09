@@ -7,7 +7,9 @@ SRV/UAV 格式；准入、slot 创建、同资源命中、重新绑定和所有�
 ## 准入来源
 
 - 原有 typed FLOAT 和明确的 FP16/FP32 FLOAT 存储合同保留。
-- R8 TYPELESS 必须取得可归属到成功原生 Feature 1 调用的具体视图。
+- R8 TYPELESS 优先使用可归属到成功原生 Feature 1 调用的具体视图；
+  后续 #203 接续允许完整合同与设备查询只剩一个合法解释时采用 Unique contract。
+  不能以当前仅实现 UNORM codec 为由排除其他合法解释。
   原生设备 SRV/UAV hook 完整转发一次，再只记录当前调用的 Color SRV 或
   Output UAV；插件自身的编码/描述符工作不建立原生证据。
 - 记录以匿名设备、资源生命周期和 Feature generation 为键，不存 descriptor

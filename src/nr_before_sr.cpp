@@ -542,6 +542,7 @@ struct FeatureRecord {
     bool retiring = false;
     bool evaluate_observed = false;
     bool create_contract_known = false;
+    bool create_flags_known = false;
     const NgxParams *create_params = nullptr; // comparison only while Create stack is live
 };
 
@@ -726,6 +727,7 @@ void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *p
     record.create_contract_known = known_width && known_height && known_out_width && known_out_height &&
         GetInt(params, "DLSS.Feature.Create.Flags", &flags_proof) &&
         GetInt(params, "PerfQualityValue", &quality_proof);
+    record.create_flags_known = GetInt(params, "DLSS.Feature.Create.Flags", &flags_proof);
     record.create_params = params;
 
     PublishObservedFeature(record);
@@ -6123,7 +6125,6 @@ bool CreateDeltaStatsBuffers(ID3D12Device *device, NrSlot &slot) {
 }
 
 #include "interop/nr_format_access_d3d12.inl"
-#include "nr_native_format_runtime.inl"
 
 enum class PostSrStorageContract {
     Unsupported,
@@ -6310,6 +6311,7 @@ bool SupportsPostSrStorage(ID3D12Device *device,
     return true;
 }
 
+#include "nr_native_format_runtime.inl"
 #include "nr_codec_descriptors.inl"
 
 void WriteExposureSrv(ID3D12Device *device, ID3D12Resource *exposure,
@@ -6335,11 +6337,12 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
                 CodecColorMode pre_sr_color_mode =
                     CodecColorMode::Automatic,
                 int feature_create_flags = 0,
-                unsigned long long feature_generation = 0) {
+                unsigned long long feature_generation = 0,
+                        const NrColorSemanticContract* semantic_contract = nullptr) {
     const D3D12_RESOURCE_DESC external_desc =
         ID3D12Resource_GetDesc(external);
     const auto external_view = NrResolveColorView(device, external, external_desc,
-        feature_generation, post_sr, feature_create_flags);
+        feature_generation, post_sr, feature_create_flags, semantic_contract);
     if (!external_view) return false;
     slot.native_format_key = external_view.key;
     slot.key = external;
@@ -6818,7 +6821,8 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
                         CodecColorMode pre_sr_color_mode =
                             CodecColorMode::Automatic,
                         int feature_create_flags = 0,
-                        unsigned long long feature_generation = 0) {
+                        unsigned long long feature_generation = 0,
+                        const NrColorSemanticContract* semantic_contract = nullptr) {
     if (device == nullptr || external == nullptr || slot.heap == nullptr)
         return false;
     if (!CanMutateSlotLocked(slot)) return false;
@@ -6826,7 +6830,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
     const D3D12_RESOURCE_DESC external_desc =
         ID3D12Resource_GetDesc(external);
     const auto external_view = NrResolveColorView(device, external, external_desc,
-        feature_generation, post_sr, feature_create_flags);
+        feature_generation, post_sr, feature_create_flags, semantic_contract);
     if (!external_view) return false;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu =
         ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
@@ -6970,10 +6974,11 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
                          ID3D12Resource *exposure = nullptr,
                          CodecColorMode pre_sr_color_mode =
                              CodecColorMode::Automatic,
-                         int feature_create_flags = 0) {
+                         int feature_create_flags = 0,
+                         const NrColorSemanticContract* semantic_contract = nullptr) {
     const auto desc = ID3D12Resource_GetDesc(external);
     const auto current_view = NrResolveColorView(device, external, desc,
-        context.feature_generation, post_sr, feature_create_flags);
+        context.feature_generation, post_sr, feature_create_flags, semantic_contract);
     if (!current_view) return nullptr;
     const unsigned long long serial = ++context.slot_serial;
     NrSlot *empty = nullptr;
@@ -7011,7 +7016,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
     if (empty != nullptr) {
         if (!CreateSlot(device, external, context.width, context.height,
                         post_sr, exposure, *empty, pre_sr_color_mode,
-                        feature_create_flags, context.feature_generation))
+                        feature_create_flags, context.feature_generation, semantic_contract))
             return nullptr;
         empty->last_used_serial = serial;
         return empty;
@@ -7032,7 +7037,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
         ? serial - oldest->last_used_serial : 0;
     if (oldest == nullptr ||
         !RebindSlotExternal(device, external, post_sr, exposure, *oldest,
-                            pre_sr_color_mode, feature_create_flags, context.feature_generation)) {
+                            pre_sr_color_mode, feature_create_flags, context.feature_generation, semantic_contract)) {
         static unsigned int rejected_reuses = 0;
         ++rejected_reuses;
         if (rejected_reuses <= 3 || (rejected_reuses % 600) == 0) {
@@ -8419,10 +8424,21 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     const D3D12_RESOURCE_DESC color_desc = ID3D12Resource_GetDesc(color);
     g_last_pre_sr_color_format.store(
         static_cast<unsigned int>(color_desc.Format), std::memory_order_relaxed);
+    const ColorContract color_contract = ReadColorContract(sr_params);
+    NrColorSemanticContract semantic_contract{};
+    semantic_contract.exposure = color_contract;
+    semantic_contract.flags_known = feature.create_flags_known;
+    ID3D12Resource* semantic_output = nullptr;
+    if (GetResource(sr_params, "Output", &semantic_output) && semantic_output) {
+        const auto desc = ID3D12Resource_GetDesc(semantic_output);
+        semantic_contract.live_bounded_output = desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+            desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D && desc.DepthOrArraySize == 1 &&
+            desc.MipLevels == 1 && desc.SampleDesc.Count == 1;
+    }
     const auto color_view = NrResolveColorViewFromList(command_list, color, color_desc,
-        feature.generation, false, feature.create_flags);
+        feature.generation, false, feature.create_flags, &semantic_contract);
     const PreSrStorageContract storage_contract = color_view
-        ? ClassifyPreSrStorage(color_view.typed.Format, feature.create_flags)
+        ? color_view.pre_storage
         : PreSrStorageContract::Unsupported;
     if (!render_extent_valid || width == 0 || height == 0 ||
         !TextureContainsRegion(color, color_x, color_y, width, height) ||
@@ -8467,7 +8483,6 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         }
     }
 
-    const ColorContract color_contract = ReadColorContract(sr_params);
     bool r8_live_contract_overrode_create_flags = false;
     DXGI_FORMAT r8_live_output_format = DXGI_FORMAT_UNKNOWN;
     if (storage_contract == PreSrStorageContract::R8BoundedCandidate) {
@@ -8665,7 +8680,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         (feature.create_flags & 1) != 0
             ? color_contract.exposure_texture : nullptr;
     NrSlot *slot = FindOrCreateSlot(
-        *context, device, color, false, exposure_source, pre_sr_color_mode);
+        *context, device, color, false, exposure_source, pre_sr_color_mode,
+        feature.create_flags, &semantic_contract);
     if (slot == nullptr || context->failed) {
         ReleaseCom(device);
         return substitution;
@@ -9007,11 +9023,14 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         }
         return substitution;
     }
+    const ColorContract color_contract = ReadColorContract(sr_params);
+    NrColorSemanticContract semantic_contract{};
+    semantic_contract.exposure = color_contract;
+    semantic_contract.flags_known = feature.create_flags_known;
     const auto output_view = NrResolveColorViewFromList(command_list, output, output_desc,
-        feature.generation, true, feature.create_flags);
+        feature.generation, true, feature.create_flags, &semantic_contract);
     const PostSrStorageContract storage_contract = output_view
-        ? ClassifyPostSrStorage(output_view.typed.Format, feature.create_flags,
-                               output_view.native_bounded_output)
+        ? output_view.post_storage
         : PostSrStorageContract::Unsupported;
     if (width == 0 || height == 0 ||
         !TextureContainsRegion(output, output_x, output_y, width, height) ||
@@ -9041,7 +9060,6 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         return substitution;
     }
 
-    const ColorContract color_contract = ReadColorContract(sr_params);
     if (storage_contract == PostSrStorageContract::R8NativeBounded &&
         !IsPreSrBoundedR8Contract(color_contract, true, false)) {
         SetBypassReason(BypassReason::OutputColorContractUnverified);
@@ -9190,7 +9208,7 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         ? color_contract.exposure_texture : nullptr;
     NrSlot *slot = FindOrCreateSlot(
         *context, device, output, true, exposure_source,
-        CodecColorMode::Automatic, feature.create_flags);
+        CodecColorMode::Automatic, feature.create_flags, &semantic_contract);
     if (slot == nullptr || context->failed) {
         ReleaseCom(device);
         return substitution;

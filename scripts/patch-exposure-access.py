@@ -13,6 +13,7 @@ def patch_exposure_core(text: str) -> str:
     Invoked by the canonical generator after the SR/RR post transformation.
     No global fault latch, ownership, synchronization or colour budget changes.
     """
+    semantic_evidence = '#define NR_HAS_NATIVE_FORMAT_OBSERVER 1' in text
     text=once(text,'bool IsExposureTextureFormat(',
         '#include "interop/nr_exposure_access_d3d12.inl"\n\nbool IsExposureTextureFormat(')
     text=edit(text,'bool IsExposureTextureFormat(',lambda s:
@@ -28,6 +29,15 @@ def patch_exposure_core(text: str) -> str:
         s=s[:start]+'''    const auto access = NrResolveExposureAccess(device, desc);
     const bool supported = access.allowed();
 '''+s[stop:]
+        if semantic_evidence:
+            s=once(s,'    const bool supported = access.allowed();',
+                '    const bool supported = access.allowed();\n'
+                '    NrRecordExposureSemantic(device, contract.exposure_texture, desc, feature, mode, true, access);')
+            s=once(s,'        g_unverified_exposure_texture_bypass.store(false,',
+                '        const auto unused_desc = contract.exposure_texture\n'
+                '            ? ID3D12Resource_GetDesc(contract.exposure_texture) : D3D12_RESOURCE_DESC{};\n'
+                '        NrRecordExposureSemantic(device, contract.exposure_texture, unused_desc, feature, mode, false, {});\n'
+                '        g_unverified_exposure_texture_bypass.store(false,')
         s=s.replace('    // Formats outside the DirectSR exposure-scale family would require a\n'
             '    // separate, engine-specific decode contract. Do not bind an unsupported\n'
             '    // descriptor even in diagnostic identity mode.',

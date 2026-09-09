@@ -29,13 +29,16 @@ NrFormatDeviceReceipt NrFormatGetDevice(ID3D12Device* device) {
         bytes != sizeof(receipt)) return {};
     return receipt;
 }
+unsigned long long NrFormatDeviceIdentity(ID3D12Device* device) {
+    return NrFormatGetDevice(device).identity;
+}
 bool EnsureNrNativeFormatHooks(ID3D12Device* device);
 void OnNrFormatInitDevice(reshade::api::device* device);
 
 nr_native_format::Key NrFormatKey(ID3D12Device* device, ID3D12Resource* resource,
                                   unsigned long long generation, bool post_sr) {
     const auto receipt = NrFormatGetDevice(device);
-    if (!receipt.hooks) return {};
+    if (!receipt.identity) return {};
     return {receipt.identity, NrFormatResourceIdentity(resource), generation,
             post_sr ? nr_native_format::Role::Output : nr_native_format::Role::Color};
 }
@@ -112,8 +115,16 @@ struct NrResolvedColorView {
     nr_native_format::Key key{};
     nr_native_format::Evidence evidence{};
     nr_format_access::Plan plan{};
+    nr_resource_semantics::Decision semantic{};
+    PreSrStorageContract pre_storage = PreSrStorageContract::Unsupported;
+    PostSrStorageContract post_storage = PostSrStorageContract::Unsupported;
     bool native_bounded_output = false;
-    explicit operator bool() const noexcept { return static_cast<bool>(plan); }
+    explicit operator bool() const noexcept { return static_cast<bool>(semantic); }
+};
+struct NrColorSemanticContract {
+    bool flags_known = true;
+    bool live_bounded_output = false;
+    ColorContract exposure{};
 };
 struct NrFormatDiagnostic {
     unsigned physical = 0, srv = 0, uav = 0, config = 0;
@@ -121,6 +132,9 @@ struct NrFormatDiagnostic {
     nr_format_access::Status status = nr_format_access::Status::AmbiguousType;
     nr_format_access::Provenance provenance = nr_format_access::Provenance::None;
     bool available = false, coverage = false, conflict = false, native_failed = false;
+    unsigned flags = 0, width = 0, height = 0, arrays = 0, mips = 0, samples = 0;
+    nr_native_format::View observed{};
+    nr_resource_semantics::Decision semantic{};
 };
 struct NrFormatDiagnostics {
     NrFormatDiagnostic latest[2]{}, first_unknown[2]{};
@@ -134,65 +148,107 @@ NrFormatDiagnostics SnapshotNrFormatDiagnostics() {
 }
 NrResolvedColorView NrResolveColorView(ID3D12Device* device, ID3D12Resource* resource,
         const D3D12_RESOURCE_DESC& desc, unsigned long long generation, bool post_sr,
-        int feature_create_flags) {
+        int feature_create_flags, const NrColorSemanticContract* color = nullptr) {
+    using namespace nr_resource_semantics;
     NrResolvedColorView result{};
     result.typed = desc;
-    nr_format_access::Request request{};
-    request.resource = static_cast<unsigned>(desc.Format);
-    // Existing FLOAT storage contract is retained. The R8 family needs native
-    // Feature 1 evidence; format family membership alone proves no value domain.
-    request.permit_float_interpretation = !post_sr;
-    // The established typed-FP16 post path uses CopyResource into our owned
-    // readable snapshot; it never creates a read view of a denied game Output.
-    const bool exact_fp16_copy = post_sr && desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT;
-    request.deny_shader_resource = !exact_fp16_copy &&
-        (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) != 0;
-    request.allow_unordered_access = (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0;
-    request.needs_inplace_store = post_sr;
-    if (nr_format_access::IsTypeless(request.resource) ||
-        request.resource == nr_format_access::Rgba8Unorm) {
-        result.key = NrFormatKey(device, resource, generation, post_sr);
-        result.evidence = NrFormatEvidence(result.key);
-        if (result.evidence.failed || result.evidence.view.conflict) return result;
-        request.observed_view = result.evidence.Resolved();
+    result.key = NrFormatKey(device, resource, generation, post_sr);
+    result.evidence = NrFormatEvidence(result.key);
+    const NrColorSemanticContract default_contract{};
+    const auto& contract = color ? *color : default_contract;
+    Request request{};
+    request.role = post_sr ? Role::Output : Role::ColorInput;
+    request.storage = static_cast<unsigned>(desc.Format);
+    request.observed_view = result.evidence.Resolved();
+    request.observation_conflict = result.evidence.view.conflict;
+    request.observation_stale = result.evidence.failed;
+    request.lifecycle_known = static_cast<bool>(result.key);
+    request.shape_valid = desc.Width && desc.Height &&
+        desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D &&
+        desc.DepthOrArraySize == 1 && desc.MipLevels == 1 && desc.SampleDesc.Count == 1;
+    request.deny_read = (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE) != 0;
+    request.allow_write = (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0;
+    request.exact_copy_snapshot = post_sr && desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT;
+    request.contract_known = contract.flags_known;
+    request.contract = !contract.flags_known ? Contract::None :
+        (feature_create_flags & 1) ? Contract::HdrDeclared : Contract::LdrEncoded;
+    if (!post_sr && (request.storage == nr_format_access::Rgba16Typeless ||
+                     request.storage == nr_format_access::Rgba32Typeless)) {
+        request.contract = Contract::SceneFloat;
+        request.contract_known = true; // Existing explicit FLOAT adapter contract.
     }
-    if (!device || !desc.Width || !desc.Height ||
-        desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
-        desc.DepthOrArraySize != 1 || desc.MipLevels != 1 || desc.SampleDesc.Count != 1) return result;
-    const unsigned interpretation = request.observed_view ? request.observed_view : request.resource;
-    if (nr_format_access::GetFamily(interpretation) == nr_format_access::Family::Rgba8 &&
-        interpretation != nr_format_access::Rgba8Unorm &&
-        interpretation != nr_format_access::Rgba8Typeless) {
-        result.plan.status = nr_format_access::Status::UnknownLayout;
-        return result; // No signed/integer/sRGB codec contract is implemented here.
-    }
-    result.plan = nr_format_access::Resolve(request, [device](unsigned f, nr_format_access::Usage usage) {
-        D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
-        support.Format = static_cast<DXGI_FORMAT>(f);
-        if (FAILED(ID3D12Device_CheckFeatureSupport(device, D3D12_FEATURE_FORMAT_SUPPORT,
-                &support, sizeof(support)))) return false;
-        if (usage == nr_format_access::Usage::ShaderLoad)
-            return (support.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE2D) != 0 &&
-                   (support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD) != 0;
-        return (support.Support1 & D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) != 0 &&
-               (support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE) != 0;
-    });
+    result.semantic = ResourceSemanticResolver::Resolve(request,
+        [device](unsigned read, unsigned write) {
+            Capability capability{};
+            if (!device) return capability;
+            D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
+            support.Format = static_cast<DXGI_FORMAT>(read);
+            capability.queried = true;
+            capability.result = static_cast<std::int32_t>(ID3D12Device_CheckFeatureSupport(
+                device, D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
+            if (!capability.known()) return capability;
+            capability.texture2d = (support.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE2D) != 0;
+            capability.load = (support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD) != 0;
+            if (write && write != read) {
+                support = {}; support.Format = static_cast<DXGI_FORMAT>(write);
+                capability.result = static_cast<std::int32_t>(ID3D12Device_CheckFeatureSupport(
+                    device, D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
+                if (!capability.known()) return capability;
+            }
+            capability.store = !write ||
+                ((support.Support1 & D3D12_FORMAT_SUPPORT1_TYPED_UNORDERED_ACCESS_VIEW) != 0 &&
+                 (support.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE) != 0);
+            return capability;
+        });
+    result.plan = result.semantic.access;
     result.typed.Format = static_cast<DXGI_FORMAT>(result.plan.srv);
-    result.native_bounded_output = post_sr && (feature_create_flags & 1) == 0 &&
-        request.observed_view == nr_format_access::Rgba8Unorm &&
-        result.plan.provenance == nr_format_access::Provenance::ObservedView;
+    result.native_bounded_output = post_sr && contract.flags_known &&
+        (feature_create_flags & 1) == 0 && result.plan.srv == nr_format_access::Rgba8Unorm;
+    if (!result.semantic) return result;
+    result.pre_storage = ClassifyPreSrStorage(result.typed.Format, feature_create_flags);
+    result.post_storage = ClassifyPostSrStorage(result.typed.Format, feature_create_flags,
+                                               result.native_bounded_output);
+    const bool usable = post_sr ? IsUsablePostSrStorage(result.post_storage) :
+                                  IsUsablePreSrStorage(result.pre_storage);
+    const bool r8 = post_sr ? result.post_storage == PostSrStorageContract::R8NativeBounded :
+                             result.pre_storage == PreSrStorageContract::R8BoundedCandidate;
+    const bool pq = post_sr ? result.post_storage == PostSrStorageContract::R10PqHdr :
+                             result.pre_storage == PreSrStorageContract::R10PqHdr;
+    if (!usable) {
+        Reject(result.semantic, Verdict::Unsupported, "selected-view-color-contract-unimplemented",
+               "explicit-supported-color-domain-or-codec-adapter");
+    } else if ((r8 || pq) && !contract.flags_known) {
+        Reject(result.semantic, Verdict::MissingContract, "DLSS-color-create-flags-not-observed",
+               "DLSS.Feature.Create.Flags-from-this-Feature-Create", false);
+    } else if (r8 && !IsPreSrBoundedR8Contract(contract.exposure,
+                   (feature_create_flags & 1) == 0, contract.live_bounded_output)) {
+        Reject(result.semantic, Verdict::MissingContract, "bounded-R8-color-and-exposure-contract-conflict",
+               (feature_create_flags & 1) ? "explicit-unity-scalars-and-bounded-live-output" :
+                                            "consistent-LDR-exposure-scalars", false);
+    } else if (pq && !IsPqDisplayExposureContract(contract.exposure)) {
+        Reject(result.semantic, Verdict::MissingContract, "PQ-display-and-exposure-contract-conflict",
+               "consistent-display-PQ-exposure-contract", false);
+    }
     return result;
 }
 NrResolvedColorView NrResolveColorViewFromList(ID3D12GraphicsCommandList* list,
         ID3D12Resource* resource, const D3D12_RESOURCE_DESC& desc,
-        unsigned long long generation, bool post_sr, int flags) {
+        unsigned long long generation, bool post_sr, int flags,
+        const NrColorSemanticContract* color = nullptr) {
     ID3D12Device* device = nullptr;
     if (!list || FAILED(ID3D12GraphicsCommandList_GetDevice(list, IID_ID3D12Device,
             reinterpret_cast<void**>(&device))) || !device) return {};
-    const auto view = NrResolveColorView(device, resource, desc, generation, post_sr, flags);
+    const auto view = NrResolveColorView(device, resource, desc, generation, post_sr, flags, color);
     NrFormatDiagnostic diagnostic{};
     diagnostic.available = true;
     diagnostic.physical = static_cast<unsigned>(desc.Format);
+    diagnostic.flags = static_cast<unsigned>(desc.Flags);
+    diagnostic.width = static_cast<unsigned>(desc.Width);
+    diagnostic.height = desc.Height;
+    diagnostic.arrays = desc.DepthOrArraySize; diagnostic.mips = desc.MipLevels;
+    diagnostic.samples = desc.SampleDesc.Count;
+    diagnostic.observed = view.evidence.view;
+    diagnostic.semantic = view.semantic;
     diagnostic.srv = view.plan.srv;
     diagnostic.uav = view.plan.uav;
     diagnostic.config = g_config_generation.load(std::memory_order_relaxed);

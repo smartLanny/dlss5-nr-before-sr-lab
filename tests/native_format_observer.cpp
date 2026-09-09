@@ -4,6 +4,7 @@
 #include <atomic>
 #include <barrier>
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -17,6 +18,10 @@
 using UINT=unsigned; using UINT64=unsigned long long; using HRESULT=int;
 using DXGI_FORMAT=unsigned; using REFIID=int;
 constexpr DXGI_FORMAT DXGI_FORMAT_R16G16B16A16_FLOAT=10;
+constexpr DXGI_FORMAT DXGI_FORMAT_UNKNOWN=0, DXGI_FORMAT_R32G32B32A32_TYPELESS=1,
+    DXGI_FORMAT_R32G32B32A32_FLOAT=2, DXGI_FORMAT_R16G16B16A16_TYPELESS=9,
+    DXGI_FORMAT_R11G11B10_FLOAT=26, DXGI_FORMAT_R10G10B10A2_UNORM=24,
+    DXGI_FORMAT_R8G8B8A8_UNORM=28, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB=29;
 #define STDMETHODCALLTYPE
 #define SUCCEEDED(v) ((v)>=0)
 #define FAILED(v) ((v)<0)
@@ -146,6 +151,8 @@ bool PublishCommandStateHooks(CommandStateHookRequest* requests,unsigned count) 
 }
 
 #include "src/nr_native_format.h"
+struct { int r8_output_encoding = 0; } g_config;
+#include "native_format_color_contract.inl"
 #include "src/nr_native_format_runtime.inl"
 #include "src/nr_native_format_hooks.inl"
 

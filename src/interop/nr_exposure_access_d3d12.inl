@@ -31,6 +31,7 @@ struct NrExposureAccess {
     bool query_attempted = false;
     // A sentinel until query_attempted; never report this as a device failure.
     HRESULT query_result = E_INVALIDARG;
+    unsigned support1 = 0, support2 = 0;
     bool allowed() const { return reason == NrExposureAccessReason::Ready; }
 };
 const char *NrExposureAccessReasonName(NrExposureAccessReason reason) {
@@ -62,9 +63,14 @@ NrExposureAccess NrResolveExposureAccess(ID3D12Device *device, const D3D12_RESOU
     result.query_attempted = true;
     result.query_result = ID3D12Device_CheckFeatureSupport(device,
         D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support));
+    result.support1 = static_cast<unsigned>(support.Support1);
+    result.support2 = static_cast<unsigned>(support.Support2);
     if (SUCCEEDED(result.query_result) &&
         (support.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE2D) != 0 &&
         (support.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_LOAD) != 0)
         result.reason = NrExposureAccessReason::Ready;
     return result;
 }
+#if defined(NR_HAS_NATIVE_FORMAT_OBSERVER)
+#include "../nr_exposure_semantic_evidence.inl"
+#endif

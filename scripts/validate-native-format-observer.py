@@ -7,13 +7,16 @@ an unfrozen source tree is allowed only when the files are stable during copying
 from pathlib import Path
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
 
 ROOT=Path(__file__).resolve().parents[1]
 INPUTS=('src/nr_native_format.h','src/nr_native_format_runtime.inl',
-        'src/nr_native_format_hooks.inl','src/interop/nr_format_access.h')
+        'src/nr_native_format_hooks.inl','src/interop/nr_format_access.h',
+        'src/nr_resource_semantics.h','src/nr_before_sr.cpp',
+        'src/interop/nr_format_access_d3d12.inl')
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
@@ -30,6 +33,25 @@ def main():
         raise SystemExit('Production modules changed during snapshot; retry when edits settle.')
     fixture=(ROOT/'tests/native_format_observer.cpp').read_bytes()
     content['tests/native_format_observer.cpp']=fixture
+    # The observer now returns the same final color admission as production.
+    # Include the actual storage classifiers and exposure predicates as well,
+    # rather than replacing that final decision with a permissive host stub.
+    spec=importlib.util.spec_from_file_location('format_source_parser',ROOT/'scripts/patch-format-access.py')
+    parser_module=importlib.util.module_from_spec(spec);spec.loader.exec_module(parser_module)
+    raw=content['src/nr_before_sr.cpp'].decode('utf-8')
+    definitions=[]
+    for signature in ('struct ColorContract {', 'enum class CodecColorMode :',
+                      'enum class PreSrStorageContract {', 'enum class PostSrStorageContract {',
+                      'bool IsUnityExposureContract(', 'bool IsPreSrBoundedR8Contract(',
+                      'bool IsPqDisplayExposureContract(', 'bool IsR8SceneColorFormat(',
+                      'PreSrStorageContract ClassifyPreSrStorage(', 'bool IsUsablePreSrStorage(',
+                      'PostSrStorageContract ClassifyPostSrStorage(', 'bool IsUsablePostSrStorage('):
+        a,b=parser_module.block(raw,signature)
+        definitions.append(raw[a:b]+(';' if signature.startswith(('struct ','enum ')) else ''))
+    adapter=content['src/interop/nr_format_access_d3d12.inl'].decode('utf-8')
+    a,b=parser_module.block(adapter,'DXGI_FORMAT NrSceneReadFormat(')
+    definitions.insert(0,adapter[a:b])
+    content['tests/native_format_color_contract.inl']=('\n'.join(definitions)+'\n').encode()
     output.mkdir(parents=True)
     snapshot=output/'source'
     for name,data in content.items():

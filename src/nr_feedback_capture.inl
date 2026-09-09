@@ -135,6 +135,22 @@ void FeedbackAppendNgxLifecycle(FeedbackSession &s) {
 }
 
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+#if defined(NR_HAS_EXPOSURE_SEMANTIC_EVIDENCE)
+    const auto exposure_semantic = SnapshotNrExposureSemantic();
+    FeedbackAppend(s, "%s.semantic.Exposure=available:%d,present:%d,required:%d,physical:%u,flags:0x%X,"
+        "shape:%ux%u,mips:%u,samples:%u,selected:%u,source:%s,contract:final-exposure-scale-red,"
+        "config:%u,feature:%llu,deviceId:%llu,resourceId:%llu,mode:%d,queryAttempted:%d,queryResult:0x%08X,"
+        "support1:0x%X,support2:0x%X,verdict:%s,reason:%s,missingEvidence:%s,nextAction:%s\n",
+        prefix, exposure_semantic.available, exposure_semantic.present, exposure_semantic.required,
+        exposure_semantic.physical, exposure_semantic.flags, exposure_semantic.width, exposure_semantic.height,
+        exposure_semantic.mips, exposure_semantic.samples, static_cast<unsigned>(exposure_semantic.access.view),
+        nr_resource_semantics::SourceName(exposure_semantic.semantic.source), exposure_semantic.config,
+        exposure_semantic.feature, exposure_semantic.device, exposure_semantic.resource, exposure_semantic.mode,
+        exposure_semantic.access.query_attempted, static_cast<unsigned>(exposure_semantic.access.query_result),
+        exposure_semantic.access.support1, exposure_semantic.access.support2,
+        nr_resource_semantics::VerdictName(exposure_semantic.semantic.verdict), exposure_semantic.semantic.reason,
+        exposure_semantic.semantic.missing_evidence, exposure_semantic.semantic.next_action);
+#endif
 #if defined(NR_HAS_NATIVE_FORMAT_OBSERVER)
     const auto formats = SnapshotNrFormatDiagnostics();
     for (unsigned role = 0; role != 2; ++role) {
@@ -147,6 +163,34 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
                 d.available, d.physical, d.srv, d.uav, d.config, d.feature, d.device,
                 d.resource, d.observed_call, nr_format_access::StatusName(d.status),
                 static_cast<unsigned>(d.provenance), d.coverage, d.conflict, d.native_failed);
+            if (!first && d.available) {
+                const auto& semantic = d.semantic;
+                FeedbackAppend(s, "%s.semantic.%s=storage:%u,flags:0x%X,shape:%ux%u,array:%u,mips:%u,samples:%u,"
+                    "selected:%u,write:%u,source:%s,colorContract:%s,lifecycleMatch:%d,verdict:%s,"
+                    "reason:%s,definitive:%d,missingEvidence:%s,nextAction:%s\n",
+                    prefix, role ? "Output" : "ColorInput", d.physical, d.flags, d.width, d.height,
+                    d.arrays, d.mips, d.samples, semantic.access.srv, semantic.access.uav,
+                    nr_resource_semantics::SourceName(semantic.source),
+                    nr_resource_semantics::ContractName(semantic.contract),
+                    d.device && d.resource && d.feature && !d.conflict && !d.native_failed,
+                    nr_resource_semantics::VerdictName(semantic.verdict), semantic.reason,
+                    semantic.definitive, semantic.missing_evidence, semantic.next_action);
+                FeedbackAppend(s, "%s.semantic.%s.observedViews=", prefix, role ? "Output" : "ColorInput");
+                for (unsigned i = 0; i != d.observed.count; ++i)
+                    FeedbackAppend(s, "%s%u", i ? "," : "", d.observed.formats[i]);
+                FeedbackAppend(s, "; owner=%s; call=%llu\n",
+                    d.conflict ? "conflict" : d.native_failed ? "stale" : d.observed.format ? "current" : "none",
+                    d.observed_call);
+                for (unsigned i = 0; i != semantic.candidate_count; ++i) {
+                    const auto& c = semantic.candidates[i];
+                    FeedbackAppend(s, "%s.semantic.%s.candidate.%u=view:%u,write:%u,legal:%d,contractPossible:%d,"
+                        "codecImplemented:%d,queryAttempted:%d,queryResult:0x%08X,queryKnown:%d,texture2D:%d,srv:%d,uav:%d\n",
+                        prefix, role ? "Output" : "ColorInput", i, c.view, c.write_view, c.layout_legal,
+                        c.contract_possible, c.codec_implemented, c.capability.queried,
+                        static_cast<unsigned>(c.capability.result), c.capability.known(),
+                        c.capability.texture2d, c.capability.load, c.capability.store);
+                }
+            }
         }
     }
     FeedbackAppend(s, "%s.format.coverage=native Feature1 synchronous view creation only; "

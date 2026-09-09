@@ -2,6 +2,7 @@
 #include <array>
 #include <cstdint>
 #include "interop/nr_format_access.h"
+#include "nr_resource_semantics.h"
 
 // Evidence belongs to an object lifetime and one Feature generation. Descriptor
 // addresses are deliberately absent: heaps can be copied, overwritten or reused.
@@ -19,6 +20,8 @@ struct Key {
 struct View {
     unsigned format = 0;
     bool conflict = false;
+    std::array<unsigned, 6> formats{};
+    unsigned count = 0;
     void Observe(unsigned value, bool shape_valid = true) noexcept {
         if (!shape_valid || !value || nr_format_access::IsTypeless(value)) {
             conflict = true;
@@ -26,6 +29,9 @@ struct View {
         }
         if (format && format != value) conflict = true;
         if (!format) format = value;
+        for (unsigned i = 0; i != count; ++i) if (formats[i] == value) return;
+        if (count < formats.size()) formats[count++] = value;
+        else conflict = true;
     }
 };
 struct Evidence {
@@ -59,6 +65,7 @@ public:
             e->first_call = call;
         }
         if (view.format) e->view.Observe(view.format);
+        for (unsigned i = 0; i != view.count; ++i) e->view.Observe(view.formats[i]);
         e->view.conflict |= view.conflict;
         e->failed |= !success;
         e->last_call = call;
