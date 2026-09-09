@@ -292,6 +292,80 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,g_queue_retirement_wait_timeouts.load(),prefix,g_queue_retirement_wait_ms.load(),
         prefix,g_queue_retirement_wait_max_ms.load());
     const auto stored=SnapshotPostStoreEvidence();
+    const auto pre_stored=SnapshotPreStoreEvidence();
+    const auto append_store=[&](const char *route,const NrPostStoreEvidence &sample) {
+        const bool available=sample.samples!=0;
+        const auto &token=sample.recovery_token;
+        const auto &scope=token.key.scope;
+        const bool token_available=static_cast<bool>(token);
+        const bool scope_known=available && sample.config && sample.feature_generation &&
+            (sample.mode==1 || sample.mode==2) && token_available && token.key.resource && scope.device &&
+            scope.config_generation && scope.feature_generation && (scope.mode==1 || scope.mode==2) &&
+            decision.current.available;
+        const bool scope_matches=scope_known && sample.config==decision.current.config &&
+            sample.feature_generation==decision.current.feature_generation &&
+            static_cast<unsigned>(sample.mode)==decision.current.effective_mode &&
+            scope.config_generation==sample.config && scope.feature_generation==sample.feature_generation &&
+            scope.mode==static_cast<unsigned>(sample.mode);
+        const bool attempt_known=scope_known && decision.recovery.available &&
+            decision.recovery.attempted && decision.recovery.attempt_id;
+        const bool attempt_matches=scope_matches &&
+            nr_compatibility_verdict::SameScope(decision.recovery.scope,decision.current) &&
+            token.attempt_id==decision.recovery.attempt_id;
+        const auto value=[](std::uint64_t number,bool known) {
+            return known?std::to_string(number):std::string("unknown");
+        };
+        const auto id=[&](std::uint64_t number) { return value(number,number!=0); };
+        const auto decimal=[](float number,bool known) {
+            char text[64]="unknown";
+            if(known)std::snprintf(text,sizeof(text),"%.7f",number);
+            return std::string(text);
+        };
+        const auto hash=[](unsigned number,bool known) {
+            char text[16]="unknown";
+            if(known)std::snprintf(text,sizeof(text),"%08X",number);
+            return std::string(text);
+        };
+        const bool expected_available=available && sample.expected_samples!=0;
+        FeedbackAppend(s,"%s.store.%s=available:%d,source:frozen-recording-and-readback-sample,"
+            "mode:%s,config:%s,feature:%s,frame:%s,ageMs:%s,"
+            "tokenAvailable:%d,attempt:%s,carrierFrame:%s,carrierOrdinal:%s,"
+            "tokenConfig:%s,tokenFeature:%s,tokenFeatureGeneration:%s,tokenMode:%s,tokenDevice:%s,"
+            "scopeMatchesDecision:%s,attemptMatchesDecision:%s,scopeCompared:config-feature-effectiveMode,"
+            "actualTarget:%s,actualTargetGeneration:%s,actualTargetSubresource:%s,"
+            "sourcePhysical:%s,sourceView:%s,resultPhysical:%s,resultView:%s,resultUav:%s,"
+            "samples:%s,expected:%s,invalid:%s,actualNonfinite:%s,referenceNonfinite:%s,known:%s,match:%s,"
+            "changed:%s,expectedChanged:%s,beforeHash:%s,expectedHash:%s,actualHash:%s,"
+            "expectedMean:%s,actualMean:%s,expectedMax:%s,actualMax:%s\n",
+            prefix,route,available,
+            value(static_cast<unsigned>(sample.mode),available && (sample.mode==1 || sample.mode==2)).c_str(),
+            value(sample.config,available && sample.config).c_str(),
+            value(sample.feature_generation,available && sample.feature_generation).c_str(),
+            value(sample.frame,available && sample.frame).c_str(),
+            value(sample.tick?GetTickCount64()-sample.tick:0,available && sample.tick).c_str(),
+            token_available,id(token.attempt_id).c_str(),id(token.carrier.frame_id).c_str(),id(token.carrier.ordinal).c_str(),
+            id(scope.config_generation).c_str(),id(scope.feature).c_str(),id(scope.feature_generation).c_str(),
+            id(scope.mode).c_str(),id(scope.device).c_str(),value(scope_matches,scope_known).c_str(),
+            value(attempt_matches,attempt_known).c_str(),id(sample.recovery_target.resource).c_str(),
+            id(sample.recovery_target.resource_generation).c_str(),
+            value(sample.recovery_target.subresource,sample.recovery_target.resource!=0).c_str(),
+            value(sample.source_physical,available && sample.source_physical).c_str(),
+            value(sample.source_view,available && sample.source_view).c_str(),
+            value(sample.result_physical,available && sample.result_physical).c_str(),
+            value(sample.result_view,available && sample.result_view).c_str(),
+            value(sample.result_uav,available && sample.result_uav).c_str(),
+            value(sample.samples,available).c_str(),value(sample.expected_samples,available).c_str(),
+            value(sample.invalid,available).c_str(),value(sample.actual_nonfinite,available).c_str(),
+            value(sample.reference_nonfinite,available).c_str(),value(sample.comparison_known,available).c_str(),
+            value(sample.matches_expected,available && sample.comparison_known).c_str(),
+            value(sample.changed,available).c_str(),value(sample.expected_changed,expected_available).c_str(),
+            hash(sample.before_hash,available).c_str(),hash(sample.expected_hash,expected_available).c_str(),
+            hash(sample.actual_hash,available).c_str(),decimal(sample.expected_mean,expected_available).c_str(),
+            decimal(sample.actual_mean,available).c_str(),decimal(sample.expected_max,expected_available).c_str(),
+            decimal(sample.actual_max,available).c_str());
+    };
+    append_store("pre",pre_stored);
+    append_store("post",stored);
     FeedbackAppend(s,"%s.post.outputProbe.available=%d\n%s.post.outputProbe.frame=%llu\n"
         "%s.post.outputProbe.config=%u\n%s.post.outputProbe.featureGeneration=%llu\n%s.post.outputProbe.ageMs=%llu\n"
         "%s.post.outputProbe.samples=%u\n%s.post.outputProbe.expectedSamples=%u\n"
@@ -299,7 +373,7 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         "%s.post.outputProbe.meanStoredDelta=%.7f\n%s.post.outputProbe.expectedMeanStoredDelta=%.7f\n"
         "%s.post.outputProbe.maxStoredDelta=%.7f\n%s.post.outputProbe.expectedMaxStoredDelta=%.7f\n"
         "%s.post.outputProbe.beforeHash=%08X\n%s.post.outputProbe.expectedHash=%08X\n%s.post.outputProbe.actualHash=%08X\n"
-        "%s.post.outputProbe.note=sparse raw RGB read after external Output store; expected is pre-store float; typed quantization may differ; mean delta capped at 1; not Present or same-frame fullscreen evidence\n",
+        "%s.post.outputProbe.note=sparse RGB read after external Output store; expected uses the frozen actual typed UAV storage conversion and matching canonical read normalization; non-unique or nonfinite comparison is unknown; mean delta capped at 1; not Present or same-frame fullscreen evidence\n",
         prefix,stored.samples!=0,prefix,stored.frame,prefix,stored.config,prefix,stored.feature_generation,
         prefix,stored.tick?GetTickCount64()-stored.tick:0,prefix,stored.samples,prefix,stored.expected_samples,
         prefix,stored.changed,prefix,stored.expected_changed,prefix,stored.invalid,

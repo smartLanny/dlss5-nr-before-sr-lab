@@ -82,6 +82,7 @@ void ExpectDecision(const Fields &fields, const std::string &root, const Input &
     verify("recoveryResult", Name(verdict.recoveryResult));
     verify("firstDefinitiveFailure", verdict.firstDefinitiveFailure.empty() ? "none" : verdict.firstDefinitiveFailure);
     verify("evidenceComplete", verdict.evidenceComplete ? "1" : "0");
+    verify("evidenceCompleteMeaning", "enough evidence for the decision, not final visual acceptance");
     verify("missingEvidence", verdict.missingEvidence.empty() ? "none" : verdict.missingEvidence);
     verify("nextAction", Name(verdict.nextAction));
     verify("firstFailureHistorical", verdict.firstFailureHistorical ? "1" : "0");

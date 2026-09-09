@@ -124,6 +124,7 @@ inline void Decision(Record &record, const std::string &root,
     record.Field(root, "recoveryResult", Name(verdict.recoveryResult));
     record.Field(root, "firstDefinitiveFailure", verdict.firstDefinitiveFailure);
     record.Boolean(root, "evidenceComplete", verdict.evidenceComplete);
+    record.Field(root, "evidenceCompleteMeaning", "enough evidence for the decision, not final visual acceptance");
     record.Field(root, "missingEvidence", verdict.missingEvidence);
     record.Field(root, "nextAction", Name(verdict.nextAction));
     record.Scope(root + ".scope", verdict.scope);

@@ -33,9 +33,10 @@ def main() -> None:
     parser.add_argument('--omit-end-verdict-negative', action='store_true')
     parser.add_argument('--ascii-metadata-negative', action='store_true')
     parser.add_argument('--disable-privacy-negative', action='store_true')
+    parser.add_argument('--unknown-store-negative', action='store_true')
     args = parser.parse_args()
     if sum((args.old_capacity_negative, args.omit_end_verdict_negative,
-            args.ascii_metadata_negative, args.disable_privacy_negative)) > 1:
+            args.ascii_metadata_negative, args.disable_privacy_negative, args.unknown_store_negative)) > 1:
         parser.error('Choose one independent negative control per run.')
     output = args.output_dir.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -108,6 +109,8 @@ using NgxResult = unsigned int;
     records += definition(cpp, 'struct NrPostStoreEvidence {', True) + '\n'
     records += 'SRWLOCK g_diagnostic_snapshot_lock=SRWLOCK_INIT;\nNrPostStoreEvidence g_post_store_evidence;\n'
     records += function(cpp, 'NrPostStoreEvidence SnapshotPostStoreEvidence(') + '\n'
+    records += 'NrPostStoreEvidence g_pre_store_evidence;\n'
+    records += function(cpp, 'NrPostStoreEvidence SnapshotPreStoreEvidence(') + '\n'
     recovery = text['src/nr_resource_recovery_runtime.inl']
     records += definition(recovery, 'struct NrRecoverySnapshot {', True) + '\n'
     records += definition(recovery, 'struct NrRecoveryDetailSnapshot {', True) + '\n'
@@ -156,6 +159,10 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
         if values['ACTIVITY'].count(before) != 1: raise SystemExit('End-verdict control anchor changed')
         values['ACTIVITY'] = values['ACTIVITY'].replace(before,
             '    if (std::strcmp(prefix, "end") != 0) FeedbackAppendCompatibilityVerdict(s, prefix, decision);')
+    if args.unknown_store_negative:
+        before = 'value(sample.matches_expected,available && sample.comparison_known)'
+        if values['ACTIVITY'].count(before) != 1: raise SystemExit('Unknown store control anchor changed')
+        values['ACTIVITY'] = values['ACTIVITY'].replace(before, 'value(sample.matches_expected,available)')
     harness = core.HARNESS[:core.HARNESS.index('int main(int argc,char **argv) {')]
     for key, value in values.items():
         harness = harness.replace('\n' + key + '\n', '\n' + value + '\n')
@@ -202,10 +209,11 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
     (output / 'native.log').write_text(result.stdout + result.stderr, encoding='utf-8')
     print(result.stdout + result.stderr, end='')
     negative = (args.old_capacity_negative or args.omit_end_verdict_negative or
-                args.ascii_metadata_negative or args.disable_privacy_negative)
+                args.ascii_metadata_negative or args.disable_privacy_negative or args.unknown_store_negative)
     oracle = ('COMBINED_CAPACITY_TOO_SMALL' if args.old_capacity_negative else
               'COMBINED_END_VERDICT_REQUIRED' if args.omit_end_verdict_negative else
-              'METADATA_UTF8_REQUIRED' if args.ascii_metadata_negative else 'METADATA_PRIVACY_REQUIRED')
+              'METADATA_UTF8_REQUIRED' if args.ascii_metadata_negative else
+              'METADATA_PRIVACY_REQUIRED' if args.disable_privacy_negative else 'LATEST_UNKNOWN_MUST_REMAIN_UNKNOWN')
     if negative:
         if result.returncode != 1 or oracle not in result.stderr:
             raise SystemExit('Combined negative control missed its exact oracle: ' + oracle)
@@ -219,6 +227,7 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
             'decision.nextAction=needs-code\n', 'decision.firstFailureHistorical=1\n',
             'decision.scope.config=8\n', 'decision.firstFailureScope.config=7\n',
             'decision.serializationComplete=1\n', 'collection.metadataTruncated=0\n',
+            'decision.evidenceCompleteMeaning=enough evidence for the decision, not final visual acceptance\n',
             'start.semantic.Exposure=', 'end.semantic.Exposure=',
             'end.semantic.ColorInput.candidate.5=', 'end.semantic.Output.candidate.5=',
             'commandHistory.11.blend=', 'end.post.boundary.native.5=',
@@ -227,11 +236,23 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
             'end.recovery.receipt=scopeAvailable:1,scopeMatchesDecision:0,config:9,',
             'failureStage:actual-storage-read,failureResult:0x8007000E,failureKind:4,',
             'capacityUnknown:1,frameLost:1,receiptOverflow:1\n',
+            'start.store.pre=available:1,source:frozen-recording-and-readback-sample,mode:2,',
+            'end.store.post=available:1,source:frozen-recording-and-readback-sample,mode:1,',
+            'actualNonfinite:1,referenceNonfinite:1,known:0,match:unknown,',
+            'expected uses the frozen actual typed UAV storage conversion',
         )
         raw = (fixtures / 'combined-single.txt').read_bytes()
         single = raw.decode('utf-8-sig')
         paired_raw = (fixtures / 'combined-paired.txt').read_bytes()
         paired = paired_raw.decode('utf-8-sig')
+        latest = (fixtures / 'latest-store.txt').read_bytes().decode('utf-8-sig')
+        for key in ('end.store.pre=available:1,', 'mode:2,config:7,feature:41,frame:102,',
+                    'end.store.post=available:1,', 'mode:1,config:6,feature:40,frame:103,',
+                    'known:0,match:unknown,', 'proofFrame:501,proofAge:1,proofOrdinal:3,',
+                    'decision.evidenceComplete=1\n', 'decision.nextAction=needs-visual-F7\n',
+                    'decision.evidenceCompleteMeaning=enough evidence for the decision, not final visual acceptance\n'):
+            if key not in latest: raise SystemExit('Latest/historical store fixture missing: ' + key)
+        assert latest.endswith('END DLSS5 FEEDBACK TEXT\n')
         for label, content in (('single', single), ('paired', paired)):
             for key in required_keys:
                 if key not in content: raise SystemExit(label + ' missing key: ' + key)
@@ -261,6 +282,7 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
                             'zip_sha256': hashlib.sha256((fixtures / 'combined.zip').read_bytes()).hexdigest(),
                             'zip_manifest_matches_metadata': True, 'utf8_decoded': True,
                             'path_redacted': True, 'embedded_bytes_cannot_inject_keys': True,
+                            'latest_unknown_and_historical_proof_kept_separate': True,
                             'required_keys': list(required_keys)}
     if any((ROOT / name).read_bytes() != data for name, data in captured.items()):
         raise SystemExit('Source changed during combined validation')
