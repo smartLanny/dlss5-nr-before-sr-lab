@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cwchar>
 #include <new>
+#include <string>
 #include "../src/nr_diagnostic_bundle.inl"
 
 namespace {
@@ -47,11 +48,39 @@ bool TestSha() {
     sha.Finish(actual);
     return Check(std::strcmp(actual,"cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0")==0,"SHA256 million a");
 }
+bool TestMetadataCapacity(const wchar_t *parent) {
+    wchar_t directory[nr_bundle::kMaxPath]={};
+    std::string large="metadata.case=large\n";
+    while(large.size()<96u*1024u)large+="字段=诊断; value=0123456789abcdef\n";
+    large+="metadata.requiredTail=complete\n";
+    if(!CaseDirectory(directory,parent,L"metadata-large"))return false;
+    auto *job=nr_bundle::CreateJob(directory,large.c_str());
+    if(!Check(job && std::strlen(job->metadata)==large.size(),"large UTF8 metadata crosses old 32KiB limit without package truncation"))return false;
+    const auto complete=nr_bundle::Run(*job);nr_bundle::DestroyJob(job);
+    if(!Check(complete.status==nr_bundle::Status::Complete&&complete.required_complete,"large metadata produces an actual complete archive"))return false;
+
+    const std::string suffix="中文";
+    std::string boundary(nr_bundle::kMetadataBytes-1-suffix.size(),'a');boundary+=suffix;
+    if(!CaseDirectory(directory,parent,L"metadata-limit"))return false;
+    job=nr_bundle::CreateJob(directory,boundary.c_str());
+    if(!Check(job && std::strlen(job->metadata)==nr_bundle::kMetadataBytes-1 && nr_bundle::ValidUtf8(job->metadata),
+        "exact metadata limit keeps the final multibyte character and terminating NUL"))return false;
+    const auto limit=nr_bundle::Run(*job);nr_bundle::DestroyJob(job);
+    if(!Check(limit.status==nr_bundle::Status::Complete&&limit.required_complete,"near-capacity UTF8 metadata survives real ZIP and JSON serialization"))return false;
+
+    boundary+='x';job=nr_bundle::CreateJob(directory,boundary.c_str());
+    if(!Check(job==nullptr,"metadata at capacity is rejected instead of silently clipping bytes")){nr_bundle::DestroyJob(job);return false;}
+    std::string invalid(nr_bundle::kMetadataBytes-2,'a');invalid+='\xE4';
+    job=nr_bundle::CreateJob(directory,invalid.c_str());
+    if(!Check(job==nullptr,"incomplete final UTF8 code point is rejected within size limit")){nr_bundle::DestroyJob(job);return false;}
+    return true;
+}
 }
 
 int wmain(int argc,wchar_t **argv) {
     if (argc!=2) return 2;
     if (!TestSha()) return 1;
+    if (!TestMetadataCapacity(argv[1])) return 1;
     wchar_t source[nr_bundle::kMaxPath]={},empty[nr_bundle::kMaxPath]={},log[nr_bundle::kMaxPath]={};
     wchar_t directory[nr_bundle::kMaxPath]={},missing[nr_bundle::kMaxPath]={};
     if (!Path(source,argv[1],L"source.bin")||!Path(empty,argv[1],L"empty.bin")||
