@@ -148,8 +148,8 @@ test('shared NVIDIA profile scope is visible without nagging a single executable
   assert.doesNotMatch(ui.driverScopeMarkup({ error: { message: '<secret>' } }), /secret/);
 });
 
-test('missing game DLSS capability blocks edits and preparation but keeps global restore available', async () => {
-  const data = { hardware: { family: 'RTX40', series: ['RTX40'] }, requests: {}, applied: {}, pending: [],
+test('missing game capability hides irrelevant editors and retains restoration when a previous request exists', async () => {
+  const data = { hardware: { family: 'RTX40', series: ['RTX40'] }, requests: { sr: { request: { backend: 'native', quality: 'quality' } } }, applied: {}, pending: [],
     fgComponents: { route: 'compatibility', ready: false, canPrepare: true, missing: ['compatibility files'], blockers: [] } };
   const host = { isConnected: true, innerHTML: '', querySelector: () => null };
   let writes = 0;
@@ -159,11 +159,11 @@ test('missing game DLSS capability blocks edits and preparation but keeps global
     prepareFgComponents: async () => { writes++; return { ok: true, value: { prepared: true } }; }
   } });
   await controller.ready;
-  assert.match(host.innerHTML, /未检测到普通 DLSS/);
-  assert.match(host.innerHTML, /请确认已选择游戏实际运行的 EXE/);
+  assert.match(host.innerHTML, /未检测到原生 DLSS 超分/);
+  assert.match(host.innerHTML, /没有可准备的补帧功能/);
   assert.match(host.innerHTML, /data-ls-action="restore-all"(?![^>]* disabled)/);
-  assert.match(host.innerHTML, /<fieldset disabled/);
-  assert.match(host.innerHTML, /data-ls-action="prepare" disabled/);
+  assert.doesNotMatch(host.innerHTML, /<fieldset|data-ls-field=/);
+  assert.doesNotMatch(host.innerHTML, /data-ls-action="prepare"/);
   await controller.perform('auto', 'sr');
   await controller.perform('prepare', 'fg');
   assert.equal(writes, 0);
@@ -188,7 +188,7 @@ test('FG owner recovery remains available with component WAL or migration, LS pe
     assert.match(host.innerHTML, pending.fileRecoveryPending ? /恢复未完成组件操作/ : /恢复未完成迁移/);
     assert.match(host.innerHTML, /data-ls-action="restore-all"[^>]* disabled/);
     assert.match(host.innerHTML, /data-ls-action="remove-components"[^>]* disabled/);
-    assert.match(host.innerHTML, /<fieldset disabled/);
+    assert.doesNotMatch(host.innerHTML, /<fieldset|data-ls-field=/);
     const recovering = controller.perform('recover-components', 'fg');
     assert.equal(controller.getState().busy, true);
     assert.match(host.innerHTML, /data-ls-action="recover-components"[^>]* disabled/);
@@ -197,8 +197,8 @@ test('FG owner recovery remains available with component WAL or migration, LS pe
     complete(); await recovering;
     assert.equal(controller.getState().busy, false);
     assert.doesNotMatch(host.innerHTML, /data-ls-action="recover-components"/);
-    assert.match(host.innerHTML, /data-ls-action="prepare"[^>]* disabled/);
-    assert.match(host.innerHTML, /<fieldset disabled/, 'recovery cannot create native capability');
+    assert.doesNotMatch(host.innerHTML, /data-ls-action="prepare"/);
+    assert.doesNotMatch(host.innerHTML, /<fieldset|data-ls-field=/, 'recovery cannot create native capability');
   }
 });
 
@@ -264,7 +264,7 @@ test('failed game launch refreshes any settings that were already applied and en
   assert.match(main, /error\?\.details\?\.launchSettings/);
   assert.match(main, /outcomes\.filter\(row => row\?\.applied === true \|\| row\?\.skipped === true\)/);
   assert.match(main, /launchFailed: true/);
-  assert.match(renderer, /window\.manager\.launch\(id\), '游戏已启动', false, id/);
+  assert.match(renderer, /window\.manager\.launch\(id\), '已发起游戏启动，请核对游戏窗口', false, id/);
 });
 
 test('new SR controls expose presets and ratios without offering a legacy OptiScaler backend', async () => {

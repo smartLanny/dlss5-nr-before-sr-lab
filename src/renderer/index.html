@@ -17,7 +17,7 @@
       </div>
       <nav>
         <button class="nav active" data-view="games"><span class="nav-icon nav-icon-games" aria-hidden="true"></span>游戏</button>
-        <button class="nav" data-view="repair"><span class="nav-icon nav-icon-repair" aria-hidden="true"></span>修复</button>
+        <button class="nav" data-view="repair"><span class="nav-icon nav-icon-repair" aria-hidden="true"></span>维护</button>
         <button class="nav" data-view="addons"><span class="nav-icon nav-icon-addons" aria-hidden="true"></span>组件管理</button>
         <button class="nav" data-view="settings"><span class="nav-icon nav-icon-settings" aria-hidden="true"></span>设置</button>
       </nav>
@@ -63,9 +63,8 @@
         </div>
         <div class="panel diagnostics" id="diagnostics"></div>
         <div class="repair-actions">
-          <button class="button primary" id="repairBtn">一键修复</button>
+          <button class="button primary" id="repairBtn">维护与恢复</button>
           <button class="button" id="copyDiagBtn">复制诊断信息</button>
-          <button class="button danger" id="uninstallBtn">卸载插件</button>
         </div>
         <div class="panel feedback-panel">
           <div class="section-heading"><div><h3>需要进一步排查</h3><p>保存精简反馈，保留错误原因和必要环境信息。</p></div><span class="badge">只保存到本机</span></div>
@@ -189,6 +188,7 @@
   <script src="game-detail-tabs.js"></script>
   <script src="launch-settings-ui.js"></script>
   <script src="startup-ui.js"></script>
+  <script src="game-maintenance-ui.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

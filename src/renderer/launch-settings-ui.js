@@ -98,7 +98,7 @@
       return fields;
     }
     const backend = hardwareFacts(data.hardware).fgBackend || '';
-    return { backend, mode: backend === 'mfgunlock' ? 'follow' : 'restore', multiplier: 2, targetFps: 0, experimental56: false, ...request };
+    return { backend, mode: 'restore', multiplier: 2, targetFps: 0, experimental56: false, ...request };
   }
 
   function legacyState(data) {
@@ -118,7 +118,7 @@
     const legacy = domain === 'sr' ? legacyState(data) : null;
     const legacyError = domain === 'sr' && !saved && data.legacy?.error;
     const appliedLabel = applied?.request ? requestLabel(domain, applied.request) : null;
-    return `<div class="launch-status" aria-live="polite"><span class="badge ${dirty ? 'warn' : applied ? 'good' : ''}">${dirty ? '等待应用' : applied ? '已应用配置' : legacy ? '沿用原模型设置' : legacyError ? '状态未确认' : '使用原有设置'}</span>${readback ? '<span class="badge good">配置已校验</span>' : ''}</div><p class="launch-saved">${esc(appliedLabel || (legacy ? `沿用原模型设置：${legacy.label}` : saved ? `已有保存设置：${requestLabel(domain, saved)}` : '更改选项后自动应用'))}</p>`;
+    return `<div class="launch-status" aria-live="polite"><span class="badge ${dirty ? 'warn' : applied ? 'good' : ''}">${dirty ? '等待应用' : applied ? '✓ 已应用配置' : legacy ? '沿用原模型设置' : legacyError ? '状态未确认' : '使用原有设置'}</span>${readback ? '<span class="badge good">✓ 配置已校验</span>' : ''}</div><p class="launch-saved">${esc(appliedLabel || (legacy ? `沿用原模型设置：${legacy.label}` : saved ? `已有保存设置：${requestLabel(domain, saved)}` : '更改选项后自动准备并应用，无需单独准备'))}</p>`;
   }
 
   function srFields(fields, hardware) {
@@ -146,7 +146,7 @@
       <p class="config-note">${fields.mode === 'restore' ? '恢复原有配置，不会关闭 FG。' : !community && fields.mode === 'off' ? '请求驱动关闭 FG；游戏菜单可能不变。' : community ? '请先在游戏内开启 FG。请求只会提高较低倍率，不会降低游戏已有的更高倍率；需要重启游戏。' : '使用原生 FG，请在游戏中开启。'} 游戏内开关暂无法读取。</p>${community ? '<p class="config-note">游戏内菜单：ReShade → Add-ons → MFG Unlock。3× 以上请求可能触发上游帧节奏兼容处理，实际表现需按游戏核对。</p>' : ''}`;
   }
 
-  function fgComponentMarkup(data, busy, recoveryBusy = busy) {
+  function fgComponentMarkup(data, busy, recoveryBusy = busy, allowPrepare = true) {
     const info = data.fgComponents;
     const facts = hardwareFacts(data.hardware);
     if (!info) return '<div class="launch-components"><p>组件状态待确认，请重新读取。</p></div>';
@@ -156,12 +156,12 @@
     const legacy = info.legacyNeedsMigration === true || [data.requests?.fg?.request, data.applied?.fg?.request].some(request => request?.backend === 'rtx40');
     const migrationPending = info.migrationPending === true || Boolean(info.migrationPending?.token);
     const fileRecoveryPending = info.fileRecoveryPending === true;
-    return `<div class="launch-components"><strong>${native ? 'RTX 50 · 原生帧生成' : info.route === 'compatibility' ? 'RTX 40 · 兼容帧生成' : '帧生成路线待确认'}</strong>
+    return `<div class="launch-components"><strong>${native ? 'RTX 50 · 原生帧生成' : info.route === 'compatibility' ? 'RTX 40 · 兼容帧生成' : '帧生成路线待确认'}</strong><span class="badge${info.ready ? ' good' : ''}">${info.ready ? '✓ 配套已就绪' : '配套待确认'}</span>
       <p>${native ? info.needsCleanup ? '更改补帧选项时会恢复旧兼容组件，再使用原生路线。' : '使用游戏和驱动的原生帧生成，无需另装兼容库。' : info.route !== 'compatibility' ? '请先确认显卡与游戏的 FG 路线。' : info.ready ? '兼容组件已就绪。' : '更改补帧选项时会自动准备配套组件。'}</p><p class="config-note">需要游戏已有受支持的帧生成；不是向任意游戏注入补帧。游戏只有 2× 选项时可请求更高倍率，实际生效仍取决于游戏、驱动和组件。</p>
       ${blockers.length ? `<p class="launch-error">${blockers.map(esc).join('<br>')}</p>` : ''}
       ${missing.length ? `<details><summary>待准备的组件（${missing.length}）</summary><ul>${missing.map(item => `<li>${esc(typeof item === 'string' ? item : item.label || item.name || item.role)}</li>`).join('')}</ul></details>` : ''}
       ${!native && info.backend !== 'mfgunlock' && info.runtime && info.runtime.ready !== true ? `<div class="payload-source-actions">${info.runtime.repair !== 'game-files' ? `<button class="button primary" type="button" data-ls-action="runtime-help"${busy ? ' disabled' : ''}>下载 VC++ x64 运行库</button>` : ''}<button class="button" type="button" data-ls-action="runtime-check"${busy ? ' disabled' : ''}>重新检查运行库</button></div><p class="config-note">${info.runtime.repair === 'game-files' ? '请验证游戏文件后重查；不会覆盖游戏自带运行库。' : '微软官方下载；安装或修复完成后重新检查。'}</p>` : ''}
-      ${fileRecoveryPending || migrationPending ? `<button class="button primary" type="button" data-ls-action="recover-components"${recoveryBusy ? ' disabled' : ''}>${fileRecoveryPending ? '恢复未完成组件操作' : '恢复未完成迁移'}</button>` : legacy && !native ? `<p class="config-note">迁移会先撤销旧补帧设置，再替换本工具管理的旧组件。新方案默认跟随游戏，不沿用旧动态目标。</p><button class="button primary" type="button" data-ls-action="migrate-components"${busy ? ' disabled' : ''}>迁移并准备 MFG Unlock</button>` : info.needsCleanup ? `<button class="button primary" type="button" data-ls-action="native-route"${busy ? ' disabled' : ''}>切换为原生帧生成</button>` : !info.ready && info.canPrepare ? `<button class="button primary" type="button" data-ls-action="prepare"${busy ? ' disabled' : ''}>准备 MFG Unlock</button>` : ''}
+      ${fileRecoveryPending || migrationPending ? `<button class="button primary" type="button" data-ls-action="recover-components"${recoveryBusy ? ' disabled' : ''}>${fileRecoveryPending ? '恢复未完成组件操作' : '恢复未完成迁移'}</button>` : legacy && !native ? `<p class="config-note">迁移会先撤销旧补帧设置，再替换本工具管理的旧组件。新方案默认跟随游戏，不沿用旧动态目标。</p><button class="button primary" type="button" data-ls-action="migrate-components"${busy || !allowPrepare ? ' disabled' : ''}>迁移并准备 MFG Unlock</button>` : info.needsCleanup ? `<button class="button primary" type="button" data-ls-action="native-route"${busy ? ' disabled' : ''}>切换为原生帧生成</button>` : ''}
       ${!native && info.managed ? `<button class="button subtle" type="button" data-ls-action="remove-components"${busy ? ' disabled' : ''}>移除兼容组件</button>` : ''}
     </div>`;
   }
@@ -194,12 +194,18 @@
       const focusDomain = focusField && focused.closest('[data-ls-domain]')?.dataset.lsDomain;
       const facts = hardwareFacts(data.hardware);
       const pending = Array.isArray(data.pending) && data.pending.length > 0;
-      host.innerHTML = `<div class="launch-head"><div><h4>超分补帧</h4><p>更改后自动应用；请先退出游戏，正在运行的游戏需要重启才会采用新设置。</p></div><span title="${esc(facts.allNames)}">${esc(facts.label)}</span><button class="button subtle" type="button" data-ls-action="restore-all" title="撤销管理器的 SR / FG 覆盖，恢复原有游戏及驱动设置"${busy || pending ? ' disabled' : ''}>恢复默认</button></div>${capabilityMissing ? '<div class="launch-capability-missing" role="status"><strong>未检测到普通 DLSS</strong><span>请确认已选择游戏实际运行的 EXE；确认前不会应用 SR 设置；补帧资格独立检查。</span></div>' : ''}${driverScopeMarkup(data.driverScope, busy || pending)}${pending ? `<div class="launch-recovery" role="alert"><span>${esc(data.notice || '上次操作未完成，请先恢复。')}</span><button class="button" type="button" data-ls-action="recover">恢复未完成操作</button></div>` : data.notice ? `<p class="launch-message launch-error" role="alert">${esc(data.notice)}</p>` : ''}${data.legacy?.error ? `<p class="launch-message launch-error">旧 SR 记录读取失败：${esc(data.legacy.error.message)}。恢复记录已保留。</p>` : ''}
+      const owned = domain => Boolean(data.requests?.[domain]?.request || data.applied?.[domain] || (domain === 'sr'
+        ? data.legacy?.configured || data.legacy?.baselineCaptured || data.legacy?.error
+        : data.fgComponents?.managed || data.fgComponents?.legacyNeedsMigration || data.fgComponents?.migrationPending || data.fgComponents?.fileRecoveryPending));
+      const hasOwned = owned('sr') || owned('fg');
+      host.innerHTML = `<div class="launch-head"><div><h4>超分补帧</h4><p>${capabilityMissing && fgCapabilityMissing ? '此游戏未检测到原生 DLSS 超分或补帧；画面增强请在“画面设置”中查看。' : '更改选项后自动准备并应用，无需再点准备按钮；运行中的游戏需要重启。'}</p></div><span title="${esc(facts.allNames)}">${esc(facts.label)}</span>${hasOwned ? `<button class="button subtle" type="button" data-ls-action="restore-all" title="撤销管理器的 SR / FG 覆盖，恢复原有游戏及驱动设置"${busy || pending ? ' disabled' : ''}>恢复默认</button>` : ''}</div>${!capabilityMissing || !fgCapabilityMissing || hasOwned ? driverScopeMarkup(data.driverScope, busy || pending) : ''}${pending ? `<div class="launch-recovery" role="alert"><span>${esc(data.notice || '上次操作未完成，请先恢复。')}</span><button class="button" type="button" data-ls-action="recover">恢复未完成操作</button></div>` : data.notice ? `<p class="launch-message launch-error" role="alert">${esc(data.notice)}</p>` : ''}${data.legacy?.error ? `<p class="launch-message launch-error">旧 SR 记录读取失败：${esc(data.legacy.error.message)}。恢复记录已保留。</p>` : ''}
         <div class="launch-grid">${['sr', 'fg'].map(domain => {
           const fields = drafts[domain];
           const legacyOptiScaler = domain === 'sr' && hasLegacyOptiScaler(data);
           const available = domain === 'sr' ? !legacyOptiScaler : facts.fgBackend && fields.backend === facts.fgBackend;
           const message = messages[domain];
+          const missingCapability = domain === 'sr' ? capabilityMissing : fgCapabilityMissing;
+          if (missingCapability) return `<section class="launch-panel launch-panel-unavailable" data-ls-domain="${domain}" aria-label="${domain === 'sr' ? 'SR 超分辨率' : 'FG 帧生成'}"><div class="launch-panel-title"><h4>${domain === 'sr' ? 'SR 超分' : 'FG 帧生成'}</h4><span class="badge">未检测到支持</span></div><p class="launch-unavailable">${domain === 'sr' ? '未检测到原生 DLSS 超分，本次没有可准备的超分功能。' : '未检测到原生 Streamline 补帧，本次没有可准备的补帧功能。'}</p>${owned(domain) ? `<p class="config-note">旧设置或恢复记录仍保留，可使用恢复入口处理。</p>${domain === 'fg' ? fgComponentMarkup(data, busy || pending, busy, false) : statusMarkup(domain, data, dirty[domain])}` : ''}${message ? `<p class="launch-message${message.error ? ' launch-error' : ''}" role="${message.error ? 'alert' : 'status'}">${esc(message.text)}</p>` : ''}</section>`;
           return `<section class="launch-panel" data-ls-domain="${domain}" aria-label="${domain === 'sr' ? 'SR 超分辨率' : 'FG 帧生成'}"><div class="launch-panel-title"><h4>${domain === 'sr' ? 'SR 超分' : 'FG 帧生成'}</h4><span>${domain === 'sr' ? '画质与模型' : '倍率与目标'}</span></div>
             ${domain === 'fg' ? fgComponentMarkup(data, busy || pending || fgCapabilityMissing, busy) : ''}
             ${domain === 'fg' && fgCapabilityMissing ? '<p class="launch-unavailable">未确认游戏已有 Streamline DLSS 帧生成，暂不写入补帧设置。</p>' : ''}

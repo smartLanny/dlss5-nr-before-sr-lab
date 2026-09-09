@@ -82,6 +82,25 @@ async function externalFixture(t) {
   return {...f,id,external,addon,bundleFile};
 }
 
+test('historical hotfix Add-on restored by uninstall stays visible and can be reversibly isolated', async t => {
+  const f = await externalFixture(t), name = 'DLSS5-AI渲染超分版-beta0.4.6-hotfix.1-@野生的装机宅-Bilibili.addon64';
+  const old = path.join(path.dirname(f.exe), name); fs.writeFileSync(old, 'original hotfix core');
+  await f.service.install(f.id, { version: '0.3.3.5' });
+  assert.equal(fs.existsSync(old), false, 'installation quarantines the conflicting old Add-on');
+  const result = await f.service.uninstall(f.id);
+  assert.equal(result.removed, true); assert.equal(fs.readFileSync(old, 'utf8'), 'original hotfix core');
+  assert.ok(result.restoredOriginalFiles.some(rel => rel.endsWith(name)));
+  const environment = require('../src/product/game-environment').createGameEnvironment({
+    gameDirectory: () => f.gameDir, gameExecutable: () => f.exe, pe: { versionMentions: () => false }, guards: { assertGameClosed: async () => {} }
+  });
+  const remaining = (await environment.inspect(f.id)).remainingFiles;
+  assert.equal(remaining.find(row => row.name === name).legacyNr, true);
+  const preview = await environment.preview(f.id);
+  assert.equal(preview.candidates.find(row => row.name === name).selectedByDefault, true);
+  await environment.apply(f.id, preview.planId, [name]); assert.equal(fs.existsSync(old), false);
+  await environment.restore(f.id); assert.equal(fs.readFileSync(old, 'utf8'), 'original hotfix core');
+});
+
 test('incomplete uninstall returns a failed IPC envelope and keeps the original receipt and changed file', async t => {
   const f = await externalFixture(t); await f.service.install(f.id, { version: '0.3.3.5' });
   const receipt = path.join(f.gameDir, '_DLSS5_Backup', 'xiaofeng-manager.json');

@@ -109,7 +109,7 @@ async function recover(gameDir) {
   await cleanup(gameDir, state).catch(() => {});
   return true;
 }
-async function transaction(gameDir, work) {
+async function transaction(gameDir, work, options = {}) {
   if (active.has(rootKey(gameDir))) throw error('errJobBusy');
   if (fs.existsSync(pendingPath(gameDir))) throw error('errBackendRecovery');
   safePath(gameDir, '_DLSS5_Backup/pending-switch.json');
@@ -129,7 +129,9 @@ async function transaction(gameDir, work) {
     // target. Keep the existing WAL for explicit recovery, never blindly erase it.
     if (cause && cause.preservePending === true)
       throw Object.assign(error('errBackendRecovery'), { cause, pendingPreserved: true });
-    try { await recover(gameDir); }
+    // A stricter owner can preserve its own atomic recovery contract even
+    // when committing the transaction (removing its WAL) fails after work.
+    try { await (typeof options.recoverOnError === 'function' ? options.recoverOnError(gameDir) : recover(gameDir)); }
     catch (recoveryError) { throw Object.assign(error('errBackendRecovery'), { cause, recoveryError }); }
     throw cause;
   }

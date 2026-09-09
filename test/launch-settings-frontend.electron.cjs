@@ -38,6 +38,7 @@ function installMock() {
     onAddonImported: () => {}, onLaunchSettingsApplied: callback => { mock.listener = callback; },
     inspectLaunchSettings: async id => { mock.calls.push(['inspect', id]); return ok(mock.data); },
     inspectPreparation: async () => ok({ pending: false, stages: [], runtimeVerified: false }),
+    inspectEnvironment: async () => ok({ pending: false, isolated: false, canRestore: false, files: [] }),
     recoverPreparation: async id => { mock.calls.push(['recover-preparation', id]); return ok({ restored: true }); },
     prepareFgComponents: async (id, options) => { mock.calls.push(['prepare-components', id, options]); mock.data.fgComponents = { backend: 'mfgunlock', id: 'mfgunlock-0.6.1', route: 'compatibility', ready: true, managed: true, legacyNeedsMigration: false, missing: [], blockers: [] }; mock.data.requests.fg = { request: { backend: 'mfgunlock', mode: 'follow' } }; mock.data.applied.fg = { backend: 'mfgunlock', request: { backend: 'mfgunlock', mode: 'follow' }, readbackVerified: true }; return ok({ prepared: true, requiresRestart: true, runtimeVerified: false }); },
     recoverFgComponents: async id => { mock.calls.push(['recover-components', id]); mock.data.fgComponents = { backend: 'mfgunlock', id: 'mfgunlock-0.6.1', route: 'compatibility', ready: false, canPrepare: true, migrationPending: false, missing: ['renodx-mfgunlock.addon64'], blockers: [] }; delete mock.data.requests.fg; delete mock.data.applied.fg; return ok({ restored: true }); },
@@ -98,21 +99,24 @@ async function smoke() {
   assert(tabs.active() === 'enhance' && !host.launchSettingsController, 'An installed game starts on enhancement without probing hidden SR/FG settings');
   assert(detail.querySelectorAll('[data-detail-tab]').length === 2 && !detail.querySelector('[data-detail-tab="diagnostics"]'), 'Game details offer only enhancement and graphics tabs');
   const apiSelect = detail.querySelector('.game-api-select'), coreSelect = detail.querySelector('.game-version-select');
-  assert(!apiSelect.closest('[data-detail-panel]') && !coreSelect.closest('[data-detail-panel]') && visible(apiSelect) && visible(coreSelect), 'API and core controls live outside tab panels and are visible on enhancement');
+  assert(apiSelect.closest('[data-detail-panel="enhance"]') && coreSelect.closest('[data-detail-panel="enhance"]') && !detail.querySelector('.route-options').open, 'Installed API and core controls are grouped in collapsed enhancement installation options');
+  detail.querySelector('.route-options > summary').click();
+  assert(visible(apiSelect) && visible(coreSelect), 'Opening installation options exposes the existing API and core controls');
   assert(detail.querySelector('.skin-settings').tagName === 'DIV' && !detail.querySelector('.nr-mask').closest('details') && visible(detail.querySelector('.nr-mask')) && visible(detail.querySelector('.nr-skin-strength')), 'Skin protection and strength are visible without expanding an advanced section');
   const coveredTab = detail.querySelector('[data-detail-tab="graphics"]');
-  detail.querySelector('.uninstall-inline-btn').click();
-  const removalModal = document.getElementById('modal'), tabRect = coveredTab.getBoundingClientRect();
+  detail.querySelector('.maintenance-inline-btn').click();
+  await waitUntil(() => document.querySelector('.maintenance-start:not([disabled])'));
+  const removalModal = document.querySelector('.maintenance-overlay'), tabRect = coveredTab.getBoundingClientRect();
   const hit = document.elementFromPoint(tabRect.left + tabRect.width / 2, tabRect.top + tabRect.height / 2);
-  assert(!removalModal.classList.contains('hidden') && Number(getComputedStyle(removalModal).zIndex) > Number(getComputedStyle(detail.querySelector('.detail-tabs')).zIndex), 'The removal modal is stacked above sticky detail tabs');
-  assert(hit === removalModal || hit?.closest('#modal') === removalModal, 'The modal mask receives pointer hits over the underlying sticky tab');
-  document.getElementById('modalConfirm').focus();
-  assert(document.activeElement === document.getElementById('modalConfirm') && removalModal.matches(':focus-within'), 'Modal actions retain keyboard focus above the covered content');
+  assert(Number(getComputedStyle(removalModal).zIndex) > Number(getComputedStyle(detail.querySelector('.detail-tabs')).zIndex), 'The maintenance modal is stacked above sticky detail tabs');
+  assert(hit === removalModal || hit?.closest('.maintenance-overlay') === removalModal, 'The modal mask receives pointer hits over the underlying sticky tab');
+  const modalAction = removalModal.querySelector('.maintenance-start'); modalAction.focus();
+  assert(document.activeElement === modalAction && removalModal.matches(':focus-within'), 'Modal actions retain keyboard focus above the covered content');
   hit.click();
   assert(tabs.active() === 'enhance' && !removalModal.classList.contains('hidden'), 'Clicking the mask over a tab cannot activate the covered tab or dismiss the confirmation');
-  document.getElementById('modalCancel').click();
+  removalModal.querySelector('[data-maintenance-action="close"]').click();
   detail.querySelector('[data-detail-tab="graphics"]').click();
-  assert(visible(apiSelect) && visible(coreSelect), 'The same public API and core controls remain visible on graphics');
+  assert(!visible(apiSelect) && !visible(coreSelect), 'Graphics settings do not repeat the installation API and core controls');
   await host.launchSettingsController.ready;
   const controller = host.launchSettingsController;
   assert(host.querySelector('.launch-driver-scope')?.textContent.includes('Fixture Shared Profile') && host.querySelector('.launch-driver-scope')?.textContent.includes('关联 2 个启动入口'), 'A shared NVIDIA profile explains that settings affect both launch entries');
@@ -120,15 +124,15 @@ async function smoke() {
   const writesBeforeCapability = mock.calls.filter(row => row[0] === 'update').length;
   const capabilityController = window.launchSettingsUi.mount(capabilityHost, 'ui-fixture', { manager: window.manager, nativeDlssAvailable: false, nativeFgAvailable: false });
   await capabilityController.ready;
-  assert(capabilityHost.textContent.includes('未检测到普通 DLSS') && [...capabilityHost.querySelectorAll('fieldset')].every(item => item.disabled), 'A game with neither native SR nor native FG disables both editors');
-  assert(!capabilityHost.querySelector('[data-ls-action="restore-all"]').disabled && !capabilityHost.querySelector('[data-ls-action="prepare"]:not([disabled])'), 'Missing DLSS keeps restoration available while component preparation cannot run');
+  assert(capabilityHost.textContent.includes('未检测到原生 DLSS 超分') && !capabilityHost.querySelector('fieldset'), 'A game with neither native SR nor native FG explains the missing functions without irrelevant editors');
+  assert(!capabilityHost.querySelector('[data-ls-action="restore-all"]') && !capabilityHost.querySelector('[data-ls-action="prepare"]'), 'A game without prior settings has no unnecessary restore or preparation action');
   await capabilityController.perform('auto', 'sr');
   assert(mock.calls.filter(row => row[0] === 'update').length === writesBeforeCapability, 'A disabled capability cannot be bypassed through the renderer controller');
   capabilityHost.remove();
   const fgOnlyHost = document.createElement('div'); fgOnlyHost.className = 'launch-settings-host'; host.parentElement.appendChild(fgOnlyHost);
   const fgOnlyController = window.launchSettingsUi.mount(fgOnlyHost, 'ui-fixture', { manager: window.manager, nativeDlssAvailable: false, nativeFgAvailable: true });
   await fgOnlyController.ready;
-  assert(fgOnlyHost.querySelector('[data-ls-domain="sr"] fieldset').disabled && !fgOnlyHost.querySelector('[data-ls-domain="fg"] fieldset').disabled,
+  assert(!fgOnlyHost.querySelector('[data-ls-domain="sr"] fieldset') && !fgOnlyHost.querySelector('[data-ls-domain="fg"] fieldset').disabled,
     'Real renderer keeps native FG eligibility independent of missing native SR');
   fgOnlyHost.remove();
   for (const [kind, pending] of [['component WAL', { fileRecoveryPending: true }], ['migration', { migrationPending: true }], ['migration token', { migrationPending: { token: 'fixture-migration' } }]]) {
@@ -158,7 +162,7 @@ async function smoke() {
     recoverButton().click();
     assert(recoveryCalls.length === 1 && recoveryCalls[0][0] === 'owner' && recoveryCalls[0][1] === 'fg-owner-fixture', `${kind} calls recoverFgComponents once and never the generic recovery API`);
     finishRecovery(); await waitUntil(() => !recoveryController.getState().busy);
-    assert(!recoverButton() && recoveryHost.querySelector('[data-ls-domain="fg"] fieldset').disabled && recoveryHost.querySelector('[data-ls-action="prepare"]').disabled,
+    assert(!recoverButton() && !recoveryHost.querySelector('[data-ls-domain="fg"] fieldset') && !recoveryHost.querySelector('[data-ls-action="prepare"]'),
       `${kind} clears its recovery action after success without granting missing FG capability`);
     recoveryHost.remove();
   }
@@ -290,7 +294,7 @@ async function smoke() {
   assert(panel('fg').textContent.includes('SETTINGS_FG_BLOCKED') && !mock.data.fgComponents.ready, 'An inadequate provider cannot become ready through automatic selection');
   mock.data.fgComponents = { backend: 'mfgunlock', id: 'mfgunlock-0.6.1', route: 'compatibility', ready: false, canPrepare: true, missing: ['renodx-mfgunlock.addon64'], blockers: [] };
   await controller.refresh();
-  assert(panel('fg').querySelector('[data-ls-action="prepare"]') && !panel('fg').textContent.includes('UAL'), 'New preparation names the single Add-on and has no UAL requirement');
+  assert(!panel('fg').querySelector('[data-ls-action="prepare"]') && panel('fg').textContent.includes('更改补帧选项时会自动准备') && !panel('fg').textContent.includes('UAL'), 'The FG selection owns preparation without a duplicate prepare button');
   await click('fg', 'auto');
   assert(mock.data.fgComponents.ready && saved('fg').backend === 'mfgunlock' && saved('fg').multiplier === 3 && count('auto-prepare-components') === 1,
     'RTX40 retry prepares the single Add-on and applies the new MFG request');
@@ -410,7 +414,7 @@ async function smoke() {
   finishOld(); await new Promise(resolve => setTimeout(resolve, 10));
   assert(!document.getElementById('diagnostics').textContent.includes('过期诊断'), 'Old async diagnostics cannot overwrite a new game');
   repairSelect.value = ''; repairSelect.dispatchEvent(new Event('change', { bubbles: true }));
-  assert(document.getElementById('uninstallBtn').disabled && document.getElementById('repairBtn').disabled && document.getElementById('copyDiagBtn').disabled, 'Without a selected game destructive and copy actions are disabled');
+  assert(document.getElementById('repairBtn').disabled && document.getElementById('copyDiagBtn').disabled, 'Without a selected game maintenance and copy actions are disabled');
   window.manager.diagnose = originalDiagnose;
   document.querySelector('[data-view="games"]').click();
   document.querySelector('.launch-jump-btn').click();

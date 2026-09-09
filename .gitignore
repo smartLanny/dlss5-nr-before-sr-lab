@@ -26,3 +26,5 @@ resources/reframework-01417/
 resources/feeder-runtime/**
 !resources/feeder-runtime/recipe.json
 resources/fg-mfgunlock/*.addon64
+dist-beta2-release/
+dist-beta2-final/

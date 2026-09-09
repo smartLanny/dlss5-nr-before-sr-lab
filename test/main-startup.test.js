@@ -59,9 +59,10 @@ function harness(options = {}) {
     './src/product/app-service': { createAppService: () => service }, './src/product/sr-model-service': { createSrModelService: () => ({ read() {} }) },
     './src/product/launch-settings-service': { createLaunchSettingsService: () => launchSettings },
     './src/product/launch-coordinator': { createLaunchCoordinator: () => ({ serialize: options.serialize || (fn => fn()),
-      assertMutationReady: options.assertMutationReady || (async () => {}), inspect: async () => {}, launch: async () => ({ launchSettings: [] }) }) },
+      assertMutationReady: options.assertMutationReady || (async () => {}), restoreForUninstall: options.restoreForUninstall || (async () => {}), inspect: async () => {}, launch: async () => ({ launchSettings: [] }) }) },
     './src/core/install-guards': { assertGameClosed: options.assertGameClosed || (async () => {}) }, './src/product/fg-components': { createFgComponents: () => fgComponents },
     './src/product/game-preparation': { createGamePreparation: () => ({ assertReady: async () => {}, inspect: async () => ({ pending: false }), ...options.preparationService }) },
+    './src/product/game-environment': { createGameEnvironment: () => ({ assertReady: async () => {}, inspect: async () => ({ pending: false }), ...options.environmentService }) },
     './src/product/game-support': { classifyApi: () => 'dx12' }
   };
   const fakeProcess = new EventEmitter(); Object.assign(fakeProcess, { argv: options.argv || ['electron', mainFile], env: { SystemRoot: 'C:\\Windows', ...(options.env || {}) }, platform: 'win32',
@@ -99,6 +100,39 @@ function harness(options = {}) {
 
 function saw(h, stage) { return h.logs.some(row => row.stage === stage); }
 function dialogTitle(h, text) { return h.dialogs.some(row => String(row.message || row.title).includes(text)); }
+
+test('cleanup IPC serializes managed restoration before read-only external preview', async () => {
+  const order = [];
+  const h = harness({ serialize: async work => { order.push('lock'); const result = await work(); order.push('unlock'); return result; },
+    restoreForUninstall: async () => order.push('settings'),
+    appService: { restoreManagedForCleanup: async () => { order.push('managed'); return { notice: 'original proxy retained' }; } },
+    environmentService: { preview: async () => { order.push('preview'); return { planId: 'p', candidates: [] }; } } });
+  await settle(); const result = await h.handles.get('game-environment-prepare-clean')({}, 'g');
+  assert.deepEqual(order, ['lock', 'settings', 'managed', 'preview', 'unlock']);
+  assert.equal(result.managedInstallationRestored, true); assert.equal(result.restorationNotice, 'original proxy retained');
+  h.window.emit('closed');
+});
+
+test('failed managed restoration never proceeds to external cleanup preview', async () => {
+  let previews = 0;
+  const h = harness({ appService: { restoreManagedForCleanup: async () => { throw new Error('restore failed'); } },
+    environmentService: { preview: async () => previews++ } });
+  await settle(); await assert.rejects(h.handles.get('game-environment-prepare-clean')({}, 'g'), /restore failed/);
+  assert.equal(previews, 0); h.window.emit('closed');
+});
+
+test('pending environment recovery blocks writes but its owner recovery remains reachable first', async () => {
+  const order = []; const h = harness({
+    environmentService: { assertReady: async () => { throw new Error('environment pending'); },
+      recoverPending: async () => { order.push('recovery'); return { recovered: true }; }, restore: async () => { order.push('undo'); return { restored: true }; } },
+    preparationService: { assertReady: async () => order.push('preparation') },
+    restoreForUninstall: async () => order.push('settings'),
+    appService: { restoreManagedForCleanup: async () => order.push('managed') } });
+  await settle(); await assert.rejects(h.handles.get('game-install')({}, 'g'), /environment pending/);
+  const result = await h.handles.get('game-environment-restore')({}, 'g');
+  assert.deepEqual(order, ['recovery', 'preparation', 'settings', 'managed', 'undo']); assert.equal(result.interruptedFilesRecovered, true);
+  h.window.emit('closed');
+});
 
 test('business-module require failure produces an early log and visible native dialog', async () => {
   const h = harness({ requireFailure: './src/product/app-service' }); await settle();

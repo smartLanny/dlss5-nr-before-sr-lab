@@ -252,6 +252,7 @@ function catalogReplacement(id) {
 }
 
 function actionSuccessMessage(success, value) {
+  if (value?.restored === true && value?.route === 'feeder-dx12' && value.notice) return value.notice;
   if (value?.removed === false) throw Object.assign(new Error('卸载未完成，请核对保留的恢复记录并保存反馈。'), { code: 'ERR_BACKUP_INVALID' });
   if (value?.removed === true && typeof value.historyRel === 'string' && value.historyRel) {
     const retained = Array.isArray(value.retainedSidecars) ? value.retainedSidecars.length : Number(value.retainedSidecars) || 0;
@@ -407,7 +408,8 @@ function routeApplyRow(game) {
   if (selected.resolvedApi === 'dx12' && game.nativeDlssAvailable === false) {
     const feederSelection = feederSelectionState(game, selected);
     const disabled = recovery || !feederSelection.available || !game.chosen, busy = Boolean(state.installing?.has(game.id));
-    const label = game.feeder?.installed ? '核对并修复 Feeder' : '一键准备 Feeder';
+    if (game.feeder?.installed) return '<p class="config-note">固定 Feeder 配套已安装；修复、卸载和环境清理统一在“维护与恢复”中。</p>';
+    const label = '一键准备 Feeder';
     return `<div class="route-apply-row"><p class="config-note">${escapeHtml(feederSelection.reason || '固定配套提供成品帧 NR；不会给游戏增加原生 DLSS 超分或补帧。')}</p><button class="button primary route-apply-btn" data-base-disabled="${disabled}" data-idle-label="${label}"${disabled || busy ? ' disabled' : ''}>${busy ? '正在准备…' : label}</button></div>`;
   }
   const vulkan = selected.resolvedApi === 'vulkan';
@@ -423,7 +425,7 @@ function routeApplyRow(game) {
 }
 function routeControlsMarkup(game) {
   const selected = routeSelection(game);
-  if (selected.resolvedApi === 'dx12' && game.nativeDlssAvailable === false) return `${apiControls(game)}<div class="config-block core-selection"><h4>无原生 DLSS · Feeder 试验路线</h4><p class="config-note">${escapeHtml(game.feeder?.coreVersion || '0.4.7-beta')} 固定配套 · RTX50 / 64 位 DX12 / 已确认 sRGB 的 RGBA8 画面。</p><p class="config-note">使用成品帧和估算导引进行 NR 后处理，效果与原生游戏输入路线不同。当前不支持 HDR；游戏内处理成功需单独确认。</p></div>${routeApplyRow(game)}`;
+  if (selected.resolvedApi === 'dx12' && game.nativeDlssAvailable === false) return `${apiControls(game)}<div class="config-block core-selection"><h4>无原生 DLSS · Feeder 试验路线</h4><p class="config-note">${escapeHtml(game.feeder?.coreVersion || '0.4.7-beta')} 固定配套 · RTX50 / 64 位 DX12 / 已确认 sRGB 的 RGBA8 画面。</p><p class="config-note">提供成品帧 NR 后处理；当前不支持 HDR，实际处理状态需进游戏确认。</p><p class="config-note feeder-entry-note">加载入口：DXGI。此固定配套暂不提供 DXGI → D3D12 切换；它不能作为反作弊报错的通用修复。</p></div>${routeApplyRow(game)}`;
   return `${apiControls(game)}${selected.resolvedApi === 'vulkan' ? vulkanRouteMarkup(game) : `<div class="config-block core-selection"><h4>Addon 核心版本</h4>${addonVersionRow(game)}<p class="config-note">API 与核心版本选好后，一次应用。beta0.4.7 为当前默认；稳定兼容版仍可选择。</p></div>`}${routeApplyRow(game)}`;
 }
 
@@ -449,7 +451,7 @@ function bindCardHeaderActions(card, game) {
   const launch = card.querySelector('.launch-btn');
   const feederRecovery = card.querySelector('.feeder-recover-btn');
   if (feederRecovery) feederRecovery.onclick = event => { event.stopPropagation(); void runAction(() => window.manager.restoreFeeder(id), 'Feeder 已恢复并卸载；一键准备记录如仍存在，请继续恢复准备', true, id); };
-  if (launch) launch.onclick = event => { event.stopPropagation(); runAction(() => window.manager.launch(id), '游戏已启动', false, id); };
+  if (launch) launch.onclick = event => { event.stopPropagation(); runAction(() => window.manager.launch(id), '已发起游戏启动，请核对游戏窗口', false, id); };
   const rename = card.querySelector('.rename-game-btn');
   if (rename) rename.onclick = event => { event.stopPropagation(); confirmRenameGame(id); };
   const dismiss = card.querySelector('.dismiss-game-btn');
@@ -638,7 +640,8 @@ function gameDetail(game) {
     : isFeederRoute(game) ? game.feeder?.reason || 'Feeder 试验配套当前不可用。'
     : game.supportText || '请先选择游戏实际运行的 EXE。';
   const routeRepair = vulkan || isFeederRoute(game) ? '' : compatibilityRepairMarkup(game, true);
-  const installationStatus = installed ? `<div class="config-block component-block"><div class="config-title"><div><h4>安装状态</h4><p class="section-caption">文件与安装记录</p></div><span class="component-summary" role="status">检查中</span></div><div class="component-body">正在检查…</div><div class="diagnostic-actions"><button class="button primary repair-inline-btn">一键修复</button><button class="button subtle feedback-inline-btn">保存反馈</button><button class="button danger uninstall-inline-btn">卸载插件</button></div>${routeRepair}</div>` : '';
+  const maintenance = '<button class="button maintenance-inline-btn" type="button">维护与恢复</button>';
+  const installationStatus = installed ? `<div class="config-block component-block"><div class="config-title"><div><h4>安装状态</h4><p class="section-caption">文件与安装记录</p></div><span class="component-summary" role="status">检查中</span></div><div class="component-body">正在检查…</div><div class="diagnostic-actions">${maintenance}</div>${routeRepair}</div>` : '';
   const launchJump = game.nativeDlssAvailable === false && game.nativeFgAvailable === false ? '<p class="config-note">未检测到游戏自带的 DLSS 超分或补帧组件；当前提供画面增强设置。</p>' : '<button class="button subtle launch-jump-btn" type="button">调整超分补帧</button>';
   const preinstallCompatibility = !installed && !vulkan ? compatibilityRepairMarkup(game, false) : '';
   const nr = installed ? `<div class="enhancement-layout">
@@ -659,24 +662,23 @@ function gameDetail(game) {
       <div class="shortcut-block"><div class="shortcut-row"><label>NR 效果切换</label><button class="button subtle nr-hotkey-btn" disabled>F6 开关</button></div><div class="shortcut-row"><label>ReShade 菜单</label><button class="button subtle reshade-hotkey-btn">Home</button></div><p class="config-note">修改菜单快捷键后，下次启动游戏生效。</p></div>
       ${launchJump}
     </div></aside>
-  </div>` : `<div class="config-block detail-empty"><h4>${title}</h4><p class="config-note">${escapeHtml(installDetail)}</p><p class="config-note">安装完成后，可在这里调整风格和增强强度。</p>${preinstallCompatibility}</div>`;
+  </div>` : `<div class="config-block detail-empty"><h4>${title}</h4><p class="config-note">${escapeHtml(installDetail)}</p><p class="config-note">安装完成后，可在这里调整风格和增强强度。</p>${game.chosen ? maintenance : ''}${preinstallCompatibility}</div>`;
   const graphics = game.chosen ? '<section class="launch-settings-host" aria-label="超分补帧启动设置"><p class="config-note">正在读取超分补帧设置…</p></section>'
     : '<div class="config-block detail-empty"><h4>请先确认游戏 EXE</h4><p class="config-note">选择实际运行程序后，才能读取此游戏的超分补帧设置。</p></div>';
-  const route = `<div class="route-layout game-route-controls">${routeControlsMarkup(game)}</div>`;
+  const route = `<details class="route-options"${installed ? '' : ' open'}><summary>安装配置 · ${escapeHtml(routeSelection(game).resolvedApi.toUpperCase())}${isFeederRoute(game) ? ' · Feeder' : ''}</summary><div class="route-layout game-route-controls">${routeControlsMarkup(game)}</div></details>`;
   const tabs = [['enhance', '画面设置'], ['graphics', '超分补帧']];
   return `<div class="game-detail" data-game-detail="${escapeHtml(game.id)}" data-detail-key="${escapeHtml(key)}">
-    <div class="config-block preparation-host" aria-label="一键准备结果">${preparationMarkup(game)}</div>
-    ${route}
+    <div class="preparation-host" aria-label="安装恢复状态" hidden></div>
+    ${game.feeder?.launchWarning ? `<p class="game-launch-notice" role="status">${escapeHtml(game.feeder.launchWarning)}</p>` : ''}
     <div class="detail-tabs" role="tablist" aria-label="游戏设置分类">${tabs.map(([id, label]) => `<button id="detail-${encodeURIComponent(game.id)}-${id}-tab" type="button" data-detail-tab="${id}" aria-controls="detail-${encodeURIComponent(game.id)}-${id}-panel" aria-selected="${id === active}" tabindex="${id === active ? 0 : -1}">${label}</button>`).join('')}</div>
-    ${[['enhance', nr], ['graphics', graphics]].map(([id, content]) => `<section id="detail-${encodeURIComponent(game.id)}-${id}-panel" data-detail-panel="${id}" aria-labelledby="detail-${encodeURIComponent(game.id)}-${id}-tab"${id !== active ? ' hidden' : ''}>${content}</section>`).join('')}
+    ${[['enhance', route + nr], ['graphics', graphics]].map(([id, content]) => `<section id="detail-${encodeURIComponent(game.id)}-${id}-panel" data-detail-panel="${id}" aria-labelledby="detail-${encodeURIComponent(game.id)}-${id}-tab"${id !== active ? ' hidden' : ''}>${content}</section>`).join('')}
     <div class="detail-footer"><span class="path-line" title="${escapeHtml(game.chosen?.path || game.dir)}">${escapeHtml(game.chosen?.path || game.dir)}</span><button class="button subtle open-folder-btn">打开目录</button></div>
   </div>`;
 }
 
 function preparationMarkup(game, pending = null) {
-  const result = state.preparationResults?.get(game.id), rows = result?.stages || pending?.stages || [];
-  const labels = { prepared: '已准备', retained: '已保留', unavailable: '条件未满足' };
-  return `<h4>一键准备 NR / 超分 / 补帧</h4><p class="config-note">按游戏与显卡条件准备，保留已有选择。请先关闭游戏；超分和帧生成仍需在游戏设置中开启。</p>${rows.length ? `<ul>${rows.map(row => `<li><strong>${escapeHtml(row.domain.toUpperCase())} · ${escapeHtml(labels[row.status] || row.status)}</strong>：${escapeHtml(row.message)}</li>`).join('')}</ul>` : ''}${pending?.pending ? `<p class="launch-error" role="alert">上次一键准备未完成，恢复记录已保留。${escapeHtml(pending.failure?.message || '')}</p><button class="button preparation-recover-btn" type="button">恢复未完成准备</button>` : `<div class="config-actions">${game.installed ? '<button class="button preparation-all-btn" type="button">一键准备适用功能</button>' : ''}<button class="button subtle preparation-check-btn" type="button">检查准备状态</button></div>`}`;
+  if (!pending?.pending) return '';
+  return `<p class="launch-error" role="alert">上次安装未完成，恢复记录已保留。${escapeHtml(pending.failure?.message || '')}</p><button class="button preparation-recover-btn" type="button">恢复未完成准备</button>`;
 }
 async function loadPreparationCard(host, game) {
   if (!host || !window.manager.inspectPreparation) return;
@@ -684,19 +686,15 @@ async function loadPreparationCard(host, game) {
     const pending = unwrap(await window.manager.inspectPreparation(game.id));
     if (host.isConnected === false) return;
     host.innerHTML = preparationMarkup(game, pending);
+    host.hidden = !pending?.pending;
     bindPreparationActions(host, game);
-  } catch (error) { if (host.isConnected !== false) host.innerHTML = `<p class="launch-error" role="alert">${escapeHtml(error.message)}</p>`; }
+  } catch (error) { if (host.isConnected !== false) { host.hidden = false; host.innerHTML = `<p class="launch-error" role="alert">安装恢复状态读取失败：${escapeHtml(error.message)}</p><button class="button subtle preparation-check-btn" type="button">重新检查</button>`; bindPreparationActions(host, game); } }
 }
 function bindPreparationActions(host, game) {
   const check = host.querySelector('.preparation-check-btn');
   if (check) check.onclick = () => loadPreparationCard(host, game);
   const recover = host.querySelector('.preparation-recover-btn');
   if (recover) recover.onclick = () => runAction(() => window.manager.recoverPreparation(game.id), '本次准备内容已恢复', true, game.id);
-  const all = host.querySelector('.preparation-all-btn');
-  if (all) all.onclick = () => {
-    const selected = routeSelection(game);
-    void runConfirmedAction(allowAntiCheat => window.manager.prepareGame(game.id, { api: selected.api, version: selected.version, route: isFeederRoute(game) ? 'feeder' : 'native', allowAntiCheat }), '一键准备完成，请核对各项结果', true, game.id);
-  };
 }
 
 
@@ -822,12 +820,8 @@ function bindGameCards() {
     bindRouteControls(card, game);
     const openFolder = card.querySelector('.open-folder-btn');
     if (openFolder) openFolder.onclick = () => window.manager.openFolder(id);
-    const repair = card.querySelector('.repair-inline-btn');
-    if (repair) repair.onclick = () => { void applyCardRoute(game); };
-    const feedback = card.querySelector('.feedback-inline-btn');
-    if (feedback) feedback.onclick = () => { state.repairGame = id; state.feedbackGame = id; switchView('repair'); };
-    const uninstall = card.querySelector('.uninstall-inline-btn');
-    if (uninstall) uninstall.onclick = () => confirmUninstall(id);
+    const maintenance = card.querySelector('.maintenance-inline-btn');
+    if (maintenance) maintenance.onclick = () => openMaintenance(id);
     const d3d12 = card.querySelector('.d3d12-btn');
     if (d3d12) d3d12.onclick = event => { event.stopPropagation(); confirmD3D12(id); };
     const defaultButton = card.querySelector('.default-btn');
@@ -1131,16 +1125,15 @@ async function runConfirmedAction(work, success, refresh = true, gameId = null, 
 }
 
 function renderRepairSelect() {
-  const installed = state.games.filter(game => game.installed);
+  const installed = state.games.filter(game => game.chosen);
   const select = $('repairGameSelect');
-  const current = state.repairGame || installed[0]?.id || '';
+  const current = installed.some(game => game.id === state.repairGame) ? state.repairGame : installed[0]?.id || '';
   state.repairGame = current;
-  select.innerHTML = installed.length ? installed.map(game => `<option value="${game.id}">${escapeHtml(game.name)}</option>`).join('') : '<option value="">没有已安装的游戏</option>';
+  select.innerHTML = installed.length ? installed.map(game => `<option value="${game.id}">${escapeHtml(game.name)}</option>`).join('') : '<option value="">请先选择游戏 EXE</option>';
   select.value = current;
   select.disabled = !installed.length;
   $('repairBtn').disabled = !installed.length;
   $('copyDiagBtn').disabled = !installed.length;
-  $('uninstallBtn').disabled = !installed.length;
   if (state.activeView === 'repair') loadRepairDiagnostic();
 }
 
@@ -1221,7 +1214,7 @@ function confirmRemoveAddon(id) {
 function diagnosticRows(rows) {
   const markup = row => {
     const status = row.ok === true ? 'ok' : row.ok === false ? 'bad' : 'pending';
-    return `<div class="diag-row"><span class="diag-icon ${status}">${status === 'ok' ? '●' : status === 'bad' ? '×' : '○'}</span><span>${escapeHtml(row.label)}</span><span class="diag-detail">${escapeHtml(row.detail || (status === 'ok' ? '完整' : status === 'bad' ? '异常' : '待验证'))}</span></div>`;
+    return `<div class="diag-row"><span class="diag-icon ${status}">${status === 'ok' ? '✓' : status === 'bad' ? '×' : '○'}</span><span>${escapeHtml(row.label)}</span><span class="diag-detail">${escapeHtml(row.detail || (status === 'ok' ? '完整' : status === 'bad' ? '异常' : '待验证'))}</span></div>`;
   };
   const failed = rows.filter(row => row.ok === false), pending = rows.filter(row => row.ok !== true && row.ok !== false), passed = rows.filter(row => row.ok === true);
   return `${failed.map(markup).join('')}${pending.map(markup).join('')}${passed.length ? `<details class="healthy-components"><summary>${failed.length || pending.length ? '其余 ' : ''}${passed.length} 项文件检查通过</summary>${passed.map(markup).join('')}</details>` : ''}`;
@@ -1233,11 +1226,14 @@ async function loadRepairDiagnostic() {
   state.diagnostics = null;
   const game = state.games.find(row => row.id === id);
   $('repairBtn').disabled = !game;
-  $('uninstallBtn').disabled = !game?.installed;
   $('copyDiagBtn').disabled = true;
   if (!id) {
     $('diagnostics').innerHTML = '<p>选择需要检查的游戏；尚未安装也可以保存反馈。</p>';
     state.diagnostics = null;
+    return;
+  }
+  if (!game?.installed) {
+    $('diagnostics').innerHTML = '<p>当前没有本管理器的安装记录。可在“维护与恢复”中检查外部组件，或撤销之前的环境清理。</p>';
     return;
   }
   $('diagnostics').innerHTML = '<p>正在检查组件…</p>';
@@ -1265,12 +1261,23 @@ function diagnosticText() {
 }
 
 function confirmUninstall(id) {
+  const game = state.games.find(row => row.id === id), feeder = game?.feeder?.installed === true;
   state.pendingModal = { type: 'uninstall', id };
   $('modalTitle').textContent = '卸载插件';
-  $('modalBody').textContent = '将恢复管理器安装前的文件。默认保留你的 nr_before_sr.ini 参数设置。';
-  $('removeSettingsLine').classList.remove('hidden');
+  $('modalBody').textContent = feeder ? `将移除本次 Feeder，并把参数配置归档到安装备份。${game.feeder.retainedFiles?.length ? `安装前已有的 ${game.feeder.retainedFiles.join('、')} 会保留；反作弊仍可能拒绝原有 ReShade。` : '恢复的是安装前状态，不会清除其他模组。'}` : '将恢复管理器安装前的文件。默认保留你的 nr_before_sr.ini 参数设置。';
+  $('removeSettingsLine').classList.toggle('hidden', feeder);
   $('removeSettingsCheck').checked = false;
   $('modal').classList.remove('hidden');
+}
+
+function openMaintenance(id) {
+  if (state.busy) return;
+  const game = state.games.find(row => row.id === id);
+  if (!game || !window.gameMaintenanceUi) return;
+  return window.gameMaintenanceUi.open({ game, manager: window.manager,
+    onChanged: async gameId => { await refreshGames({ gameId }); return state.games.find(row => row.id === gameId); },
+    onFeedback: gameId => { state.repairGame = gameId; state.feedbackGame = gameId; switchView('repair'); }
+  });
 }
 
 function confirmDismissGame(id) {
@@ -1632,8 +1639,7 @@ $('bilibiliBtn').onclick = () => window.manager.openExternal('bilibiliUrl');
 $('qqBtn').onclick = async () => { await window.manager.copyText(state.product.qqGroup); toast('群号已复制'); };
 $('updateBtn').onclick = () => window.manager.openExternal('releaseUrl');
 $('repairGameSelect').onchange = event => { state.repairGame = event.target.value; loadRepairDiagnostic(); };
-$('repairBtn').onclick = () => state.repairGame && runConfirmedAction(allowAntiCheat => window.manager.repair(state.repairGame, { allowAntiCheat }), '修复完成', true, state.repairGame).then(loadRepairDiagnostic);
-$('uninstallBtn').onclick = () => state.repairGame && confirmUninstall(state.repairGame);
+$('repairBtn').onclick = () => state.repairGame && openMaintenance(state.repairGame);
 $('exportStartupBtn').onclick = async () => {
   try { await window.manager.exportStartupDiagnostic(); } catch (error) { toast(`无法保存启动诊断：${error.message}`, true); }
 };

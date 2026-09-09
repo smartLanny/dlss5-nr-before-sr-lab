@@ -21,6 +21,7 @@ let launchCoordinator = null;
 let fgComponents = null;
 let fgWorkflow = null;
 let preparation = null;
+let environment = null;
 let windowWatch = null;
 let failureVisible = false;
 let quitting = false;
@@ -175,7 +176,8 @@ function registerIpc() {
     'launch-settings-save', 'launch-settings-preview', 'launch-settings-restore', 'launch-settings-recover',
     'fg-components-prepare', 'fg-components-restore', 'launch-settings-update', 'launch-settings-reset-all',
     'game-reframework-inspect', 'game-reframework-prepare', 'game-reframework-restore', 'game-reframework-recover',
-    'game-feeder-inspect', 'game-feeder-install', 'game-feeder-restore', 'game-prepare-all', 'game-preparation-recover', 'fg-components-recover'
+    'game-feeder-inspect', 'game-feeder-install', 'game-feeder-restore', 'game-prepare-all', 'game-preparation-recover', 'fg-components-recover',
+    'game-environment-inspect', 'game-environment-prepare-clean', 'game-environment-apply', 'game-environment-restore'
   ]);
   const guardedActions = new Set(['game-install', 'game-repair', 'game-upgrade-addon', 'game-toggle-d3d12',
     'game-api-set', 'game-route-apply', 'nr-write', 'nr-default', 'nr-recommended', 'game-hotkey-write', 'game-reframework-prepare', 'game-reframework-restore',
@@ -184,12 +186,14 @@ function registerIpc() {
     'game-confirm', 'game-rename', 'settings-update', 'sr-model-write', 'launch-settings-save', 'launch-settings-preview',
     'launch-settings-apply', 'launch-settings-restore', 'launch-settings-recover', 'fg-components-prepare', 'fg-components-restore',
     'payload-source-pick', 'payload-source-reset', 'payload-source-recheck', 'launch-settings-update', 'launch-settings-reset-all',
-    'game-reframework-recover', 'game-feeder-restore', 'game-preparation-recover', 'fg-components-recover']);
+    'game-reframework-recover', 'game-feeder-restore', 'game-preparation-recover', 'fg-components-recover',
+    'game-environment-prepare-clean', 'game-environment-apply', 'game-environment-restore']);
   const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => withPermissionRecovery(await service.withError(
     () => {
       const work = async () => {
         if (elevation.restarting && serializedActions.has(name)) throw Object.assign(new Error('管理员重启正在进行，请等待。'), { code: 'ERR_JOB_BUSY' });
-        if (serializedActions.has(name) && loggedGameActions.has(name) && !['game-preparation-recover', 'launch-settings-recover', 'fg-components-recover', 'game-reframework-recover', 'game-feeder-restore'].includes(name)) await preparation?.assertReady(args[0]);
+        if (serializedActions.has(name) && loggedGameActions.has(name) && name !== 'game-environment-restore') await environment?.assertReady(args[0]);
+        if (serializedActions.has(name) && loggedGameActions.has(name) && !['game-preparation-recover', 'launch-settings-recover', 'fg-components-recover', 'game-reframework-recover', 'game-feeder-restore', 'game-environment-restore'].includes(name)) await preparation?.assertReady(args[0]);
         if (guardedActions.has(name)) await launchCoordinator.assertMutationReady(args[0]);
         return fn(...args);
       };
@@ -214,6 +218,21 @@ function registerIpc() {
   call('game-prepare-all', (id, options) => preparation.prepare(id, options));
   call('game-preparation-inspect', id => preparation.inspect(id));
   call('game-preparation-recover', id => preparation.recover(id));
+  call('game-environment-inspect', id => environment.inspect(id));
+  call('game-environment-prepare-clean', async id => {
+    await launchCoordinator.restoreForUninstall(id);
+    const restoration = await service.restoreManagedForCleanup(id);
+    const preview = await environment.preview(id);
+    return { ...preview, managedInstallationRestored: true, restorationNotice: restoration.notice || '本管理器的配套已恢复到安装前状态。' };
+  });
+  call('game-environment-apply', async (id, planId, names) => service.refreshAfterMutation(await environment.apply(id, planId, names)));
+  call('game-environment-restore', async id => {
+    const recovered = await environment.recoverPending(id);
+    await preparation.assertReady(id);
+    await launchCoordinator.restoreForUninstall(id);
+    await service.restoreManagedForCleanup(id);
+    return service.refreshAfterMutation({ ...await environment.restore(id), interruptedFilesRecovered: recovered.recovered });
+  });
   call('game-feeder-inspect', id => service.inspectFeeder(id));
   call('game-feeder-install', (id, options) => service.installFeeder(id, options));
   call('game-feeder-restore', async id => {
@@ -226,7 +245,13 @@ function registerIpc() {
   call('game-toggle-d3d12', (id, enabled, options) => service.toggleD3D12(id, enabled === true, options));
   call('game-uninstall', async (id, removeSettings) => {
     await launchCoordinator.restoreForUninstall(id);
-    return service.uninstall(id, removeSettings === true);
+    const result = await service.uninstall(id, removeSettings === true);
+    try {
+      const remainingFiles = await environment.remaining(id);
+      return { ...result, remainingFiles, notice: remainingFiles.length
+        ? `已恢复安装前状态；目录中仍有 ${remainingFiles.map(row => row.name).join('、')}。可继续选择“尝试恢复干净环境”备份隔离。`
+        : result.notice || '已恢复安装前状态；所选 EXE 同目录未发现图形代理和 Add-on。' };
+    } catch (error) { return { ...result, remainingCheckFailed: true, notice: `安装已恢复，但残留检查未完成：${error.message}。请在维护入口重新检查。` }; }
   });
   call('game-launch', async id => {
     let result;
@@ -500,6 +525,8 @@ async function startApplication() {
     preparation = require('./src/product/game-preparation').createGamePreparation({ userData, service, settings: launchSettings, components: fgComponents, fgWorkflow,
       assertClosed: id => installGuards.assertGameClosed(service.gameDirectory(id), service.gameExecutable(id)) });
     launchCoordinator = createLaunchCoordinator({ service, settings: launchSettings, legacySrModel: srModel, guards: installGuards, components: fgComponents });
+    environment = require('./src/product/game-environment').createGameEnvironment({ gameDirectory: id => service.gameDirectory(id),
+      gameExecutable: id => service.gameExecutable(id), guards: installGuards });
     for (const file of addonArgs(process.argv)) {
       try { await service.importAddonFile(file); } catch {}
     }

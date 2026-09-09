@@ -208,7 +208,20 @@ test('prepare installs only its fixed files and restoration keeps user settings 
 test('an exact existing loader is reused and preserved by restore', async t => {
   const f = fixture(t), s = f.service(); fs.copyFileSync(path.join(f.packageRoot, 'dxgi.dll'), f.file('dxgi.dll'));
   await s.install(f.game); const row = JSON.parse(fs.readFileSync(f.receipt)); assert.equal(row.files.find(file => file.target === 'dxgi.dll').reused, true);
-  await s.restore(f.game); assert.deepEqual(fs.readFileSync(f.file('dxgi.dll')), peBytes());
+  assert.deepEqual(s.summary(f.game).retainedFiles, ['dxgi.dll']);
+  const restored = await s.restore(f.game); assert.deepEqual(fs.readFileSync(f.file('dxgi.dll')), peBytes());
+  assert.deepEqual(restored.retainedFiles, ['dxgi.dll']); assert.equal(restored.route, 'feeder-dx12');
+  assert.match(restored.notice, /安装前已有的 dxgi\.dll 已保留/); assert.match(restored.notice, /反作弊仍可能拒绝/);
+});
+
+test('anti-cheat confirmation permits a scoped install but never declares protected launch compatible', async t => {
+  const f = fixture(t), s = f.service(); f.setAntiCheat(true);
+  assert.equal(s.summary(f.game).antiCheatDetected, true); assert.match(s.summary(f.game).launchWarning, /离线设置不等于停用反作弊/);
+  await assert.rejects(s.install(f.game), { code: 'ERR_ANTI_CHEAT_CONFIRM' });
+  await s.install(f.game, { allowAntiCheat: true });
+  const state = await s.inspect(f.game);
+  assert.equal(state.ready, true); assert.equal(state.runtimeVerified, false); assert.match(state.launchWarning, /兼容性尚未确认/);
+  const restored = await s.restore(f.game); assert.deepEqual(restored.retainedFiles, []); assert.equal(fs.existsSync(f.file('dxgi.dll')), false);
 });
 
 test('unknown proxy, existing ReShade config and an old native receipt cause no mutation', async t => {

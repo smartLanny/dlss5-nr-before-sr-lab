@@ -173,14 +173,14 @@ async function smoke() {
   ] } });
   await waitUntil(() => card('ui-scanned')?.querySelector('.launch-btn'));
   assert(!card('ui-scanned').querySelector('.install-btn'), 'Completed install refreshes to the installed card and removes pending UI');
-  await waitUntil(() => card('ui-scanned').querySelector('.preparation-host')?.textContent.includes('MFG 资源摘要不匹配'));
+  await waitUntil(() => card('ui-scanned').querySelector('.preparation-host')?.hidden);
   const preparation = () => card('ui-scanned').querySelector('.preparation-host');
-  assert(preparation().textContent.includes('NR · 已准备') && preparation().textContent.includes('SR · 已保留') && preparation().textContent.includes('FG · 条件未满足'),
-    'One-click completion exposes separate NR, SR and FG outcomes without claiming skipped FG was installed');
+  assert(preparation().hidden && !card('ui-scanned').querySelector('.preparation-all-btn') && !card('ui-scanned').querySelector('.preparation-check-btn'),
+    'Completed installation does not add a second preparation panel or duplicate preparation buttons');
   window.__cardMock.pending['ui-scanned'] = { pending: true, stages: [{ domain: 'nr', status: 'prepared', message: '需恢复本轮 NR。' }], failure: { message: 'SR 恢复尚未完成。' } };
-  preparation().querySelector('.preparation-check-btn').click();
+  card('ui-scanned').querySelector('.game-card-head').click(); card('ui-scanned').querySelector('.game-card-head').click();
   await waitUntil(() => preparation().querySelector('.preparation-recover-btn'));
-  assert(preparation().querySelector('[role="alert"]').textContent.includes('恢复记录已保留') && preparation().textContent.includes('SR 恢复尚未完成'), 'A pending preparation exposes the durable recovery reason');
+  assert(!preparation().hidden && preparation().querySelector('[role="alert"]').textContent.includes('恢复记录已保留') && preparation().textContent.includes('SR 恢复尚未完成'), 'A pending preparation exposes the durable recovery reason above both tabs');
   window.__cardMock.failRecovery = true; preparation().querySelector('.preparation-recover-btn').click();
   await waitUntil(() => !document.body.classList.contains('is-busy') && document.getElementById('toast').textContent.includes('模拟恢复失败'));
   assert(preparation().querySelector('.preparation-recover-btn') && window.__cardMock.pending['ui-scanned'], 'Failed recovery retains its action and pending state');
@@ -220,8 +220,8 @@ async function smoke() {
     'Feeder card identifies its fixed post-process NR route rather than a native DLSS core choice');
   feederDetail().querySelector('[data-detail-tab="graphics"]').click();
   const feederHost = feederDetail().querySelector('.launch-settings-host'); await feederHost.launchSettingsController.ready;
-  assert([...feederHost.querySelectorAll('fieldset')].every(row => row.disabled) && feederHost.textContent.includes('未确认游戏已有 Streamline'),
-    'A Feeder-only card does not unlock either native SR or native FG controls');
+  assert(!feederHost.querySelector('fieldset') && !feederHost.querySelector('[data-ls-field]') && feederHost.textContent.includes('没有可准备的超分功能') && feederHost.textContent.includes('没有可准备的补帧功能'),
+    'A Feeder-only card explains unavailable native features without showing inactive editors');
   assert(!feederHost.querySelector('[data-ls-action="prepare"]:not([disabled])'), 'No MFG prepare action is available without original FG');
   feederDetail().querySelector('[data-detail-tab="enhance"]').click(); card('ui-feeder').querySelector('.install-btn').click();
   await waitForCall('prepare', 'ui-feeder');
@@ -231,8 +231,10 @@ async function smoke() {
     { domain: 'sr', status: 'unavailable', message: '无原生 DLSS，未添加超分。' },
     { domain: 'fg', status: 'unavailable', message: '无原生 Streamline FG，未添加补帧。' }
   ], runtimeVerified: false } });
-  await waitUntil(() => !document.body.classList.contains('is-busy') && card('ui-feeder').querySelector('.preparation-host')?.textContent.includes('无原生 Streamline'));
-  assert(card('ui-feeder').querySelector('.preparation-host').textContent.includes('尚未确认游戏内处理'), 'Feeder completion retains its unverified in-game processing boundary');
+  await waitUntil(() => !document.body.classList.contains('is-busy') && card('ui-feeder').querySelector('.launch-btn'));
+  assert(card('ui-feeder').querySelector('.preparation-host').hidden && !card('ui-feeder').querySelector('.route-options').open, 'An installed Feeder has no repeated preparation block and collapses advanced installation options');
+  assert(!card('ui-feeder').querySelector('.route-apply-btn') && card('ui-feeder').querySelectorAll('.maintenance-inline-btn').length === 1, 'An installed Feeder exposes exactly one maintenance action');
+  assert(card('ui-feeder').querySelector('.feeder-entry-note').textContent.includes('DXGI → D3D12'), 'Feeder explains its fixed loader entry inside installation options');
   card('ui-feeder').scrollIntoView({ block: 'start' });
   document.getElementById('toast').className = 'toast';
   return { checks };

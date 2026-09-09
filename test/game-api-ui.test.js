@@ -252,13 +252,13 @@ test('unavailable Vulkan gives the backend reason and cannot render an install a
   assert.doesNotMatch(rolledBackApi, /launch-btn|install-btn/);
 });
 
-test('collapsed Vulkan install and installed repair pass the exact package ID', async () => {
+test('collapsed Vulkan install passes the exact package ID and maintenance opens its single entry', async () => {
   const calls = [], head = {}, install = {}, repair = {};
   const game = { id: 'vk-game', chosen: { apiResolution: { api: 'vulkan' } }, vulkan: { packageId: 'nr-vulkan-e7df0fc', available: true } };
-  const card = { dataset: { id: game.id }, querySelector: selector => ({ '.game-card-head': head, '.install-btn': install, '.repair-inline-btn': repair })[selector] || null };
+  const card = { dataset: { id: game.id }, querySelector: selector => ({ '.game-card-head': head, '.install-btn': install, '.maintenance-inline-btn': repair })[selector] || null };
   const context = uiContext(); Object.assign(context, { document: { querySelectorAll: selector => selector === '.game-card' ? [card] : [] },
     window: { manager: { prepareGame: (...args) => { calls.push(['prepare', ...args]); return { ok: true, value: {} }; } } },
-    setInstallBusy() {}, runConfirmedAction: work => Promise.resolve(work(true)), confirmRenameGame() {}, confirmDismissGame() {}, confirmUninstall() {} });
+    setInstallBusy() {}, runConfirmedAction: work => Promise.resolve(work(true)), openMaintenance: id => calls.push(['maintenance', id]), confirmRenameGame() {}, confirmDismissGame() {}, confirmUninstall() {} });
   context.state.games = [game]; context.state.installing = new Set();
   vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('), source.indexOf('function supportBadge(')), context);
   vm.runInContext(source.slice(source.indexOf('function bindGameCards('), source.indexOf('async function loadExpanded(')), context);
@@ -266,7 +266,7 @@ test('collapsed Vulkan install and installed repair pass the exact package ID', 
   install.onclick({ stopPropagation() {} }); repair.onclick(); await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
     ['prepare', 'vk-game', { api: 'auto', version: 'nr-vulkan-e7df0fc', route: 'native', allowAntiCheat: true }],
-    ['prepare', 'vk-game', { api: 'auto', version: 'nr-vulkan-e7df0fc', route: 'native', allowAntiCheat: true }]
+    ['maintenance', 'vk-game']
   ]);
 });
 

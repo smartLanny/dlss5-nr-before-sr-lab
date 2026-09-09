@@ -1033,6 +1033,7 @@ function createInstaller(overrides = {}) {
       await journal.capture(gameDir, file);
       if (fs.existsSync(file)) await fs.promises.unlink(file);
       return { removed: true, settingsKept, warnings, reframeworkMirrors,
+        restoredOriginalFiles: [...manifest.files.filter(row => row.original.existed).map(row => row.rel), ...conflictRestores.map(row => row.sourceRel)],
         historyRel, retainedSidecars, archivedConflictCopies: (manifest.conflicts || []).length - conflictRestores.length };
     });
   }

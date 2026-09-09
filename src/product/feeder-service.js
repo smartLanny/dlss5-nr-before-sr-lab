@@ -75,9 +75,10 @@ function createFeederService(options) {
     if (names.some(file => file.length > 259)) fail('FEEDER_PATH_TOO_LONG', '游戏目录加 Feeder 组件路径过长，未部署可能在启动时失败的配套。');
   }
   function summary(game) {
-    let row, target, pkg, reason = null, needsRecovery = false, installed = false;
+    let row, target, pkg, reason = null, needsRecovery = false, installed = false, antiCheatDetected = false;
     try {
       target = selected(game); row = receipt(target); installed = Boolean(row);
+      antiCheatDetected = guards.antiCheatPresent(target.root) === true;
       const interrupted = pending(target); needsRecovery = Boolean(interrupted?.ours || row && interrupted);
       installed ||= interrupted?.ours === true;
       if (interrupted) reason = interrupted.ours ? 'Feeder 有未完成操作，请先恢复。' : '游戏有其他未完成操作，请先恢复原安装。';
@@ -91,7 +92,9 @@ function createFeederService(options) {
       if (!reason && fs.existsSync(path.join(target.root, '_DLSS5_Backup', 'xiaofeng-manager.json'))) reason = '请先卸载原生 DLSS 配套，再准备 Feeder。';
       if (!reason && row && row.recipeFingerprint !== pkg.fingerprint) reason = '已安装另一固定 Feeder 配套，请先恢复。';
     } catch (error) { reason = errorText(error); needsRecovery ||= /RECEIPT|RECORD/.test(error.code || ''); }
-    return { ...defaultState, available: !reason, installed, ready: false, needsRecovery, reason,
+    return { ...defaultState, available: !reason, installed, ready: false, needsRecovery, reason, antiCheatDetected,
+      retainedFiles: (row?.files || []).filter(file => file.reused).map(file => file.target),
+      launchWarning: antiCheatDetected ? '检测到反作弊组件，受保护启动兼容性尚未确认。离线设置不等于停用反作弊；它仍可能拒绝 ReShade。' : null,
       packageId: row?.recipe.id || pkg?.recipe.id || null, coreVersion: row?.recipe.coreVersion || pkg?.recipe.coreVersion || null,
       validation: row?.recipe.acceptance || pkg?.recipe.acceptance || null,
       status: needsRecovery ? 'recovery-required' : installed ? 'installed' : 'absent' };
@@ -272,7 +275,9 @@ function createFeederService(options) {
       const dirs = new Set(row.files.filter(file => !file.reused).map(file => path.dirname(resolveFile(target.dir, file.target))));
       for (const dir of [...dirs]) { let parent = dir; while (inside(target.configDir, parent)) { dirs.add(parent); if (same(parent, target.configDir)) break; parent = path.dirname(parent); } }
       for (const dir of [...dirs].filter(dir => inside(target.configDir, dir)).sort((a, b) => b.length - a.length)) await fsp.rmdir(dir).catch(error => { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw error; });
-      return { restored: true, settingsArchived: true, runtimeVerified: false };
+      const retainedFiles = row.files.filter(file => file.reused).map(file => file.target);
+      return { restored: true, settingsArchived: true, runtimeVerified: false, route: 'feeder-dx12', retainedFiles,
+        notice: retainedFiles.length ? `Feeder 已卸载，配置已归档；安装前已有的 ${retainedFiles.join('、')} 已保留。这是恢复安装前状态，反作弊仍可能拒绝原有 ReShade。` : 'Feeder 已卸载，配置已归档到安装备份。' };
     });
   }
   async function launch(game) {

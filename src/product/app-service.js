@@ -426,6 +426,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         complete: raw.ready === true, installed: raw.installed, pending: raw.needsRecovery, deploymentApi: 'dx12',
         enhancementRoute: 'feeder-dx12', runtimeVerified: false, blockers: raw.blockers || (raw.reason ? [raw.reason] : []),
         components: [{ key: 'feeder-files', label: '无 DLSS 固定配套', ok: raw.ready === true, detail: raw.reason || '组件校验通过；成品帧后处理，Synthetic 导引' },
+          ...(raw.antiCheatDetected ? [{ key: 'feeder-protection', label: '反作弊启动兼容性', ok: null, detail: raw.launchWarning }] : []),
+          ...(raw.retainedFiles?.length ? [{ key: 'feeder-retained', label: '安装前已有组件', ok: true, detail: `${raw.retainedFiles.join('、')} 为复用文件，卸载本次 Feeder 时会保留。` }] : []),
           { key: 'feeder-loaded', label: '本次加载', ok: raw.loaded === true ? true : null, detail: '加载状态与文件准备分别确认' },
           { key: 'feeder-processed', label: '本次 NR 完成', ok: raw.processed === true ? true : null, detail: raw.detail || '需启动后核对本次完成记录；不代表画质验收' }]
       } };
@@ -1006,6 +1008,19 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         const warning = warnings.find(row => row && typeof row.code === 'string' && Object.hasOwn(MESSAGES, row.code));
         throw appError(warning?.code || 'ERR_BACKUP_INVALID', { ...warning, operation: 'uninstall', removed: false, warnings });
       }
+      return refreshAfterMutation(result);
+    },
+    restoreManagedForCleanup: async id => {
+      const game = findGame(id);
+      let result = { restored: false, unchanged: true };
+      if (feederOwned(game)) result = await feeder.restore(game);
+      else if (vulkanOwned(game)) result = await vulkan.restore(game);
+      else if (readManifest(game.dir)) {
+        result = await installer.uninstall({ gameDir: game.dir, removeSettings: false, scan: game.scan });
+        if (result?.removed !== true) throw appError('ERR_BACKUP_INVALID', { operation: 'environment-cleanup-restore', removed: false });
+      }
+      const input = reframeworkInput(game);
+      if (input) await reframework.restore(input);
       return refreshAfterMutation(result);
     },
     diagnose: async id => (await diagnoseGame(findGame(id))).diagnostic,
