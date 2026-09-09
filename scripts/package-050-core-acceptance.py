@@ -86,6 +86,8 @@ def package(build: Path, output: Path) -> dict:
                 'process-local automatic GPU sampling policy and concurrent phase snapshots CPU',
                 'production ordinary paused sampling equivalence and late-readback phase WARP',
                 'tests/test_runtime_timing_summary.py',
+                'production jitter migration Win32 persistence fresh processes and negative controls CPU',
+                'production PRE disabled jitter and POST resolved zero binding CPU',
                 'production read-only post-boundary callbacks and identity isolation CPU',
                 'production RR depth cs_5_0 and private R32 WARP readback',
                 'validate-recommended-picture.py', 'recommended independent negative control',

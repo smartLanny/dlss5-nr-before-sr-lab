@@ -26,7 +26,7 @@ void FeedbackAppendTiming(FeedbackSession &session, const char *prefix) {
         s.aggregate_scope.mode,u(s.aggregate_scope.device),prefix,s.mixed_scopes,
         prefix,u(s.scoped_records),prefix,u(s.unscoped_records),prefix);
     const auto quantile=[&](const nr_timing::Stats &stats,unsigned percent)->std::string {
-        if(!stats.measured || !s.qpc_frequency || s.counter_overflow)return "unknown";
+        if(!stats.measured || !s.clock_available || !s.qpc_frequency || s.counter_overflow)return "unknown";
         const auto target=(stats.measured/100)*percent+((stats.measured%100)*percent+99)/100;
         std::uint64_t sum=0;
         for(unsigned b=0;b<stats.histogram.size();++b){

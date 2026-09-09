@@ -92,6 +92,12 @@ try {
     & $ProbePolicy
     if ($LASTEXITCODE) { throw 'Probe phase isolation failed.' }
     $Checks.Add('process-local automatic GPU sampling policy and concurrent phase snapshots CPU')
+    & python (Join-Path $PSScriptRoot 'validate-config-policy.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output-dir (Join-Path $Output 'jitter-config-policy') --negative-control
+    if ($LASTEXITCODE) { throw 'Jitter migration, persistence and fresh-process gate failed.' }
+    $Checks.Add('production jitter migration Win32 persistence fresh processes and negative controls CPU')
+    & python (Join-Path $PSScriptRoot 'validate-jitter-status.py') --compiler $Compiler
+    if ($LASTEXITCODE) { throw 'Jitter PRE omission and POST zero binding gate failed.' }
+    $Checks.Add('production PRE disabled jitter and POST resolved zero binding CPU')
     foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py')) {
         & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
