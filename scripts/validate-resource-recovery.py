@@ -77,6 +77,9 @@ def main() -> None:
         ('erase-failed-latch', '--retirement-oracle', 'RETIREMENT_ORACLE',
          'for (auto& e : entries_) if (e.used && e.key == key && !e.failure.present) {',
          'for (auto& e : entries_) if (e.used && e.key == key) {'),
+        ('forget-actual-attempt', '--forget-oracle', 'FORGET_ORACLE',
+         'for (auto& e : entries_) if (e.used && e.key == key && !e.attempt_id && !e.failure.present) {',
+         'for (auto& e : entries_) if (e.used && e.key == key && !e.failure.present) {'),
     ]
     negative_results = {}
     sha = lambda data: hashlib.sha256(data).hexdigest()

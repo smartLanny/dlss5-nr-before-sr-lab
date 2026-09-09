@@ -430,17 +430,52 @@ void SafeTransientRetirement() {
               "externally retired nonfailed unknown resources also do not permanently exhaust bounded slots");
     }
 }
+void ForgetOnlyUnattempted() {
+    const auto key = Resource(); const auto signature = View();
+    ResourceRecoveryLedger ledger;
+    Check(ledger.Resolve(key, {}, SemanticState::Waiting).state == State::Waiting,
+          "unknown resource begins as unattempted metadata");
+    const auto native_inflight = ledger.ObserveCarrier(key.scope, key.role, 1501);
+    Check(ledger.ForgetUnattempted(key) && ledger.Read(key, {}).state == State::Unknown,
+          "unattempted native-only metadata can be forgotten without a GPU retirement proof");
+    ledger.EndCarrier(key.scope, key.role, native_inflight, false);
+    ledger.Resolve(key, signature, SemanticState::Unique);
+    Check(ledger.ForgetUnattempted(key), "resolved but not begun metadata is still unattempted");
+    const auto active = Start(ledger, key, signature, 1502);
+    ledger.Resolve(key, {}, SemanticState::Waiting);
+    Check(ledger.ForgetUnattempted(key) && ledger.Read(key, signature).attempt_id == active.attempt_id,
+          "forgetting a waiting sibling leaves an actual interpretation attempt intact");
+    Check(!ledger.ForgetUnattempted(key) && ledger.Read(key, signature).state == State::Pending,
+          "FORGET_ORACLE: an actual Begin is never erased by unattempted cleanup");
+    ledger.ReportFailure(active, Stage::NrEvaluate, -909);
+    Check(!ledger.ForgetUnattempted(key) && !ledger.Resolve(key, signature, SemanticState::Exact).can_attempt &&
+          ledger.Read(key, signature).first_failure.result == -909,
+          "unattempted cleanup cannot release or relabel a failed live interpretation");
+
+    Ledger<1, 3, 1> transient;
+    for (unsigned i = 0; i != 80; ++i) {
+        const auto unknown = Resource(10000 + i);
+        const auto resolved = transient.Resolve(unknown, {}, SemanticState::Waiting);
+        Check(resolved.state == State::Waiting && !resolved.capacity_unknown,
+              "unbounded unknown transient rotation fits a single reclaimable metadata slot");
+        const auto carrier = transient.ObserveCarrier(unknown.scope, unknown.role, 1600 + i);
+        Check(transient.ForgetUnattempted(unknown), "each native-only transient releases exactly its unattempted metadata");
+        transient.EndCarrier(unknown.scope, unknown.role, carrier, false);
+    }
+}
 }
 int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--single-frame-oracle") == 0) SingleFrameOracle();
     else if (argc == 2 && std::strcmp(argv[1], "--submission-oracle") == 0) SubmissionOracle();
     else if (argc == 2 && std::strcmp(argv[1], "--target-oracle") == 0) TargetOracle();
     else if (argc == 2 && std::strcmp(argv[1], "--retirement-oracle") == 0) RetirementOracle();
+    else if (argc == 2 && std::strcmp(argv[1], "--forget-oracle") == 0) ForgetOnlyUnattempted();
     else {
         SingleFrameOracle(); SubmissionOracle(); WaitingAndIdentity(); ResourceRingAndSparseProof();
         OutOfOrderAndNoCountJoining(); ScopedOrdinalsAndBreaks(); FailureLatchesAndNewEvidence();
         WritebackValidation(); BoundedEvidenceAndRetirement();
         TargetOracle(); PerFrameWritebackTargets(); RetirementOracle(); SafeTransientRetirement();
+        ForgetOnlyUnattempted();
     }
     std::printf("%s resource recovery production policy: %u checks, %u failures; no GPU or NGX\n",
                 failures ? "FAIL" : "PASS", checks, failures);
