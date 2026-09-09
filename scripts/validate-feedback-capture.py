@@ -58,7 +58,9 @@ def main():
         if bundled.count(declaration)!=1:raise ValueError('Old-capacity packager anchor changed')
         bundle_path=out/'diagnostic-bundle-old-capacity.inl'
         bundle_path.write_text(bundled.replace(declaration,'constexpr unsigned int kMetadataBytes = 32768;'),encoding='utf-8')
-    functions='\n\n'.join(extract_function(source,f) for f in FUNCTIONS)
+    functions='\n\n'.join(extract_function(source,f) +
+        ('\n#include "nr_compatibility_verdict_feedback.inl"' if f == 'void FeedbackAppend(' else '')
+        for f in FUNCTIONS)
     template=(root/'tests/feedback_capture_harness.cpp.in').read_text(encoding='utf-8')
     generated=template.replace('// @production_globals',globals_).replace('// @production_functions',functions)
     ngx_source=(root/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')

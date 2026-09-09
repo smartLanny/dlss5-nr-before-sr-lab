@@ -24,6 +24,7 @@ def main() -> None:
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=False)
     files = {'header': ROOT / 'src/nr_compatibility_verdict.h',
+             'limits': ROOT / 'src/nr_feedback_limits.h',
              'writer': ROOT / 'src/nr_compatibility_verdict_feedback.inl',
              'feedback': ROOT / 'src/nr_feedback_capture.inl',
              'test': ROOT / 'tests/compatibility_verdict_feedback_test.cpp',
@@ -31,7 +32,8 @@ def main() -> None:
     captured = {name: path.read_bytes() for name, path in files.items()}
     hashes = {name: hashlib.sha256(data).hexdigest() for name, data in captured.items()}
     source = captured['feedback'].decode('utf-8-sig').replace('\r\n', '\n')
-    fixture = between(source, 'struct FeedbackSession {', 'FeedbackSession *g_feedback_session')
+    fixture = '#include "nr_feedback_limits.h"\n'
+    fixture += between(source, 'struct FeedbackSession {', 'FeedbackSession *g_feedback_session')
     fixture += between(source, 'void FeedbackAppend(FeedbackSession &s, const char *format, ...) {',
                        'const char *FeedbackStageBlockReason(')
     fixture += '\nvoid FinishFeedbackReport(FeedbackSession *s) {\n'
@@ -77,6 +79,7 @@ def main() -> None:
             writer = writer.replace(before, after)
         (output / 'nr_compatibility_verdict_feedback.inl').write_text(writer, encoding='utf-8')
         (output / 'nr_compatibility_verdict.h').write_bytes(captured['header'])
+        (output / 'nr_feedback_limits.h').write_bytes(captured['limits'])
         (output / 'feedback_append_fixture.inl').write_text(fixture, encoding='utf-8')
         cpp = output / 'compatibility_verdict_feedback_test.cpp'
         cpp.write_bytes(captured['test'])
