@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$ExposureTyped)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$ExposureTyped, [string]$OutputRoot)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -147,6 +147,10 @@ foreach ($entry in @(
 $writerTests = $writerTests.Replace('// @PRODUCTION_DESCRIPTOR_WRITER@', $helperDefinitions + $statsCount.Value + "`n" + $writer)
 $harness = $harness.Replace('// @PRODUCTION_DESCRIPTOR_TESTS@', $writerTests)
 $build = Join-Path $projectRoot 'build\codec-gpu-validation'
+if ($OutputRoot) {
+    $build = [IO.Path]::GetFullPath($OutputRoot)
+    if (Test-Path -LiteralPath $build) { throw 'OutputRoot exists; preserve previous codec evidence.' }
+}
 New-Item -ItemType Directory -Path $build -Force | Out-Null
 $generated = Join-Path $build 'codec_gpu_validation.cpp'
 $binary = Join-Path $build 'codec_gpu_validation.exe'

@@ -35,6 +35,7 @@ $OldCxx = $env:CXX
 $OldPostSource = $env:POST_COMPAT_CORE_SOURCE
 $OldImGuiSdk = $env:NR_RESHADE_ROOT
 $OldImGuiLlvm = $env:NR_LLVM_BIN
+$OldWarpOnly = $env:NR_VALIDATION_WARP_ONLY
 New-Item -ItemType Directory -Path $Output | Out-Null
 Start-Transcript -LiteralPath (Join-Path $Output 'validation.log') | Out-Null
 Push-Location $Root
@@ -44,12 +45,34 @@ try {
     $env:POST_COMPAT_CORE_SOURCE = Join-Path $Root 'src/nr_before_sr.cpp'
     $env:NR_RESHADE_ROOT = $ReShade
     $env:NR_LLVM_BIN = Join-Path $Toolchain 'bin'
+    $env:NR_VALIDATION_WARP_ONLY = '1'
     & python (Join-Path $PSScriptRoot 'prepare-multi-api-beta.py') --core $Root --upstream $UpstreamRoot --output $Stage
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne '0.4.7beta-corefix.1') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
+    foreach ($Pair in @(@('validate-resource-semantics.py','resource-semantics'), @('validate-resource-recovery.py','resource-recovery'), @('validate-native-format-observer.py','native-format-observer'))) {
+        & python (Join-Path $PSScriptRoot $Pair[0]) --source-root (Join-Path $Stage 'core') --compiler $Compiler --output (Join-Path $Output $Pair[1])
+        if ($LASTEXITCODE) { throw "Resource contract gate failed: $($Pair[0])" }
+        $Checks.Add($Pair[0])
+    }
+    foreach ($Pair in @(@('validate-compatibility-verdict.py','compatibility-verdict'), @('validate-compatibility-verdict-feedback.py','compatibility-writer'), @('validate-feedback-combined.py','combined-feedback'))) {
+        & python (Join-Path $PSScriptRoot $Pair[0]) --compiler $Compiler --output-dir (Join-Path $Output $Pair[1])
+        if ($LASTEXITCODE) { throw "Compatibility report gate failed: $($Pair[0])" }
+        $Checks.Add($Pair[0])
+    }
+    foreach ($Control in @('old-capacity-negative','omit-end-verdict-negative','ascii-metadata-negative','disable-privacy-negative')) {
+        & python (Join-Path $PSScriptRoot 'validate-feedback-combined.py') --compiler $Compiler --output-dir (Join-Path $Output $Control) "--$Control"
+        if ($LASTEXITCODE) { throw "Combined report negative oracle failed: $Control" }
+    }
+    $Checks.Add('combined F8 capacity UTF8 privacy and end-verdict negative controls')
+    & python (Join-Path $PSScriptRoot 'validate-ngx-lifecycle.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output-dir (Join-Path $Output 'ngx-lifecycle')
+    if ($LASTEXITCODE) { throw 'Layered native NGX lifecycle gate failed.' }
+    $Checks.Add('production layered NGX lifecycle and ownership with actual Win32 locks')
+    & python (Join-Path $PSScriptRoot 'validate-post-boundary.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --build-dir (Join-Path $Output 'post-boundary-native')
+    if ($LASTEXITCODE) { throw 'Scoped native post-boundary gate failed.' }
+    $Checks.Add('production native boundary detours and immutable scoped window CPU')
     $ActivityProbe = Join-Path $Output 'ui-activity.exe'
     & $Compiler -std=c++17 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/ui_activity_test.cpp') -o $ActivityProbe
     if ($LASTEXITCODE) { throw 'UI activity probe compile failed.' }
@@ -108,6 +131,15 @@ try {
     & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain -FirstRecordingNegativeControl
     $Checks.Add('first-recording old-policy native API negative control')
     if ($RunWarp) {
+        & python (Join-Path $PSScriptRoot 'validate-native-color-view.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'native-color-view-warp')
+        if ($LASTEXITCODE) { throw 'Actual typed native color view WARP gate failed.' }
+        $Checks.Add('production typed native color admission descriptors and storage WARP')
+        & python (Join-Path $PSScriptRoot 'validate-store-quantization.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'stored-quantization-warp')
+        if ($LASTEXITCODE) { throw 'Actual storage quantization WARP gate failed.' }
+        $Checks.Add('production PRE POST actual storage quantization and wrong-target WARP')
+        & python (Join-Path $PSScriptRoot 'validate-resource-recovery-runtime.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'resource-recovery-runtime-warp') --run-warp
+        if ($LASTEXITCODE) { throw 'Same-process production resource recovery WARP gate failed.' }
+        $Checks.Add('production same-process semantic recovery with real descriptor submit and readback WARP')
         & python (Join-Path $PSScriptRoot 'validate-queue-retirement.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --build-dir (Join-Path $Output 'queue-retirement')
         if ($LASTEXITCODE) { throw 'Production one-shot queue retirement WARP gate failed.' }
         $Checks.Add('production one-shot queue retirement WARP')
@@ -120,7 +152,11 @@ try {
         $Checks.Add('production RR depth cs_5_0 and private R32 WARP readback')
         # The caller owns the serial GPU/WARP slot. Baseline must be the actual
         # frozen reference source, never a synthetic replacement of the model.
-        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -CombinedLowGrid
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -OutputRoot (Join-Path $Output 'codec-default-warp')
+        $Checks.Add('production codec FLOAT exposure finite extreme and composition regression WARP')
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -ExposureTyped -OutputRoot (Join-Path $Output 'typed-exposure-warp')
+        $Checks.Add('production typed R8 exposure versus R32 normalized control WARP')
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -CombinedLowGrid -OutputRoot (Join-Path $Output 'combined-low-grid-warp')
         $Checks.Add('combined low-grid WARP fixture; constructed neural planes, no NVIDIA NR')
     }
     foreach ($Entry in $Manifest.files.PSObject.Properties) {
@@ -148,6 +184,7 @@ try {
     $env:POST_COMPAT_CORE_SOURCE = $OldPostSource
     $env:NR_RESHADE_ROOT = $OldImGuiSdk
     $env:NR_LLVM_BIN = $OldImGuiLlvm
+    $env:NR_VALIDATION_WARP_ONLY = $OldWarpOnly
     Stop-Transcript | Out-Null
     $Result = [ordered]@{
         schema='nr050-focused-acceptance-v1'; source_commit=$Commit;

@@ -53,6 +53,17 @@ def package(build: Path, output: Path) -> dict:
             or manifest['integration'].get('version') != VERSION):
         raise ValueError('Exact-source focused acceptance evidence required; no capability promotion.')
     required = {'canonical pinned full-source staging', 'validate-work-config.py',
+                'validate-resource-semantics.py', 'validate-resource-recovery.py',
+                'validate-native-format-observer.py', 'validate-compatibility-verdict.py',
+                'validate-compatibility-verdict-feedback.py', 'validate-feedback-combined.py',
+                'combined F8 capacity UTF8 privacy and end-verdict negative controls',
+                'production layered NGX lifecycle and ownership with actual Win32 locks',
+                'production native boundary detours and immutable scoped window CPU',
+                'production typed native color admission descriptors and storage WARP',
+                'production PRE POST actual storage quantization and wrong-target WARP',
+                'production same-process semantic recovery with real descriptor submit and readback WARP',
+                'production codec FLOAT exposure finite extreme and composition regression WARP',
+                'production typed R8 exposure versus R32 normalized control WARP',
         'bounded UI activity alternating/stall/scope/reopen CPU gate',
                 'validate-color-policy.py', 'validate-bug-sweep.py',
                 'validate-strength-migration.py', 'validate-f8-controller.py',
@@ -102,7 +113,7 @@ def package(build: Path, output: Path) -> dict:
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/CORE_047BETA_BOUNDARY_ACCEPTANCE.zh-CN.md').read_bytes()
+    guide = (ROOT / 'docs/testing/CORE_047BETA_COREFIX_ACCEPTANCE.zh-CN.md').read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     packages = []
     for addon in addons:
