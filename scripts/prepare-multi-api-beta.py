@@ -26,9 +26,9 @@ STATE_CURRENT = '64dee8eb8877d8a6abc8b5adcff15c29f7c2ea44'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd')
 INTEGRATION_CORE_PINS = {
-    'src/nr_timing_feedback.inl': 'ba4e7458c2735a95ae7336a66bf90ad3b2f39365',
-    'src/nr_submitted_fence_wait.inl': '15baf60ec246aa5ad7bc01430f54ad1240929bd3',
-    'src/nr_runtime_timing.inl': '2bfb60589160226caafca3f678a45302caebaff2',
+    'src/nr_timing_feedback.inl': '796fe47b80a8a2b51c6f638023c4aaf3d5860714',
+    'src/nr_submitted_fence_wait.inl': '300ae92b81217121790a24429f6b89d93d3aed3f',
+    'src/nr_runtime_timing.inl': '9f087dc48d51cff32aa4c41b97672be015681fd7',
     'src/nr_runtime_timing.h': 'cdbf237a87bc3ac2fdf8d3670109576c15ac24d7',
     'src/nr_config_policy_runtime.inl': 'e53599a24745bf8addc051b9a85387909931e2eb',
     'src/nr_config_policy.h': '7a01d6c3e35f732b8e62e0264822f03f4385c155',
