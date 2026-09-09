@@ -11,6 +11,9 @@ struct Options {
     Comparison comparison = Comparison::Current;
     bool custom_roi = false; unsigned x = 0, y = 0; bool full_screen = false;
     float center_x = .5f, center_y = .5f; // FaceDiagnostic only, normalized source coordinates.
+    // The UI binds its displayed ROI to this source extent. Both zero retain
+    // the controller-only API; a partially supplied extent is never admitted.
+    unsigned expected_source_width = 0, expected_source_height = 0;
 };
 struct Frame {
     NrStageCaptureInfo info = {};
@@ -146,7 +149,9 @@ bool RequestWithOptions(const Options &options) {
     AcquireSRWLockExclusive(&g_control);
     const bool face = options.comparison == Comparison::FaceDiagnostic;
     const bool valid_face = !face || (!options.full_screen &&
-        nr_face_diagnostic::ValidCenter(options.center_x, options.center_y) && SnapshotConfig().enabled);
+        nr_face_diagnostic::ValidCenter(options.center_x, options.center_y) &&
+        ((options.expected_source_width == 0) == (options.expected_source_height == 0)) &&
+        SnapshotConfig().enabled);
     bool accepted = valid_face && !IsActive() && g_status.load()!=Status::Packaging && StageCaptureStatus()!=1 && StageCaptureStatus()!=2 && nr_core_feedback::Request(true);
     if (accepted) {
         g_options=options; g_cancel.store(false);
@@ -158,9 +163,12 @@ bool RequestWithOptions(const Options &options) {
     ReleaseSRWLockExclusive(&g_control);
     return accepted;
 }
-bool RequestFaceDiagnostic(float center_x = .5f, float center_y = .5f) {
+bool RequestFaceDiagnostic(float center_x = .5f, float center_y = .5f,
+                           unsigned expected_source_width = 0, unsigned expected_source_height = 0) {
     Options options; options.comparison = Comparison::FaceDiagnostic;
     options.center_x = center_x; options.center_y = center_y;
+    options.expected_source_width = expected_source_width;
+    options.expected_source_height = expected_source_height;
     return RequestWithOptions(options);
 }
 bool RequestFullscreen(Comparison kind = Comparison::Current) {
@@ -228,6 +236,10 @@ bool ReserveFrame(NrStageCaptureInfo &info, const NrCaptureParams &params, Frame
             if(s->options.comparison==Comparison::FaceDiagnostic) {
                 if(params.reset || !nr_face_diagnostic::MatchesApplied(g.requested,info.identity.tuning))
                     Break(g,"face diagnostic reset or actual model tuning does not match this group");
+                else if(!s->face_geometry_set && s->options.expected_source_width != 0 &&
+                    (info.source_width != s->options.expected_source_width ||
+                     info.source_height != s->options.expected_source_height))
+                    Break(g,"face diagnostic source dimensions changed since region selection");
                 else if(s->face_geometry_set && !SameFaceGeometry(s->face_geometry,info))
                     Break(g,"face diagnostic source/model geometry, route or colour contract changed");
                 else if(!info.source_width || !info.source_height || !info.model_width || !info.model_height)
@@ -438,8 +450,9 @@ DWORD WINAPI PackageWorker(void *opaque) {
         s->id,static_cast<unsigned>(s->options.comparison),s->group_count,complete,s->restored,s->post_restored,s->payload_bytes,nr_f8_budget::kGpuLimit,nr_f8_budget::kCpuLimit);
     FeedbackAppend(s->activity,"capture.fullScreen=%d\ncapture.displayFile=original-runtime-screenshot; no crop or resize\ncapture.gpuPlanes=%s\n",
         s->options.full_screen, s->options.full_screen?"not-requested":"bounded-ROI-and-optional-overview");
-    if(face)FeedbackAppend(s->activity,"faceDiagnostic.version=1\nfaceDiagnostic.centerX=%.9g\nfaceDiagnostic.centerY=%.9g\nfaceDiagnostic.roiTarget=1\nfaceDiagnostic.stability=minimum-3000ms-and-64-NR-evaluations-after-reset; exact-fence-ROI-before-display-request\nfaceDiagnostic.displayWidth=%u\nfaceDiagnostic.displayHeight=%u\nfaceDiagnostic.moduleInventory=paired-core-package\nfaceDiagnostic.isMaskProof=0\n",
-        s->options.center_x,s->options.center_y,s->display_width,s->display_height);
+    if(face)FeedbackAppend(s->activity,"faceDiagnostic.version=1\nfaceDiagnostic.centerX=%.9g\nfaceDiagnostic.centerY=%.9g\nfaceDiagnostic.roiTarget=1\nfaceDiagnostic.stability=minimum-3000ms-and-64-NR-evaluations-after-reset; exact-fence-ROI-before-display-request\nfaceDiagnostic.displayWidth=%u\nfaceDiagnostic.displayHeight=%u\nfaceDiagnostic.selectionSourceWidth=%u\nfaceDiagnostic.selectionSourceHeight=%u\nfaceDiagnostic.moduleInventory=paired-core-package\nfaceDiagnostic.isMaskProof=0\n",
+        s->options.center_x,s->options.center_y,s->display_width,s->display_height,
+        s->options.expected_source_width,s->options.expected_source_height);
     auto *job=nr_bundle::CreateJob(s->directory,s->activity.report);
     if(job) {
         nr_bundle::AddFile(*job,g_log_path,"logs/nr-current.log",nr_bundle::FileKind::LogTail,true);

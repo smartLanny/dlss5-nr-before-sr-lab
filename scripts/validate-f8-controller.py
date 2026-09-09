@@ -125,6 +125,9 @@ if not args.gpu:
             assert settings['faceDiagnostic']['roiTarget']==1 and settings['faceDiagnostic']['roiX']==1549 and settings['faceDiagnostic']['roiY']==83
             assert settings['requested']==settings['actual'] and settings['complete']==1
         assert archive.read('core/feedback.txt') == b'fixture-only=true\n'
+        capture_info = archive.read('capture-info.txt').decode('utf-8')
+        assert 'faceDiagnostic.selectionSourceWidth=2228\n' in capture_info
+        assert 'faceDiagnostic.selectionSourceHeight=1256\n' in capture_info
         manifest=json.loads(archive.read('manifest.json'))
         assert manifest['input_rejections']==0 and len(manifest['entries'])<=64
         assert any(e['name']=='core/paired-archive' and e['status']=='hashed' and len(e['sha256'])==64 for e in manifest['entries'])
@@ -140,6 +143,7 @@ if args.negative_control:
         'screenshot-before-gpu': ('(!face || g.frames[0].valid)', 'true'),
         'ignore-applied-tuning': ('!nr_face_diagnostic::MatchesApplied(g.requested,info.identity.tuning)', 'false'),
         'ignore-geometry-change': ('s->face_geometry_set && !SameFaceGeometry(s->face_geometry,info)', 'false'),
+        'ignore-selected-source-extent': ('!s->face_geometry_set && s->options.expected_source_width != 0', 'false'),
         'omit-face-restore': ('if(s->options.comparison!=Comparison::Current)ApplyConfig(s->original', 'if(s->options.comparison!=Comparison::Current && s->options.comparison!=Comparison::FaceDiagnostic)ApplyConfig(s->original'),
         'skip-display-budget': ('!nr_face_diagnostic::AdmitDisplay(s->display_width,s->display_height)?', 'false?'),
     }
@@ -153,5 +157,5 @@ if args.negative_control:
         assert run.returncode==1 and 'FAIL:' in run.stderr,(name,run.returncode,run.stderr)
         results.append({'name':name,'compiled':True,'exit_code':run.returncode,'assertion':run.stderr.strip()})
     (latest/'face-negative-controls.json').write_text(json.dumps(results,indent=2)+'\n',encoding='utf-8')
-    print('Face diagnostic: five compiled behavioral negative controls rejected PASS')
+    print(f'Face diagnostic: {len(mutations)} compiled behavioral negative controls rejected PASS')
 print("F8 controller: production Present/callback/readback/stream/restore/ZIP PASS; " + ("real WARP shader/ring/fence, synthetic NR input" if args.gpu else "GPU/NGX are seams"))

@@ -5,8 +5,8 @@ void FaceShot(reshade::api::effect_runtime &r,bool expected=true) {
     char utf8[4096]={};WideToUtf8(path.c_str(),utf8,sizeof(utf8));Screenshot(&r,utf8);
     Check(g_session && g_session->groups[g_session->group].shot_received==expected,"face screenshot callback follows dimension contract");
 }
-void StartFace(reshade::api::effect_runtime &r) {
-    Check(RequestFaceDiagnostic(.81f,.27f),"face request accepted");Present(&r);
+void StartFace(reshade::api::effect_runtime &r,unsigned expected_width=0,unsigned expected_height=0) {
+    Check(RequestFaceDiagnostic(.81f,.27f,expected_width,expected_height),"face request accepted");Present(&r);
     Check(g_session && g_session->group_count==9,"face production starts exactly nine groups");
 }
 void CompleteFaceGroup(reshade::api::effect_runtime &r,unsigned group,unsigned w=64,unsigned h=64) {
@@ -33,6 +33,9 @@ void TestFaceDiagnostic() {
     Check(!ValidCenter(NAN,.5f)&&!ValidCenter(.5f,INFINITY),"invalid normalized centers rejected");
     Reset();config.enabled=false;Check(!RequestFaceDiagnostic(),"face diagnostic cannot enable NR implicitly");
     config.enabled=true;Check(!RequestFaceDiagnostic(-.1f,.5f),"face invalid ROI rejected before request");
+    Check(!RequestFaceDiagnostic(.5f,.5f,1920,0) && !RequestFaceDiagnostic(.5f,.5f,0,1080) &&
+        g_status==Status::Idle&&!config_calls&&!g_config_hold,
+        "partially supplied selection source extent rejected without mutation");
     Check(RequestFaceDiagnostic(),"pending face cancellation request");Cancel();
     Check(g_status==Status::Failed&&!config_calls&&SnapshotFaceDiagnosticProgress().restored,"pending face cancellation records unchanged settings");
     reshade::api::effect_runtime huge;huge.width=5120;huge.height=2880;
@@ -45,7 +48,7 @@ void TestFaceDiagnostic() {
     config.local_structure=.61f;config.skin_structure=1.77f;config.auto_mask=false;config.style=2;config.ui_correction=false;
     config.color_strength=.83f;config.light_control_mode=1;config.light_reflection=.09f;config.light_structure=1.97f;
     config.lighting_lock=.21f;config.work_mode=5;config.custom_work_scale=.75f;
-    const auto original=config;disk_config=config;simulate_disk_poll=true;reshade::api::effect_runtime r;StartFace(r);
+    const auto original=config;disk_config=config;simulate_disk_poll=true;reshade::api::effect_runtime r;StartFace(r,2228,1256);
     for(unsigned group=0;group<9;++group) {
         ChainConfig expected=original;
         if(group>=2&&group<=7){expected.intensity=1.2f;expected.local_tone=expected.local_structure=1.f;expected.style=0;expected.ui_correction=true;}
@@ -60,6 +63,22 @@ void TestFaceDiagnostic() {
     Drain();Check(g_status==Status::Complete&&SameConfig(config,original)&&!g_config_hold&&!nr_post_settings::capture_calls,"nine-group face success restores every setting without post-route mutation");
     const auto progress=SnapshotFaceDiagnosticProgress();Check(progress.visible&&!progress.active&&progress.restored&&progress.group==8&&progress.roi_ready&&progress.screenshot_ready,"face progress retains completed restore outcome");
     Check(CopyFileW(g_last_zip,(output_root+L"\\face-diagnostic.zip").c_str(),TRUE)!=FALSE,"publish independent nine-group parser fixture");
+
+    const unsigned first_extents[][2]={{1280,720},{1280,1080},{1920,720}};
+    for(const auto &extent:first_extents) {
+        Reset();config.enabled=true;config.mode=1;config.auto_mask=true;config.skin_structure=1.55f;
+        const auto before=config;reshade::api::effect_runtime changed;StartFace(changed,1920,1080);
+        test_clock+=3100;auto first=Info(190,extent[0],extent[1]);FrameTicket ticket;
+        Check(!ReserveFrame(first,{},ticket) && g_session->face_abort && !g_session->face_geometry_set &&
+            !g_session->groups[0].count && !g_session->payload_bytes && !changed.shots,
+            "first face RAW rejects DRS or either source dimension changed since selection without pixels or screenshot");
+        Present(&changed);Drain();
+        const auto failed=SnapshotFaceDiagnosticProgress();
+        Check(g_status==Status::Partial&&SameConfig(config,before)&&!g_config_hold&&!g_session&&
+            failed.restored&&!failed.roi_ready&&!failed.screenshot_ready&&!changed.shots&&
+            std::strstr(failed.reason,"source dimensions changed since region selection")!=nullptr,
+            "first face source mismatch restores exact settings and retains explicit partial reason without display proof");
+    }
 
     for(unsigned cancel_group=0;cancel_group<9;++cancel_group) {
         Reset();config.enabled=true;config.mode=1;config.intensity=.63f;config.skin_structure=1.55f;const auto before=config;
