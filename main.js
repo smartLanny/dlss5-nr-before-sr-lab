@@ -168,7 +168,7 @@ function registerIpc() {
   });
   ipcMain.handle('startup-export', () => exportStartupReport());
   const loggedGameActions = new Set([
-    'game-install', 'game-repair', 'game-upgrade-addon', 'game-uninstall',
+    'game-install', 'game-repair', 'game-upgrade-addon', 'game-uninstall', 'game-api-set', 'game-route-apply',
     'game-toggle-d3d12', 'game-launch', 'game-diagnose', 'game-rename', 'game-hotkeys-read',
     'game-hotkey-write', 'nr-read', 'nr-write', 'nr-default', 'nr-recommended',
     'sr-model-read', 'sr-model-write', 'feedback-export', 'launch-settings-inspect',
@@ -177,7 +177,7 @@ function registerIpc() {
     'game-reframework-inspect', 'game-reframework-prepare', 'game-reframework-restore', 'game-reframework-recover'
   ]);
   const guardedActions = new Set(['game-install', 'game-repair', 'game-upgrade-addon', 'game-toggle-d3d12',
-    'game-api-set', 'nr-write', 'nr-default', 'nr-recommended', 'game-hotkey-write', 'game-reframework-prepare', 'game-reframework-restore']);
+    'game-api-set', 'game-route-apply', 'nr-write', 'nr-default', 'nr-recommended', 'game-hotkey-write', 'game-reframework-prepare', 'game-reframework-restore']);
   const serializedActions = new Set([...guardedActions, 'game-launch', 'game-uninstall', 'game-dismiss',
     'game-confirm', 'game-rename', 'settings-update', 'sr-model-write', 'launch-settings-save', 'launch-settings-preview',
     'launch-settings-apply', 'launch-settings-restore', 'launch-settings-recover', 'fg-components-prepare', 'fg-components-restore',
@@ -206,6 +206,7 @@ function registerIpc() {
   call('game-dismiss', id => launchCoordinator.dismiss(id));
   call('game-rename', (id, name) => service.renameGame(id, name));
   call('game-api-set', (id, api, options) => service.setGameApi(id, api, options));
+  call('game-route-apply', (id, options) => service.applyGameRoute(id, options));
   call('game-toggle-d3d12', (id, enabled, options) => service.toggleD3D12(id, enabled === true, options));
   call('game-uninstall', async (id, removeSettings) => {
     await launchCoordinator.restoreForUninstall(id);
@@ -420,6 +421,7 @@ async function startApplication() {
     const userData = app.getPath('userData');
     service = createAppService({
       userData,
+      documentsDir: app.getPath('documents'),
       resourcesPath: process.resourcesPath,
       appDir: __dirname,
       version: app.getVersion()

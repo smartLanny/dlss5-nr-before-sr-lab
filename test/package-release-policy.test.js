@@ -37,7 +37,8 @@ test('portable outer launcher and inner executable use their distinct supported 
   assert.ok(portable.enum.includes(pkg.build.portable.requestExecutionLevel));
   assert.equal(pkg.build.portable.requestExecutionLevel, 'admin');
   assert.equal(pkg.build.win.requestedExecutionLevel, 'requireAdministrator');
-  assert.equal(pkg.version, '0.4.6-hotfix.7-dev.9'); assert.equal(pkg.build.buildVersion, '0.4.6.9');
+  const developmentVersion = pkg.version.match(/^(\d+\.\d+\.\d+)-hotfix\.\d+-dev\.(\d+)$/);
+  assert.ok(developmentVersion); assert.equal(pkg.build.buildVersion, `${developmentVersion[1]}.${developmentVersion[2]}`);
   assert.equal(lock.version, pkg.version); assert.equal(lock.packages[''].version, pkg.version);
   const target = fs.readFileSync(require.resolve('app-builder-lib/out/targets/nsis/NsisTarget'), 'utf8');
   const template = fs.readFileSync(path.join(path.dirname(require.resolve('app-builder-lib/package.json')), 'templates/nsis/portable.nsi'), 'utf8');
@@ -72,11 +73,24 @@ test('catalog does not remove original 0.4.6 when no replacement hotfix exists',
 test('verified r4 is the compatibility baseline without relabeling r5 bytes or dropping rollback', () => {
   const versions={'0.3.3-dev-r4':{files:{addon:'r4'},notes:'原始版本为 beta0.3.3-dev-r4，D3D12'},'0.3.3.5':{files:{addon:'r5'}},'0.4.6-hotfix.1':{}};
   const {bundle}=prepareCoreCatalog({version:4,defaultVersion:'0.4.6-hotfix.1',versions});
-  assert.match(bundle.versions['0.3.3-dev-r4'].label,/0\.3\.3-r4.*稳定兼容/);
+  assert.match(bundle.versions['0.3.3-dev-r4'].label,/0\.3\.3\.4.*稳定兼容/);
   assert.match(bundle.versions['0.3.3.5'].label,/历史对照/);
   assert.deepEqual(bundle.versions['0.3.3.5'].files,versions['0.3.3.5'].files);
   assert.equal(bundle.versions['0.3.3-dev-r4'].notes,versions['0.3.3-dev-r4'].notes);
-  assert.equal(Object.hasOwn(bundle.versions,'0.3.3.4'),false,'never fabricate a numeric release from r4');
+  assert.equal(Object.hasOwn(bundle.versions,'0.3.3.4'),false,'display uses actual PE version but the historical internal ID is preserved');
+});
+
+test('beta0.4.7 full DX11 package replaces 0.4.6 while retaining the stable baseline and migration records', () => {
+  const versions = { '0.3.3-dev-r4': {}, '0.4.5-ota': {}, '0.4.6': {}, '0.4.6-hotfix.1': {},
+    '0.4.7beta': { compatibility: 'dx11', files: { carrier: 'paired', addon: 'unchanged' } } };
+  const { bundle } = prepareCoreCatalog({ version: 4, defaultVersion: '0.4.6-hotfix.1', versions });
+  assert.equal(bundle.defaultVersion, '0.4.7beta');
+  assert.equal(bundle.versions['0.4.7beta'].label, 'beta0.4.7');
+  assert.equal(bundle.supersededVersions['0.4.5-ota'], '0.4.7beta');
+  assert.equal(bundle.supersededVersions['0.4.6'], '0.4.7beta');
+  assert.ok(bundle.versions['0.3.3-dev-r4']); assert.equal(bundle.versions['0.4.6-hotfix.1'], undefined);
+  assert.equal(bundle.supersededVersions['0.4.6-hotfix.1'], '0.4.7beta');
+  assert.deepEqual(prepareCoreCatalog(bundle).bundle, bundle);
 });
 
 test('release resources exclude superseded 0.4.5 and original 0.4.6 while retaining hotfix', () => {

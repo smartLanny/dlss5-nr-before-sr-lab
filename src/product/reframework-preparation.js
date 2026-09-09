@@ -63,7 +63,7 @@ function createReframeworkPreparation(options = {}) {
     await noLinks(gameDir); await noLinks(exe);
     let exeStat; try { exeStat = await fsp.lstat(exe); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (!same(path.dirname(exe), gameDir) || !adapter || !exeStat?.isFile() || exeStat.nlink > 1 || pe.getBitness(exe) !== 64)
-      fail('REF_UNSUPPORTED_TARGET', '只支持已核验的 OnimushaWotS.exe、RE Engine、根目录 x64 配套。');
+      fail('REF_UNSUPPORTED_TARGET', '只支持已匹配卡普空 RE 引擎配套的根目录 x64 游戏程序。');
     return { gameDir, exe, engine, adapter };
   }
   async function closed(target) {
@@ -111,6 +111,8 @@ function createReframeworkPreparation(options = {}) {
     if (record.loader && (record.loader.rel !== OFFICIAL.install_leaf || record.loader.sha256 !== OFFICIAL.dll_sha256 ||
         !['owned', 'external', 'released'].includes(record.loader.ownership) || record.loader.originalExisted !== (record.loader.ownership === 'external')))
       fail('REF_RECEIPT_INVALID', 'REFramework loader 归属记录无效。');
+    if (!target.adapter.storage && (record.configSeed != null || record.mirrors.length || record.retiredMirrors?.length))
+      fail('REF_RECEIPT_INVALID', '此游戏只使用根目录配置，收据不能声明缓存配置或 Core 镜像。');
     if (record.configSeed && (record.configSeed.rel !== '_storage_/nr_before_sr.ini' || record.configSeed.sourceRel !== 'nr_before_sr.ini' ||
         !HASH.test(record.configSeed.sha256 || '') || !UUID.test(record.configSeed.rootInstallId || '') || record.configSeed.policy !== 'preserve-current'))
       fail('REF_RECEIPT_INVALID', 'REFramework 配置预置归属记录无效。');
@@ -174,9 +176,12 @@ function createReframeworkPreparation(options = {}) {
     }
   }
   async function inspect(input) {
-    const target = await targetOf(input), ownership = await rootOwnership(target), prior = await receiptOf(target);
-    const rootConfig = await safe(target.gameDir, 'nr_before_sr.ini'), storageConfig = await safe(target.gameDir, '_storage_/nr_before_sr.ini');
-    const root = await stateOf(rootConfig, 64 * 1024), stored = await stateOf(storageConfig, 64 * 1024);
+    const target = await targetOf(input), hasStorage = Boolean(target.adapter.storage);
+    const ownership = hasStorage ? await rootOwnership(target) : null, prior = await receiptOf(target);
+    const rootConfig = await safe(target.gameDir, 'nr_before_sr.ini');
+    const storageConfig = hasStorage ? await safe(target.gameDir, '_storage_/nr_before_sr.ini') : null;
+    const root = hasStorage ? await stateOf(rootConfig, 64 * 1024) : { exists: false };
+    const stored = hasStorage ? await stateOf(storageConfig, 64 * 1024) : { exists: false };
     const configOwner = ownership?.rows.get('nr_before_sr.ini');
     const ownsRoot = configOwner?.kind === 'config';
     // The immutable ownership proof comes from the main receipt. A mutable INI
@@ -202,7 +207,7 @@ function createReframeworkPreparation(options = {}) {
     const loaderOwnership = loader.exists ? prior?.record.loader?.ownership === 'owned' ? 'owned' : 'external' : 'absent';
     return { matched: true, canPrepare: blockers.length === 0, ready: blockers.length === 0 && loader.exists,
       target, source: view.component.file, component: view.component, loader: { ...loader, ownership: loaderOwnership },
-      config: { effective: stored.exists ? storageConfig : seed ? storageConfig : null, seed, existingStoragePreferred: stored.exists },
+      config: { effective: !hasStorage ? rootConfig : stored.exists ? storageConfig : seed ? storageConfig : null, seed, existingStoragePreferred: stored.exists },
       rootReceiptSha256: ownership?.sha256 || null, receiptSha256: prior?.sha256 || null, record: prior?.record || null,
       warnings: view.blockers.filter(row => ignored.has(row.code) && !/CONFIG/.test(row.code)), blockers,
       mirrors: prior?.record.mirrors || [], gameRuntimeVerified: false };
@@ -276,7 +281,8 @@ function createReframeworkPreparation(options = {}) {
     const file = journal.pendingPath(target.gameDir), exists = await stateOf(file, 2 * 1024 * 1024);
     if (!exists.exists) return { recovered: false };
     let pending; try { pending = JSON.parse(await fsp.readFile(file, 'utf8')); } catch { fail('REF_RECOVERY_INVALID', '共享恢复日志损坏，已保留。'); }
-    const allowed = new Set([RECEIPT.toLowerCase(), '_dlss5_backup/manifest.json', 'dinput8.dll', '_storage_/nr_before_sr.ini']);
+    const allowed = new Set([RECEIPT.toLowerCase(), '_dlss5_backup/manifest.json', 'dinput8.dll']);
+    if (target.adapter.storage) allowed.add('_storage_/nr_before_sr.ini');
     if (!Array.isArray(pending.files) || !pending.files.some(row => rel(row.rel)?.toLowerCase() === RECEIPT.toLowerCase()) ||
         pending.files.some(row => !allowed.has(rel(row.rel)?.toLowerCase())))
       fail('REF_RECOVERY_OTHER_TRANSACTION', '未完成日志不属于本 REFramework 操作，请由原安装器恢复。');
@@ -295,7 +301,9 @@ function createReframeworkPreparation(options = {}) {
   async function confirmMirrors(input, request = {}) {
     if (request.confirm !== true || !Array.isArray(request.mirrors) || request.mirrors.length < 1 || request.mirrors.length > 32)
       fail('REF_MIRROR_CONFIRM_REQUIRED', 'Core 镜像必须逐项明确确认归属及当前摘要。');
-    const target = await targetOf(input); await closed(target); await journalPaths(target);
+    const target = await targetOf(input);
+    if (!target.adapter.storage) fail('REF_MIRROR_UNSUPPORTED', '此游戏使用根目录配置，不确认或操作缓存 Core 镜像。');
+    await closed(target); await journalPaths(target);
     return journal.transaction(target.gameDir, async () => {
       await journal.capture(target.gameDir, await safe(target.gameDir, RECEIPT));
       const ownership = await rootOwnership(target), prior = await receiptOf(target), record = prior?.record || fresh(target);
@@ -324,7 +332,9 @@ function createReframeworkPreparation(options = {}) {
     });
   }
   async function planMirrors(input, request = {}) {
-    const target = await targetOf(input), ownership = await rootOwnership(target), prior = await receiptOf(target);
+    const target = await targetOf(input);
+    if (!target.adapter.storage) fail('REF_MIRROR_UNSUPPORTED', '此游戏使用根目录配置，不确认或操作缓存 Core 镜像。');
+    const ownership = await rootOwnership(target), prior = await receiptOf(target);
     if (!ownership || !prior || !Array.isArray(request.files) || request.files.length < 1 || request.files.length > 32 || !['replace', 'restore'].includes(request.operation))
       fail('REF_MIRROR_PLAN_REQUIRED', '镜像计划需要有效 root/独立 mirror 收据和明确的逐文件操作。');
     const next = structuredClone(prior.record), operations = [], seen = new Set();

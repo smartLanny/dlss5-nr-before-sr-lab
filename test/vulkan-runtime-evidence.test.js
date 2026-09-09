@@ -118,3 +118,19 @@ test('unowned paths, malformed receipts and hardlinked logs are rejected without
   const tampered = await f.service.readEvidence(f.input); assert.equal(tampered.loaded, 'unknown'); assert.equal(tampered.processed, 'unknown');
   fs.writeFileSync(receiptFile, '{invalid'); assert.equal((await f.service.readEvidence(f.input)).processed, 'unknown');
 });
+
+test('legacy complete identity still validates logs, while a copied legacy receipt under a short folder does not', async t => {
+  const f = await fixture(t); f.logs();
+  const file = path.join(f.basePath, '.xiaofeng-vulkan-runtime.json'), receipt = JSON.parse(fs.readFileSync(file));
+  receipt.packageId = `${receipt.recipe.id}-${receipt.recipe.fingerprint.slice(0, 16)}`;
+  const legacy = path.join(f.userData, 'vulkan-runtime', receipt.exeId, receipt.packageId);
+  fs.writeFileSync(file, JSON.stringify(receipt));
+  assert.equal((await f.service.readEvidence(f.input)).processed, 'unknown');
+  fs.mkdirSync(path.dirname(legacy), { recursive: true }); fs.renameSync(f.basePath, legacy);
+  fs.writeFileSync(path.join(legacy, 'ReShade.log'), f.loaded.replaceAll(f.basePath, legacy));
+  const result = await f.service.readEvidence({ ...f.input, basePath: legacy });
+  assert.equal(result.loaded, true); assert.equal(result.processed, true);
+  receipt.exeId = receipt.exeId.slice(0, 16) + '0'.repeat(48);
+  fs.writeFileSync(path.join(legacy, '.xiaofeng-vulkan-runtime.json'), JSON.stringify(receipt));
+  assert.equal((await f.service.readEvidence({ ...f.input, basePath: legacy })).processed, 'unknown');
+});

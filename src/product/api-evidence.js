@@ -2,19 +2,48 @@
 
 const fs = require('fs');
 const path = require('path');
+const { createRdr2ApiSettings } = require('./rdr2-api-settings');
 
 const MAX_ENGINE_MODULES = 8;
-const MAX_EXE_BYTES = 128 * 1024 * 1024;
 const MAX_MARKER_BYTES = 32 * 1024 * 1024;
 const MAX_ENGINE_BYTES = 32 * 1024 * 1024;
-const PROXY_OR_CARRIER = /^(?:d3d11|d3d12|dxgi|nvngx(?:_[^.]*)?|nrchain(?:_[^.]*)?|sl\.[^.]*)\.(?:dll|addon64|addon32|addon)$/i;
+const PROXY_OR_CARRIER = /^(?:d3d11|d3d12|dxgi|dinput8|nvngx(?:_[^.]*)?|nrchain(?:_[^.]*)?|sl\.[^.]*)\.(?:dll|addon64|addon32|addon)$/i;
 // AGS exports support for both D3D11 and D3D12. Its capabilities do not tell
 // which API the importing game actually uses (observed in 007 First Light).
 const GENERIC_GRAPHICS_SDK = /^(?:amd_ags(?:_x64|_x86)?|nvapi(?:64)?)\.dll$/i;
 // Larian's documented renderer-specific entry points. This is restricted to
 // the Steam application identity and exact relative path, never basename alone.
 // https://forums.larian.com/ubbthreads.php?Number=818949&ubb=showthreaded
-const STEAM_ENTRY_APIS = { '1086940': { 'bin/bg3.exe': 'vulkan', 'bin/bg3_dx11.exe': 'dx11' } };
+const STEAM_ENTRY_APIS = { '1086940': { 'bin/bg3.exe': 'vulkan', 'bin/bg3_dx11.exe': 'dx11' }, '3764200': { 're9.exe': 'dx12' } };
+// Capcom's Steam requirements specify DirectX 12 for Requiem. Its actual
+// re9.exe also imports D3D11, so that static capability is not a renderer choice.
+// https://help.steampowered.com/en/wizard/HelpWithGameTechnicalIssue/?appid=3764200
+const STEAM_STATIC_EXCEPTIONS = { '3764200': { 're9.exe': ['dx11'] } };
+const STEAM_CONFIG_ENTRIES = { '1174180': ['rdr2.exe'] };
+// Rockstar documents this saved per-user choice for Vulkan / DirectX 12.
+// https://support.rockstargames.com/articles/2MQafAtBWiOUJrPDLx5I2U/err-gfx-init-error-when-launching-red-dead-redemption-2-on-pc
+
+// A manual selection may use the binary folder as its installation root.
+// Recover documented entry identity only from an exact path in a discovered
+// Steam installation, without changing the selected EXE or recovery root.
+function steamEntryContext(exe, games) {
+  if (!exe) return {};
+  const matches = [];
+  for (const game of games || []) {
+    if (game.launcher !== 'Steam' || !game.dir) continue;
+    const entries = [...Object.keys(STEAM_ENTRY_APIS[String(game.id)] || {}), ...(STEAM_CONFIG_ENTRIES[String(game.id)] || [])];
+    if (entries.some(rel => samePath(path.resolve(game.dir, rel), exe))) {
+      matches.push({ steamAppId: String(game.id), entryRoot: game.dir });
+    }
+  }
+  const identities = new Set(matches.map(row => `${row.steamAppId}:${path.resolve(row.entryRoot).toLowerCase()}`));
+  return identities.size === 1 ? matches[0] : {};
+}
+
+function readRdr2GraphicsApi(exe, context) {
+  const result = createRdr2ApiSettings({ documentsDir: context.documentsDir }).read({ ...context, exe });
+  return result.api ? { api: result.api, file: result.file, evidence: `RDR2 当前保存的 system.xml 图形设置选择 ${result.api === 'dx12' ? 'DirectX 12' : 'Vulkan'}` } : null;
+}
 
 function text(value) { return String(value == null ? '' : value); }
 
@@ -40,7 +69,7 @@ function inspectFile(file, pe, source, signals, options = {}) {
   if (!pe.virtual) {
     try { stat = fs.statSync(file); } catch { return; }
     const limit = options.maxBytes || MAX_ENGINE_BYTES;
-    if (!stat.isFile() || stat.size > limit) return;
+    if (!stat.isFile() || stat.size > limit && options.headerOnly !== true) return;
   }
   let imports = [];
   try { imports = typeof pe.getImports === 'function' ? pe.getImports(file) : []; } catch {}
@@ -87,9 +116,17 @@ function annotateApi(scan, root, context = {}) {
 
   const pe = context.pe || require('../core/pe');
   const exe = text(chosen.path);
-  const entryApi = STEAM_ENTRY_APIS[text(context.steamAppId)]?.[path.relative(root,exe).replace(/\\/g,'/').toLowerCase()];
-  if (entryApi) addSignal(signals,entryApi,'game-entry',`Larian 官方启动入口：bg3.exe 使用 Vulkan；bg3_dx11.exe 使用 DX11。API 选择不会切换 EXE`);
-  inspectFile(exe, pe, 'exe-imports', signals, { maxBytes: MAX_EXE_BYTES });
+  const entryRel = path.relative(context.entryRoot || root, exe).replace(/\\/g, '/').toLowerCase();
+  const entryApi = STEAM_ENTRY_APIS[text(context.steamAppId)]?.[entryRel];
+  const staticExceptions = STEAM_STATIC_EXCEPTIONS[text(context.steamAppId)]?.[entryRel] || [];
+  const rdr2State = createRdr2ApiSettings({ documentsDir: context.documentsDir }).read({ ...context, exe });
+  const rdr2 = rdr2State.matched, rdr2Settings = rdr2State.api ? { api: rdr2State.api, evidence: `RDR2 当前保存的 system.xml 图形设置选择 ${rdr2State.api === 'dx12' ? 'DirectX 12' : 'Vulkan'}` } : null;
+  if (rdr2Settings) addSignal(signals, rdr2Settings.api, 'game-settings', rdr2Settings.evidence);
+  else if (rdr2) signals.push({ api: null, source: 'game-settings', evidence: '尚未从 RDR2 当前文档目录安全读取唯一图形 API 设置，未自动选择路线' });
+  if (entryApi) addSignal(signals, entryApi, 'game-entry', text(context.steamAppId) === '3764200'
+    ? '已匹配 Steam 3764200 / re9.exe；卡普空公布的游戏配套为 DirectX 12'
+    : 'Larian 官方启动入口：bg3.exe 使用 Vulkan；bg3_dx11.exe 使用 DX11。API 选择不会切换 EXE');
+  inspectFile(exe, pe, 'exe-imports', signals, { headerOnly: true });
   const chosenLabel = text(chosen.apiLabel);
   if (chosen.dx12 === true || /(?:DirectX|DX|D3D)\s*12\b|(?:DirectX|DX|D3D)\s*11\s*\/\s*12\b/i.test(chosenLabel)) addSignal(signals, 'dx12', 'chosen-static', '扫描结果含 DirectX 12 静态线索');
   if (chosen.dx11 === true || /(?:DirectX|DX|D3D)\s*11\b/i.test(chosenLabel)) addSignal(signals, 'dx11', 'chosen-static', '扫描结果已标记 DirectX 11（实际桥接仍未证明）');
@@ -102,6 +139,13 @@ function annotateApi(scan, root, context = {}) {
   if (/(?:DirectX|DX|D3D)\s*10\b/i.test(chosenLabel)) addSignal(signals, 'dx10', 'chosen-static', '扫描结果标记 DirectX 10');
   if (/Vulkan/i.test(chosenLabel)) addSignal(signals, 'vulkan', 'chosen-static', '扫描结果标记 Vulkan');
   if (/OpenGL/i.test(chosenLabel)) addSignal(signals, 'opengl', 'chosen-static', '扫描结果标记 OpenGL');
+
+  for (const signal of signals) {
+    if (staticExceptions.includes(signal.api) && /^(?:exe-imports(?:-markers)?|chosen-static)$/.test(signal.source)) {
+      signal.api = null;
+      signal.evidence += '；保留为静态线索，游戏 API 按已匹配的官方配套判定';
+    }
+  }
 
   // The PE reader's import pass is cheap enough to permit large executables;
   // marker scans are deliberately skipped above 32 MiB. Large files retain
@@ -120,6 +164,13 @@ function annotateApi(scan, root, context = {}) {
     }
     inspectFile(file, pe, 'engine-module', signals, { maxBytes: MAX_ENGINE_BYTES });
     inspected++;
+  }
+
+  if (rdr2) for (const signal of signals) {
+    if (signal.api && /^(?:exe-imports(?:-markers)?|chosen-static|engine-module(?:-markers)?)$/.test(signal.source)) {
+      signal.api = null;
+      signal.evidence += '；这是 RDR2 可选图形能力，当前路线以保存的图形设置为准';
+    }
   }
 
   // Existing ReShade logs are accepted only when a caller has already bound
@@ -143,7 +194,7 @@ function annotateApi(scan, root, context = {}) {
   const logConflict = log && log.bound === true && samePath(log.exe, exe, root) &&
     Array.isArray(log.apis) && log.apis.some(value => staticApis.size && !staticApis.has(value));
   const api = argumentConflict || logConflict || (uniqueArgApis.length > 1) ? 'mixed'
-    : entryApi && staticApis.size === 1 ? entryApi : classify(signals, chosen);
+    : rdr2 && !rdr2Settings ? 'unknown' : entryApi && staticApis.size === 1 ? entryApi : classify(signals, chosen);
   const decisive = signals.filter(row => row.api === api);
   const evidence = [...new Set(signals.map(row => row.evidence))].slice(-8);
   const source = decisive.length ? decisive[0].source : (signals[0] ? signals[0].source : 'none');
@@ -152,7 +203,9 @@ function annotateApi(scan, root, context = {}) {
   const apiResolution = override
     ? { api: override, source: 'override', evidence: [`用户显式选择 ${labels[override]}`] }
     : detectedApiResolution;
-  return { ...scan, chosen: { ...chosen, detectedApi: api, detectedApiResolution, apiResolution } };
+  return { ...scan, chosen: { ...chosen, detectedApi: api, detectedApiResolution, apiResolution,
+    ...(rdr2 ? { supportedApis: rdr2State.supportedApis, apiSettings: { kind: 'rdr2-system-xml', api: rdr2State.api, file: rdr2State.file, sha256: rdr2State.sha256, canSync: rdr2State.canSync,
+      steamAppId: '1174180', entryRoot: context.entryRoot, exe } } : {}) } };
 }
 
 function discoverEngineModules(exe, root, pe) {
@@ -164,7 +217,7 @@ function discoverEngineModules(exe, root, pe) {
   }
   const result = [];
   let imports = [];
-  try { if (fs.statSync(exe).size <= MAX_EXE_BYTES) imports = pe.getImports(exe); } catch {}
+  try { if (fs.statSync(exe).isFile()) imports = pe.getImports(exe); } catch {}
   const importedNames = new Set(imports.map(name => path.basename(name).toLowerCase()));
   for (const dir of dirs) {
     let entries;
@@ -210,4 +263,4 @@ function samePath(left, right, root) {
   return a === b;
 }
 
-module.exports = { annotateApi, normalizeApi };
+module.exports = { annotateApi, normalizeApi, steamEntryContext, readRdr2GraphicsApi };

@@ -5,7 +5,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { pathToFileURL } = require('url');
 const { assess, isDx11Only } = require('./game-support');
-const { annotateApi } = require('./api-evidence');
+const { annotateApi, steamEntryContext } = require('./api-evidence');
+const { detectReEngine } = require('./re-engine-detection');
 const { createLaunchContext } = require('./launch-evidence');
 const { DX11_COMPAT_VERSION } = require('./constants');
 const { readManifest, manifestPath, manifestExecutable } = require('./manifest');
@@ -388,9 +389,13 @@ function createLibraryService(overrides = {}) {
       if (inferredGameRoot.scan) gameRoot = inferredGameRoot.root;
     }
     const finalCandidates = candidates.map(candidate => ({ ...candidate, rel: path.relative(gameRoot, candidate.path) }));
+    let selectionSteamContext = {};
+    if (selectedCandidate) {
+      try { selectionSteamContext = steamEntryContext(selectedCandidate.path, library.discover([], false, []).games); } catch {}
+    }
     const finalSelected = selectedCandidate ? annotateApi({ ...scan, chosen: {
       ...selectedCandidate, rel: path.relative(gameRoot, selectedCandidate.path)
-    } }, gameRoot).chosen : null;
+    } }, gameRoot, { ...selectionSteamContext, documentsDir: overrides.documentsDir }).chosen : null;
     return {
       root: gameRoot,
       name: defaultGameName(gameRoot),
@@ -403,6 +408,8 @@ function createLibraryService(overrides = {}) {
         apiResolution: finalSelected.apiResolution,
         detectedApi: finalSelected.detectedApi,
         detectedApiResolution: finalSelected.detectedApiResolution,
+        supportedApis: finalSelected.supportedApis,
+        apiSettings: finalSelected.apiSettings,
         bitness: finalSelected.bitness,
         size: finalSelected.size
       } : null,
@@ -495,16 +502,18 @@ function createLibraryService(overrides = {}) {
           scanError: error && error.message ? error.message : 'scan failed'
         };
       }
-      const overrides = state.gameOverrides || {};
-      const override = { ...overrides[path.resolve(sourceRoot).toLowerCase()], ...overrides[path.resolve(game.dir).toLowerCase()] };
+      const gameOverrides = state.gameOverrides || {};
+      const override = { ...gameOverrides[path.resolve(sourceRoot).toLowerCase()], ...gameOverrides[path.resolve(game.dir).toLowerCase()] };
       // Root aliases must not erase an API choice bound to this exact EXE.
       // The canonical root wins explicit newer choices, including auto.
-      const boundOverrides = [overrides[path.resolve(game.dir).toLowerCase()], overrides[path.resolve(sourceRoot).toLowerCase()],
-        ...Object.entries(overrides).filter(([dir, value]) => value?.apiExecutable && scan.chosen &&
+      const boundOverrides = [gameOverrides[path.resolve(game.dir).toLowerCase()], gameOverrides[path.resolve(sourceRoot).toLowerCase()],
+        ...Object.entries(gameOverrides).filter(([dir, value]) => value?.apiExecutable && scan.chosen &&
           isInside(scan.chosen.path, dir) && (isInside(dir, game.dir) || isInside(game.dir, dir))).map(([, value]) => value)]
         .filter(value => value?.apiExecutable && scan.chosen && samePath(value.apiExecutable, scan.chosen.path) && value.api !== undefined);
       const apiOverride = boundOverrides[0]?.api || 'auto';
-      scan = annotateApi(scan, game.dir, { ...launchContext(game), steamAppId: game.launcher === 'Steam' ? String(game.id) : null, apiOverride });
+      const entryContext = steamEntryContext(scan.chosen?.path, discoveredGames);
+      scan = annotateApi(scan, game.dir, { ...launchContext(game),
+        steamAppId: game.launcher === 'Steam' ? String(game.id) : null, ...entryContext, documentsDir: overrides.documentsDir, apiOverride });
       let manifest = null;
       try { manifest = readManifest(game.dir); } catch {}
       const carrierEnabled = isDx11Only(scan.chosen);
@@ -515,11 +524,14 @@ function createLibraryService(overrides = {}) {
       const allowDx11 = isDx11Only(scan.chosen) ||
         !state.addonVersion || state.addonVersion === DX11_COMPAT_VERSION;
       const support = assess(scan, { allowDx11 });
+      const engine = scan.chosen ? detectReEngine({ gameDir: game.dir, exe: scan.chosen.path,
+        metadata: { steamAppId: game.launcher === 'Steam' ? String(game.id) : null } }) : null;
       return {
         id: idFor(game.dir),
         name: (override && override.name) || game.name || scan.gameName || path.basename(game.dir),
         launcher: game.launcher || '本地游戏',
         appid: game.id || null,
+        engine,
         dir: game.dir,
         rootAliases: [...new Set([sourceRoot, game.dir])],
         poster: posterUrl(game.poster),
@@ -532,6 +544,8 @@ function createLibraryService(overrides = {}) {
           apiResolution: scan.chosen.apiResolution,
           detectedApi: scan.chosen.detectedApi,
           detectedApiResolution: scan.chosen.detectedApiResolution,
+          supportedApis: scan.chosen.supportedApis,
+          apiSettings: scan.chosen.apiSettings,
           via: scan.chosen.via || null,
           bitness: scan.chosen.bitness
         } : null,

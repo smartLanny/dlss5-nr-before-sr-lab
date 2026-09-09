@@ -34,6 +34,39 @@ function scanFixture(root, preferred, hasDlss = true) {
   };
 }
 
+test('manual BG3 DX11 entry retains automatic API identity through selection and refresh', async () => {
+  const root = absRoot('Baldurs Gate 3'), bin = path.join(root, 'bin');
+  const dx11 = { path: path.join(bin, 'bg3_dx11.exe'), name: 'bg3_dx11.exe', api: 'dxgi', apiLabel: 'DirectX 11', bitness: 64 };
+  const vulkan = { path: path.join(bin, 'bg3.exe'), name: 'bg3.exe', api: 'vulkan', apiLabel: 'Vulkan', bitness: 64 };
+  const native = { path: path.join(bin, 'nvngx_dlss.dll'), name: 'nvngx_dlss.dll', bitness: 64 };
+  const game = { launcher: 'Steam', id: '1086940', dir: root, name: 'Baldurs Gate 3' };
+  const library = createLibraryService({
+    library: { discover: () => ({ games: [game] }), dedupe: rows => rows },
+    scan: { async scanGame(dir) { return { gameDir: dir, chosen: dir === root ? vulkan : dx11,
+      exeCandidates: [vulkan, dx11].map(row => ({ ...row, rel: path.relative(dir, row.path) })),
+      dlssFiles: [native], primaryDlss: native, reshade: { installed: false } }; }, selectPrimaryDlss: () => native }
+  });
+  const selection = await library.prepareSelection(dx11.path);
+  assert.equal(selection.root, bin, 'native SR and recovery root remain in bin');
+  assert.equal(selection.chosen.path, dx11.path);
+  assert.equal(selection.chosen.apiResolution.api, 'dx11');
+  assert.equal(selection.chosen.apiResolution.source, 'game-entry');
+  const state = { manualGames: [bin], manualExecutables: [{ root: bin, file: dx11.path }], gameOverrides: {} };
+  for (let refresh = 0; refresh < 2; refresh++) {
+    const rows = await library.scanAll(state);
+    assert.equal(rows.length, 2, 'Vulkan and DX11 keep separate selected entries');
+    const manual = rows.find(row => row.chosen.path === dx11.path);
+    assert.equal(manual.chosen.apiResolution.api, 'dx11');
+    assert.equal(manual.apiOverride, 'auto');
+    assert.equal(manual.supported, true);
+    assert.equal(rows.find(row => row.chosen.path === vulkan.path).chosen.apiResolution.api, 'vulkan');
+  }
+  state.gameOverrides[path.resolve(bin).toLowerCase()] = { api: 'dx12', apiExecutable: dx11.path };
+  const overridden = (await library.scanAll(state)).find(row => row.chosen.path === dx11.path);
+  assert.equal(overridden.chosen.apiResolution.api, 'dx12');
+  assert.equal(overridden.chosen.detectedApi, 'dx11');
+});
+
 test('manual executable selection keeps the chosen deep game exe and metadata', async () => {
   const root = absRoot('Example');
   const executable = path.join(root, 'Binaries', 'Win64', 'Game.exe');

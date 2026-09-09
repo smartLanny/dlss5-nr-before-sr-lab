@@ -37,7 +37,7 @@ function createLibraryWorkerClient(options = {}) {
   function ensureWorker() {
     if (disposed) throw workerError('扫描工作线程已关闭。', 'ERR_LIBRARY_WORKER_CLOSED');
     if (worker) return worker;
-    const instance = new Worker(workerFile);
+    const instance = new Worker(workerFile, { workerData: { documentsDir: options.documentsDir } });
     worker = instance;
     instance.on('message', result => {
       if (worker !== instance || !result || !pending.has(result.id)) return;

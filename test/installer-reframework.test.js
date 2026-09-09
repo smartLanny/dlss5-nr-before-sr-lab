@@ -73,6 +73,32 @@ test('0.4.7 install confirms a matching newly prepared RE mirror and updates bot
   assert.equal(fs.readFileSync(path.join(f.gameDir, '_storage_', 'user-mod.dll'), 'utf8'), 'external cache');
 });
 
+test('SF6 Core upgrade and removal never adopt or modify an unrelated storage Core or configuration', async t => {
+  const f = await fixture(t, 'StreetFighter6'); await f.prepareRef();
+  fs.writeFileSync(f.mirror, 'independent user Core'); fs.writeFileSync(f.storedConfig, 'independent user INI');
+  const rootIni = fs.readFileSync(f.rootConfig), receipt = fs.readFileSync(f.refReceipt);
+  const payload = f.upgrade();
+  await f.installer.install({ gameDir: f.gameDir, payload, scan: f.scan });
+  assert.deepEqual(fs.readFileSync(f.addon), fs.readFileSync(payload.addon.file));
+  assert.equal(fs.readFileSync(f.mirror, 'utf8'), 'independent user Core'); assert.deepEqual(fs.readFileSync(f.refReceipt), receipt);
+  await f.installer.uninstall({ gameDir: f.gameDir, scan: f.scan });
+  assert.equal(fs.existsSync(f.addon), false); assert.equal(fs.readFileSync(f.mirror, 'utf8'), 'independent user Core');
+  assert.equal(fs.readFileSync(f.storedConfig, 'utf8'), 'independent user INI'); assert.deepEqual(fs.readFileSync(f.rootConfig), rootIni);
+  assert.deepEqual(fs.readFileSync(f.refReceipt), receipt); assert.equal(read(f.refReceipt).configSeed, null); assert.deepEqual(read(f.refReceipt).mirrors, []);
+});
+
+test('DD2 and Wilds use the same journal for Core mirror upgrade and uninstall', async t => {
+  for (const name of ['DD2', 'MonsterHunterWilds']) {
+    const f = await fixture(t, name); await f.prepareRef(); const payload = f.upgrade(); f.resetTransactions();
+    await f.installer.install({ gameDir: f.gameDir, payload, scan: f.scan });
+    assert.equal(f.transactions, 1); assert.deepEqual(fs.readFileSync(f.mirror), fs.readFileSync(payload.addon.file));
+    assert.equal(read(f.refReceipt).mirrors.length, 1);
+    f.resetTransactions(); await f.installer.uninstall({ gameDir: f.gameDir, scan: f.scan });
+    assert.equal(f.transactions, 1); assert.equal(fs.existsSync(f.addon), false); assert.equal(fs.existsSync(f.mirror), false);
+    assert.deepEqual(read(f.refReceipt).mirrors, []);
+  }
+});
+
 test('known owner-installed Core hash may replace a stale receipt only for explicit 0.4.7 metadata and gets a version backup', async t => {
   const f = await fixture(t, 'DS1'), owner = Buffer.from('owner verified dev16'); fs.writeFileSync(f.addon, owner);
   const next = f.upgrade(Buffer.from('0.4.7 release'), [hash(owner)]);

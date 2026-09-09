@@ -23,6 +23,42 @@ const HASHES = Object.freeze({
   bridge: '46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb'
 });
 
+function makeHistoricalCatalog(root) {
+  const catalog = path.join(root, 'historical-0.4.6-hotfix.1');
+  const fixedSource = path.join(PROJECT_ROOT, 'payload', 'nr-before-sr', 'fixed', 'RTX40');
+  const versionSource = path.join(PROJECT_ROOT, 'payload', 'nr-before-sr', 'versions', '0.4.6-hotfix.1');
+  const fixed = path.join(catalog, 'fixed', 'RTX40');
+  const version = path.join(catalog, 'versions', '0.4.6-hotfix.1');
+  fs.mkdirSync(fixed, { recursive: true });
+  fs.mkdirSync(version, { recursive: true });
+  for (const name of ['ReShade64.dll', 'nrchain_nvngx.dll', 'nvngx_dlssnr.dll'])
+    fs.copyFileSync(path.join(fixedSource, name), path.join(fixed, name));
+  for (const name of [INSTALLED_NAMES.addon, INSTALLED_NAMES.config, INSTALLED_NAMES.bridge, INSTALLED_NAMES.carrier])
+    fs.copyFileSync(path.join(versionSource, name), path.join(version, name));
+  const files = names => Object.fromEntries(names.map(name => [name,
+    sha256(path.join(['ReShade64.dll', 'nvngx_dlssnr.dll'].includes(name) ? fixed : version, name))]));
+  const bundle = {
+    version: 4,
+    generatedAt: '2026-09-08T00:00:00.000Z',
+    defaultVersion: '0.4.6-hotfix.1',
+    fixed: {
+      RTX40: { files: files(['ReShade64.dll', 'nvngx_dlssnr.dll']) },
+      RTX50: { files: {} }
+    },
+    versions: {
+      '0.4.6-hotfix.1': {
+        label: '0.4.6-hotfix.1 · historical transaction fixture',
+        compatibility: 'dx11',
+        source: 'isolated from the retained real 0.4.6-hotfix.1 payload files',
+        files: files([INSTALLED_NAMES.addon, INSTALLED_NAMES.config, INSTALLED_NAMES.bridge, INSTALLED_NAMES.carrier])
+      }
+    },
+    supersededVersions: { '0.4.6': '0.4.6-hotfix.1' }
+  };
+  fs.writeFileSync(path.join(catalog, 'bundle.json'), JSON.stringify(bundle));
+  return catalog;
+}
+
 function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
@@ -40,6 +76,7 @@ function makeService(t) {
   fs.mkdirSync(exeDir, { recursive: true });
   const exe = path.join(exeDir, 'Game.exe');
   fs.writeFileSync(exe, 'non-executable test fixture');
+  const historicalCatalog = makeHistoricalCatalog(root);
 
   const scan = {
     gameDir,
@@ -90,15 +127,19 @@ function makeService(t) {
     overrides: { library, installer,
       detectGpu: () => ({ family: 'RTX40', series: ['RTX 4070'], vendor: 'NVIDIA' }) }
   });
-  return { gameDir, exeDir, service, armManifestWriteFailure: () => { failManifestWrite = true; } };
+  return { gameDir, exeDir, historicalCatalog, service, armManifestWriteFailure: () => { failManifestWrite = true; } };
 }
 
 test('real hotfix.1 payload and OTA preserve explicit INI values across API routes, rollback and journal failure',
   { skip: !fs.existsSync(REAL_HOTFIX_OTA) }, async t => {
     const f = makeService(t);
     await f.service.addManualGame(f.gameDir);
-    const boot = await f.service.boot();
+    let boot = await f.service.boot();
     const id = boot.games[0].id;
+    assert.equal(boot.payload.selectedVersion, '0.4.7beta');
+    assert.equal(Object.hasOwn(boot.payload.versions, '0.4.6-hotfix.1'), false);
+    await f.service.selectPayloadSource(f.historicalCatalog);
+    boot = await f.service.boot();
     assert.equal(boot.payload.selectedVersion, '0.4.6-hotfix.1');
     const files = {
       core: path.join(f.exeDir, INSTALLED_NAMES.addon),

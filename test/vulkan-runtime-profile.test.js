@@ -40,7 +40,13 @@ test('prepare atomically publishes an EXE/package-bound external profile and mut
   assert.deepEqual({ ready: absent.ready, basePath: absent.basePath, coreVersion: absent.coreVersion, packageId: absent.packageId, blockers: absent.blockers },
     { ready: false, basePath: predicted.basePath, coreVersion: f.recipe.coreVersion, packageId: f.recipe.id, blockers: ['运行资产目录尚未准备。'] });
   const prepared = await f.service.prepare({ exe: f.exe, packageRoot: f.packageRoot, recipe: f.recipe });
-  assert.deepEqual({ basePath: prepared.basePath, coreVersion: prepared.coreVersion, packageId: prepared.packageId }, predicted);
+  assert.deepEqual({ basePath: prepared.basePath, coreVersion: prepared.coreVersion, packageId: prepared.packageId,
+    exeId: prepared.exeId, fingerprint: prepared.fingerprint }, predicted);
+  assert.match(path.basename(path.dirname(prepared.basePath)), /^[a-f0-9]{16}$/);
+  assert.match(path.basename(prepared.basePath), /^[a-f0-9]{16}$/);
+  const receipt = JSON.parse(fs.readFileSync(path.join(prepared.basePath, '.xiaofeng-vulkan-runtime.json')));
+  assert.equal(receipt.exeId, hash(path.resolve(f.exe).toLowerCase())); assert.equal(receipt.exeId.length, 64);
+  assert.equal(receipt.recipe.fingerprint, predicted.fingerprint); assert.equal(receipt.recipe.fingerprint.length, 64);
   assert.equal(prepared.coreVersion, f.recipe.coreVersion);
   assert.equal(prepared.packageId, f.recipe.id);
   assert.equal(prepared.reused, false);
@@ -121,4 +127,82 @@ test('source drift during copy is detected, staged files are removed, and game d
   const exeRoots = fs.existsSync(f.service.runtimeRoot) ? fs.readdirSync(f.service.runtimeRoot) : [];
   for (const exeRoot of exeRoots) assert.deepEqual(fs.readdirSync(path.join(f.service.runtimeRoot, exeRoot)), []);
   assert.deepEqual(fs.readdirSync(f.game).sort(), ['Game.exe']);
+});
+
+function moveToLegacy(f, prepared) {
+  const receiptFile = path.join(prepared.basePath, '.xiaofeng-vulkan-runtime.json');
+  const receipt = JSON.parse(fs.readFileSync(receiptFile));
+  receipt.packageId = `${receipt.recipe.id}-${receipt.recipe.fingerprint.slice(0, 16)}`;
+  const basePath = path.join(f.service.runtimeRoot, receipt.exeId, receipt.packageId);
+  fs.writeFileSync(receiptFile, JSON.stringify(receipt));
+  fs.mkdirSync(path.dirname(basePath), { recursive: true }); fs.renameSync(prepared.basePath, basePath);
+  return { basePath, receipt };
+}
+
+test('legacy full IDs remain inspectable and archive keeps edited configs; an overlong legacy profile is restore-only', async t => {
+  const f = fixture(t); f.recipe.id = 'legacy-' + 'r'.repeat(63);
+  const prepared = await f.service.prepare({ exe: f.exe, packageRoot: f.packageRoot, recipe: f.recipe });
+  const { basePath, receipt } = moveToLegacy(f, prepared);
+  fs.writeFileSync(path.join(basePath, 'ReShade.ini'), 'legacy user config');
+  const inspected = await f.service.inspect({ exe: f.exe, basePath });
+  assert.equal(inspected.layout, 'legacy'); assert.equal(inspected.ready, false); assert.equal(inspected.restoreOnly, true);
+  assert.ok(inspected.pathBudget.longestChars > 259); assert.match(inspected.blockers.join(' '), /卸载插件.*重新安装/);
+  const archive = await f.service.archive({ exe: f.exe, basePath });
+  assert.equal(fs.readFileSync(path.join(archive.archivePath, 'ReShade.ini'), 'utf8'), 'legacy user config');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(archive.archivePath, '.xiaofeng-vulkan-runtime.json'))).recipe.fingerprint, receipt.recipe.fingerprint);
+  assert.equal(fs.existsSync(basePath), false);
+});
+
+test('long logical or canonical AppData paths are rejected before publishing any runtime assets', async t => {
+  const f = fixture(t); let copied = 0;
+  const pe = { getBitness: () => 64 }, copyFile = async () => { copied++; };
+  const tooLong = path.join(f.root, 'user-' + 'x'.repeat(170));
+  const logical = createVulkanRuntimeProfile({ userData: tooLong, pe, copyFile });
+  await assert.rejects(logical.prepare({ exe: f.exe, recipe: f.recipe, packageRoot: f.packageRoot }), { code: 'VULKAN_RUNTIME_PATH_TOO_LONG' });
+  assert.equal(fs.existsSync(logical.runtimeRoot), false); assert.equal(copied, 0);
+  fs.mkdirSync(f.userData);
+  const mapped = path.join(f.root, 'physical-AppData-' + 'x'.repeat(165));
+  const virtualized = createVulkanRuntimeProfile({ userData: f.userData, pe, copyFile,
+    realpath(file) { return path.resolve(file) === f.userData ? mapped : fs.realpathSync.native(file); } });
+  const place = virtualized.location({ exe: f.exe, recipe: f.recipe });
+  assert.ok(place.basePath.length < 180);
+  await assert.rejects(virtualized.prepare({ exe: f.exe, recipe: f.recipe, packageRoot: f.packageRoot }), error =>
+    error.code === 'VULKAN_RUNTIME_PATH_TOO_LONG' && error.details.pathBudget.canonicalBasePath.startsWith(mapped));
+  assert.equal(fs.existsSync(virtualized.runtimeRoot), false); assert.equal(copied, 0);
+});
+
+test('the exact Windows WCHAR budget includes Core binary names and the longer rotated log with its NUL', t => {
+  const f = fixture(t);
+  const relative = path.join('addons', 'nr-before-sr.previous.log');
+  const baseLength = 259 - relative.length - 1;
+  const base = path.join(f.root, 'x'.repeat(baseLength - f.root.length - 1));
+  const recipe = { ...f.recipe, files: [{ ...f.recipe.files[2], target: 'addons/c.dll' }] };
+  const atLimit = f.service.pathBudget({ basePath: base, recipe });
+  assert.equal(atLimit.longestChars, 259); assert.equal(atLimit.safe, true);
+  assert.equal(f.service.pathBudget({ basePath: base + 'x', recipe }).safe, false);
+  const longBinary = { ...recipe, files: [{ ...recipe.files[0], target: `addons/${'b'.repeat(50)}.addon64` }] };
+  const binary = f.service.pathBudget({ basePath: base, recipe: longBinary });
+  assert.equal(binary.safe, false); assert.ok(binary.longestPath.endsWith('.addon64'));
+});
+
+test('short EXE and package prefix collisions still require complete identities and never overwrite existing assets', async t => {
+  const f = fixture(t), prepared = await f.service.prepare({ exe: f.exe, packageRoot: f.packageRoot, recipe: f.recipe });
+  const other = path.join(f.game, 'Other.exe'); fs.writeFileSync(other, 'pe64-other');
+  const originalHash = crypto.createHash;
+  const fullExe = prepared.exeId, originalFingerprint = prepared.fingerprint;
+  // Simulate real prefix collisions without weakening production hashing.
+  t.mock.method(crypto, 'createHash', (...args) => {
+    const inner = originalHash(...args), chunks = [];
+    return { update(data, encoding) { chunks.push(Buffer.isBuffer(data) ? data : Buffer.from(data, encoding)); inner.update(data, encoding); return this; },
+      digest(encoding) { const text = Buffer.concat(chunks).toString('utf8'), actual = inner.digest('hex');
+        const forced = text === path.resolve(other).toLowerCase() ? fullExe.slice(0, 16) + actual.slice(16) :
+          text.startsWith('{') && text.includes('0.4.6-collision') ? originalFingerprint.slice(0, 16) + actual.slice(16) : actual;
+        return encoding === 'hex' ? forced : Buffer.from(forced, 'hex'); }
+    };
+  });
+  await assert.rejects(f.service.prepare({ exe: other, packageRoot: f.packageRoot, recipe: f.recipe }), { code: 'VULKAN_RUNTIME_IDENTITY_COLLISION' });
+  await assert.rejects(f.service.prepare({ exe: f.exe, packageRoot: f.packageRoot, recipe: { ...f.recipe, coreVersion: '0.4.6-collision' } }), { code: 'VULKAN_RUNTIME_PACKAGE_CHANGED' });
+  assert.equal(fs.readFileSync(path.join(prepared.basePath, 'ReShade64.dll'), 'utf8'), 'pe64-runtime');
+  const receipt = JSON.parse(fs.readFileSync(path.join(prepared.basePath, '.xiaofeng-vulkan-runtime.json')));
+  assert.equal(receipt.exeId, fullExe); assert.equal(receipt.recipe.fingerprint, originalFingerprint);
 });

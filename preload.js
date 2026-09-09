@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('manager', Object.freeze({
   dismissGame: id => invoke('game-dismiss', id),
   renameGame: (id, name) => invoke('game-rename', id, name),
   setGameApi: (id, api, options) => invoke('game-api-set', id, api, options),
+  applyGameRoute: (id, options) => invoke('game-route-apply', id, options),
   toggleD3D12: (id, enabled, options) => invoke('game-toggle-d3d12', id, enabled, options),
   uninstall: (id, removeSettings = false) => invoke('game-uninstall', id, removeSettings),
   diagnose: id => invoke('game-diagnose', id),

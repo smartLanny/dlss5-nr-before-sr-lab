@@ -308,7 +308,7 @@ async function smoke() {
   const graphicsTab = detail.querySelector('[data-detail-tab="graphics"]'); graphicsTab.focus();
   graphicsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
   assert(tabs.active() === 'enhance' && detail.querySelector('[data-detail-panel="graphics"]').hidden && detail.querySelector('[data-detail-panel="graphics"]').inert, 'Right arrow wraps from graphics to enhancement and removes hidden controls from keyboard interaction');
-  assert(visible(apiSelect) && visible(coreSelect), 'Public API and core controls remain visible after keyboard tab navigation');
+  assert(visible(detail.querySelector('.game-api-select')) && visible(detail.querySelector('.game-version-select')), 'Public API and core controls remain visible after keyboard tab navigation');
   document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
   assert(tabs.active() === 'graphics' && detail.querySelector('[data-detail-panel="enhance"]').hidden && detail.querySelector('[data-detail-panel="enhance"]').inert, 'Left arrow wraps from enhancement to graphics across exactly two tabs');
   document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));

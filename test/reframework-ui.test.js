@@ -19,10 +19,25 @@ test('Capcom RE compatibility row is limited to the exact supported profile', ()
   context.game = { reframework: { matched: true, label: 'REFramework', profile: 'onimusha-wots-reframework-01417' } };
   const html = vm.runInContext('reframeworkHostMarkup(game)', context);
   assert.match(html, /卡普空 RE 引擎兼容/);
-  assert.match(html, /一键安装时自动准备 REFramework/);
+  assert.match(html, /REFramework 01417 · 正在检查/);
   assert.doesNotMatch(html, /config-block/);
-  context.game.reframework.profile = 'another-profile';
+  context.game = { installed: false, reframework: { matched: true, profile: 're9-reframework-01417' } };
+  const re9 = vm.runInContext('reframeworkHostMarkup(game)', context);
+  assert.match(re9, /data-reframework-profile="re9-reframework-01417"/);
+  assert.match(re9, /卡普空 RE 引擎兼容/);
+  context.game.reframework.profile = 'bad profile!';
   assert.equal(vm.runInContext('reframeworkHostMarkup(game)', context), '');
+});
+
+test('unknown RE engine evidence stays informational and has no deployment action', () => {
+  const context = uiContext();
+  context.game = { engine: { id: 're-engine', label: '卡普空 RE 引擎', compatibilityKnown: false,
+    evidence: [{ kind: 'module', source: 're9.exe', detail: '检测到 RE Engine 模块' }] } };
+  const html = vm.runInContext('unknownReEngineMarkup(game)', context);
+  assert.match(html, /当前没有已确认的兼容配套/);
+  assert.match(html, /不会自动部署 REFramework/);
+  assert.match(html, /检测到 RE Engine 模块/);
+  assert.doesNotMatch(html, /reframework-(?:prepare|restore|recover)-btn/);
 });
 
 test('card actions follow readiness and loader ownership without visual runtime claims', () => {
@@ -31,6 +46,7 @@ test('card actions follow readiness and loader ownership without visual runtime 
     config: { effective: false, existingStoragePreferred: true, seed: {} }, blockers: [], warnings: [], gameRuntimeVerified: true };
   let html = vm.runInContext('reframeworkCardMarkup(info)', context);
   assert.match(html, /待安装/); assert.match(html, /准备 REFramework/); assert.doesNotMatch(html, /撤销 REFramework/);
+  assert.match(html, /一键安装时自动准备 REFramework/);
   assert.doesNotMatch(html, /gameRuntimeVerified|游戏验证/);
 
   context.info = { ...context.info, ready: true, canPrepare: false, loader: { exists: true, ownership: 'external' } };
@@ -67,7 +83,11 @@ test('unfinished operations expose recovery instead of install or restore', () =
 
 test('compatibility repair keeps D3D12 and Capcom RE actions at the same level with solid buttons', () => {
   const detail = source.slice(source.indexOf('function gameDetail('), source.indexOf('function renderGames('));
-  assert.match(detail, /<h4>兼容修复<\/h4>.*compat-actions.*d3d12-btn.*reframeworkHostMarkup\(game\)/s);
+  const compatibility = source.slice(source.indexOf('function compatibilityRepairMarkup('), source.indexOf('function reframeworkMessage('));
+  assert.match(compatibility, /d3d12-btn/);
+  assert.match(compatibility, /compat-action-grid.*\$\{d3d12\}\$\{reframework\}/s);
+  assert.match(compatibility, /<details class="compat-help">/);
+  assert.match(detail, /compatibilityRepairMarkup\(game, true\)/);
   assert.doesNotMatch(detail, /button subtle d3d12-btn/);
   const card = source.slice(source.indexOf('function reframeworkCardMarkup('), source.indexOf('function detailKey('));
   assert.match(card, /button reframework-restore-btn/);
@@ -99,24 +119,25 @@ test('0.4.7 beta labels retain the beta marker', () => {
   const context = {};
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('function coreVersionLabel('), source.indexOf('function catalogReplacement(')), context);
-  assert.equal(vm.runInContext("coreVersionLabel('0.4.7beta')", context), '0.4.7beta · Beta');
-  assert.equal(vm.runInContext("coreVersionLabel('0.4.7-beta')", context), '0.4.7-beta · Beta');
+  assert.equal(vm.runInContext("coreVersionLabel('0.4.7beta')", context), 'beta0.4.7');
+  assert.equal(vm.runInContext("coreVersionLabel('0.4.7-beta')", context), 'beta0.4.7');
   assert.equal(vm.runInContext("coreVersionLabel('0.4.6-hotfix.1')", context), '0.4.6-hotfix.1 · Beta');
   assert.equal(vm.runInContext("coreVersionLabel('0.2.0-beta.2')", context), '0.2.0');
 });
 
-test('DX11 disables the native-DX12-only 0.4.7 beta choice with a reason', () => {
+test('beta0.4.7 is selectable for both DX11 and DX12 with its matching companion', () => {
   const context = { escapeHtml: String, state: { payload: { selectedVersion: '0.4.6-hotfix.1', versions: {
     '0.4.6-hotfix.1': { label: '0.4.6-hotfix.1 · Beta', compatibility: 'dx11' },
-    '0.4.7beta': { label: '0.4.7beta · Beta', compatibility: null }
+    '0.4.7beta': { label: 'beta0.4.7', compatibility: 'dx11' }
   } }, addons: [] } };
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('function coreVersionLabel('), source.indexOf('function poster(')), context);
   context.game = { chosen: { apiResolution: { api: 'dx11' } } };
   const dx11 = vm.runInContext("versionOptionsMarkup('0.4.6-hotfix.1', false, game)", context);
-  assert.match(dx11, /value="0\.4\.7beta" disabled>0\.4\.7beta · Beta（仅原生 DX12）/);
+  assert.match(dx11, /value="0\.4\.7beta">beta0\.4\.7/);
+  assert.doesNotMatch(dx11, /仅原生 DX12|0\.4\.7beta"[^>]*disabled/);
   context.game.chosen.apiResolution.api = 'dx12';
   const dx12 = vm.runInContext("versionOptionsMarkup('0.4.7beta', false, game)", context);
-  assert.match(dx12, /value="0\.4\.7beta" selected>0\.4\.7beta · Beta/);
+  assert.match(dx12, /value="0\.4\.7beta" selected>beta0\.4\.7/);
   assert.doesNotMatch(dx12, /0\.4\.7beta"[^>]*disabled/);
 });

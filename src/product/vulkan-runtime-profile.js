@@ -13,6 +13,9 @@ const HASH = /^[a-f0-9]{64}$/;
 const REVISION = /^[a-f0-9]{7,64}$/i;
 const ID = /^[a-z0-9][a-z0-9._-]{0,79}$/i;
 const PE_EXTENSIONS = new Set(['.dll', '.exe', '.asi', '.addon64']);
+// MAX_PATH includes the terminating WCHAR. The pinned Core uses fixed
+// WCHAR[260] arrays for its module, INI and rotated log paths.
+const MAX_PATH_CHARS = 259;
 
 function fail(code, message, details) {
   throw Object.assign(new Error(message), { code, details });
@@ -49,6 +52,7 @@ function createVulkanRuntimeProfile(options = {}) {
   const archiveRoot = path.join(userData, 'vulkan-runtime-archive');
   const pe = options.pe || peDefault;
   const copyFile = options.copyFile || fsp.copyFile;
+  const realpath = options.realpath || fs.realpathSync.native;
 
   function validateExe(exe) {
     if (!localAbsolute(exe)) fail('VULKAN_RUNTIME_BAD_EXE', '游戏 EXE 路径无效。');
@@ -79,15 +83,62 @@ function createVulkanRuntimeProfile(options = {}) {
 
   function locations(exe, recipe) {
     const exeId = pathHash(exe);
-    const packageId = `${recipe.id}-${recipe.fingerprint.slice(0, 16)}`;
-    const exeRoot = path.join(runtimeRoot, exeId);
+    const packageId = recipe.fingerprint.slice(0, 16);
+    const exeRoot = path.join(runtimeRoot, exeId.slice(0, 16));
     const basePath = path.join(exeRoot, packageId);
     return { exeId, packageId, exeRoot, basePath };
   }
 
   function location(input) {
     const exe = validateExe(input?.exe), recipe = normalizeRecipe(input?.recipe), place = locations(exe, recipe);
-    return { basePath: place.basePath, coreVersion: recipe.coreVersion, packageId: recipe.id };
+    return { basePath: place.basePath, coreVersion: recipe.coreVersion, packageId: recipe.id,
+      exeId: place.exeId, fingerprint: recipe.fingerprint };
+  }
+
+  function locationKind(exe, basePath, recipe) {
+    const exeId = pathHash(exe), parent = path.dirname(basePath), leaf = path.basename(basePath);
+    const short = samePath(parent, path.join(runtimeRoot, exeId.slice(0, 16))) && /^[a-f0-9]{16}$/.test(leaf) &&
+      (!recipe || leaf === recipe.fingerprint.slice(0, 16));
+    const legacy = samePath(parent, path.join(runtimeRoot, exeId)) &&
+      (recipe ? leaf === `${recipe.id}-${recipe.fingerprint.slice(0, 16)}` : /^[a-z0-9][a-z0-9._-]{0,79}-[a-f0-9]{16}$/i.test(leaf));
+    if (!short && !legacy) fail('VULKAN_RUNTIME_PATH_INVALID', 'Vulkan 运行资产目录不属于该 EXE 或固定配套。');
+    return short ? 'short' : 'legacy';
+  }
+
+  function canonicalPath(file) {
+    let current = path.resolve(file); const suffix = [];
+    while (true) {
+      try {
+        let resolved = realpath(current);
+        if (process.platform === 'win32' && resolved.startsWith('\\\\?\\')) resolved = resolved.slice(4);
+        if (!localAbsolute(resolved)) fail('VULKAN_RUNTIME_PATH_INVALID', '无法确认 Vulkan 实际运行目录。');
+        return path.resolve(resolved, ...suffix);
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        const parent = path.dirname(current);
+        if (parent === current) throw error;
+        suffix.unshift(path.basename(current)); current = parent;
+      }
+    }
+  }
+
+  function pathBudget(input) {
+    const recipe = normalizeRecipe(input.recipe), basePath = path.resolve(input.basePath);
+    const actual = canonicalPath(basePath);
+    const relatives = new Set(recipe.files.map(row => row.target));
+    relatives.add('ReShade.ini'); relatives.add('ReShade.log');
+    const dirs = new Set(['addons', ...recipe.files.filter(row => PE_EXTENSIONS.has(path.extname(row.target).toLowerCase())).map(row => path.dirname(row.target))]);
+    for (const dir of dirs) for (const name of ['nr-before-sr.log', 'nr-before-sr.previous.log', 'nr_before_sr.ini', 'dlss5-feed.log']) relatives.add(path.join(dir, name));
+    const candidates = [...new Set([basePath, actual])].flatMap(root => [...relatives].map(relative => path.resolve(root, relative)));
+    const longest = candidates.reduce((a, b) => a.length >= b.length ? a : b);
+    return { safe: longest.length <= MAX_PATH_CHARS, maxChars: MAX_PATH_CHARS, longestChars: longest.length,
+      longestPath: longest, canonicalBasePath: actual };
+  }
+  function assertPathBudget(input) {
+    const result = pathBudget(input);
+    if (!result.safe) fail('VULKAN_RUNTIME_PATH_TOO_LONG', 'Vulkan 运行路径超过 Core 的 Windows 路径上限；请先恢复旧配套，再使用较短的用户数据路径重新安装。',
+      { pathBudget: result, restoreOnly: true });
+    return result;
   }
 
   function resolveContained(root, relative, code = 'VULKAN_RUNTIME_RECIPE_INVALID') {
@@ -122,9 +173,24 @@ function createVulkanRuntimeProfile(options = {}) {
     };
   }
 
+  function identifyReceipt({ receipt: value, basePath, exe }) {
+    if (!value || value.version !== 1 || value.product !== PRODUCT || typeof value.exe !== 'string' || !path.isAbsolute(value.exe) ||
+        !/^[a-f0-9]{64}$/.test(value.exeId || '') || !ID.test(value.recipe?.id || '') || !ID.test(value.recipe?.coreVersion || '') || !REVISION.test(value.recipe?.sourceRevision || '') ||
+        value.recipe?.architecture !== 64 || !HASH.test(value.recipe?.fingerprint || '') || !Array.isArray(value.recipe?.files)) {
+      fail('VULKAN_RUNTIME_RECEIPT_INVALID', 'Vulkan 运行资产记录内容无效，已停止操作。');
+    }
+    const recipe = normalizeRecipe(value.recipe);
+    if (recipe.fingerprint !== value.recipe.fingerprint || value.exeId !== pathHash(value.exe) ||
+        ![recipe.fingerprint.slice(0, 16), `${recipe.id}-${recipe.fingerprint.slice(0, 16)}`].includes(value.packageId)) {
+      fail('VULKAN_RUNTIME_RECEIPT_INVALID', 'Vulkan 运行资产记录身份不一致，已停止操作。');
+    }
+    if (exe && !samePath(value.exe, exe)) fail('VULKAN_RUNTIME_EXE_CHANGED', '运行资产绑定到另一游戏 EXE，已停止操作。');
+    const layout = locationKind(value.exe, path.resolve(basePath), recipe);
+    if (path.basename(basePath).toLowerCase() !== value.packageId.toLowerCase()) fail('VULKAN_RUNTIME_RECEIPT_INVALID', '运行资产目录与记录身份不一致。');
+    return { value, recipe, layout };
+  }
   async function readReceipt(basePath) {
-    const file = path.join(basePath, RECEIPT);
-    await noLinks(file);
+    const file = path.join(basePath, RECEIPT); await noLinks(file);
     let value;
     try {
       const stat = await fsp.stat(file);
@@ -134,16 +200,24 @@ function createVulkanRuntimeProfile(options = {}) {
       if (error.code === 'ENOENT') fail('VULKAN_RUNTIME_NOT_PREPARED', 'Vulkan 运行资产尚未准备。');
       fail('VULKAN_RUNTIME_RECEIPT_INVALID', 'Vulkan 运行资产记录损坏，已停止操作。');
     }
-    if (!value || value.version !== 1 || value.product !== PRODUCT || typeof value.exe !== 'string' || !path.isAbsolute(value.exe) ||
-        !/^[a-f0-9]{64}$/.test(value.exeId || '') || !ID.test(value.recipe?.id || '') || !ID.test(value.recipe?.coreVersion || '') || !REVISION.test(value.recipe?.sourceRevision || '') ||
-        value.recipe?.architecture !== 64 || !HASH.test(value.recipe?.fingerprint || '') || !Array.isArray(value.recipe?.files)) {
-      fail('VULKAN_RUNTIME_RECEIPT_INVALID', 'Vulkan 运行资产记录内容无效，已停止操作。');
+    return identifyReceipt({ receipt: value, basePath });
+  }
+
+  async function assertExeBucket(exe, exeRoot, ownStage = null) {
+    await noLinks(exeRoot);
+    let entries;
+    try { entries = await fsp.readdir(exeRoot, { withFileTypes: true }); }
+    catch (error) { if (error.code === 'ENOENT') return; throw error; }
+    if (entries.length > 128) fail('VULKAN_RUNTIME_IDENTITY_COLLISION', 'Vulkan 短目录条目超出归属确认范围，未覆盖资产。');
+    for (const entry of entries) {
+      const child = path.join(exeRoot, entry.name);
+      if (ownStage && samePath(child, ownStage)) continue;
+      if (!entry.isDirectory() || entry.isSymbolicLink() || !/^[a-f0-9]{16}$/.test(entry.name))
+        fail('VULKAN_RUNTIME_IDENTITY_COLLISION', 'Vulkan 短目录有未确认归属或进行中的资产，未覆盖文件。');
+      const received = await readReceipt(child);
+      if (!samePath(received.value.exe, exe) || received.value.exeId !== pathHash(exe))
+        fail('VULKAN_RUNTIME_IDENTITY_COLLISION', 'Vulkan 短目录已绑定另一完整 EXE 身份，未覆盖文件。');
     }
-    const recipe = normalizeRecipe(value.recipe);
-    if (recipe.fingerprint !== value.recipe.fingerprint || value.exeId !== pathHash(value.exe) || value.packageId !== `${recipe.id}-${recipe.fingerprint.slice(0, 16)}`) {
-      fail('VULKAN_RUNTIME_RECEIPT_INVALID', 'Vulkan 运行资产记录身份不一致，已停止操作。');
-    }
-    return { value, recipe };
   }
 
   async function inspect(input) {
@@ -154,10 +228,7 @@ function createVulkanRuntimeProfile(options = {}) {
     if (input?.basePath !== undefined) {
       if (typeof input.basePath !== 'string' || !path.isAbsolute(input.basePath)) fail('VULKAN_RUNTIME_PATH_INVALID', 'Vulkan 运行资产目录无效。');
       basePath = path.resolve(input.basePath);
-      const exeRoot = path.join(runtimeRoot, pathHash(exe));
-      if (!inside(exeRoot, basePath) || samePath(exeRoot, basePath) || path.dirname(basePath).toLowerCase() !== exeRoot.toLowerCase()) {
-        fail('VULKAN_RUNTIME_PATH_INVALID', 'Vulkan 运行资产目录不属于该 EXE。');
-      }
+      locationKind(exe, basePath);
     } else {
       if (!recipe) fail('VULKAN_RUNTIME_RECIPE_INVALID', '检查 Vulkan 运行资产需要 recipe 或准备结果目录。');
       basePath = locations(exe, recipe).basePath;
@@ -169,7 +240,8 @@ function createVulkanRuntimeProfile(options = {}) {
     if (recipe && recipe.fingerprint !== received.recipe.fingerprint) fail('VULKAN_RUNTIME_PACKAGE_CHANGED', '运行资产目录属于另一固定 package。');
     recipe = received.recipe;
     if (path.basename(basePath).toLowerCase() !== received.value.packageId.toLowerCase()) fail('VULKAN_RUNTIME_RECEIPT_INVALID', '运行资产目录与记录身份不一致。');
-    const files = [], blockers = [];
+    const budget = pathBudget({ basePath, recipe }), files = [], blockers = [];
+    if (!budget.safe) blockers.push('旧 Vulkan 运行路径过长。请先在设置中点击“卸载插件”，再用新版管理器重新安装；新配套会自动使用短目录。');
     for (const row of recipe.files) {
       const file = resolveContained(basePath, row.target, 'VULKAN_RUNTIME_RECEIPT_INVALID');
       try {
@@ -187,7 +259,8 @@ function createVulkanRuntimeProfile(options = {}) {
         blockers.push(error.code === 'VULKAN_RUNTIME_ARCH' ? error.message : `${row.target} 缺失或不可安全读取。`);
       }
     }
-    return { ready: blockers.length === 0, exists: true, basePath, coreVersion: recipe.coreVersion, packageId: recipe.id, files, blockers };
+    return { ready: blockers.length === 0, exists: true, basePath, coreVersion: recipe.coreVersion, packageId: recipe.id, files, blockers,
+      layout: received.layout, pathBudget: budget, restoreOnly: !budget.safe };
   }
 
   async function validateSource(packageRoot, recipe) {
@@ -218,13 +291,15 @@ function createVulkanRuntimeProfile(options = {}) {
     if (!exeStat.isFile()) fail('VULKAN_RUNTIME_BAD_EXE', '游戏 EXE 不是普通文件。');
     await assertX64(exe);
     const recipe = normalizeRecipe(input?.recipe);
-    const source = await validateSource(input?.packageRoot, recipe);
     const place = locations(exe, recipe);
     await noLinks(place.basePath);
+    assertPathBudget({ basePath: place.basePath, recipe });
+    await assertExeBucket(exe, place.exeRoot);
+    const source = await validateSource(input?.packageRoot, recipe);
     if (fs.existsSync(place.basePath)) {
       const current = await inspect({ exe, recipe, basePath: place.basePath });
       if (!current.ready) fail('VULKAN_RUNTIME_CHANGED', '已有 Vulkan 运行资产缺失或被修改，未覆盖用户文件。', { blockers: current.blockers });
-      return { basePath: current.basePath, coreVersion: recipe.coreVersion, packageId: recipe.id, files: current.files, reused: true };
+      return { ...location({ exe, recipe }), files: current.files, reused: true };
     }
     await noLinks(place.exeRoot);
     await fsp.mkdir(place.exeRoot, { recursive: true });
@@ -247,6 +322,11 @@ function createVulkanRuntimeProfile(options = {}) {
       }
       await atomicJson(path.join(stage, RECEIPT), receiptFor(exe, recipe, place));
       await noLinks(place.basePath);
+      assertPathBudget({ basePath: place.basePath, recipe });
+      await assertExeBucket(exe, place.exeRoot, stage);
+      // A concurrently published directory must never be replaced by a
+      // different full identity that happens to share either short prefix.
+      if (fs.existsSync(place.basePath)) fail('VULKAN_RUNTIME_IDENTITY_COLLISION', 'Vulkan 短目录已被另一操作占用，未覆盖已有资产。');
       await fsp.rename(stage, place.basePath);
     } catch (error) {
       await fsp.rm(stage, { recursive: true, force: true }).catch(() => {});
@@ -254,14 +334,14 @@ function createVulkanRuntimeProfile(options = {}) {
     }
     const result = await inspect({ exe, recipe, basePath: place.basePath });
     if (!result.ready) fail('VULKAN_RUNTIME_WRITE_VERIFY', 'Vulkan 运行资产发布后校验失败。', { blockers: result.blockers });
-    return { basePath: result.basePath, coreVersion: recipe.coreVersion, packageId: recipe.id, files: result.files, reused: false };
+    return { ...location({ exe, recipe }), files: result.files, reused: false };
   }
 
   async function archive(input) {
     const exe = validateExe(input?.exe);
     if (typeof input?.basePath !== 'string' || !path.isAbsolute(input.basePath)) fail('VULKAN_RUNTIME_PATH_INVALID', '归档目录无效。');
-    const basePath = path.resolve(input.basePath), exeRoot = path.join(runtimeRoot, pathHash(exe));
-    if (path.dirname(basePath).toLowerCase() !== exeRoot.toLowerCase()) fail('VULKAN_RUNTIME_PATH_INVALID', '归档目录不属于该 EXE。');
+    const basePath = path.resolve(input.basePath), exeRoot = path.dirname(basePath);
+    locationKind(exe, basePath);
     await noLinks(exeRoot); await noLinks(basePath);
     const received = await readReceipt(basePath);
     if (!samePath(received.value.exe, exe) || path.basename(basePath).toLowerCase() !== received.value.packageId.toLowerCase()) {
@@ -276,7 +356,7 @@ function createVulkanRuntimeProfile(options = {}) {
     return { archived: true, archivePath, basePath, coreVersion: received.recipe.coreVersion, packageId: received.recipe.id };
   }
 
-  return { location, prepare, inspect, archive, runtimeRoot, archiveRoot };
+  return { location, prepare, inspect, archive, identifyReceipt, pathBudget, assertPathBudget, runtimeRoot, archiveRoot };
 }
 
-module.exports = { createVulkanRuntimeProfile };
+module.exports = { createVulkanRuntimeProfile, MAX_PATH_CHARS };

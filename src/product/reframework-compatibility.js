@@ -20,6 +20,17 @@ const OFFICIAL = Object.freeze({
   install_leaf: 'dinput8.dll',
   game_runtime_verified: false
 });
+function requiredAdapter(id, executable, storage, sourceLine, manifestLine) {
+  return Object.freeze({ id, executable, engine: 're-engine', architecture: 64, storage,
+    evidence: Object.freeze({ component: OFFICIAL.source_url, rhiExplicitEntry: true,
+      rhiManifest: `https://github.com/RankFTW/RHI/blob/b2044965806d2ed01ff6f214da53f720aab4ff3e/manifest.json#L${manifestLine}`,
+      gameSupport: `https://github.com/praydog/REFramework/blob/${OFFICIAL.source_commit}/shared/sdk/GameIdentity.cpp#L${sourceLine}`,
+      storageContract: `https://github.com/praydog/REFramework/blob/${OFFICIAL.source_commit}/src/REFramework.cpp#L356`,
+      ownerResult: '固定官方版本支持此游戏，RHI 明确要求 REFramework；游戏运行验收仍需单独确认。',
+      gameRuntimeVerified: false
+    })
+  });
+}
 const ADAPTERS = Object.freeze([Object.freeze({
   id: 'onimusha-wots-reframework-01417',
   executable: 'OnimushaWotS.exe',
@@ -37,7 +48,27 @@ const ADAPTERS = Object.freeze([Object.freeze({
     storageContract: 'https://github.com/praydog/REFramework/blob/b6baf6b406efc65e077b99cb4d9ad25b0a0a9095/src/REFramework.cpp#L214',
     modulePathHelper: 'https://github.com/cursey/kananlib/blob/8c27b656734355db0f2893581fd62e838fa130ad/src/Module.cpp#L479'
   })
-})]);
+}), Object.freeze({
+  id: 're9-reframework-01417',
+  executable: 're9.exe',
+  engine: 're-engine',
+  architecture: 64,
+  storage: '_storage_',
+  evidence: Object.freeze({
+    component: OFFICIAL.source_url,
+    rhiManifest: 'https://github.com/RankFTW/RHI/blob/main/manifest.json',
+    rhiExplicitEntry: true,
+    ownerResult: '官方 REFramework 固定源码包含 RE9 支持；本机已有相同官方加载器。未将组件就绪等同于新 Core 的游戏验收。',
+    storageContract: 'https://github.com/praydog/REFramework/blob/b6baf6b406efc65e077b99cb4d9ad25b0a0a9095/src/REFramework.cpp#L214',
+    gameSupport: 'https://github.com/praydog/REFramework/blob/b6baf6b406efc65e077b99cb4d9ad25b0a0a9095/src/REFramework.cpp#L489'
+  })
+}),
+requiredAdapter('dd2-reframework-01417', 'DD2.exe', '_storage_', 249, 974),
+requiredAdapter('mhwilds-reframework-01417', 'MonsterHunterWilds.exe', '_storage_', 309, 1027),
+requiredAdapter('mhwilds-alias-reframework-01417', 'MHWILDS.exe', '_storage_', 309, 1027),
+requiredAdapter('sf6-reframework-01417', 'StreetFighter6.exe', null, 239, 1044),
+requiredAdapter('sf6-alias-reframework-01417', 'SF6.exe', null, 239, 1044)
+]);
 
 function fail(code, message, details) { throw Object.assign(new Error(message), { code, details }); }
 function digest(file) { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); }
@@ -101,7 +132,9 @@ function createReframeworkCompatibility(options = {}) {
     if (!inside(gameDir, exe) || !samePath(path.dirname(exe), gameDir)) return { gameDir, exe, adapter: null, reason: 'REFramework 配套只允许绑定已核验的游戏根目录 EXE。' };
     const adapter = ADAPTERS.find(row => row.executable.toLowerCase() === path.basename(exe).toLowerCase() && row.engine === engineId(input.engine));
     if (!adapter) return { gameDir, exe, adapter: null, reason: '该 EXE 与引擎组合没有精确核验的 REFramework 配套。' };
-    const stat = plainFile(exe, 512 * 1024 * 1024);
+    // Architecture inspection reads bounded PE headers, not the full game EXE.
+    // Requiem's legitimate executable is larger than 512 MiB.
+    const stat = plainFile(exe, Number.MAX_SAFE_INTEGER);
     if (!stat) return { gameDir, exe, adapter: null, reason: '核验的游戏 EXE 不存在或不是普通文件。' };
     let bitness;
     try { bitness = pe.getBitness(exe); } catch { return { gameDir, exe, adapter: null, reason: '无法确认游戏 EXE 的 PE 架构。' }; }
@@ -156,6 +189,24 @@ function createReframeworkCompatibility(options = {}) {
     const frameworkEntries = rootEntries.filter(entry => /^(?:reframework|ref(?:\.|$))/i.test(entry.name))
       .slice(0, 128).map(entry => ({ name: entry.name, type: entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : 'other' }));
     if (frameworkEntries.length && loaderState === 'absent') blockers.push({ code: 'REF_EXISTING_FRAMEWORK', message: '发现没有加载器收据对应的 REF/REFramework 文件，需要先核对归属。', files: frameworkEntries.map(row => row.name) });
+
+    if (!target.adapter.storage) {
+      // SF6 uses TDB71 and is not in the pinned DD2/MHRise exceptions.
+      // REF only supplies the loader here: _storage_ has no runtime meaning
+      // for this profile and must never be inspected, seeded or adopted.
+      const rootConfig = path.join(target.gameDir, 'nr_before_sr.ini');
+      return {
+        matched: true, ready: (loaderState === 'managed-matching' || loaderState === 'matching-external') && blockers.length === 0,
+        canPrepare: blockers.length === 0, adapter: target.adapter,
+        component: { ...OFFICIAL, root: componentRoot, file: source, verified: true },
+        existing: { loader: { file: rootLoader, state: loaderState, hash: loader.hash }, frameworkEntries,
+          storage: { path: null, exists: false, entries: [], reviewRequired: false } },
+        runtime: { storageDir: null, rootConfig, storageConfig: null, effectiveConfig: rootConfig, seed: null, existingStorageConfigPreferred: false },
+        managedLocations: [], blockers,
+        plan: { readonly: true, requiresGameClosed: true, requiresTransaction: true, writesRegistry: false,
+          operations, deletes: [], preserve: frameworkEntries.map(row => row.name).concat('nr_before_sr.ini') }
+      };
+    }
 
     const storageDir = path.join(target.gameDir, target.adapter.storage), storageState = item(storageDir, fileDigest);
     const storageEntries = [];

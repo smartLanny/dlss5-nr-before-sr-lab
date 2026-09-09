@@ -11,7 +11,8 @@ const { inspectAddonLayout, requireAddonLayout } = require('./reshade-layout');
 const { assess, classifyApi, isDx11Only } = require('./game-support');
 const { sha256 } = require('./payload');
 const coreVersionText = value => {
-  if (/^0\.3\.3-(?:dev-)?r4\b/.test(String(value || ''))) return '0.3.3-r4 · 稳定兼容';
+  if (/^0\.3\.3-(?:dev-)?r4\b/.test(String(value || ''))) return '0.3.3.4 · 稳定兼容';
+  if (/^(?:beta)?0\.4\.7(?:-?beta)?$/i.test(String(value || ''))) return 'beta0.4.7';
   const raw = String(value || ''), version = raw.match(/^(0\.\d+\.\d+(?:\.\d+)?(?:-(?:hotfix|beta)\.\d+)?)/)?.[1];
   if (!version) return raw;
   if (version.startsWith('0.2.')) return version.replace(/-beta\.\d+$/i, '');
@@ -100,7 +101,7 @@ function createInstaller(overrides = {}) {
   }
   async function preflightRef(gameDir, exePath, manifest, rootRows, allowConfirm, adoptions = []) {
     const adapter = REFRAMEWORK_ADAPTERS.find(row => row.executable.toLowerCase() === path.basename(exePath).toLowerCase());
-    if (!adapter || !samePath(path.dirname(exePath), gameDir) || pe.getBitness(exePath) !== 64) return null;
+    if (!adapter?.storage || !samePath(path.dirname(exePath), gameDir) || pe.getBitness(exePath) !== 64) return null;
     const input = { gameDir, exe: exePath, engine: adapter.engine };
     const receiptFile = journal.safePath(gameDir, REF_RECEIPT); await noLinks(receiptFile);
     let record = null, receiptHash = null;

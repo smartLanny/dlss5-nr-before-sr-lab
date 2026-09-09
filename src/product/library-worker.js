@@ -3,11 +3,11 @@
 // Read-only discovery and PE inspection run here, away from Electron's main
 // event loop. Keep one service and serialize requests; scanAll already bounds
 // its own directory I/O and this worker must not multiply full-library scans.
-const { parentPort } = require('node:worker_threads');
+const { parentPort, workerData } = require('node:worker_threads');
 const { createLibraryService } = require('./library-service');
 
 if (!parentPort) throw new Error('Library worker requires a worker thread.');
-const library = createLibraryService();
+const library = createLibraryService({ documentsDir: workerData?.documentsDir });
 const methods = Object.freeze({
   scanAll: state => library.scanAll(state),
   prepareSelection: (source, preferredExecutable) => library.prepareSelection(source, preferredExecutable)

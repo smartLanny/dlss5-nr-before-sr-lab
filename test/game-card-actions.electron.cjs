@@ -43,8 +43,8 @@ installMock();
     if (game) game.name = name;
     return ok(clone());
   };
-  window.manager.install = id => new Promise(resolve => {
-    mock.calls.push(['install', id]);
+  window.manager.applyGameRoute = (id, options) => new Promise(resolve => {
+    mock.calls.push(['install', id, options]);
     mock.installResolve = result => {
       if (result && result.ok === true) {
         const game = mock.games.find(row => row.id === id);

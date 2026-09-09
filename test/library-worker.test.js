@@ -43,6 +43,17 @@ function fixture(t) {
   return { root, workerFile, client };
 }
 
+test('the main process passes its resolved Documents folder to the real worker', async t => {
+  const root = temporary(t), workerFile = path.join(root, 'known-folder.cjs');
+  fs.writeFileSync(workerFile, `const {parentPort, workerData}=require('node:worker_threads');
+    parentPort.on('message', request=>parentPort.postMessage({id:request.id,ok:true,value:workerData.documentsDir}));`);
+  const documentsDir = path.join(root, 'Redirected Documents');
+  const client = createLibraryWorkerClient({ workerFile, documentsDir });
+  t.after(() => client.dispose());
+  assert.equal(await client.scanAll({}), documentsDir);
+  assert.equal(await client.prepareSelection(path.join(root, 'RDR2.exe')), documentsDir);
+});
+
 test('real worker keeps the main event loop responsive during synchronous scan work', async t => {
   const { client } = fixture(t);
   let ticks = 0;

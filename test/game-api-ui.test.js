@@ -70,20 +70,68 @@ test('manual API choices retain their names and unsupported NR routes do not off
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '../preload.js'), 'utf8'), /game-carrier-set|setGameCarrier/);
 });
 
-test('saving each API calls the current game route without replacing its selected EXE', () => {
-  const calls = [], button = {}, head = {}, select = { value: 'auto' };
-  const game = { id: 'current-game', chosen: { path: 'C:/Games/Chosen.exe' } };
-  const card = { dataset: { id: game.id }, querySelector: selector => ({ '.game-card-head': head, '.api-save-btn': button, '.game-api-select': select })[selector] || null };
-  const context = { state: { games: [game] }, document: { querySelectorAll: selector => selector === '.game-card' ? [card] : [] },
-    window: { manager: { setGameApi: (...args) => calls.push(args) } }, runConfirmedAction: work => work(true) };
-  vm.createContext(context);
-  vm.runInContext(source.slice(source.indexOf('function bindGameCards('), source.indexOf('async function loadExpanded(')), context);
-  vm.runInContext('bindGameCards()', context);
-  for (const api of ['auto', 'dx9', 'dx10', 'dx11', 'dx12', 'vulkan', 'opengl']) {
-    select.value = api; button.onclick({ stopPropagation() {} });
-    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['current-game', api, { allowAntiCheat: true }]);
-    assert.equal(game.chosen.path, 'C:/Games/Chosen.exe');
+test('one application submits the selected API and Core together without replacing the EXE', async () => {
+  const context = uiContext(), calls = [];
+  context.state.installing = new Set(); context.setInstallBusy = () => {};
+  context.state.payload.versions['0.4.7beta'] = {}; context.state.payload.selectedVersion = '0.4.7beta';
+  context.window = { manager: { applyGameRoute: (...args) => { calls.push(args); return { ok: true, value: { installed: true } }; } } };
+  context.runConfirmedAction = work => work(true);
+  context.game = { id: 'current-game', chosen: { path: 'C:/Games/Chosen.exe', detectedApiResolution: { api: 'dx12' } }, vulkan: { packageId: 'fixed-vulkan-r5', coreVersion: '0.4.6-hotfix.1' } };
+  for (const api of ['auto', 'dx11', 'dx12', 'vulkan']) {
+    context.patch = { api }; vm.runInContext('updateRouteDraft(game, patch)', context);
+    await vm.runInContext('applyCardRoute(game)', context);
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['current-game', { api, version: api === 'vulkan' ? 'fixed-vulkan-r5' : '0.4.7beta', allowAntiCheat: true }]);
+    assert.equal(context.game.chosen.path, 'C:/Games/Chosen.exe'); assert.equal(context.state.routeDrafts.size, 0);
   }
+  assert.doesNotMatch(source, /api-save-btn|version-apply-btn|window\.manager\.setGameApi/);
+});
+
+test('known multiple-API games show their supported choices and a stable Vulkan label with saved-game synchronization', () => {
+  const context = uiContext();
+  context.game = { apiOverride: 'auto', chosen: { supportedApis: ['vulkan', 'dx12'],
+    apiSettings: { kind: 'rdr2-system-xml', canSync: true },
+    detectedApiResolution: { api: 'vulkan', source: 'game-settings' }, apiResolution: { api: 'vulkan' } }, vulkan: { available: false } };
+  const before = vm.runInContext('apiControls(game)', context);
+  assert.deepEqual([...before.matchAll(/<option value="([^"]+)"/g)].map(row => row[1]), ['auto', 'dx12', 'vulkan']);
+  assert.match(before, /value="vulkan">Vulkan<\/option>/);
+  assert.match(before, /会同步游戏设置/);
+  context.game.vulkan.available = true;
+  const after = vm.runInContext('apiControls(game)', context);
+  assert.match(after, /value="vulkan">Vulkan<\/option>/);
+  assert.doesNotMatch(after, /Vulkan（当前不可用）|Vulkan（试验版）/);
+});
+
+test('an unreadable RDR2 settings file keeps API selection manual without claiming game-settings sync', () => {
+  const context = uiContext();
+  context.game = { apiOverride: 'auto', chosen: { supportedApis: ['vulkan', 'dx12'],
+    apiSettings: { kind: 'rdr2-system-xml', canSync: false },
+    detectedApiResolution: { api: 'unknown', source: 'game-settings' }, apiResolution: { api: 'unknown' } } };
+  const html = vm.runInContext('apiControls(game)', context);
+  assert.match(html, /选择只配置插件路线/);
+  assert.match(html, /不会改写游戏设置/);
+  assert.doesNotMatch(html, /会同步游戏设置|点击保存后同步/);
+});
+
+test('game refresh restores the focused API action at the same viewport position', () => {
+  const view = { scrollTop: 400, classList: { contains: value => value === 'active' } };
+  const oldButton = { getClientRects: () => [1], getBoundingClientRect: () => ({ top: 420 }), matches: selector => selector === '.route-apply-btn' };
+  const newButton = { focused: null, getClientRects: () => [1], getBoundingClientRect: () => ({ top: 980 - view.scrollTop }), focus(options) { this.focused = options; } };
+  const head = { getClientRects: () => [1], getBoundingClientRect: () => ({ top: 250 }) };
+  const card = button => ({ dataset: { id: 'middle-game' }, contains: node => node === button,
+    querySelector: selector => selector === '.route-apply-btn' ? button : selector === '.game-card-head' ? head : null });
+  let current = card(oldButton);
+  const context = { state: { expanded: 'middle-game' }, $: id => id === 'view-games' ? view : null,
+    document: { activeElement: oldButton, querySelectorAll: selector => selector === '.game-card' ? [current] : [] },
+    requestAnimationFrame: callback => callback() };
+  vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('function captureGameViewAnchor('), source.indexOf('function visualKey(')), context);
+  const saved = vm.runInContext('captureGameViewAnchor()', context);
+  current = card(newButton);
+  context.saved = saved;
+  vm.runInContext('restoreGameViewAnchor(saved)', context);
+  assert.equal(view.scrollTop, 560);
+  assert.equal(newButton.focused?.preventScroll, true);
+  assert.equal(newButton.getBoundingClientRect().top, 420);
 });
 
 test('game cards keep rename available and show a real pending install state', () => {
@@ -105,6 +153,8 @@ test('game cards keep rename available and show a real pending install state', (
   assert.match(html, /正在安装/);
   assert.doesNotMatch(html, /\d+%/);
   assert.doesNotMatch(source, /window\.prompt/);
+  const render = source.slice(source.indexOf('function renderGames('), source.indexOf('function captureGameViewAnchor('));
+  assert.match(render, /class="game-exe-path" title="\$\{escapeHtml\(game\.chosen\.path\)\}"/);
   const markup = fs.readFileSync(path.join(__dirname, '../src/renderer/index.html'), 'utf8');
   assert.match(markup, /id="renameGameInput"/);
 });
@@ -118,15 +168,19 @@ test('Vulkan route uses only its fixed experimental package and never exposes SR
     chosen: { path: 'C:/Games/VK.exe', bitness: 64, apiResolution: { api: 'vulkan', source: 'override' } },
     vulkan: { available: true, installed: true, coreVersion: '0.4.6-hotfix.1-vulkan-provider', packageId: 'nr-vulkan-e7df0fc', experimental: true } };
   const html = vm.runInContext('gameDetail(game)', context);
-  assert.ok(html.indexOf('游戏图形 API') < html.indexOf('Vulkan 桥接 · 试验版'));
-  assert.match(html, /0\.4\.6-hotfix\.1 · Vulkan Beta/);
+  assert.ok(html.indexOf('游戏图形 API') < html.indexOf('Vulkan 使用独立固定配套'));
+  assert.match(html, /0\.4\.6-hotfix\.1 · Beta · Vulkan 桥接/);
   assert.match(html, /value="nr-vulkan-e7df0fc" selected/);
-  assert.equal(vm.runInContext('vulkanVersionOption(game)', context), '<option value="nr-vulkan-e7df0fc" selected>0.4.6-hotfix.1 · Vulkan Beta</option>');
+  assert.equal(vm.runInContext('vulkanVersionOption(game)', context), '<option value="nr-vulkan-e7df0fc" selected>0.4.6-hotfix.1 · Beta · Vulkan 桥接</option>');
   assert.doesNotMatch(html, /value="ordinary-core"/);
   assert.match(html, /通过画面和深度估算运动/);
   assert.match(html, /未检测到普通 DLSS/);
   assert.doesNotMatch(html, /launch-settings-host|调整超分补帧|d3d12-btn|使用 D3D12 兼容修复/);
   assert.match(vm.runInContext('cardAction(game)', context), /启动游戏/);
+  context.game.vulkan.coreVersion = '0.4.7beta'; context.game.vulkan.packageId = 'nr-vulkan-beta047-fixture';
+  assert.equal(vm.runInContext('vulkanVersionOption(game)', context), '<option value="nr-vulkan-beta047-fixture" selected>beta0.4.7 · Vulkan 桥接</option>');
+  assert.match(vm.runInContext('vulkanRouteMarkup(game)', context), /当前实际核心为 beta0\.4\.7/);
+  assert.doesNotMatch(vm.runInContext('vulkanVersionOption(game)', context), /0\.4\.6|Beta · Vulkan/);
   context.game = { id: 'dx-game', installed: true, supported: true, addonVersion: 'ordinary-core', nativeDlssAvailable: true,
     chosen: { path: 'C:/Games/DX.exe', bitness: 64, apiResolution: { api: 'dx12', source: 'override' } } };
   assert.match(vm.runInContext('gameDetail(game)', context), /d3d12-btn|使用 D3D12 兼容修复/);
@@ -146,23 +200,31 @@ test('unavailable Vulkan gives the backend reason and cannot render an install a
   assert.match(vm.runInContext('supportBadge(game)', context), /Vulkan 暂不可用/);
   const action = vm.runInContext('cardAction(game)', context);
   assert.match(action, /disabled>Vulkan 暂不可用/); assert.doesNotMatch(action, /install-btn|payload-open-btn/);
+  Object.assign(context.game.vulkan, { installed: true, needsRecovery: true, reason: '旧 Vulkan 运行路径过长，请先卸载插件后重新安装。' });
+  const recoveryAction = vm.runInContext('cardAction(game)', context);
+  assert.match(recoveryAction, /card-open">恢复配套/); assert.doesNotMatch(recoveryAction, /launch-btn|install-btn/);
+  assert.match(vm.runInContext('supportBadge(game)', context), /Vulkan 需恢复/);
+  const recoveryDetail = vm.runInContext('gameDetail(game)', context);
+  assert.match(recoveryDetail, /旧 Vulkan 运行路径过长/);
+  assert.match(recoveryDetail, /卸载插件/);
+  assert.match(vm.runInContext('vulkanRouteMarkup(game)', context), /badge bad">需恢复/);
 });
 
 test('collapsed Vulkan install and installed repair pass the exact package ID', async () => {
   const calls = [], head = {}, install = {}, repair = {};
   const game = { id: 'vk-game', chosen: { apiResolution: { api: 'vulkan' } }, vulkan: { packageId: 'nr-vulkan-e7df0fc', available: true } };
   const card = { dataset: { id: game.id }, querySelector: selector => ({ '.game-card-head': head, '.install-btn': install, '.repair-inline-btn': repair })[selector] || null };
-  const context = { state: { games: [game], installing: new Set() }, document: { querySelectorAll: selector => selector === '.game-card' ? [card] : [] },
-    window: { manager: { install: (...args) => { calls.push(['install', ...args]); }, repair: (...args) => { calls.push(['repair', ...args]); } } },
-    setInstallBusy() {}, runConfirmedAction: work => Promise.resolve(work(true)), confirmRenameGame() {}, confirmDismissGame() {}, confirmUninstall() {} };
-  vm.createContext(context);
+  const context = uiContext(); Object.assign(context, { document: { querySelectorAll: selector => selector === '.game-card' ? [card] : [] },
+    window: { manager: { applyGameRoute: (...args) => { calls.push(['apply', ...args]); return { ok: true, value: {} }; } } },
+    setInstallBusy() {}, runConfirmedAction: work => Promise.resolve(work(true)), confirmRenameGame() {}, confirmDismissGame() {}, confirmUninstall() {} });
+  context.state.games = [game]; context.state.installing = new Set();
   vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('), source.indexOf('function supportBadge(')), context);
   vm.runInContext(source.slice(source.indexOf('function bindGameCards('), source.indexOf('async function loadExpanded(')), context);
   vm.runInContext('bindGameCards()', context);
   install.onclick({ stopPropagation() {} }); repair.onclick(); await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
-    ['install', 'vk-game', { allowAntiCheat: true, version: 'nr-vulkan-e7df0fc' }],
-    ['repair', 'vk-game', { allowAntiCheat: true, version: 'nr-vulkan-e7df0fc' }]
+    ['apply', 'vk-game', { api: 'auto', version: 'nr-vulkan-e7df0fc', allowAntiCheat: true }],
+    ['apply', 'vk-game', { api: 'auto', version: 'nr-vulkan-e7df0fc', allowAntiCheat: true }]
   ]);
 });
 
@@ -243,7 +305,7 @@ test('retired catalog selection offers its replacement while preserving the actu
   const html = vm.runInContext('addonVersionRow(game, true)', context);
   assert.match(html, /已安装：0\.4\.6 · Beta/);
   assert.match(html, /可更新为 0\.4\.6-hotfix\.1 · Beta/);
-  assert.match(html, /点击“应用版本”或“修复”后才会更换核心/);
+  assert.match(html, /点击“应用设置”后才会更换核心/);
   assert.match(html, /value="0\.4\.6-hotfix\.1" selected/);
   assert.doesNotMatch(html, /value="0\.4\.6"/);
   assert.equal(context.game.addonVersion, '0.4.6');

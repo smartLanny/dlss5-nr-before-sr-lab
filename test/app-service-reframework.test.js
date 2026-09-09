@@ -48,7 +48,7 @@ function fixture(t, name = 'OnimushaWotS.exe') {
   const service = createAppService({ userData: path.join(root, 'user'), resourcesPath: path.join(root, 'resources'), appDir: root,
     overrides: { library: { scanAll: async () => [game], dispose() {} }, reframework, installer,
       detectGpu: () => ({ family: 'RTX50', series: ['RTX50'] }), vulkan: { summary: () => ({ installed: false, available: false }) } } });
-  return { root, gameDir, storage, exe, service, calls, order, setState(value) { refState = value; }, failPreparation(error) { preparationFailure = error; } };
+  return { root, gameDir, storage, exe, service, calls, order, setState(value) { refState = value; }, failPreparation(error) { preparationFailure = error; }, setEngine(value) { game.engine = value; } };
 }
 
 test('REFramework actions bind only the exact supported root executable', async t => {
@@ -62,6 +62,12 @@ test('REFramework actions bind only the exact supported root executable', async 
   assert.equal((await other.service.readReframework('ref-game')).matched, false);
   await assert.rejects(other.service.prepareReframework('ref-game'), { code: 'REF_UNSUPPORTED_TARGET' });
   assert.deepEqual(other.calls, []);
+  const re9 = fixture(t, 're9.exe'); const re9Boot = await re9.service.boot();
+  assert.equal(re9Boot.games[0].reframework.profile, 're9-reframework-01417');
+  await re9.service.prepareReframework('ref-game');
+  assert.deepEqual(re9.calls[0][1], { gameDir: re9.gameDir, exe: re9.exe, engine: 're-engine' });
+  const noEvidence = fixture(t, 're9.exe'); noEvidence.setEngine(null);
+  assert.equal((await noEvidence.service.boot()).games[0].reframework, undefined, 'a familiar EXE without independent engine evidence cannot authorize new compatibility preparation');
 });
 
 test('REFramework NR edits and 0.4.7 defaults target the effective storage INI and preserve root settings', async t => {

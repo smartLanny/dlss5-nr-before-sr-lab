@@ -58,6 +58,49 @@ test('basename, root placement, engine and x64 identity all match exactly before
   assert.equal(x86.inspect(f.input).matched, false);
 });
 
+test('Requiem has its own official profile and accepts its large executable through bounded PE metadata', t => {
+  const f = fixture(t), exe = path.join(f.gameDir, 're9.exe'); fs.writeFileSync(exe, 'x64 game');
+  const statSync = fs.statSync;
+  t.mock.method(fs, 'statSync', (file, ...args) => {
+    const stat = statSync(file, ...args); if (path.resolve(file) === path.resolve(exe)) stat.size = 587657120; return stat;
+  });
+  const result = f.service.inspect({ ...f.input, exe });
+  assert.equal(result.matched, true); assert.equal(result.canPrepare, true);
+  assert.equal(result.adapter.id, 're9-reframework-01417'); assert.equal(result.adapter.evidence.rhiExplicitEntry, true);
+  assert.deepEqual(result.plan.deletes, []); assert.equal(fs.existsSync(path.join(f.gameDir, 'dinput8.dll')), false);
+});
+
+test('official required DD2 and Wilds exact names and aliases use storage, while SF6 remains loader-only', t => {
+  const f = fixture(t);
+  for (const [name, storage] of [['DD2.exe', '_storage_'], ['MonsterHunterWilds.exe', '_storage_'], ['MHWILDS.exe', '_storage_'], ['StreetFighter6.exe', null], ['SF6.exe', null]]) {
+    const exe = path.join(f.gameDir, name); fs.writeFileSync(exe, 'x64-game');
+    const view = f.service.inspect({ ...f.input, exe });
+    assert.equal(view.matched, true); assert.equal(view.canPrepare, true);
+    assert.equal(view.adapter.storage, storage); assert.equal(view.adapter.evidence.rhiExplicitEntry, true);
+    assert.equal(view.component.game_runtime_verified, false);
+    assert.equal(view.runtime.storageDir, storage ? path.join(f.gameDir, storage) : null);
+    assert.deepEqual(view.plan.operations.map(row => row.kind), ['copy']);
+  }
+  const renamed = path.join(f.gameDir, 'StreetFighter6_trial.exe'); fs.writeFileSync(renamed, 'x64-game');
+  assert.equal(f.service.inspect({ ...f.input, exe: renamed }).matched, false);
+});
+
+test('SF6 compatibility never reads or prefers an unrelated storage directory and does not require INI ownership', t => {
+  const f = fixture(t), exe = path.join(f.gameDir, 'StreetFighter6.exe'); fs.writeFileSync(exe, 'x64-game');
+  const rootConfig = path.join(f.gameDir, 'nr_before_sr.ini'); fs.writeFileSync(rootConfig, '\ufeff[NRBeforeSR]\nIntensity=1.7\n');
+  fs.mkdirSync(path.join(f.gameDir, '_storage_')); fs.writeFileSync(path.join(f.gameDir, '_storage_', 'nr_before_sr.ini'), 'unknown config');
+  const lstat = fs.lstatSync; let storageReads = 0;
+  t.mock.method(fs, 'lstatSync', (file, ...args) => {
+    if (String(file).toLowerCase().includes('_storage_')) { storageReads++; throw new Error('unrelated storage is inaccessible'); }
+    return lstat(file, ...args);
+  });
+  const view = f.service.inspect({ ...f.input, exe });
+  assert.equal(storageReads, 0); assert.equal(view.canPrepare, true); assert.equal(view.runtime.effectiveConfig, rootConfig);
+  assert.equal(view.runtime.storageConfig, null); assert.equal(view.runtime.seed, null);
+  assert.equal(view.runtime.existingStorageConfigPreferred, false); assert.deepEqual(view.existing.storage.entries, []);
+  assert.deepEqual(view.plan.operations.map(row => row.kind), ['copy']);
+});
+
 test('component metadata, fixed DLL bytes/hash and architecture fail closed', t => {
   const f = fixture(t), manifest = path.join(f.componentRoot, 'component.json');
   const changed = { ...OFFICIAL_REFRAMEWORK_01417, source_commit: '0'.repeat(40) }; fs.writeFileSync(manifest, JSON.stringify(changed));

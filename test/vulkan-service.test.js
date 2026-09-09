@@ -13,10 +13,10 @@ const { atomicJson } = require('../src/product/launch-safety');
 const hash = data => crypto.createHash('sha256').update(data).digest('hex');
 const read = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
-function fixture(t) {
+function fixture(t, options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-vulkan-service-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const userData = path.join(root, 'user'), appDir = path.join(root, 'app'), resourcesPath = path.join(root, 'resources');
+  const userData = path.join(root, options.userFolder || 'user'), appDir = path.join(root, 'app'), resourcesPath = path.join(root, 'resources');
   const runtimeRoot = path.join(resourcesPath, 'vulkan-runtime'), layerRoot = path.join(resourcesPath, 'vulkan-reshade');
   fs.mkdirSync(runtimeRoot, { recursive: true }); fs.mkdirSync(layerRoot, { recursive: true });
   const bindingPath = path.join(userData, 'vulkan-bindings.json');
@@ -99,6 +99,9 @@ test('install publishes profile and binding before activation; real diagnosis di
   assert.ok(f.calls.indexOf('profile-published') < f.calls.indexOf('registry-add'));
   assert.ok(f.calls.indexOf('registry-add') < f.calls.indexOf('activate'));
   const binding = read(f.bindingPath).bindings[0]; assert.equal(binding.phase, 'installed');
+  assert.match(path.basename(path.dirname(binding.basePath)), /^[a-f0-9]{16}$/);
+  assert.match(path.basename(binding.basePath), /^[a-f0-9]{16}$/);
+  assert.equal(binding.exeId.length, 64); assert.equal(binding.fingerprint.length, 64);
   assert.equal(service.configDir(game), binding.basePath);
   const diagnostic = await service.diagnose(game);
   assert.equal(diagnostic.ready, true); assert.equal(diagnostic.status, 'installed');
@@ -244,4 +247,69 @@ test('failed first binding write never activates a layer and accurately reports 
   assert.equal(fs.existsSync(f.bindingPath), false); assert.equal(f.values.size, 0);
   assert.equal(fs.existsSync(path.join(game.dir, 'ReShade.ini')), false);
   assert.equal((await service.install(game)).installed, true); // verified complete published profile is reusable
+});
+
+test('long userData is blocked before profile publication, binding or registry activity', async t => {
+  const f = fixture(t, { userFolder: 'user-' + 'x'.repeat(180) }), game = f.game('path-budget'), service = f.create();
+  assert.equal(service.summary(game).available, false); assert.match(service.summary(game).reason, /路径上限/);
+  await assert.rejects(service.install(game), { code: 'VULKAN_RUNTIME_PATH_TOO_LONG' });
+  assert.equal(f.calls.includes('profile-start'), false); assert.equal(fs.existsSync(f.bindingPath), false); assert.equal(f.values.size, 0);
+});
+
+test('launch rechecks canonical physical AppData paths and never calls the broker when the mapping is now too long', async t => {
+  const f = fixture(t), game = f.game('mapped-path'), originalRealpath = fs.realpathSync.native;
+  let expanded = false;
+  const physicalRoot = path.join(f.root, 'MSIX-LocalCache-Roaming-' + 'x'.repeat(160));
+  t.mock.method(fs.realpathSync, 'native', (file, ...args) => {
+    const original = originalRealpath(file, ...args);
+    return expanded && original.toLowerCase().startsWith(f.userData.toLowerCase()) ? physicalRoot + original.slice(f.userData.length) : original;
+  });
+  const service = f.create(); await service.install(game); expanded = true;
+  await assert.rejects(service.launch(game), { code: 'VULKAN_RUNTIME_PATH_TOO_LONG' });
+  assert.equal(f.calls.some(row => Array.isArray(row) && row[0] === 'launch'), false);
+  const summary = service.summary(game); assert.equal(summary.available, false);
+  assert.equal((await service.restore(game)).restored, true); assert.equal(f.values.size, 0);
+});
+
+test('an overlong legacy binding accepts full identity for recovery, refuses launch, and archives settings with no current package', async t => {
+  const f = fixture(t), game = f.game('legacy-layout'); f.runtime.id = 'legacy-' + 'r'.repeat(63); f.writeRecipes();
+  const prepared = await f.profile.prepare({ exe: game.scan.chosen.path, recipe: f.runtime, packageRoot: f.runtimeRoot });
+  const receiptFile = path.join(prepared.basePath, '.xiaofeng-vulkan-runtime.json'), receipt = read(receiptFile);
+  receipt.packageId = `${receipt.recipe.id}-${receipt.recipe.fingerprint.slice(0, 16)}`;
+  const legacy = path.join(f.userData, 'vulkan-runtime', receipt.exeId, receipt.packageId);
+  fs.writeFileSync(receiptFile, JSON.stringify(receipt)); fs.mkdirSync(path.dirname(legacy), { recursive: true }); fs.renameSync(prepared.basePath, legacy);
+  fs.writeFileSync(path.join(legacy, 'nr_before_sr.ini'), 'preserve legacy user config');
+  fs.writeFileSync(f.bindingPath, JSON.stringify({ version: 1, product: 'xiaofeng-vulkan-bindings', bindings: [{
+    gameId: game.id, dir: game.dir, exe: game.scan.chosen.path, basePath: legacy,
+    coreVersion: f.runtime.coreVersion, packageId: f.runtime.id, phase: 'installed', acceptance: { status: 'processed', hardwareFamily: 'RTX50' }
+  }] }));
+  let active = true, launched = false, restored = false;
+  const service = createVulkanService({ userData: f.userData, appDir: f.appDir, resourcesPath: f.resourcesPath, hardware: f.hardware,
+    overrides: { profile: f.profile, pe: { getBitness: () => 64 }, guards: { antiCheatPresent: () => false, assertGameClosed: async () => {} },
+      activation: { read: async () => ({ active }) },
+      deployment: { inspect: async () => ({ status: active ? 'installed' : 'absent', ready: active }), restore: async () => { active = false; restored = true; } },
+      broker: { launch: async () => { launched = true; return { pid: 999 }; } }
+    } });
+  const summary = service.summary(game); assert.equal(summary.installed, true); assert.equal(summary.available, false); assert.equal(summary.needsRecovery, true);
+  assert.match(summary.reason, /卸载插件.*新版管理器重新安装/);
+  const diagnosis = await service.diagnose(game); assert.equal(diagnosis.ready, false); assert.equal(diagnosis.components.profile.restoreOnly, true);
+  await assert.rejects(service.launch(game), { code: 'VULKAN_NOT_READY' }); assert.equal(launched, false);
+  fs.unlinkSync(path.join(f.runtimeRoot, 'recipe.json'));
+  const result = await service.restore(game);
+  assert.equal(restored, true); assert.equal(result.restored, true); assert.equal(active, false);
+  assert.equal(fs.readFileSync(path.join(result.archivePath, 'nr_before_sr.ini'), 'utf8'), 'preserve legacy user config');
+  assert.deepEqual(read(f.bindingPath).bindings, []); assert.equal(f.values.size, 0);
+});
+
+test('short binding prefixes cannot hide changed full identities or an arbitrary package folder', async t => {
+  const f = fixture(t), game = f.game('full-binding-id'), service = f.create(); await service.install(game);
+  const original = read(f.bindingPath);
+  for (const change of [row => { row.exeId = row.exeId.slice(0, 16) + '0'.repeat(48); },
+    row => { row.fingerprint = row.fingerprint.slice(0, 16) + '0'.repeat(48); },
+    row => { row.basePath = path.join(path.dirname(row.basePath), 'arbitrary-folder'); }]) {
+    const state = structuredClone(original); change(state.bindings[0]); fs.writeFileSync(f.bindingPath, JSON.stringify(state));
+    await assert.rejects(service.launch(game), { code: 'VULKAN_BINDING_INVALID' });
+  }
+  assert.equal(f.calls.some(row => Array.isArray(row) && row[0] === 'launch'), false);
+  fs.writeFileSync(f.bindingPath, JSON.stringify(original)); await service.restore(game);
 });

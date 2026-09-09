@@ -2,7 +2,6 @@
 
 const fsp = require('node:fs/promises');
 const path = require('node:path');
-const crypto = require('node:crypto');
 const { noLinks } = require('./launch-safety');
 const { createVulkanRuntimeProfile } = require('./vulkan-runtime-profile');
 
@@ -64,10 +63,8 @@ function createVulkanRuntimeEvidence(options = {}) {
     let receipt; try { receipt = JSON.parse(record.text); } catch { return null; }
     if (receipt?.version !== 1 || receipt.product !== 'xiaofeng-vulkan-runtime-profile' || !localAbsolute(receipt.exe) ||
         !/^[a-f0-9]{64}$/.test(receipt.recipe?.fingerprint || '')) return null;
-    const exeId = crypto.createHash('sha256').update(path.resolve(receipt.exe).toLowerCase()).digest('hex');
-    if (receipt.exeId !== exeId || receipt.packageId !== `${receipt.recipe.id}-${receipt.recipe.fingerprint.slice(0, 16)}` ||
-        receipt.packageId !== path.basename(basePath) || !same(profile.location({ exe: receipt.exe, recipe: receipt.recipe }).basePath, basePath)) return null;
-    const feederFiles = receipt.recipe.files.map(row => row.target).filter(target =>
+    const checked = profile.identifyReceipt({ receipt, basePath });
+    const feederFiles = checked.recipe.files.map(row => row.target).filter(target =>
       same(path.dirname(path.resolve(basePath, target)), path.join(basePath, 'addons')) &&
       /^dlss5-feed(?:-[a-z0-9._-]+)?\.addon64$/i.test(path.basename(target)));
     return feederFiles.length ? feederFiles.map(target => path.resolve(basePath, target)) : null;

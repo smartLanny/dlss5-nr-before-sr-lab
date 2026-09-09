@@ -18,6 +18,7 @@ const peDefault = require('../core/pe');
 
 const PRODUCT = 'xiaofeng-vulkan-bindings';
 const ID = /^[a-z0-9][a-z0-9._-]{0,79}$/i;
+const HASH = /^[a-f0-9]{64}$/;
 const queues = new Map();
 const key = value => path.resolve(value).toLowerCase();
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' && key(a) === key(b);
@@ -44,6 +45,7 @@ function createVulkanService(options = {}) {
   const userData = path.resolve(options.userData), overrides = options.overrides || {};
   const bindingPath = path.join(userData, 'vulkan-bindings.json');
   const profile = overrides.profile || createVulkanRuntimeProfile({ userData, pe: overrides.pe || peDefault });
+  const identity = createVulkanRuntimeProfile({ userData });
   const evidence = overrides.evidence || createVulkanRuntimeEvidence({ userData });
   const guards = overrides.guards || guardsDefault, pe = overrides.pe || peDefault;
   const writeBinding = overrides.writeBinding || atomicJson;
@@ -51,6 +53,24 @@ function createVulkanService(options = {}) {
   const detectHardware = typeof options.hardware === 'function' ? options.hardware : overrides.detectHardware || detectGpuAsync;
   if (!hardware) void Promise.resolve().then(detectHardware).then(value => { hardware = value; }, () => {});
   let deployment = overrides.deployment, broker = overrides.broker;
+
+  function bindingIdentity(row) {
+    const fullExeId = exeHash(row.exe), leaf = path.basename(row.basePath);
+    const short = same(path.dirname(row.basePath), path.join(userData, 'vulkan-runtime', fullExeId.slice(0, 16))) &&
+      row.exeId === fullExeId && HASH.test(row.fingerprint || '') && leaf === row.fingerprint.slice(0, 16);
+    const legacy = same(path.dirname(row.basePath), path.join(userData, 'vulkan-runtime', fullExeId)) &&
+      leaf.startsWith(`${row.packageId}-`) && /^[a-f0-9]{16}$/.test(leaf.slice(row.packageId.length + 1)) &&
+      (row.exeId === undefined || row.exeId === fullExeId) &&
+      (row.fingerprint === undefined || HASH.test(row.fingerprint) && leaf.endsWith(row.fingerprint.slice(0, 16)));
+    if (!short && !legacy) return false;
+    const receipt = readJson(path.join(row.basePath, '.xiaofeng-vulkan-runtime.json'), 128 * 1024);
+    if (!receipt) return true; // an interrupted archive is recovered from its full receipt below
+    try {
+      const checked = identity.identifyReceipt({ receipt, exe: row.exe, basePath: row.basePath });
+      return checked.recipe.id === row.packageId && checked.recipe.coreVersion === row.coreVersion &&
+        (!short || checked.recipe.fingerprint === row.fingerprint);
+    } catch { return false; }
+  }
 
   function bindings() {
     let state;
@@ -63,8 +83,8 @@ function createVulkanService(options = {}) {
     for (const row of state.bindings) {
       if (!row || typeof row.gameId !== 'string' || !row.gameId || row.gameId.length > 256 || !absolute(row.exe) ||
           !absolute(row.dir) || !inside(row.dir, row.exe) || !/\.exe$/i.test(row.exe) || !absolute(row.basePath) ||
-          !same(path.dirname(row.basePath), path.join(userData, 'vulkan-runtime', exeHash(row.exe))) ||
           !ID.test(row.coreVersion || '') || !ID.test(row.packageId || '') ||
+          !bindingIdentity(row) ||
           !['prepared', 'installed', 'deactivated', 'archived'].includes(row.phase) ||
           row.archiveBefore !== undefined && (!Array.isArray(row.archiveBefore) || row.archiveBefore.length > 256 || row.archiveBefore.some(name => typeof name !== 'string' || path.basename(name) !== name)) ||
           row.acceptance?.status !== 'processed' || row.acceptance?.hardwareFamily !== 'RTX50')
@@ -110,6 +130,7 @@ function createVulkanService(options = {}) {
     if (recipe.acceptance?.status !== 'processed' || recipe.acceptance?.hardwareFamily !== 'RTX50')
       fail('VULKAN_ACCEPTANCE_PENDING', '这份 Vulkan 运行包尚未通过 RTX 50 实际处理验收。');
     const place = profile.location({ exe, recipe }); // small recipe metadata only
+    identity.assertPathBudget({ basePath: place.basePath, recipe });
     if (layer.version !== 1 || layer.architecture !== 64 || !ID.test(layer.id || '') || !layer.layer ||
         typeof layer.layer.manifest !== 'string' || path.basename(layer.layer.manifest) !== layer.layer.manifest ||
         typeof layer.layer.library !== 'string' || path.basename(layer.layer.library) !== layer.layer.library)
@@ -198,6 +219,12 @@ function createVulkanService(options = {}) {
       else if (game.scan.chosen.bitness !== 64) reason = '当前 Vulkan 配套仅支持 x64。';
       if (row && row.phase !== 'installed') { reason = 'Vulkan 绑定有未完成操作，请先诊断或恢复。'; needsRecovery = true; }
       else if (row && !same(row.basePath, source.place.basePath)) reason = '已安装旧固定配套；升级前需要先恢复。';
+      if (row) {
+        const receipt = readJson(path.join(row.basePath, '.xiaofeng-vulkan-runtime.json'), 128 * 1024);
+        if (receipt && !identity.pathBudget({ basePath: row.basePath, recipe: receipt.recipe }).safe) {
+          reason = '旧 Vulkan 运行路径过长。请先在设置中点击“卸载插件”，再用新版管理器重新安装；新配套会自动使用短目录。'; needsRecovery = true;
+        }
+      }
     } catch (error) { reason = error.message; needsRecovery ||= error.details?.needsRecovery === true; }
     const hint = row ? { matched: false, uncertain: false } : recoveryHint(game);
     if (hint.matched || hint.uncertain) { needsRecovery = true; reason ||= 'Vulkan 来源记录或激活仍存在，请先诊断绑定恢复状态。'; }
@@ -264,7 +291,9 @@ function createVulkanService(options = {}) {
         const published = await profile.prepare({ exe: target.exe, recipe: source.recipe, packageRoot: source.packageRoot });
         if (!same(published.basePath, source.place.basePath)) fail('VULKAN_PROFILE_INVALID', '发布的 Vulkan profile 与固定配套位置不一致。');
         profilePublished = true;
+        const exact = identity.location({ exe: target.exe, recipe: source.recipe });
         row = { gameId: target.id, dir: target.dir, exe: target.exe, basePath: published.basePath,
+          exeId: exact.exeId, fingerprint: exact.fingerprint,
           packageId: source.recipe.id, coreVersion: source.recipe.coreVersion, phase: 'prepared',
           acceptance: { status: 'processed', hardwareFamily: 'RTX50' }, antiCheatConfirmed: Boolean(antiCheat) };
         phase = 'binding'; await save(row); bindingSaved = true;
@@ -296,8 +325,11 @@ function createVulkanService(options = {}) {
     for (const entry of entries) if (entry.isDirectory() && !entry.isSymbolicLink() && !row.archiveBefore?.includes(entry.name)) {
       const archivePath = path.join(bucket, entry.name); await noLinks(archivePath);
       const receipt = readJson(path.join(archivePath, '.xiaofeng-vulkan-runtime.json'));
-      if (receipt?.product === 'xiaofeng-vulkan-runtime-profile' && same(receipt.exe, row.exe) &&
-          receipt.packageId === path.basename(row.basePath) && receipt.recipe?.id === row.packageId && receipt.recipe?.coreVersion === row.coreVersion) matches.push(archivePath);
+      try {
+        const checked = identity.identifyReceipt({ receipt, exe: row.exe, basePath: row.basePath });
+        if (checked.recipe.id === row.packageId && checked.recipe.coreVersion === row.coreVersion &&
+            (!row.fingerprint || checked.recipe.fingerprint === row.fingerprint)) matches.push(archivePath);
+      } catch { /* this archive does not have the complete expected identity */ }
     }
     if (matches.length !== 1) fail('VULKAN_ARCHIVE_MISSING', '原 profile 已消失，尚不能确认唯一的完整归档；绑定已保留。');
     return { archived: true, archivePath: matches[0], recovered: true };
@@ -336,6 +368,11 @@ function createVulkanService(options = {}) {
       if (guards.antiCheatPresent(target.dir) && !row.antiCheatConfirmed) throw appError('ERR_ANTI_CHEAT_CONFIRM', { operation: 'vulkan-launch' });
       const current = await inspectBound(row);
       if (!current.ready) fail('VULKAN_NOT_READY', 'Vulkan profile 或 layer 未就绪，未启动游戏。', { blockers: current.blockers });
+      // Recheck the real Windows path immediately before handing off to the
+      // broker, including a userData path whose physical mapping has changed.
+      const receipt = readJson(path.join(row.basePath, '.xiaofeng-vulkan-runtime.json'), 128 * 1024);
+      const checked = identity.identifyReceipt({ receipt, exe: row.exe, basePath: row.basePath });
+      identity.assertPathBudget({ basePath: row.basePath, recipe: checked.recipe });
       row.lastLaunch = null; await save(row);
       const startedAt = new Date().toISOString();
       const launched = await getBroker().launch({ exe: row.exe, args, cwd: path.dirname(row.exe) });

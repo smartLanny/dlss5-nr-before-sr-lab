@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { PRODUCT, DX11_COMPAT_VERSION, INSTALLED_NAMES } = require('./constants');
-const { isDx11Only, classifyApi } = require('./game-support');
+const { isDx11Only, classifyApi, assess } = require('./game-support');
 const { createStore } = require('./state-store');
 const { createLibraryWorkerClient } = require('./library-worker-client');
 const { createPayloadInspectionCache } = require('./payload-inspection-cache');
@@ -22,15 +22,20 @@ const { resolvePayloadDirectory, inspectSource } = require('./payload-source');
 const { createVulkanService } = require('./vulkan-service');
 const { createReframeworkPreparation } = require('./reframework-preparation');
 const { REFRAMEWORK_ADAPTERS } = require('./reframework-compatibility');
+const { createRdr2ApiSettings } = require('./rdr2-api-settings');
+const { createGameApiSettings } = require('./game-api-settings');
 
 const QUIET_READ_ACTIONS = new Set(['boot', 'games-refresh', 'games-list', 'game-diagnose', 'game-hotkeys-read',
   'nr-read', 'sr-model-read', 'launch-settings-inspect', 'addon-list', 'game-art', 'game-icon',
   'game-selection-icon', 'feedback-build', 'payload-source-read', 'game-reframework-inspect']);
 
-function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', overrides = {} }) {
+function createAppService({ userData, resourcesPath, appDir, documentsDir, version = '0.0.0', overrides = {} }) {
   const store = createStore(path.join(userData, 'settings.json'));
-  const library = overrides.library || createLibraryWorkerClient();
+  const library = overrides.library || createLibraryWorkerClient({ documentsDir });
   const installer = overrides.installer || createInstaller();
+  const apiSettingsReader = overrides.apiSettingsReader || createRdr2ApiSettings({ documentsDir });
+  const gameApiSettings = overrides.gameApiSettings || createGameApiSettings({ userData, settings: apiSettingsReader,
+    assertGameClosed: overrides.assertGameClosed || require('../core/install-guards').assertGameClosed });
   const detectGpu = overrides.detectGpu || readGpu;
   const artService = createArtService({ userData });
   const feedback = createFeedbackCollector({ userData, productVersion: version });
@@ -51,6 +56,10 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     const exe = game?.scan?.chosen?.path;
     if (!exe || path.resolve(path.dirname(exe)).toLowerCase() !== path.resolve(game.dir).toLowerCase() || game.scan.chosen.bitness !== 64) return null;
     const adapter = REFRAMEWORK_ADAPTERS.find(row => row.executable.toLowerCase() === path.basename(exe).toLowerCase());
+    // New scans distinguish engine evidence from deployment policy. Existing
+    // receipts remain accessible for recovery if game assets were removed.
+    if (adapter && game.engine !== undefined && game.engine?.profile?.adapterId !== adapter.id &&
+        !fs.existsSync(path.join(game.dir, '_DLSS5_Backup/reframework-preparation.json'))) return null;
     return adapter ? { gameDir: game.dir, exe, engine: adapter.engine } : null;
   }
   async function prepareDetectedReframework(game, result) {
@@ -435,8 +444,14 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     const { scan, ...safe } = game;
     const vk = vulkan.summary(game);
     const routed = vulkanRoute(game);
+    const refInput = reframeworkInput(game);
+    const refAdapter = refInput && REFRAMEWORK_ADAPTERS.find(row => row.executable.toLowerCase() === path.basename(refInput.exe).toLowerCase());
     return { ...safe, vulkan: vk,
-      ...(reframeworkInput(game) ? { reframework: { matched: true, label: 'REFramework', profile: 'onimusha-wots-reframework-01417' } } : {}),
+      ...(safe.chosen?.apiSettings ? { chosen: { ...safe.chosen, apiSettings: {
+        kind: safe.chosen.apiSettings.kind, api: safe.chosen.apiSettings.api,
+        canSync: safe.chosen.apiSettings.kind === 'rdr2-system-xml' && Boolean(safe.chosen.apiSettings.sha256)
+      } } } : {}),
+      ...(refAdapter ? { reframework: { matched: true, label: '卡普空 RE 引擎兼容', profile: refAdapter.id } } : {}),
       ...(routed ? { supported: vk.available === true, supportCode: vk.available ? null : 'VULKAN_UNAVAILABLE', supportText: vk.reason || 'Vulkan 桥接 · 试验版' } : {}),
       ...(vk.installed ? { installed: true, addonVersion: vk.coreVersion } : {}),
       nativeDlssAvailable: Boolean(scan?.primaryDlss && /^nvngx_dlss\.dll$/i.test(scan.primaryDlss.name || '')),
@@ -447,6 +462,72 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
     const game = games.find(row => row.id === id);
     if (!game) throw appError('ERR_UNKNOWN_GAME');
     return game;
+  }
+
+  async function rollbackApiChoice(error, state, key, settingChange) {
+    const current = store.read(), previous = state.gameOverrides[key] || {};
+    try { await store.write({ gameOverrides: { ...current.gameOverrides,
+      [key]: { ...current.gameOverrides[key], api: previous.api || 'auto', apiExecutable: previous.apiExecutable || null } } }); }
+    catch { error.details = { ...error.details, preferenceRollbackFailed: true }; }
+    if (settingChange?.changed) try {
+      const restored = await settingChange.rollback();
+      if (!restored.rolledBack) error.details = { ...error.details, gameApiRollbackFailed: true, gameApiExternalChangeRetained: true };
+    } catch (recoveryError) { error.details = { ...error.details, gameApiRollbackFailed: true }; error.recoveryError = recoveryError; }
+  }
+
+  async function applyGameRoute(id, options = {}) {
+    if (!options || typeof options !== 'object' || Array.isArray(options) ||
+        Object.keys(options).some(key => !['api', 'version', 'allowAntiCheat'].includes(key)) ||
+        !['auto', 'dx11', 'dx12', 'vulkan'].includes(options.api) ||
+        typeof options.version !== 'string' || !options.version || options.version.length > 100) throw appError('ERR_BAD_REQUEST');
+    const game = findGame(id), chosen = game.scan?.chosen;
+    if (!chosen) throw appError('ERR_NO_GAME_EXE');
+    requireKnownVulkanOwnership(game);
+    let detected = chosen.detectedApiResolution || { api: chosen.detectedApi || 'unknown' };
+    if (options.api === 'auto' && chosen.apiSettings?.kind === 'rdr2-system-xml') {
+      const current = apiSettingsReader.read({ ...chosen.apiSettings, exe: chosen.path });
+      detected = { api: current.api || 'unknown', source: 'game-settings', evidence: [] };
+    }
+    const nextApi = options.api === 'auto' ? detected.api : options.api;
+    if (!['dx11', 'dx12', 'vulkan'].includes(nextApi)) throw appError('ERR_API_SELECTION_REQUIRED');
+    if (Array.isArray(chosen.supportedApis) && !chosen.supportedApis.includes(nextApi)) throw appError('ERR_UNSUPPORTED_API');
+    const manifest = readManifest(game.dir), ownedVulkan = vulkanOwned(game);
+    if (ownedVulkan && nextApi !== 'vulkan' || manifest && nextApi === 'vulkan') routeRestoreFirst();
+    const resolution = { api: nextApi, source: options.api === 'auto' ? detected.source : 'override', evidence: detected.evidence || [] };
+    const routed = { ...game, apiOverride: options.api,
+      scan: { ...game.scan, chosen: { ...chosen, apiResolution: resolution }, componentSelection: { dx11Carrier: nextApi === 'dx11' } } };
+    let payload = null;
+    const imported = /^imported-/.test(options.version) ? importedAddon(options.version) : null;
+    if (nextApi === 'vulkan') {
+      const info = vulkan.summary(routed);
+      if (options.version !== info.packageId) throw Object.assign(new Error('所选 Core 不属于当前 Vulkan 配套，请核对 API 和配套版本后一起应用。'), { code: 'VULKAN_PACKAGE_MISMATCH' });
+    } else {
+      if (/^imported-/.test(options.version) && (!imported || !manifest)) throw appError('ERR_ADDON_NOT_FOUND');
+      if (!imported) payload = selectedPayload(routed, options.version);
+      const support = assess(routed.scan, { allowDx11: (imported?.compatibility || payload?.versionInfo?.compatibility) === 'dx11' });
+      if (!support.supported) throw appError(support.code);
+    }
+    const state = store.read(), key = pathKey(game.dir);
+    let settingChange, preferenceWritten = false, result;
+    try {
+      settingChange = await gameApiSettings.apply(game, options.api);
+      await store.write({ gameOverrides: { ...state.gameOverrides,
+        [key]: { ...state.gameOverrides[key], api: options.api, apiExecutable: chosen.path } } });
+      preferenceWritten = true;
+      if (nextApi === 'vulkan') result = await vulkan.install(routed, options);
+      else if (imported) result = await repairGame(routed, options);
+      else {
+        await prepareExistingReframework(routed, options);
+        const operation = manifest ? installer.repair : installer.install;
+        result = await operation({ gameDir: game.dir, payload, scan: routed.scan, allowAntiCheat: options.allowAntiCheat === true });
+        result = await prepareDetectedReframework(routed, result);
+      }
+    } catch (error) {
+      if (preferenceWritten || settingChange?.changed) await rollbackApiChoice(error, state, key, settingChange);
+      throw error;
+    }
+    return refreshAfterMutation({ ...result, appliedRoute: { api: nextApi, version: nextApi === 'vulkan' ? options.version : payload?.version || imported?.id,
+      gameSettingsSynced: settingChange?.applied === true } });
   }
 
   function installedExecutable(game) {
@@ -694,6 +775,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       }
       return store.write(patch);
     },
+    applyGameRoute,
     setGameApi: async (id, api, options = {}) => {
       if (!['auto', 'dx9', 'dx10', 'dx11', 'dx12', 'vulkan', 'opengl'].includes(api)) throw appError('ERR_BAD_REQUEST');
       const game = findGame(id);
@@ -702,9 +784,11 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
       if (vulkanOwned(game) && nextApi !== 'vulkan' || readManifest(game.dir) && nextApi === 'vulkan') routeRestoreFirst();
       const state = store.read();
       const key = pathKey(game.dir);
-      await store.write({ gameOverrides: { ...state.gameOverrides,
-        [key]: { ...state.gameOverrides[key], api, apiExecutable: game.scan.chosen.path } } });
+      let settingChange;
       try {
+        settingChange = await gameApiSettings.apply(game, api);
+        await store.write({ gameOverrides: { ...state.gameOverrides,
+          [key]: { ...state.gameOverrides[key], api, apiExecutable: game.scan.chosen.path } } });
         if (readManifest(game.dir)) {
           const effectiveApi = api === 'auto' ? game.scan.chosen.detectedApi || 'unknown' : api;
           const routedScan = { ...game.scan, chosen: { ...game.scan.chosen,
@@ -720,11 +804,7 @@ function createAppService({ userData, resourcesPath, appDir, version = '0.0.0', 
           }
         }
       } catch (error) {
-        const current = store.read(), previous = state.gameOverrides[key] || {};
-        try { await store.write({ gameOverrides: { ...current.gameOverrides,
-          [key]: { ...current.gameOverrides[key], api: previous.api || 'auto',
-            apiExecutable: previous.apiExecutable || null } } }); }
-        catch { error.details = { ...error.details, preferenceRollbackFailed: true }; }
+        await rollbackApiChoice(error, state, key, settingChange);
         throw error;
       }
       return refreshCollection(games);
