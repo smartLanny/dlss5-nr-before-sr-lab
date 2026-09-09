@@ -88,6 +88,7 @@ def package(build: Path, output: Path) -> dict:
                 'tests/test_runtime_timing_summary.py',
                 'production jitter migration Win32 persistence fresh processes and negative controls CPU',
                 'production PRE disabled jitter and POST resolved zero binding CPU',
+                'exact submitted fence event wait and scoped CPU timing',
                 'production read-only post-boundary callbacks and identity isolation CPU',
                 'production RR depth cs_5_0 and private R32 WARP readback',
                 'validate-recommended-picture.py', 'recommended independent negative control',

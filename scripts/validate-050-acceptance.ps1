@@ -98,6 +98,9 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-jitter-status.py') --compiler $Compiler
     if ($LASTEXITCODE) { throw 'Jitter PRE omission and POST zero binding gate failed.' }
     $Checks.Add('production PRE disabled jitter and POST resolved zero binding CPU')
+    & python (Join-Path $PSScriptRoot 'validate-submitted-fence-wait.py') --compiler $Compiler --output (Join-Path $Output 'submitted-fence-event-cpu')
+    if ($LASTEXITCODE) { throw 'Exact fence event wait and scoped CPU timing gate failed.' }
+    $Checks.Add('exact submitted fence event wait and scoped CPU timing')
     foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py')) {
         & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
