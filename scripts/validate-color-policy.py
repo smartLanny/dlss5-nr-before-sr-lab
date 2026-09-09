@@ -89,6 +89,7 @@ unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_con
     // This CPU seam tests colour policy; actual post-store sampling and its
     // unused-target negative control run against production D3D12 below it.
     const bool probe_post_store=false;
+    const bool probe_pre_store=false;
     const bool low_grid_color=false, independent_chroma=false;
     DISPATCH
     return codec_flags;

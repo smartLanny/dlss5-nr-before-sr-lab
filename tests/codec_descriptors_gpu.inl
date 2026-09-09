@@ -11,9 +11,10 @@ struct NrSlot {
     ID3D12Resource *lanczos_intermediate=nullptr;
     ID3D12DescriptorHeap *heap=nullptr;
     ID3D12DescriptorHeap *snapshot_heap=nullptr;
+    ID3D12DescriptorHeap *pre_store_probe_heap=nullptr;
     DXGI_FORMAT source_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
     DXGI_FORMAT source_srv_format=DXGI_FORMAT_R16G16B16A16_FLOAT;
-    DXGI_FORMAT result_format=DXGI_FORMAT_UNKNOWN,result_uav_format=DXGI_FORMAT_UNKNOWN;
+    DXGI_FORMAT result_format=DXGI_FORMAT_UNKNOWN,result_srv_format=DXGI_FORMAT_UNKNOWN,result_uav_format=DXGI_FORMAT_UNKNOWN;
 };
 struct {UINT descriptor_size=0;} g_codec;
 // @PRODUCTION_DESCRIPTOR_WRITER@
@@ -150,7 +151,7 @@ void ValidateProductionDescriptors(Gpu &g) {
         auto external=MakeTypedTexture(g,format,sw,sh,packed,4);
         auto intermediate=MakeTypedTexture(g,DXGI_FORMAT_R16G16B16A16_FLOAT,dw,dh,half_bytes,8);
         NrSlot slot{};slot.source=intermediate.resource.p;slot.result=external.resource.p;
-        slot.result_format=slot.result_uav_format=format;slot.snapshot_heap=g.heap.p;
+        slot.result_format=slot.result_srv_format=slot.result_uav_format=format;slot.snapshot_heap=g.heap.p;
         WritePostSrSnapshotDescriptors(g.device.p,slot);
         if(negative){ // valid but wrong t0 reproduces the omitted post-SR override.
             auto wrong=MakeTypedTexture(g,DXGI_FORMAT_R16G16B16A16_FLOAT,sw,sh,
