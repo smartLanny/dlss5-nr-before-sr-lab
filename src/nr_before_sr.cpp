@@ -1016,6 +1016,9 @@ bool IsCompatibilityPostObserved() {
 
 void BeginPipelineStatsScopeLocked(unsigned long long feature_generation,
                                    int mode) {
+#if defined(NR_HAS_TIMING)
+    NrTimingSetRoute(static_cast<unsigned>(mode), g_config_generation.load(std::memory_order_acquire));
+#endif
     if (g_pipeline_stats_generation.load(std::memory_order_relaxed) ==
             feature_generation &&
         g_pipeline_stats_mode.load(std::memory_order_relaxed) == mode) {
@@ -5677,6 +5680,9 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
     if (!record->timing_identity.frame) record->timing_identity = timing_identity;
     else if (record->timing_identity.frame != timing_identity.frame ||
              record->timing_identity.epoch != timing_identity.epoch ||
+             record->timing_identity.feature != timing_identity.feature ||
+             record->timing_identity.config != timing_identity.config ||
+             record->timing_identity.device != timing_identity.device ||
              record->timing_identity.resource != timing_identity.resource)
         record->timing_identity_ambiguous = true;
 #endif
@@ -6139,6 +6145,9 @@ bool CaptureSubmissionBatchLocked(
         if (!batch.timing_identity.frame) batch.timing_identity = record->timing_identity;
         else if (batch.timing_identity.frame != record->timing_identity.frame ||
                  batch.timing_identity.epoch != record->timing_identity.epoch ||
+                 batch.timing_identity.feature != record->timing_identity.feature ||
+                 batch.timing_identity.config != record->timing_identity.config ||
+                 batch.timing_identity.device != record->timing_identity.device ||
                  batch.timing_identity.resource != record->timing_identity.resource)
             batch.timing_identity_ambiguous = true;
 #endif

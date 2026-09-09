@@ -91,7 +91,7 @@ void NrTimingRecord(nr_timing::Record record) {
     if (!g_nr_timing.epoch_started_ticks)
         g_nr_timing.epoch_started_ticks = record.started_ticks;
     NrTimingIncrement(g_nr_timing.observed);
-    if (record.identity.frame && record.identity.feature && record.identity.config && record.identity.mode) {
+    if (record.identity.frame && record.identity.feature && record.identity.config && record.identity.device && record.identity.mode) {
         NrTimingIncrement(g_nr_timing.scoped_records);
         if (!g_nr_timing.aggregate_scope_available) {
             g_nr_timing.aggregate_scope = record.identity;
@@ -106,7 +106,11 @@ void NrTimingRecord(nr_timing::Record record) {
                 scope.config != record.identity.config || scope.mode != record.identity.mode)
                 g_nr_timing.mixed_scopes = true;
         }
-    } else NrTimingIncrement(g_nr_timing.unscoped_records);
+    } else {
+        NrTimingIncrement(g_nr_timing.unscoped_records);
+        if (record.identity.frame && record.identity.feature && record.identity.config && !record.identity.mode)
+            NrTimingIncrement(g_nr_timing.route_unknown_records);
+    }
     auto& stats = g_nr_timing.stages[index];
     NrTimingIncrement(stats.count);
     record.clock_known = record.clock_known && frequency != 0;
@@ -202,11 +206,17 @@ void NrTimingEnterChainLock(CRITICAL_SECTION* lock) {
     EnterCriticalSection(lock);
     timing.Stop();
 }
+void NrTimingSetRoute(unsigned mode, std::uint64_t config) {
+    if (auto* frame = g_nr_timing_carrier) {
+        frame->identity.mode = mode;
+        frame->identity.config = config;
+    }
+}
 void NrTimingSetResource(std::uint64_t device, std::uint64_t resource, std::uint64_t generation,
-                         unsigned mode, unsigned role, std::uint64_t config) {
+                         unsigned role, std::uint64_t config) {
     if (auto* frame = g_nr_timing_carrier) {
         frame->identity.device = device; frame->identity.resource = resource;
-        frame->identity.resource_generation = generation; frame->identity.mode = mode;
+        frame->identity.resource_generation = generation;
         frame->identity.role = role; frame->identity.config = config;
         frame->identity.target = frame->identity.target_generation = 0;
         frame->detail.flags &= ~nr_timing::TargetKnown;

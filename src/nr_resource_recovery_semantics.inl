@@ -7,6 +7,12 @@ nr_recovery::ViewSignature NrRecoveryViewSignature(const NrResolvedColorView& re
         static_cast<unsigned>(result.semantic.contract), 1};
 }
 NrResolvedColorView NrRecoveryResolve(NrResolvedColorView result, bool post_sr) {
+#if defined(NR_HAS_TIMING)
+    // RR has an independent timing carrier but deliberately no Feature1
+    // recovery carrier. Candidate resource facts apply to either real route.
+    NrTimingSetResource(result.key.device, result.key.resource, result.key.resource,
+        post_sr ? 1u : 0u, g_config_generation.load(std::memory_order_acquire));
+#endif
     auto* frame = g_nr_recovery_carrier;
     if (!frame) return result;
     using namespace nr_resource_semantics;
@@ -23,10 +29,6 @@ NrResolvedColorView NrRecoveryResolve(NrResolvedColorView result, bool post_sr) 
     if (frame->command_observed)
         input.command = {FactState::Complete, input.current, "actual-native-command-state-captured", true};
     snapshot.key = {frame->scopes[role], result.key.resource, result.key.resource, 0, role};
-#if defined(NR_HAS_TIMING)
-    NrTimingSetResource(snapshot.key.scope.device, snapshot.key.resource, snapshot.key.resource_generation,
-        snapshot.key.scope.mode, role, snapshot.key.scope.config_generation);
-#endif
     snapshot.signature = NrRecoveryViewSignature(result);
     const auto semantic = result.semantic ?
         (result.semantic.source == Source::UniqueContract ? nr_recovery::SemanticState::Unique : nr_recovery::SemanticState::Exact) :
