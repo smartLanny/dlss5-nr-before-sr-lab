@@ -366,9 +366,55 @@ void RetirementGuards() {
 #include "post_output_harness.inl"
 #endif
 
+#if defined(NR_HAS_POST_BOUNDARY_TRACE)
+void BoundaryCallbacks() {
+    using queue_test::Check;
+    auto *resource=reinterpret_cast<ID3D12Resource *>(0x1010);
+    auto *list=reinterpret_cast<ID3D12GraphicsCommandList *>(0x2020);
+    NrNativeOutputTraceScope outer(resource,list);
+    ObserveNativeOutputBarrier(0x2020,0x9999,8,128);
+    ObserveNativeOutputBarrier(0x3030,0x1010,8,128);
+    Check(outer.evidence.matches==0 && outer.evidence.other_lists==1,"wrong object/list cannot supply native exit");
+    {
+        NrNativeOutputTraceScope nested(reinterpret_cast<ID3D12Resource *>(0x4040),list);
+        ObserveNativeOutputBarrier(0x2020,0x4040,8,64);
+        Check(nested.evidence.matches==1 && outer.evidence.matches==0,"nested native observations isolated");
+    }
+    ObserveNativeOutputBarrier(0x2020,0x1010,8,64);
+    ObserveNativeOutputBarrier(0x2020,0x1010,64,128);
+    const auto native=outer.Finish();
+    Check(!g_native_output_trace && native.matches==2 && native.first_before==8 && native.last_after==128,"exact native window ends and preserves observed order");
+    NrDiagnosticIdentity identity{};identity.frame_id=71;identity.config_generation=9;
+    PublishPostBoundary(resource,native,identity,3);
+    Check(!SnapshotPostBoundary().frame,"no Present-closed window fabricated");
+    using R=reshade::api::resource;using U=reshade::api::resource_usage;
+    const R targets[]={{0x1010},{0x9999}};const U before[]={U::unordered_access,U::unordered_access};const U after[]={U::shader_resource_pixel,U::copy_dest};
+    OnPostBoundaryBarrier(nullptr,2,targets,before,after);
+    Check(!OnPostBoundaryCopy(nullptr,R{0x1010},R{0x9090}),"read observation never suppresses game copy");
+    Check(!OnPostBoundaryCopyRegion(nullptr,R{0x9090},0,nullptr,R{0x1010},0,nullptr,reshade::api::filter_mode::min_mag_mip_point),"write observation never suppresses region copy");
+    g_inside_ngx_evaluate=true;
+    OnPostBoundaryCopy(nullptr,R{0x1010},R{0x1010});
+    OnPostBoundaryBarrier(nullptr,2,targets,before,after);
+    g_inside_ngx_evaluate=false;
+    ClosePostBoundaryAtPresent();auto closed=SnapshotPostBoundary();
+    Check(closed.frame==71&&closed.config==9&&closed.feature==3,"coherent post identity carried to closed window");
+    Check(closed.barriers==1&&closed.first_before==8&&closed.first_after==128,"unrelated and internal barriers excluded");
+    Check(closed.copy_reads==1&&closed.copy_writes==1,"native/model internal copies excluded");
+    Check(closed.native.matches==2&&closed.native.last_after==128,"native and following boundaries remain distinct");
+    ForgetPostBoundary(0x9999);Check(g_post_boundary_resource.load()==0x1010,"unrelated destroy retains target");
+    OnPostBoundaryDestroyResource(nullptr,R{0x1010});
+    Check(g_post_boundary_resource.load()==0,"real destroy retires watched identity");
+    OnPostBoundaryCopy(nullptr,R{0x1010},R{0x1010});ClosePostBoundaryAtPresent();
+    Check(SnapshotPostBoundary().copy_reads==1,"destroyed/reused numeric identity cannot alter last closed evidence");
+    std::printf("Boundary callbacks: %u checks; production read-only callbacks, CPU only, no state permission\n",queue_test::checks);
+}
+#endif
 int main(int argc, char **argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     const std::string mode = argc == 2 ? argv[1] : "one-shot";
+#if defined(NR_HAS_POST_BOUNDARY_TRACE)
+    if(mode=="boundary-callbacks"){BoundaryCallbacks();return 0;}
+#endif
     if (mode == "one-shot") queue_test::OneShot();
     else if (mode == "guards") queue_test::Guards();
 #ifndef NR_QUEUE_OLD_POLICY_NEGATIVE

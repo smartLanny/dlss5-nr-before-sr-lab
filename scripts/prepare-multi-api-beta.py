@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the renamed 0.4.7beta-output.1 compatibility candidate without changing the checkout.
+"""Stage the renamed 0.4.7beta-output.2 compatibility candidate without changing the checkout.
 
 Requires #131, #132 and the completed #134 merge. Generated-source availability
 is not game verification. MFG work is deferred for the current owner test batch.
@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.4.7beta-output.1'
-DISPLAY_VERSION = '0.4.7beta-output.1'
+VERSION = '0.4.7beta-output.2'
+DISPLAY_VERSION = '0.4.7beta-output.2'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -26,6 +26,8 @@ STATE_CURRENT = '3063ae9e44090f3ce3b4e1ccc9816824896c2a20'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd')
 INTEGRATION_CORE_PINS = {
+    'src/nr_post_boundary.h': '132d97acce32941195c8746a0ff867965b938423',
+    'src/nr_post_boundary_runtime.inl': '9526bacc7f0fc6730216900da22727654310d8ba',
     'src/nr_ui_activity.h': 'd647d17104c1b5d00ac2769dabde71abfc9ff59f',
     'src/nr_imgui_abi.h': 'd52148f7dc9999c8090947243b9fe6167f457240',
     'src/nr_f8_stream.inl': '8bf90f5ee2e32566428ee07c8fd9ac80491eeac7',
@@ -43,17 +45,17 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
     'src/nr_f8_sequence.inl': 'f4b2cd5ca77ea273c5f1dd92c6853a68980a2114',
     'src/nr_command_state.inl': '3063ae9e44090f3ce3b4e1ccc9816824896c2a20',
-    'src/nr_feedback_capture.inl': 'c98fb26e258ac5986c8b63976557fb1b9ea61bdd',
+    'src/nr_feedback_capture.inl': 'e6e651e3626c5928a052dc77b6f691e037a4fcdd',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
     'src/nr_settings_ui.inl': '35436118cef4e6f322eb489150840c222ecfc8d9',
-    'src/nr_before_sr.cpp': '132ceb67b5378654801f02b2390f79264e157299',
+    'src/nr_before_sr.cpp': 'db3593572d241ebfa9e14548d1aff18e053b0bc5',
     'src/nr_recommended_picture.inl': '32af97de137866a303eb5db8484c8116745fb8f0',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': '8ee8e7b63831bac374959386abd6e1156bc6bd12',
+    'src/nr_before_sr.rc': '7e876edb04421e3a4e1b864cc3c0e62691c4140a',
     'src/nr_color_policy.inl': '7a7453d479ebf8a9666468d0e287a3c3310697b7',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': '900dde4e80414b22ef311f686eb45eb86fe5ccff',
+    'scripts/build.ps1': 'e3159e9bbfab45baf4b0e435174d64be43bff639',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '85e6364d1fa357c19bceb97830375ba86142d98d',
@@ -169,7 +171,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.4.7beta-output.1' not in resource_text:
+    if '0.4.7beta-output.2' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -180,7 +182,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.4.7.4',
+        'core_pe_version': '0.4.7.5',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),

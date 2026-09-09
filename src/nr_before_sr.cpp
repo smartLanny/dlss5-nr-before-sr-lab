@@ -54,11 +54,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "0.4.7beta-output.1";
+constexpr const char *kAddonVersion = "0.4.7beta-output.2";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "0.4.7beta-output.1";
+constexpr const char *kBuildIdentity = "0.4.7beta-output.2";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -4111,6 +4111,8 @@ struct NrSlot {
     NrDiagnosticIdentity diagnostic_identity = {};
 };
 
+#include "nr_post_boundary_runtime.inl"
+
 struct NrPostStoreEvidence {
     unsigned long long frame=0,feature_generation=0,tick=0;
     unsigned int config=0,samples=0,expected_samples=0,changed=0,expected_changed=0,invalid=0;
@@ -4414,6 +4416,7 @@ bool FitsExtraResourcePeak(const NrSlot &slot, unsigned long long new_bytes) {
 }
 
 void DestroySlot(NrSlot &slot) {
+    ForgetPostBoundary(reinterpret_cast<std::uint64_t>(slot.result));
     DestroyStageCapture(slot);
     ReleaseCom(slot.delta_stats_readback);
     ReleaseCom(slot.delta_stats);
@@ -8886,6 +8889,7 @@ struct PostSrSubstitution {
     unsigned int output_base_y = 0;
     unsigned int width = 0;
     unsigned int height = 0;
+    nr_post_boundary::Native native_boundary;
     unsigned int guide_width = 0;
     unsigned int guide_height = 0;
     ColorContract color_contract = {};
@@ -9402,6 +9406,8 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     if (!RecordVisibleTransferLocked(command_list, feature.generation, 1))
         return false;
     SetBypassReason(BypassReason::None);
+    PublishPostBoundary(substitution.original_output,substitution.native_boundary,
+        g_applied_nr_identity,feature.generation,reinterpret_cast<std::uint64_t>(g_codec.device));
     return true;
 }
 
@@ -10354,7 +10360,14 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         rr_transaction.Release();
         return original(command_list, handle, params, callback);
     }
+#if defined(NR_HAS_POST_BOUNDARY_TRACE)
+    NrNativeOutputTraceScope native_output_trace(after_sr.active?after_sr.original_output:nullptr,
+        before_state.command_list);
+#endif
     NgxResult result = original(command_list, handle, params, callback);
+#if defined(NR_HAS_POST_BOUNDARY_TRACE)
+    after_sr.native_boundary=native_output_trace.Finish();
+#endif
     const bool used_before_sr = before_sr.active;
     const bool used_after_sr = after_sr.active;
     bool retried_original_color = false;
@@ -11909,6 +11922,9 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     // intentionally single-stream. Skip a concurrent auxiliary Present rather
     // than racing those diagnostics or toggling F6 twice.
     if (!TryAcquireSRWLockExclusive(&g_present_observer_lock)) return;
+    if (swapchain && swapchain->get_device()->get_api()==reshade::api::device_api::d3d12 &&
+        swapchain->get_device()->get_native()==g_post_boundary_device.load(std::memory_order_acquire))
+        ClosePostBoundaryAtPresent();
     if (swapchain != nullptr) {
         g_feedback_swap_color_space.store(static_cast<unsigned int>(swapchain->get_color_space()), std::memory_order_relaxed);
         if (swapchain->get_device()->get_api() == reshade::api::device_api::d3d12) {
@@ -12580,13 +12596,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain 0.4.7beta-output.1 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain 0.4.7beta-output.2 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain 0.4.7beta-output.1 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain 0.4.7beta-output.2 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "
@@ -12659,6 +12675,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnResetCommandList);
         reshade::register_event<reshade::addon_event::destroy_command_list>(
             OnDestroyCommandList);
+        RegisterPostBoundaryEvents(true);
         reshade::register_event<reshade::addon_event::present>(OnPresent);
         reshade::register_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
@@ -12678,6 +12695,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
             reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
+            RegisterPostBoundaryEvents(false);
             reshade::unregister_event<reshade::addon_event::present>(OnPresent);
             reshade::unregister_event<reshade::addon_event::destroy_command_list>(
                 OnDestroyCommandList);
@@ -12700,6 +12718,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
         reshade::unregister_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);
         reshade::unregister_event<reshade::addon_event::reshade_screenshot>(OnFeedbackScreenshot);
+        RegisterPostBoundaryEvents(false);
         reshade::unregister_event<reshade::addon_event::present>(OnPresent);
         reshade::unregister_event<reshade::addon_event::destroy_command_list>(
             OnDestroyCommandList);

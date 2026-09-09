@@ -147,6 +147,22 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,stored.changed,prefix,stored.expected_changed,prefix,stored.invalid,
         prefix,stored.actual_mean,prefix,stored.expected_mean,prefix,stored.actual_max,prefix,stored.expected_max,
         prefix,stored.before_hash,prefix,stored.expected_hash,prefix,stored.actual_hash,prefix);
+#if defined(NR_HAS_POST_BOUNDARY_TRACE)
+    const auto boundary=SnapshotPostBoundary();
+    FeedbackAppend(s,"%s.post.boundary.frame=%llu\n%s.post.boundary.config=%u\n%s.post.boundary.featureGeneration=%llu\n"
+        "%s.post.boundary.ageMs=%llu\n%s.post.boundary.nativeEventEntries=%u\n%s.post.boundary.nativeMatches=%u\n"
+        "%s.post.boundary.nativeOtherListMatches=%u\n%s.post.boundary.nativeFirstBefore=0x%X\n%s.post.boundary.nativeLastAfter=0x%X\n"
+        "%s.post.boundary.followingBarriers=%u\n%s.post.boundary.firstBefore=0x%X\n%s.post.boundary.firstAfter=0x%X\n"
+        "%s.post.boundary.lastAfter=0x%X\n%s.post.boundary.readBarriers=%u\n%s.post.boundary.writeBarriers=%u\n"
+        "%s.post.boundary.copyReads=%u\n%s.post.boundary.copyWrites=%u\n%s.post.boundary.renderTargetBinds=%u\n"
+        "%s.post.boundary.note=ReShade recording events in native SR call and after NR until same-device Present; CPU window, not GPU ordering or consumed pixels; split flags/subresource IDs omitted by event, no state inference; zero matches means unobserved\n",
+        prefix,boundary.frame,prefix,boundary.config,prefix,boundary.feature,
+        prefix,boundary.tick?GetTickCount64()-boundary.tick:0,prefix,boundary.native.callbacks,prefix,boundary.native.matches,
+        prefix,boundary.native.other_lists,prefix,boundary.native.first_before,prefix,boundary.native.last_after,
+        prefix,boundary.barriers,prefix,boundary.first_before,prefix,boundary.first_after,prefix,boundary.last_after,
+        prefix,boundary.read_barriers,prefix,boundary.write_barriers,prefix,boundary.copy_reads,prefix,boundary.copy_writes,
+        prefix,boundary.render_target_binds,prefix);
+#endif
 #endif
 #if defined(NR_HAS_COMMAND_STATE_EVIDENCE)
     const auto evidence = SnapshotCommandStateEvidence();
