@@ -19,12 +19,12 @@ void FeedbackAppendTiming(FeedbackSession &session, const char *prefix) {
     FeedbackAppend(session,"%s.timing.clockAvailable=%d\n%s.timing.epochStartedTicks=%llu\n"
         "%s.timing.capturedTicks=%llu\n%s.timing.aggregateScopeAvailable=%d\n"
         "%s.timing.aggregateScope=config:%llu,featureGeneration:%llu,mode:%u,device:%llu\n"
-        "%s.timing.mixedScopes=%d\n%s.timing.scopedRecords=%llu\n%s.timing.unscopedRecords=%llu\n"
-        "%s.timing.scopeMeaning=aggregate CPU observations for this segment; mixedScopes forbids interpreting the whole histogram as one configuration or route; unscoped queue calls remain separately identified\n",
+        "%s.timing.mixedScopes=%d\n%s.timing.scopedRecords=%llu\n%s.timing.unscopedRecords=%llu\n%s.timing.routeUnknownRecords=%llu\n"
+        "%s.timing.scopeMeaning=aggregate CPU observations for this segment; mixedScopes forbids interpreting the whole histogram as one configuration or route; mode 0 is route unknown before admission, never requested PRE; unscoped queue calls remain separately identified\n",
         prefix,s.clock_available,prefix,u(s.epoch_started_ticks),prefix,u(s.captured_ticks),
         prefix,s.aggregate_scope_available,prefix,u(s.aggregate_scope.config),u(s.aggregate_scope.feature),
         s.aggregate_scope.mode,u(s.aggregate_scope.device),prefix,s.mixed_scopes,
-        prefix,u(s.scoped_records),prefix,u(s.unscoped_records),prefix);
+        prefix,u(s.scoped_records),prefix,u(s.unscoped_records),prefix,u(s.route_unknown_records),prefix);
     const auto quantile=[&](const nr_timing::Stats &stats,unsigned percent)->std::string {
         if(!stats.measured || !s.clock_available || !s.qpc_frequency || s.counter_overflow)return "unknown";
         const auto target=(stats.measured/100)*percent+((stats.measured%100)*percent+99)/100;
@@ -50,7 +50,7 @@ void FeedbackAppendTiming(FeedbackSession &session, const char *prefix) {
     FeedbackAppend(session,"%s.timing.histogramUpperUs=100,250,500,1000,2000,4000,8000,16000,32000,50000,100000,unbounded\n"
         "%s.timing.percentileMeaning=histogram bucket upper bounds, not exact quantiles\n"
         "%s.timing.recentExported=%u\n%s.timing.recentAvailable=%u\n"
-        "%s.timing.recentMeaning=latest bounded call observations; not a complete frame or submission trace; unknown identity fields are zero\n",
+        "%s.timing.recentMeaning=latest bounded call observations; not a complete frame or submission trace; frame uses Feature1 recovery or actual RR Evaluate counter domain, always paired with featureGeneration; unknown identity fields are zero\n",
         prefix,prefix,prefix,count,prefix,s.recent_count,prefix);
     for(unsigned i=0;i<count;++i){
         const auto &r=s.recent[first+i];const auto &id=r.identity;const auto &d=r.detail;const auto &origin=r.readback_origin;

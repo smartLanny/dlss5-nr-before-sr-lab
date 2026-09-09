@@ -31,7 +31,7 @@ struct Identity {
     std::uint64_t device = 0, resource = 0, resource_generation = 0;
     std::uint64_t target = 0, target_generation = 0;
     unsigned target_subresource = 0;
-    unsigned mode = 0, role = 0;
+    unsigned mode = 0, role = 0; // mode 0: route not yet admitted, 1: post, 2: pre
     Policy probe{}, wait{};
 };
 struct Detail {
@@ -66,7 +66,7 @@ struct Snapshot {
     std::uint64_t excluded_old_epoch = 0, recent_overwritten = 0;
     Policy probe{}, wait{};
     Identity aggregate_scope{}; // resource rotation is deliberately not a new scope
-    std::uint64_t scoped_records = 0, unscoped_records = 0;
+    std::uint64_t scoped_records = 0, unscoped_records = 0, route_unknown_records = 0;
     bool aggregate_scope_available = false, mixed_scopes = false;
     bool counter_overflow = false;
     bool clock_available = false;

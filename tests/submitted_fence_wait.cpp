@@ -181,7 +181,7 @@ void Timing() {
     nr_timing::Identity old_origin;
     {
         NrTimingCarrierScope frame; frame.Begin(100, 2, 4, 1, 3);
-        NrTimingSetResource(3, 7, 7, 1, 1, 4); NrTimingSetTarget(8, 8, 0);
+        NrTimingSetResource(3, 7, 7, 1, 4); NrTimingSetTarget(8, 8, 0);
         CRITICAL_SECTION chain{}; InitializeCriticalSection(&chain);
         NrTimingEnterChainLock(&chain); LeaveCriticalSection(&chain); DeleteCriticalSection(&chain);
         NrTimingCommandObserved(); NrTimingResetBound(true, nr_timing::GameReset);
@@ -213,7 +213,7 @@ void Timing() {
           "TIMING_EPOCH_ORACLE: late old-phase completion cannot enter the new phase histogram");
     {
         NrTimingCarrierScope frame; frame.Begin(101, 2, 4, 1, 3);
-        NrTimingSetResource(3, 9, 9, 1, 1, 4);
+        NrTimingSetResource(3, 9, 9, 1, 4);
         NrTimingScope readback(nr_timing::Stage::Readback);
         readback.record.readback_origin = old_origin;
         NrTimingReadbackOrigin(old_origin, true, true);
@@ -223,7 +223,7 @@ void Timing() {
           value.recent[0].readback_origin.frame == 100 && value.recent[0].identity.frame == 101,
           "current CPU readback cost retains its old recording phase instead of relabeling the pending sample");
     {
-        NrTimingCarrierScope frame; frame.Begin(102, 2, 4, 1, 3); NrTimingSetResource(3, 10, 10, 1, 1, 4);
+        NrTimingCarrierScope frame; frame.Begin(102, 2, 4, 1, 3); NrTimingSetResource(3, 10, 10, 1, 4);
     }
     Check(!Snapshot().mixed_scopes, "normal resource-ring rotation does not fabricate a scope change");
     { NrTimingCarrierScope frame; frame.Begin(103, 2, 5, 1, 3); }
@@ -263,6 +263,21 @@ void Timing() {
           value.stages[static_cast<unsigned>(nr_timing::Stage::NrEvaluate)].count == 0 &&
           value.stages[static_cast<unsigned>(nr_timing::Stage::NativeEvaluate)].count == 0,
           "ACTIVE_CARRIER_EPOCH_ORACLE: stages started after switching phase retain the carrier's frozen epoch and are excluded");
+    NrTimingSetWaitPolicy(0, 13);
+    {
+        NrTimingCarrierScope frame; frame.Begin(2100, 2, 5, 0, 3);
+        { NrTimingScope entry(nr_timing::Stage::ChainLock); }
+        NrTimingSetResource(3, 11, 11, 0, 5);
+        Check(NrTimingCurrentIdentity().mode == 0,
+              "ACTUAL_ROUTE_ORACLE: observing a PRE candidate does not admit the requested route");
+        NrTimingSetResource(3, 12, 12, 1, 5);
+        NrTimingSetRoute(1, 5);
+        NrTimingCallNr([] { return 1; });
+    }
+    value = Snapshot();
+    Check(!value.mixed_scopes && value.aggregate_scope.mode == 1 &&
+          value.route_unknown_records == 1 && value.unscoped_records == 1 && value.scoped_records == 2,
+          "ACTUAL_ROUTE_ORACLE: PRE candidate rejection followed by POST admission keeps early route unknown instead of mixing actual routes");
 }
 }
 int main() {

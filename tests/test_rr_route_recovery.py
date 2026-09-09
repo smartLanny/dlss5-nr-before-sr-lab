@@ -669,10 +669,11 @@ int main() {{
         self.assertIn("g_rr_ownership_gate_owner.load(std::memory_order_acquire)==1", rr_c)
         latch = self.rr_post.index("LatchConcurrentRrOwnershipChange")
         gate_return = self.rr_post.index(
-            "return original(command_list,handle,params,callback);", latch
+            "return call_native();", latch
         )
         self.assertLess(latch, gate_return)
-        self.assertEqual(self.rr_post.count("const NgxResult native_result=original("), 1)
+        self.assertEqual(self.rr_post.count("const NgxResult native_result=call_native();"), 1)
+        self.assertEqual(self.rr_post.count("const NgxResult result=original("), 1)
 
     def test_post_native_abort_quarantines_before_finish(self):
         """Verify the latch checkpoint cannot run FinishAfterSr on an aborted call."""

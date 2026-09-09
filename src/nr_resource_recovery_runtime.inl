@@ -95,7 +95,9 @@ NrRecoveryCarrierScope::NrRecoveryCarrierScope(ID3D12GraphicsCommandList* list,
     selected_role = requested == 1 ? 1u : 0u;
     snapshot.input.current = {true, config, generation, requested, requested};
 #if defined(NR_HAS_TIMING)
-    timing.Begin(snapshot.frame, generation, config, requested, identity);
+    // Requested PRE may decline into POST. Route becomes known at the existing
+    // pipeline admission point, not while observing the carrier or its views.
+    timing.Begin(snapshot.frame, generation, config, 0, identity);
 #endif
     snapshot.input.observer = {nr_compatibility_verdict::FactState::Complete,
         snapshot.input.current, "classified-live-Feature1-carrier", true};
