@@ -28,12 +28,19 @@ def patch_exposure_core(text: str) -> str:
         s=s[:start]+'''    const auto access = NrResolveExposureAccess(device, desc);
     const bool supported = access.allowed();
 '''+s[stop:]
+        s=s.replace('    // Formats outside the DirectSR exposure-scale family would require a\n'
+            '    // separate, engine-specific decode contract. Do not bind an unsupported\n'
+            '    // descriptor even in diagnostic identity mode.',
+            '    // Only the reviewed typed reads are admitted. R8_UNORM returns the\n'
+            '    // normalized exposure red channel; no integer/typeless reinterpretation.\n'
+            '    // Do not bind an unsupported descriptor even in identity mode.')
         return once(s,'                static_cast<unsigned int>(desc.Flags), count);',
             '                static_cast<unsigned int>(desc.Flags), count);\n'
-            '            Log("Exposure view=%u reason=%s capabilityResult=0x%08X; "\n'
+            '            Log("Exposure view=%u reason=%s capabilityQueryAttempted=%d capabilityResult=0x%08X; "\n'
             '                "collect F8 TXT and upload BUG feedback.",\n'
             '                static_cast<unsigned int>(access.view),\n'
             '                NrExposureAccessReasonName(access.reason),\n'
+            '                access.query_attempted ? 1 : 0,\n'
             '                static_cast<unsigned int>(access.query_result));')
     text=edit(text,'bool SupportsExposureTextureContract(',admission)
     def writer(s):

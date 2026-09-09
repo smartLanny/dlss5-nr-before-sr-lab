@@ -1,9 +1,11 @@
 #pragma once
 // NGX ExposureTexture contract: final exposure scale in red, mip 0, 1x1.
-// Only same-family FLOAT views; UINT/UNORM bit interpretations are NOT fallbacks.
+// Same-family FLOAT views and already typed R8_UNORM (normalized red).
+// R8 TYPELESS/UINT/SNORM are not inferred or reinterpreted as exposure.
 // Read-only access does not require source UAV support or source UAV flags.
 DXGI_FORMAT NrExposureReadFormat(DXGI_FORMAT format) {
     switch (format) {
+    case DXGI_FORMAT_R8_UNORM: return DXGI_FORMAT_R8_UNORM;
     case DXGI_FORMAT_R16_TYPELESS:
     case DXGI_FORMAT_R16_FLOAT: return DXGI_FORMAT_R16_FLOAT;
     case DXGI_FORMAT_R16G16_TYPELESS:
@@ -26,6 +28,8 @@ enum class NrExposureAccessReason { Ready, MissingDevice, Shape, DeniedSrv, Form
 struct NrExposureAccess {
     DXGI_FORMAT view = DXGI_FORMAT_UNKNOWN;
     NrExposureAccessReason reason = NrExposureAccessReason::MissingDevice;
+    bool query_attempted = false;
+    // A sentinel until query_attempted; never report this as a device failure.
     HRESULT query_result = E_INVALIDARG;
     bool allowed() const { return reason == NrExposureAccessReason::Ready; }
 };
@@ -35,7 +39,7 @@ const char *NrExposureAccessReasonName(NrExposureAccessReason reason) {
     case NrExposureAccessReason::MissingDevice: return "missing-device";
     case NrExposureAccessReason::Shape: return "not-1x1-single-sample-mip0";
     case NrExposureAccessReason::DeniedSrv: return "resource-denies-srv";
-    case NrExposureAccessReason::Format: return "no-float-exposure-view";
+    case NrExposureAccessReason::Format: return "no-supported-exposure-view";
     case NrExposureAccessReason::Capability: return "device-texture2d-or-shader-load-unavailable";
     }
     return "unknown";
@@ -55,6 +59,7 @@ NrExposureAccess NrResolveExposureAccess(ID3D12Device *device, const D3D12_RESOU
     D3D12_FEATURE_DATA_FORMAT_SUPPORT support{};
     support.Format = result.view;
     result.reason = NrExposureAccessReason::Capability;
+    result.query_attempted = true;
     result.query_result = ID3D12Device_CheckFeatureSupport(device,
         D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support));
     if (SUCCEEDED(result.query_result) &&

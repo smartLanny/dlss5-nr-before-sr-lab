@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$ExposureTyped)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -55,7 +55,24 @@ $boostTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\high_stren
 $harness = $harness.Replace('// @V3_BOOST_TESTS@', $boostTests)
 $layerTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests\layered_composite_gpu.inl') -Raw -Encoding UTF8
 $harness = $harness.Replace('// @LAYER_TESTS@', $layerTests)
-if($CombinedLowGrid) {
+if($ExposureTyped) {
+    if ($BaselineSource -or $CatmullOutput -or $ColorEditField -or $InputFilterOutput -or
+        $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl -or $CombinedLowGrid) {
+        throw 'Run the typed exposure fixture independently.'
+    }
+    $exposureTests = Get-Content -LiteralPath (Join-Path $projectRoot 'tests/exposure_typed_gpu.inl') -Raw -Encoding UTF8
+    $rebinding = ''
+    foreach ($name in @('WriteExposureSrv', 'RebindExposureSource')) {
+        $pattern = '(?ms)^void ' + [regex]::Escape($name) + '\([^{}]*\)\s*\{.*?^\}'
+        $definitions = [regex]::Matches($source, $pattern)
+        if ($definitions.Count -ne 1) { throw "Non-unique production exposure function: $name" }
+        $rebinding += $definitions[0].Value + "`n"
+    }
+    if (!$rebinding.Contains('NrExposureReadFormat(')) { throw 'Typed exposure fixture requires the actual staged exposure writer.' }
+    $exposureTests = $exposureTests.Replace('// @PRODUCTION_EXPOSURE_REBIND@', $rebinding)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_TESTS@', $exposureTests)
+    $harness = $harness.Replace('// @COMPOSITION_CONTRACT_ENTRY@', 'if (argc == 2 && std::strcmp(argv[1], "--exposure-typed") == 0) { ValidateTypedExposure(gpu); return 0; }')
+} elseif($CombinedLowGrid) {
     if (!$BaselineSource -or $CatmullOutput -or $ColorEditField -or $InputFilterOutput -or
         $EditFieldOutput -or $ComparisonOutput -or $NegativeControl -or $LayerNegativeControl) {
         throw 'Combined low-grid contract requires only BaselineSource.'
@@ -142,7 +159,11 @@ if ($CompileOnly) {
     Write-Host 'Production codec fixture compiled only; no WARP/GPU dispatch executed.'
     return
 }
-if($CombinedLowGrid) {
+if($ExposureTyped) {
+    & $binary '--exposure-typed'
+    if($LASTEXITCODE -ne 0){throw 'Production typed exposure GPU contract failed.'}
+    return
+} elseif($CombinedLowGrid) {
     & $binary '--combined-low-grid'
     if($LASTEXITCODE -ne 0){throw 'Combined low-grid GPU contract failed.'}
     return
