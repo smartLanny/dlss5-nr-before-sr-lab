@@ -360,6 +360,13 @@ public:
         Refresh(*f); return true;
     }
 
+    // A real process-wide admission guard may run before Feature/resource
+    // classification. Invalidate continuity without inventing a carrier or
+    // forgetting the failed interpretation / historical storage receipt.
+    void InterruptScope(const Scope& scope, std::uint32_t role) noexcept {
+        if (auto* stream = FindStream(scope, role)) Break(*stream, stream->latest.ordinal);
+    }
+
     // Successful ActualStorageRead is accepted only through RecordWriteback;
     // a raw boolean must never bypass frame target validation.
     // Missing evidence is not a false outcome; do not Record an unperformed step.
