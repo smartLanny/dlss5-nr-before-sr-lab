@@ -37,7 +37,14 @@ async function verify(archive, directory) {
         if (error) return fail(error);
         try {
           const hash = crypto.createHash('sha256'); let bytes = 0;
-          for await (const chunk of stream) { bytes += chunk.length; hash.update(chunk); }
+          // yauzl's stored entries use an older fd-slicer stream whose async
+          // iterator may never reach end on newer Node versions. Its event
+          // interface supports both stored and deflated ZIP entries.
+          await new Promise((resolve, reject) => {
+            stream.on('data', chunk => { bytes += chunk.length; hash.update(chunk); });
+            stream.once('end', resolve);
+            stream.once('error', reject);
+          });
           const actual = hash.digest('hex');
           if (actual !== source.sha256 || bytes !== source.bytes) throw Error(`Archive content changed: ${entry.fileName}`);
           rows.push({ file: entry.fileName, bytes, sha256: actual }); zip.readEntry();
