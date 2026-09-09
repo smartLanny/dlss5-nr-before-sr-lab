@@ -718,6 +718,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (ImGui::BeginTabItem(ui("Feedback and diagnostics###nr-feedback-diagnostics", "反馈与诊断###nr-feedback-diagnostics"),
             nullptr, feedback_tab_flags)) {
         DrawSimpleFeedbackControls();
+        ImGui::BeginDisabled(collecting);
         SettingsSection(ui("Flicker comparison", "闪烁对照"));
         int probe_mode = static_cast<int>(NrProbePolicySnapshot().mode);
         if (ImGui::Combo(ui("Automatic diagnostic sampling", "自动诊断采样"), &probe_mode,
@@ -739,6 +740,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "This session only; the completion checks and timeout stay the same. Start a new segment, close the menu and observe the same scene for 30 seconds, then press F8. Change one option at a time. CPU timings do not measure total input delay.",
             "仅本次运行有效，完成条件和等待上限保持相同。开始新计时段后关闭菜单，在同一场景观察 30 秒，再按 F8。每次只改一个选项。CPU 耗时不等于完整输入延迟。"));
 #endif
+        ImGui::EndDisabled();
         SettingsSection(ui("Image evidence", "图像证据"));
         DrawSimpleImageCaptureControls();
         SettingsSection(ui("Runtime observations", "运行诊断"));

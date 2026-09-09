@@ -100,7 +100,7 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-first-recording.py') --compiler $Compiler --negative-control
     if ($LASTEXITCODE) { throw 'First-recording old-policy negative control failed.' }
     $Checks.Add('first-recording old-policy CPU negative control')
-    foreach ($Test in @('tests/test_ui_refresh.py', 'tests/test_imgui_abi.py', 'tests/multi_api/test_rr_post_diagnostics.py', 'tests/test_rr_depth_projection.py', 'tests/test_rr_depth_device_identity.py', 'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py', 'tests/test_picture_reset.py')) {
+    foreach ($Test in @('tests/test_runtime_timing_summary.py', 'tests/test_ui_refresh.py', 'tests/test_imgui_abi.py', 'tests/multi_api/test_rr_post_diagnostics.py', 'tests/test_rr_depth_projection.py', 'tests/test_rr_depth_device_identity.py', 'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py', 'tests/test_picture_reset.py')) {
         & python (Join-Path $Root $Test)
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
         $Checks.Add($Test)

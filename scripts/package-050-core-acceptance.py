@@ -85,6 +85,7 @@ def package(build: Path, output: Path) -> dict:
                 'production post-store readback with unused-target negative control WARP',
                 'process-local automatic GPU sampling policy and concurrent phase snapshots CPU',
                 'production ordinary paused sampling equivalence and late-readback phase WARP',
+                'tests/test_runtime_timing_summary.py',
                 'production read-only post-boundary callbacks and identity isolation CPU',
                 'production RR depth cs_5_0 and private R32 WARP readback',
                 'validate-recommended-picture.py', 'recommended independent negative control',
@@ -119,6 +120,7 @@ def package(build: Path, output: Path) -> dict:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
     guide = (ROOT / 'docs/testing/CORE_047BETA_COREFIX2_ACCEPTANCE.zh-CN.md').read_bytes()
+    english_guide = (ROOT / 'docs/testing/CORE_047BETA_COREFIX2_ACCEPTANCE.en.md').read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     packages = []
     for addon in addons:
@@ -137,7 +139,7 @@ def package(build: Path, output: Path) -> dict:
             'binaries': {name: artifacts[name] for name in (addon, 'nrchain_nvngx.dll')},
         }
         entries = {addon: binaries[addon], 'nrchain_nvngx.dll': binaries['nrchain_nvngx.dll'],
-                   'README.zh-CN.md': guide, 'LICENSES.txt': notice,
+                   'README.zh-CN.md': guide, 'README.en.md': english_guide, 'LICENSES.txt': notice,
                    'build-info.json': json.dumps(provenance, ensure_ascii=False, indent=2).encode('utf-8')}
         entries['SHA256.json'] = json.dumps({n: sha(v) for n, v in entries.items()}, ensure_ascii=False, indent=2).encode('utf-8')
         target = output / f'DLSS5-{VERSION}-{language}-D3D12-Core-Acceptance.zip'
