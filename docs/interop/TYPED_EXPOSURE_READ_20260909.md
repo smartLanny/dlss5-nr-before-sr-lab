@@ -41,11 +41,17 @@ rebind、普通 descriptor writer 和快照重建继续共用它。保留 Textur
   快照 heap 重建/rebind；核对实际 FP16 模型输入、最终结果、曝光 trailer
   的归一化/解析/相对曝光值及原生输入和曝光纹理原字节。
 
-本切片已完成 GPU 夹具编译；GPU 执行与集中候选的完整同源构建由整合任务
-统一安排。构造 neural plane 不等于 NVIDIA NR 或游戏验收。DS2 前后置仍需
-分别取得新 F8 的 NR/提交增量和 F6 最终画面结果。当前不宣称游戏通过。
+本切片的 80 组 R8/R32 对照已在实际 D3D12 WARP 执行，exit 0；输入为冻结
+output.2 staged Core 的隔离副本，仅补入本切片的曝光 helper 和查询日志。
+集中候选仍需完整 canonical 构建及同源验收。原有 FLOAT 的 NaN/Inf/极值
+回归保留在默认 codec GPU 门禁，本次 80 组不替代那部分检查。
+
+构造 neural plane 不等于 NVIDIA NR 或游戏验收。DS2 前后置仍需分别取得
+新 F8 的 NR/提交增量和 F6 最终画面结果。当前不宣称游戏通过。
 
 局部编译可使用 `-ExposureTyped -CompileOnly`；执行时使用
-`codec_gpu_validation.exe --exposure-typed`。输入必须是 canonical staging
+`codec_gpu_validation.exe --exposure-typed`。此次执行设置
+`NR_VALIDATION_WARP_ONLY=1`；WARP 创建设备失败将直接失败，不能回落硬件。
+未设置这个测试开关时保留原测试宿主的硬件回落行为。输入必须是 canonical staging
 后的 Core；原始未变换 CPP 不可充当同源 GPU 输入。测试输出保存在忽略的
 build 目录，原始用户 F8 和本机路径不进入本文件或源代码导出。
