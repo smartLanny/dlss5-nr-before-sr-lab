@@ -422,8 +422,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         apply_discrete_edit = true;
     }
     SettingsTooltip(ui(
-        "Restores NR before SR, 100% NR rendering for both routes, model strength 1.2, extra enhancement 1.0, lighting protection 0 and colour protection on. Keeps the F6 switch and game compatibility settings. Other picture experiments return to their recommended defaults.",
-        "恢复前置 NR、前后置 NR 渲染比例 100%、模型强度 1.2、额外增强 1.0、光照保护 0，并开启色彩保护。保留 F6 总开关和游戏兼容设置；其他画质实验选项恢复推荐值。"));
+        "Restores NR before SR, 100% NR rendering for both routes, model strength 1.2, extra enhancement 1.0, lighting protection 0 and colour protection on. Turns experimental NR jitter forwarding off. Keeps the F6 switch and other game compatibility settings.",
+        "恢复前置 NR、前后置 NR 渲染比例 100%、模型强度 1.2、额外增强 1.0、光照保护 0，并开启色彩保护。关闭实验性 NR 抖动传递，保留 F6 总开关和其他游戏兼容设置。"));
     SettingsSection(ui("Processing", "处理方式"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
     SettingsField(ui("Processing mode", "处理模式"));
@@ -678,8 +678,13 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                     ui("Do not forward\0Forward verified game pixel coordinates\0", "不传递\0传递已验证的游戏像素坐标\0"))) {
                 next.jitter_mode = static_cast<NrJitterMode>(jitter); changed = true;
             }
-            SettingsTooltip(ui("Experimental input forwarding; native SR jitter is unchanged. Switching rebuilds NR history.",
-                "实验性输入传递；不改变原生 SR jitter，切换后会重建 NR 历史。"));
+            SettingsTooltip(ui("Experimental game-pixel jitter forwarding, off by default. You may enable it manually. Native SR jitter is unchanged. Switching rebuilds NR history.",
+                "实验性游戏像素抖动传递，默认关闭，可手动开启。游戏原生 SR 抖动保持不变，切换后会重建 NR 历史。"));
+            const auto jitter_migration = SnapshotConfigPolicyMigrationStatus();
+            if (jitter_migration.visible && jitter_migration.jitter_changed &&
+                !jitter_migration.failed && next.jitter_mode == NrJitterMode::Legacy)
+                ImGui::TextWrapped("%s", ui("This upgrade turned experimental NR jitter forwarding off. You can enable it again here.",
+                    "本次升级已关闭实验性 NR 抖动传递，可在此重新开启。"));
             auto jitter_snapshot = SnapshotJitterStatus();
             using JitterStatus = nr_jitter_status::Status;
             if (jitter_snapshot.status != JitterStatus::Bypassed &&

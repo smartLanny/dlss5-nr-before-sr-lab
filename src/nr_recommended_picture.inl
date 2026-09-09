@@ -1,5 +1,6 @@
 // Picture preferences only. Keep the user's master switch and game-specific
-// depth/jitter/R8 contracts. Never clear runtime fault/quarantine latches here.
+// depth/R8 contracts. Experimental NR jitter returns to its off default.
+// Never clear runtime fault/quarantine latches here.
 // Explicit restore uses the same full-resolution work and model defaults as
 // a fresh installation. Existing preferences change only when requested.
 void RestoreRecommendedPictureSettings(ChainConfig &next) {
@@ -42,4 +43,5 @@ void RestoreRecommendedPictureSettings(ChainConfig &next) {
     next.auto_mask = false;
     next.style = 0;
     next.ui_correction = true;
+    next.jitter_mode = NrJitterMode::Legacy;
 }
