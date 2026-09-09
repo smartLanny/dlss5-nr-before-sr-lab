@@ -59,6 +59,7 @@ def package(build: Path, output: Path) -> dict:
                 'combined F8 capacity UTF8 privacy and end-verdict negative controls',
                 'combined F8 current unknown store cannot inherit historical match',
                 'production recovery snapshot permits fresh proof after historical evidence loss CPU',
+                'production RR notifications cannot retain old blocks or borrow Feature1 recovery CPU',
                 'production layered NGX lifecycle and ownership with actual Win32 locks',
                 'production native boundary detours and immutable scoped window CPU',
                 'production typed native color admission descriptors and storage WARP',

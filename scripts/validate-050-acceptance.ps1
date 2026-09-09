@@ -71,6 +71,9 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-resource-recovery-runtime.py') --compiler $Compiler --reshade $ReShade --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output (Join-Path $Output 'resource-recovery-snapshot-cpu') --snapshot-cpu
     if ($LASTEXITCODE) { throw 'Recovery snapshot interruption and observation-cache gate failed.' }
     $Checks.Add('production recovery snapshot permits fresh proof after historical evidence loss CPU')
+    & python (Join-Path $PSScriptRoot 'validate-compatibility-rr-scope.py') --compiler $Compiler --source-root (Join-Path $Stage 'core/src') --output (Join-Path $Output 'compatibility-rr-scope')
+    if ($LASTEXITCODE) { throw 'Unclassified RR notification and Feature1 verdict isolation gate failed.' }
+    $Checks.Add('production RR notifications cannot retain old blocks or borrow Feature1 recovery CPU')
     & python (Join-Path $PSScriptRoot 'validate-ngx-lifecycle.py') --compiler $Compiler --source (Join-Path $Stage 'core/src/nr_before_sr.cpp') --output-dir (Join-Path $Output 'ngx-lifecycle')
     if ($LASTEXITCODE) { throw 'Layered native NGX lifecycle gate failed.' }
     $Checks.Add('production layered NGX lifecycle and ownership with actual Win32 locks')
