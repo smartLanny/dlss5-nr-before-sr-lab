@@ -80,6 +80,9 @@ def main() -> None:
         ('forget-actual-attempt', '--forget-oracle', 'FORGET_ORACLE',
          'for (auto& e : entries_) if (e.used && e.key == key && !e.attempt_id && !e.failure.present) {',
          'for (auto& e : entries_) if (e.used && e.key == key && !e.failure.present) {'),
+        ('ignore-scope-interrupt', '--interrupt-oracle', 'INTERRUPT_ORACLE',
+         'if (auto* stream = FindStream(scope, role)) Break(*stream, stream->latest.ordinal);',
+         '(void)scope; (void)role;'),
     ]
     negative_results = {}
     sha = lambda data: hashlib.sha256(data).hexdigest()
