@@ -166,20 +166,51 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,stored.actual_mean,prefix,stored.expected_mean,prefix,stored.actual_max,prefix,stored.expected_max,
         prefix,stored.before_hash,prefix,stored.expected_hash,prefix,stored.actual_hash,prefix);
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
-    const auto boundary=SnapshotPostBoundary();
+    const auto boundary=stored.boundary_trace_id?SnapshotPostBoundary(stored.boundary_trace_id,
+        stored.frame,stored.config,stored.feature_generation):nr_post_boundary::Window{};
     FeedbackAppend(s,"%s.post.boundary.frame=%llu\n%s.post.boundary.config=%u\n%s.post.boundary.featureGeneration=%llu\n"
         "%s.post.boundary.ageMs=%llu\n%s.post.boundary.nativeEventEntries=%u\n%s.post.boundary.nativeMatches=%u\n"
         "%s.post.boundary.nativeOtherListMatches=%u\n%s.post.boundary.nativeFirstBefore=0x%X\n%s.post.boundary.nativeLastAfter=0x%X\n"
         "%s.post.boundary.followingBarriers=%u\n%s.post.boundary.firstBefore=0x%X\n%s.post.boundary.firstAfter=0x%X\n"
         "%s.post.boundary.lastAfter=0x%X\n%s.post.boundary.readBarriers=%u\n%s.post.boundary.writeBarriers=%u\n"
         "%s.post.boundary.copyReads=%u\n%s.post.boundary.copyWrites=%u\n%s.post.boundary.renderTargetBinds=%u\n"
-        "%s.post.boundary.note=ReShade recording events in native SR call and after NR until same-device Present; CPU window, not GPU ordering or consumed pixels; split flags/subresource IDs omitted by event, no state inference; zero matches means unobserved\n",
+        "%s.post.boundary.note=immutable sampled-frame recording window; ReShade counters omit split/subresources; exact native events below; neither path proves GPU order or consumed pixels; zero matches means unobserved\n",
         prefix,boundary.frame,prefix,boundary.config,prefix,boundary.feature,
         prefix,boundary.tick?GetTickCount64()-boundary.tick:0,prefix,boundary.native.callbacks,prefix,boundary.native.matches,
         prefix,boundary.native.other_lists,prefix,boundary.native.first_before,prefix,boundary.native.last_after,
         prefix,boundary.barriers,prefix,boundary.first_before,prefix,boundary.first_after,prefix,boundary.last_after,
         prefix,boundary.read_barriers,prefix,boundary.write_barriers,prefix,boundary.copy_reads,prefix,boundary.copy_writes,
         prefix,boundary.render_target_binds,prefix);
+    FeedbackAppend(s,"%s.post.boundary.trace=%llu\n%s.post.boundary.pairedWithProbe=%d\n"
+        "%s.post.boundary.currentConfig=%d\n%s.post.boundary.close=%s\n"
+        "%s.post.boundary.nativeExactMatches=%u\n%s.post.boundary.nativeExactOtherLists=%u\n"
+        "%s.post.boundary.nativeGlobals=%u\n%s.post.boundary.nativeUnknownOperations=%u\n"
+        "%s.post.boundary.nativeCoverage=0x%X\n%s.post.boundary.coverage=0x%X\n"
+        "%s.post.boundary.exactFollowing=%u\n%s.post.boundary.unknownOperations=%u\n"
+        "%s.post.boundary.nativeDropped=%u\n%s.post.boundary.followingDropped=%u\n"
+        "%s.post.boundary.originSubmission=%d,%llu,%llu\n"
+        "%s.post.boundary.coverageKey=1:legacy,2:enhanced,4:enhanced-unavailable,8:base-operations,16:hook-missing,32:interface-unknown,64:list-identity-unknown,128:event-loss,256:opaque,512:target-unknown,1024:submission-unknown\n",
+        prefix,boundary.trace,prefix,boundary.trace!=0,prefix,boundary.frame&&boundary.config==g_config_generation.load(),
+        prefix,nr_post_boundary::CloseName(boundary.close),prefix,boundary.native.exact_matches,prefix,boundary.native.exact_other_lists,
+        prefix,boundary.native.exact_global,prefix,boundary.native.unknown_operations,prefix,boundary.native.coverage,prefix,boundary.coverage,
+        prefix,boundary.exact_following,prefix,boundary.unknown_operations,prefix,boundary.native.dropped,prefix,boundary.dropped,
+        prefix,boundary.origin_submitted,boundary.origin_queue,boundary.origin_submission,prefix);
+    const auto append_boundary_event=[&](const char *phase,unsigned index,const nr_post_boundary::Event &e) {
+        FeedbackAppend(s,"%s.post.boundary.%s.%u=k:%u,src:%u,list:%llu,reset:%llu,id:%d,seq:%llu,target:%d,rw:%d/%d,ba:%llX/%llX,f:%X,sub:%u/%u/%u/%u/%u/%u,sync:%llX/%llX,access:%llX/%llX,submit:%d/%llu/%llu\n",
+            prefix,phase,index,static_cast<unsigned>(e.kind),static_cast<unsigned>(e.source),e.list.token,e.list.reset,e.list.known,
+            e.order,e.target_known,e.reads,e.writes,e.before,e.after,e.flags,
+            e.subresources[0],e.subresources[1],e.subresources[2],e.subresources[3],e.subresources[4],e.subresources[5],
+            e.sync_before,e.sync_after,e.access_before,e.access_after,e.submitted,e.queue,e.submission);
+    };
+    // Keep room for the rest of the F8 metadata. Start carries coherent summary
+    // identities; the final matched window carries the full bounded event list.
+    const bool export_events=std::strcmp(prefix,"end")==0;
+    if(export_events) {
+        for(unsigned i=0;i<boundary.native.count;++i)append_boundary_event("native",i,boundary.native.events[i]);
+        for(unsigned i=0;i<boundary.count;++i)append_boundary_event("following",i,boundary.events[i]);
+    }
+    FeedbackAppend(s,"%s.post.boundary.eventExport=%s\n",prefix,export_events?"final-paired-window":"summary-only; full events in end window");
+    if(export_events)FeedbackAppend(s,"%s.post.boundary.eventKey=1:transition,2:UAV,3:aliasing,4:enhanced-texture,5:enhanced-global,6:enhanced-buffer,7:copy,8:copy-region,9:UAV-clear,10:RT-clear,11:draw,12:indexed-draw,13:dispatch,14:RT-bind,15:opaque,16:resolve,17:discard; src1:native,src2:ReShade; target=0 unknown; submit is CPU Execute return, cross-queue order unknown; native methods cover installed carrier implementations; ray/mesh/render-pass/descriptor-indirect targets not decoded\n",prefix);
 #endif
 #endif
 #if defined(NR_HAS_COMMAND_STATE_EVIDENCE)

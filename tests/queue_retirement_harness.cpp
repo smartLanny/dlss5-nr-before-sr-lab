@@ -369,6 +369,7 @@ void RetirementGuards() {
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
 void BoundaryCallbacks() {
     using queue_test::Check;
+    g_enabled_fast.store(true);g_config_generation.store(9);
     auto *resource=reinterpret_cast<ID3D12Resource *>(0x1010);
     auto *list=reinterpret_cast<ID3D12GraphicsCommandList *>(0x2020);
     NrNativeOutputTraceScope outer(resource,list);
@@ -385,7 +386,7 @@ void BoundaryCallbacks() {
     const auto native=outer.Finish();
     Check(!g_native_output_trace && native.matches==2 && native.first_before==8 && native.last_after==128,"exact native window ends and preserves observed order");
     NrDiagnosticIdentity identity{};identity.frame_id=71;identity.config_generation=9;
-    PublishPostBoundary(resource,native,identity,3);
+    const auto trace=PublishPostBoundary(resource,native,identity,3,0x4444);
     Check(!SnapshotPostBoundary().frame,"no Present-closed window fabricated");
     using R=reshade::api::resource;using U=reshade::api::resource_usage;
     const R targets[]={{0x1010},{0x9999}};const U before[]={U::unordered_access,U::unordered_access};const U after[]={U::shader_resource_pixel,U::copy_dest};
@@ -396,24 +397,51 @@ void BoundaryCallbacks() {
     OnPostBoundaryCopy(nullptr,R{0x1010},R{0x1010});
     OnPostBoundaryBarrier(nullptr,2,targets,before,after);
     g_inside_ngx_evaluate=false;
+    ClosePostBoundaryAtPresent(0x5555);
+    Check(!SnapshotPostBoundary().frame,"other-device Present cannot close this recording");
     ClosePostBoundaryAtPresent();auto closed=SnapshotPostBoundary();
     Check(closed.frame==71&&closed.config==9&&closed.feature==3,"coherent post identity carried to closed window");
     Check(closed.barriers==1&&closed.first_before==8&&closed.first_after==128,"unrelated and internal barriers excluded");
     Check(closed.copy_reads==1&&closed.copy_writes==1,"native/model internal copies excluded");
     Check(closed.native.matches==2&&closed.native.last_after==128,"native and following boundaries remain distinct");
+    Check(g_post_boundary_resource.load()==0,"first matching Present disarms live watch");
+    OnPostBoundaryBarrier(nullptr,2,targets,before,after);ClosePostBoundaryAtPresent();
+    Check(SnapshotPostBoundary().barriers==1,"repeated Present/later events cannot grow historical counters");
+    Check(SnapshotPostBoundary(trace,71,9,3).trace==trace,"probe joins exact trace/frame/config/feature only");
+    Check(!SnapshotPostBoundary(trace,72,9,3).trace && !SnapshotPostBoundary(trace,71,10,3).trace &&
+          !SnapshotPostBoundary(trace,71,9,4).trace,"a nearby frame or different generation is not a probe match");
+    identity.frame_id=72;PublishPostBoundary(resource,native,identity,3);
     ForgetPostBoundary(0x9999);Check(g_post_boundary_resource.load()==0x1010,"unrelated destroy retains target");
     OnPostBoundaryDestroyResource(nullptr,R{0x1010});
     Check(g_post_boundary_resource.load()==0,"real destroy retires watched identity");
     OnPostBoundaryCopy(nullptr,R{0x1010},R{0x1010});ClosePostBoundaryAtPresent();
-    Check(SnapshotPostBoundary().copy_reads==1,"destroyed/reused numeric identity cannot alter last closed evidence");
+    Check(SnapshotPostBoundary().frame==72 && SnapshotPostBoundary().copy_reads==0 &&
+          SnapshotPostBoundary().close==nr_post_boundary::Close::ResourceRetired,"destroy closes identity without later reuse contamination");
+    identity.frame_id=73;const auto old_scope=PublishPostBoundary(resource,native,identity,3);
+    g_config_generation.store(10);OnPostBoundaryBarrier(nullptr,2,targets,before,after);ClosePostBoundaryAtPresent();
+    Check(SnapshotPostBoundary(old_scope,73,9,3).close==nr_post_boundary::Close::ScopeChanged &&
+          SnapshotPostBoundary(old_scope,73,9,3).barriers==0,"config switch closes old post window before counting a new route");
+    g_config_generation.store(9);identity.frame_id=74;PublishPostBoundary(resource,native,identity,3);
+    RetirePostBoundaryBeforeEvaluate();OnPostBoundaryBarrier(nullptr,2,targets,before,after);
+    Check(SnapshotPostBoundary().close==nr_post_boundary::Close::Superseded && SnapshotPostBoundary().barriers==0,
+          "next Evaluate cannot append its commands to previous sampled frame");
+    identity.frame_id=75;PublishPostBoundary(resource,native,identity,3);
+    g_enabled_fast.store(false);OnPostBoundaryBarrier(nullptr,2,targets,before,after);
+    Check(SnapshotPostBoundary().close==nr_post_boundary::Close::ScopeChanged,"master disable retires observer scope");
+    g_enabled_fast.store(true);identity.frame_id=76;PublishPostBoundary(resource,native,identity,3);
+    g_post_boundary_current.tick=GetTickCount64()-kPostBoundaryMaxAgeMs-1;
+    OnPostBoundaryBarrier(nullptr,2,targets,before,after);
+    Check(SnapshotPostBoundary().close==nr_post_boundary::Close::Expired,"missing Present cannot leave an unbounded watch");
     std::printf("Boundary callbacks: %u checks; production read-only callbacks, CPU only, no state permission\n",queue_test::checks);
 }
+#include "post_boundary_native.inl"
 #endif
 int main(int argc, char **argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     const std::string mode = argc == 2 ? argv[1] : "one-shot";
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
     if(mode=="boundary-callbacks"){BoundaryCallbacks();return 0;}
+    if(mode=="boundary-native"){BoundaryNativeHooks();return 0;}
 #endif
     if (mode == "one-shot") queue_test::OneShot();
     else if (mode == "guards") queue_test::Guards();

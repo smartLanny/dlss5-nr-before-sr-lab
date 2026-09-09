@@ -642,12 +642,19 @@ struct CommandStateHookFamily {
     bool enabled[4] = {};
     unsigned int count = 0;
 };
+#if defined(NR_HAS_POST_BOUNDARY_TRACE)
+void ObservePostBoundaryStateCommand(ID3D12GraphicsCommandList *,const char *);
+#define NR_POST_OBSERVE_STATE(LIST,NAME) ObservePostBoundaryStateCommand(reinterpret_cast<ID3D12GraphicsCommandList *>(LIST),NAME)
+#else
+#define NR_POST_OBSERVE_STATE(LIST,NAME) ((void)0)
+#endif
 #define NR_STATE_HOOK(NAME, PARAMETERS, ARGUMENTS, MUTATION) \
     CommandStateHookFamily g_state_##NAME; \
     template <unsigned int I> void STDMETHODCALLTYPE StateHook##NAME PARAMETERS { \
         using Fn = decltype(ID3D12GraphicsCommandListVtbl::NAME); \
         reinterpret_cast<Fn>(g_state_##NAME.originals[I]) ARGUMENTS; \
         MutateNativeCommandState(command_list, [&](NativeCommandState &state) { MUTATION; }); \
+        NR_POST_OBSERVE_STATE(command_list,#NAME); \
     } \
     void *const g_state_detours_##NAME[4] = { \
         reinterpret_cast<void *>(&StateHook##NAME<0>), reinterpret_cast<void *>(&StateHook##NAME<1>), \
@@ -726,6 +733,7 @@ NR_STATE_HOOK(SetPredication, (ID3D12GraphicsCommandList *command_list, ID3D12Re
         using Fn = void (STDMETHODCALLTYPE *) PARAMETERS; \
         reinterpret_cast<Fn>(g_state_##NAME.originals[I]) ARGUMENTS; \
         MutateNativeCommandState(command_list, [&](NativeCommandState &state) { MUTATION; }); \
+        NR_POST_OBSERVE_STATE(command_list,#NAME); \
     } \
     void *const g_state_detours_##NAME[4] = { \
         reinterpret_cast<void *>(&StateHook##NAME<0>), reinterpret_cast<void *>(&StateHook##NAME<1>), \
@@ -899,6 +907,7 @@ template <unsigned int I> void STDMETHODCALLTYPE StateHookExecuteIndirect(
     using Fn = decltype(ID3D12GraphicsCommandListVtbl::ExecuteIndirect);
     reinterpret_cast<Fn>(g_state_ExecuteIndirect.originals[I])(command_list, signature, max_count, arguments, offset, count_buffer, count_offset);
     MutateNativeCommandState(command_list, [&](NativeCommandState &state) { ApplyIndirectCommandState(state, signature); });
+    NR_POST_OBSERVE_STATE(command_list,"ExecuteIndirect");
 }
 void *const g_state_detours_ExecuteIndirect[4] = {
     reinterpret_cast<void *>(&StateHookExecuteIndirect<0>), reinterpret_cast<void *>(&StateHookExecuteIndirect<1>),
@@ -928,6 +937,7 @@ void *const g_state_detours_SetPipelineState1[4] = {
         reinterpret_cast<Fn>(g_state_##NAME.originals[I])(command_list, meta, parameters, bytes); \
         MutateNativeCommandState(reinterpret_cast<ID3D12GraphicsCommandList *>(command_list), \
             [&](NativeCommandState &state) { state.unknown_domains |= state.FIELD; }); \
+        NR_POST_OBSERVE_STATE(command_list,#NAME); \
     } \
     void *const g_state_detours_##NAME[4] = { \
         reinterpret_cast<void *>(&StateHook##NAME<0>), reinterpret_cast<void *>(&StateHook##NAME<1>), \
@@ -948,6 +958,7 @@ template <unsigned int I> void STDMETHODCALLTYPE StateHookSetProgram(ID3D12Graph
     MutateNativeCommandState(command_list, [&](NativeCommandState &state) {
         state.known = false; state.unknown_reason = "work-graph-SetProgram"; state.null_guard_tainted = true;
     });
+    NR_POST_OBSERVE_STATE(command_list,"SetProgram");
 }
 void *const g_state_detours_SetProgram[4] = {
     reinterpret_cast<void *>(&StateHookSetProgram<0>), reinterpret_cast<void *>(&StateHookSetProgram<1>),
@@ -995,7 +1006,8 @@ void *const g_state_detours_CreateCommandSignature[4] = {
     reinterpret_cast<void *>(&StateHookCreateCommandSignature<2>), reinterpret_cast<void *>(&StateHookCreateCommandSignature<3>) };
 
 struct CommandStateHookRequest { CommandStateHookFamily *family; void *target; void *const *detours; };
-bool PublishCommandStateHooks(CommandStateHookRequest *requests, unsigned int count) {
+bool PublishCommandStateHooks(CommandStateHookRequest *requests, unsigned int count,
+        const char *failure_effect="this carrier remains native") {
     // MinHook's queued list is global; serialize with NGX observer publication.
     AcquireSRWLockExclusive(&g_evaluate_hook_lock);
     bool ok = true;
@@ -1028,7 +1040,7 @@ bool PublishCommandStateHooks(CommandStateHookRequest *requests, unsigned int co
         // Do not leave queued enables for an unrelated future NGX transaction.
         for (unsigned int i = 0; i < queued_count; ++i) MH_QueueDisableHook(queued[i]);
         MH_ApplyQueued();
-        Log("[command-state] hook publication failed; this carrier remains native.");
+        Log("[command-state] hook publication failed; %s.",failure_effect);
     }
     ReleaseSRWLockExclusive(&g_evaluate_hook_lock);
     return ok;
