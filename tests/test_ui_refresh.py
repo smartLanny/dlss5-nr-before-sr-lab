@@ -97,7 +97,7 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn('nr_imgui_abi::CallHostVec2(imgui_function_table_instance()->GetMousePos)', panel)
         self.assertIn('get_screenshot_width_and_height(&display_width, &display_height)', self.ui)
         self.assertIn('nr_f8::SnapshotFaceDiagnosticGeometry(display_width, display_height)', self.ui)
-        self.assertIn('nr_f8::RequestFaceDiagnostic(selection.center_x, selection.center_y)', self.ui)
+        self.assertIn('nr_f8::RequestFaceDiagnostic(selection.center_x, selection.center_y,\n            view.geometry.source_width, view.geometry.source_height)', self.ui)
         self.assertIn('QueueFaceRegionSelection(runtime, selection)', self.ui)
         self.assertIn('DrawFaceDiagnosticControls(runtime, current.config);', self.ui)
         self.assertIn('CleanupFaceDiagnosticSelection(runtime);\n    nr_f8::RuntimeDestroyed(runtime);', self.ui)

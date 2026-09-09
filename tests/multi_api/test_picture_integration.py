@@ -103,7 +103,7 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_native_command_record.inl',
             'src/interop/nr_post_area.hlsl',
         })
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '98f3b17ab6e1a9a2c5b1526d4619c547dee8f9ee')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], 'e24f07f5b12f2ccc87bc552ae88d0796042102bf')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
         self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '3d58a4cc8b92701808a62425980798a70673063b')
 

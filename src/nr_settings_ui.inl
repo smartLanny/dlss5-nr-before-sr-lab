@@ -103,7 +103,8 @@ void DrawFaceDiagnosticControls(reshade::api::effect_runtime *runtime, const Cha
         selection.request_failed = !QueueFaceRegionSelection(runtime, selection);
     if (requests.cancel) nr_f8::Cancel();
     if (requests.start && runtime) {
-        selection.request_failed = !nr_f8::RequestFaceDiagnostic(selection.center_x, selection.center_y);
+        selection.request_failed = !nr_f8::RequestFaceDiagnostic(selection.center_x, selection.center_y,
+            view.geometry.source_width, view.geometry.source_height);
         if (!selection.request_failed) {
             selection.picking = false;
             runtime->open_overlay(false, reshade::api::input_source::mouse);
