@@ -15,7 +15,9 @@ import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-CASES = ('cold-auto-recover', 'missing-descriptor', 'nr-failure', 'native-failure', 'record-only', 'wrong-target')
+PRE_CASES = ('cold-auto-recover', 'missing-descriptor', 'nr-failure', 'native-failure', 'record-only', 'wrong-target')
+POST_CASES = ('post-r11-recover', 'post-actual-nonfinite', 'post-reference-nonfinite')
+CASES = PRE_CASES + POST_CASES
 
 
 def sha(data: bytes) -> str:
@@ -51,7 +53,7 @@ def main() -> None:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--prepare-only', action='store_true')
     mode.add_argument('--run-warp', action='store_true')
-    parser.add_argument('--case', choices=('all', *CASES), default='all')
+    parser.add_argument('--case', choices=('all', 'post', *CASES), default='all')
     args = parser.parse_args()
     output = args.output.resolve()
     if output.exists():
@@ -70,7 +72,7 @@ def main() -> None:
             raise RuntimeError('Complete source snapshot disagrees with its transformation receipt.')
     fixture = (ROOT / 'tests/resource_recovery_runtime_harness.inl').read_bytes()
     helper_names = ('queue_retirement_harness.cpp', 'post_output_harness.inl',
-                    'native_color_view_harness.inl', 'pre_store_probe_harness.inl')
+                    'native_color_view_harness.inl', 'pre_store_probe_harness.inl', 'store_quantization_harness.inl')
     helpers = {name: (helpers_root / 'tests' / name).read_bytes() for name in helper_names}
     minhook = stable_tree(helpers_root / 'third_party/minhook')
     if any((helpers_root / 'tests' / name).read_bytes() != data for name, data in helpers.items()):
@@ -80,6 +82,7 @@ def main() -> None:
         prefix(helpers['post_output_harness.inl'], 'void Case(queue_test::Fixture', 'post_output_test', 'ReadTexture('),
         prefix(helpers['native_color_view_harness.inl'], 'float Half(', 'native_color_test', 'void ResetContext('),
         prefix(helpers['pre_store_probe_harness.inl'], 'void Case(queue_test::Fixture', 'pre_store_test', 'void MakeSource('),
+        prefix(helpers['store_quantization_harness.inl'], 'ID3D12Resource *MakeBuffer(', 'store_quantization_test', 'void MakeTexture('),
     ))
     output.mkdir(parents=True)
     snapshot = output / 'core/src'
@@ -175,7 +178,7 @@ def main() -> None:
             summary['gpu_executed'] = True
             result = run([str(binary), args.case], 'warp-' + args.case, 120, warp=True)
             passed_cases = re.findall(r'^RUNTIME_RECOVERY_CASE (\S+) PASS ', result.stdout, re.MULTILINE)
-            expected_cases = list(CASES) if args.case == 'all' else [args.case]
+            expected_cases = list(CASES) if args.case == 'all' else list(POST_CASES) if args.case == 'post' else [args.case]
             complete = passed_cases == expected_cases and 'RUNTIME_RECOVERY WARP PASS' in result.stdout
             summary.update(status='pass' if not result.returncode and complete else 'failed', run_exit=result.returncode,
                            passed_cases=passed_cases, expected_cases=expected_cases,
