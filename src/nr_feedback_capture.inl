@@ -1,5 +1,6 @@
 // One explicitly requested session. Rendering only publishes small snapshots;
 // file reads, hashing and ZIP writing run on a process-pinned worker.
+#include "nr_feedback_limits.h"
 std::atomic<bool> g_feedback_requested{false};
 std::atomic<unsigned int> g_feedback_status{0}; // idle, collecting, packaging, complete, partial, failed
 SRWLOCK g_feedback_lock = SRWLOCK_INIT;
@@ -14,7 +15,7 @@ struct FeedbackSession {
     wchar_t screenshots[3][1024] = {};
     ULONGLONG screenshot_ticks[3] = {};
     wchar_t stage_directory[1024] = {};
-    char report[32768] = {};
+    char report[nr_feedback_limits::kMetadataBytes] = {};
     std::size_t report_used = 0;
     bool report_truncated = false;
     unsigned int observations = 0;
@@ -30,10 +31,10 @@ std::atomic<unsigned int> g_feedback_swap_format{0};
 void FeedbackAppend(FeedbackSession &s, const char *format, ...) {
     // Reserve a final status record. Reject an overflowing append as a whole:
     // partial UTF-8 metadata would make the ZIP job itself invalid.
-    if (s.report_used >= sizeof(s.report) - 256) {
+    if (s.report_used >= sizeof(s.report) - nr_feedback_limits::kFinalStatusReserveBytes) {
         s.report_truncated = true; return;
     }
-    const std::size_t available = sizeof(s.report) - s.report_used - 256;
+    const std::size_t available = sizeof(s.report) - s.report_used - nr_feedback_limits::kFinalStatusReserveBytes;
     va_list args;
     va_start(args, format);
     const int n = std::vsnprintf(s.report + s.report_used,
@@ -387,7 +388,7 @@ void FeedbackObserveEvaluate(const NgxParams *params, const FeatureRecord &featu
         s->last_observation = now;
         // Leave space for the stage outcome, policy, counters and screenshot
         // identity even when paths/numbers make the optional timeline longer.
-        if (s->report_used >= sizeof(s->report) - 8192) {
+        if (s->report_used >= sizeof(s->report) - nr_feedback_limits::kTimelineReserveBytes) {
             ++s->timeline_omitted;
             s->report_truncated = true;
             ReleaseSRWLockExclusive(&g_feedback_lock);

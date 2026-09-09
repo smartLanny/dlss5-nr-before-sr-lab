@@ -2,12 +2,13 @@
 // cwchar/new headers. This module owns no render state, GPU objects or threads.
 // Run must execute on the caller's process-pinned, non-DllMain worker. The
 // caller must keep Job alive until Run returns, and must not edit it meanwhile.
+#include "nr_feedback_limits.h"
 namespace nr_bundle {
 
 constexpr unsigned int kMaxFiles = 64;
 constexpr unsigned int kMaxPath = 1024;
 constexpr unsigned int kMaxName = 240;
-constexpr unsigned int kMetadataBytes = 32768;
+constexpr unsigned int kMetadataBytes = nr_feedback_limits::kMetadataBytes;
 constexpr unsigned long long kCopyLimit = 64ull * 1024 * 1024;
 constexpr unsigned long long kLogLimit = 8ull * 1024 * 1024;
 constexpr unsigned long long kHashLimit = 512ull * 1024 * 1024;
