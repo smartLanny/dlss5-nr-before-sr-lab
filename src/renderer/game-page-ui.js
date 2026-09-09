@@ -64,7 +64,7 @@
     }
     function installRequest() {
       const route = specialRoute();
-      return { ...draft, api: effectiveApi(), version: currentVersion(), ...(route ? { route } : {
+      return { ...draft, api: selected('api', data.game.apiOverride || data.defaults?.api || 'auto'), version: currentVersion(), ...(route ? { route } : {
         deployment: deploymentMode(), ...(deploymentMode() === 'external' ? { loadingMode: selected('loadingMode', data.layout?.loadingMode || data.defaults?.loadingMode || 'proxy') } : {}) }) };
     }
     function apiBlocked(request = draft) {
@@ -263,6 +263,9 @@
     }
     async function refresh(preserve = true) {
       if (!id || disposed) return;
+      // A write or an explicit recheck can change any section. Reopen unseen
+      // sections lazily, and reject responses that started before this refresh.
+      generation++; loaded.clear(); sectionRequests.clear();
       if (!preserve) { fields = initialFields(data); }
       const needed = new Set(['installation', TAB_SECTION[tab]]);
       if (tab === 'maintenance') needed.add('enhancements');

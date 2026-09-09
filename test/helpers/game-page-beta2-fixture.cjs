@@ -77,6 +77,16 @@ function installMock(features, options = {}) {
     applyOperation: async (id, planId, consent) => {
       mock.calls.push(['apply', clone(consent), id]); const value = mock.assessments[id], plan = mock.plans.get(planId);
       if (mock.failApply) { value.operation = { pending: true, record: { error: { message: '测试文件被占用' }, stages: [{ kind: 'deployment', status: 'complete' }] } }; return { ok: false, error: { message: '测试文件被占用；请恢复未完成操作。' } }; }
+      if (Object.hasOwn(plan.request, 'api')) {
+        const detected = value.api.detectedApi || value.game.chosen.detectedApiResolution?.api ||
+          (value.game.chosen.apiResolution?.source !== 'override' ? value.game.chosen.apiResolution?.api : null) || 'unknown';
+        value.game.apiOverride = value.defaults.api = plan.request.api;
+        value.api.configuredApi = plan.request.api === 'auto' ? null : plan.request.api;
+        value.api.detectedApi = detected;
+        value.api.effectiveApi = plan.request.api === 'auto' ? detected : plan.request.api;
+        value.game.chosen.apiResolution = plan.request.api === 'auto'
+          ? clone(value.game.chosen.detectedApiResolution || { api: detected, source: 'entry' }) : { api: plan.request.api, source: 'override' };
+      }
       if (plan.request.nr) Object.assign(value.nr, plan.request.nr);
       if (plan.request.hotkeys) Object.assign(value.hotkeys, clone(plan.request.hotkeys));
       for (const domain of ['sr', 'fg']) if (plan.request[domain]) {
@@ -191,6 +201,24 @@ async function smoke() {
   assert(mock.plan.request.nr.Intensity === .65 && mock.plan.request.nr.WorkMode === 5 && mock.plan.request.sr.preset === 'M' && mock.plan.request.sr.quality === 'performance' && mock.plan.request.fg.multiplier === 3, 'one preview includes numeric NR, explicit SR and FG');
   click('modal-apply'); await settled(); assert(!button('launch').disabled && count('elevated') === 0, 'successful ordinary Apply clears draft without elevation');
 
+  await scenario('跨页签 SR 应用 · UI fixture', value => {
+    const request = { backend: 'native', quality: 'preserve', preset: 'M' };
+    value.enhancements.requests.sr = { request: structuredClone(request) };
+    value.enhancements.applied.sr = { request: structuredClone(request), readbackVerified: true };
+  });
+  await tab('enhance'); assert(field('sr', 'preset').value === 'M', 'cross-tab SR starts from persisted M');
+  set('sr', 'preset', 'K'); await tab('overview'); await preview();
+  assert(mock.plan.request.sr.preset === 'K', 'overview unified preview includes the SR tab draft');
+  const beforeCrossTabEnhancements = mock.calls.filter(row => row[0] === 'assess' && row[2] === 'enhancements').length;
+  click('modal-apply'); await settled();
+  assert(mock.assessment.enhancements.requests.sr.request.preset === 'K' && mock.assessment.enhancements.applied.sr.request.preset === 'K', 'cross-tab Apply persists both requested and applied SR K');
+  assert(mock.calls.filter(row => row[0] === 'assess' && row[2] === 'enhancements').length === beforeCrossTabEnhancements, 'overview Apply leaves enhancement reading lazy');
+  await tab('enhance'); await until(() => state().loaded.includes('enhancements'), 'enhancement reload after overview Apply');
+  assert(mock.calls.filter(row => row[0] === 'assess' && row[2] === 'enhancements').length === beforeCrossTabEnhancements + 1 && field('sr', 'preset').value === 'K', 'returning to SR reads and displays persisted K');
+  await preview('preview-sr'); assert(mock.plan.request.sr.preset === 'K', 'subsequent SR preview cannot revert the applied preset to M');
+  click('modal-apply'); await settled();
+  assert(mock.assessment.enhancements.applied.sr.request.preset === 'K' && field('sr', 'preset').value === 'K', 'reapplying displayed SR retains K in storage and UI');
+
   await scenario('真实确认状态 · UI fixture', value => { value.enhancements.featureStates.sr = structuredClone(mock.features.waitingSr); }); await tab('enhance');
   assert(field('sr', 'quality').disabled && button('confirm-sr'), 'production waiting state blocks editing and exposes confirmation');
   mock.delays['fixture:enhancements'] = 5000; click('refresh');
@@ -270,8 +298,23 @@ async function smoke() {
   await scenario('API 未确定 · 需要手选', value => { value.game.installed = false; value.api.effectiveApi = 'mixed'; value.api.capabilities = ['dx11', 'dx12']; value.game.chosen.apiResolution.api = 'mixed'; }); await tab('overview');
   assert(field('route', 'api').selectedOptions[0].textContent.includes('需要手动选择') && button('prepare').disabled, 'unresolved automatic API requests manual selection and blocks installation');
   set('route', 'api', 'dx12'); await preview(); assert(mock.plan.request.api === 'dx12', 'manual API reaches unified preview'); click('modal-cancel'); discard();
+  await scenario('手动 API 恢复自动 · UI fixture', value => {
+    value.game.apiOverride = value.defaults.api = value.api.configuredApi = value.api.effectiveApi = 'dx11';
+    value.api.detectedApi = 'dx12'; value.api.capabilities = ['dx11', 'dx12'];
+    value.game.chosen.apiResolution = { api: 'dx11', source: 'override' };
+    value.game.chosen.detectedApiResolution = { api: 'dx12', source: 'entry' };
+  });
+  await tab('overview'); assert(field('route', 'api').value === 'dx11' && state().data.api.detectedApi === 'dx12', 'manual API preference is separate from independently detected DX12');
+  set('route', 'api', 'auto'); await preview();
+  assert(mock.plan.request.api === 'auto', 'returning to automatic API preserves auto in the unified request');
+  click('modal-apply'); await settled();
+  assert(mock.assessment.game.apiOverride === 'auto' && mock.assessment.defaults.api === 'auto' && mock.assessment.api.configuredApi === null, 'Apply persists automatic preference instead of a resolved manual API');
+  assert(field('route', 'api').value === 'auto' && state().data.api.detectedApi === 'dx12' && state().data.api.effectiveApi === 'dx12', 'post-Apply refresh keeps automatic selection while using detected DX12');
+  const beforeAutomaticRefresh = count('assess'); click('refresh');
+  await until(() => count('assess') > beforeAutomaticRefresh && mock.pending === 0 && state().loaded.includes('installation'), 'explicit automatic API refresh');
+  assert(field('route', 'api').value === 'auto' && state().data.api.effectiveApi === 'dx12', 'explicit recheck does not convert automatic API back to manual');
   await scenario('外置默认安装 · UI fixture', value => { value.game.installed = false; }); await tab('overview'); await preview('prepare');
-  assert(mock.plan.request.api === 'dx11' && mock.plan.request.version === '0.4.7beta' && mock.plan.request.deployment === 'external' && mock.plan.request.loadingMode === 'proxy', 'prepare immediately previews the visible complete install choice'); click('modal-cancel'); discard();
+  assert(mock.plan.request.api === 'auto' && mock.plan.request.version === '0.4.7beta' && mock.plan.request.deployment === 'external' && mock.plan.request.loadingMode === 'proxy', 'prepare previews the visible install choice and preserves automatic API preference'); click('modal-cancel'); discard();
   await tab('maintenance'); set('bridge', 'version', '0.4.7beta-bg3-bridge1411'); await tab('overview');
   assert(field('route', 'version').value === '0.4.7beta', 'advanced bridge choice does not appear as a second Core'); await preview();
   assert(mock.plan.request.version === '0.4.7beta-bg3-bridge1411', 'advanced bridge selection preserves its exact paired identity'); click('modal-cancel'); discard();
@@ -281,7 +324,7 @@ async function smoke() {
       value.game[route] = { installed: false, available: true, selectionAvailable: true, packageId, coreVersion: route + '-core' };
       value.layout.source = route; value.layout.mode = value.deployment.mode = route === 'vulkan' ? 'external' : 'local'; });
     await tab('overview'); assert(field('route', 'version').disabled && field('route', 'version').value === packageId && field('route', 'version').options.length === 1, 'fixed route exposes only its package');
-    await preview('prepare'); assert(mock.plan.request.route === route && mock.plan.request.api === api && mock.plan.request.version === packageId && mock.plan.request.loadingMode === undefined, 'fixed route cannot inherit arbitrary Core or helper'); click('modal-cancel'); discard();
+    await preview('prepare'); assert(mock.plan.request.route === route && mock.plan.request.api === 'auto' && mock.plan.request.version === packageId && mock.plan.request.loadingMode === undefined, 'fixed route follows automatic detection without inheriting arbitrary Core or helper'); click('modal-cancel'); discard();
     await tab('maintenance'); assert(field('route', 'deployment').disabled && field('route', 'loadingMode').disabled, 'fixed route blocks unrelated layout and helper choices');
   }
   await scenario('库条目移出 · 已有覆盖', value => { value.game.installed = false; value.enhancements.applied.sr = { request: { backend: 'native', quality: 'quality', preset: 'K' }, readbackVerified: true }; }); await maintenance();
@@ -302,7 +345,7 @@ async function smoke() {
   assert(!mock.calls.some(row => row[0] === 'startup-failed' || row[0] === 'legacy-mount' || row[0].startsWith('direct-')), 'no legacy controller, direct writers or startup failure ran');
   assert(document.getElementById('view-games').classList.contains('active') && !document.getElementById('view-game-detail').classList.contains('active'), 'all flows remain inside the library');
   return { assertionCount, writes: count('apply'), previews: count('preview'), confirmations: count('confirm'), visualRecords: count('visual-record'), removals: count('remove-game'),
-    assertions: 'inline seed, 5s lazy sections, reverse cross-game responses, controller reuse, preserved drafts, explicit SR defaults, production confirmation state and SR compiler, unified Apply, recovery, modal focus, visual provenance, hotkeys, cleanup consent, invalid inputs, fixed routes and metadata-only removal' };
+    assertions: 'inline seed, 5s lazy sections, reverse cross-game responses, controller reuse, preserved drafts, explicit SR defaults, cross-tab SR Apply and readback, automatic API persistence, production confirmation state and SR compiler, unified Apply, recovery, modal focus, visual provenance, hotkeys, cleanup consent, invalid inputs, fixed routes and metadata-only removal' };
 }
 
 async function captureBaseline({ tab = 'overview' } = {}) {
@@ -339,7 +382,7 @@ async function captureBaseline({ tab = 'overview' } = {}) {
   assert(button('prepare')?.textContent === '预览更新配套', 'legacy installation exposes its update action');
   const beforeApply = mock.calls.filter(row => row[0] === 'apply').length;
   click('prepare'); await until(() => host().querySelector('.gp-modal'), 'legacy update preview');
-  assert(mock.plan.request.version === '0.4.7beta' && mock.plan.request.api === 'dx11' && mock.plan.request.deployment === 'local' && mock.plan.request.loadingMode === undefined, 'legacy update previews the current full Core choice and preserves the local layout');
+  assert(mock.plan.request.version === '0.4.7beta' && mock.plan.request.api === 'auto' && mock.plan.request.deployment === 'local' && mock.plan.request.loadingMode === undefined, 'legacy update previews the current Core choice, automatic API preference and existing local layout');
   assert(mock.calls.filter(row => row[0] === 'apply').length === beforeApply && JSON.stringify(mock.assessment.layout) === originalLayout && JSON.stringify(mock.assessment.deployment) === originalDeployment, 'preview neither applies nor migrates existing files');
   click('modal-cancel'); click('discard');
   mock.assessment = structuredClone(mock.baseline); click('refresh'); await until(() => state().data.deployment.version === '0.4.7beta' && mock.pending === 0, 'restored normal screenshot baseline');
