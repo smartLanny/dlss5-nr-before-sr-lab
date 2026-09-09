@@ -62,6 +62,55 @@ void SettingsNote(const char *text) {
 }
 
 #include "nr_light_style_ui.inl"
+#include "nr_face_diagnostic_ui.inl"
+#include "nr_face_region_selection.inl"
+
+nr_face_diagnostic_ui::View MakeFaceDiagnosticUiView(
+    reshade::api::effect_runtime *runtime, const ChainConfig &config) {
+    nr_face_diagnostic_ui::View view;
+    unsigned display_width = 0, display_height = 0;
+    if (runtime) runtime->get_screenshot_width_and_height(&display_width, &display_height);
+    view.geometry = nr_f8::SnapshotFaceDiagnosticGeometry(display_width, display_height);
+    view.enabled = config.enabled;
+    const auto status = nr_f8::g_status.load(std::memory_order_acquire);
+    view.blocked = nr_f8::IsActive() || status == nr_f8::Status::Packaging || nr_core_feedback::Busy();
+    const auto progress = nr_f8::SnapshotFaceDiagnosticProgress();
+    view.progress_visible = progress.visible;
+    view.active = progress.active;
+    view.packaging = progress.visible && progress.status == nr_f8::Status::Packaging;
+    view.complete = progress.status == nr_f8::Status::Complete;
+    view.partial = progress.status == nr_f8::Status::Partial;
+    view.failed = progress.status == nr_f8::Status::Failed;
+    view.roi_ready = progress.roi_ready; view.screenshot_ready = progress.screenshot_ready;
+    view.restored = progress.restored; view.group = progress.group; view.total = progress.total;
+    return view;
+}
+nr_face_diagnostic_ui::View FaceSelectionView(reshade::api::effect_runtime *runtime) {
+    return MakeFaceDiagnosticUiView(runtime, SnapshotOverlayConfig().config);
+}
+void FocusFaceDiagnosticPage() { nr_f8::RequestSettingsFeedbackPage(); }
+void OnFaceSelectionRuntimeDestroyed(reshade::api::effect_runtime *runtime) {
+    CleanupFaceDiagnosticSelection(runtime);
+    nr_f8::RuntimeDestroyed(runtime);
+}
+void DrawFaceDiagnosticControls(reshade::api::effect_runtime *runtime, const ChainConfig &config) {
+    const auto snapshot = SnapshotFaceRegionSelection();
+    auto selection = snapshot.selection;
+    auto view = MakeFaceDiagnosticUiView(runtime, config);
+    view.blocked = view.blocked || snapshot.requested || snapshot.registered || snapshot.restore_panel;
+    const auto requests = nr_face_diagnostic_ui::Draw(selection, view, UseChineseUi());
+    if (requests.choose_region)
+        selection.request_failed = !QueueFaceRegionSelection(runtime, selection);
+    if (requests.cancel) nr_f8::Cancel();
+    if (requests.start && runtime) {
+        selection.request_failed = !nr_f8::RequestFaceDiagnostic(selection.center_x, selection.center_y);
+        if (!selection.request_failed) {
+            selection.picking = false;
+            runtime->open_overlay(false, reshade::api::input_source::mouse);
+        }
+    }
+    StoreFaceRegionPreference(selection, snapshot.generation);
+}
 
 // Publish once through the existing overlay transaction. Both group receipts
 // observe the same committed generation while the recursive Win32 lock is held.
@@ -758,6 +807,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         DrawSimpleFeedbackControls();
         SettingsSection(ui("Image evidence", "图像证据"));
         DrawSimpleImageCaptureControls();
+        DrawFaceDiagnosticControls(runtime, current.config);
         SettingsSection(ui("Runtime observations", "运行诊断"));
         ImGui::PushID("technical"); DrawTechnicalDiagnostics(runtime); ImGui::PopID();
         ImGui::EndTabItem();

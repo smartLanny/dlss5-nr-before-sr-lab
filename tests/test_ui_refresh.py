@@ -84,6 +84,25 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn("bool custom_roi = false", options)
         self.assertIn("bool full_screen = false", options)
 
+    def test_face_diagnostic_is_separate_and_uses_validated_runtime_geometry(self):
+        panel = (ROOT / "src" / "nr_face_diagnostic_ui.inl").read_text(encoding="utf-8")
+        self.assertIn('"人脸自动对照诊断###nr-face-diagnostic"', panel)
+        self.assertIn('"Automatic face comparison###nr-face-diagnostic"', panel)
+        self.assertIn('"开始自动对照###nr-face-start"', panel)
+        self.assertIn('"取消并恢复设置###nr-face-cancel"', panel)
+        self.assertIn('ImGui::CollapsingHeader(', panel)
+        self.assertIn('if (!view.enabled || !viewport.valid) ImGui::BeginDisabled();', panel)
+        self.assertIn('if (view.blocked) ImGui::BeginDisabled();', panel)
+        self.assertIn('nr_face_diagnostic::ResolveRoi(g.source_width, g.source_height, center_x, center_y)', panel)
+        self.assertIn('nr_imgui_abi::CallHostVec2(imgui_function_table_instance()->GetMousePos)', panel)
+        self.assertIn('get_screenshot_width_and_height(&display_width, &display_height)', self.ui)
+        self.assertIn('nr_f8::SnapshotFaceDiagnosticGeometry(display_width, display_height)', self.ui)
+        self.assertIn('nr_f8::RequestFaceDiagnostic(selection.center_x, selection.center_y)', self.ui)
+        self.assertIn('QueueFaceRegionSelection(runtime, selection)', self.ui)
+        self.assertIn('DrawFaceDiagnosticControls(runtime, current.config);', self.ui)
+        self.assertIn('CleanupFaceDiagnosticSelection(runtime);\n    nr_f8::RuntimeDestroyed(runtime);', self.ui)
+        self.assertNotIn('F8CHK004', panel)
+
     def test_feedback_and_diagnostics_are_one_complete_tab(self):
         marker = '"Feedback and diagnostics###nr-feedback-diagnostics"'
         self.assertEqual(self.ui.count(marker), 1)
