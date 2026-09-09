@@ -44,6 +44,8 @@
 #include "nr_shortcut_edge.h"
 #include "nr_ui_activity.h"
 #include "nr_work_config.h"
+#include "nr_probe_policy.h"
+#define NR_HAS_PROBE_POLICY 1
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
@@ -886,6 +888,18 @@ struct ChainConfig {
 ChainConfig g_config = {};
 ULONGLONG g_config_read_tick = 0;
 CRITICAL_SECTION g_chain_cs;
+nr_probe_policy::Control g_nr_probe_policy;
+nr_probe_policy::Snapshot NrProbePolicySnapshot() { return g_nr_probe_policy.Read(); }
+void SetNrProbePolicy(nr_probe_policy::Mode mode) {
+    EnterCriticalSection(&g_chain_cs);
+    if (g_nr_probe_policy.Change(mode)) {
+        const auto policy = NrProbePolicySnapshot();
+        Log("[probe-test] phase=%llu mode=%s; automatic GPU diagnostics only; "
+            "no INI write or model-history reset; pending readbacks retain their original phase.",
+            static_cast<unsigned long long>(policy.phase), nr_probe_policy::Name(policy.mode));
+    }
+    LeaveCriticalSection(&g_chain_cs);
+}
 std::atomic<bool> g_enabled_fast{false};
 std::atomic<int> g_requested_mode_fast{2};
 std::atomic<ULONGLONG> g_next_config_poll_tick{0};
@@ -4116,6 +4130,7 @@ struct NrStoredResultMetadata {
     NrDiagnosticIdentity identity{};
     nr_native_format::Key native_key{};
     unsigned long long feature_generation=0;
+    nr_probe_policy::Snapshot probe_policy{};
     unsigned source_physical=0,source_view=0,result_physical=0,result_view=0,result_uav=0;
     int mode=0;
     bool recorded=false;
@@ -4222,6 +4237,7 @@ struct NrPostStoreEvidence {
     nr_resource_recovery::Target recovery_target{};
     NrDiagnosticIdentity identity{};
     nr_native_format::Key native_key{};
+    nr_probe_policy::Snapshot probe_policy{};
     unsigned source_physical=0,source_view=0,result_physical=0,result_view=0,result_uav=0;
     bool comparison_known=false,matches_expected=false;
     bool actual_nonfinite=false,reference_nonfinite=false;
@@ -4728,6 +4744,7 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
         evidence.recovery_target=metadata.recovery_target;
         evidence.identity=metadata.identity;
         evidence.native_key=metadata.native_key;
+        evidence.probe_policy=metadata.probe_policy;
         evidence.mode=metadata.mode;
         evidence.source_physical=metadata.source_physical;
         evidence.source_view=metadata.source_view;
@@ -7300,6 +7317,7 @@ void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
     CollectSlotDeltaStatsLocked(context, slot);
     if (!NrRecoveryMayRecord(slot)) return;
     slot.post_boundary_probe_recorded=false;
+    slot.delta_stats_capture_armed=false;
     ArmStageCaptureLocked(context, slot);
     // The diagnostic UAV clear, atomics, copy and readback are valuable
     // evidence but should not tax every rendered frame. Sample the first
@@ -7307,9 +7325,10 @@ void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
     // one periodic checkpoint. One-shot stage capture remains immediate.
     const unsigned int current_generation =
         g_config_generation.load(std::memory_order_relaxed);
-    const bool should_sample_delta = NrRecoveryNeedsProbe(slot) || context.evaluations < 3 ||
+    const bool should_sample_delta = NrProbePolicySnapshot().AutomaticSampling() &&
+        (NrRecoveryNeedsProbe(slot) || context.evaluations < 3 ||
         context.config_generation != current_generation ||
-        (context.evaluations % 120) == 0;
+        (context.evaluations % 120) == 0);
     if (should_sample_delta && !slot.delta_stats_pending &&
         slot.delta_stats != nullptr &&
         slot.delta_stats_readback != nullptr) {
@@ -7414,7 +7433,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     if (independent_chroma || low_grid_color) pipeline = g_codec.combine_v2;
     const bool v2_combine = pipeline == g_codec.combine_v2;
     const bool any_combine = pipeline == g_codec.combine || v2_combine;
-    const bool capture_delta = any_combine &&
+    const auto probe_policy = NrProbePolicySnapshot();
+    const bool capture_delta = probe_policy.AutomaticSampling() && any_combine &&
         slot.delta_stats_capture_armed && !slot.delta_stats_pending &&
         slot.delta_stats != nullptr && slot.delta_stats_readback != nullptr &&
         slot.stats_clear_heap != nullptr;
@@ -7662,6 +7682,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         ++slot.recovery_probe_count;
         metadata.identity=slot.diagnostic_identity;
         metadata.native_key=slot.native_format_key;
+        metadata.probe_policy=probe_policy;
         metadata.feature_generation=slot.diagnostic_feature_generation;
         metadata.mode=g_config.mode;
         metadata.source_physical=static_cast<unsigned>(slot.source_format);

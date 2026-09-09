@@ -43,7 +43,12 @@ std::vector<unsigned char> ReadTexture(queue_test::Fixture&f,ID3D12Resource *r,D
     for(UINT y=0;y<rows;++y)std::memcpy(result.data()+y*row_bytes,(unsigned char*)mapped+footprint.Offset+y*footprint.Footprint.RowPitch,(size_t)row_bytes);
     D3D12_RANGE none{};ID3D12Resource_Unmap(buffer,0,&none);ReleaseCom(buffer);return result;
 }
-void Case(queue_test::Fixture &f,DXGI_FORMAT format,bool half,bool identity,bool wrong_target=false) {
+std::vector<unsigned char> Case(queue_test::Fixture &f,DXGI_FORMAT format,bool half,bool identity,bool wrong_target=false,bool paused=false) {
+    const auto generation=g_config_generation.load();
+    const auto epoch=g_pipeline_stats_epoch.load();
+    SetNrProbePolicy(paused?nr_probe_policy::Mode::Paused:nr_probe_policy::Mode::Normal);
+    Check(g_config_generation.load()==generation && g_pipeline_stats_epoch.load()==epoch,
+          "probe switch does not reset configuration or the pipeline");
     g_config=ChainConfig{};g_config.mode=1;g_config.enabled=true;
     g_config.post_transfer_strength=1;g_config.lighting_lock=0;g_config.preserve_lighting=false;
     Check(EnsureCodec(f.device),"real production codec created");
@@ -54,6 +59,8 @@ void Case(queue_test::Fixture &f,DXGI_FORMAT format,bool half,bool identity,bool
     auto &slot=queue_test::context.slots[0];const UINT mw=half?4:8,mh=half?3:6;
     Check(CreateSlot(f.device,output,mw,mh,true,nullptr,slot,CodecColorMode::Automatic,43),"production post slot");
     Check(slot.result==output && !slot.owns_result && slot.snapshots_native_output,"slot aliases real game Output");
+    static unsigned long long frame=0;
+    slot.diagnostic_identity.frame_id=++frame;
     ClearViews clear(f.device);
     {queue_test::List l(f);const float native[]={.25f,.375f,.5f,1};clear.Clear(f.device,l.native,output,0,native);Submit(f,l);}
     auto before=ReadTexture(f,output,slot.result_state);
@@ -81,7 +88,11 @@ void Case(queue_test::Fixture &f,DXGI_FORMAT format,bool half,bool identity,bool
         UavBarrier(l.native,slot.result);Submit(f,l);
     }
     auto after=ReadTexture(f,output,slot.result_state);const size_t pixel_bytes=format==DXGI_FORMAT_R10G10B10A2_UNORM?4:8;
-    if (format==DXGI_FORMAT_R10G10B10A2_UNORM) {
+    Check(slot.delta_stats_pending==!paused && slot.post_boundary_probe_recorded==!paused,
+          "pause suppresses automatic readback and store probe even if previously armed");
+    if(!paused)Check(slot.stored_result_metadata.probe_policy.phase==NrProbePolicySnapshot().phase,
+                    "stored result freezes actual recording phase");
+    if (format==DXGI_FORMAT_R10G10B10A2_UNORM && !paused) {
         Check(g_codec.post_store_probe!=nullptr,"actual post-store probe compiled");
         D3D12_RANGE range{0,kDiagnosticStatsBytes};void *mapped=nullptr;
         Hr(ID3D12Resource_Map(slot.delta_stats_readback,0,&range,&mapped),"post-store counters map");
@@ -94,6 +105,16 @@ void Case(queue_test::Fixture &f,DXGI_FORMAT format,bool half,bool identity,bool
         else Check(std::abs(static_cast<int>(v[32])-static_cast<int>(v[36]))<64,"observed/expected stored deltas agree within typed quantization");
         Check(slot.result_state==D3D12_RESOURCE_STATE_UNORDERED_ACCESS,"post-store probe restores native Output state");
     }
+    if(!paused){
+        const auto recording_phase=slot.stored_result_metadata.probe_policy.phase;
+        SetNrProbePolicy(nr_probe_policy::Mode::Paused);
+        CollectSlotDeltaStatsLocked(queue_test::context,slot);
+        Check(!slot.delta_stats_pending,"already submitted readback can retire while sampling is paused");
+        const auto sample=SnapshotPostStoreEvidence();
+        Check(sample.identity.frame_id==frame && sample.probe_policy.phase==recording_phase &&
+              sample.probe_policy.phase!=NrProbePolicySnapshot().phase,
+              "late readback retains old phase instead of becoming paused-stage evidence");
+    }
     unsigned changed=0;
     for(unsigned y=0;y<12;++y)for(unsigned x=0;x<16;++x) {
         const bool same=std::memcmp(before.data()+(y*16+x)*pixel_bytes,after.data()+(y*16+x)*pixel_bytes,pixel_bytes)==0;
@@ -101,9 +122,22 @@ void Case(queue_test::Fixture &f,DXGI_FORMAT format,bool half,bool identity,bool
         if(!active || identity || wrong_target)Check(same,"outside rectangle / identity / unused target retained byte-for-byte");
         else {Check(!same,"changed neural reaches actual game Output");++changed;}
     }
-    std::printf("POST_OUTPUT format=%u half=%d identity=%d wrong_target=%d changed=%u PASS\n",(unsigned)format,half,identity,wrong_target,changed);
+    std::printf("POST_OUTPUT format=%u half=%d identity=%d wrong_target=%d paused=%d changed=%u PASS\n",(unsigned)format,half,identity,wrong_target,paused,changed);
     DestroySlot(slot);ReleaseCom(output);ReleaseCom(unused_output);
+    return after;
 }
-void Run(){queue_test::Fixture f;for(auto format:{DXGI_FORMAT_R10G10B10A2_UNORM,DXGI_FORMAT_R16G16B16A16_FLOAT})for(bool half:{false,true})for(bool identity:{false,true})Case(f,format,half,identity);Case(f,DXGI_FORMAT_R10G10B10A2_UNORM,false,false,true);std::printf("POST_OUTPUT all checks=%u PASS; constructed neural planes, no NGX model/game\n",queue_test::checks);}
+void Run(){
+    queue_test::Fixture f;
+    for(auto format:{DXGI_FORMAT_R10G10B10A2_UNORM,DXGI_FORMAT_R16G16B16A16_FLOAT})
+        for(bool half:{false,true})for(bool identity:{false,true}) {
+            const auto normal=Case(f,format,half,identity);
+            const auto paused=Case(f,format,half,identity,false,true);
+            Check(normal==paused,"ordinary and automatic-probe outputs are byte identical");
+        }
+    Case(f,DXGI_FORMAT_R10G10B10A2_UNORM,false,false,true);
+    Case(f,DXGI_FORMAT_R10G10B10A2_UNORM,false,false,true,true);
+    SetNrProbePolicy(nr_probe_policy::Mode::Normal);
+    std::printf("POST_OUTPUT all checks=%u PASS; constructed neural planes, no NGX model/game\n",queue_test::checks);
+}
 
 } // namespace post_output_test

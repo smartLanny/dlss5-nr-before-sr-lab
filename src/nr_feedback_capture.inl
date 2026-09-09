@@ -293,10 +293,26 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,g_queue_retirement_waits.load(),prefix,g_queue_retirement_wait_completed.load(),
         prefix,g_queue_retirement_wait_timeouts.load(),prefix,g_queue_retirement_wait_ms.load(),
         prefix,g_queue_retirement_wait_max_ms.load());
+#if NR_HAS_PROBE_POLICY
+    const auto probe_policy=NrProbePolicySnapshot();
+    FeedbackAppend(s,"%s.probeControl.phase=%llu\n%s.probeControl.mode=%s\n"
+        "%s.probeControl.persisted=0\n%s.probeControl.historyResetOnSwitch=0\n"
+        "%s.probeControl.note=automatic GPU samples including recovery probes only; explicit image captures remain independent; pending samples keep original phase; mode change is not a config generation or model reset\n",
+        prefix,static_cast<unsigned long long>(probe_policy.phase),
+        prefix,nr_probe_policy::Name(probe_policy.mode),prefix,prefix,prefix);
+#endif
     const auto stored=SnapshotPostStoreEvidence();
     const auto pre_stored=SnapshotPreStoreEvidence();
     const auto append_store=[&](const char *route,const NrPostStoreEvidence &sample) {
         const bool available=sample.samples!=0;
+#if NR_HAS_PROBE_POLICY
+        FeedbackAppend(s,"%s.store.%s.probePhase=%llu\n%s.store.%s.probeMode=%s\n"
+            "%s.store.%s.probePhaseCurrent=%d\n",
+            prefix,route,static_cast<unsigned long long>(available?sample.probe_policy.phase:0),
+            prefix,route,available?nr_probe_policy::Name(sample.probe_policy.mode):"unknown",
+            prefix,route,available && sample.probe_policy.phase==probe_policy.phase &&
+                sample.probe_policy.mode==probe_policy.mode);
+#endif
         const auto &token=sample.recovery_token;
         const auto &scope=token.key.scope;
         const bool token_available=static_cast<bool>(token);

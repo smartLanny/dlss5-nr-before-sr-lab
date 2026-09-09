@@ -713,6 +713,14 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     if (ImGui::BeginTabItem(ui("Feedback and diagnostics###nr-feedback-diagnostics", "反馈与诊断###nr-feedback-diagnostics"),
             nullptr, feedback_tab_flags)) {
         DrawSimpleFeedbackControls();
+        SettingsSection(ui("Flicker comparison", "闪烁对照"));
+        int probe_mode = static_cast<int>(NrProbePolicySnapshot().mode);
+        if (ImGui::Combo(ui("Automatic diagnostic sampling", "自动诊断采样"), &probe_mode,
+                ui("Normal sampling\0Pause sampling\0", "正常采样\0暂停采样\0")))
+            SetNrProbePolicy(static_cast<nr_probe_policy::Mode>(probe_mode));
+        ImGui::TextWrapped("%s", ui(
+            "This session only. NR keeps processing. Switching does not save settings or reset model history. Compare the same scene without taking image captures; already submitted readbacks may still finish. F8 text remains available.",
+            "仅本次运行有效，NR 继续处理。切换不保存设置、不重置模型历史。请在同一场景对比，期间不要进行图像采集；此前已提交的读回仍会完成。仍可按 F8 获取文字反馈。"));
         SettingsSection(ui("Image evidence", "图像证据"));
         DrawSimpleImageCaptureControls();
         SettingsSection(ui("Runtime observations", "运行诊断"));
