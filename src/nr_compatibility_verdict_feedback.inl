@@ -126,6 +126,7 @@ inline void Decision(Record &record, const std::string &root,
     record.Boolean(root, "evidenceComplete", verdict.evidenceComplete);
     record.Field(root, "coverage", "classified Feature1 recovery; RR recovery uses its separate diagnostics and is not certified here");
     record.Field(root, "evidenceCompleteMeaning", "enough evidence for the decision, not final visual acceptance");
+    record.Field(root, "pendingMeaning", "evidence remains incomplete; this verdict does not disable NR or perform retries");
     record.Field(root, "missingEvidence", verdict.missingEvidence);
     record.Field(root, "nextAction", Name(verdict.nextAction));
     record.Scope(root + ".scope", verdict.scope);
@@ -174,6 +175,9 @@ inline void Evidence(Record &record, const std::string &root,
     const auto rec = root + ".recovery";
     const bool attempt_known = recovery.available && recovery.attempted && recovery.attempt_id != 0;
     const bool window_known = attempt_known && recovery.correlated_window &&
+        (recovery.state == nr_compatibility_verdict::RecoveryState::Pending ||
+         recovery.state == nr_compatibility_verdict::RecoveryState::Succeeded);
+    const bool storage_proof_current = window_known &&
         recovery.proof_attempt_id == recovery.attempt_id;
     record.Boolean(rec, "available", recovery.available);
     record.Boolean(rec, "current", recovery.available && SameScope(recovery.scope, input.current));
@@ -184,12 +188,19 @@ inline void Evidence(Record &record, const std::string &root,
     record.Number(rec, "proofAttemptId", recovery.proof_attempt_id,
                   recovery.available && recovery.proof_attempt_id != 0);
     record.Boolean(rec, "correlatedWindow", recovery.correlated_window, attempt_known);
-    record.Boolean(rec, "proofWindowAvailable", window_known);
+    record.Boolean(rec, "executionWindowAvailable", window_known);
+    record.Boolean(rec, "proofWindowAvailable", storage_proof_current);
+    record.Field(rec, "executionWindowMeaning", "correlated NR, native and submission facts for attemptId; storage comparison is separate; current marks scope validity");
     record.Boolean(rec, "descriptorVerified", recovery.descriptor_verified, attempt_known);
     record.Number(rec, "nrSuccessStreak", recovery.nr_success_streak, window_known);
     record.Number(rec, "nativeSuccessStreak", recovery.native_success_streak, window_known);
     record.Number(rec, "submittedCount", recovery.submitted_count, window_known);
-    record.Boolean(rec, "writebackVerified", recovery.writeback_verified, window_known);
+    record.Boolean(rec, "writebackVerified", recovery.writeback_verified, storage_proof_current);
+    const bool storage_failed = attempt_known && recovery.state == nr_compatibility_verdict::RecoveryState::Failed &&
+        recovery.failure_definitive && recovery.failure_reason == "writeback-failed";
+    record.Field(rec, "storageComparison", storage_failed ? "failed" :
+                 storage_proof_current && recovery.writeback_verified ? "verified" : "unknown");
+    record.Field(rec, "storageComparisonMeaning", "unknown includes absent, partial or stale comparison; changed samples alone do not prove a match or write failure; sparse storage does not prove final consumer or Present");
     record.Field(rec, "failureReason", recovery.available ? recovery.failure_reason : "unknown");
     record.Boolean(rec, "failureDefinitive", recovery.failure_definitive, recovery.available);
     record.Field(rec, "firstFailure", recovery.available ? recovery.first_failure : "unknown");

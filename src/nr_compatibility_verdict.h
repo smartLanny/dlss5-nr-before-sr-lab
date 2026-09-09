@@ -60,7 +60,8 @@ struct RecoveryEvidence {
     RecoveryState state = RecoveryState::Unavailable;
     // The producer must reset its streak window on a failure, a changed
     // resource contract, a new attempt or any Scope change. These are never
-    // process-total counters. Both IDs and correlated_window must be supplied.
+    // process-total counters. correlated_window belongs to attempt_id;
+    // proof_attempt_id identifies successful storage comparison separately.
     std::uint64_t attempt_id = 0;
     std::uint64_t proof_attempt_id = 0;
     bool correlated_window = false;
@@ -435,7 +436,7 @@ inline Verdict Resolve(const Input &input) {
         Pending(v, Stage::Recovery, "recovery-not-yet-attempted", "current-attempt-id-and-marker");
         return v;
     }
-    if (!recovery.correlated_window || recovery.proof_attempt_id != recovery.attempt_id) {
+    if (!recovery.correlated_window) {
         Pending(v, Stage::Recovery, "recovery-proof-unavailable", "same-attempt-correlated-streak-and-submission-window");
         return v;
     }
@@ -455,8 +456,17 @@ inline Verdict Resolve(const Input &input) {
         Pending(v, Stage::Submission, "matching-submissions-pending", "three-matching-submissions");
         return v;
     }
+    if (recovery.proof_attempt_id != recovery.attempt_id) {
+        // A missing/old storage comparison does not erase this attempt's
+        // already correlated NR, native and submission facts. Pending is an
+        // evidence status only: this resolver cannot disable or retry NR.
+        Pending(v, Stage::Writeback, "storage-comparison-unverified", "same-attempt-actual-storage-comparison");
+        Missing(v, "final-consumer-and-present-verification");
+        return v;
+    }
     if (!recovery.writeback_verified) {
         Pending(v, Stage::Writeback, "writeback-verification-pending", "actual-writeback-verification");
+        Missing(v, "final-consumer-and-present-verification");
         return v;
     }
     v.recoveryResult = RecoveryState::Succeeded;

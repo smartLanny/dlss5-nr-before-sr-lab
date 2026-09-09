@@ -42,6 +42,8 @@ nr_compatibility_verdict::Input SnapshotNrCompatibilityVerdict() {
     recovery.scope = input.current;
     recovery.attempted = proof.attempt_id != 0;
     recovery.attempt_id = proof.attempt_id;
+    // Storage proof can be absent while this attempt's execution window is
+    // already complete (for example, only part of R10 storage is comparable).
     recovery.proof_attempt_id = proof.proof_attempt_id;
     recovery.correlated_window = proof.correlated_window;
     recovery.descriptor_verified = proof.descriptor_verified;

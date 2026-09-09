@@ -153,6 +153,50 @@ int main() {
     Expect(fields, "collection.timelineRowsOmitted", "0", "ordinary record retains final timeline status");
 
     input = Proven();
+    input.recovery.proof_attempt_id = 0;
+    input.recovery.writeback_verified = false;
+    input.recovery.state = RecoveryState::Pending;
+    auto partial_storage = std::make_unique<FeedbackSession>();
+    FeedbackAppendCompatibilityVerdict(*partial_storage, "end", input);
+    fields = Parse(*partial_storage);
+    Expect(fields, "decision.stage", "writeback", "partial comparison identifies the actual remaining evidence gate");
+    Expect(fields, "decision.reason", "storage-comparison-unverified", "partial comparison is explicit");
+    Expect(fields, "decision.recoveryResult", "pending", "unknown comparison is not successful recovery");
+    Expect(fields, "decision.nextAction", "auto-retry", "partial comparison does not certify a visual request");
+    Expect(fields, "end.decision.recovery.executionWindowAvailable", "1", "execution facts are independently available");
+    Expect(fields, "end.decision.recovery.proofWindowAvailable", "0", "complete storage proof remains absent");
+    Expect(fields, "end.decision.recovery.proofAttemptId", "unknown", "missing storage ID is not a zero observation");
+    Expect(fields, "end.decision.recovery.nrSuccessStreak", "3", "PARTIAL_STORAGE_COUNTERS_VISIBLE");
+    Expect(fields, "end.decision.recovery.nativeSuccessStreak", "3", "available native window is serialized");
+    Expect(fields, "end.decision.recovery.submittedCount", "3", "available submission window is serialized");
+    Expect(fields, "end.decision.recovery.writebackVerified", "unknown", "unknown comparison is not a measured write failure");
+    Expect(fields, "end.decision.recovery.storageComparison", "unknown", "partial comparison remains unknown");
+    Expect(fields, "decision.pendingMeaning", "evidence remains incomplete; this verdict does not disable NR or perform retries",
+           "pending explains its observation-only effect");
+    Check(fields.at("decision.missingEvidence").find("final-consumer-and-present-verification") != std::string::npos &&
+          fields.at("decision.missingEvidence").find("streak-and-submission-window") == std::string::npos,
+          "consumer gap stays explicit without hiding available execution facts");
+
+    input.recovery.proof_attempt_id = 16; input.recovery.writeback_verified = true;
+    auto old_proof_storage = std::make_unique<FeedbackSession>();
+    FeedbackAppendCompatibilityVerdict(*old_proof_storage, "end", input);
+    fields = Parse(*old_proof_storage);
+    Expect(fields, "end.decision.recovery.proofAttemptId", "16", "old proof identity remains reviewable");
+    Expect(fields, "end.decision.recovery.storageComparison", "unknown", "old comparison is not current proof");
+    Expect(fields, "decision.recoveryResult", "pending", "old storage proof cannot complete current recovery");
+
+    input.recovery.proof_attempt_id = 0; input.recovery.writeback_verified = false;
+    input.recovery.state = RecoveryState::Failed;
+    input.recovery.failure_reason = "writeback-failed"; input.recovery.failure_definitive = true;
+    auto failed_storage = std::make_unique<FeedbackSession>();
+    FeedbackAppendCompatibilityVerdict(*failed_storage, "end", input);
+    fields = Parse(*failed_storage);
+    Expect(fields, "decision.recoveryResult", "failed", "actual current failure stays failed");
+    Expect(fields, "decision.nextAction", "needs-code", "actual failure cannot become an automatic retry");
+    Expect(fields, "end.decision.recovery.storageComparison", "failed", "actual failure is separate from partial comparison");
+    Expect(fields, "end.decision.recovery.nrSuccessStreak", "unknown", "a failed attempt cannot keep a success window active");
+
+    input = Proven();
     input.recovery.scope.config = 6;
     auto stale_storage = std::make_unique<FeedbackSession>(); auto &stale = *stale_storage;
     FeedbackAppendCompatibilityVerdict(stale, "end", input);

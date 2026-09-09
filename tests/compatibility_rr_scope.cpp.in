@@ -142,13 +142,57 @@ void CheckCoverage() {
           feedback.report.find("decision.reason=waiting-feature1\n") != std::string::npos &&
           !feedback.report_truncated, "F8_COVERAGE_ORACLE");
 }
+void ExecutionWithoutStorageComparison() {
+    // Synthetic collector outcome equivalent to a partial R10 comparison:
+    // NrRecoveryStoredEvidence has no comparable storage result to record.
+    // Exercise the real ledger -> snapshot -> verdict -> F8 path, not GPU
+    // quantization or the collector itself.
+    Reset(); SeedIdentity();
+    nr_recovery::Token latest;
+    for (unsigned frame = 1; frame != 4; ++frame) {
+        latest = Begin(frame);
+        for (const auto stage : {nr_recovery::Stage::Descriptor, nr_recovery::Stage::NrEvaluate,
+                 nr_recovery::Stage::NativeSrEvaluate, nr_recovery::Stage::TransferRecorded, nr_recovery::Stage::Submitted})
+            Check(g_nr_recovery.Record(latest, stage, true), "LEDGER_SETUP");
+        Check(g_nr_recovery.EndCarrier(latest.key.scope, latest.key.role, latest.carrier, true), "LEDGER_SETUP");
+    }
+    auto input = SnapshotNrCompatibilityVerdict();
+    Check(input.recovery.correlated_window && input.recovery.proof_attempt_id == 0 &&
+          input.recovery.native_success_streak == 3 && input.recovery.nr_success_streak == 3 &&
+          input.recovery.submitted_count == 3 && !input.recovery.writeback_verified &&
+          input.queue.state == verdict::FactState::Complete, "CURRENT_EXECUTION_MAPPING_ORACLE");
+    FeedbackSession pending;
+    FeedbackAppendCompatibilityVerdict(pending, "end", input);
+    Check(pending.report.find("decision.reason=storage-comparison-unverified\n") != std::string::npos &&
+          pending.report.find("decision.recoveryResult=pending\n") != std::string::npos &&
+          pending.report.find("end.decision.recovery.nrSuccessStreak=3\n") != std::string::npos &&
+          pending.report.find("end.decision.recovery.storageComparison=unknown\n") != std::string::npos &&
+          pending.report.find("decision.nextAction=needs-visual-F7\n") == std::string::npos,
+          "CURRENT_EXECUTION_F8_ORACLE");
+    Check(g_nr_recovery.Resolve(latest.key, latest.signature, nr_recovery::SemanticState::Exact).can_attempt,
+          "pending verdict leaves normal ledger admission intact");
+    // A later real failed comparison revokes the window and requests code.
+    Check(g_nr_recovery.RecordWriteback(latest, {latest.key.resource, latest.key.resource_generation,
+          latest.key.subresource, true, true, false, 0}), "LEDGER_SETUP");
+    input = SnapshotNrCompatibilityVerdict();
+    FeedbackSession failed;
+    FeedbackAppendCompatibilityVerdict(failed, "end", input);
+    Check(failed.report.find("decision.reason=writeback-failed\n") != std::string::npos &&
+          failed.report.find("decision.recoveryResult=failed\n") != std::string::npos &&
+          failed.report.find("end.decision.recovery.storageComparison=failed\n") != std::string::npos &&
+          failed.report.find("decision.nextAction=needs-code\n") != std::string::npos,
+          "CURRENT_STORAGE_FAILURE_F8_ORACLE");
+    Check(!g_nr_recovery.Resolve(latest.key, latest.signature, nr_recovery::SemanticState::Exact).can_attempt,
+          "an actual storage failure remains latched");
+}
 int main(int argc, char** argv) {
     const std::string selected = argc == 2 ? argv[1] : "all";
     if (selected == "all" || selected == "clear") ClearUnclassified();
     if (selected == "all" || selected == "classified") PreserveClassifiedFailure();
     if (selected == "all" || selected == "carrier") RejectPreviousFeatureSuccess();
     if (selected == "all" || selected == "coverage") CheckCoverage();
-    Check(selected == "all" || selected == "clear" || selected == "classified" || selected == "carrier" || selected == "coverage",
+    if (selected == "all" || selected == "storage") ExecutionWithoutStorageComparison();
+    Check(selected == "all" || selected == "clear" || selected == "classified" || selected == "carrier" || selected == "coverage" || selected == "storage",
           "UNKNOWN_CASE");
     std::printf("PASS compatibility RR scope CPU: %u checks; actual notification/getter/ledger/F8, synthetic receipts; no GPU/NGX\n", checks);
 }
