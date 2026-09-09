@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
+const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
 const { createLaunchSettingsService } = require('../src/product/launch-settings-service');
@@ -164,10 +165,10 @@ test('explicit MFG reapply preserves external values as the new restore baseline
   assert.match(fs.readFileSync(file, 'utf8'), /ForceMultiplier=4/);
 });
 
-function externalFixture(t) {
+function externalFixture(t, extraService = {}) {
   let f;
   const location = { verified: true, mode: 'external' };
-  f = fixture(t, { family: 'RTX40', service: { getLayout: () => location } });
+  f = fixture(t, { family: 'RTX40', service: { ...extraService, getLayout: () => location } });
   const active = path.join(f.root, 'external', 'active'); fs.mkdirSync(active, { recursive: true });
   Object.assign(location, { exe: f.exe, activeConfigPath: path.join(active, 'ReShade.ini'), reshadeConfigDir: active });
   return { ...f, active, location, pending: path.join(f.game, '_DLSS5_Backup/launch-external-config-pending.json') };
@@ -211,6 +212,66 @@ test('external-config recovery rejects foreign owners and preserves an external 
       await assert.rejects(f.service.recover('g'), { code: altered === 'owner' ? 'SETTINGS_RECEIPT_INVALID' : 'SETTINGS_EXTERNAL_CHANGE' });
       assert.equal(fs.readFileSync(ini, 'utf8'), altered === 'external' ? 'external replacement' : after); assert.equal(fs.existsSync(f.pending), true);
     }
+  }
+});
+
+function seedExternalRecovery(f, before, after) {
+  fs.writeFileSync(f.location.activeConfigPath, after); fs.mkdirSync(path.dirname(f.pending), { recursive: true });
+  fs.writeFileSync(f.pending, JSON.stringify({ version: 1, owner: 'launch-mfg-config', transactionId: '22222222-2222-4222-8222-222222222222',
+    domain: 'fg', restoring: false, exe: f.exe, configFile: f.location.activeConfigPath,
+    beforeText: before, beforeHash: policy.hash(before), afterHash: policy.hash(after) }));
+}
+async function failExternalTemporaryWrite(f, work) {
+  const originalOpen = fsp.open; let writes = 0;
+  fsp.open = async (file, flags, ...args) => {
+    const handle = await originalOpen(file, flags, ...args);
+    if (flags === 'wx' && path.dirname(path.resolve(file)) === f.active && path.resolve(file) !== f.location.activeConfigPath) {
+      const write = handle.writeFile.bind(handle);
+      handle.writeFile = async content => { writes++; await write(Buffer.from(content).subarray(0, 8)); throw Object.assign(new Error('interrupted after eight staged bytes'), { code: 'EIO' }); };
+    }
+    return handle;
+  };
+  try { await work(); } finally { fsp.open = originalOpen; }
+  assert.equal(writes, 1, 'the fixture must actually interrupt the temporary configuration write');
+  assert.equal(fs.readdirSync(f.active).some(name => name.endsWith('.tmp')), false, 'only this failed temporary file is reclaimed');
+}
+
+test('external MFG partial temporary write preserves the complete active INI and leaves recovery usable', async t => {
+  const f = externalFixture(t), ini = f.location.activeConfigPath, before = '[HDR]\nEnabled=1\n[RenoDX]\nStrength=0.5\n';
+  fs.writeFileSync(ini, before); const plan = await f.service.preview('g', 'fg', { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 });
+  await failExternalTemporaryWrite(f, () => assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'EIO' }));
+  assert.equal(fs.readFileSync(ini, 'utf8'), before); assert.equal(fs.existsSync(f.pending), false);
+  await f.service.recover('g'); assert.equal(fs.readFileSync(ini, 'utf8'), before); await f.service.assertReady('g');
+});
+
+test('external MFG rollback temporary write failure retains a complete after-image and can be retried', async t => {
+  const f = externalFixture(t), ini = f.location.activeConfigPath, before = '[HDR]\nEnabled=1\n', after = before + '[MFGUnlock]\nForceMultiplier=3\n';
+  seedExternalRecovery(f, before, after); const pendingBefore = fs.readFileSync(f.pending);
+  await failExternalTemporaryWrite(f, () => assert.rejects(f.service.recover('g'), { code: 'EIO' }));
+  assert.equal(fs.readFileSync(ini, 'utf8'), after); assert.deepEqual(fs.readFileSync(f.pending), pendingBefore);
+  assert.equal((await f.service.recover('g')).externalRestored, true); assert.equal(fs.readFileSync(ini, 'utf8'), before);
+  assert.equal(fs.existsSync(f.pending), false); await f.service.assertReady('g');
+});
+
+test('external edits during the final process check are preserved before both apply and rollback publication', async t => {
+  for (const mode of ['apply', 'rollback']) {
+    let f, changed = false;
+    const external = '[HDR]\nEnabled=1\nExternalChoice=keep\n';
+    f = externalFixture(t, { environment: async () => {
+      if (!changed && fs.readdirSync(f.active).some(name => name.endsWith('.tmp'))) { fs.writeFileSync(f.location.activeConfigPath, external); changed = true; }
+      return { verified: true, running: [] };
+    } });
+    const before = '[HDR]\nEnabled=1\n', after = before + '[MFGUnlock]\nForceMultiplier=3\n';
+    if (mode === 'apply') {
+      fs.writeFileSync(f.location.activeConfigPath, before);
+      const plan = await f.service.preview('g', 'fg', { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 });
+      await assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'SETTINGS_RECOVERY_FIRST' });
+    } else {
+      seedExternalRecovery(f, before, after);
+      await assert.rejects(f.service.recover('g'), { code: 'SETTINGS_EXTERNAL_CHANGE' });
+    }
+    assert.equal(changed, true); assert.equal(fs.readFileSync(f.location.activeConfigPath, 'utf8'), external);
+    assert.equal(fs.existsSync(f.pending), true); assert.equal(fs.readdirSync(f.active).some(name => name.endsWith('.tmp')), false);
   }
 });
 

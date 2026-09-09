@@ -79,7 +79,7 @@ function validateResponse(row, request, requestHash, child) {
 function createWindowsProcessInspector(runPowerShell) {
   return async pid => {
     if (!Number.isInteger(pid) || pid < 1) fail('PROCESS', '进程身份无效。');
-    const command = `$ErrorActionPreference='Stop'; $p=Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if($null -eq $p){'null'}else{[ordered]@{pid=[int]$p.ProcessId;executable=[string]$p.ExecutablePath;startedAt=$p.CreationDate.ToUniversalTime().ToString('o')}|ConvertTo-Json -Compress}`;
+    const command = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false); $p=Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if($null -eq $p){'null'}else{[ordered]@{pid=[int]$p.ProcessId;executable=[string]$p.ExecutablePath;startedAt=$p.CreationDate.ToUniversalTime().ToString('o')}|ConvertTo-Json -Compress}`;
     let row; try { row = JSON.parse(await runPowerShell(command, 10000)); } catch { fail('PROCESS', '无法核对工作进程身份，请导出诊断。'); }
     if (row === null) return null;
     if (!processIdentity(row)) fail('PROCESS', '无法完整核对进程路径及启动时间。');

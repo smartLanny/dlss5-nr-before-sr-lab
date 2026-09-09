@@ -46,6 +46,10 @@ function installMock() {
       if (mock.plan.request.hotkeys) Object.assign(mock.assessment.hotkeys, structuredClone(mock.plan.request.hotkeys));
       if (mock.plan.request.uninstall) mock.assessment.game.installed = false; return ok({ applied: true, notice: '测试配置已应用。' }); },
     applyOperationElevated: async () => { mock.calls.push(['elevated']); return ok({ applied: true }); },
+    previewEnvironmentCleanup: async id => { mock.calls.push(['cleanup-preview', id]); return ok({ planId: 'fixture-cleanup-plan', scope: '只隔离所选 EXE 同目录的已勾选文件。',
+      candidates: [{ name: 'other-addon.addon64', kind: '其他 Add-on', note: '用户明确选择后备份隔离。', sha256: 'c'.repeat(64), selectable: true, selectedByDefault: true }] }); },
+    applyEnvironmentCleanup: async (id, planId, names) => { mock.calls.push(['cleanup-apply', id, planId, structuredClone(names)]);
+      mock.assessment.maintenance.isolated = true; mock.assessment.maintenance.canRestore = true; return ok({ isolated: true }); },
     confirmGameFeature: async (_id, domain) => { mock.calls.push(['confirm', domain]); mock.assessment.enhancements.featureStates[domain] = structuredClone(feature); return ok({ confirmed: true }); },
     recoverOperation: async () => { mock.calls.push(['recover']); mock.assessment.operation = { pending: false }; return ok({ recovered: true }); },
     recordVisualComparison: async (id, input) => {
@@ -149,6 +153,49 @@ async function smoke() {
   click('preview'); await until(() => document.querySelector('.gp-modal')); click('modal-apply');
   await until(() => count('apply') === beforeHotkeyApply + 1 && !document.querySelector('.gp-modal'));
   assert(mock.assessment.hotkeys.reshade.key === 45 && count('direct-hotkey-write') === 0, 'reviewed unified Apply owns the shortcut change');
+  await scenario('反作弊游戏 · 卸载后清理', assessment => { assessment.game.installed = false; assessment.antiCheat.detected = true; });
+  document.querySelector('[data-gp-tab="maintenance"]').click();
+  const beforeCleanupApply = count('cleanup-apply'), beforeCleanupOperation = count('apply');
+  click('clean-environment'); await until(() => document.querySelector('.gp-modal [data-gp-clean]'));
+  assert(!document.querySelector('.gp-modal [data-gp-consent]'), 'cleanup has no deployment risk consent control');
+  click('modal-apply'); await until(() => count('cleanup-apply') === beforeCleanupApply + 1 && !document.querySelector('.gp-modal'));
+  const cleanupCall = mock.calls.filter(row => row[0] === 'cleanup-apply').at(-1);
+  assert(JSON.stringify(cleanupCall.slice(1)) === JSON.stringify(['fixture', 'fixture-cleanup-plan', ['other-addon.addon64']]), 'anti-cheat cleanup submits the reviewed plan and selected filenames');
+  assert(count('apply') === beforeCleanupOperation, 'cleanup uses its own operation without deployment Apply');
+  await scenario('反作弊游戏 · 普通应用确认', assessment => { assessment.antiCheat.detected = true; });
+  document.querySelector('[data-gp-tab="enhance"]').click(); set('nr', 'Intensity', '.6'); click('preview');
+  await until(() => document.querySelector('.gp-modal [data-gp-consent]'));
+  const consent = document.querySelector('.gp-modal [data-gp-consent]'), beforeConsentApply = count('apply');
+  assert(consent.getClientRects().length > 0 && !consent.checked, 'ordinary anti-cheat Apply shows an unchecked consent control');
+  click('modal-apply'); await delay(30);
+  assert(count('apply') === beforeConsentApply && document.querySelector('.gp-modal-message').textContent.includes('反作弊'), 'ordinary Apply remains blocked until the visible risk consent is checked');
+  click('modal-cancel'); click('discard');
+  await scenario('SR 自定义比例 · 无效输入'); document.querySelector('[data-gp-tab="enhance"]').click();
+  set('sr', 'quality', 'custom'); set('sr', 'renderPercent', '75');
+  const beforeInvalidSrPreview = count('preview'); set('sr', 'renderPercent', '76.5');
+  const srError = document.querySelector('.gp-message.error[role="alert"]');
+  assert(srError && !srError.hidden && srError.getClientRects().length > 0 && srError.textContent.includes('整数'), 'invalid SR input displays an immediate visible validation error');
+  assert(document.querySelector('[data-gp-action="preview"]').disabled, 'invalid SR input disables unified preview');
+  document.querySelector('[data-gp-action="preview"]').click(); await delay(30);
+  assert(count('preview') === beforeInvalidSrPreview, 'invalid SR input cannot preview the previous valid ratio');
+  set('sr', 'renderPercent', '76'); click('preview'); await until(() => document.querySelector('.gp-modal'));
+  assert(mock.plan.request.sr.quality === 'custom' && mock.plan.request.sr.renderPercent === 76, 'corrected SR input previews its current value');
+  click('modal-cancel'); click('discard');
+  await scenario('FG 动态目标 · 无效输入', assessment => {
+    assessment.enhancements.hardware = { family: 'RTX50', series: ['RTX50'], names: ['NVIDIA RTX 5090'], source: 'fixture' };
+    assessment.enhancements.featureStates.fg.availableModes = ['off', 'fixed', 'dynamic'];
+  });
+  click('back'); document.querySelector('.open-game-page-btn').click(); await until(() => document.querySelector('.gp-tabs'));
+  document.querySelector('[data-gp-tab="enhance"]').click(); set('fg', 'mode', 'dynamic'); set('fg', 'targetFps', '120');
+  const beforeInvalidFgPreview = count('preview'); set('fg', 'targetFps', '120.5');
+  const fgError = document.querySelector('.gp-message.error[role="alert"]');
+  assert(fgError && !fgError.hidden && fgError.getClientRects().length > 0 && fgError.textContent.includes('整数'), 'invalid FG input displays an immediate visible validation error');
+  assert(document.querySelector('[data-gp-action="preview"]').disabled, 'invalid FG input disables unified preview');
+  document.querySelector('[data-gp-action="preview"]').click(); await delay(30);
+  assert(count('preview') === beforeInvalidFgPreview, 'invalid FG input cannot preview the previous valid frame target');
+  set('fg', 'targetFps', '121'); click('preview'); await until(() => document.querySelector('.gp-modal'));
+  assert(mock.plan.request.fg.backend === 'nvidia' && mock.plan.request.fg.mode === 'dynamic' && mock.plan.request.fg.targetFps === 121, 'corrected FG input previews its current value');
+  click('modal-cancel'); click('discard');
   for (const route of ['vulkan', 'feeder']) {
     const packageId = 'fixture-' + route + '-fixed', api = route === 'vulkan' ? 'vulkan' : 'dx12';
     await scenario(route + ' 固定配套 · UI fixture', assessment => {
@@ -187,7 +234,7 @@ async function smoke() {
   await until(() => document.querySelector('.open-game-page-btn')); document.querySelector('.open-game-page-btn').click(); await until(() => document.querySelector('.gp-tabs') && document.getElementById('view-game-detail').classList.contains('active'));
   assert(!mock.calls.some(row => row[0] === 'startup-failed'), 'renderer startup completed');
   return { writes: count('apply'), previews: count('preview'), confirmations: count('confirm'), elevated: count('elevated'), visualRecords: count('visual-record'), removals: count('remove-game'),
-    assertions: 'drafts, numeric NR selects, Apply, feature confirmations, capability gray states, separate uninstall choices, recovery, same-scene visual provenance, modal focus, staged hotkeys, fixed Vulkan/Feeder packages, confirmed metadata-only removal' };
+    assertions: 'drafts, numeric NR selects, Apply, feature confirmations, capability gray states, separate uninstall choices, recovery, same-scene visual provenance, modal focus, staged hotkeys, anti-cheat cleanup and deployment consent, invalid SR/FG draft rejection, fixed Vulkan/Feeder packages, confirmed metadata-only removal' };
 }
 const preload = path.join(temporary, 'preload.cjs'); fs.writeFileSync(preload, `(${installMock.toString()})();`);
 app.whenReady().then(async () => {

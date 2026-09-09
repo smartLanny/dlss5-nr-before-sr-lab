@@ -4,11 +4,30 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { createOperationElevation, executeOperationWorker, locations, hash } = require('../src/product/operation-elevation');
+const { createOperationElevation, executeOperationWorker, createWindowsProcessInspector, locations, hash } = require('../src/product/operation-elevation');
 const { workerArguments } = require('../src/product/operation-worker');
 const planId = '11111111-1111-4111-8111-111111111111', fingerprint = 'a'.repeat(64);
 const nonce = '22222222-2222-4222-8222-222222222222';
 const waitTurn = () => new Promise(resolve => setImmediate(resolve));
+
+test('real Windows PowerShell preserves a Chinese process path when decoded as UTF-8', { skip: process.platform !== 'win32', timeout: 15000 }, async t => {
+  const source = path.resolve(__dirname, '../build/load-helper/fixture-target.exe');
+  try { await fs.access(source); } catch { t.skip('Build the owned native helper fixture first.'); return; }
+  const { spawn, execFile } = require('node:child_process');
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), '提权身份-'));
+  const executable = path.join(root, '管理器 中文测试.exe'); await fs.copyFile(source, executable);
+  const child = spawn(executable, ['5000'], { windowsHide: true, stdio: 'ignore' });
+  const exited = new Promise(resolve => { child.once('exit', resolve); child.once('error', resolve); });
+  t.after(async () => { await exited; assert.equal(path.dirname(root), path.resolve(os.tmpdir())); await fs.rm(root, { recursive: true, force: true }); });
+  await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
+  const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
+  const inspect = createWindowsProcessInspector(command => new Promise((resolve, reject) => execFile(powershell,
+    ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', windowsHide: true, timeout: 10000, maxBuffer: 16384 },
+    (error, stdout) => error ? reject(error) : resolve(String(stdout).trim()))));
+  const row = await inspect(child.pid);
+  assert.equal(row.pid, child.pid); assert.equal(path.resolve(row.executable).toLowerCase(), executable.toLowerCase());
+  assert.ok(Number.isFinite(Date.parse(row.startedAt)));
+});
 
 async function fixture(t, overrides = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'operation-elevation-'));

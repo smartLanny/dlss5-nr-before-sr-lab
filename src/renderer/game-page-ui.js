@@ -28,9 +28,10 @@
       fg: { backend: hasFgComponents(assessment) && settings.fgComponents?.backend || backend, mode: 'restore', multiplier: 2, targetFps: 0, ...(settings.requests?.fg?.request || settings.applied?.fg?.request || {}) } };
   }
   function mount(host, manager, options = {}) {
-    let id = null, data = null, draft = {}, fields = {}, tab = 'overview', busy = false, launching = false, message = '', error = false,
+    let id = null, data = null, draft = {}, fields = {}, invalidFields = {}, tab = 'overview', busy = false, launching = false, message = '', error = false,
       modal = null, generation = 0, session = null, unsubscribe = null;
-    const dirty = () => Object.keys(draft).length > 0;
+    const draftCount = () => new Set([...Object.keys(draft), ...Object.keys(invalidFields)]).size;
+    const dirty = () => draftCount() > 0;
     const act = (name, label, disabled = false, kind = '') => `<button type="button" class="button ${kind}" data-gp-action="${name}"${disabled ? ' disabled' : ''}>${label}</button>`;
     const selected = (name, baseline) => draft[name] ?? baseline;
     function specialRoute() {
@@ -136,7 +137,7 @@
         ${data.game.installed || hasSettings ? '<p class="gp-caption">请先明确移除配套并恢复超分补帧设置，再隔离剩余文件。</p>' : ''}<div class="gp-actions">${act('clean-environment', '预览剩余文件隔离', busy || data.game.installed || hasSettings || env.isolated)}${act('restore-environment', '撤销上次清理', busy || !env.canRestore)}</div></section>
         ${manager.removeGame ? `<section class="gp-section"><h3>游戏库条目</h3><p class="gp-caption">先完成卸载与设置恢复，再移出游戏库；之后可重新添加。</p>${act('remove-game', '移出游戏库', busy || dirty() || data.game.installed || hasSettings || data.operation?.pending || dep.needsRecovery || env.isolated, 'subtle')}</section>` : ''}`;
     }
-    function footer() { return `<div class="gp-apply-bar"><div><strong>${dirty() ? `有 ${Object.keys(draft).length} 组修改待应用` : '暂无待应用修改'}</strong><small>${dirty() ? '修改暂存；组件准备和设置将在同一次应用中完成。' : '实际增强效果请在概览中分别核对。'}</small></div><div>${act('discard', '放弃修改', busy || !dirty())}${act('preview', '预览并应用', busy || !dirty() || data.operation?.pending, 'primary')}</div></div>`; }
+    function footer() { return `<div class="gp-apply-bar"><div><strong>${Object.keys(invalidFields).length ? '请先修正无效输入' : dirty() ? `有 ${draftCount()} 组修改待应用` : '暂无待应用修改'}</strong><small>${dirty() ? '修改暂存；组件准备和设置将在同一次应用中完成。' : '实际增强效果请在概览中分别核对。'}</small></div><div>${act('discard', '放弃修改', busy || !dirty())}${act('preview', '预览并应用', busy || !dirty() || Object.keys(invalidFields).length > 0 || data.operation?.pending, 'primary')}</div></div>`; }
     function render() {
       if (!data) { host.innerHTML = `<div class="gp-section">${act('back', '← 返回游戏库')}<p role="status">${esc(message || '正在读取游戏状态…')}</p>${error ? act('refresh', '重试') : ''}</div>`; return; }
       host.innerHTML = head() + `<div class="gp-message${error ? ' error' : ''}" role="${error ? 'alert' : 'status'}"${message ? '' : ' hidden'}>${esc(message)}</div>` + (tab === 'overview' ? overview() : tab === 'enhance' ? enhance() : maintenance()) + footer();
@@ -155,27 +156,39 @@
       host.insertAdjacentHTML('beforeend', `<div class="gp-modal" role="dialog" aria-modal="true" aria-label="${modalTitle}"><div class="gp-modal-card"><h3>${modalTitle}</h3>${content}<div class="gp-message gp-modal-message" role="status"></div><div class="gp-modal-actions">${act('modal-cancel', modal.kind === 'leave' ? '继续编辑' : '取消', busy)}${modal.kind === 'leave' ? act('leave-confirm', '放弃修改并离开', busy, 'danger') : modal.kind === 'visual' ? act('save-visual', '保存用户观察', busy, 'primary') : modal.kind === 'remove' ? act('remove-confirm', '确认移出', busy, 'danger') : `${modal.kind === 'apply' && manager.applyOperationElevated ? act('apply-elevated', '以管理员权限应用本次操作', busy || plan.blockers?.length > 0) : ''}${act('modal-apply', modal.kind === 'cleanup' ? '备份并隔离所选文件' : '应用本次变更', busy || plan.blockers?.length > 0, 'primary')}`}</div></div></div>`);
       host.querySelector('.gp-modal button')?.focus();
     }
-    function updateBar() { const bar = host.querySelector('.gp-apply-bar'); if (bar) bar.outerHTML = footer(); const start = host.querySelector('[data-gp-action="launch"]'); if (start) start.disabled = busy || launching || dirty() || data.operation?.pending; }
+    function updateBar() {
+      const bar = host.querySelector('.gp-apply-bar'); if (bar) bar.outerHTML = footer();
+      const start = host.querySelector('[data-gp-action="launch"]'); if (start) start.disabled = busy || launching || dirty() || data.operation?.pending;
+      const notice = host.querySelector(':scope > .gp-message');
+      if (notice) { notice.textContent = message; notice.hidden = !message; notice.classList.toggle('error', error); notice.setAttribute('role', error ? 'alert' : 'status'); }
+    }
     async function refresh(preserve = true) {
       if (!id) return; const token = ++generation; const value = unwrap(await manager.assessGame(id)); if (token !== generation) return;
       data = value; session = value.launch?.session; if (!preserve || !fields.sr) fields = initialFields(data); render();
     }
     async function work(fn, success, preserve = false) {
       if (busy) return; busy = true; message = ''; error = false; render();
-      try { const result = unwrap(await fn()); message = result?.notice || success || '操作已完成。'; if (!preserve) { draft = {}; fields = {}; } modal = null; await refresh(preserve); return result; }
+      try { const result = unwrap(await fn()); message = result?.notice || success || '操作已完成。'; if (!preserve) { draft = {}; fields = {}; invalidFields = {}; } modal = null; await refresh(preserve); return result; }
       catch (failure) { message = failure.message; error = true; modal = null; try { await refresh(true); } catch {} }
       finally { busy = false; render(); }
     }
     async function preview(request = draft) {
       if (busy) return; busy = true; message = ''; error = false; render();
-      try { modal = { kind: 'apply', plan: unwrap(await manager.previewOperation(id, request)) }; }
+      try {
+        if (request === draft) for (const domain of ['sr', 'fg']) if (draft[domain] || invalidFields[domain]) {
+          // Validate the visible values again; an earlier valid draft must not
+          // survive an invalid edit and silently become the request sent out.
+          draft[domain] = scope.launchSettingsUi.createRequest(domain, fields[domain]); delete invalidFields[domain];
+        }
+        modal = { kind: 'apply', plan: unwrap(await manager.previewOperation(id, request)) };
+      }
       catch (failure) { message = failure.message; error = true; }
       finally { busy = false; render(); }
     }
     async function apply(elevated = false) {
       if (!modal || busy) return;
       const value = modal, allowAntiCheat = host.querySelector('[data-gp-consent]')?.checked === true;
-      if ((data.antiCheat?.detected || value.plan?.deployment?.requiresAntiCheat) && !allowAntiCheat) { host.querySelector('.gp-modal-message').textContent = '请先确认已了解本次游戏的反作弊提示。'; return; }
+      if (value.kind === 'apply' && (data.antiCheat?.detected || value.plan?.deployment?.requiresAntiCheat) && !allowAntiCheat) { host.querySelector('.gp-modal-message').textContent = '请先确认已了解本次游戏的反作弊提示。'; return; }
       if (value.kind === 'cleanup') {
         const names = [...host.querySelectorAll('[data-gp-clean]:checked')].map(input => input.dataset.gpClean);
         if (!names.length) { host.querySelector('.gp-modal-message').textContent = '请先选择需要隔离的文件。'; return; }
@@ -186,12 +199,12 @@
     }
     function requestLeave(callback) { if (busy) return false; if (!dirty()) { callback(); return true; } modal = { kind: 'leave', callback }; renderModal(); return false; }
     async function open(gameId, initialTab = 'overview') {
-      id = gameId; data = null; draft = {}; fields = {}; tab = initialTab; modal = null; message = ''; error = false; render();
+      id = gameId; data = null; draft = {}; fields = {}; invalidFields = {}; tab = initialTab; modal = null; message = ''; error = false; render();
       try { await refresh(false); } catch (failure) { message = failure.message; error = true; render(); }
     }
     function change(input) {
       const group = input.dataset.gpGroup, key = input.dataset.gpField; if (!key || input.disabled || busy) return;
-      const value = input.type === 'checkbox' ? Number(input.checked) : group === 'nr' || input.type === 'range' || input.type === 'number' ? Number(input.value) : input.value;
+      const value = input.type === 'checkbox' ? Number(input.checked) : input.type === 'number' && input.value === '' ? '' : group === 'nr' || input.type === 'range' || input.type === 'number' ? Number(input.value) : input.value;
       if (group === 'nr') {
         draft.nr = { ...(draft.nr || {}), [key]: value };
         if (value === data.nr?.[key]) delete draft.nr[key]; if (!Object.keys(draft.nr).length) delete draft.nr;
@@ -206,8 +219,9 @@
           const ratio = { dlaa: 100, quality: 67, balanced: 59, performance: 50, ultraPerformance: 33 }[value];
           if (ratio) fields.sr.renderPercent = ratio;
         }
-        try { draft[group] = scope.launchSettingsUi.createRequest(group, fields[group]); message = ''; error = false; }
-        catch (failure) { message = failure.message; error = true; }
+        try { draft[group] = scope.launchSettingsUi.createRequest(group, fields[group]); delete invalidFields[group]; }
+        catch (failure) { invalidFields[group] = failure.message; }
+        message = Object.values(invalidFields).join('；'); error = Boolean(message);
       }
       if (input.tagName === 'SELECT') { const field = input.dataset.gpField; render(); host.querySelector(`[data-gp-group="${group}"][data-gp-field="${field}"]`)?.focus(); }
       else updateBar();
@@ -221,13 +235,13 @@
         if (action === 'back') requestLeave(() => options.onBack?.());
         else if (action === 'refresh') { await refresh(true); message = '已重新检查当前状态。'; render(); }
         else if (action === 'preview') await preview();
-        else if (action === 'discard') { draft = {}; fields = initialFields(data); message = '已放弃尚未应用的修改。'; render(); }
+        else if (action === 'discard') { draft = {}; invalidFields = {}; fields = initialFields(data); message = '已放弃尚未应用的修改。'; error = false; render(); }
         else if (action === 'prepare') { draft.api = selected('api', data.game.apiOverride || 'auto'); draft.version = host.querySelector('[data-gp-field="version"]').value; draft.deployment = selected('deployment', data.layout?.mode || 'local'); const route = specialRoute(); if (route) { draft.route = route; draft.api = route === 'vulkan' ? 'vulkan' : 'dx12'; } updateBar(); }
         else if (action.startsWith('panel-')) { draft.hotkeys = { reshade: { key: action === 'panel-insert' ? 45 : 36, ctrl: action === 'panel-ctrl-home', shift: false, alt: false } }; render(); }
-        else if (action === 'restore-sr' || action === 'restore-fg') { const domain = action.slice(-2); fields[domain][domain === 'sr' ? 'quality' : 'mode'] = domain === 'sr' ? 'game' : 'restore'; draft[domain] = scope.launchSettingsUi.createRequest(domain, fields[domain]); render(); }
+        else if (action === 'restore-sr' || action === 'restore-fg') { const domain = action.slice(-2); fields[domain][domain === 'sr' ? 'quality' : 'mode'] = domain === 'sr' ? 'game' : 'restore'; draft[domain] = scope.launchSettingsUi.createRequest(domain, fields[domain]); delete invalidFields[domain]; message = Object.values(invalidFields).join('；'); error = Boolean(message); render(); }
         else if (action === 'reapply') { draft.reapplyExternalChanges = true; for (const domain of ['sr', 'fg']) if (data.enhancements?.applied?.[domain]?.requiresReapply) draft[domain] = data.enhancements.applied[domain].request; await preview(); }
         else if (action === 'modal-cancel') { modal = null; host.querySelector('.gp-modal')?.remove(); }
-        else if (action === 'leave-confirm') { const callback = modal.callback; draft = {}; modal = null; callback?.(); }
+        else if (action === 'leave-confirm') { const callback = modal.callback; draft = {}; invalidFields = {}; modal = null; callback?.(); }
         else if (action === 'modal-apply' || action === 'apply-elevated') await apply(action === 'apply-elevated');
         else if (action === 'record-visual') { modal = { kind: 'visual' }; renderModal(); }
         else if (action === 'remove-game') { modal = { kind: 'remove' }; renderModal(); }
@@ -276,7 +290,7 @@
       }
     });
     if (manager.onLaunchSession) unsubscribe = manager.onLaunchSession(value => { if (value.gameId === id) { session = value; render(); } });
-    return { open, refresh, requestLeave, hasDraft: dirty, discard: () => { draft = {}; }, getState: () => ({ id, data, draft: structuredClone(draft), tab, busy, launching }), dispose: () => { generation++; unsubscribe?.(); } };
+    return { open, refresh, requestLeave, hasDraft: dirty, discard: () => { draft = {}; invalidFields = {}; }, getState: () => ({ id, data, draft: structuredClone(draft), tab, busy, launching }), dispose: () => { generation++; unsubscribe?.(); } };
   }
   const api = { mount, recommendedModel, initialFields };
   if (typeof module === 'object' && module.exports) module.exports = api; else scope.GamePageUi = api;

@@ -178,6 +178,54 @@ test('an ordinary file-lock error rolls the whole migration back', async t => {
   expectOriginals(f); assert.equal(fs.existsSync(f.pending), false);
 });
 
+test('apply preserves a newer local Core written during the final game-closed check before deletion', async t => {
+  let f, armed = false, replaced = false;
+  const replacement = 'external Core written while the close check was awaited';
+  f = fixture(t, 'dx12', {
+    afterWrite: ({ row, target }) => { if (row.file === path.join(target.runtimeDir, 'ReShade.ini')) armed = true; },
+    guards: { antiCheatPresent: () => false, assertGameClosed: async () => {
+      if (!armed || replaced) return;
+      armed = false; replaced = true;
+      const core = path.join(f.dir, INSTALLED_NAMES.addon);
+      assert.equal(fs.readFileSync(core, 'utf8'), f.originals[INSTALLED_NAMES.addon]);
+      fs.writeFileSync(core, replacement);
+    } }
+  });
+  await assert.rejects(toExternal(f), error => error.code === 'DEPLOYMENT_FILE_CHANGED' && error.details.needsRecovery === true);
+  assert.equal(replaced, true); assert.equal(fs.readFileSync(path.join(f.dir, INSTALLED_NAMES.addon), 'utf8'), replacement);
+  const pending = fs.readFileSync(f.pending), wal = JSON.parse(pending), row = wal.files.find(item => item.file === path.join(f.dir, INSTALLED_NAMES.addon));
+  assert.equal(row.before, sha(f.originals[INSTALLED_NAMES.addon])); assert.equal(row.after, null);
+  const snapshot = path.join(path.dirname(f.service.location(f.game).runtimeDir), 'history', wal.operation, row.snapshot);
+  assert.equal(fs.readFileSync(snapshot, 'utf8'), f.originals[INSTALLED_NAMES.addon]);
+  await assert.rejects(createExternalRuntime({ ...f.options, afterWrite: undefined }).recover(f.game), { code: 'DEPLOYMENT_FILE_CHANGED' });
+  assert.deepEqual(fs.readFileSync(f.pending), pending); assert.equal(fs.readFileSync(path.join(f.dir, INSTALLED_NAMES.addon), 'utf8'), replacement);
+});
+
+test('rollback preserves a newer external Core written during its final game-closed check before deletion', async t => {
+  const f = fixture(t, 'dx12', { afterWrite: ({ row, target }) => {
+    if (row.file === path.join(target.runtimeDir, 'ReShade.ini')) throw Object.assign(new Error('exit after publishing profile files'), { preservePending: true });
+  } });
+  await assert.rejects(toExternal(f));
+  const core = path.join(f.service.location(f.game).runtimeDir, INSTALLED_NAMES.addon), pending = fs.readFileSync(f.pending), wal = JSON.parse(pending);
+  const created = wal.files.filter(row => row.before === null && row.after !== null && fs.existsSync(row.file)).map(row => row.file);
+  assert.ok(created.length > 1 && created.includes(core));
+  let checks = 0, replaced = false;
+  const replacement = 'external Core written while the rollback close check was awaited';
+  const restarted = createExternalRuntime({ ...f.options, afterWrite: undefined,
+    guards: { antiCheatPresent: () => false, assertGameClosed: async () => {
+      checks++;
+      if (!replaced && checks > 1 && fs.existsSync(core) && created.every(file => file === core || !fs.existsSync(file))) {
+        replaced = true; assert.equal(fs.readFileSync(core, 'utf8'), f.originals[INSTALLED_NAMES.addon]); fs.writeFileSync(core, replacement);
+      }
+    } }
+  });
+  await assert.rejects(restarted.recover(f.game), { code: 'DEPLOYMENT_FILE_CHANGED' });
+  assert.equal(replaced, true); assert.equal(fs.readFileSync(core, 'utf8'), replacement); assert.deepEqual(fs.readFileSync(f.pending), pending);
+  await assert.rejects(createExternalRuntime({ ...f.options, afterWrite: undefined }).recover(f.game), { code: 'DEPLOYMENT_FILE_CHANGED' });
+  assert.equal(fs.readFileSync(core, 'utf8'), replacement); assert.deepEqual(fs.readFileSync(f.pending), pending);
+  expectOriginals(f);
+});
+
 test('recovery refuses to overwrite an external edit and preserves both WAL and snapshots', async t => {
   let failed = false;
   const f = fixture(t, 'dx12', { afterWrite: async ({ row }) => {

@@ -365,6 +365,35 @@ function createLaunchSettingsService(options = {}) {
   }
   function sameOwned(actual, expected, ids) { return ids.every(id => expected.settings[id].kind === 'explicit'
     ? policy.same(actual.settings[id], expected.settings[id]) : actual.settings[id].kind !== 'explicit'); }
+  async function publishExternalConfig(t, configFile, content, expectedBefore) {
+    const bound = { name: 'ReShade.ini', configFile }, location = configuration(t, 'mfgunlock', bound);
+    if (!location.external) fail('SETTINGS_LAYOUT_CHANGED', '外置配置提交范围与当前布局不一致。');
+    const expectedAfter = content === null ? null : policy.hash(content);
+    const temporary = path.join(path.dirname(location.file), `.ReShade.ini.mfg-${crypto.randomUUID()}.tmp`);
+    let handle, created = false;
+    try {
+      await noLinks(location.file);
+      if (content !== null) {
+        await noLinks(temporary); handle = await fsp.open(temporary, 'wx', 0o600); created = true;
+        await handle.writeFile(content, 'utf8'); await handle.sync(); await handle.close(); handle = null;
+        await noLinks(temporary);
+        if (await digestFile(temporary) !== expectedAfter) fail('WRITE_VERIFY_FAILED', '外置配置暂存内容校验失败，原配置未修改。');
+      }
+      // Finish all asynchronous preparation before the final target check.
+      // A failed or interrupted temporary write never truncates the active INI.
+      await assertStopped(t);
+      const fresh = configuration(t, 'mfgunlock', bound);
+      if (!fresh.external || !samePath(fresh.file, location.file)) fail('SETTINGS_LAYOUT_CHANGED', '外置配置位置在提交前改变。');
+      await noLinks(location.file);
+      if (await digestFile(location.file) !== expectedBefore) fail('SETTINGS_EXTERNAL_CHANGE', '外置配置在提交前被其他程序修改，未覆盖。');
+      if (content === null) { if (expectedBefore !== null) await fsp.unlink(location.file); }
+      else await fsp.rename(temporary, location.file);
+      if (await digestFile(location.file) !== expectedAfter) fail('WRITE_VERIFY_FAILED', '外置配置提交后校验失败。');
+    } finally {
+      if (handle) await handle.close().catch(() => {});
+      if (created) await fsp.unlink(temporary).catch(cause => { if (cause.code !== 'ENOENT') throw cause; });
+    }
+  }
   async function restoreExternalPending(t, forceRestore = false) {
     const file = externalPendingFile(t); await noLinks(file); if (!fs.existsSync(file)) return false;
     if (fs.statSync(file).size > 2 * 1024 * 1024) fail('SETTINGS_RECEIPT_INVALID', '外置配置恢复记录过大。');
@@ -382,8 +411,7 @@ function createLaunchSettingsService(options = {}) {
     const committed = !forceRestore && !fs.existsSync(journal.pendingPath(t.dir)) && state.lastTransaction?.id === row.transactionId &&
       state.lastTransaction?.domain === 'fg' && state.lastTransaction?.restoring === row.restoring && actual === row.afterHash;
     if (!committed && actual !== row.beforeHash) {
-      if (row.beforeText === null) await fsp.unlink(location.file);
-      else await fsp.writeFile(location.file, row.beforeText, 'utf8');
+      await publishExternalConfig(t, location.file, row.beforeText, actual);
       if (await digestFile(location.file) !== row.beforeHash) fail('WRITE_VERIFY_FAILED', '外置配置恢复后校验失败。');
     }
     await fsp.unlink(file); return !committed;
@@ -506,7 +534,8 @@ function createLaunchSettingsService(options = {}) {
           } else await journal.capture(t.dir, plan.change.file);
           if (await digestFile(plan.change.file) !== plan.change.beforeHash) fail('FILE_CHANGED', '配置在预览后改变。');
           await noLinks(plan.change.file);
-          if (plan.change.deleteAfter) await fsp.unlink(plan.change.file);
+          if (plan.change.external) await publishExternalConfig(t, plan.change.file, plan.change.deleteAfter ? null : plan.change.content, plan.change.beforeHash);
+          else if (plan.change.deleteAfter) await fsp.unlink(plan.change.file);
           else await fsp.writeFile(plan.change.file, plan.change.content, 'utf8');
           if (await digestFile(plan.change.file) !== plan.change.afterHash) fail('WRITE_VERIFY_FAILED', '配置写入后校验失败。');
         }

@@ -240,7 +240,12 @@ function createExternalRuntime(options) {
     for (const row of [...wal.files].reverse()) {
       const current = await digest(row.file); if (current === row.before) continue;
       if (current !== row.after) fail('FILE_CHANGED', '恢复前目标已变化，已保留记录。', { file: row.file });
-      if (row.before === null) { await closed(t); await fsp.unlink(row.file); }
+      if (row.before === null) {
+        await closed(t); await noLinks(row.file);
+        if (await digest(row.file) !== row.after) throw Object.assign(new Error('删除前目标已变化，已保留外部文件和恢复记录。'),
+          { code: 'DEPLOYMENT_FILE_CHANGED', details: { file: row.file }, preservePending: true });
+        await fsp.unlink(row.file);
+      }
       else await atomicCopy(t, historyFile(t, wal.operation, row.snapshot), row.file, row.before, current);
     }
     await fsp.unlink(t.pending);
@@ -277,7 +282,12 @@ function createExternalRuntime(options) {
         if (current !== row.before) fail('FILE_CHANGED', '部署开始后目标被外部修改，未覆盖。', { file: row.file });
         if (row.after !== row.before) {
           await closed(t);
-          if (row.after === null) await fsp.unlink(row.file);
+          if (row.after === null) {
+            await noLinks(row.file);
+            if (await digest(row.file) !== row.before) throw Object.assign(new Error('删除前目标已变化，已保留外部文件和恢复记录。'),
+              { code: 'DEPLOYMENT_FILE_CHANGED', details: { file: row.file }, preservePending: true });
+            await fsp.unlink(row.file);
+          }
           else await atomicCopy(t, historyFile(t, wal.operation, row.prepared), row.file, row.after, current);
         }
         await options.afterWrite?.({ index: i, row, target: t });
