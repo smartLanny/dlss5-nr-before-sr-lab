@@ -3084,22 +3084,104 @@ bool CapturePixelAddress(uint2 coord, out uint planeBytes, out uint offset) {
     return true;
 }
 
-// Hashes are only corroborating evidence: typed storage can quantize the
-// expected value. Deltas are raw stored RGB differences, capped at 1 for means.
+// Diagnostic-only storage conversion. Passthrough[21:19] describes the actual
+// Result UAV view: 0 unknown, 1 FP16, 2 UNORM8, 3 UNORM10, 4 R11G11B10_FLOAT.
+// D3D's narrow-float conversion truncates; convert directly from FP32 bits so
+// the 6/5-bit unsigned mantissas never pass through an intermediate rounding.
+uint StoreUnsignedFloatBits(float value, uint fractionBits) {
+    uint bits = asuint(value), exponent = (bits >> 23) & 255u;
+    uint fraction = bits & 0x7fffffu, limit = 31u << fractionBits;
+    if (exponent == 255u) {
+        if (fraction != 0u) return limit | 1u;
+        return (bits & 0x80000000u) != 0u ? 0u : limit;
+    }
+    if ((bits & 0x80000000u) != 0u) return 0u;
+    if (exponent >= 143u) return limit - 1u;
+    if (exponent < 113u) {
+        uint shift = 136u - fractionBits - exponent;
+        return shift >= 32u ? 0u : (0x800000u | fraction) >> shift;
+    }
+    return ((exponent - 112u) << fractionBits) | (fraction >> (23u-fractionBits));
+}
+// Exact floor(value * scale) for finite 0..1 and scale <= 5115. Two limbs
+// retain the product's low bits; FP32 multiplication at a UNORM tie could
+// otherwise change which conversions the 0.6-integer-ULP spec permits.
+uint StoreUnormScaledFloor(float value, uint scale) {
+    uint bits = asuint(value), exponent = (bits >> 23) & 255u;
+    if (exponent == 0u) return 0u;
+    uint significand = (bits & 0x7fffffu) | 0x800000u;
+    uint lowProduct = (significand & 65535u) * scale;
+    uint highProduct = (significand >> 16) * scale;
+    uint low = lowProduct + (highProduct << 16);
+    uint high = (highProduct >> 16) + (low < lowProduct ? 1u : 0u);
+    uint shift = 150u - exponent;
+    if (shift >= 64u) return 0u;
+    if (shift >= 32u) return high >> (shift-32u);
+    return (low >> shift) | (high << (32u-shift));
+}
+float StoreUnormExpected(float value, uint maximum, out bool unique) {
+    float bounded = isnan(value) ? 0.0 : saturate(value);
+    uint base = StoreUnormScaledFloor(bounded,maximum);
+    uint twice = StoreUnormScaledFloor(bounded,maximum*2u);
+    uint fifths = StoreUnormScaledFloor(bounded,maximum*5u) - base*5u;
+    // frac in [0.4,0.6] permits two encodings. A binary input cannot equal
+    // either endpoint exactly; fifths==2 captures this ambiguity exactly.
+    unique = fifths != 2u;
+    uint code = (twice+1u) >> 1;
+    return (float)code / (float)maximum;
+}
+float3 StoreExpectedValue(float3 value, out bool known) {
+    uint kind = (Passthrough >> 19) & 7u;
+    known = all(isfinite(value));
+    float3 result = value;
+    if (kind == 1u) result = f16tof32(f32tof16(value));
+    else if (kind == 4u) result = f16tof32(uint3(
+        StoreUnsignedFloatBits(value.x,6u) << 4,
+        StoreUnsignedFloatBits(value.y,6u) << 4,
+        StoreUnsignedFloatBits(value.z,5u) << 5));
+    else if (kind == 2u || kind == 3u) {
+        uint maximum = kind == 2u ? 255u : 1023u;
+        bool r,g,b;
+        result.x = StoreUnormExpected(value.x,maximum,r);
+        result.y = StoreUnormExpected(value.y,maximum,g);
+        result.z = StoreUnormExpected(value.z,maximum,b);
+        known = known && r && g && b;
+    } else known = false;
+    known = known && all(isfinite(result));
+    return result;
+}
+float3 StoreActualValue(float3 value) {
+    uint kind = (Passthrough >> 19) & 7u;
+    if (kind == 2u || kind == 3u) {
+        uint maximum = kind == 2u ? 255u : 1023u;
+        bool ignored;
+        // Typed UNORM reads can differ by an FP32 rounding bit. Recover the
+        // stored integer first, then use the same canonical expansion as the
+        // expectation. This never changes the actual target resource.
+        return float3(StoreUnormExpected(value.x,maximum,ignored),
+            StoreUnormExpected(value.y,maximum,ignored),
+            StoreUnormExpected(value.z,maximum,ignored));
+    }
+    return value;
+}
+// Fingerprints cover full canonical stored RGB, including HDR values; no
+// saturate-to-1023 collapse. They remain sparse corroborating evidence.
 uint PostStoredHash(float3 value, uint2 coord) {
-    uint3 q = (uint3)round(saturate(value) * 1023.0);
-    return DiagnosticHash(coord.x ^ (coord.y * 0x9e3779b9u) ^
-                          q.x ^ (q.y << 10) ^ (q.z << 20));
+    uint3 q = asuint(value);
+    uint seed = DiagnosticHash(coord.x ^ (coord.y * 0x9e3779b9u));
+    return DiagnosticHash(q.x ^ seed ^ 0x85ebca6bu) ^
+        DiagnosticHash(q.y ^ seed ^ 0xc2b2ae35u) ^
+        DiagnosticHash(q.z ^ seed ^ 0x27d4eb2fu);
 }
 void RecordPostStoreExpected(uint2 coord, float3 expected) {
     if ((Passthrough & 131072u) == 0u || (coord.x & 31u) != 0u ||
         (coord.y & 31u) != 0u) return;
     float3 original = OriginalColor.Load(int3(coord + uint2(SourceBaseX, SourceBaseY), 0)).rgb;
-    // PRE owns an FP16 Result: compare storage with the value after its known
-    // conversion, so HDR precision loss cannot masquerade as a wrong store.
-    // This diagnostic conversion does not change ResultOut or composition.
-    if ((Passthrough & 262144u) != 0u) expected = f16tof32(f32tof16(expected));
-    if (!all(isfinite(original)) || !all(isfinite(expected))) return;
+    bool known;
+    expected = StoreExpectedValue(expected,known);
+    // An unsupported format, nonfinite value or ambiguous UNORM boundary
+    // leaves an unpaired expected sample: the collector reports unknown.
+    if (!all(isfinite(original)) || !known) return;
     float delta = max(abs(expected.x-original.x),
         max(abs(expected.y-original.y), abs(expected.z-original.z)));
     uint ignored;
@@ -3124,9 +3206,16 @@ void ProbePostStoreCS(uint3 tid : SV_DispatchThreadID) {
     float3 original = EditField.Load(int3(referenceCoord,0)).rgb;
     uint ignored;
     DeltaStats.InterlockedAdd(112u,1u,ignored);
-    if (!all(isfinite(actual)) || !all(isfinite(original))) {
+    bool actualNonfinite = !all(isfinite(actual));
+    bool referenceNonfinite = !all(isfinite(original));
+    if (actualNonfinite || referenceNonfinite) {
+        // At most 65535 sparse samples: low 16 bits keep the original union
+        // invalid count. Separate flags identify a bad target versus reference.
+        DeltaStats.InterlockedOr(120u,(actualNonfinite?65536u:0u) |
+            (referenceNonfinite?131072u:0u),ignored);
         DeltaStats.InterlockedAdd(120u,1u,ignored); return;
     }
+    actual = StoreActualValue(actual);
     float delta = max(abs(actual.x-original.x),
         max(abs(actual.y-original.y),abs(actual.z-original.z)));
     if (delta > (1.0/1024.0)) DeltaStats.InterlockedAdd(116u,1u,ignored);
@@ -4003,11 +4092,20 @@ struct NrStageCapture {
     bool pending = false;
 };
 
+unsigned NrStoreDiagnosticFormat(DXGI_FORMAT format) {
+    switch (format) {
+    case DXGI_FORMAT_R16G16B16A16_FLOAT: return 1;
+    case DXGI_FORMAT_R8G8B8A8_UNORM: return 2;
+    case DXGI_FORMAT_R10G10B10A2_UNORM: return 3;
+    case DXGI_FORMAT_R11G11B10_FLOAT: return 4;
+    default: return 0;
+    }
+}
 struct NrStoredResultMetadata {
     NrDiagnosticIdentity identity{};
     nr_native_format::Key native_key{};
     unsigned long long feature_generation=0;
-    unsigned source_physical=0,source_view=0,result_physical=0,result_view=0;
+    unsigned source_physical=0,source_view=0,result_physical=0,result_view=0,result_uav=0;
     int mode=0;
     bool recorded=false;
 };
@@ -4099,7 +4197,9 @@ struct NrSlot {
 struct NrPostStoreEvidence {
     NrDiagnosticIdentity identity{};
     nr_native_format::Key native_key{};
-    unsigned source_physical=0,source_view=0,result_physical=0,result_view=0;
+    unsigned source_physical=0,source_view=0,result_physical=0,result_view=0,result_uav=0;
+    bool comparison_known=false,matches_expected=false;
+    bool actual_nonfinite=false,reference_nonfinite=false;
     int mode=0; // 2: owned pre-SR Result; 1: game's post-SR Output.
     unsigned long long frame=0,feature_generation=0,tick=0;
     unsigned long long boundary_trace_id=0;
@@ -4569,7 +4669,7 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
     ID3D12Resource_Unmap(slot.delta_stats_readback, 0, &written_range);
     slot.delta_stats_pending = false;
 
-    if (values[28] && values[39] && slot.stored_result_metadata.recorded) {
+    if (values[28] && slot.stored_result_metadata.recorded) {
         const auto& metadata=slot.stored_result_metadata;
         NrPostStoreEvidence evidence;
         evidence.identity=metadata.identity;
@@ -4579,18 +4679,26 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
         evidence.source_view=metadata.source_view;
         evidence.result_physical=metadata.result_physical;
         evidence.result_view=metadata.result_view;
+        evidence.result_uav=metadata.result_uav;
         evidence.frame=metadata.identity.frame_id;
         evidence.boundary_trace_id=metadata.mode==1?slot.post_boundary_trace_id:0;
         evidence.feature_generation=metadata.feature_generation;
         evidence.config=metadata.identity.config_generation;
         evidence.tick=GetTickCount64();
-        evidence.samples=values[28]; evidence.changed=values[29]; evidence.invalid=values[30];
+        evidence.samples=values[28]; evidence.changed=values[29]; evidence.invalid=values[30]&65535u;
+        evidence.actual_nonfinite=(values[30]&65536u)!=0;
+        evidence.reference_nonfinite=(values[30]&131072u)!=0;
         evidence.actual_max=static_cast<float>(values[31])/1048576.0f;
         evidence.actual_mean=static_cast<float>(values[32])/(values[28]*65535.0f);
         evidence.before_hash=values[33]; evidence.expected_hash=values[34]; evidence.actual_hash=values[35];
-        evidence.expected_mean=static_cast<float>(values[36])/(values[39]*65535.0f);
+        evidence.expected_mean=values[39]?static_cast<float>(values[36])/(values[39]*65535.0f):0.0f;
         evidence.expected_max=static_cast<float>(values[37])/1048576.0f;
         evidence.expected_changed=values[38]; evidence.expected_samples=values[39];
+        evidence.comparison_known=NrStoreDiagnosticFormat(static_cast<DXGI_FORMAT>(metadata.result_uav))!=0 &&
+            values[39]==values[28] && evidence.invalid==0 &&
+            !evidence.actual_nonfinite && !evidence.reference_nonfinite;
+        evidence.matches_expected=evidence.comparison_known && values[34]==values[35] &&
+            values[38]==values[29] && values[37]==values[31] && values[36]==values[32];
         AcquireSRWLockExclusive(&g_diagnostic_snapshot_lock);
         auto& destination=evidence.mode==2?g_pre_store_evidence:g_post_store_evidence;
         if (evidence.frame>=destination.frame) destination=evidence;
@@ -4598,11 +4706,13 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
         static unsigned reports=0;
         if (++reports<=3 || reports%120==0)
             Log("[%s-store] frame=%llu config=%u samples=%u/%u changed=%u/%u "
-                "meanStoredDelta expected=%.6f actual=%.6f invalid=%u "
+                "meanStoredDelta expected=%.6f actual=%.6f invalid=%u actualNonFinite=%d referenceNonFinite=%d comparison=%s "
                 "hash before=%08X expected=%08X actual=%08X; read after actual target store, not Present.",
                 evidence.mode==2?"pre":"post",evidence.frame,evidence.config,evidence.expected_samples,evidence.samples,
                 evidence.expected_changed,evidence.changed,evidence.expected_mean,evidence.actual_mean,
-                evidence.invalid,evidence.before_hash,evidence.expected_hash,evidence.actual_hash);
+                evidence.invalid,evidence.actual_nonfinite,evidence.reference_nonfinite,
+                evidence.comparison_known?(evidence.matches_expected?"match":"mismatch"):"unknown",
+                evidence.before_hash,evidence.expected_hash,evidence.actual_hash);
     }
     if (sample_count == 0) return;
     const float max_delta = static_cast<float>(max_quantized) / 1048576.0f;
@@ -6584,6 +6694,14 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     }
     if (post_sr && slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT)
         Log("Post-SR native FP16 Output retained: active=%ux%u copied byte-exactly to owned snapshot; no SR target redirection.", width, height);
+    if (post_sr && slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT && g_codec.post_store_probe) {
+        // FP16 snapshots use CopyResource, so this optional table exists only
+        // for the same sparse post-store probe used by other typed targets.
+        const HRESULT probe_hr=ID3D12Device_CreateDescriptorHeap(device,&heap_desc,
+            IID_ID3D12DescriptorHeap,reinterpret_cast<void**>(&slot.snapshot_heap));
+        if (SUCCEEDED(probe_hr)) WritePostSrSnapshotDescriptors(device,slot);
+        else Log("FP16 post-store probe heap unavailable: 0x%08X",static_cast<unsigned>(probe_hr));
+    }
     if (!post_sr && g_codec.post_store_probe != nullptr) {
         // Optional diagnostic descriptors only. Allocation failure leaves the
         // established rendering path intact and supplies no stored-write proof.
@@ -7339,9 +7457,11 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         // the clear visible before any diagnostic thread updates the buffer.
         UavBarrier(command_list, slot.delta_stats);
     }
+    const unsigned int store_format_flags = (probe_post_store || probe_pre_store)
+        ? NrStoreDiagnosticFormat(slot.result_uav_format) << 19 : 0u;
     const unsigned int codec_flags = base_codec_flags | (f8_armed?512u:0u) |
         ((probe_post_store || probe_pre_store) ? 131072u : 0u) |
-        (probe_pre_store ? 262144u : 0u);
+        (probe_pre_store ? 262144u : 0u) | store_format_flags;
     if (capture_delta) {
         slot.diagnostic_color_policy = color_policy;
         slot.diagnostic_color_strength = effective_color_strength;
@@ -7466,6 +7586,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         metadata.source_view=static_cast<unsigned>(slot.source_srv_format);
         metadata.result_physical=static_cast<unsigned>(slot.result_format);
         metadata.result_view=static_cast<unsigned>(slot.result_srv_format);
+        metadata.result_uav=static_cast<unsigned>(slot.result_uav_format);
         metadata.recorded=true;
     }
     if (capture_delta) {

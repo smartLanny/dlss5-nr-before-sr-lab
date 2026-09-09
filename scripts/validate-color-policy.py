@@ -90,6 +90,7 @@ unsigned DispatchPolicy(Slot& slot,void* pipeline,const ColorContract& color_con
     // unused-target negative control run against production D3D12 below it.
     const bool probe_post_store=false;
     const bool probe_pre_store=false;
+    const unsigned store_format_flags=0;
     const bool low_grid_color=false, independent_chroma=false;
     DISPATCH
     return codec_flags;
