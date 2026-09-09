@@ -27,7 +27,7 @@ std::string SafeLines(const char *value) {
     const char *begin = value;
     for (const char *p = value;; ++p) {
         if (*p == '\n' || *p == 0) {
-            out += nr_feedback_text::Sanitize(std::string(begin, p));
+            out += nr_feedback_text::SanitizeMetadata(std::string_view(begin, p - begin));
             out += '\n';
             if (*p == 0) break;
             begin = p + 1;

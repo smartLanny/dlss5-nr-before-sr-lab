@@ -18,6 +18,7 @@
 #include <functional>
 #include <cmath>
 #include <shlobj.h>
+#include "nr_compatibility_verdict.h"
 
 // Use the real packager once for the saved-path regression. Its implementation
 // is compiled before the scheduler/filesystem seams below are introduced.
@@ -106,6 +107,9 @@ struct effect_runtime {
 namespace reshade::internal { static HMODULE get_reshade_module_handle() {return nullptr;} }
 
 // @production_globals
+
+// Runtime sampling is an explicit seam; unavailable evidence remains unknown.
+static nr_compatibility_verdict::Input SnapshotNrCompatibilityVerdict() { return {}; }
 
 enum class BypassReason { None };
 struct ChainConfig {

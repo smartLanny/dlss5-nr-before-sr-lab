@@ -62,6 +62,7 @@ DWORD GetLastError(){return last_error;}
 namespace reshade::api {struct effect_runtime;}
 enum class NrJitterMode {Legacy,GameInputPixel};
 '''
+    code += '#include "' + (ROOT/'src/nr_feedback_limits.h').as_posix() + '"\n'
     code += definition(cpp, 'struct ChainConfig', True) + '\n'
     code += definition(legacy, 'struct FeedbackSession', True) + '\n'
     code += definition(legacy, 'void FeedbackAppend(') + '\n' + helper + '\n'

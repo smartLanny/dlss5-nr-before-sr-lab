@@ -15,6 +15,13 @@ constexpr NgxResult kNgxSuccess = 1, kNgxFeatureNotFound = 2;
 struct NgxHandle { unsigned int id = 0; };
 struct ID3D12GraphicsCommandList { unsigned int device = 1; };
 struct NgxParams { unsigned int width = 1920, height = 1080, out_width = 3840, out_height = 2160; int flags = 0; };
+// Recovery is outside this focused lifecycle gate. Keep its actual admission
+// and retirement call sites intact while supplying no evidence or side effects.
+struct NrRecoveryCarrierScope {
+    NrRecoveryCarrierScope(ID3D12GraphicsCommandList *, unsigned long long) {}
+};
+void NrRecoveryRetireFeature(unsigned long long) {}
+void NrPrepareFormatObservation(ID3D12GraphicsCommandList *) {}
 using CreateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *, int, NgxParams *, NgxHandle **);
 using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *, const NgxHandle *, const NgxParams *, void *);
 using ReleaseFeatureFn = NgxResult (*)(NgxHandle *);

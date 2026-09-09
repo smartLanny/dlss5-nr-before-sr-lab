@@ -42,6 +42,7 @@ HARNESS = r'''
 #include <fstream>
 #include <memory>
 #include "nr_diagnostic_bundle.inl"
+#include "nr_compatibility_verdict.h"
 namespace reshade { namespace api {
 enum class device_properties { description,driver_version,vendor_id };
 enum class device_api { d3d12=49152 };
@@ -82,6 +83,15 @@ ColorSnapshot SnapshotColorPolicy(){return {};}
 const char *NrColorPolicyStatusName(int){return "unavailable";}
 const char *NrColorReasonName(int){return "unknown";}
 APPEND
+#include "nr_compatibility_verdict_feedback.inl"
+// Explicit snapshot seam. Default evidence stays unknown; writer and Resolve
+// remain production code. Combined tests populate this same value interface.
+nr_compatibility_verdict::Input fixture_decision;
+unsigned fixture_decision_snapshots=0;
+nr_compatibility_verdict::Input SnapshotNrCompatibilityVerdict() {
+    ++fixture_decision_snapshots;
+    return fixture_decision;
+}
 #define NR_HAS_COMMAND_STATE_EVIDENCE 1
 #define NR_HAS_NGX_HOOK_EVIDENCE 1
 COMMAND_EVIDENCE
@@ -100,6 +110,7 @@ enum class BypassReason{Unknown};enum class ModuleObserverFault{None};
 const char *BypassReasonName(BypassReason){return "command-state-unverified";}
 const char *ModuleObserverFaultName(ModuleObserverFault){return "none";}
 bool OtherNrOwnerActive(){return false;}
+COMBINED_EVIDENCE
 ACTIVITY
 RELEVANT
 STRENGTH
@@ -393,11 +404,7 @@ int main(int argc,char **argv) {
 }
 '''
 
-def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--compiler', required=True)
-    p.add_argument('--compile-only', action='store_true')
-    args = p.parse_args()
+def production_values():
     source = (ROOT/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
     legacy = (ROOT/'src/nr_feedback_capture.inl').read_text(encoding='utf-8-sig')
     command = (ROOT/'src/nr_command_state.inl').read_text(encoding='utf-8-sig')
@@ -416,7 +423,17 @@ def main():
         'RELEVANT': definition(legacy, 'bool FeedbackModuleRelevant('),
         'STRENGTH': definition(source, 'float ActiveTransferStrength('),
         'REQUEST_CORE': definition((ROOT/'src/nr_f8_sequence.inl').read_text(encoding='utf-8-sig'), 'bool RequestCore('),
+        'COMBINED_EVIDENCE': '',
     }
+    return values
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--compiler', required=True)
+    p.add_argument('--compile-only', action='store_true')
+    args = p.parse_args()
+    values = production_values()
     text = HARNESS
     for key, value in values.items():
         text = text.replace('\n'+key+'\n', '\n'+value+'\n')
@@ -453,6 +470,9 @@ def main():
         assert 'real depth transport failed' in bridge and 'Private Tester' not in bridge
         metadata = archive.read('capture-info.txt').decode('utf-8-sig')
         for key in ('start.commandState.schema=1', 'end.commandState.token=42',
+                    'start.decision.reason=current-scope-unavailable',
+                    'end.decision.reason=current-scope-unavailable',
+                    'decision.evidenceComplete=0', 'decision.recoveryResult=unavailable',
                     'end.commandState.reason=null-guard-awaiting-reset',
                     'end.commandState.guardCovered=1', 'end.commandState.freshReset=0',
                     'start.commandState.blend=0.25,0.5,0.75,1',

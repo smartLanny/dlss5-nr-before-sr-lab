@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -110,7 +111,7 @@ Input Proven() {
 }
 
 int main() {
-    FeedbackSession unknown;
+    auto unknown_storage = std::make_unique<FeedbackSession>(); auto &unknown = *unknown_storage;
     FeedbackAppendCompatibilityVerdict(unknown, "start", {});
     auto fields = Parse(unknown);
     ExpectDecision(fields, "start.decision", {});
@@ -125,7 +126,7 @@ int main() {
     Check(!unknown.report_truncated, "ordinary unknown snapshot is fully serialized");
 
     auto input = Proven();
-    FeedbackSession success;
+    auto success_storage = std::make_unique<FeedbackSession>(); auto &success = *success_storage;
     FeedbackAppendCompatibilityVerdict(success, "end", input);
     fields = Parse(success);
     ExpectDecision(fields, "end.decision", input);
@@ -140,7 +141,7 @@ int main() {
 
     input.visual = {FactState::Complete, input.current, {}, true, 17};
     input.recovery.first_failure = {};
-    FeedbackSession visual;
+    auto visual_storage = std::make_unique<FeedbackSession>(); auto &visual = *visual_storage;
     FeedbackAppendCompatibilityVerdict(visual, "end", input);
     FinishFeedbackReport(&visual);
     fields = Parse(visual);
@@ -152,7 +153,7 @@ int main() {
 
     input = Proven();
     input.recovery.scope.config = 6;
-    FeedbackSession stale;
+    auto stale_storage = std::make_unique<FeedbackSession>(); auto &stale = *stale_storage;
     FeedbackAppendCompatibilityVerdict(stale, "end", input);
     fields = Parse(stale);
     ExpectDecision(fields, "decision", input);
@@ -165,7 +166,7 @@ int main() {
     input = Proven();
     input.recovery.correlated_window = false;
     input.recovery.native_success_streak = 999;
-    FeedbackSession uncorrelated;
+    auto uncorrelated_storage = std::make_unique<FeedbackSession>(); auto &uncorrelated = *uncorrelated_storage;
     FeedbackAppendCompatibilityVerdict(uncorrelated, "end", input);
     fields = Parse(uncorrelated);
     ExpectDecision(fields, "decision", input);
@@ -173,7 +174,7 @@ int main() {
     Expect(fields, "end.decision.recovery.writebackVerified", "unknown", "uncorrelated writeback is not proof");
     input.recovery.correlated_window = true;
     input.recovery.native_success_streak = 0;
-    FeedbackSession measured_zero;
+    auto measured_zero_storage = std::make_unique<FeedbackSession>(); auto &measured_zero = *measured_zero_storage;
     FeedbackAppendCompatibilityVerdict(measured_zero, "end", input);
     fields = Parse(measured_zero);
     Expect(fields, "end.decision.recovery.nativeSuccessStreak", "0", "a supplied matching window may contain a real zero");
@@ -185,7 +186,7 @@ int main() {
     input.current = {true, 19, 77, 1, 1};
     const std::string chinese = u8"未知资源语义：颜色与曝光尚未核验";
     input.first_block = {true, true, input.current, chinese, true};
-    FeedbackSession localized;
+    auto localized_storage = std::make_unique<FeedbackSession>(); auto &localized = *localized_storage;
     FeedbackAppendCompatibilityVerdict(localized, "end", input);
     fields = Parse(localized);
     ExpectDecision(fields, "decision", input);
@@ -198,7 +199,7 @@ int main() {
     hostile += std::string("\0\xC0\xAF", 3);
     hostile += u8"保留";
     input.first_block.reason = hostile;
-    FeedbackSession escaped;
+    auto escaped_storage = std::make_unique<FeedbackSession>(); auto &escaped = *escaped_storage;
     FeedbackAppendCompatibilityVerdict(escaped, "end", input);
     fields = Parse(escaped);
     Expect(fields, "decision.evidenceComplete", "0", "text cannot inject a forged complete decision");
@@ -220,7 +221,7 @@ int main() {
     input.recovery.first_failure_definitive = true;
     input.observer = {FactState::Incomplete, input.current, oversized, true};
     input.command = input.queue = input.visual = input.observer;
-    FeedbackSession bounded;
+    auto bounded_storage = std::make_unique<FeedbackSession>(); auto &bounded = *bounded_storage;
     FeedbackAppendCompatibilityVerdict(bounded, "start", input);
     FeedbackAppendCompatibilityVerdict(bounded, "end", input);
     const auto bounded_bytes = bounded.report_used;
@@ -238,7 +239,7 @@ int main() {
 
     // Leave enough room for an ordinary success headline but not a complete
     // snapshot. The actual append must reject the whole decision transaction.
-    FeedbackSession capacity;
+    auto capacity_storage = std::make_unique<FeedbackSession>(); auto &capacity = *capacity_storage;
     const auto filler_size = sizeof(capacity.report) - 256 - 1300;
     std::string filler = "existing=" + std::string(filler_size - 10, 'x') + '\n';
     FeedbackAppend(capacity, "%s", filler.c_str());
@@ -255,7 +256,7 @@ int main() {
     Expect(fields, "collection.timelineRowsOmitted", "0", "overflow retains the entire reserved tail");
     Check(ValidUtf8({capacity.report, capacity.report_used}), "capacity rejection cannot leave split UTF-8");
 
-    FeedbackSession full;
+    auto full_storage = std::make_unique<FeedbackSession>(); auto &full = *full_storage;
     filler = "existing=" + std::string(sizeof(full.report) - 256 - 11, 'y') + '\n';
     FeedbackAppend(full, "%s", filler.c_str());
     FeedbackAppendCompatibilityVerdict(full, "end", input);
@@ -264,7 +265,7 @@ int main() {
     Expect(fields, "collection.metadataTruncated", "1", "reserved final status survives even when fallback cannot fit");
     Check(full.report_used < sizeof(full.report), "the final status retains its NUL terminator");
 
-    FeedbackSession bad_prefix;
+    auto bad_prefix_storage = std::make_unique<FeedbackSession>(); auto &bad_prefix = *bad_prefix_storage;
     FeedbackAppendCompatibilityVerdict(bad_prefix, "end\ndecision.stage=complete", {});
     fields = Parse(bad_prefix);
     Expect(fields, "snapshot.decision.prefixRejected", "1", "unsafe prefixes are explicitly rejected");

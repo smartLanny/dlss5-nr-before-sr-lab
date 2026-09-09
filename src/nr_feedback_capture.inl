@@ -46,6 +46,8 @@ void FeedbackAppend(FeedbackSession &s, const char *format, ...) {
     } else s.report_used += static_cast<std::size_t>(n);
 }
 
+#include "nr_compatibility_verdict_feedback.inl"
+
 const char *FeedbackStageBlockReason(const ChainConfig &config) {
     if (!config.enabled) return "NR disabled; current-chain screenshots and logs collected without enabling NR";
     if (ShouldGuardFeature1ForRayReconstruction())
@@ -135,6 +137,70 @@ void FeedbackAppendNgxLifecycle(FeedbackSession &s) {
 }
 
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+    const auto decision = SnapshotNrCompatibilityVerdict();
+    FeedbackAppendCompatibilityVerdict(s, prefix, decision);
+#if defined(NR_HAS_RESOURCE_RECOVERY)
+    const auto receipt = SnapshotNrRecoveryDetails();
+    const auto &current = receipt.current;
+    const auto &key = current.key;
+    const auto &proof = receipt.proof;
+    const auto &failure = proof.first_failure;
+    const auto &failure_key = failure.token.key;
+    const auto number = [](std::uint64_t value, bool known = true) {
+        return known ? std::to_string(value) : std::string("unknown");
+    };
+    const auto identity = [&](std::uint64_t value) { return number(value, value != 0); };
+    char failure_result[16] = "unknown";
+    if (failure.present) std::snprintf(failure_result, sizeof(failure_result), "0x%08X",
+                                      static_cast<unsigned>(failure.result));
+    // This independently locked receipt may follow the decision snapshot by a
+    // frame. Keep both scopes explicit; none of these raw fields change Resolve.
+    FeedbackAppend(s, "%s.recovery.receipt=scopeAvailable:%d,scopeMatchesDecision:%d,"
+        "config:%s,featureGeneration:%s,requestedMode:%s,effectiveMode:%s,"
+        "keyConfig:%s,keyFeature:%s,keyFeatureGeneration:%s,keyMode:%s,"
+        "device:%s,deviceGeneration:%s,resource:%s,resourceGeneration:%s,subresource:%s,role:%s,carrierFrame:%s,"
+        "srv:%s,uav:%s,provenance:%s,evidenceId:%s,state:%s,attemptId:%s,proofAttemptId:%s,"
+        "proofFrame:%s,proofAge:%s,proofOrdinal:%s,proofTarget:%s,proofTargetGeneration:%s,proofTargetSubresource:%s,"
+        "correlatedWindow:%d,windowFirstFrame:%s,windowLastFrame:%s,windowFirstOrdinal:%s,windowLastOrdinal:%s,"
+        "failurePresent:%d,failureHistorical:%d,failureStage:%s,failureResult:%s,failureKind:%s,"
+        "failureFrame:%s,failureOrdinal:%s,failureAttempt:%s,failureConfig:%s,failureFeatureGeneration:%s,"
+        "failureDevice:%s,failureResource:%s,failureRole:%s,capacityUnknown:%d,frameLost:%d,receiptOverflow:%d\n",
+        prefix, current.input.current.available,
+        nr_compatibility_verdict::SameScope(current.input.current, decision.current),
+        number(current.input.current.config, current.input.current.available && current.input.current.config).c_str(),
+        number(current.input.current.feature_generation, current.input.current.available && current.input.current.feature_generation).c_str(),
+        number(current.input.current.requested_mode, current.input.current.available && current.input.current.requested_mode).c_str(),
+        number(current.input.current.effective_mode, current.input.current.available && current.input.current.effective_mode).c_str(),
+        identity(key.scope.config_generation).c_str(), identity(key.scope.feature).c_str(),
+        identity(key.scope.feature_generation).c_str(), identity(key.scope.mode).c_str(),
+        identity(key.scope.device).c_str(), identity(key.scope.device_generation).c_str(),
+        identity(key.resource).c_str(), identity(key.resource_generation).c_str(),
+        number(key.subresource, key.resource != 0).c_str(), number(key.role, key.resource != 0).c_str(),
+        identity(current.frame).c_str(), identity(current.signature.srv).c_str(), identity(current.signature.uav).c_str(),
+        identity(current.signature.provenance).c_str(), identity(current.signature.evidence_id).c_str(),
+        nr_resource_recovery::StateName(proof.state), identity(proof.attempt_id).c_str(), identity(proof.proof_attempt_id).c_str(),
+        identity(proof.proof_frame_id).c_str(), number(proof.proof_age, proof.proof_frame_id != 0).c_str(),
+        identity(proof.proof_carrier_ordinal).c_str(), identity(proof.proof_target.resource).c_str(),
+        identity(proof.proof_target.resource_generation).c_str(),
+        number(proof.proof_target.subresource, proof.proof_target.resource != 0).c_str(),
+        proof.correlated_window,
+        number(proof.window_first_frame_id, proof.correlated_window && proof.window_first_frame_id).c_str(),
+        number(proof.window_last_frame_id, proof.correlated_window && proof.window_last_frame_id).c_str(),
+        number(proof.window_first_ordinal, proof.correlated_window && proof.window_first_ordinal).c_str(),
+        number(proof.window_last_ordinal, proof.correlated_window && proof.window_last_ordinal).c_str(),
+        failure.present, proof.first_failure_historical,
+        failure.present ? nr_resource_recovery::StageName(failure.stage) : "none", failure_result,
+        number(static_cast<unsigned>(failure.kind), failure.present).c_str(),
+        number(failure.token.carrier.frame_id, failure.present && failure.token.carrier.frame_id).c_str(),
+        number(failure.token.carrier.ordinal, failure.present && failure.token.carrier.ordinal).c_str(),
+        number(failure.token.attempt_id, failure.present && failure.token.attempt_id).c_str(),
+        number(failure_key.scope.config_generation, failure.present && failure_key.scope.config_generation).c_str(),
+        number(failure_key.scope.feature_generation, failure.present && failure_key.scope.feature_generation).c_str(),
+        number(failure_key.scope.device, failure.present && failure_key.scope.device).c_str(),
+        number(failure_key.resource, failure.present && failure_key.resource).c_str(),
+        number(failure_key.role, failure.present && failure_key.resource).c_str(),
+        proof.capacity_unknown, proof.frame_evidence_lost, current.receipt_overflow);
+#endif
 #if defined(NR_HAS_EXPOSURE_SEMANTIC_EVIDENCE)
     const auto exposure_semantic = SnapshotNrExposureSemantic();
     FeedbackAppend(s, "%s.semantic.Exposure=available:%d,present:%d,required:%d,physical:%u,flags:0x%X,"

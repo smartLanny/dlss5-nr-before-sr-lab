@@ -5,6 +5,7 @@
 #include <deque>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // CPU-only policies shared by the runtime collector and host regressions.
@@ -36,16 +37,7 @@ inline std::string Lower(std::string value) {
 }
 inline bool Hex(char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; }
 inline bool Word(char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; }
-inline std::string Sanitize(std::string_view input) {
-    // Log excerpts are intentionally ASCII. This avoids invalid UTF-8 when a
-    // producer writes half a multibyte character or a bounded line is cut.
-    std::string line;
-    line.reserve(std::min(input.size(), kLineLimit));
-    for (char c : input.substr(0, kLineLimit)) {
-        const auto u = static_cast<unsigned char>(c);
-        if (u == '\r' || u == '\n') continue;
-        line += u >= 32 && u < 127 ? c : (u == '\t' ? ' ' : '?');
-    }
+inline std::string RedactSensitiveLine(std::string line) {
     const auto lower = Lower(line);
     for (const char *secret : {"authorization:", "password=", "access_token=", "github_pat_", "ghp_", "private key"})
         if (lower.find(secret) != std::string::npos) return "[sensitive log line omitted]";
@@ -81,7 +73,66 @@ inline std::string Sanitize(std::string_view input) {
     // This remains a historical text clue, not a trusted/current state claim.
     if (duplicate_init_abort && Lower(line).find("aborting initialization") == std::string::npos) {
         constexpr std::string_view marker = " [Aborting initialization]";
-        if (line.size() > kLineLimit - marker.size()) line.resize(kLineLimit - marker.size());
+        if (line.size() > kLineLimit - marker.size()) {
+            auto end = kLineLimit - marker.size();
+            while (end && (static_cast<unsigned char>(line[end]) & 0xC0) == 0x80) --end;
+            line.resize(end);
+        }
+        line += marker;
+    }
+    return line;
+}
+inline std::string Sanitize(std::string_view input) {
+    // Raw log excerpts retain the established ASCII normalization policy.
+    std::string line;
+    line.reserve(std::min(input.size(), kLineLimit));
+    for (char c : input.substr(0, kLineLimit)) {
+        const auto u = static_cast<unsigned char>(c);
+        if (u == '\r' || u == '\n') continue;
+        line += u >= 32 && u < 127 ? c : (u == '\t' ? ' ' : '?');
+    }
+    return RedactSensitiveLine(std::move(line));
+}
+inline std::string SanitizeMetadata(std::string_view input) {
+    // Metadata writers supply complete lines. Preserve valid UTF-8 scalars,
+    // normalize controls/invalid input, then apply exactly the same privacy
+    // redaction as logs. A byte limit must never split a UTF-8 character.
+    constexpr std::string_view marker = "[truncated]";
+    constexpr std::size_t payload = kLineLimit - marker.size();
+    std::string line;
+    line.reserve(std::min(input.size(), kLineLimit));
+    for (std::size_t offset = 0; offset < input.size();) {
+        const auto first = static_cast<unsigned char>(input[offset]);
+        if (first == '\r' || first == '\n') { ++offset; continue; }
+        std::size_t width = first < 0x80 ? 1 : first >= 0xC2 && first <= 0xDF ? 2 :
+            first >= 0xE0 && first <= 0xEF ? 3 : first >= 0xF0 && first <= 0xF4 ? 4 : 0;
+        if (width > input.size() - offset) width = 0;
+        for (std::size_t n = 1; n < width; ++n) {
+            const auto byte = static_cast<unsigned char>(input[offset + n]);
+            if (byte < 0x80 || byte > 0xBF) { width = 0; break; }
+        }
+        if (width > 1) {
+            const auto second = static_cast<unsigned char>(input[offset + 1]);
+            if ((first == 0xE0 && second < 0xA0) || (first == 0xED && second >= 0xA0) ||
+                (first == 0xF0 && second < 0x90) || (first == 0xF4 && second >= 0x90)) width = 0;
+        }
+        const bool control = first < 0x20 || first == 0x7F ||
+            (width == 2 && first == 0xC2 && static_cast<unsigned char>(input[offset + 1]) <= 0x9F) ||
+            (width == 3 && first == 0xE2 && static_cast<unsigned char>(input[offset + 1]) == 0x80 &&
+             (static_cast<unsigned char>(input[offset + 2]) == 0xA8 || static_cast<unsigned char>(input[offset + 2]) == 0xA9));
+        const auto bytes = width && !control ? width : std::size_t{1};
+        if (bytes > payload - line.size()) { line += marker; break; }
+        if (!width || control) line += first == '\t' ? ' ' : '?';
+        else line.append(input.data() + offset, width);
+        offset += width ? width : 1;
+    }
+    line = RedactSensitiveLine(std::move(line));
+    // Replacing very short repeated paths with a fixed privacy marker may grow
+    // the line. Preserve the same bound after redaction as well.
+    if (line.size() > kLineLimit) {
+        auto end = payload;
+        while (end && (static_cast<unsigned char>(line[end]) & 0xC0) == 0x80) --end;
+        line.resize(end);
         line += marker;
     }
     return line;
