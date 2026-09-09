@@ -11,6 +11,7 @@ class UiRefreshContract(unittest.TestCase):
         cls.ui = (ROOT / "src" / "nr_settings_ui.inl").read_text(encoding="utf-8")
         cls.post = (ROOT / "src" / "interop" / "nr_post_ui.inl").read_text(encoding="utf-8")
         cls.render = (ROOT / "src" / "interop" / "nr_render_control.inl").read_text(encoding="utf-8")
+        cls.notices = (ROOT / "src" / "nr_settings_notices_ui.inl").read_text(encoding="utf-8")
 
     def test_work_scale_is_one_continuous_supported_slider(self):
         self.assertIn('"##nr-processing-precision", &precision, 50.0f, 100.0f', self.ui)
@@ -128,6 +129,48 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn("only hue and saturation", self.ui)
         self.assertIn("If the model changes only luminance, this may have little effect.", self.ui)
         self.assertIn("Applies after releasing the slider.", self.ui)
+
+    def test_extra_enhancement_is_under_model_strength_and_only_amplifies(self):
+        model = self.ui.index('"##nr-model-strength"')
+        extra = self.ui.index('"##nr-strength-amplification"')
+        tone = self.ui.index('"##nr-local-tone"')
+        advanced = self.ui.index('SettingsSection(ui("Advanced picture controls"')
+        self.assertLess(model, extra)
+        self.assertLess(extra, tone)
+        self.assertLess(tone, advanced)
+        self.assertEqual(self.ui.count('"##nr-strength-amplification"'), 1)
+        control = self.ui[extra:tone]
+        self.assertIn('1.0f, 4.0f, "%.2f"', control)
+        self.assertIn('std::clamp(FiniteOr(effect_strength, 1.0f), 1.0f, 4.0f)', control)
+        self.assertIn('next.transfer_strength = next.post_transfer_strength = effect_strength;', control)
+        self.assertNotIn('NR_HAS_DETAIL_STABILITY', control)
+        self.assertIn('1 为原量（默认），更高值只放大；想减弱效果，请调低模型强度。', control)
+
+    def test_face_controls_keep_model_meaning_without_claiming_composition_isolation(self):
+        self.assertIn('"##nr-skin-detail", &next.skin_structure, 0.f, 2.f', self.ui)
+        self.assertIn('额外增强目前尚未避开模型识别的人脸区域', self.ui)
+        self.assertIn('设为 0 也不会恢复整张脸的原图', self.ui)
+        reset = (ROOT / 'src' / 'nr_model_controls.h').read_text(encoding='utf-8')
+        self.assertNotIn('transfer_strength', reset)
+        self.assertIn('保留额外增强、光影控制', self.ui)
+
+    def test_compatibility_ui_consumes_one_snapshot_and_keeps_requested_choice_editable(self):
+        self.assertEqual(self.ui.count('SnapshotCompatibilityFallback()'), 1)
+        self.assertIn('compatibility_snapshot.recent && compatibility_snapshot.effective_mode == 1', self.ui)
+        self.assertIn('DrawCompatibilityFallbackNotice(compatibility_snapshot)', self.ui)
+        self.assertNotIn('IsCompatibilityPostObserved()', self.ui)
+        self.assertNotIn('g_compat_fallback_reason.load', self.ui + self.notices)
+        mode = self.ui[self.ui.index('bool DrawProcessingModeBlocks('):
+                       self.ui.index('void DrawColorControls(')]
+        self.assertIn('rr_guarded ? 1 : effective_mode', mode)
+        self.assertIn('clicked && !rr_guarded && next.mode != requested_mode', mode)
+        self.assertNotIn('clicked && !rr_guarded && !selected', mode)
+
+    def test_migration_notice_dismisses_locally_without_writing_settings(self):
+        self.assertIn('DrawConfigPolicyMigrationNotice(SnapshotConfigPolicyMigrationStatus(),', self.ui)
+        self.assertIn('static bool migration_notice_dismissed = false;', self.ui)
+        for forbidden in ('SaveConfig(', 'ApplyConfig(', 'WriteIni', 'g_config =', '.store('):
+            self.assertNotIn(forbidden, self.notices)
 
     def test_game_render_query_stays_experimental_and_rr_safe(self):
         self.assertIn("IsRayReconstructionRouteObserved()", self.render)

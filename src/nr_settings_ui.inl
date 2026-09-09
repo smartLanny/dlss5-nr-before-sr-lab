@@ -64,6 +64,7 @@ void SettingsNote(const char *text) {
 #include "nr_light_style_ui.inl"
 #include "nr_face_diagnostic_ui.inl"
 #include "nr_face_region_selection.inl"
+#include "nr_settings_notices_ui.inl"
 
 nr_face_diagnostic_ui::View MakeFaceDiagnosticUiView(
     reshade::api::effect_runtime *runtime, const ChainConfig &config) {
@@ -139,7 +140,7 @@ OverlayApplyResult ApplySettingsOverlay(ChainConfig next, unsigned expected_gene
     return result;
 }
 
-bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded) {
+bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded, int effective_mode) {
     const bool zh = UseChineseUi();
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
     const char *labels[] = {
@@ -154,22 +155,22 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded) {
         if (option != 0) ImGui::SameLine();
         ImGui::PushID(option);
         const int requested_mode = option == 0 ? 2 : 1;
-        const int shown_mode = rr_guarded ? 1 : next.mode;
+        const int shown_mode = rr_guarded ? 1 : effective_mode;
         const bool selected = shown_mode == requested_mode;
         if (selected) ImGui::PushStyleColor(ImGuiCol_Button,
             ImGui::GetStyleColorVec4(ImGuiCol_Header));
         const bool clicked = ImGui::Button(labels[option],
             ImVec2(width, ImGui::GetFrameHeight() * 1.25f));
         if (selected) ImGui::PopStyleColor();
-        if (clicked && !rr_guarded && !selected) {
+        if (clicked && !rr_guarded && next.mode != requested_mode) {
             next.mode = requested_mode;
             changed = true;
         }
         SettingsTooltip(option == 0 ? ui(
-            "AI rendering first, then game upscaling. Usually costs less. Ray Reconstruction (RR) automatically uses the right-hand option instead.",
-            "先做 AI 渲染，再由游戏放大画面，通常更省性能。开启光线重建（RR）时，会自动使用右侧的后置模式。") : ui(
-            "Game upscaling first, then AI rendering. Usually costs more. RR uses this mode automatically; your choice returns when RR is off.",
-            "先由游戏放大画面，再做 AI 渲染，通常更耗性能。光线重建（RR）开启时自动使用此模式；关闭 RR 后恢复你自己的选择。"));
+            "AI rendering first, then game upscaling. Usually costs less. RR or a pre-SR compatibility issue can automatically select the right-hand route while retaining this preference.",
+            "先做 AI 渲染，再由游戏放大画面，通常更省性能。开启光线重建（RR）或前置画面暂不兼容时，会自动使用右侧后置模式，同时保留你的前置选择。") : ui(
+            "Game upscaling first, then AI rendering. Usually costs more. The highlight includes automatic RR and compatibility routes. When selectable, clicking also saves post-SR as your preference.",
+            "先由游戏放大画面，再做 AI 渲染，通常更耗性能。RR 或兼容回退时也会高亮此模式；可选择时主动点击，会把后置保存为你的选择。"));
         ImGui::PopID();
     }
     if (rr_guarded) ImGui::EndDisabled();
@@ -377,7 +378,9 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     static auto pending_model_action = nr_model_controls::Action::None;
     static unsigned pending_generation = 0;
     static bool edit_conflict = false;
+    static bool migration_notice_dismissed = false;
     const auto current = SnapshotOverlayConfig();
+    const auto compatibility_snapshot = SnapshotCompatibilityFallback();
     light_undo.Observe(current.generation);
     model_undo.Observe(current.generation);
     if (has_pending && pending_generation != current.generation) {
@@ -474,6 +477,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "设置无法保存，请检查插件目录是否可写。当前设置仍用于本次运行。"));
 
     ImGui::EndChild();
+    DrawConfigPolicyMigrationNotice(SnapshotConfigPolicyMigrationStatus(),
+        migration_notice_dismissed);
     bool apply_discrete_edit = false;
     const bool collecting = nr_f8::IsActive();
 
@@ -525,14 +530,15 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
 
     SettingsSection(ui("Processing", "处理方式"));
     const bool rr_guarded = IsRayReconstructionRouteObserved();
+    const bool compatibility_post = !rr_guarded && next.mode == 2 &&
+        compatibility_snapshot.recent && compatibility_snapshot.effective_mode == 1;
     SettingsField(ui("Processing mode", "处理模式"));
-    if (DrawProcessingModeBlocks(next, rr_guarded)) {
+    if (DrawProcessingModeBlocks(next, rr_guarded, compatibility_post ? 1 : next.mode)) {
         changed = true;
         apply_discrete_edit = true;
     }
     if (rr_guarded) DrawPostRouteStatus();
-    const bool compatibility_post = !rr_guarded && next.mode==2 && IsCompatibilityPostObserved();
-    if (compatibility_post) DrawGenericCompatibilityStatus();
+    if (compatibility_post) DrawCompatibilityFallbackNotice(compatibility_snapshot);
     const bool before_sr = !rr_guarded && !compatibility_post && next.mode == 2;
 #if NR_HAS_DETAIL_STABILITY
     const bool effective_post = !before_sr;
@@ -586,8 +592,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             changed = true;
             apply_discrete_edit = true;
         }
-        SettingsTooltip(ui("Restores model strength 1.2, local contrast and overall detail 1, Default style and UI correction. Enables Face adjustment at strength 0 to compare model-control combinations. Face recognition and the visible result depend on the model. Keeps light controls, processing route, colour and working resolution.",
-            "恢复模型强度 1.2、局部明暗和整体细节 1、默认风格与界面保护，并开启人脸调节、强度设为 0，用于排查模型参数组合。人脸识别和实际效果取决于模型。保留光影控制、处理路线、颜色与工作比例。"));
+        SettingsTooltip(ui("Restores model strength 1.2, local contrast and overall detail 1, Default style and UI correction. Enables Face adjustment at strength 0 to compare model-control combinations. Face recognition and the visible result depend on the model. Keeps extra enhancement, light controls, processing route, colour and working resolution.",
+            "恢复模型强度 1.2、局部明暗和整体细节 1、默认风格与界面保护，并开启人脸调节、强度设为 0，用于排查模型参数组合。人脸识别和实际效果取决于模型。保留额外增强、光影控制、处理路线、颜色与工作比例。"));
         ImGui::SameLine();
         ImGui::BeginDisabled(has_pending || changed || !model_undo.Available(current.generation));
         if (ImGui::Button(ui("Undo model reset###nr-model-undo", "撤销模型基准###nr-model-undo")) &&
@@ -612,6 +618,19 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
                 apply_discrete_edit = true;
             }
         }
+        float effect_strength = ActiveTransferStrength(next);
+        if (SettingsSliderFloat(ui("Extra enhancement", "额外增强"),
+                "##nr-strength-amplification", &effect_strength,
+                1.0f, 4.0f, "%.2f")) {
+            // Only user edits use 1-4. Internal diagnostic zero keeps its native endpoint.
+            effect_strength = std::clamp(FiniteOr(effect_strength, 1.0f), 1.0f, 4.0f);
+            next.transfer_strength = next.post_transfer_strength = effect_strength;
+            changed = true;
+        }
+        SettingsTooltip(ui("1 keeps the model's base amount and is the default. Higher values amplify its final changes, including visible brightness and detail, and may distort the picture. For a weaker effect, lower Model strength. AI colour amount separately controls only hue and saturation. Face adjustment remains a model control; extra enhancement does not yet exempt its recognised face region.",
+            "默认 1 保持模型原量；调高会放大最终明暗和细节变化，也可能失真。想减弱效果，请调低上方模型强度；颜色可用“AI 色彩强度”另外调整。人脸调节仍是模型内的独立设置，额外增强目前尚未避开模型识别的人脸区域。"));
+        SettingsNote(ui("1 = base amount (default); higher values amplify. Lower Model strength for a weaker effect.",
+            "1 为原量（默认），更高值只放大；想减弱效果，请调低模型强度。"));
         changed |= SettingsSliderFloat(ui("Local contrast", "局部明暗对比"),
             "##nr-local-tone", &next.local_tone, 0.f, 2.f, "%.2f");
         SettingsTooltip(ui("Changes local contrast inside the NR model. It is separate from final blend strength.", "控制 AI 对相邻区域明暗差异的处理。调高通常对比更明显；不是屏幕亮度开关。"));
@@ -641,19 +660,6 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     DrawLightStyleControls(next,before_sr,current.generation,light_undo,
         has_pending,pending_light_undo,changed,apply_discrete_edit);
     SettingsSection(ui("Advanced picture controls", "高级画质"));
-#if NR_HAS_DETAIL_STABILITY
-    constexpr float maximum_strength = 4.0f;
-#else
-    constexpr float maximum_strength = 2.0f;
-#endif
-    float effect_strength = ActiveTransferStrength(next);
-    if (SettingsSliderFloat(ui("Extra enhancement", "额外增强"),
-            "##nr-strength-amplification", &effect_strength,
-            0.0f, maximum_strength, "%.2f")) {
-        next.transfer_strength = next.post_transfer_strength = effect_strength; changed = true;
-    }
-    SettingsTooltip(ui("Controls the overall final NR mix, including visible brightness and detail. 0 keeps native SR; 1 is the base effect. NR tone follow separately controls only hue and saturation.",
-        "控制最终画面保留多少 AI 效果，包含明暗和细节。0 为游戏原图，1 为正常效果；超过 1 会放大变化，也可能失真。颜色可用“AI 色彩强度”另外调整。"));
 
 #if NR_HAS_DETAIL_STABILITY
         if (!before_sr) ImGui::BeginDisabled();
