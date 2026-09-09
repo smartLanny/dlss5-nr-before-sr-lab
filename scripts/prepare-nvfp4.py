@@ -102,7 +102,7 @@ def prepare(core: Path, upstream: Path, output: Path) -> None:
     new_sources = git(core, 'ls-tree', '-r', '--name-only', source, '--', 'src/nvfp4').decode().splitlines()
     new_sources += sorted(NEW_CORE_FILES)
     kernel_headers = [path for path in git(core, 'ls-tree', '-r', '--name-only', source,
-        '--', 'kernels/nvfp4').decode().splitlines() if Path(path).suffix in ('.h', '.cuh')]
+        '--', 'kernels/nvfp4', 'kernels/nvfp4_expansion').decode().splitlines() if Path(path).suffix in ('.h', '.cuh')]
     if KERNEL_ABI not in kernel_headers:
         raise ValueError('Required public kernel ABI header is not committed')
     for path in new_sources + kernel_headers:

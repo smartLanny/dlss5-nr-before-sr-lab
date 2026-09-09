@@ -205,6 +205,50 @@ void PolicyAndFusedTests() {
         }
         OnReset(call.recording_token,true);
     }
+    auto prepare_two=[&]() {
+        auto device=prepare_fused();device->packed_expansion_function=reinterpret_cast<void*>(205);
+        auto& arena=*device->arenas[0];arena.packed_expansion=true;
+        auto& info=arena.packed_expansion_info;info.params_bytes=sizeof(NrExpansionParams);
+        info.params_alignment=alignof(NrExpansionParams);info.original_bytes=960*1024;
+        info.linear_input_offset=offsetof(NrExpansionParams,original_fp8);info.linear_input_bytes=8;
+        info.grid[0]=32;info.grid[1]=16;info.grid[2]=1;info.block[0]=256;info.block[1]=info.block[2]=1;
+        for(auto& params:arena.packed_expansion_params){params.Resize(sizeof(NrExpansionParams),alignof(NrExpansionParams));std::memset(params.Data(),0xa5,sizeof(NrExpansionParams));}
+        return device;
+    };
+    d=prepare_two();call=Call(850,850);G().config.observe_stage=&ObserveStage;
+    std::fill(std::begin(stage_begins),std::end(stage_begins),0);std::fill(std::begin(stage_ends),std::end(stage_ends),0);
+    const auto two_before=test_allocations.load();
+    {OwnedScope scope(call);assert(scope.WillReplace());Sequence(call);const auto status=scope.Status();
+     assert(status.replaced_pairs==8&&status.replacement_launches==16&&status.uav_barriers==24&&!scope.MayHaveRecordedFailure());}
+    assert(test_allocations.load()==two_before&&replacements==16&&barriers==24&&forwards==0);
+    assert(stage_begins[unsigned(Stage::Pack)]==0&&stage_begins[unsigned(Stage::Epilogue)]==0);
+    assert(stage_begins[unsigned(Stage::Expansion)]==8&&stage_ends[unsigned(Stage::Expansion)]==8);
+    for(const auto& params:d->arenas[0]->packed_expansion_params){
+        const auto* bytes=params.bytes.data()+params.offset;uint64_t original=0;std::memcpy(&original,bytes,8);assert(original==0x40000000);
+        for(size_t i=8;i<sizeof(NrExpansionParams);++i)assert(bytes[i]==0xa5);
+    }
+    G().config.observe_stage=nullptr;
+    for(unsigned point=1;point<=16;++point){
+        d=prepare_two();call=Call(900+point,900+point);fail_at=point;
+        {OwnedScope scope(call);bool failed=false;
+         for(unsigned i=0;i<8&&!failed;++i){failed=Expansion(call,i)!=api::Ok;if(!failed)failed=Contraction(call)!=api::Ok;}
+         assert(failed&&scope.MayHaveRecordedFailure());assert(Expansion(call,0)==api::Error&&forwards==0);}
+        OnReset(call.recording_token,true);
+    }
+    // Incomplete expansion identities cannot silently enter the two-launch path.
+    Fixture();G().devices.clear();G().contexts.clear();
+    const std::string digest(64,'a');uint32_t shape=960;
+    ExpansionAcceptance expansion_acceptance;expansion_acceptance.directory=L"C:\\private-expansion";
+    expansion_acceptance.cubin_sha256=expansion_acceptance.builder_sha256=expansion_acceptance.build_id=digest.c_str();
+    expansion_acceptance.kernel_id="nr_pack_expand_v1_m64n128";
+    OptimizedAcceptance accepted;accepted.directory=L"C:\\private-contract";
+    accepted.cubin_sha256=accepted.builder_sha256=accepted.build_id=digest.c_str();accepted.kernel_id="nr_nvfp4_contract_publish_v1";
+    accepted.tested_m=&shape;accepted.tested_m_count=1;accepted.expansion=&expansion_acceptance;
+    Config config;config.mode=Mode::Optimized;config.asset_directory=L"C:\\private-assets";config.optimized_acceptance=&accepted;
+    assert(!Init(config));accepted.fused_publish=true;expansion_acceptance.variant=3;assert(!Init(config));
+    expansion_acceptance.variant=0;expansion_acceptance.build_id="unqualified";assert(!Init(config));
+    expansion_acceptance.build_id=digest.c_str();assert(Init(config));
+    assert(G().optimized.expansion.build_id==digest&&!G().optimized.qualified_by_registry);
 }
 unsigned destroy_calls=0;
 api::Status __cdecl RejectDestroy(ID3D12Device*,api::Handle) { ++destroy_calls; return api::Error; }
@@ -282,4 +326,4 @@ void MetadataReuseTests(){
     G().destroy_module.store(nullptr);G().destroy_function.store(nullptr);
 }
 }
-int main() { Tables(); LifetimeTests(); ScopeTests(); FallbackTests(); FailureTests(); PolicyAndFusedTests(); RetirementTests(); RuntimeIdentityTest(); MetadataReuseTests(); std::cout<<"NVFP4 backend CPU: scope, zero steady-state allocations, 32 reference + 24 fused failure points, exact Auto policy, runtime rejection, 5000 retirements, handle reuse/observer allocation failure and fence/Reset lifetime passed\n"; }
+int main() { Tables(); LifetimeTests(); ScopeTests(); FallbackTests(); FailureTests(); PolicyAndFusedTests(); RetirementTests(); RuntimeIdentityTest(); MetadataReuseTests(); std::cout<<"NVFP4 backend CPU: scope, zero steady-state allocations, 32 reference + 24 fused + 16 two-launch failure points, exact Auto policy, runtime rejection, 5000 retirements, handle reuse/observer allocation failure and fence/Reset lifetime passed\n"; }

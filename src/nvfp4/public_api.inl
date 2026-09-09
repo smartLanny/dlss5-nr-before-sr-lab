@@ -25,8 +25,22 @@ bool Init(const Config& config) noexcept {
             next.build_id=a.build_id; next.kernel_id=a.kernel_id; next.variant=a.variant; next.allow_auto=a.allow_auto; next.fused_publish=a.fused_publish;
             next.tested_m.assign(a.tested_m,a.tested_m+a.tested_m_count);
             for(auto m:next.tested_m) if(!m || m>MaximumM) throw std::runtime_error("Accepted M exceeds bounded arena policy");
+            if(a.expansion) {
+                const auto& e=*a.expansion;
+                if(!a.fused_publish || !e.directory || !fs::path(e.directory).is_absolute() || !e.cubin_sha256 ||
+                   !e.builder_sha256 || !e.build_id || !e.kernel_id || std::strlen(e.cubin_sha256)!=64 ||
+                   std::strlen(e.builder_sha256)!=64 || std::strlen(e.build_id)!=64 || !*e.kernel_id ||
+                   std::strlen(e.kernel_id)>=NR_EXPANSION_KERNEL_ID_BYTES || e.variant>2)
+                    throw std::runtime_error("Incomplete packed expansion artifact receipt");
+                next.expansion.directory=e.directory;next.expansion.cubin_sha=e.cubin_sha256;
+                next.expansion.builder_sha=e.builder_sha256;next.expansion.build_id=e.build_id;
+                next.expansion.kernel_id=e.kernel_id;next.expansion.variant=e.variant;
+            }
             if(!g.devices.empty() && (next.build_id!=g.optimized.build_id || next.variant!=g.optimized.variant ||
-                next.cubin_sha!=g.optimized.cubin_sha || next.builder_sha!=g.optimized.builder_sha || next.fused_publish!=g.optimized.fused_publish))
+                next.cubin_sha!=g.optimized.cubin_sha || next.builder_sha!=g.optimized.builder_sha || next.fused_publish!=g.optimized.fused_publish ||
+                next.expansion.directory!=g.optimized.expansion.directory || next.expansion.cubin_sha!=g.optimized.expansion.cubin_sha ||
+                next.expansion.builder_sha!=g.optimized.expansion.builder_sha || next.expansion.build_id!=g.optimized.expansion.build_id ||
+                next.expansion.kernel_id!=g.optimized.expansion.kernel_id || next.expansion.variant!=g.optimized.expansion.variant))
                 throw std::runtime_error("Optimized code receipt cannot change while devices are alive");
             g.optimized=std::move(next);
         }
@@ -42,8 +56,7 @@ bool Init(const Config& config) noexcept {
         return true;
     } catch(...) { return false; }
 }
-bool EnsureStarted(ID3D12Device* device) noexcept {
-    if(!device || G().mode.load()==Mode::Disabled) return false;
+bool ArmObserver() noexcept {
     try {
         auto& g=G();
         {
@@ -54,10 +67,10 @@ bool EnsureStarted(ID3D12Device* device) noexcept {
                 auto query=Symbol<api::Query>(g.nvapi,"nvapi_QueryInterface");
                 HMODULE backend_owner=nullptr, query_owner=nullptr;
                 if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
-                    reinterpret_cast<LPCWSTR>(&EnsureStarted),&backend_owner) ||
+                    reinterpret_cast<LPCWSTR>(&ArmObserver),&backend_owner) ||
                    !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
                     reinterpret_cast<LPCWSTR>(query),&query_owner))
-                    throw std::runtime_error("Cannot pin NVAPI hook and preparation worker module owners");
+                    throw std::runtime_error("Cannot pin NVAPI observer module owners");
                 // Resolve all originals before installing the query hook, so
                 // worker loads never depend on which IDs NGX requests first.
                 for(uint32_t id:{api::CreateModuleId,api::CreateFunctionId,api::LaunchId,api::DestroyModuleId,api::DestroyFunctionId})
@@ -71,6 +84,15 @@ bool EnsureStarted(ID3D12Device* device) noexcept {
                 g.hook_installed=true;
             }
         }
+        return true;
+    } catch(const std::exception& error) { std::lock_guard lock(G().mutex); Reason(G().status,State::Fallback,error.what()); return false; }
+    catch(...) { std::lock_guard lock(G().mutex); Reason(G().status,State::Fallback,"NVAPI observer installation failed"); return false; }
+}
+bool EnsureStarted(ID3D12Device* device) noexcept {
+    if(!device || G().mode.load()==Mode::Disabled) return false;
+    if(!ArmObserver()) return false;
+    try {
+        auto& g=G();
         std::lock_guard lock(g.mutex);
         auto& d=g.devices[device];
         if(!d) { d=std::make_shared<Device>(); d->owner=device; d->budget->limit=g.config.device_budget_bytes; d->optimized_settings=g.optimized; d->runtime_path=g.runtime_path; }

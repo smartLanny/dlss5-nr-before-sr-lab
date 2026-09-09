@@ -150,6 +150,23 @@ void PrepareDevice(const std::shared_ptr<Device>& d) {
         d->build_contract=Symbol<NrNvfp4BuildContractFn>(d->optimized_helper,"nr_nvfp4_build_contract");
         if(settings.fused_publish) d->build_fused=Symbol<NrNvfp4BuildFusedFn>(d->optimized_helper,"nr_nvfp4_build_fused_contract");
         d->optimized_contract=Function(*d,Module(*d,Read(cubin)),settings.kernel_id.c_str());
+        if(!settings.expansion.directory.empty()) {
+            const auto& e=settings.expansion;
+            auto expansion_cubin=e.directory/L"nr_nvfp4_pack_expansion_sm120.cubin";
+            auto expansion_helper=e.directory/L"nr_nvfp4_expansion_params.dll";
+            d->asset_locks.push_back(std::make_unique<LockedFile>(expansion_cubin));
+            d->asset_locks.push_back(std::make_unique<LockedFile>(expansion_helper));
+            if(!ExactHexHash(expansion_cubin,e.cubin_sha) || !ExactHexHash(expansion_helper,e.builder_sha))
+                throw std::runtime_error("Packed expansion cubin/helper do not match the explicit receipt");
+            d->packed_expansion_helper=LoadLibraryExW(expansion_helper.c_str(),nullptr,LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+            if(!d->packed_expansion_helper)throw std::runtime_error("Accepted packed expansion helper cannot be loaded");
+            auto expansion_id=Symbol<const char* (__cdecl*)()>(d->packed_expansion_helper,"nr_nvfp4_expansion_build_id_v1");
+            const char* actual_expansion_id=expansion_id();
+            if(!actual_expansion_id || e.build_id!=actual_expansion_id)
+                throw std::runtime_error("Packed expansion ABI fingerprint differs from the receipt");
+            d->build_packed_expansion=Symbol<NrBuildPackExpansionFn>(d->packed_expansion_helper,"nr_nvfp4_build_pack_expansion");
+            d->packed_expansion_function=Function(*d,Module(*d,Read(expansion_cubin)),e.kernel_id.c_str());
+        }
         d->optimized_ready=true;
     }
     auto upload=std::make_shared<Upload>(d->owner.Get());
@@ -174,9 +191,12 @@ void PrepareArena(const std::shared_ptr<Device>& d, uint64_t m, bool optimized) 
         d->arenas.erase(std::remove_if(d->arenas.begin(),d->arenas.end(),[&](const auto& a){return (a->m!=m || a->optimized!=optimized) && !a->leased && !a->upload;}),d->arenas.end());
     }
     auto arena=std::make_shared<Arena>(); arena->m=m; arena->optimized=optimized; arena->fused_publish=optimized && d->optimized_settings.fused_publish;
+    arena->packed_expansion=arena->fused_publish&&!d->optimized_settings.expansion.directory.empty();
     const uint64_t padded=((m+127)/128)*128;
-    arena->xp=Allocate(d->owner.Get(),d->budget,padded*1024/2);
-    arena->xs=Allocate(d->owner.Get(),d->budget,padded*1024/16);
+    if(!arena->packed_expansion) {
+        arena->xp=Allocate(d->owner.Get(),d->budget,padded*1024/2);
+        arena->xs=Allocate(d->owner.Get(),d->budget,padded*1024/16);
+    }
     arena->yp=Allocate(d->owner.Get(),d->budget,padded*4096/2);
     arena->ys=Allocate(d->owner.Get(),d->budget,padded*4096/16);
     if(!arena->fused_publish) arena->c=Allocate(d->owner.Get(),d->budget,padded*1024*2);
@@ -209,11 +229,41 @@ void PrepareArena(const std::shared_ptr<Device>& d, uint64_t m, bool optimized) 
     if(workspace_bytes) arena->workspace=Allocate(d->owner.Get(),d->budget,workspace_bytes);
     for(uint32_t i=0;i<8;++i) {
         const auto w=d->weights_offsets[i];
-        FusedInput input{int(m),4096,1024,d->cuda.sm,arena->xp.Address(),d->weights.Address()+w.ep,
-            arena->xs.Address(),d->weights.Address()+w.es,0,arena->yp.Address(),arena->ys.Address(),d->norm.Address(),0};
-        auto& info=arena->expand_info[i]; d->cuda.Encode(input,arena->expand_params[i],info);
-        if(info.sfa_bytes>arena->xs.bytes || info.sfb_bytes>262144 || info.sfd_bytes>arena->ys.bytes || info.shared_bytes>UINT32_MAX)
-            throw std::runtime_error("Expansion descriptor exceeds scale/shared capacity");
+        if(arena->packed_expansion) {
+            NrExpansionInput input{};input.struct_bytes=sizeof(input);input.abi_version=NR_EXPANSION_ABI_VERSION;
+            input.original_fp8=d->weights.Address();input.original_capacity=d->weights.bytes;
+            input.weights=d->weights.Address()+w.ep;input.weights_capacity=2097152;
+            input.weight_scales=d->weights.Address()+w.es;input.weight_scales_capacity=262144;
+            input.packed_output=arena->yp.Address();input.packed_output_capacity=arena->yp.bytes;
+            input.output_scales=arena->ys.Address();input.output_scales_capacity=arena->ys.bytes;
+            input.rows=uint32_t(m);input.columns=4096;input.reduction=1024;input.inverse_tensor_scale=1;
+            input.sm_count=d->cuda.sm;input.compute_major=d->cuda.major;input.compute_minor=d->cuda.minor;
+            input.max_shared_bytes=d->cuda.max_shared;input.variant=d->optimized_settings.expansion.variant;
+            NrExpansionInfo info{};info.struct_bytes=sizeof(info);info.abi_version=NR_EXPANSION_ABI_VERSION;char error[256]{};
+            if(d->build_packed_expansion(&input,nullptr,0,&info,error,sizeof(error))!=NR_EXPANSION_OK)
+                throw std::runtime_error(std::string("Packed expansion query failed: ")+error);
+            if(info.params_bytes!=sizeof(NrExpansionParams) || info.params_alignment!=alignof(NrExpansionParams) ||
+               info.linear_input_bytes!=8 || info.linear_input_offset%8 || info.linear_input_offset>info.params_bytes ||
+               info.params_bytes-info.linear_input_offset<8 || info.original_bytes!=((m+15)/16)*16*1024 ||
+               info.weights_bytes!=2097152 || info.weight_scales_bytes!=262144 ||
+               info.packed_output_bytes>arena->yp.bytes || info.output_scales_bytes>arena->ys.bytes ||
+               info.sm_count!=uint32_t(d->cuda.sm) || info.shared_bytes>uint32_t(d->cuda.max_shared) ||
+               std::string(info.kernel_id)!=d->optimized_settings.expansion.kernel_id ||
+               !info.grid[0] || !info.grid[1] || !info.grid[2] || !info.block[0] || !info.block[1] || !info.block[2])
+                throw std::runtime_error("Packed expansion launch/footprint does not match its accepted ABI");
+            auto& params=arena->packed_expansion_params[i];params.Resize(size_t(info.params_bytes),size_t(info.params_alignment));
+            auto built=info;
+            if(d->build_packed_expansion(&input,params.Data(),info.params_bytes,&built,error,sizeof(error))!=NR_EXPANSION_OK ||
+               std::memcmp(&info,&built,sizeof(info)) || (i&&std::memcmp(&info,&arena->packed_expansion_info,sizeof(info))))
+                throw std::runtime_error(std::string("Packed expansion descriptor encode failed: ")+error);
+            arena->packed_expansion_info=info;
+        } else {
+            FusedInput input{int(m),4096,1024,d->cuda.sm,arena->xp.Address(),d->weights.Address()+w.ep,
+                arena->xs.Address(),d->weights.Address()+w.es,0,arena->yp.Address(),arena->ys.Address(),d->norm.Address(),0};
+            auto& info=arena->expand_info[i]; d->cuda.Encode(input,arena->expand_params[i],info);
+            if(info.sfa_bytes>arena->xs.bytes || info.sfb_bytes>262144 || info.sfd_bytes>arena->ys.bytes || info.shared_bytes>UINT32_MAX)
+                throw std::runtime_error("Expansion descriptor exceeds scale/shared capacity");
+        }
         if(optimized) {
             auto& cp=arena->optimized_params[i]; auto& info=arena->optimized_info;
             if((!arena->fused_publish && info.output_bytes>arena->c.bytes) || info.weight_scale_bytes>262144 || info.activation_scale_bytes>arena->ys.bytes)
@@ -229,7 +279,7 @@ void PrepareArena(const std::shared_ptr<Device>& d, uint64_t m, bool optimized) 
                 // These private, aligned placeholders are never launched. The
                 // named linear region is overwritten from the matching owned
                 // original contraction before the first record call.
-                NrNvfp4FusedInput fused{input_contract,arena->yp.Address(),d->weights.Address()+w.cosine,arena->yp.Address(),arena->xs.Address(),arena->xs.Address(),arena->xs.Address()};
+                NrNvfp4FusedInput fused{input_contract,arena->yp.Address(),d->weights.Address()+w.cosine,arena->yp.Address(),arena->ys.Address(),arena->ys.Address(),arena->ys.Address()};
                 NrNvfp4FusedInfo output{}; output.launch=built;
                 build_status=d->build_fused(&fused,cp.Data(),info.params_bytes,&output,error,sizeof(error)); built=output.launch;
                 if(output.runtime_bindings_offset!=arena->fused_info.runtime_bindings_offset || output.runtime_bindings_bytes!=arena->fused_info.runtime_bindings_bytes)

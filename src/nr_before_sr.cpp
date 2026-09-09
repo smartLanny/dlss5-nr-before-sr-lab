@@ -2080,6 +2080,16 @@ bool EnsureNrApi(ID3D12Device *device) {
     evidence.stage = "load-modules";
     evidence.present[0] = RuntimeRegularFile(bridge_path);
     evidence.present[1] = RuntimeRegularFile(signed_path);
+    // NR may cache NVAPI entrypoints during DLL load or Init. Observe those
+    // identities even when precision starts Off; resource preparation stays
+    // after the actual signed-module path is known in PrepareNrPrecision.
+    if (nr::nvfp4::ArmObserver()) {
+        Log("[nvfp4] passive NVAPI observer armed before signed NR runtime load.");
+    } else {
+        const auto observer_status = nr::nvfp4::GetStatus();
+        Log("[nvfp4] passive observer unavailable before NR load: %s; original NR initialization continues.",
+            observer_status.reason);
+    }
     RuntimeLoadRestricted(bridge_path, &g_nr_api.bridge_module, &evidence.errors[0]);
     evidence.loaded[0] = g_nr_api.bridge_module != nullptr;
     RuntimeLoadRestricted(signed_path, &g_nr_api.signed_module, &evidence.errors[1]);

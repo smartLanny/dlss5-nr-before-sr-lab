@@ -31,6 +31,7 @@
 #include "policy_registry.h"
 #include "../../kernels/nvfp4/nvfp4_kernel_abi.h"
 #include "../../kernels/nvfp4/nvfp4_fused_abi.h"
+#include "../../kernels/nvfp4_expansion/expansion_abi.h"
 
 namespace nr::nvfp4 {
 namespace {
@@ -130,7 +131,7 @@ struct FusedInfo { uint64_t params_bytes,workspace_bytes,shared_bytes,sfa_bytes,
 static_assert(sizeof(FusedInput) == 88 && sizeof(FusedInfo) == 72);
 struct Cuda {
     HMODULE driver = nullptr, helper = nullptr;
-    void* context = nullptr; int ordinal = -1, sm = 0, major = 0, minor = 0;
+    void* context = nullptr; int ordinal = -1, sm = 0, major = 0, minor = 0, max_shared = 0;
     int (__stdcall* push)(void*) = nullptr;
     int (__stdcall* pop)(void**) = nullptr;
     int (__stdcall* release)(int) = nullptr;
@@ -153,7 +154,8 @@ struct Cuda {
             if (!get(&d, i) && !luid(got, &nodes, d) && !std::memcmp(got, &wanted, 8) && nodes) { ordinal = d; break; }
         }
         if (ordinal < 0) throw std::runtime_error("DXGI LUID has no matching CUDA device");
-        if (attr(&sm, 16, ordinal) || attr(&major, 75, ordinal) || attr(&minor, 76, ordinal) || sm <= 0)
+        if (attr(&sm, 16, ordinal) || attr(&major, 75, ordinal) || attr(&minor, 76, ordinal) ||
+            attr(&max_shared, 97, ordinal) || sm <= 0 || max_shared <= 0)
             throw std::runtime_error("CUDA capability query failed");
         if (major != 12 || minor != 0) throw std::runtime_error("Locked reference requires actual SM120 capability");
         if (retain(&context, ordinal)) throw std::runtime_error("Matched CUDA primary context unavailable");
@@ -205,9 +207,11 @@ struct Arena {
         void* Data() { return bytes.data()+offset; }
     };
     std::array<AlignedParams,8> optimized_params;
+    std::array<AlignedParams,8> packed_expansion_params;
+    NrExpansionInfo packed_expansion_info{};
     NrNvfp4ContractInfo optimized_info{};
     NrNvfp4FusedInfo fused_info{};
-    bool optimized=false, fused_publish=false;
+    bool optimized=false, fused_publish=false, packed_expansion=false;
     std::shared_ptr<Upload> upload;
     detail::RecordingLifetime lifetime;
     std::vector<ComPtr<ID3D12CommandQueue>> queues;
@@ -216,12 +220,18 @@ struct Arena {
     bool ready = false, leased = false;
     std::atomic<bool> poisoned{false}, has_recording{false};
 };
+struct ExpansionSettings {
+    fs::path directory;
+    std::string cubin_sha,builder_sha,build_id,kernel_id;
+    uint32_t variant=0;
+};
 struct OptimizedSettings {
     fs::path directory;
     std::string cubin_sha,builder_sha,build_id,kernel_id;
     uint32_t variant=0;
     std::vector<uint32_t> tested_m;
     bool allow_auto=false, fused_publish=false, qualified_by_registry=false;
+    ExpansionSettings expansion;
     bool Contains(uint64_t m) const { return std::find(tested_m.begin(),tested_m.end(),m)!=tested_m.end(); }
 };
 struct LockedFile {
@@ -248,6 +258,9 @@ struct Device {
     NrNvfp4BuildContractFn build_contract=nullptr;
     NrNvfp4BuildFusedFn build_fused=nullptr;
     api::Handle optimized_contract=nullptr;
+    HMODULE packed_expansion_helper=nullptr;
+    NrBuildPackExpansionFn build_packed_expansion=nullptr;
+    api::Handle packed_expansion_function=nullptr;
     std::atomic<bool> optimized_ready{false};
     bool runtime_approved=false;
     fs::path runtime_path;
@@ -362,6 +375,7 @@ bool DestroyPreparedDevice(const std::shared_ptr<Device>& d) {
     }
     d->functions.clear(); d->modules.clear(); d->arenas.clear(); d->weights.Reset(); d->norm.Reset();
     if(d->optimized_helper) { FreeLibrary(d->optimized_helper); d->optimized_helper=nullptr; }
+    if(d->packed_expansion_helper) { FreeLibrary(d->packed_expansion_helper); d->packed_expansion_helper=nullptr; }
     d->asset_locks.clear();
     return true;
 }
@@ -521,6 +535,22 @@ api::Status __cdecl Launch(ID3D12GraphicsCommandList* list, const api::LaunchPar
         s->pending = true; s->x = p[0]; s->y = p[2]; s->done = p[7];
         StageBoundary(*s,Stage::ReplacementPair,true,s->pair);
         Uav(*s);
+        if(arena.packed_expansion) {
+            const auto& info=arena.packed_expansion_info;
+            if(p[0]%16 || p[0]>UINT64_MAX-info.original_bytes) {
+                Fail(*s,"Packed expansion input violates the accepted address footprint"); return api::Error;
+            }
+            auto* bytes=static_cast<uint8_t*>(arena.packed_expansion_params[s->pair].Data());
+            // This is the builder-declared public linear pointer region, never
+            // a TMA descriptor. All immutable operands stay cached per block.
+            std::memcpy(bytes+info.linear_input_offset,&p[0],sizeof(uint64_t));
+            StageBoundary(*s,Stage::Expansion,true,s->pair);
+            if(Record(*s,d.packed_expansion_function,bytes,uint32_t(info.params_bytes),
+                {info.grid[0],info.grid[1],info.grid[2]},{info.block[0],info.block[1],info.block[2]},info.shared_bytes)!=api::Ok) {
+                Fail(*s,"Packed expansion recording failed; no retry"); return api::Error;
+            }
+            Uav(*s);StageBoundary(*s,Stage::Expansion,false,s->pair);return api::Ok;
+        }
         struct Pack { uint64_t input, output, scale; uint32_t rows, cols; } pack{p[0],arena.xp.Address(),arena.xs.Address(),uint32_t(m),1024};
         StageBoundary(*s,Stage::Pack,true,s->pair);
         if (Record(*s,d.pack,&pack,sizeof(pack),{uint32_t((m*512+255)/256),1,1},{256,1,1}) != api::Ok) { Fail(*s,"Pack recording failed; no retry"); return api::Error; }

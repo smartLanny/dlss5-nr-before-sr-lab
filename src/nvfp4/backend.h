@@ -12,6 +12,14 @@ enum class Mode : uint32_t { Disabled, Auto, Passthrough, UpstreamReference, Opt
 enum class Phase : uint32_t { Create, Evaluate };
 enum class State : uint32_t { Disabled, Observing, Preparing, Ready, Fallback, Quarantined };
 enum class Stage : uint32_t { OriginalPair, ReplacementPair, Pack, Expansion, Contraction, Epilogue };
+struct ExpansionAcceptance {
+    const wchar_t* directory = nullptr;
+    const char* cubin_sha256 = nullptr;
+    const char* builder_sha256 = nullptr;
+    const char* build_id = nullptr;
+    const char* kernel_id = nullptr;
+    uint32_t variant = 0;
+};
 struct OptimizedAcceptance {
     const wchar_t* directory = nullptr;
     const char* cubin_sha256 = nullptr;
@@ -25,6 +33,9 @@ struct OptimizedAcceptance {
     // Optimized host experiments do not automatically admit production Auto.
     bool allow_auto = false;
     bool fused_publish = false;
+    // An explicit host experiment may replace pack+expansion with one kernel.
+    // It inherits the tested M set and requires the fused publication path.
+    const ExpansionAcceptance* expansion = nullptr;
 };
 struct Config {
     Mode mode = Mode::Disabled;
@@ -77,8 +88,15 @@ struct Snapshot {
     char reason[192] = {};
 };
 
-// Cold configuration. No DLL loading or work is performed in Disabled mode.
+// Cold configuration. Disabled never prepares CUDA resources or replaces GPU
+// work. Init itself does not load DLLs or install hooks.
 bool Init(const Config& config) noexcept;
+// Explicit cold opt-in, before loading the owned NR runtime. Installs only the
+// passive NVAPI observer, including while Disabled, so later Off-to-Auto changes
+// retain module/function identities. Does not change mode, register a device,
+// start the preparation worker or prepare CUDA resources. Failure is diagnostic
+// only: the caller must keep the original NR runtime available.
+bool ArmObserver() noexcept;
 bool EnsureStarted(ID3D12Device* device) noexcept;
 // Stops accepting replacements. Recorded resources remain pinned until their
 // queue fence completes and their command list has successfully reset.

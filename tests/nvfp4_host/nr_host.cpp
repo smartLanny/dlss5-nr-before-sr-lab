@@ -121,20 +121,31 @@ int wmain(int argc,wchar_t**argv){try{
     const unsigned w=std::stoul(argv[5]),h=std::stoul(argv[6]),frames=argc>7?std::stoul(argv[7]):16,warmup=argc>9?std::stoul(argv[9]):8;
     if(!w||!h||w>7680||h>4320||frames>100000||warmup>10000)throw std::runtime_error("invalid dimensions/frame count");
     const std::wstring mode=argc>8?argv[8]:L"fp8";
-    if(mode!=L"fp8"&&mode!=L"passthrough"&&mode!=L"reference"&&mode!=L"optimized"&&mode!=L"fused")throw std::runtime_error("unknown host experiment mode");
+    if(mode!=L"fp8"&&mode!=L"passthrough"&&mode!=L"reference"&&mode!=L"optimized"&&mode!=L"fused"&&mode!=L"two")throw std::runtime_error("unknown host experiment mode");
     fs::create_directories(output);Device d;
 #ifdef NR_HOST_BACKEND
     nr::nvfp4::Config cfg;cfg.asset_directory=assets.c_str();cfg.nr_runtime_path=runtime.c_str();cfg.mode=mode==L"fp8"?nr::nvfp4::Mode::Disabled:mode==L"passthrough"?nr::nvfp4::Mode::Passthrough:mode==L"reference"?nr::nvfp4::Mode::UpstreamReference:nr::nvfp4::Mode::Optimized;
     Observation observation;observation.directory=output;cfg.observe_module=&Observation::Module;cfg.observe_launch=&Observation::Launch;cfg.observe_stage=&Observation::Stage;cfg.observer_user=&observation;
     nr::nvfp4::OptimizedAcceptance acceptance;std::wstring optimized_dir;std::array<std::string,4> accepted_strings;std::vector<uint32_t> accepted_m;
-    if(mode==L"optimized"||mode==L"fused"){
+    nr::nvfp4::ExpansionAcceptance expansion_acceptance;std::wstring expansion_dir;std::array<std::string,4> expansion_strings;
+    if(mode==L"optimized"||mode==L"fused"||mode==L"two"){
         if(argc<11)throw std::runtime_error("optimized mode requires a privately verified acceptance text file");std::ifstream f{fs::path(argv[10])};if(!f)throw std::runtime_error("acceptance file missing");
         std::string line;std::getline(f,line);optimized_dir=fs::u8path(line).wstring();for(auto&s:accepted_strings)if(!std::getline(f,s))throw std::runtime_error("incomplete acceptance file");
         std::getline(f,line);acceptance.variant=unsigned(std::stoul(line));while(std::getline(f,line)){if(!line.empty())accepted_m.push_back(unsigned(std::stoul(line)));}if(accepted_m.empty())throw std::runtime_error("no accepted shapes");
         acceptance.directory=optimized_dir.c_str();acceptance.cubin_sha256=accepted_strings[0].c_str();acceptance.builder_sha256=accepted_strings[1].c_str();acceptance.build_id=accepted_strings[2].c_str();acceptance.kernel_id=accepted_strings[3].c_str();acceptance.tested_m=accepted_m.data();acceptance.tested_m_count=unsigned(accepted_m.size());cfg.optimized_acceptance=&acceptance;
-        acceptance.fused_publish=mode==L"fused";
+        acceptance.fused_publish=mode==L"fused"||mode==L"two";
+        if(mode==L"two"){
+            if(argc<12)throw std::runtime_error("two-launch mode requires an explicit expansion receipt");
+            std::ifstream ef{fs::path(argv[11])};if(!ef)throw std::runtime_error("expansion receipt missing");
+            std::getline(ef,line);expansion_dir=fs::u8path(line).wstring();for(auto&s:expansion_strings)if(!std::getline(ef,s))throw std::runtime_error("incomplete expansion receipt");
+            if(!std::getline(ef,line))throw std::runtime_error("missing expansion variant");
+            expansion_acceptance.directory=expansion_dir.c_str();expansion_acceptance.cubin_sha256=expansion_strings[0].c_str();
+            expansion_acceptance.builder_sha256=expansion_strings[1].c_str();expansion_acceptance.build_id=expansion_strings[2].c_str();
+            expansion_acceptance.kernel_id=expansion_strings[3].c_str();expansion_acceptance.variant=unsigned(std::stoul(line));
+            acceptance.expansion=&expansion_acceptance;
+        }
     }
-    if(!nr::nvfp4::Init(cfg)||!nr::nvfp4::EnsureStarted(d.device.Get()))throw std::runtime_error("backend startup");
+    if(!nr::nvfp4::Init(cfg)||(cfg.mode!=nr::nvfp4::Mode::Disabled&&!nr::nvfp4::EnsureStarted(d.device.Get())))throw std::runtime_error("backend startup");
 #else
     if(mode!=L"fp8")throw std::runtime_error("this host build has no backend");
 #endif
@@ -165,11 +176,13 @@ int wmain(int argc,wchar_t**argv){try{
     qd.Count=128;Check(d.device->CreateQueryHeap(&qd,IID_PPV_ARGS(&observation.query)),"stage timestamps");observation.readback=Buffer(d,128*8,D3D12_HEAP_TYPE_READBACK);observation.frequency=frequency;
     bool prior_replacement=false;
 #endif
-    std::ofstream timing(output/"timing.jsonl");for(unsigned i=0;i<frames+warmup;++i){Int(p,"DLSSNR.Reset",i==0);d.list->EndQuery(qh.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0);Result evaluated;uint64_t pairs=0,observed=0;std::string reason="disabled";
+    const bool candidate=mode==L"reference"||mode==L"optimized"||mode==L"fused"||mode==L"two";
+    bool epoch_started=!candidate;unsigned preparation_frames=0;
+    std::ofstream timing(output/"timing.jsonl");for(unsigned i=0,submission=0;i<frames+warmup;++submission){Int(p,"DLSSNR.Reset",!epoch_started||i==0);d.list->EndQuery(qh.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0);Result evaluated;uint64_t pairs=0,observed=0,original_launches=0,replacement_launches=0,uav_barriers=0;std::string reason="disabled";
 #ifdef NR_HOST_BACKEND
         observation.count=0;
-        call.phase=nr::nvfp4::Phase::Evaluate;call.recording_token=101+i;call.evaluation_serial=i+1;
-        {nr::nvfp4::OwnedScope scope(call);if(scope.WillReplace()!=prior_replacement)Int(p,"DLSSNR.Reset",1);evaluated=evaluate(signedEval,d.list.Get(),handle,p,nullptr);const auto status=scope.Status();pairs=status.replaced_pairs;observed=status.observed_m;reason=status.reason;if(evaluated==1)prior_replacement=pairs>0;if(scope.MayHaveRecordedFailure())GpuFailure("backend partial recording");}
+        call.phase=nr::nvfp4::Phase::Evaluate;call.recording_token=101+submission;call.evaluation_serial=submission+1;
+        {nr::nvfp4::OwnedScope scope(call);if(!epoch_started&&scope.WillReplace())epoch_started=true;if(scope.WillReplace()!=prior_replacement)Int(p,"DLSSNR.Reset",1);evaluated=evaluate(signedEval,d.list.Get(),handle,p,nullptr);const auto status=scope.Status();pairs=status.replaced_pairs;observed=status.observed_m;original_launches=status.original_launches;replacement_launches=status.replacement_launches;uav_barriers=status.uav_barriers;reason=status.reason;if(evaluated==1)prior_replacement=pairs>0;if(scope.MayHaveRecordedFailure())GpuFailure("backend partial recording");}
 #else
         evaluated=evaluate(signedEval,d.list.Get(),handle,p,nullptr);
 #endif
@@ -177,18 +190,20 @@ int wmain(int argc,wchar_t**argv){try{
 #ifdef NR_HOST_BACKEND
         if(observation.count)d.list->ResolveQueryData(observation.query.Get(),D3D12_QUERY_TYPE_TIMESTAMP,0,observation.count,observation.readback.Get(),0);
 #endif
-        d.Submit(101+i);if(evaluated!=1)Ngx(evaluated,"evaluate");
+        d.Submit(101+submission);if(evaluated!=1)Ngx(evaluated,"evaluate");
+        if(epoch_started&&candidate&&pairs!=8)throw std::runtime_error("candidate left the fully prepared measurement epoch");
         void*ptr;D3D12_RANGE range{0,16};Check(times->Map(0,&range,&ptr),"timestamp map");uint64_t ticks[2];memcpy(ticks,ptr,16);D3D12_RANGE written{0,0};times->Unmap(0,&written);if(ticks[1]<ticks[0])throw std::runtime_error("nonmonotonic timestamps");
-        const double ms=double(ticks[1]-ticks[0])*1000.0/frequency;timing<<"{\"frame\":"<<i<<",\"warmup\":"<<(i<warmup?"true":"false")<<",\"gpu_complete\":true,\"feature18_ms\":"<<ms<<",\"replaced_pairs\":"<<pairs<<",\"M\":"<<observed;
+        const double ms=double(ticks[1]-ticks[0])*1000.0/frequency;timing<<"{\"frame\":"<<i<<",\"submission\":"<<submission<<",\"phase\":\""<<(!epoch_started?"preparing":i<warmup?"warmup":"measured")<<"\",\"warmup\":"<<(!epoch_started||i<warmup?"true":"false")<<",\"gpu_complete\":true,\"feature18_ms\":"<<ms<<",\"replaced_pairs\":"<<pairs<<",\"M\":"<<observed<<",\"original_launches\":"<<original_launches<<",\"replacement_launches\":"<<replacement_launches<<",\"uav_barriers\":"<<uav_barriers;
 #ifdef NR_HOST_BACKEND
         const auto stage_times=observation.Times();if(observation.count)timing<<",\"ffn_ms\":"<<(pairs?stage_times[1]:stage_times[0])<<",\"pack_ms\":"<<stage_times[2]<<",\"expansion_ms\":"<<stage_times[3]<<",\"contraction_ms\":"<<stage_times[4]<<",\"epilogue_ms\":"<<stage_times[5];
 #endif
         timing<<"}\n";
-        if(i<3||i%100==0)std::cerr<<"frame="<<i<<" feature18_ms="<<ms<<" replaced_pairs="<<pairs<<" M="<<observed<<" reason="<<reason<<'\n';}
+        if(submission<3||(epoch_started&&(i<3||i%100==0)))std::cerr<<"frame="<<i<<" phase="<<(!epoch_started?"preparing":i<warmup?"warmup":"measured")<<" feature18_ms="<<ms<<" replaced_pairs="<<pairs<<" M="<<observed<<" reason="<<reason<<'\n';
+        if(epoch_started)++i;else if(++preparation_frames>=4096)throw std::runtime_error("candidate preparation did not complete within the bounded warmup");}
     Dump(d,out.Get(),output/"nr_output.f16");Ngx(release(signedRelease,handle),"release");Ngx(destroy(p),"destroy params");
 #ifdef NR_HOST_BACKEND
     nr::nvfp4::RetireContext(1,1);nr::nvfp4::Shutdown();
 #endif
-    std::ofstream meta(output/"host.json");meta<<"{\"width\":"<<w<<",\"height\":"<<h<<",\"frames\":"<<frames<<",\"warmup\":"<<warmup<<",\"mode\":\""<<std::string(mode.begin(),mode.end())<<"\",\"input\":\"synthetic-static-fp16\",\"timing_boundary\":\"Feature18-only\",\"game\":false,\"sr\":false}\n";
+    std::ofstream meta(output/"host.json");meta<<"{\"width\":"<<w<<",\"height\":"<<h<<",\"frames\":"<<frames<<",\"warmup\":"<<warmup<<",\"preparation_frames\":"<<preparation_frames<<",\"history_epoch\":\"reset-after-candidate-ready-v1\",\"mode\":\""<<std::string(mode.begin(),mode.end())<<"\",\"input\":\"synthetic-static-fp16\",\"timing_boundary\":\"Feature18-only\",\"game\":false,\"sr\":false}\n";
     std::cout<<"completed=true game=false sr=false frames="<<frames<<'\n';return 0;
 }catch(const std::exception&e){std::cerr<<"host_failed="<<e.what()<<'\n';std::cerr.flush();ExitProcess(2);}}

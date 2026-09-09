@@ -3,9 +3,9 @@
 Baseline: `a51141f32531e7e48b533e749f0f6edaaa17bd1d` (`beta0.5-dev14`).
 Branch: `codex/nvfp4-dev14-sm120`. No merge or release is implied.
 
-The owner paused all further graphics/GPU tests during implementation. Continue
-with source, CPU tests, compilation and packaging. Do not run WARP, CUDA kernels
-or games as part of the remaining acceptance without a new owner instruction.
+The owner resumed GPU validation on 2026-09-09 after stopping the competing
+Vulkan test. The root process serializes GPU experiments; compilation and CPU
+verification can be delegated. Earlier paused-stage evidence remains separate.
 
 ## Implemented boundaries
 
@@ -44,11 +44,26 @@ The epilogue is `FP8(half(gemm) + half(half(skip) * half(cosine)))`, with the
 reference's half rounding and saturation; it is not ordinary GELU or a guessed
 residual formula. Counter stores depend on an external GPU-wide UAV boundary.
 
-The fused contraction experiment removes the intermediate FP16 output and
-publishes directly in the original FP8 layout. It remains unqualified for
-renderer Auto until its GPU numerical, publication and end-to-end checks pass.
-Pack+expansion mainloop fusion is a further experiment; a chain of launches is
-not counted as a single fused kernel.
+The fused contraction removes the intermediate FP16 output and publishes
+directly in the original FP8 layout. Its vector store uses the actual CUTLASS
+consumer mapping: adjacent columns belong to lane XOR 4, while half2 arithmetic
+pairs two rows in one lane. Both scalar and vector versions passed 66 isolated
+GPU cases against independent CPU, recovered epilogue and immutable upstream.
+
+`kernels/nvfp4_expansion` implements a true CTA-local input pack followed by
+SM120 block-scaled MMA and the integrated gate/FP4 epilogue in one launch.
+Together with fused contraction this records two launches and three UAV
+dependencies per pair. The signed M640 host confirmed 16 launches/eight pairs
+and byte-exact complete NR output versus the three-launch candidate. This
+first implementation is substantially slower than the original expansion;
+fewer launches alone are not qualification. The padding experiment removes
+shared-memory bank conflicts, without changing global layout or arithmetic.
+
+The integrated expansion epilogue differs from standalone `gate_to_nvfp4`:
+there is no positive scale floor, the multiplier uses approximate FTZ reciprocal
+with a finite cap, and normalized FP32 converts directly to FP4. The initial
+extra half rounding explained all 233 captured mismatches; corrected kernels
+matched 66 shape/zero/signed cases and 96 real-weight cases on GPU.
 
 ## Evidence obtained before the GPU pause
 
@@ -89,6 +104,32 @@ those short samples as a speedup result or choose a kernel winner from them.
    and no competing GPU tests. Record complete FFN, Feature18, whole NR chain
    and whole GPU frame separately. The performance analyzer rejects missing
    completion, missing replacements, shared-GPU evidence and GEMM-only NR claims.
+
+The owned host now waits for actual replacement readiness, then resets history
+and starts a fixed warmup/measurement epoch. Counting warmup from Create caused
+different history fixed points when asynchronous preparation completed one frame
+earlier; those old measurements are retained but excluded from output acceptance.
+Five corrected M640 blocks produced identical optimized/fused output hashes.
+The original-FP8 comparison is a numerical difference measurement, not temporal
+or game image-quality acceptance. The rebuilt unfused contraction reduced
+Feature18 time by about 2.5% in that synthetic experiment; it did not meet the
+10% complete-NR target. The first scalar fused variant had no statistically
+established Feature18 gain.
+
+`prepare-nvfp4-chain-experiment.py` derives private compiled profiles from an
+unchanged, hashed canonical Core stage. The normal Auto registry stays empty.
+The private profile has one-shot readiness/reset exports and collects complete
+NR-to-SR timing by exact query ticket; output is buffered until the recording
+is fence-complete and reset. Its source changes and kernel bindings have a
+separate manifest. Per-process identity distinguishes appended evidence.
+
+Initial real-ReShade integration reached mode2 NR and native SR, but timed out
+waiting for observed FFN identity. Core loaded/initialized the signed runtime
+before installing its NVAPI query observer. The corrected cold `ArmObserver`
+installs only passive observation before the Core's first NR load, including
+when precision begins Off; CUDA/device preparation remains later. Original NR
+continues if observer installation fails. CPU cold-install/failure/concurrency
+tests pass; a fresh real renderer run must confirm the cache-order diagnosis.
 
 Keep the experiment disabled on startup. The local preview package is for
 review and later validation; it is not a verified 10%-faster release.

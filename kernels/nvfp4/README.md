@@ -74,14 +74,22 @@ Validation as of 2026-09-09:
   evidence JSON files preserve their original artifact hashes/build identity.
 - The fused cubin and its helper compile; CPU-only ABI, 48-byte region guards,
   eleven packed-prefix permutations, and artifact receipt checks pass.
-- **The fused GPU result, counter visibility through NVAPI, full NR/SR output,
-  and performance remain unvalidated.** Fused selection cannot enter Auto on
-  the basis of compilation or CPU checks. External games contaminated the
-  recorded short timings; no winning variant or overall speedup is asserted.
+- **Full Core NR/SR, temporal/game quality and the complete-NR performance
+  target remain unqualified.** The resumed kernel and signed-host results below
+  do not admit production Auto. External games contaminated the earlier short
+  timings; those samples are not used to choose a winner.
 
-No GPU/graphics tests have been run after the owner's explicit pause. Resume
-them only when authorized. The restored gate formula in `nvfp4_io` is available
-for future expansion work; pack-plus-expansion fusion is not implemented here.
+After renewed owner authorization, both scalar and vector fused contractions
+passed 66 GPU comparisons, including runtime rebinding, packed tails, guards,
+counter values and a subsequent ordered CUDA consumer. The real signed M960
+host produced identical complete NR output for the three/four-launch paths.
+This still does not qualify renderer Auto or temporal game quality.
+
+The vector implementation uses half2 across two rows and exchanges FP8 results
+with lane XOR 4 before aligned 16-bit output stores. A CPU program enumerates
+the actual CUTLASS layout; changing that layout requires revalidation.
+Pack-plus-expansion is implemented separately in `nvfp4_expansion`; its first
+performance result is a regression despite correct two-launch output.
 
 Primary references:
 
