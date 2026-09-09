@@ -50,6 +50,7 @@ bool Init(const Config& config) noexcept {
         // The optimized kernel must earn a validated asset/ABI identity before
         // it is admitted. A builder that merely launches does not meet that gate.
         g.mode.store(effective); g.observer_enabled.store(config.observe_module || config.observe_launch || config.observe_stage);
+        g.original_observer_enabled.store(config.observe_original_launch!=nullptr);
         g.status.mode=effective;
         Reason(g.status,effective==Mode::Disabled ? State::Disabled : State::Observing,
                effective==Mode::Disabled ? "NVFP4 disabled" : "Waiting for owned pre-SR Feature18 scope");
@@ -102,7 +103,7 @@ bool EnsureStarted(ID3D12Device* device) noexcept {
     } catch(const std::exception& error) { std::lock_guard lock(G().mutex); Reason(G().status,State::Fallback,error.what()); return false; }
     catch(...) { return false; }
 }
-void Shutdown() noexcept { G().mode.store(Mode::Disabled); G().observer_enabled.store(false); }
+void Shutdown() noexcept { G().mode.store(Mode::Disabled); G().observer_enabled.store(false); G().original_observer_enabled.store(false); }
 OwnedScope::OwnedScope(const OwnedCall& call) noexcept {
     previous_=current_scope;
     // An ineligible nested scope explicitly masks an outer eligible scope.
@@ -110,10 +111,23 @@ OwnedScope::OwnedScope(const OwnedCall& call) noexcept {
     ScopeData* scope=nullptr;
     try {
         scope=new(storage_) ScopeData; implementation_=scope; scope->call=call; scope->status.mode=G().mode.load();
-        scope->eligible=scope->status.mode!=Mode::Disabled && call.pre_sr && call.feature_id==18 && call.context_id && call.device && call.command_list;
-        if(!scope->eligible) { Reason(scope->status,State::Disabled,"Outside an enabled owned pre-SR Feature18 call"); return; }
+        const bool owned=call.pre_sr && call.feature_id==18 && call.context_id && call.device && call.command_list;
+        scope->eligible=scope->status.mode!=Mode::Disabled && owned;
+        if(!scope->eligible) {
+            // A private Disabled-mode timing observer must not register a
+            // device/context, start a worker, or make replacement eligible.
+            if(owned && scope->status.mode==Mode::Disabled && G().original_observer_enabled.load()) {
+                auto& g=G(); std::lock_guard lock(g.mutex);
+                scope->observe_original_launch=g.config.observe_original_launch; scope->observer_user=g.config.observer_user;
+                scope->observe_original_input_calls=g.config.observe_original_input_calls;
+                scope->metadata=std::atomic_load(&g.metadata); current_scope=scope;
+            }
+            Reason(scope->status,State::Disabled,"Outside an enabled owned pre-SR Feature18 call"); return;
+        }
         auto& g=G(); std::lock_guard lock(g.mutex);
         scope->observe_stage=g.config.observe_stage; scope->observe_launch=g.config.observe_launch; scope->observe_module=g.config.observe_module; scope->observer_user=g.config.observer_user;
+        scope->observe_original_launch=g.config.observe_original_launch;
+        scope->observe_original_input_calls=g.config.observe_original_input_calls;
         if(g.retired_contexts.count({call.context_id,call.generation})) {
             scope->eligible=false; Reason(scope->status,State::Fallback,"Retired context identity cannot be resurrected"); return;
         }

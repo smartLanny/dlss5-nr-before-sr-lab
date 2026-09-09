@@ -84,7 +84,9 @@ inline void Flush() {
         "\"epoch\":%llu,\"frame\":%llu,\"warmup\":%s,\"gpu_complete\":true,\"valid\":true,"
         "\"M\":%llu,\"replaced_pairs\":%llu,\"replacement_launches\":%llu,\"uav_barriers\":%llu,"
         "\"encoding_ms\":%.9f,\"feature18_ms\":%.9f,\"composition_ms\":%.9f,\"sr_ms\":%.9f,"
-        "\"nr_chain_ms\":%.9f,\"nr_sr_ms\":%.9f,\"boundary\":\"owned-Core-EncodeBegin-through-CompositeEnd\"}\n",
+        "\"nr_chain_ms\":%.9f,\"nr_sr_ms\":%.9f,\"ms_per_tick\":%.17g,"
+        "\"ticks\":[%llu,%llu,%llu,%llu,%llu,%llu,%llu],"
+        "\"boundary\":\"owned-Core-EncodeBegin-through-CompositeEnd\"}\n",
         mode, (unsigned long)process_id, (unsigned long long)run_start_ticks,
         (unsigned long long)row.ticket, (unsigned long long)key.context, key.width, key.height,
         (unsigned long long)row.epoch, (unsigned long long)row.frame,
@@ -92,7 +94,9 @@ inline void Flush() {
         (unsigned long long)row.observed_m, (unsigned long long)row.pairs, (unsigned long long)row.launches, (unsigned long long)row.barriers,
         double(ticks[1]-ticks[0])*scale, double(ticks[3]-ticks[2])*scale,
         double(ticks[4]-ticks[3])*scale, double(ticks[6]-ticks[5])*scale,
-        double(ticks[4]-ticks[0])*scale, double(ticks[6]-ticks[0])*scale);
+        double(ticks[4]-ticks[0])*scale, double(ticks[6]-ticks[0])*scale,scale,
+        (unsigned long long)ticks[0],(unsigned long long)ticks[1],(unsigned long long)ticks[2],
+        (unsigned long long)ticks[3],(unsigned long long)ticks[4],(unsigned long long)ticks[5],(unsigned long long)ticks[6]);
     DWORD written=0;
     if(n<=0||n>=int(sizeof(text))||!WriteFile(file,text,DWORD(n),&written,nullptr)||written!=DWORD(n))break;
     ++flushed;
@@ -129,7 +133,7 @@ def main():
     p.add_argument('--expansion-variant', type=int, choices=range(3), default=0)
     p.add_argument('--assets', type=Path, required=True)
     p.add_argument('--output', type=Path, required=True)
-    p.add_argument('--mode', choices=('passthrough', 'optimized', 'fused', 'two'), required=True)
+    p.add_argument('--mode', choices=('passthrough', 'reference', 'optimized', 'fused', 'two'), required=True)
     p.add_argument('--variant', type=int, choices=range(4), default=0)
     p.add_argument('--accepted-m', default='640,960')
     p.add_argument('--warmup', type=int, default=128)
@@ -146,7 +150,11 @@ def main():
     candidate = a.mode != 'passthrough'
     configure = 'config.mode = nr::nvfp4::Mode::Passthrough;'
     receipt = None
-    if candidate:
+    if a.mode == 'reference':
+        # Use the locked upstream kernels/weights through the shared backend.
+        # This replacement profile still requires all eight pairs for readiness.
+        configure = 'config.mode = nr::nvfp4::Mode::UpstreamReference;'
+    elif candidate:
         if not a.build:
             p.error('A candidate needs its explicit kernel build')
         a.build = a.build.resolve()

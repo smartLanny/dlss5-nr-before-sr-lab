@@ -63,17 +63,21 @@ def main():
                 z.write(ROOT/name,name)
     instructions='''# dev14 NVFP4 源码预览包
 
-本包已完成源码和编译工作，NVFP4 自动档尚无性能／画质验收策略，保持原 FP8。
-它不是已验证提速版本。按本轮要求，没有继续运行图形测试，也没有安装到游戏。
+本包是默认关闭精度替换的本地源码预览。NVFP4 自动档尚无合格性能／画质策略，保持原 FP8。
+研究阶段已有局部 GPU 和真实 Core 静态 NR→SR 证据，准确范围见 TECHNICAL-NOTES.md。
+本包的实际资格以构建身份和 package-manifest.json 为准；它不是已验收提速版本，未部署到游戏。
 
 - core-preview：默认关闭精度替换的中文实验 Core、调用桥和示例配置。
 - kernels：可重建的收缩、融合收缩及 IO 内核和参数构造 DLL。
-- controlled-host：后续独立 Feature18 验证宿主。
+- controlled-host：独立 Feature18 验证宿主。
 - 两份 source.zip：实际生成的 Core 编译输入及 NVFP4 研究源码。
 - source-manifest.json / package-manifest.json：源码身份、二进制哈希和准确验收边界。
 
 原 NVIDIA NR DLL 和上游模型资产不随本包分发。已有个人配置请保留。
-后续测试需先验证融合内核，再测完整 NR→SR；不要把独立 GEMM 时间当作游戏收益。
+继续测试前请核对 TECHNICAL-NOTES.md 中的验收记录、未完成项及各自实际构建身份。
+已有融合 GPU 和静态链路结果不能自动给本包二进制授予资格；完整 NR 长程配对、运动和游戏
+验收仍需各自证据。package-manifest.json 的 false 字段表示本包未获得相应资格，
+不否认技术记录中单独列明的局部 GPU 验证。不要把独立 GEMM 时间当作游戏收益。
 启用 Auto 而显示回退原 FP8 是当前资格门槛的预期行为。
 '''
     (a.output/'开始阅读.md').write_text(instructions,encoding='utf-8')

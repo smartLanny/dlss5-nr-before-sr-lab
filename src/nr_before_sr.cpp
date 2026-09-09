@@ -3469,7 +3469,11 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         any(storedOriginal.rgb < 0.0.xxx);
     if ((independentChroma || lowGridColor) &&
         any(abs(storedOriginal.rgb) > 65504.0.xxx)) finiteInputs = false;
-    float3 diagnosticOriginal = SourceToDiagnosticLinear(storedOriginal.rgb);
+    const bool diagnosticPixel = (Passthrough & 8u) != 0u &&
+        (tid.x & 31u) == 0u && (tid.y & 31u) == 0u;
+    float3 diagnosticOriginal = 0.0.xxx;
+    [branch] if (diagnosticPixel)
+        diagnosticOriginal = SourceToDiagnosticLinear(storedOriginal.rgb);
     float3 diagnosticProxy = proxy;
     float3 diagnosticNeural = neural;
     float diagnosticDelta = max(abs(neural.r - proxy.r),
@@ -3677,15 +3681,17 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
     }
     WriteCombinedV2(tid.xy, destinationCoord,
                     float4(storedResult, storedOriginal.a));
-    float originalMagnitude = max(
-        max(abs(source.r), max(abs(source.g), abs(source.b))),
-        1.0 / 1024.0);
-    float finalRelativeDelta = max(abs(result.r - source.r),
-        max(abs(result.g - source.g), abs(result.b - source.b))) /
-        originalMagnitude;
-    RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
-        diagnosticNeural, SourceToDiagnosticLinear(storedResult),
-        diagnosticDelta, finalRelativeDelta, false);
+    [branch] if (diagnosticPixel) {
+        float originalMagnitude = max(
+            max(abs(source.r), max(abs(source.g), abs(source.b))),
+            1.0 / 1024.0);
+        float finalRelativeDelta = max(abs(result.r - source.r),
+            max(abs(result.g - source.g), abs(result.b - source.b))) /
+            originalMagnitude;
+        RecordDiagnostics(tid.xy, diagnosticOriginal, diagnosticProxy,
+            diagnosticNeural, SourceToDiagnosticLinear(storedResult),
+            diagnosticDelta, finalRelativeDelta, false);
+    }
 }
 
 [numthreads(8, 8, 1)]

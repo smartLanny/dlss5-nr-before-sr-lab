@@ -270,9 +270,21 @@ struct Device {
 };
 enum class Kind { Publish, Expand, Contract };
 using IdentityLive = std::shared_ptr<std::atomic<bool>>;
-struct ModuleIdentity { ID3D12Device* device; bool supported; IdentityLive live; };
+struct ModuleIdentity {
+    ID3D12Device* device; bool supported; IdentityLive live;
+    std::array<uint8_t,32> hash{}; bool hash_valid = false;
+};
 struct Target { ID3D12Device* device; api::Handle module; Kind kind; bool supported; const char* name; IdentityLive live, module_live; };
-struct Metadata { std::map<api::Handle,ModuleIdentity> modules; std::map<api::Handle,Target> functions; };
+struct OriginalIdentity {
+    ID3D12Device* device; api::Handle module; std::string name;
+    IdentityLive live, module_live;
+};
+struct Metadata {
+    std::map<api::Handle,ModuleIdentity> modules;
+    std::map<api::Handle,Target> functions;
+    // This optional diagnostic map never participates in replacement admission.
+    std::map<api::Handle,OriginalIdentity> original_functions;
+};
 struct Context {
     std::mutex mutex; std::atomic<bool> busy{false}; bool retired = false;
     uint64_t m = 0; Snapshot status; std::shared_ptr<Device> device;
@@ -290,6 +302,9 @@ struct ScopeData {
     void (*observe_launch)(const char*,const void*,uint32_t,const uint32_t*,const uint32_t*,uint32_t,void*) = nullptr;
     void* observer_user = nullptr;
     void (*observe_module)(const void*,uint32_t,const uint8_t*,void*) = nullptr;
+    OriginalLaunchObserver observe_original_launch = nullptr;
+    bool observe_original_input_calls = false;
+    uint64_t original_sequence = 0;
 };
 static_assert(sizeof(ScopeData)<=768 && alignof(ScopeData)<=alignof(std::max_align_t));
 thread_local ScopeData* current_scope = nullptr;
@@ -302,6 +317,7 @@ struct Global {
     OptimizedSettings optimized;
     std::atomic<Mode> mode{Mode::Disabled};
     std::atomic<bool> observer_enabled{false};
+    std::atomic<bool> original_observer_enabled{false};
     std::map<ID3D12Device*,std::shared_ptr<Device>> devices;
     std::map<Key,std::shared_ptr<Context>> contexts;
     std::deque<Job> jobs;
@@ -459,6 +475,33 @@ api::Status Record(ScopeData& s, api::Handle function, const void* params, uint3
     ++s.status.replacement_launches;
     return G().launch.load()(s.call.command_list,&k,1);
 }
+OriginalLaunchInfo DescribeOriginal(const ScopeData& scope,const api::LaunchParams* k,uint32_t count,uint64_t sequence) {
+        const auto* s=&scope;OriginalLaunchInfo info;
+        info.sequence=sequence; info.launch_count=count;
+        if(k && count==1) {
+            info.function=reinterpret_cast<uintptr_t>(k->function);
+            info.params_bytes=k->params_bytes; info.shared_bytes=k->shared_bytes;
+            info.grid[0]=k->grid.x; info.grid[1]=k->grid.y; info.grid[2]=k->grid.z;
+            info.block[0]=k->block.x; info.block[1]=k->block.y; info.block[2]=k->block.z;
+            if(s->metadata) {
+                auto found=s->metadata->original_functions.find(k->function);
+                if(found!=s->metadata->original_functions.end()) {
+                    const auto& identity=found->second;
+                    info.module=reinterpret_cast<uintptr_t>(identity.module);
+                    info.function_name=identity.name.empty() ? nullptr : identity.name.c_str();
+                    info.identity_live=identity.device==s->call.device && identity.live && identity.module_live &&
+                        identity.live->load(std::memory_order_acquire) && identity.module_live->load(std::memory_order_acquire);
+                    auto module=s->metadata->modules.find(identity.module);
+                    info.identity_live=info.identity_live && module!=s->metadata->modules.end() && module->second.device==s->call.device;
+                    if(module!=s->metadata->modules.end() && module->second.hash_valid)
+                        info.module_sha256=module->second.hash.data();
+                    auto ffn=s->metadata->functions.find(k->function);
+                    info.ffn_target=info.identity_live && ffn!=s->metadata->functions.end() && ffn->second.supported;
+                }
+            }
+        }
+        return info;
+}
 api::Status Forward(ScopeData* s, ID3D12GraphicsCommandList* list, const api::LaunchParams* k, uint32_t count) {
     auto original = G().launch.load(); if (!original) return api::Error;
     if (s) s->status.original_launches += count;
@@ -468,16 +511,23 @@ api::Status Forward(ScopeData* s, ID3D12GraphicsCommandList* list, const api::La
         if(found!=s->metadata->functions.end() && found->second.supported) target=&found->second;
         if(target && target->kind!=Kind::Contract) StageBoundary(*s,Stage::OriginalPair,true,s->original_pair);
     }
-    auto rc=original(list,k,count);
+    api::Status rc;
+    if(s && s->observe_original_launch && !s->observe_original_input_calls) {
+        const auto info=DescribeOriginal(*s,k,count,s->original_sequence++);
+        s->observe_original_launch(info,true,api::Ok,list,s->observer_user);
+        rc=original(list,k,count);
+        s->observe_original_launch(info,false,rc,list,s->observer_user);
+    } else rc=original(list,k,count);
     if(target && target->kind==Kind::Contract) { StageBoundary(*s,Stage::OriginalPair,false,s->original_pair); ++s->original_pair; }
     return rc;
 }
-api::Status __cdecl Launch(ID3D12GraphicsCommandList* list, const api::LaunchParams* k, uint32_t count) {
+api::Status ProcessLaunch(ID3D12GraphicsCommandList* list, const api::LaunchParams* k, uint32_t count) {
     auto* s = current_scope;
     // The common process-wide forward path does not take any lock, copy a map,
     // inspect a parameter blob, allocate, encode a descriptor or wait for GPU.
-    if (!s || !s->eligible || s->call.phase != Phase::Evaluate || s->call.command_list != list)
+    if (!s || s->call.phase != Phase::Evaluate || s->call.command_list != list)
         return Forward(nullptr,list,k,count);
+    if (!s->eligible) return Forward(s->observe_original_launch ? s : nullptr,list,k,count);
     if (s->failure) return api::Error;
     if(s->arena && s->arena->poisoned.load()) { Fail(*s,"Recording ownership was quarantined; no retry"); return api::Error; }
     if (!k || count != 1) {
@@ -611,6 +661,19 @@ api::Status __cdecl Launch(ID3D12GraphicsCommandList* list, const api::LaunchPar
     s->pending = false; ++s->pair; ++s->status.replaced_pairs;
     Reason(s->status, State::Ready, arena.optimized ? "Optimized FFN pair recorded; GPU completion is reported separately" : "Reference FFN pair recorded; GPU completion is reported separately"); return api::Ok;
 }
+api::Status __cdecl Launch(ID3D12GraphicsCommandList* list, const api::LaunchParams* k, uint32_t count) {
+    auto* s=current_scope;
+    if(!s || !s->observe_original_launch || !s->observe_original_input_calls ||
+       s->call.phase!=Phase::Evaluate || s->call.command_list!=list)
+        return ProcessLaunch(list,k,count);
+    // The input sequence includes replaced calls. A contiguous range therefore
+    // names the same original graph segment in FP8 and replacement modes.
+    const auto info=DescribeOriginal(*s,k,count,s->original_sequence++);
+    s->observe_original_launch(info,true,api::Ok,list,s->observer_user);
+    const auto rc=ProcessLaunch(list,k,count);
+    s->observe_original_launch(info,false,rc,list,s->observer_user);
+    return rc;
+}
 api::Status __cdecl CreateModule(ID3D12Device* d, const void* bytes, uint32_t size, api::Handle* output) {
     auto original = G().create_module.load(); if (!original) return api::Error;
     auto rc = original(d,bytes,size,output);
@@ -625,14 +688,23 @@ api::Status __cdecl CreateModule(ID3D12Device* d, const void* bytes, uint32_t si
         for(const auto& [handle,target]:previous->functions) {
             (void)handle; if(target.module==*output && target.live)target.live->store(false,std::memory_order_release);
         }
+        for(const auto& [handle,identity]:previous->original_functions) {
+            (void)handle; if(identity.module==*output && identity.live)identity.live->store(false,std::memory_order_release);
+        }
         uint8_t hash[32]{}; bool supported = OriginalModule(bytes,size,hash);
+        const bool hash_valid=supported || (g.original_observer_enabled.load() && bytes && size && Hash(bytes,size,hash));
         if (supported && current_scope && current_scope->eligible && g.observer_enabled.load() && current_scope->observe_module)
             current_scope->observe_module(bytes,size,hash,current_scope->observer_user);
         auto next = std::make_shared<Metadata>(*previous);
         for(auto it=next->functions.begin();it!=next->functions.end();) {
             if(it->second.module==*output)it=next->functions.erase(it);else ++it;
         }
-        next->modules[*output] = {d,supported,std::make_shared<std::atomic<bool>>(true)};
+        for(auto it=next->original_functions.begin();it!=next->original_functions.end();) {
+            if(it->second.module==*output)it=next->original_functions.erase(it);else ++it;
+        }
+        ModuleIdentity identity{d,supported,std::make_shared<std::atomic<bool>>(true)};
+        std::copy(std::begin(hash),std::end(hash),identity.hash.begin()); identity.hash_valid=hash_valid;
+        next->modules[*output] = std::move(identity);
         std::atomic_store(&g.metadata,std::shared_ptr<const Metadata>(next));
     } catch (...) { /* Observer failure cannot change original module creation. */ }
     return rc;
@@ -645,7 +717,9 @@ api::Status __cdecl CreateFunction(ID3D12Device* d, api::Handle module, const ch
         const auto previous=std::atomic_load(&g.metadata);
         if(auto old=previous->functions.find(*output);old!=previous->functions.end() && old->second.live)
             old->second.live->store(false,std::memory_order_release);
-        auto next=std::make_shared<Metadata>(*previous);next->functions.erase(*output);
+        if(auto old=previous->original_functions.find(*output);old!=previous->original_functions.end() && old->second.live)
+            old->second.live->store(false,std::memory_order_release);
+        auto next=std::make_shared<Metadata>(*previous);next->functions.erase(*output);next->original_functions.erase(*output);
         Kind kind=Kind::Publish;const char* stable=nullptr;
         if(name && !std::strcmp(name,"cc_vit_1d_ffn_expand_publish_fp8")){kind=Kind::Publish;stable="cc_vit_1d_ffn_expand_publish_fp8";}
         else if(name && !std::strcmp(name,"cc_vit_1d_ffn_expand_chained_fp8")){kind=Kind::Expand;stable="cc_vit_1d_ffn_expand_chained_fp8";}
@@ -654,6 +728,12 @@ api::Status __cdecl CreateFunction(ID3D12Device* d, api::Handle module, const ch
             auto m=next->modules.find(module);
             const bool supported=m!=next->modules.end() && m->second.device==d && m->second.supported && m->second.live && m->second.live->load(std::memory_order_acquire);
             next->functions[*output]={d,module,kind,supported,stable,std::make_shared<std::atomic<bool>>(true),m==next->modules.end()?IdentityLive{}:m->second.live};
+        }
+        if(g.original_observer_enabled.load()) {
+            auto m=next->modules.find(module);
+            auto f=next->functions.find(*output);
+            auto live=f==next->functions.end() ? std::make_shared<std::atomic<bool>>(true) : f->second.live;
+            next->original_functions[*output]={d,module,name ? name : "",std::move(live),m==next->modules.end()?IdentityLive{}:m->second.live};
         }
         std::atomic_store(&g.metadata,std::shared_ptr<const Metadata>(next));
     } catch (...) {}
@@ -665,8 +745,12 @@ api::Status __cdecl DestroyFunction(ID3D12Device* d, api::Handle f) {
         const auto previous=std::atomic_load(&g.metadata);
         auto old=previous->functions.find(f);
         if(old!=previous->functions.end() && old->second.device==d && old->second.live)old->second.live->store(false,std::memory_order_release);
+        auto diagnostic=previous->original_functions.find(f);
+        if(diagnostic!=previous->original_functions.end() && diagnostic->second.device==d && diagnostic->second.live)diagnostic->second.live->store(false,std::memory_order_release);
         auto next=std::make_shared<Metadata>(*previous); auto it=next->functions.find(f);
         if(it!=next->functions.end() && it->second.device==d) next->functions.erase(it);
+        auto raw=next->original_functions.find(f);
+        if(raw!=next->original_functions.end() && raw->second.device==d) next->original_functions.erase(raw);
         std::atomic_store(&g.metadata,std::shared_ptr<const Metadata>(next));
     } catch (...) {}
     return rc;
@@ -677,9 +761,11 @@ api::Status __cdecl DestroyModule(ID3D12Device* d, api::Handle m) {
         const auto previous=std::atomic_load(&g.metadata);auto old=previous->modules.find(m);
         if(old!=previous->modules.end() && old->second.device==d && old->second.live)old->second.live->store(false,std::memory_order_release);
         for(const auto& [handle,target]:previous->functions){(void)handle;if(target.device==d && target.module==m && target.live)target.live->store(false,std::memory_order_release);}
+        for(const auto& [handle,identity]:previous->original_functions){(void)handle;if(identity.device==d && identity.module==m && identity.live)identity.live->store(false,std::memory_order_release);}
         auto next=std::make_shared<Metadata>(*previous); auto it=next->modules.find(m);
         if(it!=next->modules.end() && it->second.device==d) next->modules.erase(it);
         for(auto f=next->functions.begin();f!=next->functions.end();) if(f->second.device==d && f->second.module==m) f=next->functions.erase(f); else ++f;
+        for(auto f=next->original_functions.begin();f!=next->original_functions.end();) if(f->second.device==d && f->second.module==m) f=next->original_functions.erase(f); else ++f;
         std::atomic_store(&g.metadata,std::shared_ptr<const Metadata>(next));
     } catch (...) {}
     return rc;

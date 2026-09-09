@@ -3,6 +3,8 @@ import importlib.util
 import json
 import math
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -183,6 +185,180 @@ class OutputComparisonTests(unittest.TestCase):
         result = compare.compare_pair(a, b)
         self.assertIn("input", result["conditions"]["differences"])
         self.assertIsNone(result["exact_contract_met"])
+
+
+class EnhancementComparisonTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    @staticmethod
+    def plane(rgb=0, alpha=1):
+        values = np.full((1, 2, 4), rgb, dtype="<f2")
+        values[..., 3] = alpha
+        return values
+
+    def chain_fixture(self, role, rgb_values=(1, 1), source_offset=0):
+        directory = self.root / role
+        directory.mkdir()
+        request = {"frames": 3, "samples": 2, "warmup": 1, "capture_first": 1, "capture_count": 2,
+                   "fixed_dt": 1 / 60, "output_width": 2, "output_height": 1, "dlss_mode": 3,
+                   "animations": False, "camera_input": False, "fg": False, "rr": False,
+                   "require_core": role != "pure_sr"}
+        complete = {"completed": True, "gpu_complete": True, "frames": 3, "sr_evaluations": 3,
+                    "warmup": 1, "samples": 2, "captures": 2}
+        epoch = {"epoch": 1, "next_epoch_frame": 0, "SR_reset_next_frame": True, "jitter_restart": True}
+        for name, data in (("requested", request), ("completed", complete), ("epoch-start", epoch)):
+            (directory / (name + ".json")).write_text(json.dumps(data))
+        rows = []
+        for index in range(3):
+            row = {"host_frame": index, "epoch": 1, "epoch_frame": index, "epoch_frame_one_based": index + 1,
+                   "source_frame": index + source_offset, "warmup": index == 0, "scene": "fixture",
+                   "scene_time": index / 60, "camera": [0, 1, 0, 1, 1, 0], "fov": 60,
+                   "render_width": 2, "render_height": 1, "output_width": 2, "output_height": 1,
+                   "dlss_mode": 3, "jitter": [index / 4, 0], "reset": index == 0, "sr_sequence": index + 1,
+                   "sr_result": 0, "gpu_complete": True, "capture": index > 0, "planes": []}
+            if index > 0:
+                frame_dir = directory / f"frame-{index:03d}"
+                frame_dir.mkdir()
+                for name, values in (("input_color", self.plane(.25)),
+                                     ("sr_output", self.plane(rgb_values[index - 1]))):
+                    values.tofile(frame_dir / (name + ".raw"))
+                    row["planes"].append({"name": name, "width": 2, "height": 1, "bytes_per_pixel": 8,
+                                          "format": "RGBA16_FLOAT_LE", "packed_bytes": 16})
+            rows.append(row)
+        (directory / "frames.jsonl").write_text("\n".join(json.dumps(row) for row in rows))
+        return directory
+
+    def triplet(self):
+        return [self.chain_fixture(role, values, source_offset=index * 3) for index, (role, values) in
+                enumerate((("pure_sr", (0, 0)), ("fp8", (1, 2)), ("candidate", (0, 2))))]
+
+    @staticmethod
+    def edit_history(path, edit):
+        file = path / "frames.jsonl"
+        rows = [json.loads(line) for line in file.read_text().splitlines()]
+        edit(rows)
+        file.write_text("\n".join(json.dumps(row) for row in rows))
+
+    def test_identity_and_extinguished_effect_are_distinguished(self):
+        s, f = self.plane(4), self.plane(5)
+        for candidate, expected in ((f, (1, 0, 1)), (s, (0, 1, 0))):
+            metrics = compare.enhancement_statistics(s, f, candidate)["metrics"]
+            self.assertEqual(tuple(metrics[key] for key in
+                                   ("effect_gain", "residual_nrmse", "residual_rms_ratio")), expected)
+            self.assertEqual(metrics["reference_residual_rms"], 1)
+
+    def test_projection_detects_orthogonal_change_and_alpha_is_excluded(self):
+        s, f, c = self.plane(0, np.nan), self.plane(0, np.inf), self.plane(0, -np.inf)
+        f[..., 0] = 1
+        c[..., :2] = .5
+        metrics = compare.enhancement_statistics(s, f, c)["metrics"]
+        self.assertAlmostEqual(metrics["effect_gain"], .5)
+        self.assertAlmostEqual(metrics["residual_nrmse"], math.sqrt(.5))
+        self.assertAlmostEqual(metrics["residual_rms_ratio"], math.sqrt(.5))
+        self.assertAlmostEqual(metrics["reference_residual_rms"], math.sqrt(1 / 3))
+        json.dumps(metrics, allow_nan=False)
+
+    def test_zero_reference_energy_is_undefined_without_epsilon(self):
+        result = compare.enhancement_statistics(self.plane(), self.plane(), self.plane(1))
+        self.assertEqual(result["metrics"]["normalization_status"], "undefined_zero_reference_residual")
+        for name in ("effect_gain", "residual_nrmse", "residual_rms_ratio"):
+            self.assertIsNone(result["metrics"][name])
+        self.assertEqual(result["metrics"]["error_rms"], 1)
+        json.dumps(result["metrics"], allow_nan=False)
+
+    def test_nonfinite_rgb_and_shape_mismatch_are_refused(self):
+        for bad in (np.nan, np.inf, -np.inf):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "NaN or infinity"):
+                compare.enhancement_statistics(self.plane(), self.plane(1), self.plane(bad))
+        with self.assertRaisesRegex(ValueError, "shape mismatch"):
+            compare.enhancement_statistics(self.plane(), self.plane(1), np.zeros((2, 1, 4)))
+
+    def test_temporal_error_change_uses_signed_errors(self):
+        s, f = self.plane(), self.plane(1)
+        # Opposite signed errors have equal error magnitude, but their change is two.
+        result = compare.enhancement_statistics(s, f, self.plane(2), previous=(s, f, s))
+        self.assertEqual(result["temporal"]["error_change_rms"], 2)
+        self.assertEqual(result["temporal"]["reference_residual_change_rms"], 0)
+        self.assertEqual(result["temporal"]["candidate_residual_change_rms"], 2)
+
+    def test_full_capture_report_pools_energy_and_ignores_preparation_tokens(self):
+        report = compare.build_enhancement_report(self.triplet())
+        self.assertTrue(report["checks_passed"])
+        self.assertFalse(report["quality_qualified"])
+        self.assertFalse(report["pipeline_roles_verified"])
+        self.assertAlmostEqual(report["pooled_metrics"]["effect_gain"], .8)
+        self.assertAlmostEqual(report["pooled_metrics"]["residual_nrmse"], math.sqrt(.2))
+        self.assertEqual(report["comparisons"][0]["temporal"]["status"], "undefined_no_previous_frame")
+        self.assertEqual(report["comparisons"][1]["temporal"]["error_change_rms"], 1)
+        json.dumps(report, allow_nan=False)
+
+    def test_warmup_history_mismatch_refuses_identical_capture_inputs(self):
+        paths = self.triplet()
+        self.edit_history(paths[2], lambda rows: rows[0].update(jitter=[.25, .5]))
+        with self.assertRaisesRegex(ValueError, "history mismatch"):
+            compare.build_enhancement_report(paths)
+
+    def test_input_identity_and_raw_byte_count_are_enforced(self):
+        paths = self.triplet()
+        self.plane(.5).tofile(paths[2] / "frame-001/input_color.raw")
+        with self.assertRaisesRegex(ValueError, "raw identity mismatch"):
+            compare.build_enhancement_report(paths)
+        self.plane(.25).tofile(paths[2] / "frame-001/input_color.raw")
+        (paths[2] / "frame-001/sr_output.raw").write_bytes(b"bad")
+        with self.assertRaisesRegex(ValueError, "shape/format/byte count mismatch"):
+            compare.build_enhancement_report(paths)
+
+    def test_passthrough_cannot_be_declared_pure_sr(self):
+        paths = self.triplet()
+        request_file = paths[0] / "requested.json"
+        request = json.loads(request_file.read_text())
+        request["require_core"] = True
+        request_file.write_text(json.dumps(request))
+        with self.assertRaisesRegex(ValueError, "passthrough is not pure SR"):
+            compare.build_enhancement_report(paths)
+
+    def test_missing_epoch_or_incomplete_history_is_refused(self):
+        paths = self.triplet()
+        self.edit_history(paths[1], lambda rows: rows.pop(0))
+        with self.assertRaisesRegex(ValueError, "incomplete frame history"):
+            compare.build_enhancement_report(paths)
+        (paths[0] / "epoch-start.json").write_text("{}")
+        with self.assertRaisesRegex(ValueError, "history boundary"):
+            compare.build_enhancement_report(paths)
+
+    def test_shared_reset_has_no_cross_reset_temporal_measurement(self):
+        paths = self.triplet()
+        for path in paths:
+            self.edit_history(path, lambda rows: rows[2].update(reset=True))
+        report = compare.build_enhancement_report(paths)
+        temporal = report["comparisons"][1]["temporal"]
+        self.assertEqual(temporal["status"], "undefined_reset_or_nonconsecutive_frames")
+        self.assertIsNone(temporal["error_change_rms"])
+
+    def test_enhancement_cli_writes_strict_json_and_failure_is_explicit(self):
+        paths = self.triplet()
+        output = self.root / "report.json"
+        command = [sys.executable, str(Path(compare.__file__)), "--enhancement", *map(str, paths),
+                   "--output", str(output)]
+        success = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(success.returncode, 0, success.stderr)
+        report = json.loads(output.read_text())
+        self.assertEqual(len(report["comparisons"]), 2)
+        self.assertFalse(report["cuda_initialized"])
+        self.assertEqual(report["gpu_launches"], 0)
+        self.edit_history(paths[1], lambda rows: rows[0].update(scene_time=float("nan")))
+        failed = self.root / "failed.json"
+        command[-1] = str(failed)
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        report = json.loads(failed.read_text())
+        self.assertFalse(report["analysis_completed"])
+        self.assertIn("ValueError", report["error"])
 
 
 if __name__ == "__main__":

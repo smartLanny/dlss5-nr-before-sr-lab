@@ -5,10 +5,16 @@ Inputs are experiment directories/experiment.json files or host directories/
 host.json files. The host writes tightly packed little-endian RGBA FP16.
 Fused versus optimized has a byte-exact contract. Comparisons with original
 FP8 measure numerical differences only; they never qualify image quality.
+
+--enhancement instead accepts three controlled-chain capture directories in
+pure-SR S, original-FP8 F, candidate C order. It measures O-grid RGB residuals
+against S with explicitly defined local formulas, not an external report's
+definitions. Matching capture metadata does not verify the pipeline roles.
 """
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import json
 import math
@@ -19,6 +25,24 @@ import numpy as np
 
 CHANNELS = ("R", "G", "B", "A")
 CONDITION_FIELDS = ("width", "height", "frames", "warmup", "input", "game", "sr")
+CHAIN_REQUEST_FIELDS = ("frames", "samples", "warmup", "capture_first", "capture_count",
+                        "fixed_dt", "output_width", "output_height", "dlss_mode",
+                        "animations", "camera_input", "fg", "rr")
+CHAIN_HISTORY_FIELDS = ("epoch", "epoch_frame", "epoch_frame_one_based", "warmup",
+                        "scene", "scene_time", "camera", "fov", "render_width", "render_height",
+                        "output_width", "output_height", "dlss_mode", "jitter", "reset", "sr_sequence")
+ENHANCEMENT_FORMULAS = {
+    "residuals": "rF=F_RGB-S_RGB; rC=C_RGB-S_RGB; e=C_RGB-F_RGB",
+    "effect_gain": "sum(rC*rF)/sum(rF*rF); signed projection onto the FP8 enhancement",
+    "residual_nrmse": "sqrt(sum(e*e)/sum(rF*rF))",
+    "reference_residual_rms": "sqrt(mean(rF*rF))",
+    "candidate_residual_rms": "sqrt(mean(rC*rC))",
+    "residual_rms_ratio": "sqrt(sum(rC*rC)/sum(rF*rF))",
+    "error_rms": "sqrt(mean(e*e))",
+    "error_change_rms": "sqrt(mean((e_t-e_(t-1))^2)); same image coordinates, no motion compensation",
+    "reference_residual_change_rms": "sqrt(mean((rF_t-rF_(t-1))^2))",
+    "candidate_residual_change_rms": "sqrt(mean((rC_t-rC_(t-1))^2))",
+}
 
 
 def read_json(path):
@@ -404,9 +428,189 @@ def build_report(runs, baseline_mode=None, candidate_modes=None, peak=1.0, purpo
     return report, pairs
 
 
+class ChainCapture:
+    """Read existing controlled-host receipts; never infer a pure-SR role from passthrough."""
+
+    def __init__(self, directory, role):
+        self.directory = Path(directory).resolve()
+        self.role = role
+        request = read_json(self.directory / "requested.json")
+        complete = read_json(self.directory / "completed.json")
+        epoch = read_json(self.directory / "epoch-start.json")
+        rows = [json.loads(line) for line in (self.directory / "frames.jsonl").read_text(
+            encoding="utf-8-sig").splitlines() if line.strip()]
+        # JSON accepts NaN by default; metadata containing it is not a matchable contract.
+        json.dumps([request, complete, epoch, rows], allow_nan=False)
+        self.conditions = {key: request[key] for key in CHAIN_REQUEST_FIELDS}
+        for key in ("frames", "samples", "output_width", "output_height", "capture_count"):
+            if type(request[key]) is not int or request[key] <= 0:
+                raise ValueError(f"{role}: invalid {key}")
+        for key in ("warmup", "capture_first"):
+            if type(request[key]) is not int or request[key] < 0:
+                raise ValueError(f"{role}: invalid {key}")
+        if type(request["fixed_dt"]) not in (int, float) or request["fixed_dt"] <= 0:
+            raise ValueError(f"{role}: invalid fixed_dt history interval")
+        count, warmup = request["frames"], request["warmup"]
+        first, captures = request["capture_first"], request["capture_count"]
+        if count != request["samples"] + warmup or first < warmup or first + captures > count:
+            raise ValueError(f"{role}: invalid measurement/capture epoch bounds")
+        if request.get("require_core") is not (role != "pure_sr"):
+            raise ValueError(f"{role}: require_core role mismatch; passthrough is not pure SR")
+        for key, expected in (("completed", True), ("gpu_complete", True), ("frames", count),
+                              ("sr_evaluations", count), ("warmup", warmup),
+                              ("samples", request["samples"]), ("captures", captures)):
+            if type(complete.get(key)) is not type(expected) or complete[key] != expected:
+                raise ValueError(f"{role}: incomplete or inconsistent completed.json {key}")
+        if (epoch.get("next_epoch_frame") != 0 or epoch.get("SR_reset_next_frame") is not True or
+                epoch.get("jitter_restart") is not True or type(epoch.get("epoch")) is not int or epoch["epoch"] <= 0):
+            raise ValueError(f"{role}: missing reset/jitter history boundary")
+        self.epoch = {key: epoch[key] for key in
+                      ("epoch", "next_epoch_frame", "SR_reset_next_frame", "jitter_restart")}
+        if len(rows) != count:
+            raise ValueError(f"{role}: incomplete frame history")
+        for index, row in enumerate(rows):
+            if (row.get("host_frame") != index or row.get("epoch_frame") != index or
+                    row.get("epoch_frame_one_based") != index + 1 or row.get("epoch") != epoch["epoch"] or
+                    row.get("sr_sequence") != index + 1 or row.get("warmup") is not (index < warmup) or
+                    row.get("capture") is not (first <= index < first + captures) or
+                    row.get("gpu_complete") is not True or row.get("sr_result") != 0 or
+                    type(row.get("reset")) is not bool):
+                raise ValueError(f"{role}: invalid frame/history row {index}")
+            if index == 0 and row["reset"] is not True:
+                raise ValueError(f"{role}: first epoch frame did not reset SR history")
+            for dimension in ("render_width", "render_height", "output_width", "output_height"):
+                if type(row.get(dimension)) is not int or row[dimension] <= 0:
+                    raise ValueError(f"{role}: invalid {dimension} at frame {index}")
+            if any(row[key] != request[key] for key in ("output_width", "output_height", "dlss_mode")):
+                raise ValueError(f"{role}: frame/request output contract mismatch at {index}")
+            if (not isinstance(row.get("camera"), list) or len(row["camera"]) != 6 or
+                    not isinstance(row.get("jitter"), list) or len(row["jitter"]) != 2 or
+                    any(type(value) not in (int, float) for value in row["camera"] + row["jitter"]) or
+                    type(row.get("scene_time")) not in (int, float) or type(row.get("fov")) not in (int, float) or
+                    not isinstance(row.get("scene"), str) or not row["scene"]):
+                raise ValueError(f"{role}: missing camera/jitter identity at {index}")
+        self.history = [{key: row[key] for key in CHAIN_HISTORY_FIELDS} for row in rows]
+        self.rows = rows
+        self.frame_indices = list(range(first, first + captures))
+
+    def readback(self, index, name, stack):
+        row = self.rows[index]
+        planes = [plane for plane in row["planes"] if plane.get("name") == name]
+        if len(planes) != 1:
+            raise ValueError(f"{self.role}: expected one {name} plane at frame {index}")
+        plane = planes[0]
+        prefix = "render" if name == "input_color" else "output"
+        width, height = row[prefix + "_width"], row[prefix + "_height"]
+        path = self.directory / f"frame-{index:03d}" / (name + ".raw")
+        expected_bytes = width * height * 8
+        if (plane.get("format") != "RGBA16_FLOAT_LE" or plane.get("width") != width or
+                plane.get("height") != height or plane.get("bytes_per_pixel") != 8 or
+                plane.get("packed_bytes") != expected_bytes or path.stat().st_size != expected_bytes):
+            raise ValueError(f"{self.role}: {name} shape/format/byte count mismatch at frame {index}")
+        array = np.memmap(path, mode="r", dtype="<f2", shape=(height, width, 4))
+        stack.callback(array._mmap.close)
+        return array, {"path": str(path), "sha256": sha256(path), "shape_hwc": [height, width, 4]}
+
+
+def enhancement_metrics(sums, elements):
+    ref_energy, candidate_energy, projection, error_energy = (float(value) for value in sums)
+    defined = ref_energy > 0
+    return {"rgb_elements": elements,
+            "normalization_status": "defined" if defined else "undefined_zero_reference_residual",
+            "effect_gain": projection / ref_energy if defined else None,
+            "residual_nrmse": math.sqrt(error_energy / ref_energy) if defined else None,
+            "reference_residual_rms": math.sqrt(ref_energy / elements),
+            "candidate_residual_rms": math.sqrt(candidate_energy / elements),
+            "residual_rms_ratio": math.sqrt(candidate_energy / ref_energy) if defined else None,
+            "error_rms": math.sqrt(error_energy / elements)}
+
+
+def enhancement_statistics(pure_sr, fp8, candidate, previous=None):
+    """Bound memory by row chunks, using RGB float64 arithmetic without clipping."""
+    arrays = (pure_sr, fp8, candidate)
+    if previous is not None:
+        arrays += tuple(previous)
+    shape = np.shape(pure_sr)
+    if len(shape) != 3 or shape[2] != 4 or min(shape[:2]) <= 0 or any(np.shape(a) != shape for a in arrays):
+        raise ValueError("Enhancement shape mismatch: expected equal nonempty HxWx4 O-grid planes")
+    if previous is not None and len(previous) != 3:
+        raise ValueError("Previous enhancement frame requires S, F, C")
+    sums, temporal_sums = np.zeros(4, np.float64), np.zeros(3, np.float64)
+    for start in range(0, shape[0], 64):
+        chunk = [np.asarray(a[start:start + 64, :, :3], dtype=np.float64) for a in arrays]
+        if any(not np.isfinite(a).all() for a in chunk):
+            raise ValueError("Enhancement RGB contains NaN or infinity; no finite-only filtering")
+        s, f, c = chunk[:3]
+        rf, rc, error = f - s, c - s, c - f
+        sums += [np.sum(rf * rf), np.sum(rc * rc), np.sum(rc * rf), np.sum(error * error)]
+        if previous is not None:
+            ps, pf, pc = chunk[3:]
+            changes = (error - (pc - pf), rf - (pf - ps), rc - (pc - ps))
+            temporal_sums += [np.sum(change * change) for change in changes]
+    elements = shape[0] * shape[1] * 3
+    temporal = {"status": "undefined_no_previous_frame", "error_change_rms": None,
+                "reference_residual_change_rms": None, "candidate_residual_change_rms": None}
+    if previous is not None:
+        temporal["status"] = "measured_unwarped"
+        for key, value in zip(tuple(temporal)[1:], temporal_sums):
+            temporal[key] = math.sqrt(float(value) / elements)
+    return {"metrics": enhancement_metrics(sums, elements), "temporal": temporal, "sums": sums}
+
+
+def build_enhancement_report(paths):
+    if len(paths) != 3:
+        raise ValueError("--enhancement requires exactly three directories: pure-SR S, original-FP8 F, candidate C")
+    runs = [ChainCapture(path, role) for path, role in zip(paths, ("pure_sr", "fp8", "candidate"))]
+    if len({run.directory for run in runs}) != 3:
+        raise ValueError("Enhancement roles require three distinct capture directories")
+    for run in runs[1:]:
+        for key in ("conditions", "epoch", "history"):
+            if getattr(run, key) != getattr(runs[0], key):
+                raise ValueError(f"{run.role}: {key} mismatch with pure SR; enhancement comparison refused")
+    comparisons, pooled, elements = [], np.zeros(4, np.float64), 0
+    previous_index = None
+    for index in runs[0].frame_indices:
+        with ExitStack() as stack:
+            inputs = [run.readback(index, "input_color", stack)[1] for run in runs]
+            if len({item["sha256"] for item in inputs}) != 1:
+                raise ValueError(f"Input RGB(A) raw identity mismatch across S/F/C at frame {index}")
+            outputs = [run.readback(index, "sr_output", stack) for run in runs]
+            previous = None
+            reset = runs[0].rows[index]["reset"]
+            if previous_index is not None and index == previous_index + 1 and not reset:
+                previous = tuple(run.readback(previous_index, "sr_output", stack)[0] for run in runs)
+            result = enhancement_statistics(*(item[0] for item in outputs), previous=previous)
+            if previous_index is not None and previous is None:
+                result["temporal"]["status"] = "undefined_reset_or_nonconsecutive_frames"
+            pooled += result.pop("sums")
+            elements += result["metrics"]["rgb_elements"]
+            comparisons.append({"epoch_frame": index, "conditions": runs[0].history[index],
+                                "input_color": inputs, "sr_output": [item[1] for item in outputs], **result})
+            previous_index = index
+    return {"schema": 1, "scope": "CPU O-grid enhancement residual comparison: pure SR S, original FP8 F, candidate C",
+            "analysis_completed": True, "checks_passed": True, "all_data_valid": True,
+            "cuda_initialized": False, "gpu_launches": 0, "quality_qualified": False,
+            "auto_qualified": False, "game_quality_qualified": False, "temporal_quality_qualified": False,
+            "pipeline_roles_verified": False,
+            "formula_origin": "Explicit local definitions; external research-report definitions were not established",
+            "formulas": ENHANCEMENT_FORMULAS,
+            "metric_units": "Raw O-grid RGB values; float64 accumulation; alpha excluded; no clipping or gamma transform",
+            "normalization_note": "Zero reference residual gives null normalized metrics, never an epsilon-defined score. No quality thresholds applied.",
+            "pooling": "Sum energies/projection and RGB element counts across frames before normalizing; not a mean of ratios",
+            "validation_boundary": "Full epoch metadata and captured original-input SHA256 match. Uncaptured input pixels and actual pipeline roles require independent receipts; require_core=false alone does not disable a loaded Core.",
+            "temporal_note": "Adjacent image-coordinate error changes are not motion-compensated and do not qualify flicker, disocclusion, or game temporal stability.",
+            "receipt_note": "SHA256 values identify analyzed raw files; host FNV receipt checksums were not recomputed.",
+            "runs": [{"role": run.role, "directory": str(run.directory), "conditions": run.conditions,
+                      "epoch": run.epoch, "metadata_sha256": {name: sha256(run.directory / name) for name in
+                          ("requested.json", "completed.json", "epoch-start.json", "frames.jsonl")}} for run in runs],
+            "comparisons": comparisons, "pooled_metrics": enhancement_metrics(pooled, elements)}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", type=Path, nargs="+")
+    parser.add_argument("--enhancement", action="store_true",
+                        help="Compare chain capture directories in pure-SR S, original-FP8 F, candidate C order")
     parser.add_argument("--baseline-mode")
     parser.add_argument("--candidate-modes", help="Comma-separated modes; default: all modes except baseline")
     parser.add_argument("--purpose", choices=("auto", "exact", "measure"), default="auto")
@@ -423,14 +627,19 @@ def main():
         parser.error("--peak must be positive and finite")
     if not math.isfinite(args.difference_gain) or args.difference_gain <= 0:
         parser.error("--difference-gain must be positive and finite")
+    if args.enhancement and (args.baseline_mode or args.candidate_modes or args.purpose != "auto" or args.preview_dir):
+        parser.error("--enhancement uses ordered S/F/C inputs and does not accept Feature18 pairing or preview options")
     try:
-        runs = discover(args.inputs)
-        report, pairs = build_report(runs, args.baseline_mode,
-                                     args.candidate_modes.split(",") if args.candidate_modes else None,
-                                     args.peak, args.purpose)
-        if args.preview_dir:
-            report["preview"] = preview(pairs, args.preview_dir, args.peak, args.difference_gain)
-    except (ValueError, OSError, KeyError, ImportError) as error:
+        if args.enhancement:
+            report = build_enhancement_report(args.inputs)
+        else:
+            runs = discover(args.inputs)
+            report, pairs = build_report(runs, args.baseline_mode,
+                                         args.candidate_modes.split(",") if args.candidate_modes else None,
+                                         args.peak, args.purpose)
+            if args.preview_dir:
+                report["preview"] = preview(pairs, args.preview_dir, args.peak, args.difference_gain)
+    except (ValueError, OSError, KeyError, TypeError, ImportError) as error:
         report = {"schema": 1, "analysis_completed": False, "checks_passed": False,
                   "quality_qualified": False, "cuda_initialized": False, "gpu_launches": 0,
                   "error": f"{type(error).__name__}: {error}"}

@@ -12,6 +12,20 @@ enum class Mode : uint32_t { Disabled, Auto, Passthrough, UpstreamReference, Opt
 enum class Phase : uint32_t { Create, Evaluate };
 enum class State : uint32_t { Disabled, Observing, Preparing, Ready, Fallback, Quarantined };
 enum class Stage : uint32_t { OriginalPair, ReplacementPair, Pack, Expansion, Contraction, Epilogue };
+// A diagnostic record describes one unchanged NVAPI Launch call. A call with
+// launch_count != 1 is one inseparable batch, not individual kernel timings.
+// String/hash pointers are borrowed only for the observer callback.
+struct OriginalLaunchInfo {
+    uint64_t sequence = 0;
+    uintptr_t function = 0, module = 0;
+    const char* function_name = nullptr;
+    const uint8_t* module_sha256 = nullptr;
+    uint32_t launch_count = 0, params_bytes = 0, shared_bytes = 0;
+    uint32_t grid[3] = {}, block[3] = {};
+    bool identity_live = false, ffn_target = false;
+};
+using OriginalLaunchObserver = void (*)(const OriginalLaunchInfo&, bool begin,
+    int32_t status, ID3D12GraphicsCommandList*, void*) noexcept;
 struct ExpansionAcceptance {
     const wchar_t* directory = nullptr;
     const char* cubin_sha256 = nullptr;
@@ -56,6 +70,17 @@ struct Config {
     void (*observe_stage)(Stage stage, bool begin, uint32_t block_id,
                           ID3D12GraphicsCommandList*, void*) = nullptr;
     const OptimizedAcceptance* optimized_acceptance = nullptr;
+    // Explicit private profiling only. Arm before loading the NR runtime to
+    // retain all function names and module hashes. Called immediately before
+    // and after a forwarded Launch; status is meaningful only on the end.
+    // A failed call may have recorded work and must not count as a valid sample.
+    // Must not allocate, wait, perform file I/O, or throw. Disabled remains
+    // passive: no CUDA/device preparation or replacement is enabled.
+    OriginalLaunchObserver observe_original_launch = nullptr;
+    // Range diagnostics may observe the incoming call stream, including calls
+    // replaced by this backend. Their sequence then stays aligned with FP8.
+    // Default false preserves the forwarded-original-only diagnostic contract.
+    bool observe_original_input_calls = false;
 };
 struct OwnedCall {
     Phase phase = Phase::Evaluate;

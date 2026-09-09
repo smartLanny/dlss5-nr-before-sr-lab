@@ -325,5 +325,49 @@ void MetadataReuseTests(){
     {OwnedScope scope(call);assert(DestroyModule(raw,module)==api::Error);assert(Expansion(call,0)==37 && replacements==0);}
     G().destroy_module.store(nullptr);G().destroy_function.store(nullptr);
 }
+unsigned original_begins=0,original_ends=0,original_known=0,original_batches=0;
+unsigned input_begins=0,input_ends=0,input_successes=0,input_failures=0;
+void ObserveInputs(const OriginalLaunchInfo& info,bool begin,int32_t status,ID3D12GraphicsCommandList*,void*) noexcept {
+    if(begin){assert(info.sequence==input_begins);++input_begins;}
+    else{assert(info.sequence==input_ends);++input_ends;if(status==api::Ok)++input_successes;else ++input_failures;}
 }
-int main() { Tables(); LifetimeTests(); ScopeTests(); FallbackTests(); FailureTests(); PolicyAndFusedTests(); RetirementTests(); RuntimeIdentityTest(); MetadataReuseTests(); std::cout<<"NVFP4 backend CPU: scope, zero steady-state allocations, 32 reference + 24 fused + 16 two-launch failure points, exact Auto policy, runtime rejection, 5000 retirements, handle reuse/observer allocation failure and fence/Reset lifetime passed\n"; }
+void ObserveOriginal(const OriginalLaunchInfo& info,bool begin,int32_t status,ID3D12GraphicsCommandList*,void*) noexcept {
+    if(begin){assert(info.sequence==original_begins);++original_begins;
+        if(info.identity_live&&info.function_name&&info.module_sha256)++original_known;
+        if(info.launch_count!=1){++original_batches;assert(!info.function_name&&!info.function);}}
+    else{assert(info.sequence==original_ends);++original_ends;assert(status==37);}
+}
+void OriginalTimingTests() {
+    auto d=Fixture();auto call=Call(3000,3000);call.allow_replacement=false;
+    auto meta=std::make_shared<Metadata>(*std::atomic_load(&G().metadata));
+    const auto module=reinterpret_cast<void*>(99);const auto& target=meta->functions.at(publish);
+    meta->modules[module].hash_valid=true;
+    meta->original_functions[publish]={target.device,module,"original_publish",target.live,target.module_live};
+    std::atomic_store(&G().metadata,std::shared_ptr<const Metadata>(meta));
+    G().config.observe_original_launch=&ObserveOriginal;original_begins=original_ends=original_known=original_batches=0;
+    auto before=test_allocations.load();
+    {OwnedScope scope(call);assert(Expansion(call,0)==37);
+        api::LaunchParams unknown{reinterpret_cast<void*>(9000),{1,1,1},{1,1,1},0,nullptr,0};
+        assert(Launch(call.command_list,&unknown,1)==37);assert(Launch(call.command_list,&unknown,3)==37);
+        assert(scope.Status().original_launches==5&&!scope.MayHaveRecordedFailure());}
+    assert(test_allocations.load()==before&&original_begins==3&&original_ends==3&&original_known==1&&original_batches==1);
+    d=Fixture();call=Call(3001,3001);original_begins=original_ends=original_known=original_batches=0;
+    before=test_allocations.load();
+    {OwnedScope scope(call);Sequence(call);
+        api::LaunchParams other{reinterpret_cast<void*>(9000),{1,1,1},{1,1,1},0,nullptr,0};
+        assert(Launch(call.command_list,&other,1)==37);assert(scope.Status().replaced_pairs==8);}
+    assert(test_allocations.load()==before&&replacements==32&&original_begins==1&&original_ends==1);
+    d=Fixture();call=Call(3002,3002);G().config.observe_original_launch=&ObserveInputs;G().config.observe_original_input_calls=true;
+    input_begins=input_ends=input_successes=input_failures=0;before=test_allocations.load();
+    {OwnedScope scope(call);api::LaunchParams other{reinterpret_cast<void*>(9000),{1,1,1},{1,1,1},0,nullptr,0};
+        assert(Launch(call.command_list,&other,1)==37);Sequence(call);assert(Launch(call.command_list,&other,1)==37);}
+    assert(test_allocations.load()==before&&replacements==32&&forwards==2);
+    assert(input_begins==18&&input_ends==18&&input_successes==16&&input_failures==2);
+    d=Fixture();call=Call(3003,3003);fail_at=1;input_begins=input_ends=input_successes=input_failures=0;
+    {OwnedScope scope(call);assert(Expansion(call,0)==api::Error&&scope.MayHaveRecordedFailure());}
+    assert(input_begins==1&&input_ends==1&&input_failures==1&&forwards==0);
+    G().config.observe_original_launch=nullptr;
+    G().config.observe_original_input_calls=false;
+}
+}
+int main() { Tables(); LifetimeTests(); ScopeTests(); FallbackTests(); FailureTests(); PolicyAndFusedTests(); RetirementTests(); RuntimeIdentityTest(); MetadataReuseTests(); OriginalTimingTests(); std::cout<<"NVFP4 backend CPU: scope, zero steady-state allocations including original-launch observation, 32 reference + 24 fused + 16 two-launch failure points, exact Auto policy, runtime rejection, 5000 retirements, handle reuse/observer allocation failure and fence/Reset lifetime passed\n"; }

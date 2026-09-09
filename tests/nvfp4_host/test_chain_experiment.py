@@ -5,7 +5,6 @@ actual sample writer/epoch exports against CPU stubs; no D3D/CUDA is loaded.
 Set NR_NVFP4_TEST_CXX to a C++17 compiler if it is not on PATH.
 """
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -126,22 +125,36 @@ class ChainExperimentTests(unittest.TestCase):
         self.assertFalse(self.output.exists())
         self.assert_parent_unchanged()
 
+    def test_reference_uses_upstream_assets_without_an_optimized_build(self):
+        result = self.generate("--mode", "reference", "--accepted-m", "960")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        header = (self.output / "core/src/nvfp4_chain_experiment.h").read_text()
+        self.assertIn("config.mode = nr::nvfp4::Mode::UpstreamReference;", header)
+        self.assertIn("inline constexpr bool candidate = true;", header)
+        self.assertIn('inline constexpr const char* mode = "reference";', header)
+        self.assertIn('asset_directory = L' + json.dumps(str(self.root / "unused-assets")), header)
+        self.assertNotIn("OptimizedAcceptance", header)
+        receipt = json.loads((self.output / "experiment-source-manifest.json").read_text())
+        self.assertEqual(receipt["mode"], "reference")
+        self.assertIsNone(receipt["kernel_receipt"])
+        self.assertIsNone(receipt["expansion_receipt"])
+        self.assertFalse(receipt["production_auto_qualified"])
+        rejected_output = self.root / "fused-without-build"
+        rejected = self.generate("--mode", "fused", output=rejected_output)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("A candidate needs its explicit kernel build", rejected.stderr)
+        self.assertFalse(rejected_output.exists())
+        self.assert_parent_unchanged()
+
     @unittest.skipUnless(compiler(), "Set NR_NVFP4_TEST_CXX for the C++ CPU boundary check")
     def test_actual_writer_epoch_warmup_and_recording_retirement(self):
-        generated = self.generate()
+        generated = self.generate("--mode", "reference")
         self.assertEqual(generated.returncode, 0, generated.stderr)
         timing = (self.output / "core/src/nr_gpu_timing.inl").read_text()
         actual_attach = cpp_definition(timing, "    void AttachTest(")
         actual_find = cpp_definition(timing, "    Sample *Find(")
         actual_sample = cpp_definition(timing, "    struct Sample {")
-        spec = importlib.util.spec_from_file_location("private_chain_generator", GENERATOR)
-        generator = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(generator)
-        header = generator.HEADER
-        replacements = {"CANDIDATE": "true", "WARMUP": "128", "MODE": '"fused"',
-                        "ASSETS": '"unused"', "SAMPLES": '"unused"', "CONFIGURE": ""}
-        for name, value in replacements.items():
-            header = header.replace("@" + name + "@", value)
+        header = (self.output / "core/src/nvfp4_chain_experiment.h").read_text()
         (self.root / "profile.h").write_text(header)
         shutil.copyfile(ROOT / "src/nr_gpu_timing.h", self.root / "nr_gpu_timing.h")
         program = r'''
@@ -168,7 +181,8 @@ LONG InterlockedCompareExchange(volatile LONG* where,LONG desired,LONG expected)
 LONG InterlockedExchange(volatile LONG* where,LONG desired){const LONG old=*where;*where=desired;return old;}
 void Log(const char*,...){}
 namespace nr::nvfp4 {
-struct Config{const wchar_t*asset_directory=nullptr;bool diagnostic_passthrough=false;};
+enum class Mode{Disabled,UpstreamReference};
+struct Config{const wchar_t*asset_directory=nullptr;bool diagnostic_passthrough=false;Mode mode=Mode::Disabled;};
 enum class State{Disabled,Observing,Preparing,Ready,Fallback,Quarantined};
 struct Snapshot{bool may_have_recorded_failure=false;unsigned observed_m=0,replaced_pairs=0,original_launches=0,replacement_launches=0,uav_barriers=0;State state=State::Disabled;char reason[192]{};};
 Snapshot status;
@@ -216,6 +230,7 @@ int main(){
     actual.AttachTest(3,99,24,status);CHECK(!other.test_attached);
     other.finished=true;actual.AttachTest(3,77,24,status);CHECK(!other.test_attached);
     nr::nvfp4::Config config;nr_nvfp4_test::Configure(config);
+    CHECK(config.mode==nr::nvfp4::Mode::UpstreamReference);
     nr_gpu_timing::Key key{23,0,0,1920,1080};UINT64 ticks[]={100,110,120,150,180,190,250};
     unsigned warmup=0,measured=0;
     for(unsigned frame=0;frame<728;++frame){
@@ -229,6 +244,7 @@ int main(){
     CHECK(recorded.find("\"frame\":727")!=std::string::npos);
     CHECK(recorded.find("\"pid\":1234")!=std::string::npos);
     CHECK(recorded.find("\"run_start_ticks\":5678")!=std::string::npos);
+    CHECK(recorded.find("\"ticks\":[100,110,120,150,180,190,250]")!=std::string::npos);
     nr_nvfp4_test::Write(key,1,0,999,0,0,0,640,ticks,0.001);
     nr_nvfp4_test::Flush();
     CHECK(recorded.find("\"warmup\":true")!=std::string::npos);

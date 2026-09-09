@@ -40,6 +40,7 @@ struct Calls {
     Fault fault=Fault::None;
     unsigned loads=0,exports=0,pins=0,queries=0,initializes=0,creates=0,enables=0,removes=0;
     unsigned modules=0,functions=0,launches=0;
+    int32_t launch_status=37;
     bool already_initialized=false;
 } calls;
 HMODULE FakeModule() { return reinterpret_cast<HMODULE>(0x1000); }
@@ -50,7 +51,7 @@ api::Status __cdecl NativeFunction(ID3D12Device*,api::Handle,const char*,api::Ha
     ++calls.functions;*out=reinterpret_cast<void*>(0x3000);return api::Ok;
 }
 api::Status __cdecl NativeLaunch(ID3D12GraphicsCommandList*,const api::LaunchParams*,uint32_t) {
-    ++calls.launches;return 37;
+    ++calls.launches;return calls.launch_status;
 }
 api::Status __cdecl NativeDestroy(ID3D12Device*,api::Handle) { return api::Ok; }
 void* __cdecl NativeQuery(uint32_t id) {
@@ -145,6 +146,55 @@ void FailureTests() {
     assert(!EnsureStarted(reinterpret_cast<ID3D12Device*>(0x5000)));
     assert(calls.loads==1 && !G().hook_installed && G().mode.load()==Mode::Auto);NoPreparation();
 }
+struct OriginalEvent {
+    uint64_t sequence=0;uintptr_t function=0,module=0;uint32_t count=0;
+    bool begin=false,live=false,ffn=false,has_hash=false;int32_t status=0;
+    char name[128]{};std::array<uint8_t,32> hash{};
+};
+std::array<OriginalEvent,32> original_events{};unsigned original_event_count=0;
+void OriginalObserver(const OriginalLaunchInfo& info,bool begin,int32_t status,ID3D12GraphicsCommandList*,void*) noexcept {
+    assert(original_event_count<original_events.size());auto& event=original_events[original_event_count++];event={};
+    event.sequence=info.sequence;event.function=info.function;event.module=info.module;event.count=info.launch_count;
+    event.begin=begin;event.live=info.identity_live;event.ffn=info.ffn_target;event.status=status;
+    if(info.function_name)std::snprintf(event.name,sizeof(event.name),"%s",info.function_name);
+    event.has_hash=info.module_sha256!=nullptr;if(info.module_sha256)std::copy(info.module_sha256,info.module_sha256+32,event.hash.begin());
+}
+void OriginalTimingObserverTests() {
+    Reset();Config config;config.observe_original_launch=&OriginalObserver;
+    assert(Init(config)&&ArmObserver()&&G().mode.load()==Mode::Disabled);NoPreparation();
+    auto raw=reinterpret_cast<ID3D12Device*>(0x5000);api::Handle module=nullptr,function=nullptr;
+    assert(CreateModule(raw,"abc",3,&module)==api::Ok);
+    assert(CreateFunction(raw,module,"cc_vit_1d_attention_test",&function)==api::Ok);
+    const auto metadata=std::atomic_load(&G().metadata);
+    assert(metadata->functions.empty()); // Diagnostics cannot admit another replacement target.
+    assert(metadata->original_functions.at(function).name=="cc_vit_1d_attention_test");
+    const auto& hash=metadata->modules.at(module);assert(hash.hash_valid&&hash.hash[0]==0xba&&hash.hash[31]==0xad);
+    OwnedCall call;call.device=raw;call.command_list=reinterpret_cast<ID3D12GraphicsCommandList*>(0x6000);
+    call.context_id=1;call.generation=1;call.recording_token=1;
+    api::LaunchParams params{function,{2,3,4},{32,1,1},0,nullptr,0};
+    original_event_count=0;calls.launch_status=api::Ok;
+    {OwnedScope scope(call);assert(!scope.WillReplace());assert(Launch(call.command_list,&params,1)==api::Ok);
+        auto nested=call;nested.feature_id=1;{OwnedScope inner(nested);assert(Launch(call.command_list,&params,1)==api::Ok);}
+        calls.launch_status=37;assert(Launch(call.command_list,&params,1)==37);
+        assert(!scope.MayHaveRecordedFailure()&&scope.Status().original_launches==2);}
+    assert(original_event_count==4&&original_events[0].begin&&!original_events[1].begin);
+    assert(original_events[0].sequence==0&&original_events[2].sequence==1&&original_events[3].status==37);
+    assert(original_events[0].live&&original_events[0].has_hash&&!original_events[0].ffn);
+    assert(!std::strcmp(original_events[0].name,"cc_vit_1d_attention_test"));NoPreparation();
+    assert(Launch(call.command_list,&params,1)==37&&original_event_count==4);
+    original_event_count=0;
+    {OwnedScope scope(call);assert(DestroyFunction(raw,function)==api::Ok);
+        assert(Launch(call.command_list,&params,1)==37);assert(!original_events[0].live);}
+    assert(!metadata->original_functions.at(function).live->load());
+    assert(CreateFunction(raw,module,"another_kernel",&function)==api::Ok);
+    original_event_count=0;
+    {OwnedScope scope(call);api::Handle reused=nullptr;assert(CreateModule(raw,"def",3,&reused)==api::Ok);
+        assert(Launch(call.command_list,&params,1)==37);assert(!original_events[0].live);}
+    assert(std::atomic_load(&G().metadata)->original_functions.empty());NoPreparation();
+    config.observe_original_launch=nullptr;assert(Init(config));original_event_count=0;
+    {OwnedScope scope(call);assert(Launch(call.command_list,&params,1)==37);}
+    assert(original_event_count==0);NoPreparation();
+}
 }
 HMODULE WINAPI TestLoadLibraryExW(LPCWSTR name,HANDLE file,DWORD flags) {
     ++calls.loads;assert(!std::wcscmp(name,L"nvapi64.dll") && !file && flags==LOAD_LIBRARY_SEARCH_SYSTEM32);
@@ -180,6 +230,6 @@ MH_STATUS WINAPI TestRemoveHook(LPVOID target) {
     ++calls.removes;assert(target==reinterpret_cast<void*>(&NativeQuery));return MH_OK;
 }
 int main() {
-    ColdAndDisabledTests();ModeAndConcurrencyTests();FailureTests();
-    std::cout<<"NVFP4 observer CPU: actual cold API, Disabled passthrough, metadata retention, five unchanged modes, concurrent idempotence, nine install failures/retries; no device, CUDA or worker preparation passed\n";
+    ColdAndDisabledTests();ModeAndConcurrencyTests();FailureTests();OriginalTimingObserverTests();
+    std::cout<<"NVFP4 observer CPU: actual cold API, Disabled passthrough, metadata retention, five unchanged modes, concurrent idempotence, nine install failures/retries, optional full-function timing identities and invalidation; no device, CUDA or worker preparation passed\n";
 }
