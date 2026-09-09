@@ -55,6 +55,19 @@ inline bool operator==(const Token& a, const Token& b) noexcept {
     return a.key == b.key && a.signature == b.signature &&
         a.attempt_id == b.attempt_id && a.carrier == b.carrier;
 }
+struct Target {
+    std::uint64_t resource = 0, resource_generation = 0;
+    std::uint32_t subresource = 0;
+    explicit operator bool() const noexcept { return resource != 0; }
+};
+inline bool operator==(const Target& a, const Target& b) noexcept {
+    return a.resource == b.resource && a.resource_generation == b.resource_generation &&
+        a.subresource == b.subresource;
+}
+enum class WritebackTargetPolicy { SameResource, Explicit };
+struct RetirementProof {
+    bool recording_idle = false, gpu_idle = false, readbacks_collected = false;
+};
 enum class SemanticState { Waiting, Exact, Unique, Rejected };
 enum class State { Unknown, Waiting, Resolved, Pending, RecoverySucceeded, Latched };
 enum class Stage : unsigned {
@@ -86,6 +99,7 @@ struct RecoveryEvidence {
     bool capacity_unknown = false, frame_evidence_lost = false;
     bool first_failure_historical = false;
     unsigned nr_success_streak = 0, native_success_streak = 0, submitted_count = 0;
+    Target proof_target{};
     Failure first_failure{};
 };
 struct WritebackProof {
@@ -108,14 +122,17 @@ class Ledger {
         SemanticState semantic = SemanticState::Waiting;
         std::uint64_t attempt_id = 0, first_ordinal = 0, descriptor_ordinal = 0;
         Token proof{};
+        Target proof_target{};
         Failure failure{};
     };
     struct Frame {
         bool used = false, ended = false, used_nr = false, conflict = false;
+        bool target_frozen = false, target_conflict = false, retired_complete = false;
         Scope scope{};
         std::uint32_t role = 0;
         Carrier carrier{};
         Token token{};
+        Target target{};
         std::array<Event, static_cast<unsigned>(Stage::Count)> events{};
         std::uint64_t age = 0;
     };
@@ -182,7 +199,8 @@ class Ledger {
         const auto& e = f.events[static_cast<unsigned>(stage)]; return e.seen && e.success;
     }
     bool Complete(const Frame& f) const noexcept {
-        if (!f.used || !f.ended || !f.used_nr || f.conflict || !f.token) return false;
+        if (!f.used || !f.ended || !f.used_nr || f.conflict || f.target_conflict || !f.target || !f.token) return false;
+        if (f.retired_complete) return true;
         const auto* e = FindEntry(f.token.key, f.token.signature);
         return e && Ready(e->semantic) && !e->failure.present && e->attempt_id == f.token.attempt_id &&
             Succeeded(f, Stage::Descriptor) && Succeeded(f, Stage::NrEvaluate) &&
@@ -216,7 +234,9 @@ class Ledger {
         auto* e = FindEntry(f.token.key, f.token.signature);
         if (!s || !e) return;
         if (Succeeded(f, Stage::ActualStorageRead) && Succeeded(f, Stage::TransferRecorded) &&
-            (!e->proof || f.carrier.ordinal > e->proof.carrier.ordinal)) e->proof = f.token;
+            (!e->proof || f.carrier.ordinal > e->proof.carrier.ordinal)) {
+            e->proof = f.token; e->proof_target = f.target;
+        }
         // Out-of-order submissions may complete the first, middle or last
         // member. Inspect only the three possible windows containing this frame.
         const auto first = f.carrier.ordinal > 2 ? f.carrier.ordinal - 2 : 1;
@@ -232,6 +252,29 @@ class Ledger {
                 candidate.valid = true; s->window = candidate;
             }
         }
+    }
+    bool RecordSuccess(const Token& token, Stage stage, std::int32_t result) noexcept {
+        auto* e = FindEntry(token.key, token.signature);
+        auto* f = FindFrame(token.key.scope, token.key.role, token.carrier);
+        if (!e || e->failure.present || e->attempt_id != token.attempt_id ||
+            !f || f->conflict || !(f->token == token)) return false;
+        auto& event = f->events[static_cast<unsigned>(stage)];
+        if (event.seen) return event.success && event.result == result;
+        event = {true, true, result};
+        if (stage == Stage::Submitted) {
+            f->target_frozen = true;
+            if (!f->target || f->target_conflict)
+                if (auto* s = FindStream(f->scope, f->role)) Break(*s, f->carrier.ordinal);
+        }
+        if (stage == Stage::Descriptor && token.carrier.ordinal > e->descriptor_ordinal)
+            e->descriptor_ordinal = token.carrier.ordinal;
+        Refresh(*f); return true;
+    }
+    void RetireEntry(Entry& entry) noexcept {
+        for (auto& f : frames_) if (f.used && f.token && f.token.key == entry.key &&
+            f.token.signature == entry.signature && f.token.attempt_id == entry.attempt_id)
+            f.retired_complete = Complete(f);
+        entry = {};
     }
 public:
     // Resolve is also called while waiting. Neither observing native calls nor
@@ -267,7 +310,8 @@ public:
 
     // Begin is called immediately before actual descriptor programming / NR
     // work. Repeated frames of this interpretation use one stable attempt_id.
-    Token Begin(const Key& key, const ViewSignature& signature, Carrier carrier) noexcept {
+    Token Begin(const Key& key, const ViewSignature& signature, Carrier carrier,
+                WritebackTargetPolicy target_policy = WritebackTargetPolicy::SameResource) noexcept {
         auto* e = FindEntry(key, signature);
         auto* s = FindStream(key.scope, key.role);
         auto* f = FindFrame(key.scope, key.role, carrier);
@@ -281,46 +325,69 @@ public:
             if (next_attempt_ == std::numeric_limits<std::uint64_t>::max()) return {};
             e->attempt_id = next_attempt_++; e->first_ordinal = carrier.ordinal;
         }
-        f->token = {key, signature, e->attempt_id, carrier}; return f->token;
+        f->token = {key, signature, e->attempt_id, carrier};
+        if (target_policy == WritebackTargetPolicy::SameResource)
+            f->target = {key.resource, key.resource_generation, key.subresource};
+        return f->token;
+    }
+
+    // PRE binds its owned Result for this frame; it need not equal the semantic
+    // input Key or the Result selected by another frame of the same attempt.
+    // POST may use Begin's default same-resource target. Binding is frozen at
+    // its first explicit assignment, or automatically before submit/readback.
+    bool BindWritebackTarget(const Token& token, Target target) noexcept {
+        auto* e = FindEntry(token.key, token.signature);
+        auto* f = FindFrame(token.key.scope, token.key.role, token.carrier);
+        if (!e || e->failure.present || e->attempt_id != token.attempt_id || !f ||
+            f->conflict || f->target_conflict || !(f->token == token)) return false;
+        const bool too_late = f->events[static_cast<unsigned>(Stage::Submitted)].seen ||
+                              f->events[static_cast<unsigned>(Stage::ActualStorageRead)].seen;
+        if (!target || too_late || (f->target_frozen && !(f->target == target))) {
+            f->target_frozen = true; f->target_conflict = true;
+            if (auto* s = FindStream(f->scope, f->role)) Break(*s, f->carrier.ordinal);
+            return false;
+        }
+        f->target = target; f->target_frozen = true; return true;
     }
 
     bool EndCarrier(const Scope& scope, std::uint32_t role, Carrier carrier, bool used_nr) noexcept {
         auto* f = FindFrame(scope, role, carrier);
         auto* s = FindStream(scope, role);
-        if (!f || !s || f->conflict) return false;
+        if (!f || !s) return false;
         if (f->ended) return f->used_nr == used_nr;
         f->ended = true; f->used_nr = used_nr;
         if (!used_nr) Break(*s, carrier.ordinal);
         Refresh(*f); return true;
     }
 
-    // A successful ActualStorageRead is reserved for an actual post-store
-    // resource read. Use RecordWriteback to validate its target and contents.
+    // Successful ActualStorageRead is accepted only through RecordWriteback;
+    // a raw boolean must never bypass frame target validation.
     // Missing evidence is not a false outcome; do not Record an unperformed step.
     bool Record(const Token& token, Stage stage, bool success, std::int32_t result = 0) noexcept {
         if (stage >= Stage::Count || !token) return false;
         if (!success) return ReportFailure(token, stage, result);
-        auto* e = FindEntry(token.key, token.signature);
-        auto* f = FindFrame(token.key.scope, token.key.role, token.carrier);
-        if (!e || e->failure.present || e->attempt_id != token.attempt_id ||
-            !f || f->conflict || !(f->token == token)) return false;
-        auto& event = f->events[static_cast<unsigned>(stage)];
-        if (event.seen) return event.success && event.result == result;
-        event = {true, true, result};
-        if (stage == Stage::Descriptor && token.carrier.ordinal > e->descriptor_ordinal)
-            e->descriptor_ordinal = token.carrier.ordinal;
-        Refresh(*f); return true;
+        if (stage == Stage::ActualStorageRead) return false;
+        return RecordSuccess(token, stage, result);
     }
 
     bool RecordWriteback(const Token& token, const WritebackProof& proof) noexcept {
         if (!proof.actual_storage_read) return false;
-        if (proof.resource != token.key.resource || proof.resource_generation != token.key.resource_generation ||
-            proof.subresource != token.key.subresource)
+        auto* e = FindEntry(token.key, token.signature);
+        auto* f = FindFrame(token.key.scope, token.key.role, token.carrier);
+        if (!e || e->failure.present || e->attempt_id != token.attempt_id || !f ||
+            f->conflict || f->target_conflict || !(f->token == token)) return false;
+        f->target_frozen = true;
+        if (!f->target) {
+            if (auto* s = FindStream(f->scope, f->role)) Break(*s, f->carrier.ordinal);
+            return false;
+        }
+        if (proof.resource != f->target.resource || proof.resource_generation != f->target.resource_generation ||
+            proof.subresource != f->target.subresource)
             return ReportFailure(token, Stage::ActualStorageRead, proof.result, FailureKind::WrongTarget);
         if (!proof.finite) return ReportFailure(token, Stage::ActualStorageRead, proof.result, FailureKind::NonFinite);
         if (!proof.matches_expected)
             return ReportFailure(token, Stage::ActualStorageRead, proof.result, FailureKind::WritebackMismatch);
-        return Record(token, Stage::ActualStorageRead, true, proof.result);
+        return RecordSuccess(token, Stage::ActualStorageRead, proof.result);
     }
 
     bool ReportFailure(const Token& token, Stage stage, std::int32_t result,
@@ -363,6 +430,7 @@ public:
             e->proof.signature == signature) {
             r.writeback_verified = e->proof.carrier.ordinal > s->break_ordinal;
             r.proof_attempt_id = e->proof.attempt_id;
+            r.proof_target = e->proof_target;
             r.proof_frame_id = e->proof.carrier.frame_id; r.proof_carrier_ordinal = e->proof.carrier.ordinal;
             r.proof_age = s->latest.ordinal >= e->proof.carrier.ordinal ? s->latest.ordinal - e->proof.carrier.ordinal : 0;
         }
@@ -400,11 +468,30 @@ public:
         return r;
     }
 
-    // Call only for an actual resource/Feature/config lifecycle retirement.
-    // Failed interpretations are never evicted merely to make room for retries.
+    // The owner certifies these three independent facts from its real recording,
+    // GPU retirement and readback collection state, not from this ledger's
+    // Submitted event. Reclaiming successful transient entries does not erase
+    // immutable completed carrier evidence used by another resource in the ring.
+    bool RetireInactiveResource(const Key& key, RetirementProof proof) noexcept {
+        if (!proof.recording_idle || !proof.gpu_idle || !proof.readbacks_collected) return false;
+        for (const auto& e : entries_) if (e.used && e.key == key && !e.failure.present) {
+            for (const auto& f : frames_) if (f.used && f.token && f.token.key == e.key &&
+                f.token.signature == e.signature && f.token.attempt_id == e.attempt_id &&
+                !f.ended) return false;
+        }
+        bool retired = false;
+        for (auto& e : entries_) if (e.used && e.key == key && !e.failure.present) {
+            RetireEntry(e); retired = true;
+        }
+        return retired;
+    }
+
+    // Actual resource retirement may reclaim nonfailed interpretations. Failed
+    // latches survive both this and inactive rebinding until Feature/Scope
+    // retirement, even when no reliable native resource-destruction hook exists.
     void RetireResource(const Scope& scope, std::uint64_t resource, std::uint64_t generation) noexcept {
         for (auto& e : entries_) if (e.used && e.key.scope == scope &&
-            e.key.resource == resource && e.key.resource_generation == generation) e = {};
+            e.key.resource == resource && e.key.resource_generation == generation && !e.failure.present) RetireEntry(e);
     }
     void RetireScope(const Scope& scope) noexcept {
         for (auto& e : entries_) if (e.used && e.key.scope == scope) e = {};

@@ -2,7 +2,7 @@
 """Run the actual bounded recovery ledger with independent false-success controls.
 
 Freezes the production header and fixture in a fresh evidence directory, then
-compiles the real policy plus two narrowly mutated private copies. No checkout
+compiles the real policy plus narrowly mutated private copies. No checkout
 mutation, GPU, NGX, worker, submission or in-game success is implied by this gate.
 """
 from __future__ import annotations
@@ -70,6 +70,13 @@ def main() -> None:
         ('recording-as-submit', '--submission-oracle', 'SUBMISSION_ORACLE',
          'Succeeded(f, Stage::NativeSrEvaluate) && Succeeded(f, Stage::Submitted);',
          'Succeeded(f, Stage::NativeSrEvaluate) && Succeeded(f, Stage::TransferRecorded);'),
+        ('ignore-frozen-target', '--target-oracle', 'TARGET_ORACLE',
+         'if (proof.resource != f->target.resource || proof.resource_generation != f->target.resource_generation ||\n'
+         '            proof.subresource != f->target.subresource)',
+         'if (false)'),
+        ('erase-failed-latch', '--retirement-oracle', 'RETIREMENT_ORACLE',
+         'for (auto& e : entries_) if (e.used && e.key == key && !e.failure.present) {',
+         'for (auto& e : entries_) if (e.used && e.key == key) {'),
     ]
     negative_results = {}
     sha = lambda data: hashlib.sha256(data).hexdigest()
@@ -95,7 +102,7 @@ def main() -> None:
         'gpu': False, 'ngx': False, 'runtime_integration': False,
     }
     (output / 'result.json').write_text(json.dumps(summary, indent=2) + '\n', encoding='utf-8')
-    print(('PASS' if passed else 'FAIL') + ' bounded recovery policy and both false-success controls; no runtime/GPU claim')
+    print(('PASS' if passed else 'FAIL') + ' bounded recovery policy and all false-success/unsafe-retirement controls; no runtime/GPU claim')
     raise SystemExit(0 if passed else 1)
 
 
