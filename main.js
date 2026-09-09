@@ -2,8 +2,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { execFile } = require('child_process');
-const { createStartupDiagnostics, watchWindow } = require('./src/product/startup-diagnostics');
+const { createStartupDiagnostics, watchWindow, PROCESS_LAUNCH_GUIDANCE } = require('./src/product/startup-diagnostics');
 const startup = createStartupDiagnostics();
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 let createAppService, createSrModelService, createLaunchSettingsService, createLaunchCoordinator, installGuards, createFgComponents, classifyApi;
@@ -18,10 +19,13 @@ let windowWatch = null;
 let failureVisible = false;
 let quitting = false;
 app.on('before-quit', () => { quitting = true; });
-startup.log('startup-options', { noSandbox: process.argv.includes('--no-sandbox'), disableGpu: process.argv.includes('--disable-gpu'),
+const softwareRendering = app.commandLine.hasSwitch('software-rendering');
+if (softwareRendering) { app.disableHardwareAcceleration(); startup.log('software-rendering-requested'); }
+startup.log('startup-options', { noSandbox: app.commandLine.hasSwitch('no-sandbox'), disableGpu: app.commandLine.hasSwitch('disable-gpu'),
+  disableGpuSandbox: app.commandLine.hasSwitch('disable-gpu-sandbox'), softwareRendering,
+  chromium: process.versions.chrome || '', osRelease: os.release(),
   nodeOptionsPresent: Boolean(process.env.NODE_OPTIONS), electronRunAsNodePresent: Boolean(process.env.ELECTRON_RUN_AS_NODE),
   compatibilityLayerPresent: Boolean(process.env.__COMPAT_LAYER) });
-if (process.argv.includes('--software-rendering')) { app.disableHardwareAcceleration(); startup.log('software-rendering-requested'); }
 
 async function exportStartupReport() {
   const selected = await dialog.showSaveDialog({ title: '保存精简启动诊断', defaultPath: 'DLSS5-启动诊断.txt', filters: [{ name: '文本诊断', extensions: ['txt'] }] });
@@ -29,7 +33,8 @@ async function exportStartupReport() {
 }
 
 async function startupFailure(title, error, softwareRetry = false) {
-  startup.log('startup-failure', { title, code: error?.code || '', message: error?.message || String(error), stack: error?.stack || '' });
+  startup.log('startup-failure', { title, code: error?.code || '', type: error?.type, reason: error?.reason, exitCode: error?.exitCode,
+    message: error?.message || String(error), stack: error?.stack || '' });
   if (failureVisible) return;
   failureVisible = true;
   try {
@@ -59,7 +64,8 @@ process.on('exit', code => startup.log('process-exit', { code }));
 app.on('child-process-gone', (_event, details) => {
   startup.log('child-process-gone', { type: details.type, reason: details.reason, exitCode: details.exitCode, serviceName: details.serviceName, name: details.name });
   if (!quitting && details.type === 'GPU' && ['launch-failed', 'integrity-failure'].includes(details.reason)) {
-    void startupFailure('图形子进程无法启动', new Error(`GPU process: ${details.reason} (${details.exitCode})。请导出诊断，核对系统对子进程的限制；不自动关闭沙箱。`));
+    void startupFailure('图形子进程无法启动', Object.assign(new Error(`GPU process: ${details.reason} (${details.exitCode})。${PROCESS_LAUNCH_GUIDANCE}`),
+      { type: details.type, reason: details.reason, exitCode: details.exitCode }));
   }
 });
 

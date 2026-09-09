@@ -19,7 +19,12 @@ function harness(options = {}) {
     log(stage, details = {}) { logs.push({ stage, details }); }, report: () => 'report', exportTo: file => file,
     acknowledge: id => logs.push({ stage: 'ack', details: { id } }), waitForAcknowledgement: async () => options.acknowledged === true };
   class App extends EventEmitter {
-    constructor() { super(); this.isPackaged = options.packaged !== false; this.quitCalls = 0; this.ready = false; }
+    constructor() {
+      super(); this.isPackaged = options.packaged !== false; this.quitCalls = 0; this.ready = false;
+      this.commandLine = { hasSwitch: name => options.effectiveSwitches
+        ? options.effectiveSwitches.includes(name)
+        : (options.argv || []).some(arg => arg === `--${name}` || arg.startsWith(`--${name}=`)) };
+    }
     disableHardwareAcceleration() { logs.push({ stage: 'disabled-hardware' }); }
     isReady() { return this.ready; }
     whenReady() { this.ready = true; return Promise.resolve(); }
@@ -54,11 +59,12 @@ function harness(options = {}) {
     './src/product/game-support': { classifyApi: () => 'dx12' }
   };
   const fakeProcess = new EventEmitter(); Object.assign(fakeProcess, { argv: options.argv || ['electron', mainFile], env: { SystemRoot: 'C:\\Windows', ...(options.env || {}) }, platform: 'win32',
-    execPath: 'C:\\Program Files\\Manager\\manager.exe', resourcesPath: 'C:\\resources', pid: 1234, versions: { node: process.versions.node, electron: '33.0.0' } });
+    execPath: 'C:\\Program Files\\Manager\\manager.exe', resourcesPath: 'C:\\resources', pid: 1234,
+    versions: { node: process.versions.node, electron: '33.0.0', chrome: '130.0.6723.191' } });
   let execCount = 0;
   const customRequire = request => {
     if (request === 'electron') return electron;
-    if (request === './src/product/startup-diagnostics') return { createStartupDiagnostics: () => startup, watchWindow: realDiagnostics.watchWindow };
+    if (request === './src/product/startup-diagnostics') return { ...realDiagnostics, createStartupDiagnostics: () => startup };
     if (request === './src/product/launch-settings-policy') return realLaunchPolicy;
     if (request === 'child_process') return { execFile(file, args, childOptions, callback) {
       execCalls.push({ file, args, options: childOptions }); execCount++; const row = options.execResults?.[execCount - 1] || { error: null, stdout: 'True' }; setImmediate(() => callback(row.error, row.stdout || '')); return { unref() {} };
@@ -93,6 +99,49 @@ test('GPU launch failure, preload failure and renderer crash each reach the nati
   assert.equal(dialogTitle(preload, '界面连接模块加载失败'), true);
   const renderer = harness(); await settle(); renderer.window.webContents.emit('render-process-gone', {}, { reason: 'crashed', exitCode: 9 }); await settle();
   assert.equal(dialogTitle(renderer, '界面进程意外退出'), true);
+  assert.equal(renderer.dialogs.at(-1).buttons.includes('使用软件渲染重启'), true);
+});
+
+test('startup options report effective switches and runtime versions without recording argv', async () => {
+  const h = harness({ argv: ['electron', mainFile, '--no-sandbox', 'D:\\Private Games\\game.exe'],
+    effectiveSwitches: ['disable-gpu', 'disable-gpu-sandbox', 'software-rendering'] });
+  await settle();
+  const options = h.logs.find(row => row.stage === 'startup-options').details;
+  assert.equal(options.noSandbox, false, 'effective Chromium switches take precedence over raw argv');
+  assert.equal(options.disableGpu, true); assert.equal(options.disableGpuSandbox, true); assert.equal(options.softwareRendering, true);
+  assert.equal(options.chromium, '130.0.6723.191'); assert.equal(options.osRelease, require('node:os').release());
+  assert.equal(saw(h, 'disabled-hardware'), true);
+  assert.doesNotMatch(JSON.stringify(options), /Private Games|game\.exe|argv/);
+  h.window.emit('closed');
+});
+
+test('default startup retains sandbox protections and does not request a compatibility relaunch', async () => {
+  const h = harness(); await settle();
+  const preferences = h.window.config.webPreferences;
+  assert.equal(preferences.sandbox, true); assert.equal(preferences.contextIsolation, true); assert.equal(preferences.nodeIntegration, false);
+  const options = h.logs.find(row => row.stage === 'startup-options').details;
+  for (const name of ['noSandbox', 'disableGpu', 'disableGpuSandbox', 'softwareRendering']) assert.equal(options[name], false, name);
+  assert.equal(saw(h, 'relaunch'), false); assert.equal(saw(h, 'disabled-hardware'), false);
+  h.window.emit('closed');
+});
+
+test('GPU and renderer launch failures preserve their cause and offer manual compatibility guidance without software retry', async () => {
+  for (const type of ['GPU', 'Renderer']) {
+    for (const reason of ['launch-failed', 'integrity-failure']) {
+      const h = harness(); await settle();
+      if (type === 'GPU') h.app.emit('child-process-gone', {}, { type, reason, exitCode: 18 });
+      else h.window.webContents.emit('render-process-gone', {}, { reason, exitCode: 18 });
+      await settle();
+      const failure = h.logs.find(row => row.stage === 'startup-failure').details;
+      assert.equal(failure.type, type); assert.equal(failure.reason, reason); assert.equal(failure.exitCode, 18);
+      const event = h.logs.find(row => row.stage === (type === 'GPU' ? 'child-process-gone' : 'render-process-gone')).details;
+      assert.equal(event.type, type); assert.equal(event.reason, reason); assert.equal(event.exitCode, 18);
+      assert.match(h.dialogs.at(-1).detail, /兼容启动\.cmd/); assert.match(h.dialogs.at(-1).detail, /默认启动保留沙箱/);
+      assert.equal(h.dialogs.at(-1).buttons.includes('使用软件渲染重启'), false);
+      assert.equal(saw(h, 'relaunch'), false); assert.equal(h.process.argv.includes('--no-sandbox'), false);
+      h.window.emit('closed');
+    }
+  }
 });
 
 test('single-instance without acknowledgement explains the hidden-window condition without killing anything', async () => {

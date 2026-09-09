@@ -7,6 +7,7 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const MAX_LOG = 64 * 1024;
 const LOG_NAME = /^startup-[a-f0-9-]{36}[.]log$/;
+const PROCESS_LAUNCH_GUIDANCE = '请先导出启动诊断；可手动运行独立的“兼容启动.cmd”进行临时排障。默认启动保留沙箱，不会自动切换兼容模式。';
 
 function createStartupDiagnostics(options = {}) {
   const sessionId = crypto.randomUUID();
@@ -38,7 +39,8 @@ function createStartupDiagnostics(options = {}) {
   function log(stage, details = {}) {
     const safe = {};
     for (const [key, value] of Object.entries(details).slice(0, 20)) {
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') safe[key] = redact(value);
+      if (typeof value === 'string') safe[key] = redact(value);
+      else if (typeof value === 'number' || typeof value === 'boolean') safe[key] = value;
     }
     const line = `${JSON.stringify({ at: new Date().toISOString(), stage, ...safe })}\n`;
     if (memory.length < 120) memory.push(line);
@@ -112,11 +114,17 @@ function watchWindow(window, { log, fail }, timeoutMs = 25000) {
   });
   window.webContents.on('preload-error', (_event, _file, error) => { clear(); fail('界面连接模块加载失败', error); });
   window.webContents.on('render-process-gone', (_event, details) => {
-    clear(); if (details.reason !== 'clean-exit') fail('界面进程意外退出', new Error(`${details.reason}; exitCode=${details.exitCode}`), true);
+    clear();
+    log('render-process-gone', { type: 'Renderer', reason: details.reason, exitCode: details.exitCode });
+    if (details.reason === 'clean-exit') return;
+    const launchFailure = ['launch-failed', 'integrity-failure'].includes(details.reason);
+    const message = `${details.reason}; exitCode=${details.exitCode}${launchFailure ? `。${PROCESS_LAUNCH_GUIDANCE}` : ''}`;
+    fail(launchFailure ? '界面子进程无法启动' : '界面进程意外退出',
+      Object.assign(new Error(message), { type: 'Renderer', reason: details.reason, exitCode: details.exitCode }), !launchFailure);
   });
   window.on('unresponsive', () => { log('window-unresponsive', { visible }); fail('界面暂时无响应', new Error('界面没有响应，请先导出诊断。'), true); });
   window.once('closed', clear);
   return { ready() { clear(); log('renderer-ready'); }, failed(error) { clear(); fail('界面初始化失败', error); } };
 }
 
-module.exports = { createStartupDiagnostics, watchWindow, MAX_LOG };
+module.exports = { createStartupDiagnostics, watchWindow, MAX_LOG, PROCESS_LAUNCH_GUIDANCE };

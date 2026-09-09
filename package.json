@@ -126,6 +126,14 @@
       {
         "from": "scripts/startup-diagnostics.ps1",
         "to": "startup-diagnostics.ps1"
+      },
+      {
+        "from": "scripts/startup-compatible.cmd",
+        "to": "兼容启动.cmd"
+      },
+      {
+        "from": "scripts/startup-compatible.ps1",
+        "to": "startup-compatible.ps1"
       }
     ],
     "win": {

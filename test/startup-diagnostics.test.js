@@ -40,6 +40,30 @@ test('startup report redacts case-variant home paths and unrelated absolute game
   assert.doesNotMatch(report, /Private Title|D:\\Games/i);
 });
 
+test('startup logs retain typed process failure fields and redact only strings', t => {
+  const root = temp(t), diagnostics = createStartupDiagnostics({ roots: [root] });
+  diagnostics.log('render-process-gone', { type: 'Renderer', reason: 'launch-failed', exitCode: 18, sandbox: true,
+    message: 'Failed at D:\\Private Games\\game.exe' });
+  const rows = fs.readFileSync(path.join(root, `startup-${diagnostics.sessionId}.log`), 'utf8').trim().split('\n').map(JSON.parse);
+  const failure = rows.find(row => row.stage === 'render-process-gone');
+  assert.equal(failure.type, 'Renderer'); assert.equal(failure.reason, 'launch-failed'); assert.equal(failure.exitCode, 18);
+  assert.equal(failure.sandbox, true); assert.doesNotMatch(failure.message, /Private Games|game\.exe/);
+});
+
+test('watchWindow distinguishes renderer launch failure from a later crash and clean exit', () => {
+  class Window extends EventEmitter { constructor() { super(); this.webContents = new EventEmitter(); } isDestroyed() { return false; } show() {} }
+  for (const reason of ['launch-failed', 'integrity-failure', 'crashed', 'clean-exit']) {
+    const win = new Window(), failures = [], logs = [];
+    watchWindow(win, { log: (stage, details) => logs.push({ stage, details }), fail: (...args) => failures.push(args) });
+    win.webContents.emit('render-process-gone', {}, { reason, exitCode: 18 });
+    assert.deepEqual(logs, [{ stage: 'render-process-gone', details: { type: 'Renderer', reason, exitCode: 18 } }]);
+    if (reason === 'clean-exit') { assert.equal(failures.length, 0); continue; }
+    assert.equal(failures[0][1].type, 'Renderer'); assert.equal(failures[0][1].reason, reason); assert.equal(failures[0][1].exitCode, 18);
+    assert.equal(failures[0][2], reason === 'crashed', 'only ordinary crash retains the software-rendering retry');
+    if (reason !== 'crashed') assert.match(failures[0][1].message, /兼容启动\.cmd/);
+  }
+});
+
 test('watchWindow reports preload, renderer, load and readiness timeout failures without changing sandbox flags', async () => {
   class Window extends EventEmitter { constructor() { super(); this.webContents = new EventEmitter(); } isDestroyed() { return false; } show() {} }
   for (const [kind, trigger, title] of [
