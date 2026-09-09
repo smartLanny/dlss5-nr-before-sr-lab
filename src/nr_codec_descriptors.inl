@@ -103,3 +103,21 @@ void WritePostSrSnapshotDescriptors(ID3D12Device *device, const NrSlot &slot) {
     srv.Format=slot.source_srv_format;
     ID3D12Device_CreateShaderResourceView(device,slot.source,&srv,cpu);
 }
+
+// This pre-SR diagnostic heap only reads the owned Result and original Color.
+// Rebuilding the common table never creates a UAV of the external Color:
+// its u1 remains the owned FP16 Result, unused by ProbePostStoreCS.
+void WritePreStoreProbeDescriptors(ID3D12Device *device,const NrSlot &slot) {
+    if (!device || !slot.pre_store_probe_heap) return;
+    WriteCodecDescriptorSet(device,slot,slot.pre_store_probe_heap);
+    auto cpu=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.pre_store_probe_heap);
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.Format=slot.result_srv_format;
+    srv.ViewDimension=D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Shader4ComponentMapping=D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2D.MipLevels=1;
+    ID3D12Device_CreateShaderResourceView(device,slot.result,&srv,cpu);
+    cpu.ptr+=static_cast<SIZE_T>(g_codec.descriptor_size)*kCodecEditFieldSrvIndex;
+    srv.Format=slot.source_srv_format;
+    ID3D12Device_CreateShaderResourceView(device,slot.source,&srv,cpu);
+}

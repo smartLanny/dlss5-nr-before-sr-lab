@@ -430,7 +430,7 @@ std::atomic<unsigned long long> g_pipeline_transfer_bound{0};
 std::atomic<unsigned long long> g_pipeline_transfer_submitted{0};
 constexpr unsigned int kDiagnosticStageCount = 4;
 // The first 28 words retain the original model/composition diagnostic layout.
-// Words 28..39 hold sparse post-store evidence; no pixel images are exported.
+// Words 28..39 hold sparse stored-result evidence; no pixel images are exported.
 constexpr unsigned int kDiagnosticStatsUintCount = 40;
 constexpr unsigned int kDiagnosticStatsBytes =
     kDiagnosticStatsUintCount * sizeof(std::uint32_t);
@@ -3095,6 +3095,10 @@ void RecordPostStoreExpected(uint2 coord, float3 expected) {
     if ((Passthrough & 131072u) == 0u || (coord.x & 31u) != 0u ||
         (coord.y & 31u) != 0u) return;
     float3 original = OriginalColor.Load(int3(coord + uint2(SourceBaseX, SourceBaseY), 0)).rgb;
+    // PRE owns an FP16 Result: compare storage with the value after its known
+    // conversion, so HDR precision loss cannot masquerade as a wrong store.
+    // This diagnostic conversion does not change ResultOut or composition.
+    if ((Passthrough & 262144u) != 0u) expected = f16tof32(f32tof16(expected));
     if (!all(isfinite(original)) || !all(isfinite(expected))) return;
     float delta = max(abs(expected.x-original.x),
         max(abs(expected.y-original.y), abs(expected.z-original.z)));
@@ -3111,10 +3115,13 @@ void RecordPostStoreExpected(uint2 coord, float3 expected) {
 void ProbePostStoreCS(uint3 tid : SV_DispatchThreadID) {
     uint2 coord = tid.xy * 32u;
     if (coord.x >= Width || coord.y >= Height) return;
-    // This separate dispatch runs after the real Output's UAV->SRV barrier.
-    // Snapshot heap t0 is the external Output; t5 is its private pre-NR copy.
+    // This separate dispatch follows the actual target's UAV->SRV barrier.
+    // Post uses the private snapshot at t5. Pre uses the original Color and
+    // its real source offset; the diagnostic flag changes no composition math.
     float3 actual = OriginalColor.Load(int3(coord + uint2(DestinationBaseX,DestinationBaseY),0)).rgb;
-    float3 original = EditField.Load(int3(coord,0)).rgb;
+    uint2 referenceCoord = coord + (((Passthrough & 262144u) != 0u)
+        ? uint2(SourceBaseX,SourceBaseY) : uint2(0,0));
+    float3 original = EditField.Load(int3(referenceCoord,0)).rgb;
     uint ignored;
     DeltaStats.InterlockedAdd(112u,1u,ignored);
     if (!all(isfinite(actual)) || !all(isfinite(original))) {
@@ -3996,6 +4003,14 @@ struct NrStageCapture {
     bool pending = false;
 };
 
+struct NrStoredResultMetadata {
+    NrDiagnosticIdentity identity{};
+    nr_native_format::Key native_key{};
+    unsigned long long feature_generation=0;
+    unsigned source_physical=0,source_view=0,result_physical=0,result_view=0;
+    int mode=0;
+    bool recorded=false;
+};
 struct NrSlot {
     NrCaptureParams capture_params = {};
     NrStageCapture stage_capture = {};
@@ -4034,6 +4049,7 @@ struct NrSlot {
     ID3D12DescriptorHeap *stats_clear_heap = nullptr;
     ID3D12DescriptorHeap *capture_cpu_heap = nullptr;
     ID3D12DescriptorHeap *snapshot_heap = nullptr;
+    ID3D12DescriptorHeap *pre_store_probe_heap = nullptr;
     DXGI_FORMAT source_format = DXGI_FORMAT_UNKNOWN; // physical storage
     DXGI_FORMAT source_srv_format = DXGI_FORMAT_UNKNOWN; // actual typed read view
     DXGI_FORMAT result_format = DXGI_FORMAT_UNKNOWN; // physical storage
@@ -4075,11 +4091,16 @@ struct NrSlot {
     unsigned int active_render_height = 0;
     bool suppress_transfer_this_frame = false;
     NrDiagnosticIdentity diagnostic_identity = {};
+    NrStoredResultMetadata stored_result_metadata{};
 };
 
 #include "nr_post_boundary_runtime.inl"
 
 struct NrPostStoreEvidence {
+    NrDiagnosticIdentity identity{};
+    nr_native_format::Key native_key{};
+    unsigned source_physical=0,source_view=0,result_physical=0,result_view=0;
+    int mode=0; // 2: owned pre-SR Result; 1: game's post-SR Output.
     unsigned long long frame=0,feature_generation=0,tick=0;
     unsigned long long boundary_trace_id=0;
     unsigned int config=0,samples=0,expected_samples=0,changed=0,expected_changed=0,invalid=0;
@@ -4087,9 +4108,16 @@ struct NrPostStoreEvidence {
     float expected_mean=0,actual_mean=0,expected_max=0,actual_max=0;
 };
 NrPostStoreEvidence g_post_store_evidence; // g_diagnostic_snapshot_lock
+NrPostStoreEvidence g_pre_store_evidence; // Same collector, distinct route history.
 NrPostStoreEvidence SnapshotPostStoreEvidence() {
     AcquireSRWLockShared(&g_diagnostic_snapshot_lock);
     const auto result=g_post_store_evidence;
+    ReleaseSRWLockShared(&g_diagnostic_snapshot_lock);
+    return result;
+}
+NrPostStoreEvidence SnapshotPreStoreEvidence() {
+    AcquireSRWLockShared(&g_diagnostic_snapshot_lock);
+    const auto result=g_pre_store_evidence;
     ReleaseSRWLockShared(&g_diagnostic_snapshot_lock);
     return result;
 }
@@ -4390,6 +4418,7 @@ void DestroySlot(NrSlot &slot) {
     ReleaseCom(slot.stats_clear_heap);
     ReleaseCom(slot.capture_cpu_heap);
     ReleaseCom(slot.snapshot_heap);
+    ReleaseCom(slot.pre_store_probe_heap);
     ReleaseCom(slot.heap);
     ReleaseCom(slot.result);
     ReleaseCom(slot.neural);
@@ -4540,12 +4569,20 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
     ID3D12Resource_Unmap(slot.delta_stats_readback, 0, &written_range);
     slot.delta_stats_pending = false;
 
-    if (values[28] && values[39]) {
+    if (values[28] && values[39] && slot.stored_result_metadata.recorded) {
+        const auto& metadata=slot.stored_result_metadata;
         NrPostStoreEvidence evidence;
-        evidence.frame=slot.diagnostic_identity.frame_id;
-        evidence.boundary_trace_id=slot.post_boundary_trace_id;
-        evidence.feature_generation=slot.diagnostic_feature_generation;
-        evidence.config=slot.diagnostic_identity.config_generation;
+        evidence.identity=metadata.identity;
+        evidence.native_key=metadata.native_key;
+        evidence.mode=metadata.mode;
+        evidence.source_physical=metadata.source_physical;
+        evidence.source_view=metadata.source_view;
+        evidence.result_physical=metadata.result_physical;
+        evidence.result_view=metadata.result_view;
+        evidence.frame=metadata.identity.frame_id;
+        evidence.boundary_trace_id=metadata.mode==1?slot.post_boundary_trace_id:0;
+        evidence.feature_generation=metadata.feature_generation;
+        evidence.config=metadata.identity.config_generation;
         evidence.tick=GetTickCount64();
         evidence.samples=values[28]; evidence.changed=values[29]; evidence.invalid=values[30];
         evidence.actual_max=static_cast<float>(values[31])/1048576.0f;
@@ -4555,14 +4592,15 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
         evidence.expected_max=static_cast<float>(values[37])/1048576.0f;
         evidence.expected_changed=values[38]; evidence.expected_samples=values[39];
         AcquireSRWLockExclusive(&g_diagnostic_snapshot_lock);
-        if (evidence.frame>=g_post_store_evidence.frame) g_post_store_evidence=evidence;
+        auto& destination=evidence.mode==2?g_pre_store_evidence:g_post_store_evidence;
+        if (evidence.frame>=destination.frame) destination=evidence;
         ReleaseSRWLockExclusive(&g_diagnostic_snapshot_lock);
         static unsigned reports=0;
         if (++reports<=3 || reports%120==0)
-            Log("[post-store] frame=%llu config=%u samples=%u/%u changed=%u/%u "
+            Log("[%s-store] frame=%llu config=%u samples=%u/%u changed=%u/%u "
                 "meanStoredDelta expected=%.6f actual=%.6f invalid=%u "
-                "hash before=%08X expected=%08X actual=%08X; read after actual Output store, not Present.",
-                evidence.frame,evidence.config,evidence.expected_samples,evidence.samples,
+                "hash before=%08X expected=%08X actual=%08X; read after actual target store, not Present.",
+                evidence.mode==2?"pre":"post",evidence.frame,evidence.config,evidence.expected_samples,evidence.samples,
                 evidence.expected_changed,evidence.changed,evidence.expected_mean,evidence.actual_mean,
                 evidence.invalid,evidence.before_hash,evidence.expected_hash,evidence.actual_hash);
     }
@@ -6546,6 +6584,14 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     }
     if (post_sr && slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT)
         Log("Post-SR native FP16 Output retained: active=%ux%u copied byte-exactly to owned snapshot; no SR target redirection.", width, height);
+    if (!post_sr && g_codec.post_store_probe != nullptr) {
+        // Optional diagnostic descriptors only. Allocation failure leaves the
+        // established rendering path intact and supplies no stored-write proof.
+        const HRESULT probe_hr=ID3D12Device_CreateDescriptorHeap(device,&heap_desc,
+            IID_ID3D12DescriptorHeap,reinterpret_cast<void**>(&slot.pre_store_probe_heap));
+        if (SUCCEEDED(probe_hr)) WritePreStoreProbeDescriptors(device,slot);
+        else Log("Pre-store probe heap unavailable: 0x%08X",static_cast<unsigned>(probe_hr));
+    }
     if (slot.converts_source_format) {
         Log("SceneColor format conversion enabled: %s -> "
             "R16G16B16A16_FLOAT (typed SRV + FP16 codec pass).",
@@ -6623,6 +6669,7 @@ void RebindExposureSource(ID3D12Device *device, ID3D12Resource *exposure,
     slot.exposure_source = exposure;
     WriteExposureSrv(device, exposure, slot.heap);
     WriteExposureSrv(device, exposure, slot.snapshot_heap);
+    WriteExposureSrv(device, exposure, slot.pre_store_probe_heap);
 }
 
 bool EnsureEditField(ID3D12Device *device, NrSlot &slot,
@@ -6959,6 +7006,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
             external_desc.Height);
     }
     RebindExposureSource(device, exposure, slot);
+    WritePreStoreProbeDescriptors(device,slot);
     slot.last_submission_queue = nullptr;
     slot.completion_fence_value = 0;
     slot.awaiting_fence_signal = false;
@@ -7070,6 +7118,7 @@ void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
         slot.delta_stats != nullptr &&
         slot.delta_stats_readback != nullptr) {
         slot.delta_stats_capture_armed = true;
+        slot.stored_result_metadata = {};
         slot.diagnostic_mode = context.mode;
         slot.diagnostic_feature_generation = context.feature_generation;
         slot.diagnostic_width = context.width;
@@ -7175,6 +7224,10 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         slot.stats_clear_heap != nullptr;
     const bool probe_post_store = capture_delta && slot.snapshots_native_output &&
         g_config.mode == 1 && slot.snapshot_heap != nullptr && g_codec.post_store_probe != nullptr &&
+        ((static_cast<unsigned long long>(width)+31)/32)*((static_cast<unsigned long long>(height)+31)/32)<=65535;
+    const bool probe_pre_store = capture_delta && !slot.snapshots_native_output &&
+        slot.owns_result && g_config.mode == 2 && slot.pre_store_probe_heap != nullptr &&
+        slot.result_format == DXGI_FORMAT_R16G16B16A16_FLOAT && g_codec.post_store_probe != nullptr &&
         ((static_cast<unsigned long long>(width)+31)/32)*((static_cast<unsigned long long>(height)+31)/32)<=65535;
     unsigned int source_flags = hdr_input ? 0u : 1u;
     if (color_mode == CodecColorMode::LinearSdr)
@@ -7287,7 +7340,8 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         UavBarrier(command_list, slot.delta_stats);
     }
     const unsigned int codec_flags = base_codec_flags | (f8_armed?512u:0u) |
-        (probe_post_store ? 131072u : 0u);
+        ((probe_post_store || probe_pre_store) ? 131072u : 0u) |
+        (probe_pre_store ? 262144u : 0u);
     if (capture_delta) {
         slot.diagnostic_color_policy = color_policy;
         slot.diagnostic_color_strength = effective_color_strength;
@@ -7388,19 +7442,31 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         slot.stage_capture.armed = false;
         RetireStageCaptureOwnerLocked(slot);
     }
-    if (probe_post_store) {
+    if (probe_post_store || probe_pre_store) {
         // Read the stored target while the same slot/recording owns it. Only
         // the already-armed sparse diagnostic sample pays for this dispatch.
         UavBarrier(command_list,slot.result);
+        const auto previous_result_state=slot.result_state;
         Transition(command_list,slot.result,slot.result_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        ID3D12DescriptorHeap *probe_heaps[]={slot.snapshot_heap};
+        ID3D12DescriptorHeap *probe_heap=probe_pre_store?slot.pre_store_probe_heap:slot.snapshot_heap;
+        ID3D12DescriptorHeap *probe_heaps[]={probe_heap};
         ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list,1,probe_heaps);
-        const auto probe_gpu=ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.snapshot_heap);
+        const auto probe_gpu=ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(probe_heap);
         ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list,0,probe_gpu);
         ID3D12GraphicsCommandList_SetPipelineState(command_list,g_codec.post_store_probe);
         ID3D12GraphicsCommandList_Dispatch(command_list,(width+255)/256,(height+255)/256,1);
-        Transition(command_list,slot.result,slot.result_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        slot.post_boundary_probe_recorded=true;
+        Transition(command_list,slot.result,slot.result_state,previous_result_state);
+        slot.post_boundary_probe_recorded=probe_post_store;
+        auto& metadata=slot.stored_result_metadata;
+        metadata.identity=slot.diagnostic_identity;
+        metadata.native_key=slot.native_format_key;
+        metadata.feature_generation=slot.diagnostic_feature_generation;
+        metadata.mode=g_config.mode;
+        metadata.source_physical=static_cast<unsigned>(slot.source_format);
+        metadata.source_view=static_cast<unsigned>(slot.source_srv_format);
+        metadata.result_physical=static_cast<unsigned>(slot.result_format);
+        metadata.result_view=static_cast<unsigned>(slot.result_srv_format);
+        metadata.recorded=true;
     }
     if (capture_delta) {
         UavBarrier(command_list, slot.delta_stats);
