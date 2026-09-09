@@ -64,12 +64,18 @@ struct NrTimingCarrierScope {
                unsigned mode, std::uint64_t device);
     ~NrTimingCarrierScope();
 };
-nr_timing::Identity NrTimingCurrentIdentity() {
-    nr_timing::Identity value = g_nr_timing_carrier ? g_nr_timing_carrier->identity : nr_timing::Identity{};
+nr_timing::Identity NrTimingNewIdentity() {
+    nr_timing::Identity value{};
     AcquireSRWLockShared(&g_nr_timing_lock);
     value.epoch = g_nr_timing.epoch; value.probe = g_nr_timing.probe; value.wait = g_nr_timing.wait;
     ReleaseSRWLockShared(&g_nr_timing_lock);
     return value;
+}
+nr_timing::Identity NrTimingCurrentIdentity() {
+    // A carrier freezes its phase at entry. Work it starts after a concurrent
+    // phase change is still part of that old carrier, including pending probes.
+    if (g_nr_timing_carrier) return g_nr_timing_carrier->identity;
+    return NrTimingNewIdentity();
 }
 void NrTimingRecord(nr_timing::Record record) {
     const auto index = static_cast<unsigned>(record.stage);
@@ -143,7 +149,7 @@ void SnapshotNrTiming(nr_timing::Snapshot& output) {
 void NrTimingCarrierScope::Begin(std::uint64_t frame, std::uint64_t feature,
         std::uint64_t config, unsigned mode, std::uint64_t device) {
     parent = g_nr_timing_carrier;
-    identity = NrTimingCurrentIdentity();
+    identity = NrTimingNewIdentity();
     identity.frame = frame; identity.feature = feature; identity.config = config;
     identity.mode = mode; identity.device = device; identity.resource = identity.resource_generation = 0;
     identity.target = identity.target_generation = 0; identity.target_subresource = 0;
