@@ -272,11 +272,17 @@ void DrawSimpleImageCaptureControls() {
         if (ImGui::Selectable(ui("Seven-group comparison: full-screen originals",
                                   "七组画面对比：全屏原图")))
             nr_f8::RequestFullscreen(nr_f8::Comparison::ShareMatrix);
+        if (ImGui::Selectable(ui("Model-stage comparison: centre region",
+                                  "模型前后对照：画面中心")))
+            nr_f8::RequestWithOptions({});
+        SettingsTooltip(ui(
+            "Move a face or reflective region to the centre and keep the camera still. Saves the original, model input/output and composed result for analysis.",
+            "请把人脸或反射区域放在画面中央，并保持镜头不动。保存原图、模型处理前后与最终合成结果，供对照分析。"));
         ImGui::EndCombo();
     }
     SettingsTooltip(ui(
-        "Save the entire game view at its original screenshot resolution. The seven-group comparison saves NR off, then NR before/after SR at 50%, 75% and 100%. Keep the camera still; active RR skips NR-before-SR groups.",
-        "保存完整游戏画面，不裁切、不缩小。七组对比依次保存关闭 NR，以及 NR→SR、SR→NR 各 50%、75%、100% 的画面。请保持镜头不动；开启 RR 时会跳过 NR→SR。"));
+        "Full-screen options save the entire game view at its original screenshot resolution. The seven-group comparison saves NR off, then NR before/after SR at 50%, 75% and 100%; active RR skips NR-before-SR groups. Model-stage comparison captures the centre region: put the face or reflection there and keep the camera still.",
+        "全屏选项保存完整游戏画面，不裁切、不缩小。七组对比依次保存关闭 NR，以及 NR→SR、SR→NR 各 50%、75%、100% 的画面；开启 RR 时会跳过 NR→SR。模型前后对照采集画面中央区域，请把人脸或反射放在中央并保持镜头不动。"));
     if (blocked) ImGui::EndDisabled();
     ImGui::TextDisabled("%s", ui("Keep the camera fixed; groups are captured in order.",
         "请保持视角不动，系统会按顺序采集。"));

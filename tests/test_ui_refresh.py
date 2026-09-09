@@ -63,6 +63,27 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn("ImGui::SameLine();", self.ui)
         self.assertIn("GetTextLineHeightWithSpacing() * 4.25f", self.ui)
 
+    def test_model_stage_menu_uses_existing_current_centre_capture(self):
+        image_menu = self.ui[self.ui.index("void DrawSimpleImageCaptureControls()"):
+                             self.ui.index("nr_ui_activity::Sample ReadUiActivity()")]
+        self.assertEqual(image_menu.count("ImGui::Selectable("), 3)
+        self.assertEqual(image_menu.count("nr_f8::RequestFullscreen();"), 1)
+        self.assertEqual(image_menu.count("nr_f8::RequestFullscreen(nr_f8::Comparison::ShareMatrix);"), 1)
+        self.assertEqual(image_menu.count("nr_f8::RequestWithOptions({});"), 1)
+        self.assertIn('ui("Model-stage comparison: centre region",\n'
+                      '                                  "模型前后对照：画面中心")))\n'
+                      '            nr_f8::RequestWithOptions({});', image_menu)
+        self.assertIn("请把人脸或反射区域放在画面中央，并保持镜头不动", image_menu)
+        self.assertLess(image_menu.index("if (blocked) ImGui::BeginDisabled();"),
+                        image_menu.index("nr_f8::RequestWithOptions({});"))
+        self.assertLess(image_menu.index("nr_f8::RequestWithOptions({});"),
+                        image_menu.index("if (blocked) ImGui::EndDisabled();"))
+        sequence = (ROOT / "src" / "nr_f8_sequence.inl").read_text(encoding="utf-8")
+        options = sequence[sequence.index("struct Options {"):sequence.index("struct Options {") + 180]
+        self.assertIn("Comparison comparison = Comparison::Current", options)
+        self.assertIn("bool custom_roi = false", options)
+        self.assertIn("bool full_screen = false", options)
+
     def test_feedback_and_diagnostics_are_one_complete_tab(self):
         marker = '"Feedback and diagnostics###nr-feedback-diagnostics"'
         self.assertEqual(self.ui.count(marker), 1)
