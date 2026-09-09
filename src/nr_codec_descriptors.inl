@@ -34,6 +34,9 @@ void WriteCodecDescriptorSet(ID3D12Device *device, const NrSlot &slot,
     ID3D12Device_CreateUnorderedAccessView(device,slot.delta_stats,nullptr,&raw,at(kCodecStatsUavIndex));
     raw.Buffer.NumElements=4;
     ID3D12Device_CreateUnorderedAccessView(device,nullptr,nullptr,&raw,at(kCodecCaptureUavIndex));
+#if defined(NR_HAS_RESOURCE_RECOVERY)
+    NrRecoveryDescriptorProgrammed(slot, heap);
+#endif
 }
 
 // Update only the optional plane after the slot's exact mutation gate passed.

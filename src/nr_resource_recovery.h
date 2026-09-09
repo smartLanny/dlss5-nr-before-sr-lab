@@ -72,7 +72,7 @@ enum class SemanticState { Waiting, Exact, Unique, Rejected };
 enum class State { Unknown, Waiting, Resolved, Pending, RecoverySucceeded, Latched };
 enum class Stage : unsigned {
     Descriptor, NrEvaluate, NativeSrEvaluate, TransferRecorded, Submitted,
-    ActualStorageRead, Count
+    ActualStorageRead, NrCreate, ParameterBinding, ResourceAllocation, Count
 };
 enum class FailureKind { None, Reported, WrongTarget, NonFinite, WritebackMismatch };
 struct Failure {
@@ -512,6 +512,9 @@ inline const char* StateName(State state) noexcept {
 }
 inline const char* StageName(Stage stage) noexcept {
     switch (stage) {
+    case Stage::NrCreate: return "nr-create";
+    case Stage::ParameterBinding: return "parameter-binding";
+    case Stage::ResourceAllocation: return "resource-allocation";
     case Stage::Descriptor: return "descriptor-programming";
     case Stage::NrEvaluate: return "nr-evaluate";
     case Stage::NativeSrEvaluate: return "native-sr-evaluate";

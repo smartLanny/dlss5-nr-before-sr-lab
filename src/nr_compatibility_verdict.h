@@ -172,10 +172,11 @@ inline ReasonPolicy ClassifyReason(std::string_view reason) {
     if (reason == "queue-affinity-unverified" || reason == "queue-proof-unavailable")
         return {Stage::Queue, NextAction::AutoRetry, true};
     if (reason == "queue-retirement-timeout") return {Stage::Queue, NextAction::NeedsCode, true};
-    if (reason == "nr-runtime-unavailable" || reason == "codec-unavailable")
+    if (reason == "nr-runtime-unavailable" || reason == "codec-unavailable" ||
+        reason == "resource-allocation-failed" || reason == "nr-parameter-binding-failed")
         return {Stage::Runtime, NextAction::NeedsCode, true};
     if (reason == "native-evaluate-failed") return {Stage::Native, NextAction::NeedsCode, true};
-    if (reason == "nr-evaluate-failed" || reason == "runtime-rejected" ||
+    if (reason == "nr-evaluate-failed" || reason == "runtime-rejected" || reason == "nr-create-failed" ||
         reason == "failed-create-quarantine") return {Stage::Neural, NextAction::NeedsCode, true};
     if (reason == "submission-failed") return {Stage::Submission, NextAction::NeedsCode, true};
     if (reason == "writeback-failed") return {Stage::Writeback, NextAction::NeedsCode, true};

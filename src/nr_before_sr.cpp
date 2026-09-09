@@ -32,6 +32,8 @@
 #include "MinHook.h"
 #include "interop/nr_format_access.h"
 #include "nr_native_format.h"
+#include "nr_resource_recovery.h"
+#include "nr_compatibility_verdict.h"
 #define NR_HAS_NATIVE_FORMAT_OBSERVER 1
 #include "interop/nr_post_compat.h"
 #include "nr_guide_contract.h"
@@ -486,6 +488,7 @@ const char *BypassReasonName(BypassReason reason) {
     }
 }
 
+void NrObserveCompatibilityBypass(BypassReason reason);
 void SetBypassReason(BypassReason reason) {
     if (g_generic_renodx_conflict.load(std::memory_order_acquire))
         reason = BypassReason::GenericRenoDxConflict;
@@ -502,6 +505,7 @@ void SetBypassReason(BypassReason reason) {
         previous = g_last_bypass_reason.exchange(
             next, std::memory_order_relaxed);
     }
+    NrObserveCompatibilityBypass(static_cast<BypassReason>(next));
     if (previous == next) return;
     const unsigned long long transition =
         g_bypass_reason_transitions.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -883,6 +887,7 @@ ChainConfig g_config = {};
 ULONGLONG g_config_read_tick = 0;
 CRITICAL_SECTION g_chain_cs;
 std::atomic<bool> g_enabled_fast{false};
+std::atomic<int> g_requested_mode_fast{2};
 std::atomic<ULONGLONG> g_next_config_poll_tick{0};
 std::atomic<unsigned int> g_config_generation{1};
 // Composition-only edits must not reset temporal Feature 18 history. This
@@ -1566,6 +1571,7 @@ void ReloadConfig(bool force = false) {
     const bool changed = !SameConfig(next, g_config);
     const bool history_changed = force || !SameHistoryConfig(next, g_config);
     g_config = next;
+    g_requested_mode_fast.store(g_config.mode, std::memory_order_release);
     g_enabled_fast.store(g_config.enabled, std::memory_order_release);
     if (changed || force) {
         g_config_generation.fetch_add(1, std::memory_order_relaxed);
@@ -1758,6 +1764,7 @@ bool ApplyConfig(ChainConfig next, const char *source,
     g_config_read_tick = GetTickCount64();
     g_next_config_poll_tick.store(g_config_read_tick + 500,
                                   std::memory_order_relaxed);
+    g_requested_mode_fast.store(g_config.mode, std::memory_order_release);
     g_enabled_fast.store(g_config.enabled, std::memory_order_release);
     g_config_generation.fetch_add(1, std::memory_order_relaxed);
     if (history_changed)
@@ -4006,6 +4013,8 @@ struct NrStageCapture {
 };
 
 struct NrStoredResultMetadata {
+    nr_resource_recovery::Token recovery_token{};
+    nr_resource_recovery::Target recovery_target{};
     NrDiagnosticIdentity identity{};
     nr_native_format::Key native_key{};
     unsigned long long feature_generation=0;
@@ -4014,6 +4023,17 @@ struct NrStoredResultMetadata {
     bool recorded=false;
 };
 struct NrSlot {
+    struct DescriptorReceipt {
+        ID3D12DescriptorHeap* heap = nullptr;
+        ID3D12Resource* source = nullptr;
+        ID3D12Resource* result = nullptr;
+        DXGI_FORMAT source_srv = DXGI_FORMAT_UNKNOWN;
+        DXGI_FORMAT result_uav = DXGI_FORMAT_UNKNOWN;
+    };
+    mutable DescriptorReceipt descriptor_receipt{};
+    nr_resource_recovery::Token recovery_token{};
+    nr_resource_recovery::Target recovery_target{};
+    unsigned recovery_probe_count = 0;
     NrCaptureParams capture_params = {};
     NrStageCapture stage_capture = {};
     ID3D12Resource *key = nullptr;
@@ -4097,8 +4117,11 @@ struct NrSlot {
 };
 
 #include "nr_post_boundary_runtime.inl"
+#include "nr_resource_recovery_runtime.inl"
 
 struct NrPostStoreEvidence {
+    nr_resource_recovery::Token recovery_token{};
+    nr_resource_recovery::Target recovery_target{};
     NrDiagnosticIdentity identity{};
     nr_native_format::Key native_key{};
     unsigned source_physical=0,source_view=0,result_physical=0,result_view=0;
@@ -4111,6 +4134,25 @@ struct NrPostStoreEvidence {
 };
 NrPostStoreEvidence g_post_store_evidence; // g_diagnostic_snapshot_lock
 NrPostStoreEvidence g_pre_store_evidence; // Same collector, distinct route history.
+void NrRecoveryStoredEvidence(const NrPostStoreEvidence& evidence) {
+    if (!evidence.recovery_token || !evidence.samples ||
+        evidence.samples != evidence.expected_samples) return;
+    // This conservative comparison is replaced by the format-specific stored
+    // value oracle when that adapter supplies a complete comparison receipt.
+    if (evidence.mode != 2 || evidence.result_view != DXGI_FORMAT_R16G16B16A16_FLOAT) return;
+    nr_recovery::WritebackProof proof{};
+    proof.resource = evidence.recovery_target.resource;
+    proof.resource_generation = evidence.recovery_target.resource_generation;
+    proof.subresource = evidence.recovery_target.subresource;
+    proof.actual_storage_read = true;
+    proof.finite = evidence.invalid == 0;
+    proof.matches_expected = evidence.expected_hash == evidence.actual_hash &&
+        evidence.expected_mean == evidence.actual_mean && evidence.expected_max == evidence.actual_max &&
+        evidence.expected_changed == evidence.changed;
+    AcquireSRWLockExclusive(&g_nr_recovery_lock);
+    g_nr_recovery.RecordWriteback(evidence.recovery_token, proof);
+    ReleaseSRWLockExclusive(&g_nr_recovery_lock);
+}
 NrPostStoreEvidence SnapshotPostStoreEvidence() {
     AcquireSRWLockShared(&g_diagnostic_snapshot_lock);
     const auto result=g_post_store_evidence;
@@ -4295,6 +4337,8 @@ enum class RecordingQueueProof : unsigned char {
 };
 
 struct LifecycleCommandList {
+    nr_resource_recovery::Token recovery_tokens[16]{};
+    unsigned recovery_token_count = 0;
     unsigned long long token = 0;
     // Immutable prediction captured before plugin work is recorded. The
     // actual Execute queue is checked against this identity later.
@@ -4334,6 +4378,8 @@ constexpr std::size_t kLifecycleBatchRecords =
 constexpr std::size_t kLifecycleBatchSlots = 16 * 8;
 
 struct SubmissionBatch {
+    nr_resource_recovery::Token recovery_tokens[128]{};
+    unsigned recovery_token_count = 0;
     LifecycleQueue *queue_state = nullptr;
     LifecycleCommandList *records[kLifecycleBatchRecords] = {};
     unsigned int record_count = 0;
@@ -4412,7 +4458,9 @@ bool FitsExtraResourcePeak(const NrSlot &slot, unsigned long long new_bytes) {
         new_bytes <= kExtraTotalBudget - g_extra_allocated_bytes;
 }
 
+bool IsSlotFenceCompleteLocked(const NrSlot &slot);
 void DestroySlot(NrSlot &slot) {
+    NrRecoveryRetireSlot(slot, IsSlotFenceCompleteLocked(slot));
     ForgetPostBoundary(reinterpret_cast<std::uint64_t>(slot.result));
     DestroyStageCapture(slot);
     ReleaseCom(slot.delta_stats_readback);
@@ -4554,7 +4602,11 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
     void *mapped = nullptr;
     const HRESULT mapped_result = ID3D12Resource_Map(
         slot.delta_stats_readback, 0, &read_range, &mapped);
-    if (FAILED(mapped_result) || mapped == nullptr) return;
+    if (FAILED(mapped_result) || mapped == nullptr) {
+        NrRecoveryRecord(slot.stored_result_metadata.recovery_token,
+            nr_recovery::Stage::ActualStorageRead, false, static_cast<NgxResult>(mapped_result));
+        return;
+    }
     std::uint32_t values[kDiagnosticStatsUintCount] = {};
     std::memcpy(values, mapped, sizeof(values));
     const std::uint32_t max_quantized = values[0];
@@ -4574,6 +4626,8 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
     if (values[28] && values[39] && slot.stored_result_metadata.recorded) {
         const auto& metadata=slot.stored_result_metadata;
         NrPostStoreEvidence evidence;
+        evidence.recovery_token=metadata.recovery_token;
+        evidence.recovery_target=metadata.recovery_target;
         evidence.identity=metadata.identity;
         evidence.native_key=metadata.native_key;
         evidence.mode=metadata.mode;
@@ -4597,6 +4651,7 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
         auto& destination=evidence.mode==2?g_pre_store_evidence:g_post_store_evidence;
         if (evidence.frame>=destination.frame) destination=evidence;
         ReleaseSRWLockExclusive(&g_diagnostic_snapshot_lock);
+        NrRecoveryStoredEvidence(evidence);
         static unsigned reports=0;
         if (++reports<=3 || reports%120==0)
             Log("[%s-store] frame=%llu config=%u samples=%u/%u changed=%u/%u "
@@ -4824,6 +4879,7 @@ void DrainNgxFeatureRetirementsLocked() {
     NgxContextRetirement request{};
     for (std::size_t i = 0; i < std::size(g_ngx_context_retirements) &&
          TakeNgxContextRetirement(request); ++i) {
+        NrRecoveryRetireFeature(request.generation);
         for (auto &context : g_contexts) {
             if (context.sr_handle == request.handle &&
                 context.feature_generation == request.generation)
@@ -5467,6 +5523,12 @@ bool RecordVisibleTransferLocked(ID3D12GraphicsCommandList *command_list,
         MarkLifecycleUncertain("scoped bound NR transfer count overflow");
         SetBypassReason(BypassReason::LifecycleIsolation);
         return false;
+    }
+    const auto recovery_token = NrRecoveryTransferRecorded(static_cast<unsigned>(mode));
+    if (recovery_token) {
+        if (record->recovery_token_count < std::size(record->recovery_tokens))
+            record->recovery_tokens[record->recovery_token_count++] = recovery_token;
+        else NrRecoveryReceiptOverflow();
     }
     ++record->bound_transfer_count;
     ++record->scoped_bound_transfer_count;
@@ -6928,6 +6990,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
         slot.last_submission_queue = nullptr;
         slot.completion_fence_value = 0;
         slot.awaiting_fence_signal = false;
+        NrRecoveryDescriptorProgrammed(slot, slot.heap);
         return true;
     }
 
@@ -7011,6 +7074,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
     }
     RebindExposureSource(device, exposure, slot);
     WritePreStoreProbeDescriptors(device,slot);
+    NrRecoveryDescriptorProgrammed(slot, slot.heap);
     slot.last_submission_queue = nullptr;
     slot.completion_fence_value = 0;
     slot.awaiting_fence_signal = false;
@@ -7028,6 +7092,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
     const auto current_view = NrResolveColorView(device, external, desc,
         context.feature_generation, post_sr, feature_create_flags, semantic_contract);
     if (!current_view) return nullptr;
+    const auto recovery_token = NrRecoveryBegin(current_view, post_sr);
     const unsigned long long serial = ++context.slot_serial;
     NrSlot *empty = nullptr;
     for (auto &slot : context.slots) {
@@ -7057,6 +7122,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
                 return nullptr;
             }
             slot.last_used_serial = serial;
+            NrRecoveryAdoptSlot(slot, recovery_token, post_sr);
             return &slot;
         }
         if (empty == nullptr && slot.key == nullptr) empty = &slot;
@@ -7064,9 +7130,12 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
     if (empty != nullptr) {
         if (!CreateSlot(device, external, context.width, context.height,
                         post_sr, exposure, *empty, pre_sr_color_mode,
-                        feature_create_flags, context.feature_generation, semantic_contract))
+                        feature_create_flags, context.feature_generation, semantic_contract)) {
+            NrRecoveryRecord(recovery_token, nr_recovery::Stage::ResourceAllocation, false);
             return nullptr;
+        }
         empty->last_used_serial = serial;
+        NrRecoveryAdoptSlot(*empty, recovery_token, post_sr);
         return empty;
     }
 
@@ -7083,6 +7152,10 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
     }
     const unsigned long long age = oldest != nullptr
         ? serial - oldest->last_used_serial : 0;
+    if (oldest != nullptr) {
+        CollectSlotDeltaStatsLocked(context, *oldest);
+        NrRecoveryRetireSlot(*oldest, CanMutateSlotLocked(*oldest));
+    }
     if (oldest == nullptr ||
         !RebindSlotExternal(device, external, post_sr, exposure, *oldest,
                             pre_sr_color_mode, feature_create_flags, context.feature_generation, semantic_contract)) {
@@ -7096,6 +7169,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
         return nullptr;
     }
     oldest->last_used_serial = serial;
+    NrRecoveryAdoptSlot(*oldest, recovery_token, post_sr);
     ++context.slot_recycles;
     if (context.slot_recycles <= 3 || (context.slot_recycles % 600) == 0) {
         Log("Recycled rotating chain slot: count=%u age=%llu mode=%d extent=%ux%u.",
@@ -7116,7 +7190,7 @@ void ArmDeltaStatsCaptureLocked(NrSlot &slot, NrContext &context,
     // one periodic checkpoint. One-shot stage capture remains immediate.
     const unsigned int current_generation =
         g_config_generation.load(std::memory_order_relaxed);
-    const bool should_sample_delta = context.evaluations < 3 ||
+    const bool should_sample_delta = NrRecoveryNeedsProbe(slot) || context.evaluations < 3 ||
         context.config_generation != current_generation ||
         (context.evaluations % 120) == 0;
     if (should_sample_delta && !slot.delta_stats_pending &&
@@ -7463,6 +7537,10 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         Transition(command_list,slot.result,slot.result_state,previous_result_state);
         slot.post_boundary_probe_recorded=probe_post_store;
         auto& metadata=slot.stored_result_metadata;
+        metadata.recovery_token=slot.recovery_token;
+        const auto actual_target=NrFormatResourceIdentity(slot.result);
+        metadata.recovery_target={actual_target,actual_target,0};
+        ++slot.recovery_probe_count;
         metadata.identity=slot.diagnostic_identity;
         metadata.native_key=slot.native_format_key;
         metadata.feature_generation=slot.diagnostic_feature_generation;
@@ -8870,6 +8948,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             allocated = g_nr_api.allocate(&context->params);
         }
         if (allocated != kNgxSuccess || context->params == nullptr) {
+            NrRecoveryRecord(slot->recovery_token, nr_recovery::Stage::ParameterBinding, false, allocated);
             Log("AllocateParameters for NR failed: 0x%08X", allocated);
             context->failed = true;
             return substitution;
@@ -8878,8 +8957,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     const bool first = context->nr_handle == nullptr;
     if (!BindNrParameters(*context, *slot, guides, feature,
                           width, height, color_contract, first,
-                          motion_override))
+                          motion_override)) {
+        NrRecoveryRecord(slot->recovery_token, nr_recovery::Stage::ParameterBinding, false);
         return substitution;
+    }
 
     if (first) {
         void *handle = nullptr;
@@ -8890,6 +8971,8 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         Log("signed feature 18 create %ux%u -> %ux%u result=0x%08X(%s) handle=%p",
             width, height, width, height, created, ResultName(created), handle);
         if (created != kNgxSuccess || handle == nullptr) {
+            NrRecoveryRecord(g_nr_recovery_carrier ? g_nr_recovery_carrier->tokens[g_nr_recovery_carrier->selected_role] : nr_recovery::Token{},
+                nr_recovery::Stage::NrCreate, false, created);
             SetBypassReason(context->create_dependencies_quarantined
                 ? BypassReason::FailedCreateQuarantine
                 : BypassReason::RuntimeRejected);
@@ -8915,6 +8998,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             g_nr_api.signed_evaluate, command_list, context->nr_handle,
             context->params, nullptr);
     }
+    NrRecoveryRecord(slot->recovery_token, nr_recovery::Stage::NrEvaluate, evaluated == kNgxSuccess, evaluated);
     if (evaluated != kNgxSuccess) {
         if (context->evaluations < 3)
             Log("signed feature 18 evaluate failed: 0x%08X (%s)",
@@ -9456,6 +9540,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             allocated = g_nr_api.allocate(&context.params);
         }
         if (allocated != kNgxSuccess || context.params == nullptr) {
+            NrRecoveryRecord(slot.recovery_token, nr_recovery::Stage::ParameterBinding, false, allocated);
             Log("AllocateParameters for post-SR NR failed: 0x%08X", allocated);
             context.failed = true;
             PreservePostSrOnFailure(command_list, substitution);
@@ -9465,6 +9550,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     const bool first = context.nr_handle == nullptr;
     if (!BindNrParameters(context, slot, substitution.guides, feature,
                           width, height, color_contract, first)) {
+        NrRecoveryRecord(slot.recovery_token, nr_recovery::Stage::ParameterBinding, false);
         PreservePostSrOnFailure(command_list, substitution);
         return false;
     }
@@ -9480,6 +9566,8 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             width, height, substitution.guide_width, substitution.guide_height,
             created, ResultName(created), handle);
         if (created != kNgxSuccess || handle == nullptr) {
+            NrRecoveryRecord(g_nr_recovery_carrier ? g_nr_recovery_carrier->tokens[g_nr_recovery_carrier->selected_role] : nr_recovery::Token{},
+                nr_recovery::Stage::NrCreate, false, created);
             SetBypassReason(context.create_dependencies_quarantined
                 ? BypassReason::FailedCreateQuarantine
                 : BypassReason::RuntimeRejected);
@@ -9506,6 +9594,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
             g_nr_api.signed_evaluate, command_list, context.nr_handle,
             context.params, nullptr);
     }
+    NrRecoveryRecord(slot.recovery_token, nr_recovery::Stage::NrEvaluate, evaluated == kNgxSuccess, evaluated);
     if (evaluated != kNgxSuccess) {
         if (evaluated == 0xBAD00001u) {
             g_post_sr_runtime_rejected.store(true, std::memory_order_relaxed);
@@ -9839,6 +9928,16 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
         queue_state, count, command_lists, batch);
     if (!captured)
         QuarantineUnprovenSubmissionLocked(count, command_lists);
+    if (captured && batch.active && !batch.quarantine) {
+        for (unsigned i = 0; i < batch.record_count; ++i) {
+            const auto* record = batch.records[i];
+            for (unsigned j = 0; record && j < record->recovery_token_count; ++j) {
+                if (batch.recovery_token_count < std::size(batch.recovery_tokens))
+                    batch.recovery_tokens[batch.recovery_token_count++] = record->recovery_tokens[j];
+                else NrRecoveryReceiptOverflow();
+            }
+        }
+    }
     LeaveCriticalSection(&g_chain_cs);
 
     // Even a failed capture is submitted unchanged: fail-closed means no more
@@ -9846,6 +9945,8 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
     original(queue, count, command_lists);
     if (captured && batch.active && !batch.quarantine &&
         batch.bound_transfer_count != 0) {
+        for (unsigned i = 0; i < batch.recovery_token_count; ++i)
+            NrRecoveryRecord(batch.recovery_tokens[i], nr_recovery::Stage::Submitted, true);
         g_nr_transfer_submitted_frames.fetch_add(
             batch.bound_transfer_count, std::memory_order_relaxed);
         EnterCriticalSection(&g_chain_cs);
@@ -10321,6 +10422,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     }
 
     NrPrepareFormatObservation(command_list);
+    NrRecoveryCarrierScope recovery_carrier(command_list, feature.generation);
 
     // This is a classified outermost Feature 1 call. Cached RR handles remain
     // registered for lifetime tracking, but do not block the game's selected
@@ -10478,6 +10580,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         rr_transaction.Release();
         return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
+    recovery_carrier.ReconcileConfig();
     // Each prepare path begins its diagnostic scope only after input admission.
     // A front-colour rejection may select post without resetting its counters
     // to Mode2 on every Evaluate.
@@ -10489,6 +10592,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         rr_transaction.Release();
         return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
+    NrRecoveryCommandObserved();
     Substitution before_sr = PrepareBeforeSr(
         before_state.command_list, handle, params, feature);
     const bool compatibility_fallback = before_sr.compatibility_fallback &&
@@ -10582,6 +10686,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             // Snapshot that state and restore it after the post-SR experiment.
             NativeCommandStateScope after_state(command_list);
             if (after_state.active) {
+                NrRecoveryCommandObserved();
                 if (FinishAfterSr(after_state.command_list, params, feature, after_sr) && compatibility_fallback)
                     ++g_compat_fallback_recorded;
                 after_state.Restore();
@@ -11918,6 +12023,7 @@ DWORD WINAPI HookWorker(void *) {
     return 0;
 }
 
+#include "nr_compatibility_runtime.inl"
 #include "nr_runtime_identity.inl"
 #include "nr_feedback_capture.inl"
 #include "nr_runtime_status.inl"

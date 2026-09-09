@@ -99,6 +99,9 @@ NgxResult NrCallNativeWithFormatObservation(NativeEvaluate original,
     NrNativeFormatScope scope(list, params, generation);
     const NgxResult result = original(list, handle, params, callback);
     scope.Finish(result == kNgxSuccess);
+#if defined(NR_HAS_RESOURCE_RECOVERY)
+    NrRecoveryNativeResult(result);
+#endif
     return result;
 }
 void NrPrepareFormatObservation(ID3D12GraphicsCommandList* list) {
@@ -146,6 +149,11 @@ NrFormatDiagnostics SnapshotNrFormatDiagnostics() {
     ReleaseSRWLockShared(&g_nr_format_lock);
     return copy;
 }
+#if defined(NR_HAS_RESOURCE_RECOVERY)
+#include "nr_resource_recovery_semantics.inl"
+#else
+NrResolvedColorView NrRecoveryResolve(NrResolvedColorView result, bool) { return result; }
+#endif
 NrResolvedColorView NrResolveColorView(ID3D12Device* device, ID3D12Resource* resource,
         const D3D12_RESOURCE_DESC& desc, unsigned long long generation, bool post_sr,
         int feature_create_flags, const NrColorSemanticContract* color = nullptr) {
@@ -204,7 +212,7 @@ NrResolvedColorView NrResolveColorView(ID3D12Device* device, ID3D12Resource* res
     result.typed.Format = static_cast<DXGI_FORMAT>(result.plan.srv);
     result.native_bounded_output = post_sr && contract.flags_known &&
         (feature_create_flags & 1) == 0 && result.plan.srv == nr_format_access::Rgba8Unorm;
-    if (!result.semantic) return result;
+    if (!result.semantic) return NrRecoveryResolve(result, post_sr);
     result.pre_storage = ClassifyPreSrStorage(result.typed.Format, feature_create_flags);
     result.post_storage = ClassifyPostSrStorage(result.typed.Format, feature_create_flags,
                                                result.native_bounded_output);
@@ -229,7 +237,7 @@ NrResolvedColorView NrResolveColorView(ID3D12Device* device, ID3D12Resource* res
         Reject(result.semantic, Verdict::MissingContract, "PQ-display-and-exposure-contract-conflict",
                "consistent-display-PQ-exposure-contract", false);
     }
-    return result;
+    return NrRecoveryResolve(result, post_sr);
 }
 NrResolvedColorView NrResolveColorViewFromList(ID3D12GraphicsCommandList* list,
         ID3D12Resource* resource, const D3D12_RESOURCE_DESC& desc,
