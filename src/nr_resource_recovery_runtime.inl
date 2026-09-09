@@ -5,6 +5,7 @@ namespace nr_recovery = nr_resource_recovery;
 SRWLOCK g_nr_recovery_lock = SRWLOCK_INIT;
 nr_recovery::Ledger<512, 512, 64> g_nr_recovery;
 nr_recovery::Scope g_nr_recovery_scopes[64]{};
+nr_recovery::Key g_nr_recovery_last_resources[64]{};
 std::atomic<unsigned long long> g_nr_recovery_frame{0};
 unsigned long long NrFormatDeviceIdentity(ID3D12Device*);
 unsigned long long NrFormatResourceIdentity(ID3D12Resource*);
@@ -17,6 +18,17 @@ struct NrRecoverySnapshot {
     bool receipt_overflow = false;
 };
 NrRecoverySnapshot g_nr_recovery_snapshot;
+struct NrRecoveryDetailSnapshot {
+    NrRecoverySnapshot current{};
+    nr_recovery::RecoveryEvidence proof{};
+};
+NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
+    AcquireSRWLockShared(&g_nr_recovery_lock);
+    const auto current = g_nr_recovery_snapshot;
+    const auto proof = g_nr_recovery.Read(current.key, current.signature);
+    ReleaseSRWLockShared(&g_nr_recovery_lock);
+    return {current, proof};
+}
 struct NrRecoveryCarrierScope {
     NrRecoveryCarrierScope* parent = nullptr;
     nr_recovery::Scope scopes[2]{};
@@ -33,6 +45,8 @@ struct NrRecoveryCarrierScope {
 thread_local NrRecoveryCarrierScope* g_nr_recovery_carrier = nullptr;
 
 void NrRecoveryRememberScopeLocked(const nr_recovery::Scope& scope) {
+    for (auto& key : g_nr_recovery_last_resources)
+        if (key.resource && key.scope.config_generation != scope.config_generation) key = {};
     for (auto& old : g_nr_recovery_scopes) {
         if (old.device && old.config_generation != scope.config_generation) {
             g_nr_recovery.RetireScope(old); old = {};
@@ -41,11 +55,24 @@ void NrRecoveryRememberScopeLocked(const nr_recovery::Scope& scope) {
     for (const auto& old : g_nr_recovery_scopes) if (old == scope) return;
     for (auto& old : g_nr_recovery_scopes) if (!old.device) { old = scope; return; }
 }
+void NrRecoveryForgetPreviousWaitingLocked(const nr_recovery::Key& key) {
+    nr_recovery::Key* vacant = nullptr;
+    for (auto& prior : g_nr_recovery_last_resources) {
+        if (!prior.resource) { if (!vacant) vacant = &prior; continue; }
+        if (prior.scope == key.scope && prior.role == key.role) {
+            if (!(prior == key)) g_nr_recovery.ForgetUnattempted(prior);
+            prior = key; return;
+        }
+    }
+    if (vacant) *vacant = key;
+}
 void NrRecoveryRetireFeature(unsigned long long generation) {
     AcquireSRWLockExclusive(&g_nr_recovery_lock);
     for (auto& scope : g_nr_recovery_scopes) if (scope.device && scope.feature_generation == generation) {
         g_nr_recovery.RetireScope(scope); scope = {};
     }
+    for (auto& key : g_nr_recovery_last_resources)
+        if (key.resource && key.scope.feature_generation == generation) key = {};
     ReleaseSRWLockExclusive(&g_nr_recovery_lock);
 }
 NrRecoveryCarrierScope::NrRecoveryCarrierScope(ID3D12GraphicsCommandList* list,
@@ -100,7 +127,11 @@ NrRecoveryCarrierScope::~NrRecoveryCarrierScope() {
     AcquireSRWLockExclusive(&g_nr_recovery_lock);
     for (unsigned role = 0; role != 2; ++role)
         g_nr_recovery.EndCarrier(scopes[role], role, carriers[role], transferred[role]);
-    if (snapshot.frame >= g_nr_recovery_snapshot.frame) g_nr_recovery_snapshot = snapshot;
+    if (snapshot.frame >= g_nr_recovery_snapshot.frame) {
+        if (nr_compatibility_verdict::SameScope(snapshot.input.current, g_nr_recovery_snapshot.input.current))
+            snapshot.receipt_overflow |= g_nr_recovery_snapshot.receipt_overflow;
+        g_nr_recovery_snapshot = snapshot;
+    }
     ReleaseSRWLockExclusive(&g_nr_recovery_lock);
     g_nr_recovery_carrier = parent;
 }

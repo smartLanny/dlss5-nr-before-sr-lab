@@ -24,6 +24,7 @@ NrResolvedColorView NrRecoveryResolve(NrResolvedColorView result, bool post_sr) 
         (result.semantic.source == Source::UniqueContract ? nr_recovery::SemanticState::Unique : nr_recovery::SemanticState::Exact) :
         (result.semantic.definitive ? nr_recovery::SemanticState::Rejected : nr_recovery::SemanticState::Waiting);
     AcquireSRWLockExclusive(&g_nr_recovery_lock);
+    NrRecoveryForgetPreviousWaitingLocked(snapshot.key);
     const auto resolution = g_nr_recovery.Resolve(snapshot.key, snapshot.signature, semantic);
     ReleaseSRWLockExclusive(&g_nr_recovery_lock);
     if (result.semantic && resolution.state == nr_recovery::State::Latched) {
