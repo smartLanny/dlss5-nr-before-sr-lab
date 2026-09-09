@@ -463,6 +463,43 @@ void ForgetOnlyUnattempted() {
         transient.EndCarrier(unknown.scope, unknown.role, carrier, false);
     }
 }
+void ScopeInterruption() {
+    const auto key = Resource(); const auto signature = View();
+    ResourceRecoveryLedger ledger;
+    const auto original = Good(ledger, key, signature, 1701, true);
+    Good(ledger, key, signature, 1702); Good(ledger, key, signature, 1703);
+    Check(ledger.Read(key, signature).state == State::RecoverySucceeded, "interrupt control begins with a proven recovery");
+    ledger.InterruptScope(key.scope, key.role + 1);
+    Check(ledger.Read(key, signature).state == State::RecoverySucceeded, "another route's interrupt does not destroy this route's evidence");
+    ledger.InterruptScope(key.scope, key.role);
+    auto evidence = ledger.Read(key, signature);
+    Check(evidence.state == State::Pending && !evidence.correlated_window && !evidence.writeback_verified,
+          "INTERRUPT_ORACLE: an actual fast-path guard invalidates old continuity without requiring a classified carrier");
+    Check(evidence.proof_attempt_id == original.attempt_id && evidence.proof_frame_id == 1701,
+          "scope interruption preserves explicitly historical storage identity");
+    const auto first = Good(ledger, key, signature, 1704);
+    Check(first.carrier.ordinal == 4 && first.attempt_id == original.attempt_id,
+          "scope interruption invents neither a carrier ordinal nor a new interpretation attempt");
+    Good(ledger, key, signature, 1705); const auto third = Good(ledger, key, signature, 1706);
+    evidence = ledger.Read(key, signature);
+    Check(evidence.state == State::Pending && evidence.correlated_window && !evidence.writeback_verified,
+          "three post-interrupt actual carriers cannot reuse the pre-interrupt actual read");
+    ledger.RecordWriteback(third, Actual(third));
+    Check(ledger.Read(key, signature).state == State::RecoverySucceeded,
+          "three fresh complete carriers and a new stored proof restore recovery");
+    ledger.ReportFailure(third, Stage::NativeSrEvaluate, -303);
+    ledger.InterruptScope(key.scope, key.role);
+    Check(ledger.Read(key, signature).state == State::Latched &&
+          ledger.Read(key, signature).first_failure.result == -303 &&
+          !ledger.Resolve(key, signature, SemanticState::Exact).can_attempt,
+          "global admission interruption never clears a failed interpretation latch");
+
+    Ledger<2, 3, 1> absent;
+    absent.InterruptScope(key.scope, key.role);
+    auto other = key; ++other.scope.feature;
+    Check(static_cast<bool>(absent.ObserveCarrier(other.scope, other.role, 1801)),
+          "interrupting an unobserved scope does not allocate bounded scope capacity");
+}
 }
 int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--single-frame-oracle") == 0) SingleFrameOracle();
@@ -470,12 +507,14 @@ int main(int argc, char** argv) {
     else if (argc == 2 && std::strcmp(argv[1], "--target-oracle") == 0) TargetOracle();
     else if (argc == 2 && std::strcmp(argv[1], "--retirement-oracle") == 0) RetirementOracle();
     else if (argc == 2 && std::strcmp(argv[1], "--forget-oracle") == 0) ForgetOnlyUnattempted();
+    else if (argc == 2 && std::strcmp(argv[1], "--interrupt-oracle") == 0) ScopeInterruption();
     else {
         SingleFrameOracle(); SubmissionOracle(); WaitingAndIdentity(); ResourceRingAndSparseProof();
         OutOfOrderAndNoCountJoining(); ScopedOrdinalsAndBreaks(); FailureLatchesAndNewEvidence();
         WritebackValidation(); BoundedEvidenceAndRetirement();
         TargetOracle(); PerFrameWritebackTargets(); RetirementOracle(); SafeTransientRetirement();
         ForgetOnlyUnattempted();
+        ScopeInterruption();
     }
     std::printf("%s resource recovery production policy: %u checks, %u failures; no GPU or NGX\n",
                 failures ? "FAIL" : "PASS", checks, failures);
