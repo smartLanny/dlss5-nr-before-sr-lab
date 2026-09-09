@@ -268,15 +268,21 @@ void DrawSimpleImageCaptureControls() {
 
 // The two maintained editions share the same small home screen. Technical
 // readouts remain available without putting implementation knobs on the home.
-// ImGui can be drawn by more than one swapchain; do not block another caller.
-nr_ui_activity::Sample ReadUiActivity() {
-    static SRWLOCK lock=SRWLOCK_INIT;
-    static nr_ui_activity::Window window;
-    if(!TryAcquireSRWLockExclusive(&lock)) return {};
-    const auto result=window.Observe(GetTickCount64(),{g_carrier_evaluations.load(),
-        g_nr_successful_evaluations.load(),g_nr_transfer_submitted_frames.load()});
-    ReleaseSRWLockExclusive(&lock);
-    return result;
+// Each drawing thread keeps its own bounded window. Multiple swapchains must
+// not turn lock contention into a one-frame "checking" status.
+nr_ui_activity::Sample ReadUiActivity(unsigned config_generation) {
+    static thread_local nr_ui_activity::Window window;
+    const auto epoch=g_pipeline_stats_epoch.load(std::memory_order_acquire);
+    const nr_ui_activity::Counters counters{g_carrier_evaluations.load(),
+        g_nr_successful_evaluations.load(),g_nr_transfer_submitted_frames.load(),
+        g_queue_affinity_unknown_bypass_frames.load()};
+    const auto reason=g_last_bypass_reason.load(std::memory_order_acquire);
+    if (g_config_generation.load(std::memory_order_acquire)!=config_generation ||
+        g_pipeline_stats_epoch.load(std::memory_order_acquire)!=epoch) {
+        window={};
+        return {};
+    }
+    return window.Observe(GetTickCount64(),counters,{config_generation,epoch},reason);
 }
 
 void DrawSettings(reshade::api::effect_runtime *runtime) {
@@ -306,22 +312,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
     // Keep controls stationary while live status text changes (#121).
     ImGui::BeginChild("nr-live-status", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 4.25f), true);
-    const auto activity=ReadUiActivity();
-    if (activity.valid) {
-        const bool processing = activity.delta.nr > 0 && activity.delta.submitted > 0;
-        ImGui::TextUnformatted(processing ? ui("Recent activity: AI processing and output submission observed.", "最近状态：已观察到 AI 处理和画面输出提交。") :
-            ui("Recent activity: no new AI output yet.", "最近状态：暂未观察到新的 AI 画面输出。"));
-    } else ImGui::TextDisabled("%s", ui("Checking AI activity...", "正在检查 AI 是否开始处理……"));
-    SettingsTooltip(ui("Recent process activity, not FPS or measured picture quality. Detailed counters are in F8.", "根据最近处理记录显示，不代表帧率或实测画质；完整诊断计数保留在 F8 报告。"));
-    const auto live_reason = static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_acquire));
-    if (live_reason == BypassReason::RuntimeUnavailable) {
-        ImGui::TextWrapped("%s", ui("NR runtime could not load or initialize. Keep your NVIDIA DLLs; install the matching nrchain_nvngx.dll and nvngx_dlssnr.dll from this OTA beside the addon (game directory is a fallback). F8 TXT distinguishes file-absent from Win32 126 dependency-missing.",
-            "NR 运行库加载或初始化失败。保留显卡对应 NVIDIA DLL，把本 OTA 配套 nrchain_nvngx.dll 与 nvngx_dlssnr.dll 放在插件旁（游戏目录仅作回退）。F8 TXT 会区分文件缺失与 Win32 126 依赖缺失。"));
-    } else if (live_reason == BypassReason::CodecUnavailable) {
-        ImGui::TextWrapped("%s", ui("The NR conversion/composition pipeline could not initialize. Native output is preserved; use F8 for the actual failure record.",
-            "NR 转换/合成管线初始化失败，保留原生输出；请用 F8 记录具体失败。"));
-    }
-    const auto reason = static_cast<BypassReason>(g_last_bypass_reason.load());
+    const auto activity=ReadUiActivity(current.generation);
+    // A carrier can safely skip between two submitted NR frames. Keep the
+    // entire summary on one window instead of contradicting it every frame.
+    // The unfiltered per-carrier reason and counters remain in diagnostics/F8.
+    const auto reason=static_cast<BypassReason>(activity.bypass_reason);
     if (nr_present_api_status::IsD3d11PresentRuntime(runtime))
         ImGui::TextWrapped("%s", ui(
             "This ReShade window is using Direct3D 11, so DLSS 5 NR cannot run. Switch the game to Direct3D 12, then install ReShade Full Add-on for Direct3D 12.",
@@ -329,6 +324,21 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     else if (!current.config.enabled || ActiveTransferStrength(current.config) <= 0.000001f)
         ImGui::TextWrapped("%s", ui("Native game SR. Enable the plugin and raise effect strength to compare NR.",
             "当前为游戏原生 SR。启用插件并提高效果强度，即可对比 NR。"));
+    else if (!activity.valid)
+        ImGui::TextWrapped("%s", ui("Checking recent NR activity...", "正在检查近期 NR 处理状态……"));
+    else if (activity.Intermittent())
+        ImGui::TextWrapped("%s", ui(
+            "NR is processing intermittently. Some evaluations are skipped while queue synchronization requirements are unmet. Use F6 to compare and F8 to report.",
+            "NR 正在间歇处理；部分评估因队列同步条件未满足而跳过。按 F6 对比画面，按 F8 反馈。"));
+    else if (activity.Processing())
+        ImGui::TextWrapped("%s", ui("Recent NR processing and output submission observed. Use F6 to compare the picture.",
+            "最近已观察到 NR 处理和画面输出提交。按 F6 对比实际效果。"));
+    else if (reason == BypassReason::RuntimeUnavailable)
+        ImGui::TextWrapped("%s", ui("NR runtime could not load or initialize. Keep your NVIDIA DLLs; install the matching nrchain_nvngx.dll and nvngx_dlssnr.dll beside the addon. Use F8 for the actual failure record.",
+            "NR 运行库加载或初始化失败。保留显卡对应 NVIDIA DLL，将配套 nrchain_nvngx.dll 与 nvngx_dlssnr.dll 放在插件旁；按 F8 记录具体失败。"));
+    else if (reason == BypassReason::CodecUnavailable)
+        ImGui::TextWrapped("%s", ui("The NR conversion/composition pipeline could not initialize. Native output is preserved; use F8 for the actual failure record.",
+            "NR 转换/合成管线初始化失败，保留原生输出；请用 F8 记录具体失败。"));
     else if (reason == BypassReason::RayReconstructionGuard) {
         DrawPostRouteStatus();
     }
@@ -368,8 +378,10 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImGui::TextWrapped(ui("NR is temporarily skipped (%s). Keep the scene and collect feedback with F8.",
             "NR 当前已跳过（%s）。请保留问题场景，按 F8 收集反馈。"), BypassReasonName(reason));
     else
-        ImGui::TextWrapped("%s", ui("NR path available. Compare the picture with F6; submitted work is shown in diagnostics.",
-            "NR 链路可用。按 F6 对比画面，实际提交状态可在诊断中查看。"));
+        ImGui::TextWrapped("%s", ui("No new NR output submission observed in the recent interval. Enter gameplay; use F8 if this persists.",
+            "近期暂未观察到新的 NR 画面输出提交。请进入实际场景；持续无效时按 F8 反馈。"));
+    SettingsTooltip(ui("Updated about once per second from recent process counters. Submission is not proof of presentation or picture quality. Per-evaluation reasons remain in F8.",
+        "约每秒根据近期处理计数更新。提交不等于已显示或画质已改善；每次评估的具体原因仍保留在 F8。"));
 
 
     if (next.identity_use_original)

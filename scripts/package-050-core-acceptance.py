@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package a focused, verified 0.4.7beta-ds1.1 D3D12 Core acceptance build, without carrier.
+"""Package a focused, verified 0.4.7beta-queue.2 D3D12 Core acceptance build, without carrier.
 
 This is NOT the multi-API/Manager OTA packager. It never changes games or INI,
 includes no runtime/model/private log, and will not overwrite existing output.
@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.4.7beta-ds1.1'
+VERSION = '0.4.7beta-queue.2'
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -53,6 +53,7 @@ def package(build: Path, output: Path) -> dict:
             or manifest['integration'].get('version') != VERSION):
         raise ValueError('Exact-source focused acceptance evidence required; no capability promotion.')
     required = {'canonical pinned full-source staging', 'validate-work-config.py',
+        'bounded UI activity alternating/stall/scope/reopen CPU gate',
                 'validate-color-policy.py', 'validate-bug-sweep.py',
                 'validate-strength-migration.py', 'validate-f8-controller.py',
                 'tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py',
@@ -92,13 +93,13 @@ def package(build: Path, output: Path) -> dict:
     artifacts = result['artifacts']
     addons = sorted(n for n in artifacts if n.endswith('.addon64') and VERSION in n)
     if len(addons) != 2 or set(artifacts) != set(addons + ['nrchain_nvngx.dll']):
-        raise ValueError('Expected two 0.4.7beta-ds1.1 language cores and only the owned bridge.')
+        raise ValueError('Expected two 0.4.7beta-queue.2 language cores and only the owned bridge.')
     binaries = {name: checked_file(binary_root, name, entry['sha256']) for name, entry in artifacts.items()}
     for name, data in binaries.items():
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/CORE_047BETA_DS1_ACCEPTANCE.zh-CN.md').read_bytes()
+    guide = (ROOT / 'docs/testing/CORE_047BETA_QUEUE_ACCEPTANCE.zh-CN.md').read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     packages = []
     for addon in addons:
