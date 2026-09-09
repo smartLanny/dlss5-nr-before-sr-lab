@@ -205,6 +205,10 @@ int main() {{
 
         track = "TrackDlssResolution(params, feature);"
         prefix = self.process[: self.process.index(track)]
+        native_forward = 'template <class NativeEvaluate>\n' + _function_block(
+            (CORE.parent / 'nr_native_format_runtime.inl').read_text(encoding='utf-8'),
+            'NgxResult NrCallNativeWithFormatObservation('
+        )
         # The generated function is the production prefix verbatim, with only
         # the post-boundary return supplied by the test seam.  Metadata lookup
         # and the native callback are fixtures; the admission logic is not.
@@ -228,6 +232,17 @@ using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList*,
     const NgxHandle*, const NgxParams*, void*);
 constexpr NgxResult kProbeSuccess = 0x1234;
 constexpr NgxResult kNativeResult = 0x5678;
+constexpr NgxResult kNgxSuccess = 1;
+// Keep the actual one-call native wrapper; observer storage is a dependency seam.
+struct NrNativeFormatScope {{
+    NrNativeFormatScope(ID3D12GraphicsCommandList*,const NgxParams*,unsigned long long) {{}}
+    void Finish(bool) {{}}
+}};
+void NrPrepareFormatObservation(ID3D12GraphicsCommandList*) {{}}
+struct NrRecoveryCarrierScope {{
+    NrRecoveryCarrierScope(ID3D12GraphicsCommandList*,unsigned long long) {{}}
+}};
+{native_forward}
 
 enum class BypassReason {{
     FailedCreateQuarantine, LifecycleIsolation, MasterDisabled,
@@ -256,6 +271,7 @@ struct FeatureRecord {{
     const NgxHandle* handle = nullptr;
     int feature_id = -1;
     bool pending = false, retiring = false;
+    unsigned long long generation = 1;
 }};
 NgxHandle g_sr_first, g_sr_second, g_rr, g_unknown;
 FeatureRecord FindFeature(const NgxHandle* handle) {{
@@ -660,7 +676,7 @@ int main() {{
 
     def test_post_native_abort_quarantines_before_finish(self):
         """Verify the latch checkpoint cannot run FinishAfterSr on an aborted call."""
-        native = "NgxResult result = original(command_list, handle, params, callback);"
+        native = "NgxResult result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);"
         native_pos = self.process.index(native)
         after_native = self.process[native_pos:]
         restore_color = after_native.index("RestoreSubstitution(before_sr);")
