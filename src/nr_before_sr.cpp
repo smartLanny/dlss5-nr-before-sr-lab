@@ -44,6 +44,7 @@
 #include "nr_shortcut_edge.h"
 #include "nr_ui_activity.h"
 #include "nr_work_config.h"
+#include "nr_runtime_timing.h"
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
@@ -51,6 +52,8 @@
 
 namespace {
 
+#include "nr_runtime_timing.inl"
+#include "nr_submitted_fence_wait.inl"
 #include "nr_diagnostic_bundle.inl"
 
 #define NR_HAS_DETAIL_STABILITY 1
@@ -4212,6 +4215,9 @@ struct NrSlot {
     bool suppress_transfer_this_frame = false;
     NrDiagnosticIdentity diagnostic_identity = {};
     NrStoredResultMetadata stored_result_metadata{};
+#if defined(NR_HAS_TIMING)
+    nr_timing::Identity readback_timing_identity{};
+#endif
 };
 
 #include "nr_post_boundary_runtime.inl"
@@ -4351,6 +4357,9 @@ struct NrContext {
     unsigned long long last_sampled_exposure_serial = 0;
     bool sampled_exposure_initialized = false;
     bool exposure_texture_reset_pending = false;
+#if defined(NR_HAS_TIMING)
+    nr_timing::Identity exposure_reset_timing_origin{};
+#endif
     bool jitter_status_initialized = false;
     bool jitter_last_known = false;
     bool jitter_binding_written = false;
@@ -4458,6 +4467,10 @@ struct LifecycleCommandList {
     int transfer_mode = 0;
     bool execution_attempted_without_proof = false;
     bool detached = false;
+#if defined(NR_HAS_TIMING)
+    nr_timing::Identity timing_identity{};
+    bool timing_identity_ambiguous = false;
+#endif
 };
 
 struct LifecycleQueue {
@@ -4469,6 +4482,9 @@ struct LifecycleQueue {
     // adjacent to the retirement Signal that proves completion of that exact
     // submission. Static zero initialization is a valid unlocked SRW lock.
     SRWLOCK submission_lock = {};
+#if defined(NR_HAS_SUBMITTED_FENCE_EVENT)
+    NrSubmittedFenceEvent completion_event{};
+#endif
 };
 
 constexpr std::size_t kLifecycleBatchRecords =
@@ -4493,6 +4509,10 @@ struct SubmissionBatch {
     int pipeline_scope_mode = 0;
     bool active = false;
     bool quarantine = false;
+#if defined(NR_HAS_TIMING)
+    nr_timing::Identity timing_identity{};
+    bool timing_identity_ambiguous = false;
+#endif
 };
 
 struct GraphicsQueueRecord {
@@ -4696,6 +4716,12 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
     CollectStageCaptureLocked(slot);
     if (!slot.delta_stats_pending || slot.delta_stats_readback == nullptr ||
         !CanMutateSlotLocked(slot)) return;
+#if defined(NR_HAS_TIMING)
+    NrTimingScope readback_timing(nr_timing::Stage::Readback);
+    readback_timing.record.readback_origin = slot.readback_timing_identity;
+    if (slot.readback_timing_identity.frame)
+        readback_timing.record.detail.flags |= nr_timing::ReadbackOriginKnown;
+#endif
     const D3D12_RANGE read_range = {0, kDiagnosticStatsBytes};
     void *mapped = nullptr;
     const HRESULT mapped_result = ID3D12Resource_Map(
@@ -4719,6 +4745,11 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
     sampled_exposure = SanitizeExposure(sampled_exposure);
     const D3D12_RANGE written_range = {0, 0};
     ID3D12Resource_Unmap(slot.delta_stats_readback, 0, &written_range);
+#if defined(NR_HAS_TIMING)
+    readback_timing.record.detail.flags |= nr_timing::ReadbackMapped;
+    NrTimingReadbackOrigin(slot.readback_timing_identity, true, false);
+    readback_timing.Stop();
+#endif
     slot.delta_stats_pending = false;
 
     if (values[28] && slot.stored_result_metadata.recorded) {
@@ -4794,6 +4825,10 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
             : 0.0f;
         if (has_previous_sample && exposure_ev_delta > 0.5f) {
             context.exposure_texture_reset_pending = true;
+#if defined(NR_HAS_TIMING)
+            context.exposure_reset_timing_origin = slot.readback_timing_identity;
+            NrTimingReadbackOrigin(slot.readback_timing_identity, true, true);
+#endif
             const unsigned int reset_count =
                 g_exposure_texture_delayed_resets.fetch_add(
                     1, std::memory_order_relaxed) + 1;
@@ -5415,6 +5450,22 @@ bool PrepareContextUseLocked(ID3D12GraphicsCommandList *command_list,
         const ULONGLONG started=GetTickCount64();
         const auto count=g_queue_retirement_waits.fetch_add(1,std::memory_order_relaxed)+1;
         bool completed=false,removed=false;
+#if defined(NR_HAS_SUBMITTED_FENCE_EVENT)
+        NrTimingScope fence_timing(nr_timing::Stage::FenceWait);
+        const auto result = WaitForNrSubmittedFence(context.last_submission_queue->fence,
+            context.completion_fence_value, context.last_submission_queue->completion_event,
+            static_cast<nr_timing::WaitMode>(fence_timing.record.identity.wait.mode),
+            static_cast<unsigned>(kRetirementWaitBudgetMs));
+        completed = result.completed; removed = result.removed;
+        fence_timing.record.detail.queue = context.last_submission_queue->identity;
+        fence_timing.record.detail.fence_target = context.completion_fence_value;
+        fence_timing.record.detail.fence_before = result.before;
+        fence_timing.record.detail.fence_after = result.after;
+        fence_timing.record.detail.wait_method = static_cast<unsigned>(result.method);
+        fence_timing.record.detail.wait_fallback = static_cast<unsigned>(result.fallback);
+        fence_timing.record.detail.wait_registration = static_cast<std::int32_t>(result.registration_result);
+        fence_timing.Stop();
+#else
         for (;;) {
             const auto value=ID3D12Fence_GetCompletedValue(context.last_submission_queue->fence);
             removed=value==UINT64_MAX;
@@ -5423,6 +5474,7 @@ bool PrepareContextUseLocked(ID3D12GraphicsCommandList *command_list,
             if (completed || removed || now<started || now-started>=kRetirementWaitBudgetMs) break;
             Sleep(1);
         }
+#endif
         const ULONGLONG finished=GetTickCount64();
         const ULONGLONG elapsed=finished>=started?finished-started:0;
         g_queue_retirement_wait_ms.fetch_add(elapsed,std::memory_order_relaxed);
@@ -5573,6 +5625,14 @@ bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
         ? queue_marker.identity : 0;
     if (context.pending_recording_token == 0)
         context.pending_recording_token = record->token;
+#if defined(NR_HAS_TIMING)
+    const auto timing_identity = NrTimingCurrentIdentity();
+    if (!record->timing_identity.frame) record->timing_identity = timing_identity;
+    else if (record->timing_identity.frame != timing_identity.frame ||
+             record->timing_identity.epoch != timing_identity.epoch ||
+             record->timing_identity.resource != timing_identity.resource)
+        record->timing_identity_ambiguous = true;
+#endif
     if (!has_context) {
         record->contexts[record->context_count++] = &context;
         ++context.recording_command_lists;
@@ -6026,6 +6086,15 @@ bool CaptureSubmissionBatchLocked(
     }
     for (unsigned int i = 0; i < batch.record_count; ++i) {
         LifecycleCommandList *record = batch.records[i];
+#if defined(NR_HAS_TIMING)
+        if (record->timing_identity_ambiguous || !record->timing_identity.frame)
+            batch.timing_identity_ambiguous = true;
+        if (!batch.timing_identity.frame) batch.timing_identity = record->timing_identity;
+        else if (batch.timing_identity.frame != record->timing_identity.frame ||
+                 batch.timing_identity.epoch != record->timing_identity.epoch ||
+                 batch.timing_identity.resource != record->timing_identity.resource)
+            batch.timing_identity_ambiguous = true;
+#endif
         ++record->in_flight_submissions;
         // Capture is the commit point of an Execute transaction: the hook
         // unconditionally invokes the native Execute immediately after this
@@ -7655,6 +7724,9 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         ID3D12GraphicsCommandList_Dispatch(command_list,(width+255)/256,(height+255)/256,1);
         Transition(command_list,slot.result,slot.result_state,previous_result_state);
         slot.post_boundary_probe_recorded=probe_post_store;
+#if defined(NR_HAS_TIMING)
+        slot.readback_timing_identity = NrTimingProbeDispatched();
+#endif
         auto& metadata=slot.stored_result_metadata;
         metadata.recovery_token=slot.recovery_token;
         const auto actual_target=NrFormatResourceIdentity(slot.result);
@@ -7672,6 +7744,9 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         metadata.recorded=true;
     }
     if (capture_delta) {
+#if defined(NR_HAS_TIMING)
+        slot.readback_timing_identity = NrTimingDiagnosticRecorded();
+#endif
         UavBarrier(command_list, slot.delta_stats);
         Transition(command_list, slot.delta_stats, slot.delta_stats_state,
                    D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -8565,6 +8640,15 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     slot.capture_params.mv_height = motion_height;
     const bool reset_requested = reset || game_reset != 0 || history_changed ||
         color_contract_reset || guide_reset || context.reset_retry_pending;
+#if defined(NR_HAS_TIMING)
+    const unsigned timing_reset_reasons = (reset ? nr_timing::FirstCreate : 0u) |
+        (game_reset != 0 ? nr_timing::GameReset : 0u) |
+        (history_changed ? nr_timing::HistoryChanged : 0u) |
+        (color_contract_reset ? nr_timing::ColorContract : 0u) |
+        (guide_reset ? nr_timing::GuideChanged : 0u) |
+        (context.reset_retry_pending ? nr_timing::RetryPending : 0u) |
+        (delayed_texture_reset ? nr_timing::ExposureReadback : 0u);
+#endif
     slot.suppress_transfer_this_frame =
         g_config.suppress_reset_frame && reset_requested;
     context.diagnostic_reset_requested = reset_requested;
@@ -8573,6 +8657,11 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     // Only a successful Evaluate is allowed to consume a requested Reset.
     context.reset_retry_pending = reset_requested;
     SetInt(params, "DLSSNR.Reset", reset_requested ? 1 : 0);
+#if defined(NR_HAS_TIMING)
+    NrTimingResetBound(reset_requested, timing_reset_reasons);
+    if (delayed_texture_reset)
+        NrTimingReadbackOrigin(context.exposure_reset_timing_origin, false, false);
+#endif
     const NrTuningSignature &tuning = context.tuning_signature;
     SetFloat(params, "DLSSNR.Intensity", tuning.intensity);
     SetFloat(params, "DLSSNR.LocalToneStrength", tuning.local_tone);
@@ -9118,9 +9207,16 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
         ScopedPrivateNrCall private_call(PrivateNrOperation::Evaluate, context->nr_handle);
+#if defined(NR_HAS_TIMING)
+        evaluated = NrTimingCallNr([&] {
+            return g_nr_api.bridge_evaluate(g_nr_api.signed_evaluate, command_list,
+                context->nr_handle, context->params, nullptr);
+        });
+#else
         evaluated = g_nr_api.bridge_evaluate(
             g_nr_api.signed_evaluate, command_list, context->nr_handle,
             context->params, nullptr);
+#endif
     }
     NrRecoveryRecord(slot->recovery_token, nr_recovery::Stage::NrEvaluate, evaluated == kNgxSuccess, evaluated);
     if (evaluated != kNgxSuccess) {
@@ -9718,9 +9814,16 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
         ScopedPrivateNrCall private_call(PrivateNrOperation::Evaluate, context.nr_handle);
+#if defined(NR_HAS_TIMING)
+        evaluated = NrTimingCallNr([&] {
+            return g_nr_api.bridge_evaluate(g_nr_api.signed_evaluate, command_list,
+                context.nr_handle, context.params, nullptr);
+        });
+#else
         evaluated = g_nr_api.bridge_evaluate(
             g_nr_api.signed_evaluate, command_list, context.nr_handle,
             context.params, nullptr);
+#endif
     }
     NrRecoveryRecord(slot.recovery_token, nr_recovery::Stage::NrEvaluate, evaluated == kNgxSuccess, evaluated);
     if (evaluated != kNgxSuccess) {
@@ -10000,7 +10103,11 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
 
     unsigned long long queue_identity = 0;
     bool batch_has_lifecycle_token = false;
+#if defined(NR_HAS_TIMING)
+    NrTimingEnterChainLock(&g_chain_cs);
+#else
     EnterCriticalSection(&g_chain_cs);
+#endif
     if (GraphicsQueueRecord *tracked = TrackGraphicsQueueLocked(queue))
         queue_identity = tracked->identity;
     // Persist actual affinity on every observed direct-queue submission,
@@ -10035,7 +10142,11 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
     }
 
     LifecycleQueue *queue_state = nullptr;
+#if defined(NR_HAS_TIMING)
+    NrTimingEnterChainLock(&g_chain_cs);
+#else
     EnterCriticalSection(&g_chain_cs);
+#endif
     queue_state = FindOrCreateLifecycleQueueLocked(queue);
     LeaveCriticalSection(&g_chain_cs);
     if (queue_state == nullptr ||
@@ -10049,9 +10160,19 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
     // only for a command list previously observed on this same queue; capture
     // checks the actual queue before Execute. No private queue Wait is injected
     // into the game's dependency graph.
-    AcquireSRWLockExclusive(&queue_state->submission_lock);
+    {
+#if defined(NR_HAS_TIMING)
+        NrTimingScope queue_lock_timing(nr_timing::Stage::QueueLock);
+        queue_lock_timing.record.detail.queue = queue_state->identity;
+#endif
+        AcquireSRWLockExclusive(&queue_state->submission_lock);
+    }
     SubmissionBatch batch = {};
+#if defined(NR_HAS_TIMING)
+    NrTimingEnterChainLock(&g_chain_cs);
+#else
     EnterCriticalSection(&g_chain_cs);
+#endif
     const bool captured = CaptureSubmissionBatchLocked(
         queue_state, count, command_lists, batch);
     if (!captured)
@@ -10070,14 +10191,34 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
 
     // Even a failed capture is submitted unchanged: fail-closed means no more
     // plugin mutation, never suppressing the game's own command list.
-    original(queue, count, command_lists);
+    {
+#if defined(NR_HAS_TIMING)
+        NrTimingScope execute_timing(nr_timing::Stage::Execute);
+        if (!batch.timing_identity_ambiguous && batch.timing_identity.frame) {
+            execute_timing.record.identity = batch.timing_identity;
+            execute_timing.record.detail.flags |= nr_timing::CarrierKnown;
+            if (batch.timing_identity.resource) execute_timing.record.detail.flags |= nr_timing::ResourceKnown;
+            if (batch.timing_identity.target) execute_timing.record.detail.flags |= nr_timing::TargetKnown;
+        }
+        execute_timing.record.detail.queue = queue_state->identity;
+        execute_timing.record.detail.fence_target = batch.fence_value;
+#endif
+        original(queue, count, command_lists);
+#if defined(NR_HAS_TIMING)
+        execute_timing.record.detail.flags |= nr_timing::ApiReturned;
+#endif
+    }
     if (captured && batch.active && !batch.quarantine &&
         batch.bound_transfer_count != 0) {
         for (unsigned i = 0; i < batch.recovery_token_count; ++i)
             NrRecoveryRecord(batch.recovery_tokens[i], nr_recovery::Stage::Submitted, true);
         g_nr_transfer_submitted_frames.fetch_add(
             batch.bound_transfer_count, std::memory_order_relaxed);
+#if defined(NR_HAS_TIMING)
+        NrTimingEnterChainLock(&g_chain_cs);
+#else
         EnterCriticalSection(&g_chain_cs);
+#endif
         if (g_pipeline_stats_epoch.load(std::memory_order_relaxed) ==
                 batch.pipeline_scope_epoch &&
             g_pipeline_stats_generation.load(std::memory_order_relaxed) ==
@@ -10093,15 +10234,35 @@ void ProcessSubmittedCommandLists(std::size_t hook_index,
     }
     bool signaled = false;
     if (captured && batch.active) {
+#if defined(NR_HAS_TIMING)
+        NrTimingScope signal_timing(nr_timing::Stage::Signal);
+        if (!batch.timing_identity_ambiguous && batch.timing_identity.frame) {
+            signal_timing.record.identity = batch.timing_identity;
+            signal_timing.record.detail.flags |= nr_timing::CarrierKnown;
+            if (batch.timing_identity.resource) signal_timing.record.detail.flags |= nr_timing::ResourceKnown;
+            if (batch.timing_identity.target) signal_timing.record.detail.flags |= nr_timing::TargetKnown;
+        }
+        signal_timing.record.detail.queue = queue_state->identity;
+        signal_timing.record.detail.fence_target = batch.fence_value;
+#endif
         const HRESULT signal_result = ID3D12CommandQueue_Signal(
             queue_state->queue, queue_state->fence, batch.fence_value);
+#if defined(NR_HAS_TIMING)
+        signal_timing.record.detail.flags |= nr_timing::ApiReturned | nr_timing::ApiResultKnown;
+        signal_timing.record.detail.api_result = static_cast<std::int32_t>(signal_result);
+        signal_timing.Stop();
+#endif
         signaled = SUCCEEDED(signal_result);
         if (!signaled)
             MarkLifecycleUncertain("D3D12 retirement fence signal failed");
     }
     if (captured && signaled && batch.active && !batch.quarantine &&
         !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) {
+#if defined(NR_HAS_TIMING)
+        NrTimingEnterChainLock(&g_chain_cs);
+#else
         EnterCriticalSection(&g_chain_cs);
+#endif
         CompleteSubmissionBatchLocked(batch);
         LeaveCriticalSection(&g_chain_cs);
     } else if (captured && batch.quarantine) {
@@ -10673,7 +10834,11 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             live_rr_handles);
     }
 
+#if defined(NR_HAS_TIMING)
+    NrTimingEnterChainLock(&g_chain_cs);
+#else
     EnterCriticalSection(&g_chain_cs);
+#endif
     // Re-check RR ownership after taking the chain lock. Feature 13 may have
     // completed Create after the earlier lock-free check but before this frame
     // starts recording substitutions.
