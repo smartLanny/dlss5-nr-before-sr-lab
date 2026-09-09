@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Freeze/build the full production Core recovery fixture; WARP run is explicit.
 
-Default operation compiles only. --prepare-only writes immutable inputs and a
-manifest while RuntimeRecovery integration is being prepared. --run-warp is the
-only mode which starts a GPU device. A pending fixture never reports a test pass.
+Default operation compiles only. --prepare-only freezes inputs. --run-warp is
+the only mode which starts a GPU device. --snapshot-cpu runs the actual mapper
+with synthetic value facts plus an inverse historical-loss control, without a
+device or GPU. A pending fixture never reports a test pass.
 """
 from __future__ import annotations
 import argparse
@@ -53,6 +54,7 @@ def main() -> None:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--prepare-only', action='store_true')
     mode.add_argument('--run-warp', action='store_true')
+    mode.add_argument('--snapshot-cpu', action='store_true')
     parser.add_argument('--case', choices=('all', 'post', *CASES), default='all')
     args = parser.parse_args()
     output = args.output.resolve()
@@ -70,14 +72,15 @@ def main() -> None:
         expected = stage_metadata['files']
         if any(expected.get('core/src/' + name) != sha(data) for name, data in source_contents.items()):
             raise RuntimeError('Complete source snapshot disagrees with its transformation receipt.')
-    fixture = (ROOT / 'tests/resource_recovery_runtime_harness.inl').read_bytes()
-    helper_names = ('queue_retirement_harness.cpp', 'post_output_harness.inl',
+    fixture_name = 'resource_recovery_snapshot_harness.inl' if args.snapshot_cpu else 'resource_recovery_runtime_harness.inl'
+    fixture = (ROOT / 'tests' / fixture_name).read_bytes()
+    helper_names = () if args.snapshot_cpu else ('queue_retirement_harness.cpp', 'post_output_harness.inl',
                     'native_color_view_harness.inl', 'pre_store_probe_harness.inl', 'store_quantization_harness.inl')
     helpers = {name: (helpers_root / 'tests' / name).read_bytes() for name in helper_names}
     minhook = stable_tree(helpers_root / 'third_party/minhook')
     if any((helpers_root / 'tests' / name).read_bytes() != data for name, data in helpers.items()):
         raise RuntimeError('Borrowed helpers changed during snapshot; retry when their edits settle.')
-    borrowed = ''.join((
+    borrowed = '' if args.snapshot_cpu else ''.join((
         prefix(helpers['queue_retirement_harness.cpp'], 'void OneShot() {', 'queue_test', 'struct Fixture'),
         prefix(helpers['post_output_harness.inl'], 'void Case(queue_test::Fixture', 'post_output_test', 'ReadTexture('),
         prefix(helpers['native_color_view_harness.inl'], 'float Half(', 'native_color_test', 'void ResetContext('),
@@ -104,11 +107,13 @@ def main() -> None:
     if stage_receipt:
         (output / 'input-stage-receipt.json').write_bytes(stage_receipt)
     wrapper = output / 'resource-recovery-runtime.cpp'
+    test_namespace = 'resource_recovery_snapshot_test' if args.snapshot_cpu else 'resource_recovery_runtime_test'
     wrapper.write_text('#include "' + (snapshot / source.name).as_posix() + '"\n'
                        '#include "borrowed-helpers.inl"\n#include "runtime-fixture.inl"\n'
                        'int main(int argc,char** argv){std::setvbuf(stdout,nullptr,_IONBF,0);'
-                       'return resource_recovery_runtime_test::Run(argc,argv);}\n', encoding='utf-8')
-    api_ready = b'#define NR_RECOVERY_RUNTIME_FIXTURE_API_READY 1' in fixture
+                       'return ' + test_namespace + '::Run(argc,argv);}\n', encoding='utf-8')
+    api_marker = b'#define NR_RECOVERY_SNAPSHOT_FIXTURE_API_READY 1' if args.snapshot_cpu else b'#define NR_RECOVERY_RUNTIME_FIXTURE_API_READY 1'
+    api_ready = api_marker in fixture
     runtime_included = b'"nr_resource_recovery_runtime.inl"' in source_contents[source.name]
     summary = {
         'schema': 1, 'status': 'prepared', 'fixture_api_ready': api_ready,
@@ -121,10 +126,12 @@ def main() -> None:
         'minhook_inputs_sha256': {name: sha(data) for name, data in minhook.items()},
         'compiler_sha256': sha(compiler.read_bytes()), 'commands': [],
         'production_translation_unit': True, 'production_policy_replaced': False,
-        'planned_cases': list(CASES), 'case': args.case, 'compile_exit': None, 'run_exit': None,
+        'planned_cases': ['receipt-overflow', 'frame-history', 'failed-and-unavailable'] if args.snapshot_cpu else list(CASES),
+        'case': 'snapshot-cpu' if args.snapshot_cpu else args.case, 'compile_exit': None, 'run_exit': None,
         'gpu_executed': False, 'nvidia_nr': False, 'game_verified': False,
-        'vendor_boundary': 'scripted NGX callback; actual Core, descriptors, shaders, queue and readback',
-        'callback_result_wiring_only': True,
+        'vendor_boundary': 'synthetic CPU value facts; production snapshot mapper and overflow adapter' if args.snapshot_cpu else
+                           'scripted NGX callback; actual Core, descriptors, shaders, queue and readback',
+        'callback_result_wiring_only': not args.snapshot_cpu, 'synthetic_value_facts': args.snapshot_cpu,
     }
 
     def save() -> None:
@@ -167,14 +174,56 @@ def main() -> None:
             save()
             raise SystemExit(result.returncode)
         objects.append(str(obj))
-    binary = output / 'resource-recovery-runtime.exe'
+    binary = output / ('resource-recovery-snapshot-cpu.exe' if args.snapshot_cpu else 'resource-recovery-runtime.exe')
     result = run([str(compiler), *common, '-std=c++20', '-static', '-Wl,--gc-sections', str(wrapper), *objects,
                   '-o', str(binary), '-lkernel32', '-luser32', '-ld3d12', '-ldxgi', '-ldxguid', '-lole32',
                   '-luuid', '-ld3dcompiler', '-lshell32'], 'compile-core')
     summary.update(status='compile-failed' if result.returncode else 'compiled-not-run', compile_exit=result.returncode)
     if not result.returncode:
         summary['binary_sha256'] = sha(binary.read_bytes())
-        if args.run_warp:
+        if args.snapshot_cpu:
+            positive = run([str(binary)], 'snapshot-cpu', 30)
+            print(positive.stdout)
+            summary.update(run_exit=positive.returncode, status='failed' if positive.returncode else 'snapshot-positive-passed',
+                           positive_output=positive.stdout.strip())
+            compatibility_name = 'nr_compatibility_runtime.inl'
+            original = source_contents[compatibility_name].decode('utf-8-sig')
+            anchor = 'if (proof.capacity_unknown) {'
+            if original.count(anchor) != 1:
+                save()
+                raise SystemExit('Historical-loss inverse anchor changed; update the narrowly scoped private mutation.')
+            mutated = original.replace(anchor,
+                'if (proof.capacity_unknown || proof.frame_evidence_lost || snapshot.receipt_overflow) {', 1).encode('utf-8')
+            negative_snapshot = output / 'old-history-core/src'
+            for name, data in source_contents.items():
+                path = negative_snapshot / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(mutated if name == compatibility_name else data)
+            negative_wrapper = output / 'snapshot-old-history.cpp'
+            negative_wrapper.write_text('#include "' + (negative_snapshot / source.name).as_posix() + '"\n'
+                '#include "runtime-fixture.inl"\nint main(int argc,char** argv){std::setvbuf(stdout,nullptr,_IONBF,0);'
+                'return resource_recovery_snapshot_test::Run(argc,argv);}\n', encoding='utf-8')
+            negative_binary = output / 'snapshot-old-history.exe'
+            negative_compile = run([str(compiler), *common, '-std=c++20', '-static', '-Wl,--gc-sections',
+                str(negative_wrapper), *objects, '-o', str(negative_binary), '-lkernel32', '-luser32', '-ld3d12',
+                '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'], 'compile-old-history')
+            if negative_compile.returncode:
+                summary.update(status='negative-control-compile-failed', negative_compile_exit=negative_compile.returncode)
+                save()
+                raise SystemExit(negative_compile.returncode)
+            negative = run([str(negative_binary)], 'snapshot-old-history', 30)
+            caught = negative.returncode == 41 and all(marker in negative.stdout for marker in
+                ('RECEIPT_HISTORY_ORACLE', 'FRAME_HISTORY_ORACLE'))
+            passed = positive.returncode == 0 and 'SNAPSHOT_CPU PASS' in positive.stdout and caught
+            summary.update(status='pass' if passed else 'failed', negative_control={
+                'name': 'historical-loss-permanent-unavailable', 'caught': caught, 'exit': negative.returncode,
+                'source_file': compatibility_name, 'original_sha256': sha(source_contents[compatibility_name]),
+                'mutated_sha256': sha(mutated), 'binary_sha256': sha(negative_binary.read_bytes()),
+                'output': negative.stdout.strip()}, gpu_executed=False, device_created=False)
+            save()
+            print(('PASS' if passed else 'FAIL') + ' actual snapshot mapper CPU wiring and historical-loss inverse control; no GPU/device/NGX')
+            raise SystemExit(0 if passed else 1)
+        elif args.run_warp:
             summary['gpu_executed'] = True
             result = run([str(binary), args.case], 'warp-' + args.case, 120, warp=True)
             passed_cases = re.findall(r'^RUNTIME_RECOVERY_CASE (\S+) PASS ', result.stdout, re.MULTILINE)
