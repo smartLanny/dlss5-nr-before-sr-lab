@@ -88,11 +88,15 @@ test('unified deployment performs a first external install and routes NR, hotkey
   await f.service.addManualGame(f.gameDir);
   const id = (await f.service.boot()).games[0].id;
   const plan = await f.service.previewDeployment(id, { mode: 'external', api: 'dx12', version: '0.3.3.5' });
-  assert.deepEqual(plan.phases, ['local-install', 'external-migration']);
-  assert.ok(plan.changes.some(row => row.phase === 'external-migration' && row.name === PAYLOAD_FILES.addon));
+  f.installer.install = async () => { throw new Error('first external deployment must not invoke native install'); };
+  assert.deepEqual(plan.phases, ['external-install']);
+  assert.ok(plan.changes.some(row => row.phase === 'external-install' && row.name === PAYLOAD_FILES.addon));
   await f.service.applyDeployment(plan.planId);
   const layout = f.service.getLayout(id);
   assert.equal(layout.mode, 'external'); assert.equal(layout.verified, true);
+  const modules = await f.service.gameModuleManifest(id);
+  assert.equal(modules.find(row => row.role === 'core').path, path.join(layout.runtimeDir, PAYLOAD_FILES.addon));
+  assert.equal(modules.find(row => row.role === 'reshade').path, path.join(path.dirname(f.exe), 'dxgi.dll'));
   await f.service.writeNrSettings(id, { Intensity: 1.6 });
   assert.match(fs.readFileSync(path.join(layout.nrConfigDir, 'nr_before_sr.ini'), 'utf8'), /Intensity=1.6/);
   await f.service.writeGameHotkey(id, 'reshade', { key: 35 });
@@ -104,11 +108,40 @@ test('unified deployment performs a first external install and routes NR, hotkey
   const report = await f.service.collectFeedback(id);
   assert.match(report.text, /external Core log marker/);
   const uninstall = await f.service.previewUninstall(id, { mode: 'clean' });
-  assert.deepEqual(uninstall.phases, ['restore-local', 'uninstall']);
-  assert.ok(uninstall.changes.some(row => row.phase === 'uninstall' && row.name === PAYLOAD_FILES.addon && row.afterSha256 === null));
+  assert.deepEqual(uninstall.phases, ['external-uninstall']);
+  assert.ok(uninstall.changes.some(row => row.phase === 'external-uninstall' && row.name === PAYLOAD_FILES.addon && row.afterSha256 === null));
   const result = await f.service.uninstall(id, { mode: 'clean' });
   assert.equal(result.removed, true); assert.equal(result.mode, 'clean');
   assert.equal(fs.existsSync(path.join(path.dirname(f.exe), PAYLOAD_FILES.addon)), false);
+});
+
+test('installation metadata reads preserve imported and comparison entries without inspecting large payload files', async t => {
+  const f = makeService(t); await f.service.addManualGame(f.gameDir);
+  const id = (await f.service.boot()).games[0].id, metadataFile = path.join(f.payloadDir, 'bundle.json');
+  const bundle = JSON.parse(fs.readFileSync(metadataFile));
+  bundle.versions.comparison = { ...bundle.versions['0.3.3.5'], comparisonOnly: true, compatibilityEvidence: { scope: 'same-game comparison' } };
+  bundle.versions.retired = { ...bundle.versions['0.3.3.5'] }; bundle.supersededVersions = { retired: '0.3.3.5' };
+  fs.writeFileSync(metadataFile, JSON.stringify(bundle));
+  const importedId = 'imported-aabbccddeeff', importedDir = path.join(f.root, 'user-data', 'addon-versions', importedId);
+  fs.mkdirSync(importedDir, { recursive: true });
+  fs.writeFileSync(path.join(importedDir, 'meta.json'), JSON.stringify({ id: importedId, label: 'Imported user Core', kind: 'ota', compatibility: 'dx11' }));
+  fs.writeFileSync(path.join(importedDir, PAYLOAD_FILES.addon), 'metadata-only source; not parsed or executed');
+  const originalRead = fs.readFileSync;
+  fs.readFileSync = function(file, ...args) {
+    if (typeof file === 'string' && /\.(?:dll|addon64)$/i.test(file)) throw new Error('catalog must not read payload bytes');
+    return originalRead.call(this, file, ...args);
+  };
+  let catalog;
+  try { catalog = f.service.coreVersionCatalog(); } finally { fs.readFileSync = originalRead; }
+  assert.ok(catalog.find(row => row.id === importedId && row.ota && row.addonOnly && row.verification === 'metadata-only'));
+  assert.equal(catalog.find(row => row.id === 'comparison').comparisonOnly, true);
+  assert.equal(catalog.some(row => row.id === 'retired'), false);
+  assert.equal(f.service.assessmentSeed(id).scan.chosen.path, f.exe);
+  const defaults = f.service.installationDefaults(id);
+  assert.equal(defaults.api, 'auto'); assert.equal(defaults.version, '0.3.3.5');
+  assert.equal(defaults.deployment, 'external'); assert.equal(defaults.loadingMode, 'proxy');
+  fs.renameSync(metadataFile, metadataFile + '.absent');
+  assert.ok(f.service.coreVersionCatalog().find(row => row.id === importedId));
 });
 
 test('planned FG restoration can be previewed but must finish before external deployment applies', async t => {

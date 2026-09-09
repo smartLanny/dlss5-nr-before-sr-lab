@@ -7,13 +7,19 @@ const { noLinks, digestFile, atomicJson } = require('./launch-safety');
 const { PUBLIC_NR_KEYS } = require('./constants');
 const { normalizeValue } = require('./nr-config');
 const { normalizeBinding } = require('./hotkeys');
+const { resolveOperationApi, requiresOperationApi } = require('./operation-api');
+const { MESSAGES } = require('./errors');
 const policy = require('./launch-settings-policy');
 const fail = (code, message, details) => { throw Object.assign(new Error(message), { code: `OPERATION_${code}`, details }); };
 const clone = value => structuredClone(value);
 const hash = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const fingerprint = ({ request, before, changes, blockers }) => hash({ request, before,
+const fingerprint = ({ request, before, changes, blockers, resolved }) => hash({ request, before, resolved,
   changes: changes.map(row => ['receipt', 'manifest', 'history-receipt'].includes(row.role) && row.afterSha256 !== null ? { ...row, afterSha256: 'generated-manager-record' } : row), blockers });
 const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+function blockerMessages(owner) {
+  return [owner?.blockers, owner?.layout?.blockers].filter(Array.isArray).flat().map(row =>
+    typeof row === 'string' ? MESSAGES[row] || row : row?.message || MESSAGES[row?.code] || row?.code || '检查发现阻止项，请重新检查本游戏。');
+}
 
 function validateRequest(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['route', 'api', 'version', 'deployment', 'loadingMode', 'nr', 'sr', 'fg', 'hotkeys', 'launchMode', 'uninstall', 'reapplyExternalChanges'].includes(key))) fail('INPUT', '应用请求含未知选项。');
@@ -72,13 +78,24 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
   }
   async function preview(id, input) {
     const request = validateRequest(input), t = target(id); await assertReady(id);
-    await preparation.assertReady(id); await environment.assertReady(id); await settings.assertReady(id);
-    const current = (await service.listGames()).find(game => game.id === id);
+    const current = typeof service.assessmentSeed === 'function' ? await service.assessmentSeed(id) :
+      (await service.listGames()).find(game => game.id === id);
     if (!current) fail('TARGET', '找不到所选游戏。');
+    const apiSelection = resolveOperationApi(current, request), apiDependent = requiresOperationApi(request);
+    if (apiDependent && !apiSelection.supported)
+      fail('API_SELECTION_REQUIRED', apiSelection.requiresManualSelection ? '需要手动选择游戏实际使用的图形 API，才能安装或应用增强设置。' : '当前图形 API 不支持所选增强路线。');
+    await preparation.assertReady(id); await environment.assertReady(id); await settings.assertReady(id);
     const before = await snapshot(t), changes = [], blockers = [], steps = [];
+    const routeChange = request.api !== undefined || request.version !== undefined;
+    const deploy = !request.uninstall && (routeChange || request.deployment !== undefined || request.loadingMode !== undefined || request.route !== undefined);
+    const defaults = deploy && service.installationDefaults ? await service.installationDefaults(id, request) : null;
+    const installed = Boolean(current.installed || current.addonVersion || before.layout.source === 'xiaofeng-external-runtime');
+    const targetMode = request.deployment || defaults?.deployment || (installed ? before.layout.mode || 'local' : 'external');
+    const loadingMode = request.loadingMode || defaults?.loadingMode || (installed ? before.layout.loadingMode : 'proxy') || 'proxy';
+    const route = request.route || defaults?.route;
     let retainedFg = null;
-    const specialOwner = ['vulkan', 'feeder'].includes(request.route) || ['vulkan', 'feeder'].includes(before.layout.source) || request.api === 'vulkan';
-    const changingMode = !specialOwner && request.deployment !== undefined && request.deployment !== before.layout.mode;
+    const specialOwner = ['vulkan', 'feeder'].includes(route) || ['vulkan', 'feeder'].includes(before.layout.source) || request.api === 'vulkan';
+    const changingMode = deploy && installed && !specialOwner && targetMode !== before.layout.mode;
     if (changingMode) {
       const previous = await settings.inspect(id), componentState = await components.inspect(id);
       retainedFg = previous.requests?.fg?.request || previous.applied?.fg?.request || null;
@@ -95,23 +112,24 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
         const restore = domain === 'sr' ? { backend: previous.backend, quality: 'game' } : { backend: previous.backend, mode: 'restore' };
         const settingPlan = await settings.preview(id, domain, restore);
         changes.push(...settingPlan.operations.map(row => ({ ...row, domain, path: settingPlan.destination })));
-        blockers.push(...(settingPlan.blockers || []));
+        blockers.push(...blockerMessages(settingPlan));
       }
       deployment = await service.previewUninstall?.(id, { mode: request.uninstall }, { plannedFgRestore: true });
       changes.push(...(deployment?.changes || [{ action: request.uninstall, path: t.game, description: request.uninstall === 'clean' ? '移除摘要匹配的受管组件，保留备份且不放回旧代理。' : '恢复有原始记录的安装前文件，保留历史备份。' }]));
+      blockers.push(...blockerMessages(deployment));
       steps.push({ kind: 'uninstall' });
     } else {
-      const routeChange = request.api !== undefined || request.version !== undefined;
-      if (routeChange || request.deployment !== undefined || request.loadingMode !== undefined || request.route !== undefined) {
-        const version = request.version || current.installedVersion || current.addonVersion || service.payloadState()?.settings?.addonVersion;
-        const api = request.api || current.apiOverride || 'auto';
-        const special = ['feeder', 'vulkan'].includes(request.route);
-        if (special && request.loadingMode === 'helper') fail('ROUTE', 'Vulkan 与 Feeder 使用各自的固定加载配套。');
-        deployment = special ? await service.previewSpecialDeployment(id, { route: request.route, api, ...(request.version ? { version: request.version } : {}) }) :
-          await service.previewDeployment(id, { mode: request.deployment || before.layout.mode || 'local', ...(version ? { version } : {}), api,
-            ...(request.loadingMode ? { loadingMode: request.loadingMode } : {}) }, { plannedFgRestore: changingMode });
-        changes.push(...(deployment.changes || [])); blockers.push(...(deployment.blockers || []).map(row => typeof row === 'string' ? row : row.message));
-        steps.push({ kind: 'deployment', route: request.route, routeChange, api, version: special ? request.version : version, mode: request.deployment || before.layout.mode || 'local', loadingMode: request.loadingMode });
+      if (deploy) {
+        const api = apiSelection.api, special = ['feeder', 'vulkan'].includes(route);
+        if (special && loadingMode === 'helper') fail('ROUTE', 'Vulkan 与 Feeder 使用各自的固定加载配套。');
+        // Only an actual version in the request is explicit. The deployment
+        // owner resolves implicit installed/global defaults and supersession.
+        deployment = special ? await service.previewSpecialDeployment(id, { route, api, ...(request.version ? { version: request.version } : {}) }) :
+          await service.previewDeployment(id, { mode: targetMode, ...(request.version ? { version: request.version } : {}), api,
+            loadingMode }, { plannedFgRestore: changingMode });
+        changes.push(...(deployment.changes || [])); blockers.push(...blockerMessages(deployment));
+        steps.push({ kind: 'deployment', route, routeChange, api, version: request.version,
+          resolvedVersion: deployment.version || deployment.packageId || defaults?.version || null, mode: targetMode, loadingMode });
       }
       if (request.nr && Object.keys(request.nr).length) {
         changes.push(...Object.entries(request.nr).map(([key, value]) => ({ action: 'set-config-key', path: '当前部署 / nr_before_sr.ini', key, value })));
@@ -124,7 +142,7 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
         const preview = await settings.preview(id, domain, desired, { allowComponentPreparation: true, reapplyExternalChanges: request.reapplyExternalChanges === true });
         changes.push(...preview.operations.map(row => ({ ...row, domain, path: preview.destination })));
         if (preview.needsPreparation || preview.preparation) changes.push({ action: 'prepare-components', domain, description: '应用时一并准备并验证所需组件。' });
-        blockers.push(...(preview.blockers || []).map(row => typeof row === 'string' ? row : row.message));
+        blockers.push(...blockerMessages(preview));
         steps.push({ kind: domain, request: desired, preview });
       }
       if (request.launchMode !== undefined) {
@@ -133,7 +151,9 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
         changes.push({ action: 'set-launch-mode', value: request.launchMode, path: t.exe }); steps.push({ kind: 'launch' });
       }
     }
-    const value = { version: 1, planId: crypto.randomUUID(), gameId: id, exe: t.exe, game: t.game, request, before,
+    const resolved = apiDependent ? { api: apiSelection.api, effectiveApi: apiSelection.effectiveApi,
+      ...(deploy ? { version: deployment.version || deployment.packageId || defaults?.version || null, deployment: targetMode, loadingMode, route: route || 'native' } : {}) } : null;
+    const value = { version: 1, planId: crypto.randomUUID(), gameId: id, exe: t.exe, game: t.game, request, before, resolved,
       createdAt: Date.now(), expiresAt: Date.now() + 10 * 60000, changes, blockers: [...new Set(blockers.filter(Boolean))],
       steps, deployment, runtimeVerified: false, requiresConfirmation: true };
     value.fingerprint = fingerprint(value); plans.set(value.planId, value);
@@ -172,9 +192,13 @@ function createOperationPlans({ userData, service, settings, components, fgWorkf
         const stage = { kind: step.kind, status: 'started' }; record.stages.push(stage); await persist();
         if (step.kind === 'deployment') {
           const special = ['feeder', 'vulkan'].includes(step.route);
-          const migration = special ? await service.previewSpecialDeployment(t.id, { route: step.route, api: step.api, ...(step.version ? { version: step.version } : {}) }) :
-            await service.previewDeployment(t.id, { mode: step.mode, ...(step.version ? { version: step.version } : {}), api: step.api,
-              ...(step.loadingMode ? { loadingMode: step.loadingMode } : {}) });
+          // loadPlan has just rebuilt and verified the deployment preflight.
+          // Rebuild once more only if an earlier FG restore changed its files.
+          const migration = record.stages.some(row => row.kind === 'restore-fg' && row.status === 'complete') ?
+            (special ? await service.previewSpecialDeployment(t.id, { route: step.route, api: step.api, ...(step.version ? { version: step.version } : {}) }) :
+              await service.previewDeployment(t.id, { mode: step.mode, ...(step.version ? { version: step.version } : {}), api: step.api,
+                ...(step.loadingMode ? { loadingMode: step.loadingMode } : {}) })) : plan.deployment;
+          const blocked = blockerMessages(migration); if (blocked.length) fail('BLOCKED', blocked.join('；'));
           stage.result = await (special ? service.applySpecialDeployment : service.applyDeployment)(migration.planId, { allowAntiCheat: consent.allowAntiCheat === true });
         } else if (step.kind === 'nr') stage.result = await service.writeNrSettings(t.id, plan.request.nr);
         else if (step.kind === 'hotkeys') stage.result = await service.writeGameHotkey(t.id, 'reshade', plan.request.hotkeys.reshade);

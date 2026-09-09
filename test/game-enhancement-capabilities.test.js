@@ -34,18 +34,27 @@ test('MFG Unlock never offers Dynamic and refuses unverified 5/6x capacity', () 
 test('user confirmation can cover unreadable switch only for the matching EXE identity and domain', () => {
   const value = input(); value.game.gameSetting = { state: 'unknown' };
   assert.equal(assessEnhancementState(value).state, 'waiting-confirmation');
+  assert.equal(assessEnhancementState(value).canConfirm, true);
   value.confirmation = { enabled: true, exe, exeIdentity: identity, domain: 'fg' };
   const confirmed = assessEnhancementState(value); assert.equal(confirmed.eligible, true); assert.equal(confirmed.runtimeVerified, false);
+  assert.equal(confirmed.state, 'configurable'); assert.equal(confirmed.canConfirm, false);
   assert.deepEqual(confirmed.actual, { state: 'unknown', source: null });
-  for (const patch of [{ exe: 'C:/Games/Other.exe' }, { exeIdentity: 'b'.repeat(64) }, { domain: 'sr' }])
-    assert.equal(assessEnhancementState({ ...value, confirmation: { ...value.confirmation, ...patch } }).eligible, false);
+  for (const patch of [{ exe: 'C:/Games/Other.exe' }, { exeIdentity: 'b'.repeat(64) }, { domain: 'sr' }]) {
+    const stale = assessEnhancementState({ ...value, confirmation: { ...value.confirmation, ...patch } });
+    assert.equal(stale.eligible, false); assert.equal(stale.canConfirm, true);
+  }
 });
 test('known-off and required initial config remain blocked despite user confirmation', () => {
   const value = input({ confirmation: { enabled: true, exe, exeIdentity: identity, domain: 'fg' } });
   value.game.gameSetting = { state: 'off', source: 'game-config' };
   assert.equal(assessEnhancementState(value).state, 'waiting-game-setting');
+  assert.equal(assessEnhancementState(value).canConfirm, false);
   value.game.gameSetting = { state: 'missing', requiresFirstRun: true, source: 'game-config' };
   assert.equal(assessEnhancementState(value).state, 'waiting-first-run');
+  assert.equal(assessEnhancementState(value).canConfirm, false);
+  value.game.gameSetting = { state: 'on', source: 'game-config' };
+  assert.equal(assessEnhancementState(value).state, 'configurable');
+  assert.equal(assessEnhancementState(value).canConfirm, false);
 });
 test('GPU and driver read failures remain missing evidence without masquerading as game rejection', () => {
   const value = input({ driver: { available: false }, hardware: { series: ['RTX40', 'RTX50'], family: 'mixed' } });

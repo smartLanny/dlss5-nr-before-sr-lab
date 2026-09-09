@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('manager', Object.freeze({
   boot: () => invoke('boot'),
   refresh: () => invoke('games-refresh'),
   listGames: () => invoke('games-list'),
-  assessGame: id => invoke('game-assessment', id),
+  assessGame: (id, options) => invoke('game-assessment', id, options),
   recordVisualComparison: (id, input) => invoke('game-visual-record', id, input),
   previewOperation: (id, request) => invoke('game-operation-preview', id, request),
   applyOperation: (id, planId, consent) => invoke('game-operation-apply', id, planId, consent),

@@ -7,6 +7,9 @@
   const PRESET_PERCENT = { dlaa: 100, quality: 67, balanced: 59, performance: 50, ultraPerformance: 33 };
   const MODES = { restore: '使用原有设置', follow: '跟随游戏倍率', off: '关闭帧生成（驱动）', fixed: '固定倍率', dynamic: '动态目标帧率' };
   const BACKENDS = { native: '原生 DLSS', optiscaler: 'OptiScaler', nvidia: 'NVIDIA 官方 FG', rtx40: '旧版 RTX40 补帧', mfgunlock: 'RTX40 · MFG Unlock' };
+  const SR_MODEL_LABELS = Object.freeze({ K: 'K · 老版兼容', M: 'M · 平衡选择', L: 'L · 4K 优化' });
+  const SR_MODEL_DESCRIPTIONS = Object.freeze({ K: '第一代 Transformer，RTX20 / RTX30 本机推荐。',
+    M: 'RTX40 / RTX50 本机推荐，兼顾画质与性能。', L: '主要优化 4K 超级性能档位。' });
   const option = (value, label, selected) => `<option value="${esc(value)}"${selected === value ? ' selected' : ''}>${esc(label)}</option>`;
 
   function unwrap(result) {
@@ -27,7 +30,24 @@
 
   function recommendedPreset(hardware) {
     const series = hardwareFacts(hardware).series;
-    return series === 'RTX30' ? 'K' : series === 'RTX40' || series === 'RTX50' ? 'M' : null;
+    return series === 'RTX20' || series === 'RTX30' ? 'K' : series === 'RTX40' || series === 'RTX50' ? 'M' : null;
+  }
+
+  // New editor defaults are explicit requests, so older managers can still read
+  // them. Saved `auto` keeps its existing quality-based NVIDIA policy.
+  function initialSrFields(settings = {}, hardware = settings.hardware || {}) {
+    const request = settings.requests?.sr?.request || settings.applied?.sr?.request;
+    if (request) return { backend: 'native', quality: 'preserve', renderPercent: PRESET_PERCENT[request.quality] || 67,
+      ...request, preset: request.preset ?? '' };
+    const keepGame = { backend: 'native', quality: 'game', preset: '', renderPercent: 67 };
+    const recommendation = recommendedPreset(hardware);
+    const legacy = settings.legacy;
+    if (legacy?.configured === true && legacy.managed !== true && !legacy.error) {
+      const selection = String(legacy.selection || '').toUpperCase();
+      const preset = selection === 'AUTO' ? recommendation : ['K', 'L', 'M'].includes(selection) ? selection : null;
+      return preset ? { ...keepGame, quality: 'preserve', preset } : keepGame;
+    }
+    return recommendation ? { ...keepGame, quality: 'preserve', preset: recommendation } : keepGame;
   }
 
   function createRequest(domain, fields) {
@@ -357,7 +377,8 @@
     return controller;
   }
 
-  const api = { mount, createRequest, hardwareFacts, recommendedPreset, initialFields, requestLabel, statusMarkup, fgComponentMarkup, driverScopeMarkup };
+  const api = { mount, createRequest, hardwareFacts, recommendedPreset, initialFields, initialSrFields, SR_MODEL_LABELS, SR_MODEL_DESCRIPTIONS,
+    requestLabel, statusMarkup, fgComponentMarkup, driverScopeMarkup };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else scope.launchSettingsUi = api;
 })(typeof window === 'object' ? window : globalThis);

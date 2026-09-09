@@ -42,11 +42,77 @@ test('an installation family alone never grants FG capability', () => {
   assert.equal(ui.hardwareFacts({ series: ['RTX40'], source: 'unavailable' }).fgBackend, null);
   assert.equal(ui.hardwareFacts({ family: 'RTX40', series: ['RTX40'], names: ['NVIDIA GeForce RTX 4090'] }).fgBackend, 'mfgunlock');
   assert.equal(ui.hardwareFacts({ family: 'RTX50', series: ['RTX50'] }).fgBackend, 'nvidia');
+  assert.equal(ui.recommendedPreset({ family: 'RTX40', series: ['RTX20'] }), 'K');
   assert.equal(ui.recommendedPreset({ family: 'RTX30', series: ['RTX30'] }), 'K');
   assert.equal(ui.recommendedPreset({ family: 'RTX40', series: ['RTX40'] }), 'M');
   assert.equal(ui.recommendedPreset({ family: 'RTX50', series: ['RTX50'] }), 'M');
   assert.equal(ui.recommendedPreset({ family: 'mixed', series: ['RTX30', 'RTX40'] }), null);
   assert.equal(ui.recommendedPreset({ family: 'RTX40' }), null);
+});
+
+test('the independent SR editor proposes explicit per-GPU models without adding an automatic policy', () => {
+  for (const [series, expected] of [['RTX20', 'K'], ['RTX30', 'K'], ['RTX40', 'M'], ['RTX50', 'M']]) {
+    const hardware = { family: series === 'RTX50' ? 'RTX50' : 'RTX40', series: [series] };
+    const settings = { hardware, requests: {}, applied: {} }, before = structuredClone(settings);
+    const fields = ui.initialSrFields(settings);
+    assert.deepEqual(fields, { backend: 'native', quality: 'preserve', preset: expected, renderPercent: 67 });
+    const request = ui.createRequest('sr', fields);
+    assert.deepEqual(request, { backend: 'native', quality: 'preserve', preset: expected });
+    assert.deepEqual(policy.validateRequest('sr', request), request, 'existing managers can read the unchanged request format');
+    assert.equal(policy.nativeSr(request, hardware).operations.length, 2);
+    assert.deepEqual(settings, before, 'recommendation does not mutate persisted settings');
+  }
+  for (const hardware of [{}, { family: 'RTX40' }, { source: 'unavailable', series: ['RTX40'] },
+    { family: 'mixed', series: ['RTX30', 'RTX50'] }, { series: ['RTX40'], names: ['NVIDIA GeForce RTX 3090'] }]) {
+    const fields = ui.initialSrFields({}, hardware);
+    assert.equal(fields.quality, 'game'); assert.equal(fields.preset, '');
+    assert.deepEqual(ui.createRequest('sr', fields), { backend: 'native', quality: 'game' });
+  }
+  assert.throws(() => ui.createRequest('sr', { backend: 'native', quality: 'preserve', preset: 'gpu-auto' }), /模型/);
+});
+
+test('independent SR initialization preserves saved requests, applied requests and omitted presets', () => {
+  const hardware = { series: ['RTX40'] }, legacy = { configured: true, selection: 'm', managed: false };
+  const saved = { backend: 'native', quality: 'performance', preset: 'auto' };
+  const settings = { requests: { sr: { request: saved } }, applied: { sr: { request: { backend: 'native', quality: 'quality', preset: 'L' } } }, legacy };
+  let fields = ui.initialSrFields(settings, hardware);
+  assert.equal(fields.preset, 'auto'); assert.equal(fields.renderPercent, 50);
+  assert.deepEqual(ui.createRequest('sr', fields), saved);
+  assert.equal(policy.nativeSr(ui.createRequest('sr', fields), hardware).operations.find(row => row.id === policy.IDS.sr[3]).value, 13);
+  fields.quality = 'quality';
+  assert.equal(policy.nativeSr(ui.createRequest('sr', fields), hardware).operations.find(row => row.id === policy.IDS.sr[3]).value, 11, 'saved auto retains the NVIDIA quality-based policy');
+  delete settings.requests.sr;
+  assert.deepEqual(ui.createRequest('sr', ui.initialSrFields(settings, hardware)), settings.applied.sr.request);
+  for (const request of [{ backend: 'native', quality: 'custom', renderPercent: 73 }, { backend: 'native', quality: 'game' },
+    { backend: 'optiscaler', quality: 'quality' }]) {
+    settings.applied.sr.request = request;
+    const fields = ui.initialSrFields(settings, hardware);
+    assert.equal(fields.preset, ''); assert.deepEqual(ui.createRequest('sr', fields), request);
+  }
+});
+
+test('independent SR initialization only adopts explicitly configured and unowned legacy selections', () => {
+  const hardware = { family: 'RTX50', series: ['RTX50'] };
+  const legacy = { configured: true, managed: false, selection: 'l', effective: 'm' };
+  assert.equal(ui.initialSrFields({ legacy }, hardware).preset, 'L', 'the saved selection wins over a derived effective suggestion');
+  legacy.selection = 'auto';
+  assert.equal(ui.initialSrFields({ legacy }, hardware).preset, 'M');
+  assert.equal(ui.initialSrFields({ legacy }, { family: 'RTX40', series: ['RTX20'] }).preset, 'K');
+  assert.equal(ui.initialSrFields({ legacy }, {}).quality, 'game');
+  legacy.selection = 'default';
+  assert.deepEqual(ui.createRequest('sr', ui.initialSrFields({ legacy }, hardware)), { backend: 'native', quality: 'game' });
+  legacy.selection = 'k'; legacy.configured = false;
+  assert.equal(ui.initialSrFields({ legacy }, hardware).preset, 'M');
+  legacy.configured = true; legacy.managed = true;
+  assert.equal(ui.initialSrFields({ legacy }, hardware).preset, 'M');
+  legacy.managed = false; legacy.error = { message: 'unreadable' };
+  assert.notEqual(ui.initialSrFields({ legacy }, hardware).preset, 'K', 'unreadable legacy data is not a confirmed saved selection');
+});
+
+test('SR model labels describe the requested choice without claiming universal L quality superiority', () => {
+  assert.deepEqual(ui.SR_MODEL_LABELS, { K: 'K · 老版兼容', M: 'M · 平衡选择', L: 'L · 4K 优化' });
+  assert.equal(ui.SR_MODEL_DESCRIPTIONS.L, '主要优化 4K 超级性能档位。');
+  assert.doesNotMatch(Object.values(ui.SR_MODEL_LABELS).join(''), /最好|最高/);
 });
 
 test('settings apply through one update operation; errors stay dirty and global reset clears both domains', async () => {

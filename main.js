@@ -95,9 +95,10 @@ function runPowerShell(command, timeout = 15000) {
 const elevation = createStartupElevation({ app, runPowerShell, processInfo: process, log: startup.log });
 
 async function inspectLaunchMode(id) {
-  const game = (await service.listGames()).find(row => row.id === id), exe = service.gameExecutable(id);
+  const seed = typeof service.assessmentSeed === 'function' ? await service.assessmentSeed(id) : null;
+  const game = seed || (await service.listGames()).find(row => row.id === id), exe = service.gameExecutable(id);
   if (!game) throw Object.assign(new Error('游戏已不在当前库中。'), { code: 'LAUNCH_TARGET' });
-  const chosen = service.gameScan(id).chosen || game.chosen || {};
+  const chosen = seed?.scan?.chosen || service.gameScan(id).chosen || game.chosen || {};
   const verified = game.verifiedSteamAppId || chosen.verifiedSteamAppId;
   const steamRoot = game.steamRoot || chosen.steamRoot;
   const steamAvailable = /^\d{1,10}$/.test(String(verified || '')) && typeof steamRoot === 'string' && path.isAbsolute(steamRoot);
@@ -280,7 +281,7 @@ function registerIpc() {
   });
   call('games-refresh', () => service.refresh());
   call('games-list', () => service.listGames());
-  call('game-assessment', id => gameAssessment.assess(id));
+  call('game-assessment', (id, options) => gameAssessment.assess(id, options));
   call('game-visual-record', (id, input) => verificationRecords.record(id, input));
   call('game-operation-preview', (id, request) => operationPlans.preview(id, request));
   call('game-operation-apply', async (id, planId, consent) => {

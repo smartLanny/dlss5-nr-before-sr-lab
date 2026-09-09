@@ -33,21 +33,45 @@ const state = {
   routeDrafts: new Map(),
   installing: new Set()
 };
-let gamePageController = null;
-function openGamePage(id, initialTab = 'overview') {
+const inlineGameDetails = new Map();
+function openGamePage(id, initialTab) {
   if (!window.GamePageUi || typeof window.manager.assessGame !== 'function') return;
-  const show = () => {
-    state.expanded = null; state.activeView = 'game-detail';
-    document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === 'view-game-detail'));
-    document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.view === 'games'));
-    $('pageTitle').textContent = '游戏详情'; $('pageSubtitle').textContent = '检查兼容性，集中应用修改，保留恢复记录';
-    gamePageController ||= window.GamePageUi.mount($('view-game-detail'), window.manager, {
-      onBack: () => { gamePageController.discard(); switchView('games'); },
-      onChanged: async () => { state.games = mergeGameVisuals(state.games, unwrap(await window.manager.listGames())); renderGames(); }
-    });
-    void gamePageController.open(id, initialTab);
-  };
-  if (gamePageController?.hasDraft()) gamePageController.requestLeave(show); else show();
+  const reopen = state.expanded !== id && inlineGameDetails.has(id);
+  if (state.activeView !== 'games') switchView('games');
+  state.expanded = id;
+  renderGames({ preserveExpanded: true });
+  const entry = inlineGameDetails.get(id);
+  if (initialTab) entry?.controller.selectTab(initialTab);
+  if (reopen) void entry?.controller.refresh(true);
+  return entry?.controller;
+}
+
+function mountInlineDetail(card, game) {
+  const placeholder = card.querySelector('.game-detail');
+  if (!placeholder) return;
+  let entry = inlineGameDetails.get(game.id);
+  const exe = String(game.chosen?.path || '').toLowerCase();
+  if (entry && entry.exe !== exe) {
+    entry.controller.dispose(); inlineGameDetails.delete(game.id); entry = null;
+  }
+  if (entry) {
+    if (placeholder !== entry.host) placeholder.replaceWith(entry.host);
+    entry.controller.resume(game);
+    return;
+  }
+  const controller = window.GamePageUi.mount(placeholder, window.manager, {
+    onBack: () => { state.expanded = null; renderGames(); },
+    onChanged: async () => {
+      state.games = mergeGameVisuals(state.games, unwrap(await window.manager.listGames()));
+      renderGames({ preserveExpanded: true });
+    }
+  });
+  entry = { host: placeholder, controller, exe };
+  inlineGameDetails.set(game.id, entry);
+  const seed = { game, hardware: state.hardware, coreVersions: state.addons,
+    defaults: { version: catalogReplacement(state.payload?.selectedVersion) || state.payload?.selectedVersion,
+      deployment: game.installed ? 'local' : 'external', loadingMode: 'proxy' } };
+  void controller.open(game.id, 'overview', seed);
 }
 
 function unwrap(result) {
@@ -338,7 +362,7 @@ function visibleGames() {
 }
 
 function cardAction(game) {
-  if (typeof window === 'object' && typeof window.manager?.assessGame === 'function') return '<button class="button primary open-game-page-btn" type="button">查看详情</button><button class="button subtle rename-game-btn" type="button" title="修改游戏名称">改名</button>';
+  if (typeof window === 'object' && typeof window.manager?.assessGame === 'function') return `${game.installed ? '<button class="button primary unified-launch-btn" type="button">启动游戏</button>' : ''}<button class="button open-game-page-btn" type="button">${game.installed ? '设置' : '安装与设置'}</button><button class="button subtle rename-game-btn" type="button" title="修改游戏名称">改名</button>`;
   const installBusy = Boolean(state.installing && state.installing.has(game.id));
   const installButton = `<button class="button primary install-btn${installBusy ? ' is-busy' : ''}" aria-live="polite" aria-busy="${installBusy}"${installBusy ? ' disabled' : ''}>${installBusy ? '<span class="button-spinner" aria-hidden="true"></span><span>正在安装…</span>' : '一键安装'}</button>`;
   const rename = '<button class="button subtle rename-game-btn" type="button" title="修改游戏名称">改名</button>';
@@ -643,6 +667,7 @@ function detailKey(game) {
 }
 
 function gameDetail(game) {
+  if (typeof window === 'object' && typeof window.manager?.assessGame === 'function') return `<div class="game-detail gp-inline" data-game-detail="${escapeHtml(game.id)}"></div>`;
   const key = detailKey(game);
   const active = state.detailTabs.get(key) === 'graphics' ? 'graphics' : 'enhance';
   const vulkan = isVulkanRoute(game);
@@ -716,7 +741,7 @@ function bindPreparationActions(host, game) {
 
 
 function renderGames(options = {}) {
-  const previousExpanded = options?.preserveExpanded === true
+  const previousExpanded = options?.preserveExpanded === true && typeof window.manager.assessGame !== 'function'
     ? [...document.querySelectorAll('.game-card')].find(card => card.dataset.id === state.expanded) : null;
   const rows = visibleGames();
   updateGameListMeta(rows);
@@ -724,7 +749,7 @@ function renderGames(options = {}) {
     <div class="game-card-head">
       ${poster(game)}
       <div class="game-meta"><div class="game-title"><h3>${escapeHtml(game.name)}</h3>${supportBadge(game)}</div><p>${escapeHtml(game.launcher)} · ${escapeHtml(game.chosen ? `${gameApiLabel(game.chosen)} / ${game.chosen.bitness} 位` : game.supportText)}</p>${game.chosen?.path ? `<p class="game-exe-path" title="${escapeHtml(game.chosen.path)}">${escapeHtml(game.chosen.path)}</p>` : ''}</div>
-      <div class="card-action">${cardAction(game)}${typeof window.manager.assessGame === 'function' ? '' : `<button class="expand-arrow" type="button" aria-label="展开或收起游戏详情" aria-expanded="${state.expanded === game.id}">⌄</button>`}</div>
+      <div class="card-action">${cardAction(game)}<button class="expand-arrow" type="button" aria-label="展开或收起游戏详情" aria-expanded="${state.expanded === game.id}">⌄</button></div>
     </div>
     ${state.expanded === game.id ? gameDetail(game) : ''}
   </article>`).join('');
@@ -734,10 +759,13 @@ function renderGames(options = {}) {
     if (replacement) {
       replacement.replaceWith(previousExpanded); reusedExpanded = true;
       const currentGame = state.games.find(game => game.id === previousExpanded.dataset.id);
-      if (currentGame) refreshRouteControls(previousExpanded, currentGame);
+      if (currentGame && typeof window.manager.assessGame !== 'function') refreshRouteControls(previousExpanded, currentGame);
     }
   }
   bindGameCards();
+  for (const [id, entry] of inlineGameDetails) if (!state.games.some(game => game.id === id)) {
+    entry.controller.dispose(); inlineGameDetails.delete(id);
+  }
   if (state.expanded && !reusedExpanded) loadExpanded(state.expanded);
   renderRepairSelect();
   renderFeedbackSelect();
@@ -816,7 +844,13 @@ function bindGameCards() {
     const id = card.dataset.id;
     const game = state.games.find(row => row.id === id);
     if (typeof window.manager.assessGame === 'function') {
-      card.querySelector('.game-card-head').onclick = event => { if (!event.target.closest('.rename-game-btn')) openGamePage(id); };
+      mountInlineDetail(card, game);
+      card.querySelector('.game-card-head').onclick = event => {
+        if (event.target.closest('.rename-game-btn,.unified-launch-btn')) return;
+        if (state.expanded === id) { state.expanded = null; renderGames(); } else openGamePage(id);
+      };
+      const launch = card.querySelector('.unified-launch-btn');
+      if (launch) launch.onclick = event => { event.stopPropagation(); void openGamePage(id)?.launchGame(); };
       const rename = card.querySelector('.rename-game-btn');
       if (rename) rename.onclick = event => { event.stopPropagation(); confirmRenameGame(id); };
       return;
@@ -914,6 +948,7 @@ async function loadReframeworkCard(root, id, operationError = '') {
 }
 
 async function loadExpanded(id) {
+  if (typeof window.manager.assessGame === 'function') return;
   const loadToken = (state.expandedLoadToken || 0) + 1;
   state.expandedLoadToken = loadToken;
   const root = document.querySelector(`[data-game-detail="${id}"]`);
@@ -1392,14 +1427,11 @@ function closeModal(result = false) {
 }
 
 function switchView(view) {
-  if (state.activeView === 'game-detail' && gamePageController?.hasDraft()) {
-    gamePageController.requestLeave(() => { gamePageController.discard(); switchView(view); }); return;
-  }
   state.activeView = view;
   document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === `view-${view}`));
   document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.view === view));
   const titles = {
-    games: ['我的游戏', '安装、设置和卸载都在同一个页面完成'],
+    games: ['我的游戏', '选择游戏，确认兼容性后安装'],
     repair: ['问题修复', '检查组件完整性，并安全恢复缺失文件'],
     settings: ['设置', '只保留真正会影响使用的选项'],
     addons: ['组件管理', '准备安装来源，按游戏应用与回退核心']
@@ -1425,7 +1457,7 @@ async function boot() {
     document.title = state.product.name;
     $('brandName').textContent = state.product.name.replace(/管理器$/, '').trim();
     $('brandEdition').textContent = state.product.edition;
-    $('authorText').textContent = `by ${state.product.author}`;
+    $('authorText').textContent = state.product.author ? `by ${state.product.author}` : '';
     $('settingsAuthor').textContent = state.product.author;
     $('versionText').textContent = `v${state.product.version}`;
     $('settingsVersion').textContent = state.product.version;
@@ -1437,9 +1469,10 @@ async function boot() {
     $('qqBtn').classList.toggle('hidden', !state.product.qqGroup);
     $('updateBtn').classList.toggle('hidden', !state.product.releaseUrl);
     const gpu = state.hardware;
-    $('hardwareNotice').textContent = gpu && ['RTX40', 'RTX50'].includes(gpu.family)
-      ? `已识别 ${hardwareLabel()}，安装时会自动选择对应版本。`
-      : '未能确认 RTX 20 / 30 / 40 / 50 系列显卡，安装器不会误用不匹配组件。';
+    const gpuFacts = window.launchSettingsUi?.hardwareFacts(gpu), recommended = window.launchSettingsUi?.recommendedPreset(gpu);
+    $('hardwareNotice').textContent = recommended
+      ? `${gpuFacts.label} · 默认超分模型 ${recommended}，可按游戏调整。`
+      : '显卡尚未确认，模型保持游戏原有设置。';
     $('hardwareNotice').classList.remove('hidden');
     renderGames();
     renderAddonVersions();
@@ -1592,7 +1625,7 @@ $('searchInput').oninput = () => {
   renderGames.searchTimer = setTimeout(() => renderGames({ preserveExpanded: true }), 120);
 };
 $('gameFilter').onchange = () => renderGames({ preserveExpanded: true });
-$('refreshBtn').onclick = () => runAction(async () => { state.games = unwrap(await window.manager.refresh()); return true; }, '扫描完成', false).then(() => { renderGames(); scheduleArtworkEnrichment(); });
+$('refreshBtn').onclick = () => runAction(async () => { const result = await window.manager.refresh(); state.games = unwrap(result); return result; }, '扫描完成', false).then(() => { renderGames(); scheduleArtworkEnrichment(); });
 async function pickAndRefresh(picker, success) {
   if (state.busy) return;
   setBusy(true);

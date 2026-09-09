@@ -34,15 +34,16 @@ function fixture(t, options = {}) {
   const game = path.join(root, 'game'), exeDir = path.join(game, 'Binaries', 'Win64'), exe = path.join(exeDir, 'Game.exe');
   fs.mkdirSync(exeDir, { recursive: true }); fs.writeFileSync(exe, 'synthetic');
   const driver = fakeDriver(), legacy = options.legacy || { migrationInfo: async () => ({ baselineCaptured: false }) };
-  const service = createLaunchSettingsService({ userData: path.join(root, 'user'), appDir: root,
+  const serviceOptions = { userData: path.join(root, 'user'), appDir: root,
     // Historical fixtures exercise protocol-11 receipt creation/restoration.
     // Production omits this escape hatch and refuses new legacy requests.
     allowLegacyControl: true,
     getFeatureEvidence: async () => enhancementEvidence(),
     gameDirectory: () => game, gameExecutable: () => exe, driver, legacySrModel: legacy,
     detectHardware: async () => ({ family: options.family || 'RTX50', series: [options.family || 'RTX50'] }),
-    environment: async () => ({ verified: true, running: [] }), peBitness: () => 64, ...(options.service || {}) });
-  return { root, game, exeDir, exe, driver, service };
+    environment: async () => ({ verified: true, running: [] }), peBitness: () => 64, ...(options.service || {}) };
+  const reopen = () => createLaunchSettingsService(serviceOptions), service = reopen();
+  return { root, game, exeDir, exe, driver, service, reopen };
 }
 
 test('generic launch recovery cannot bypass REFramework ownership checks', async t => {
@@ -61,14 +62,30 @@ test('missing evidence cannot write, and confirmation persists only for this EXE
   const request = { backend: 'native', quality: 'quality', preset: 'K' };
   let plan = await f.service.preview('g', 'sr', request);
   assert.equal(plan.eligibility.state, 'waiting-confirmation');
+  assert.equal(plan.eligibility.canConfirm, true);
   await assert.rejects(f.service.apply(plan.id, { confirm: true }), { code: 'SETTINGS_BLOCKED' });
   const confirmed = await f.service.confirmGameFeature('g', 'sr', { enabled: true });
   assert.equal(confirmed.eligible, true); assert.equal(confirmed.runtimeVerified, false);
-  assert.equal((await f.service.assessEligibility('g', 'fg')).eligible, false);
+  assert.equal(confirmed.state, 'configurable'); assert.equal(confirmed.canConfirm, false);
+  const reopened = f.reopen(), persisted = await reopened.assessEligibility('g', 'sr');
+  assert.equal(persisted.eligible, true); assert.equal(persisted.canConfirm, false);
+  assert.equal(persisted.evidence.confirmation.exeIdentity, require('node:crypto').createHash('sha256').update(fs.readFileSync(f.exe)).digest('hex'));
+  const fg = await reopened.assessEligibility('g', 'fg');
+  assert.equal(fg.eligible, false); assert.equal(fg.canConfirm, true);
   plan = await f.service.preview('g', 'sr', request); await f.service.apply(plan.id, { confirm: true });
+  const fgConfirmed = await reopened.confirmGameFeature('g', 'fg', { enabled: true });
+  assert.equal(fgConfirmed.eligible, true); assert.equal(fgConfirmed.canConfirm, false);
   fs.writeFileSync(f.exe, 'updated executable');
-  assert.equal((await f.service.inspectGameFeatureConfirmation('g', 'sr')).confirmation, null);
-  assert.equal((await f.service.assessEligibility('g', 'sr')).eligible, false);
+  const updated = f.reopen();
+  for (const domain of ['sr', 'fg']) {
+    assert.equal((await updated.inspectGameFeatureConfirmation('g', domain)).confirmation, null);
+    const state = await updated.assessEligibility('g', domain);
+    assert.equal(state.eligible, false); assert.equal(state.canConfirm, true);
+  }
+  const reconfirmed = await updated.confirmGameFeature('g', 'sr', { enabled: true });
+  assert.equal(reconfirmed.eligible, true); assert.equal(reconfirmed.canConfirm, false);
+  assert.equal((await f.reopen().assessEligibility('g', 'sr')).canConfirm, false);
+  assert.equal((await f.reopen().assessEligibility('g', 'fg')).canConfirm, true);
 });
 
 test('observed game-off revokes confirmation and cannot be overridden by confirming again', async t => {
@@ -78,8 +95,64 @@ test('observed game-off revokes confirmation and cannot be overridden by confirm
   gameSetting = { state: 'off', source: 'game-config' };
   await assert.rejects(f.service.confirmGameFeature('g', 'sr', { enabled: true }), { code: 'SETTINGS_CONFIRMATION_BLOCKED' });
   assert.equal((await f.service.inspectGameFeatureConfirmation('g', 'sr')).confirmation, null);
+  assert.equal((await f.service.assessEligibility('g', 'sr')).canConfirm, false);
   gameSetting = { state: 'unknown' };
-  assert.equal((await f.service.assessEligibility('g', 'sr')).state, 'waiting-confirmation');
+  const reopened = f.reopen(), state = await reopened.assessEligibility('g', 'sr');
+  assert.equal(state.state, 'waiting-confirmation'); assert.equal(state.canConfirm, true);
+  const reconfirmed = await reopened.confirmGameFeature('g', 'sr', { enabled: true });
+  assert.equal(reconfirmed.state, 'configurable'); assert.equal(reconfirmed.canConfirm, false);
+  assert.equal((await f.reopen().assessEligibility('g', 'sr')).canConfirm, false);
+});
+
+test('confirmations remain EXE-path and feature-domain bound even when executable bytes match', async t => {
+  let currentExe;
+  const gameSettings = { sr: { state: 'unknown' }, fg: { state: 'unknown' } };
+  const f = fixture(t, { service: { gameExecutable: () => currentExe,
+    getFeatureEvidence: async (_id, domain) => enhancementEvidence({ gameSetting: gameSettings[domain] }) } });
+  currentExe = f.exe;
+  for (const domain of ['sr', 'fg']) await f.service.confirmGameFeature('g', domain, { enabled: true });
+  gameSettings.sr = { state: 'off', source: 'game-config' };
+  assert.equal((await f.reopen().assessEligibility('g', 'sr')).state, 'waiting-game-setting');
+  assert.equal((await f.reopen().assessEligibility('g', 'fg')).canConfirm, false, 'SR off does not revoke FG');
+  gameSettings.sr = { state: 'unknown' };
+  currentExe = path.join(f.exeDir, 'Other.exe'); fs.copyFileSync(f.exe, currentExe);
+  const reopened = f.reopen();
+  for (const domain of ['sr', 'fg']) {
+    const state = await reopened.assessEligibility('g', domain);
+    assert.equal(state.state, 'waiting-confirmation'); assert.equal(state.canConfirm, true);
+  }
+  assert.equal((await reopened.confirmGameFeature('g', 'sr', { enabled: true })).canConfirm, false);
+  assert.equal((await f.reopen().assessEligibility('g', 'fg')).canConfirm, true);
+  currentExe = f.exe;
+  assert.equal((await f.reopen().assessEligibility('g', 'sr')).canConfirm, true, 'the original SR revocation stays revoked');
+  assert.equal((await f.reopen().assessEligibility('g', 'fg')).canConfirm, false, 'the original FG confirmation stays bound to its EXE');
+});
+
+test('explicit recommended SR models only change model keys and persist without changing quality, ratio or FG', async t => {
+  for (const [family, preset, expected] of [['RTX20', 'K', 11], ['RTX30', 'K', 11], ['RTX40', 'M', 13], ['RTX50', 'M', 13]]) {
+    const f = fixture(t, { family }), before = f.driver.peek();
+    before.profile = { name: 'existing fixture', appName: f.exe, exclusive: true, owned: true };
+    before.settings[DRS.srMode] = explicit(1); before.settings[DRS.srRatio] = explicit(73);
+    before.settings[DRS.fgMode] = explicit(1); before.settings[DRS.fgCount] = explicit(2);
+    f.driver.set(before);
+    const request = { backend: 'native', quality: 'preserve', preset }, preview = await f.service.preview('g', 'sr', request);
+    assert.deepEqual(preview.operations.map(row => row.id).sort(), [DRS.srOverride, DRS.srPreset].sort());
+    assert.equal(preview.operations.find(row => row.id === DRS.srPreset).value, expected);
+    await f.service.apply(preview.id, { confirm: true }); await f.service.save('g', 'sr', request);
+    const after = f.driver.peek();
+    for (const id of [DRS.srMode, DRS.srRatio, ...policy.IDS.fg]) assert.deepEqual(after.settings[id], before.settings[id]);
+    const reopened = f.reopen(), stored = await reopened.inspect('g');
+    assert.deepEqual(stored.requests.sr.request, request); assert.deepEqual(stored.applied.sr.request, request);
+    assert.equal(stored.applied.sr.readbackVerified, true);
+    const write = f.driver.write;
+    f.driver.write = async () => { throw Error('launch must not write'); };
+    assert.equal((await reopened.beforeLaunch('g'))[0].noOp, true);
+    assert.deepEqual(f.driver.peek(), after);
+    f.driver.write = write;
+    await reopened.restore('g', 'sr');
+    assert.deepEqual(f.driver.peek(), before);
+    assert.equal((await f.reopen().inspect('g')).requests.sr, undefined);
+  }
 });
 
 test('game switch recheck between preview and apply blocks every write', async t => {

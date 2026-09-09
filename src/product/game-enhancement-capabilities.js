@@ -84,11 +84,11 @@ function assessEnhancementState({ domain, request = {}, game = {}, hardware = {}
   const evidence = { support, static: game.staticEvidence || null, driver: { ...driver, perGameSupport: false },
     gameSetting: setting, confirmation: confirmed ? { ...confirmation, source: 'user-confirmation', runtimeVerified: false } : null };
   const baseBlockers = blockers.filter(row => row.code !== 'SETTINGS_GAME_CONFIRMATION_REQUIRED');
+  const state = blockers.some(row => row.code === 'SETTINGS_FIRST_RUN_REQUIRED') ? 'waiting-first-run' :
+    blockers.some(row => row.code === 'SETTINGS_GAME_FEATURE_OFF') ? 'waiting-game-setting' :
+    baseBlockers.length ? 'unavailable' : blockers.length ? 'waiting-confirmation' : 'configurable';
   return { domain, backend, eligible: blockers.length === 0, blockers, evidence,
-    state: blockers.some(row => row.code === 'SETTINGS_FIRST_RUN_REQUIRED') ? 'waiting-first-run' :
-      blockers.some(row => row.code === 'SETTINGS_GAME_FEATURE_OFF') ? 'waiting-game-setting' :
-      baseBlockers.length ? 'unavailable' : blockers.length ? 'waiting-confirmation' : 'configurable',
-    canConfirm: baseBlockers.length === 0 && setting.state !== 'on',
+    state, canConfirm: state === 'waiting-confirmation' && !confirmed,
     availableModes: modes, availableMultipliers: multipliers, runtimeVerified: false,
     actual: { state: 'unknown', source: null }, officialOverrideCertified: support.source === 'catalog' && support.official === true };
 }

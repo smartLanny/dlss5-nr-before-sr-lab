@@ -109,7 +109,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     if (feederOwned(game) || vulkanOwned(game)) {
       const isFeeder = feederOwned(game), config = isFeeder ? feeder.configDir(game, 'reshade') : vulkan.configDir(game);
       const addon = isFeeder ? feeder.configDir(game, 'nr') : path.join(config, 'addons');
-      return { mode: 'local', source: isFeeder ? 'feeder' : 'vulkan', exe: game.scan?.chosen?.path,
+      return { mode: isFeeder ? 'local' : 'external', source: isFeeder ? 'feeder' : 'vulkan', exe: game.scan?.chosen?.path,
         gameRoot: game.dir, loaderDir: path.dirname(game.scan.chosen.path), runtimeDir: config, addonDir: addon,
         addonDirectory: addon, activeConfigPath: path.join(config, 'ReShade.ini'), reshadeConfigDir: config,
         nrConfigDir: addon, logDirs: [config, addon], verified: true, blockers: [], needsRecovery: false };
@@ -313,6 +313,53 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     // selection. Superseded implicit selections move to the reviewed replacement;
     // an explicit request is rejected above instead of silently changing versions.
     return versionChoice(game, requestedVersion).version;
+  }
+
+  let catalogCache = null;
+  function coreVersionCatalog() {
+    try {
+      const file = path.join(payloadDir, 'bundle.json'), stat = fs.statSync(file);
+      const identity = `${file}:${stat.size}:${stat.mtimeMs}`;
+      if (catalogCache?.identity !== identity) {
+        const bundle = readBundle(payloadDir);
+        catalogCache = { identity, rows: Object.entries(bundle.versions || {}).filter(([id]) => !Object.hasOwn(bundle.supersededVersions || {}, id)).map(([id, row]) => ({
+        id, label: displayVersionLabel(row.label || id), notes: row.notes || '',
+        source: store.read().payloadSourcePath ? 'external' : 'bundled', compatibility: row.compatibility || null,
+        comparisonOnly: row.comparisonOnly === true, compatibilityEvidence: row.compatibilityEvidence || null,
+        ota: row.ota === true, addonOnly: false, ready: true, verification: 'metadata-only', deletable: false
+        })) };
+      }
+    } catch { catalogCache = null; }
+    const imported = [];
+    try {
+      for (const entry of fs.readdirSync(addonVersionsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !/^imported-[a-f0-9]{12}$/i.test(entry.name)) continue;
+        try {
+          const dir = path.join(addonVersionsDir, entry.name), file = path.join(dir, 'meta.json'), stat = fs.lstatSync(file);
+          if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink > 1 || stat.size > 1024 * 1024) continue;
+          const meta = JSON.parse(fs.readFileSync(file, 'utf8'));
+          if (!meta || meta.id !== entry.name || meta.label !== undefined && typeof meta.label !== 'string') continue;
+          const binary = path.join(dir, INSTALLED_NAMES.addon), binaryStat = fs.existsSync(binary) ? fs.lstatSync(binary) : null;
+          imported.push({ id: meta.id, label: displayVersionLabel(meta.label || meta.id), source: 'imported', addonOnly: true,
+            ota: meta.kind === 'ota', compatibility: meta.compatibility || null, comparisonOnly: meta.comparisonOnly === true,
+            compatibilityEvidence: meta.compatibilityEvidence || null, importedAt: meta.importedAt || null,
+            ready: Boolean(binaryStat?.isFile() && !binaryStat.isSymbolicLink() && binaryStat.nlink === 1), verification: 'metadata-only', deletable: true });
+        } catch { /* An invalid imported identity is not a selectable source. */ }
+      }
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    return structuredClone([...(catalogCache?.rows || []), ...imported]);
+  }
+  function installationDefaults(id, request = {}) {
+    const game = findGame(id), layout = gameLayout(game), manifest = readManifest(game.dir);
+    const api = request.api ?? game.apiOverride ?? 'auto';
+    const resolvedApi = api === 'auto' ? game.scan?.chosen?.detectedApiResolution?.api || game.scan?.chosen?.detectedApi || classifyApi(game.scan?.chosen) : api;
+    const feed = feeder.summary(game), vk = vulkan.summary(game);
+    const route = request.route || (feed.installed ? 'feeder' : vk.installed || resolvedApi === 'vulkan' ? 'vulkan' : 'native');
+    const routed = { ...game, addonVersion: layout.version || game.addonVersion, scan: { ...game.scan, chosen: { ...game.scan?.chosen, apiResolution: { api: resolvedApi } } } };
+    const installed = Boolean(layout.mode === 'external' || manifest || feed.installed || vk.installed);
+    return { api, version: route === 'feeder' ? request.version || feed.packageId : route === 'vulkan' ? request.version || vk.packageId : selectedVersionForGame(routed, request.version) || readBundle(payloadDir).defaultVersion,
+      deployment: request.deployment || (installed ? layout.mode : route === 'feeder' ? 'local' : 'external'),
+      loadingMode: request.loadingMode || (installed ? layout.loadingMode : 'proxy') || 'proxy', route };
   }
 
   function selectedPayload(game, requestedVersion = null) {
@@ -820,7 +867,14 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     const fromApi = current.mode === 'external' ? current.api : manifest?.deploymentApi || classifyApi(game.scan?.chosen);
     const sameApi = fromApi === api;
     let migration = null, migrationRequest = null, phases = [], changes = [], payload = null;
-    if (current.mode === 'external' && sameApi) {
+    if (!manifest && current.mode !== 'external' && request.mode === 'external') {
+      payload = selectedPayload(routed, targetVersion);
+      const support = assess(routed.scan, { allowDx11: payload.versionInfo?.compatibility === 'dx11' });
+      if (!support.supported) throw appError(support.code);
+      migrationRequest = { mode: 'external', loadingMode: request.loadingMode || 'proxy', api, version: payload.version, payload };
+      migration = await externalDeployment.preview(routed, migrationRequest, internal);
+      phases = ['external-install']; changes = migration.changes.map(row => ({ ...row, phase: 'external-install' }));
+    } else if (current.mode === 'external' && sameApi) {
       payload = targetVersion !== current.version || request.version ? await externalPayload(routed, targetVersion) : null;
       migrationRequest = { mode: request.mode, loadingMode: request.loadingMode, api, version: targetVersion, payload };
       migration = await externalDeployment.preview(routed, migrationRequest, internal);
@@ -832,6 +886,11 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       migration = await externalDeployment.preview(routed, migrationRequest, internal);
       phases = ['external-migration']; changes = migration.changes;
     } else {
+      if (current.mode !== 'external' && current.blockers?.length) {
+        const blocker = current.blockers[0];
+        throw Object.assign(new Error(typeof blocker === 'string' ? MESSAGES[blocker] || blocker : blocker.message),
+          { code: typeof blocker === 'string' ? blocker : blocker.code, details: { configured: current.configured, blockers: current.blockers } });
+      }
       if (current.mode === 'external') {
         migrationRequest = { mode: 'local' };
         migration = await externalDeployment.preview(game, migrationRequest, internal);
@@ -879,9 +938,11 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     const proposedLayout = request.mode === 'external' ? externalDeployment.location(routed) : gameLayout(game);
     const loadingMode = request.mode === 'external' ? request.loadingMode || current.loadingMode || 'proxy' : 'proxy';
     return { planId, gameId: id, fromMode: current.mode, toMode: request.mode, mode: request.mode,
-      version: targetVersion, api, loadingMode, phases, changes, layout: migration?.layout || { ...proposedLayout, loadingMode,
+      version: migration?.version || targetVersion, api, loadingMode, phases, changes, layout: migration?.layout || { ...proposedLayout, loadingMode,
         loaderPath: loadingMode === 'helper' ? path.join(proposedLayout.runtimeDir, 'ReShade64.dll') : null },
-      retainedAddons: migration?.retainedAddons || [], requiresFgRestore: migration?.requiresFgRestore === true,
+      configured: migration?.configured || current.configured, sourceLayout: migration?.sourceLayout || current.sourceLayout,
+      desired: migration?.desired || proposedLayout.desired, blockers: migration?.blockers || [], warnings: migration?.warnings || current.warnings || [],
+      retainedAddons: migration?.retainedAddons || [], inactiveAddons: migration?.inactiveAddons || [], requiresFgRestore: migration?.requiresFgRestore === true,
       requiresAntiCheat: Boolean(require('../core/install-guards').antiCheatPresent(game.dir)), requiresConfirmation: true, runtimeVerified: false };
   }
   async function applyDeployment(planId, consent = {}) {
@@ -902,7 +963,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         plan.migrationRequest);
     }
     try {
-      if (plan.phases.every(phase => ['external-update', 'external-migration', 'restore-local'].includes(phase))) {
+      if (plan.phases.every(phase => ['external-install', 'external-update', 'external-migration', 'restore-local'].includes(phase))) {
         settingChange = await gameApiSettings.apply(game, plan.request.api);
         await store.write({ gameOverrides: { ...preferenceBefore.gameOverrides, [preferenceKey]: {
           ...preferenceBefore.gameOverrides[preferenceKey], api: plan.request.api, apiExecutable: plan.exe } } });
@@ -942,6 +1003,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   }
   async function previewUninstall(id, request = {}, internal = {}) {
     const game = findGame(id), options = uninstallRequest(request);
+    if (externalDeployment.direct?.(game)) return { ...await externalDeployment.previewRemove(game, options.mode, internal), gameId: id };
     if (feederOwned(game) || vulkanOwned(game)) {
       const route = feederOwned(game) ? 'feeder' : 'vulkan';
       const result = await (route === 'feeder' ? feeder : vulkan).previewRestore(game);
@@ -1222,6 +1284,9 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     listGames: () => collectionFresh ? games.map(publicGame) : refresh(),
     dispose: () => library.dispose?.(),
     gameDirectory: id => findGame(id).dir,
+    assessmentSeed: id => { const game = findGame(id); return structuredClone({ ...publicGame(game), scan: game.scan }); },
+    installationDefaults,
+    coreVersionCatalog,
     getLayout: id => gameLayout(findGame(id)),
     gameModuleManifest,
     gameCoreIdentity,
@@ -1276,7 +1341,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     },
     dismissGame: async (id, options = {}) => {
       const game = findGame(id);
-      if (options.libraryOnly === true && (feederOwned(game) || vulkanOwned(game) || hasExternalRecord(game) || readManifest(game.dir)))
+      if (options.libraryOnly === true && (feederOwned(game) || vulkanOwned(game) || externalOwned(game) ||
+          fs.existsSync(path.join(game.dir, EXTERNAL_PENDING)) || readManifest(game.dir)))
         throw Object.assign(new Error('请先选择卸载方式并完成恢复，再移出游戏库。'), { code: 'LIBRARY_RESTORE_FIRST' });
       if (options.libraryOnly === true) {
         requireNoFeeder(game); requireKnownVulkanOwnership(game);
@@ -1507,6 +1573,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       const game = findGame(id);
       const { mode, removeSettings } = uninstallRequest(request);
       if (hasExternalRecord(game)) await externalDeployment.recover(game);
+      if (externalDeployment.direct?.(game)) return refreshAfterMutation(await externalDeployment.remove(game, mode, { allowAntiCheat: true }));
       if (externalOwned(game)) await externalDeployment.restore(game, { allowAntiCheat: true });
       if (feederOwned(game)) return refreshAfterMutation(await feeder.restore(game));
       requireNoFeeder(game);

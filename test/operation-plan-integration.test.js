@@ -15,6 +15,24 @@ const { specialFixture } = require('./helpers/operation-special-fixture');
 const confirm = plan => ({ confirm: true, fingerprint: plan.fingerprint });
 const installedHashes = f => Object.fromEntries(Object.entries(INSTALLED_NAMES).map(([kind, name]) => [kind, hashFile(path.join(f.exeDir, name))]));
 
+test('implicit superseded Core defaults stay consistent from the installation summary through preview and external Apply', async t => {
+  const f = await fixture(t), bundleFile = path.join(f.payload, 'bundle.json');
+  const bundle = JSON.parse(fs.readFileSync(bundleFile)); bundle.supersededVersions = { 'legacy-global-core': 'fixture-core-2' };
+  put(bundleFile, JSON.stringify(bundle)); await f.service.store.write({ addonVersion: 'legacy-global-core' });
+  const defaults = f.service.installationDefaults(f.id);
+  assert.equal(defaults.version, 'fixture-core-2'); assert.equal(defaults.deployment, 'external'); assert.equal(defaults.loadingMode, 'proxy');
+  const requests = [], originalPreview = f.service.previewDeployment;
+  f.service.previewDeployment = async (id, request, internal) => { requests.push(structuredClone(request)); return originalPreview(id, request, internal); };
+  const preview = await f.plans.preview(f.id, { api: 'dx12' });
+  assert.equal(Object.hasOwn(preview.request, 'version'), false);
+  assert.equal(preview.resolved.version, defaults.version);
+  assert.equal(preview.resolved.deployment, defaults.deployment); assert.equal(preview.resolved.loadingMode, defaults.loadingMode);
+  await f.plans.apply(preview.planId, confirm(preview));
+  assert.equal(f.layout().mode, 'external'); assert.equal(f.layout().version, defaults.version);
+  assert.equal(hashFile(path.join(f.layout().runtimeDir, INSTALLED_NAMES.addon)), hashFile(path.join(f.payload, 'versions/fixture-core-2', PAYLOAD_FILES.addon)));
+  assert.ok(requests.length >= 2 && requests.every(request => !Object.hasOwn(request, 'version')), 'only a user-supplied version is sent as an explicit selection');
+});
+
 for (const route of ['vulkan', 'feeder']) test(`OperationPlan ${route} fixed route recompiles the same file effects and restores through its real owner`, async t => {
   const f = await specialFixture(t, route);
   const request = { route, api: route === 'vulkan' ? 'vulkan' : 'dx12', version: f.special.packageId, deployment: route === 'vulkan' ? 'external' : 'local' };
@@ -26,6 +44,10 @@ for (const route of ['vulkan', 'feeder']) test(`OperationPlan ${route} fixed rou
   if (route === 'vulkan') { assert.equal(f.special.registry.size, 0); assert.equal(f.special.writes.length, 0); }
   assert.equal((await f.plans.apply(first.planId, confirm(first))).applied, true);
   const current = (await f.service.listGames())[0]; assert.equal(current[route].installed, true);
+  const seed = f.service.assessmentSeed(f.id), defaults = f.service.installationDefaults(f.id);
+  assert.equal(seed[route].installed, true); assert.equal(seed[route].packageId, f.special.packageId);
+  assert.equal(defaults.deployment, route === 'vulkan' ? 'external' : 'local');
+  assert.equal(f.service.getLayout(f.id).mode, defaults.deployment, 'the installation summary and its fixed owner use the same deployment mode');
   assert.equal(readManifest(f.gameRoot), null, 'a fixed route never installs the independent ordinary payload');
   if (route === 'vulkan') assert.equal(f.special.registry.size, 1);
   const repair = await f.plans.preview(f.id, request);

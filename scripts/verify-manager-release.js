@@ -14,7 +14,7 @@ const STARTUP_FILES = [
   'main.js', 'preload.js', 'src/product/startup-diagnostics.js', 'src/product/startup-elevation.js',
   'src/product/startup-handoff.js', 'src/renderer/index.html', 'src/renderer/startup-ui.js',
   'src/renderer/renderer.js', 'src/renderer/style.css', 'src/renderer/game-page-ui.js', 'src/renderer/game-page.css',
-  'src/product/operation-elevation.js', 'src/product/operation-worker.js', 'src/product/operation-plan.js',
+  'src/product/operation-elevation.js', 'src/product/operation-worker.js', 'src/product/operation-plan.js', 'src/product/operation-api.js',
   'src/product/game-assessment.js', 'src/product/launch-session.js', 'src/product/loading-helper.js'
 ];
 const RUNTIME_FILES = [
