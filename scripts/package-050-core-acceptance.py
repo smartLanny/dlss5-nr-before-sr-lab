@@ -89,6 +89,8 @@ def package(build: Path, output: Path) -> dict:
                 'production jitter migration Win32 persistence fresh processes and negative controls CPU',
                 'production PRE disabled jitter and POST resolved zero binding CPU',
                 'exact submitted fence event wait and scoped CPU timing',
+                'actual RR timing carrier original-call preservation and no Feature1 recovery borrowing CPU',
+                'full assembled Core timing probe phases reserved tails and negative controls CPU',
                 'production read-only post-boundary callbacks and identity isolation CPU',
                 'production RR depth cs_5_0 and private R32 WARP readback',
                 'validate-recommended-picture.py', 'recommended independent negative control',

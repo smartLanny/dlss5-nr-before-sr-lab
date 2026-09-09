@@ -101,6 +101,16 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-submitted-fence-wait.py') --compiler $Compiler --output (Join-Path $Output 'submitted-fence-event-cpu')
     if ($LASTEXITCODE) { throw 'Exact fence event wait and scoped CPU timing gate failed.' }
     $Checks.Add('exact submitted fence event wait and scoped CPU timing')
+    & python (Join-Path $PSScriptRoot 'validate-rr-timing.py') --compiler $Compiler --output (Join-Path $Output 'rr-timing-cpu')
+    if ($LASTEXITCODE) { throw 'Actual RR timing, original-call and no-recovery-borrowing gate failed.' }
+    $Checks.Add('actual RR timing carrier original-call preservation and no Feature1 recovery borrowing CPU')
+    & python (Join-Path $PSScriptRoot 'validate-feedback-timing-full.py') --compiler $Compiler --reshade $ReShade --source-root (Join-Path $Stage 'core') --output-dir (Join-Path $Output 'full-feedback-timing')
+    if ($LASTEXITCODE) { throw 'Full assembled Core timing/probe F8 writer gate failed.' }
+    foreach ($Control in @('omit-end-timing','old-probe-current','old-tail-reserve')) {
+        & python (Join-Path $PSScriptRoot 'validate-feedback-timing-full.py') --compiler $Compiler --reshade $ReShade --source-root (Join-Path $Stage 'core') --output-dir (Join-Path $Output "full-feedback-$Control") --negative-control $Control
+        if ($LASTEXITCODE) { throw "Full Core F8 negative control failed: $Control" }
+    }
+    $Checks.Add('full assembled Core timing probe phases reserved tails and negative controls CPU')
     foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py')) {
         & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
