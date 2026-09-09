@@ -721,6 +721,19 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImGui::TextWrapped("%s", ui(
             "This session only. NR keeps processing. Switching does not save settings or reset model history. Compare the same scene without taking image captures; already submitted readbacks may still finish. F8 text remains available.",
             "仅本次运行有效，NR 继续处理。切换不保存设置、不重置模型历史。请在同一场景对比，期间不要进行图像采集；此前已提交的读回仍会完成。仍可按 F8 获取文字反馈。"));
+#if NR_HAS_TIMING
+        SettingsSection(ui("Stutter comparison", "卡顿对照"));
+        const auto timing_policy=NrTimingPolicySnapshot();
+        int wait_mode=static_cast<int>(timing_policy.wait.mode);
+        if(ImGui::Combo(ui("Waiting strategy", "完成等待方式"),&wait_mode,
+                ui("Event (default)\0Legacy polling (comparison)\0","事件等待（默认）\0旧轮询（对照）\0")))
+            SetNrWaitComparison(static_cast<unsigned>(wait_mode));
+        if(ImGui::Button(ui("Start a new timing segment", "开始新计时段")))
+            SetNrWaitComparison(static_cast<unsigned>(wait_mode),true);
+        ImGui::TextWrapped("%s",ui(
+            "This session only; the completion checks and timeout stay the same. Start a new segment, close the menu and observe the same scene for 30 seconds, then press F8. Change one option at a time. CPU timings do not measure total input delay.",
+            "仅本次运行有效，完成条件和等待上限保持相同。开始新计时段后关闭菜单，在同一场景观察 30 秒，再按 F8。每次只改一个选项。CPU 耗时不等于完整输入延迟。"));
+#endif
         SettingsSection(ui("Image evidence", "图像证据"));
         DrawSimpleImageCaptureControls();
         SettingsSection(ui("Runtime observations", "运行诊断"));

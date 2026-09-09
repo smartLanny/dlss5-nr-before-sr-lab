@@ -47,6 +47,7 @@ void FeedbackAppend(FeedbackSession &s, const char *format, ...) {
 }
 
 #include "nr_compatibility_verdict_feedback.inl"
+#include "nr_timing_feedback.inl"
 
 const char *FeedbackStageBlockReason(const ChainConfig &config) {
     if (!config.enabled) return "NR disabled; current-chain screenshots and logs collected without enabling NR";
@@ -302,6 +303,9 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,nr_probe_policy::Name(probe_policy.mode),prefix,prefix,prefix);
 #endif
     const auto stored=SnapshotPostStoreEvidence();
+#if NR_HAS_TIMING
+    FeedbackAppendTiming(s,prefix);
+#endif
     const auto pre_stored=SnapshotPreStoreEvidence();
     const auto append_store=[&](const char *route,const NrPostStoreEvidence &sample) {
         const bool available=sample.samples!=0;

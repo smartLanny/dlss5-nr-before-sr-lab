@@ -894,12 +894,30 @@ void SetNrProbePolicy(nr_probe_policy::Mode mode) {
     EnterCriticalSection(&g_chain_cs);
     if (g_nr_probe_policy.Change(mode)) {
         const auto policy = NrProbePolicySnapshot();
+#if NR_HAS_TIMING
+        NrTimingSetProbePolicy(static_cast<unsigned>(policy.mode),policy.phase);
+#endif
         Log("[probe-test] phase=%llu mode=%s; automatic GPU diagnostics only; "
             "no INI write or model-history reset; pending readbacks retain their original phase.",
             static_cast<unsigned long long>(policy.phase), nr_probe_policy::Name(policy.mode));
     }
     LeaveCriticalSection(&g_chain_cs);
 }
+#if NR_HAS_TIMING
+void SetNrWaitComparison(unsigned mode, bool restart=false) {
+    if(mode>1)return;
+    EnterCriticalSection(&g_chain_cs);
+    const auto policy=NrTimingPolicySnapshot();
+    if((restart || policy.wait.mode!=mode) && policy.wait.phase!=UINT64_MAX){
+        const auto phase=policy.wait.phase+1;
+        NrTimingSetWaitPolicy(mode,phase);
+        Log("[timing-test] phase=%llu mode=%s; CPU timing segment restarted; "
+            "same 50ms budget, no INI write or model-history reset.",
+            static_cast<unsigned long long>(phase),mode?"polling":"event");
+    }
+    LeaveCriticalSection(&g_chain_cs);
+}
+#endif
 std::atomic<bool> g_enabled_fast{false};
 std::atomic<int> g_requested_mode_fast{2};
 std::atomic<ULONGLONG> g_next_config_poll_tick{0};
