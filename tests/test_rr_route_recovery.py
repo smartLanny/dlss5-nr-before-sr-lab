@@ -255,6 +255,7 @@ int g_native_calls = 0;
 struct FeatureRecord {{
     const NgxHandle* handle = nullptr;
     int feature_id = -1;
+    bool pending = false, retiring = false;
 }};
 NgxHandle g_sr_first, g_sr_second, g_rr, g_unknown;
 FeatureRecord FindFeature(const NgxHandle* handle) {{

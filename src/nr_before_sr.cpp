@@ -368,6 +368,7 @@ enum class BypassReason : int {
     RuntimeUnavailable,
     CodecUnavailable,
     QueueRetirementTimeout,
+    ExternalNrOwner,
 };
 
 std::atomic<int> g_last_bypass_reason{
@@ -460,6 +461,7 @@ const char *BypassReasonName(BypassReason reason) {
     case BypassReason::RayReconstructionGuard: return "rr-safe-bypass";
     case BypassReason::RuntimeRejected: return "runtime-rejected";
     case BypassReason::ShortFuseOwnsNr: return "shortfuse-owns-nr";
+    case BypassReason::ExternalNrOwner: return "external-feature18-owner";
     case BypassReason::GenericRenoDxConflict:
         return "renodx-dlss5-conflict";
     case BypassReason::LifecycleIsolation: return "lifecycle-isolation";
@@ -510,11 +512,14 @@ void SetBypassReason(BypassReason reason) {
     }
 }
 
+enum class NgxLayer : unsigned int { Unspecified, Dlss, Core, Dlssd, PrivateBridge };
+enum class NgxOwner : unsigned int { Game, PrivateNr, ExternalNr, Uncertain };
+
 struct FeatureRecord {
     const NgxHandle *handle = nullptr;
     int feature_id = -1;
-    // Every successful outermost Feature 1 Create receives a new generation,
-    // even if NGX reuses the same handle and dimensions. Engines commonly
+    // Each observed layer receives a generation; only a proven forwarding
+    // relation shares its outer generation. Engines commonly
     // rebuild DLSS when HDR, create flags or presentation contracts change;
     // carrying a Feature 18 context across that boundary is unsafe.
     unsigned long long generation = 0;
@@ -524,6 +529,17 @@ struct FeatureRecord {
     unsigned int out_height = 0;
     int create_flags = 0;
     int perf_quality = 0;
+    NgxLayer layer = NgxLayer::Unspecified;
+    NgxOwner owner = NgxOwner::Game;
+    const NgxHandle *context_handle = nullptr;
+    unsigned long long create_call = 0, create_parent = 0, create_root = 0;
+    unsigned long long observer_epoch = 0;
+    const void *create_list = nullptr; // comparison only during a live Create stack
+    bool pending = false;
+    bool retiring = false;
+    bool evaluate_observed = false;
+    bool create_contract_known = false;
+    const NgxParams *create_params = nullptr; // comparison only while Create stack is live
 };
 
 FeatureRecord g_features[64] = {};
@@ -559,8 +575,8 @@ std::atomic<unsigned int> g_rr_create_in_progress{0};
 // substituted against Feature 13 ownership changes. A lock-free last check is
 // insufficient: RR can begin after the check but before Feature 18 recording.
 SRWLOCK g_rr_ownership_gate = SRWLOCK_INIT;
-// 0 = free/transition, 1 = a modified Feature 1 transaction, 2 = a Feature 13
-// ownership transition. This is diagnostic state only; the SRW lock remains
+// 0 = free/transition, 1 = a modified Feature 1 transaction, 2 = an RR/external
+// NR transition or tracked carrier Release. Diagnostic only; the SRW lock remains
 // the synchronization primitive.
 std::atomic<int> g_rr_ownership_gate_owner{0};
 std::atomic<unsigned long long> g_feature1_transaction_busy_bypasses{0};
@@ -649,10 +665,12 @@ private:
     bool released_ = false;
 };
 
+void FreezeNgxLifecycleFault();
 void LatchRrOwnershipUncertain(const char *operation, const char *detail) {
     const bool already_uncertain = g_feature_tracking_uncertain.exchange(
         true, std::memory_order_acq_rel);
     if (!already_uncertain) {
+        FreezeNgxLifecycleFault();
         Log("RR ownership tracking became uncertain during %s: %s. All future "
             "Feature 1 processing fails closed for this process.",
             operation != nullptr ? operation : "an unknown operation",
@@ -676,13 +694,14 @@ void LatchConcurrentRrOwnershipChange(const char *operation) {
         "without waiting and any active modified Feature 1 transaction aborts");
 }
 
+#include "nr_ngx_lifecycle.inl"
+
 void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *params) {
-    // Classify every observed game-owned NGX handle so a direct call through a
-    // core export installed late can distinguish a genuinely pre-observer
-    // handle from ordinary Feature 11/auxiliary work created after coverage.
-    // Feature 18 is deliberately excluded: it is private add-on work and may
-    // be released while the chain owns its own lifecycle lock.
-    if (handle == nullptr || feature_id == 18) return;
+    // Preserve each actually observed NGX layer, including auxiliary features.
+    // No observer lookup reconstructs an identity from the pointer alone.
+    // Private Feature18 is identified by its explicit bridge call, never by
+    // the feature number alone. Registry publication never takes the chain lock.
+    if (handle == nullptr) return;
     FeatureRecord record = {};
     record.handle = handle;
     record.feature_id = feature_id;
@@ -694,97 +713,27 @@ void RememberFeature(const NgxHandle *handle, int feature_id, const NgxParams *p
                 g_feature_generation.fetch_add(1, std::memory_order_relaxed);
         }
     }
-    GetUInt(params, "Width", &record.width);
-    GetUInt(params, "Height", &record.height);
-    GetUInt(params, "OutWidth", &record.out_width);
-    GetUInt(params, "OutHeight", &record.out_height);
+    const bool known_width = GetUInt(params, "Width", &record.width);
+    const bool known_height = GetUInt(params, "Height", &record.height);
+    const bool known_out_width = GetUInt(params, "OutWidth", &record.out_width);
+    const bool known_out_height = GetUInt(params, "OutHeight", &record.out_height);
     GetInt(params, "DLSS.Feature.Create.Flags", &record.create_flags);
     GetInt(params, "PerfQualityValue", &record.perf_quality);
+    int flags_proof = 0, quality_proof = 0;
+    record.create_contract_known = known_width && known_height && known_out_width && known_out_height &&
+        GetInt(params, "DLSS.Feature.Create.Flags", &flags_proof) &&
+        GetInt(params, "PerfQualityValue", &quality_proof);
+    record.create_params = params;
 
-    AcquireSRWLockExclusive(&g_feature_lock);
-    std::size_t slot = 64;
-    for (std::size_t i = 0; i < 64; ++i) {
-        if (g_features[i].handle == handle) {
-            slot = i;
-            break;
-        }
-        if (slot == 64 && g_features[i].handle == nullptr) slot = i;
-    }
-    bool identity_conflict = false;
-    int conflicting_feature_id = -1;
-    if (slot < 64) {
-        const int previous_id = g_features[slot].feature_id;
-        if (g_features[slot].handle == handle && previous_id != feature_id) {
-            // Reusing one raw pointer for another feature without an observed
-            // successful Release makes RR ownership unknowable. Never silently
-            // decrement a live Feature 13 count and replace its identity.
-            identity_conflict = true;
-            conflicting_feature_id = previous_id;
-        } else {
-            if (previous_id != 13 && feature_id == 13) {
-                g_live_rr_handles.fetch_add(1, std::memory_order_release);
-            }
-            g_features[slot] = record;
-        }
-    } else {
-        const bool was_uncertain =
-            g_feature_tracking_uncertain.exchange(true,
-                                                   std::memory_order_release);
-        if (!was_uncertain) {
-            Log("Feature ownership table exhausted; all Feature 1 processing "
-                "will fail closed to native SR for this process.");
-        }
-    }
-    ReleaseSRWLockExclusive(&g_feature_lock);
-    if (identity_conflict) {
-        char detail[192] = {};
-        snprintf(detail, sizeof(detail),
-                 "raw handle %p changed feature identity %d -> %d without an "
-                 "observed successful Release",
-                 static_cast<const void *>(handle), conflicting_feature_id,
-                 feature_id);
-        LatchRrOwnershipUncertain("RememberFeature", detail);
-        return;
-    }
-    if (feature_id == 1 && slot < 64) {
-        Log("Feature 1 contract generation=%llu handle=%p create=%ux%u -> "
-            "%ux%u flags=%d quality=%d; all NR contracts will be rebuilt.",
-            record.generation, static_cast<const void *>(handle),
-            record.width, record.height, record.out_width, record.out_height,
-            record.create_flags, record.perf_quality);
-    }
+    PublishObservedFeature(record);
 }
 
 FeatureRecord FindFeature(const NgxHandle *handle) {
-    FeatureRecord result = {};
-    result.handle = nullptr;
-    result.feature_id = -1;
-    AcquireSRWLockShared(&g_feature_lock);
-    for (const auto &record : g_features) {
-        if (record.handle == handle) {
-            result = record;
-            break;
-        }
-    }
-    ReleaseSRWLockShared(&g_feature_lock);
-    return result;
+    return FindObservedFeature(handle);
 }
 
 void ForgetFeature(const NgxHandle *handle) {
-    AcquireSRWLockExclusive(&g_feature_lock);
-    for (auto &record : g_features) {
-        if (record.handle == handle) {
-            if (record.feature_id == 13) {
-                const unsigned int live =
-                    g_live_rr_handles.load(std::memory_order_relaxed);
-                if (live != 0)
-                    g_live_rr_handles.fetch_sub(1, std::memory_order_release);
-            }
-            record = {};
-            break;
-        }
-    }
-    ReleaseSRWLockExclusive(&g_feature_lock);
+    ForgetObservedFeature(handle, 0);
 }
 
 void LogUInt(const NgxParams *params, const char *key) {
@@ -992,13 +941,16 @@ bool LatchGenericRenoDxConflictIfLoaded() {
 
 bool OtherNrOwnerActive() {
     return g_shortfuse_nr_enabled.load(std::memory_order_acquire) ||
-           g_generic_renodx_conflict.load(std::memory_order_acquire);
+           g_generic_renodx_conflict.load(std::memory_order_acquire) ||
+           g_external_nr_handles.load(std::memory_order_acquire) != 0 ||
+           g_external_nr_creates.load(std::memory_order_acquire) != 0;
 }
 
 BypassReason OtherNrOwnerBypassReason() {
     return g_generic_renodx_conflict.load(std::memory_order_relaxed)
         ? BypassReason::GenericRenoDxConflict
-        : BypassReason::ShortFuseOwnsNr;
+        : (g_shortfuse_nr_enabled.load(std::memory_order_relaxed)
+            ? BypassReason::ShortFuseOwnsNr : BypassReason::ExternalNrOwner);
 }
 // 0 = legacy/no game jitter forwarding, 1 = forwarding requested but the
 // current Evaluate did not provide a legal finite pair, 2 = values were
@@ -4462,8 +4414,13 @@ void DestroyContext(NrContext &context) {
                 MarkLifecycleUncertain("NR retirement Release entry unavailable");
                 return;
             }
+            ScopedPrivateNrCall private_call(PrivateNrOperation::Release, context.nr_handle);
+            ScopedNgxLayer private_layer(NgxLayer::PrivateBridge);
+            const auto private_record = FindFeature(static_cast<const NgxHandle *>(context.nr_handle));
             const NgxResult result = g_nr_api.bridge_release(
                 g_nr_api.signed_release, context.nr_handle);
+            if (result == kNgxSuccess)
+                ForgetObservedFeature(static_cast<const NgxHandle *>(context.nr_handle), private_record.generation);
             Log("NR ReleaseFeature handle=%p result=0x%08X",
                 context.nr_handle, result);
             if (result != kNgxSuccess) {
@@ -4807,8 +4764,21 @@ void CollectCompletedDeltaStatsLocked() {
     }
 }
 
+void DrainNgxFeatureRetirementsLocked() {
+    NgxContextRetirement request{};
+    for (std::size_t i = 0; i < std::size(g_ngx_context_retirements) &&
+         TakeNgxContextRetirement(request); ++i) {
+        for (auto &context : g_contexts) {
+            if (context.sr_handle == request.handle &&
+                context.feature_generation == request.generation)
+                context.retired = true;
+        }
+    }
+}
+
 void CollectRetiredContextsLocked() {
     if (g_lifecycle_tracking_uncertain.load(std::memory_order_acquire)) return;
+    DrainNgxFeatureRetirementsLocked();
     CollectCompletedDeltaStatsLocked();
     for (auto &context : g_contexts) {
         if (context.sr_handle != nullptr && context.retired &&
@@ -8304,9 +8274,12 @@ NgxResult CreateSignedNrFeature(ID3D12GraphicsCommandList *command_list,
     NgxResult result = 0xBAD00005u;
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
+        ScopedPrivateNrCall private_call(PrivateNrOperation::Create);
+        ScopedNgxCreate observed(NgxLayer::PrivateBridge, command_list, 18, context.params);
         result = g_nr_api.bridge_create(
             g_nr_api.signed_create, command_list, 18,
             context.params, &handle);
+        observed.Finish(result, static_cast<const NgxHandle *>(handle), context.params);
     }
     if (result == kNgxSuccess && handle != nullptr) {
         context.instance_id = ++g_next_nr_instance_id;
@@ -8357,6 +8330,9 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                              const NgxHandle *sr_handle,
                              const NgxParams *sr_params,
                              const FeatureRecord &feature) {
+    // Proven layered aliases share one private history/context. Native NGX
+    // calls still receive the untouched handle supplied by their caller.
+    if (feature.context_handle) sr_handle = feature.context_handle;
     Substitution substitution = {};
     if (!g_config.enabled || g_config.mode != 2 || feature.feature_id != 1 ||
         command_list == nullptr || sr_params == nullptr) return substitution;
@@ -8778,6 +8754,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     NgxResult evaluated = 0xBAD00005u;
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
+        ScopedPrivateNrCall private_call(PrivateNrOperation::Evaluate, context->nr_handle);
         evaluated = g_nr_api.bridge_evaluate(
             g_nr_api.signed_evaluate, command_list, context->nr_handle,
             context->params, nullptr);
@@ -8900,6 +8877,9 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
                                   const NgxHandle *sr_handle,
                                   const NgxParams *sr_params,
                                   const FeatureRecord &feature, bool compatibility_fallback = false) {
+    // Proven layered aliases share one private history/context. Native NGX
+    // calls still receive the untouched handle supplied by their caller.
+    if (feature.context_handle) sr_handle = feature.context_handle;
     PostSrSubstitution substitution = {};
     if (!g_config.enabled ||
         !((g_config.mode == 1 || (compatibility_fallback && g_config.mode == 2)) && feature.feature_id == 1) ||
@@ -9354,6 +9334,7 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
     NgxResult evaluated = 0xBAD00005u;
     {
         ScopedSrwExclusive api_guard(&g_nr_api_lock);
+        ScopedPrivateNrCall private_call(PrivateNrOperation::Evaluate, context.nr_handle);
         evaluated = g_nr_api.bridge_evaluate(
             g_nr_api.signed_evaluate, command_list, context.nr_handle,
             context.params, nullptr);
@@ -9562,6 +9543,7 @@ void ObserveNullEvaluateHandle(const char *source) {
 
 void LatchUnknownFeatureHandle(const char *source, const char *detail,
                                ModuleObserverFault fault) {
+    FreezeNgxLifecycleFault();
     RecordModuleObserverFault(fault);
     g_module_observer_gap_detected.store(true, std::memory_order_release);
     LatchRrOwnershipUncertain(source, detail);
@@ -9898,6 +9880,7 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
     }
     if (g_create_hook_depth == 0 && feature_id == 1)
         PreflightFeature1LifecycleModules();
+    ScopedNgxCreate observed(NgxLayer::Dlss, command_list, feature_id, params);
     const unsigned int entry =
         g_wrapper_create_entries.fetch_add(1, std::memory_order_relaxed) + 1;
     if (entry <= 3) {
@@ -9915,17 +9898,19 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
     // NGX owns this output slot. Clear any caller residue before the native
     // call so a failed Create cannot masquerade as a returned live handle.
     if (outermost && out_handle != nullptr) *out_handle = nullptr;
-    const bool creating_rr = outermost && feature_id == 13;
-    ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
-    if (creating_rr && rr_gate.is_nested())
+    const bool creating_rr = feature_id == 13;
+    const bool creating_external_nr = feature_id == 18 && !observed.private_nr;
+    const bool changing_owner = creating_rr || creating_external_nr;
+    if (creating_external_nr) ++g_external_nr_creates;
+    ScopedRrOwnershipGate rr_gate(changing_owner, false, true);
+    if (changing_owner && rr_gate.is_nested())
         LatchNestedRrOwnershipChange("Feature 13 Create");
-    else if (creating_rr && rr_gate.acquisition_failed())
+    else if (changing_owner && rr_gate.acquisition_failed())
         LatchConcurrentRrOwnershipChange("Feature 13 Create");
     if (creating_rr)
         g_rr_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
     const NgxResult result = g_original_create(command_list, feature_id, params, out_handle);
     --g_create_hook_depth;
-    if (!outermost) return result;
     NgxHandle *handle = out_handle != nullptr ? *out_handle : nullptr;
     Log("CreateFeature id=%d (%s) result=0x%08X(%s) handle=%p",
         feature_id, FeatureName(feature_id), result, ResultName(result),
@@ -9935,15 +9920,14 @@ NgxResult HookCreate(ID3D12GraphicsCommandList *command_list, int feature_id,
                               result != kNgxSuccess)) {
         DumpCreate(params);
     }
-    if (result == kNgxSuccess && handle != nullptr) {
-        RememberFeature(handle, feature_id, params);
-        if (feature_id == 1)
-            g_feature1_successful_creates.fetch_add(1);
-    }
+    observed.Finish(result, handle, params);
+    if (creating_external_nr) --g_external_nr_creates;
+    if (outermost && result == kNgxSuccess && handle != nullptr && feature_id == 1)
+        g_feature1_successful_creates.fetch_add(1);
     FinishFeature1CreateObservation(
         creating_feature1, result, handle, observer_epoch_at_entry,
         "Feature 1 Create");
-    if (creating_rr &&
+    if (changing_owner &&
         ((result == kNgxSuccess) != (handle != nullptr))) {
         LatchRrOwnershipUncertain(
             "Feature 13 Create",
@@ -9968,6 +9952,7 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
         return CallNativeCreatePassThrough(
             g_original_core_create, command_list, feature_id, params, out_handle);
     }
+    ScopedNgxCreate observed(NgxLayer::Core, command_list, feature_id, params);
     const unsigned int entry =
         g_core_create_entries.fetch_add(1, std::memory_order_relaxed) + 1;
     if (entry <= 3) {
@@ -9983,17 +9968,19 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
     const unsigned long long observer_epoch_at_entry = creating_feature1
         ? g_module_observer_epoch.load() : 0;
     if (outermost && out_handle != nullptr) *out_handle = nullptr;
-    const bool creating_rr = outermost && feature_id == 13;
-    ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
-    if (creating_rr && rr_gate.is_nested())
+    const bool creating_rr = feature_id == 13;
+    const bool creating_external_nr = feature_id == 18 && !observed.private_nr;
+    const bool changing_owner = creating_rr || creating_external_nr;
+    if (creating_external_nr) ++g_external_nr_creates;
+    ScopedRrOwnershipGate rr_gate(changing_owner, false, true);
+    if (changing_owner && rr_gate.is_nested())
         LatchNestedRrOwnershipChange("core Feature 13 Create");
-    else if (creating_rr && rr_gate.acquisition_failed())
+    else if (changing_owner && rr_gate.acquisition_failed())
         LatchConcurrentRrOwnershipChange("core Feature 13 Create");
     if (creating_rr)
         g_rr_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
     const NgxResult result = g_original_core_create(command_list, feature_id, params, out_handle);
     --g_create_hook_depth;
-    if (!outermost) return result;
     NgxHandle *handle = out_handle != nullptr ? *out_handle : nullptr;
     Log("core CreateFeature id=%d (%s) result=0x%08X(%s) handle=%p",
         feature_id, FeatureName(feature_id), result, ResultName(result),
@@ -10003,15 +9990,14 @@ NgxResult HookCoreCreate(ID3D12GraphicsCommandList *command_list, int feature_id
                               feature_id == 18 || result != kNgxSuccess)) {
         DumpCreate(params);
     }
-    if (result == kNgxSuccess && handle != nullptr) {
-        RememberFeature(handle, feature_id, params);
-        if (feature_id == 1)
-            g_feature1_successful_creates.fetch_add(1);
-    }
+    observed.Finish(result, handle, params);
+    if (creating_external_nr) --g_external_nr_creates;
+    if (outermost && result == kNgxSuccess && handle != nullptr && feature_id == 1)
+        g_feature1_successful_creates.fetch_add(1);
     FinishFeature1CreateObservation(
         creating_feature1, result, handle, observer_epoch_at_entry,
         "core Feature 1 Create");
-    if (creating_rr &&
+    if (changing_owner &&
         ((result == kNgxSuccess) != (handle != nullptr))) {
         LatchRrOwnershipUncertain(
             "core Feature 13 Create",
@@ -10037,6 +10023,7 @@ NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
         return CallNativeCreatePassThrough(
             g_original_dlssd_create, command_list, feature_id, params, out_handle);
     }
+    ScopedNgxCreate observed(NgxLayer::Dlssd, command_list, feature_id, params);
     const unsigned int entry =
         g_dlssd_create_entries.fetch_add(1, std::memory_order_relaxed) + 1;
     if (entry <= 3) {
@@ -10052,18 +10039,20 @@ NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
     const unsigned long long observer_epoch_at_entry = creating_feature1
         ? g_module_observer_epoch.load() : 0;
     if (outermost && out_handle != nullptr) *out_handle = nullptr;
-    const bool creating_rr = outermost && feature_id == 13;
-    ScopedRrOwnershipGate rr_gate(creating_rr, false, true);
-    if (creating_rr && rr_gate.is_nested())
+    const bool creating_rr = feature_id == 13;
+    const bool creating_external_nr = feature_id == 18 && !observed.private_nr;
+    const bool changing_owner = creating_rr || creating_external_nr;
+    if (creating_external_nr) ++g_external_nr_creates;
+    ScopedRrOwnershipGate rr_gate(changing_owner, false, true);
+    if (changing_owner && rr_gate.is_nested())
         LatchNestedRrOwnershipChange("DLSSD Feature 13 Create");
-    else if (creating_rr && rr_gate.acquisition_failed())
+    else if (changing_owner && rr_gate.acquisition_failed())
         LatchConcurrentRrOwnershipChange("DLSSD Feature 13 Create");
     if (creating_rr)
         g_rr_create_in_progress.fetch_add(1, std::memory_order_acq_rel);
     const NgxResult result = g_original_dlssd_create(
         command_list, feature_id, params, out_handle);
     --g_create_hook_depth;
-    if (!outermost) return result;
 
     NgxHandle *handle = out_handle != nullptr ? *out_handle : nullptr;
     if (feature_id == 13 || result != kNgxSuccess) {
@@ -10072,15 +10061,14 @@ NgxResult HookDlssdCreate(ID3D12GraphicsCommandList *command_list,
             static_cast<void *>(handle));
         if (params != nullptr) DumpCreate(params);
     }
-    if (result == kNgxSuccess && handle != nullptr) {
-        RememberFeature(handle, feature_id, params);
-        if (feature_id == 1)
-            g_feature1_successful_creates.fetch_add(1);
-    }
+    observed.Finish(result, handle, params);
+    if (creating_external_nr) --g_external_nr_creates;
+    if (outermost && result == kNgxSuccess && handle != nullptr && feature_id == 1)
+        g_feature1_successful_creates.fetch_add(1);
     FinishFeature1CreateObservation(
         creating_feature1, result, handle, observer_epoch_at_entry,
         "DLSSD Feature 1 Create");
-    if (creating_rr &&
+    if (changing_owner &&
         ((result == kNgxSuccess) != (handle != nullptr))) {
         LatchRrOwnershipUncertain(
             "DLSSD Feature 13 Create",
@@ -10141,6 +10129,10 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
     const FeatureRecord feature = FindFeature(handle);
+    if (feature.pending || feature.retiring) {
+        SetBypassReason(BypassReason::LifecycleIsolation);
+        return original(command_list, handle, params, callback);
+    }
     if (feature.feature_id == 13) {
         SetBypassReason(BypassReason::RayReconstructionGuard);
         g_last_carrier_feature.store(13, std::memory_order_relaxed);
@@ -10500,6 +10492,7 @@ NgxResult CallNativeEvaluatePassThrough(EvaluateFeatureFn original,
 NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
                        const NgxHandle *handle, const NgxParams *params,
                        void *callback) {
+    ScopedNgxLayer observed_layer(NgxLayer::Dlss);
     if (!g_inside_ngx_evaluate &&
         (LatchGenericRenoDxConflictIfLoaded() ||
          g_shortfuse_nr_enabled.load(std::memory_order_acquire))) {
@@ -10508,13 +10501,24 @@ NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
         return CallNativeEvaluatePassThrough(
             g_original_evaluate, command_list, handle, params, callback);
     }
+    const auto observed_feature = FindFeature(handle);
+    const bool external_nr = observed_feature.owner == NgxOwner::ExternalNr && observed_feature.handle;
+    ScopedRrOwnershipGate external_gate(external_nr, false, true);
+    if (external_nr && external_gate.is_nested())
+        LatchNestedRrOwnershipChange("external Feature 18 Evaluate");
+    else if (external_nr && external_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("external Feature 18 Evaluate");
+    if (!g_inside_ngx_evaluate) ObserveNgxEvaluate(handle);
+    if (external_nr || IsPrivateNrEntry(PrivateNrOperation::Evaluate, handle))
+        return CallNativeEvaluatePassThrough(
+            g_original_evaluate, command_list, handle, params, callback);
     if (!g_inside_ngx_evaluate && handle == nullptr)
         ObserveNullEvaluateHandle("primary Feature Evaluate");
     if (IsUnknownOutermostEvaluateHandle(handle)) {
         LatchUnknownFeatureHandle(
             "primary Feature Evaluate",
-            "a non-null handle created before the primary nvngx_dlss "
-            "observer reached its Evaluate entry point",
+            "a non-null handle has no proven lifecycle at the primary "
+            "nvngx_dlss Evaluate entry point",
             ModuleObserverFault::UnknownEvaluate);
         return CallNativeEvaluatePassThrough(
             g_original_evaluate, command_list, handle, params, callback);
@@ -10534,6 +10538,7 @@ NgxResult HookEvaluate(ID3D12GraphicsCommandList *command_list,
 NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
                         const NgxHandle *handle, const NgxParams *params,
                         void *callback) {
+    ScopedNgxLayer observed_layer(NgxLayer::Dlss);
     if (!g_inside_ngx_evaluate &&
         (LatchGenericRenoDxConflictIfLoaded() ||
          g_shortfuse_nr_enabled.load(std::memory_order_acquire))) {
@@ -10542,13 +10547,24 @@ NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
         return CallNativeEvaluatePassThrough(
             g_original_evaluate_c, command_list, handle, params, callback);
     }
+    const auto observed_feature = FindFeature(handle);
+    const bool external_nr = observed_feature.owner == NgxOwner::ExternalNr && observed_feature.handle;
+    ScopedRrOwnershipGate external_gate(external_nr, false, true);
+    if (external_nr && external_gate.is_nested())
+        LatchNestedRrOwnershipChange("external Feature 18 Evaluate");
+    else if (external_nr && external_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("external Feature 18 Evaluate");
+    if (!g_inside_ngx_evaluate) ObserveNgxEvaluate(handle);
+    if (external_nr || IsPrivateNrEntry(PrivateNrOperation::Evaluate, handle))
+        return CallNativeEvaluatePassThrough(
+            g_original_evaluate_c, command_list, handle, params, callback);
     if (!g_inside_ngx_evaluate && handle == nullptr)
         ObserveNullEvaluateHandle("primary Feature Evaluate_C");
     if (IsUnknownOutermostEvaluateHandle(handle)) {
         LatchUnknownFeatureHandle(
             "primary Feature Evaluate_C",
-            "a non-null handle created before the primary nvngx_dlss "
-            "observer reached its Evaluate_C entry point",
+            "a non-null handle has no proven lifecycle at the primary "
+            "nvngx_dlss Evaluate_C entry point",
             ModuleObserverFault::UnknownEvaluate);
         return CallNativeEvaluatePassThrough(
             g_original_evaluate_c, command_list, handle, params, callback);
@@ -10565,6 +10581,7 @@ NgxResult HookEvaluateC(ID3D12GraphicsCommandList *command_list,
 NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
                            const NgxHandle *handle, const NgxParams *params,
                            void *callback) {
+    ScopedNgxLayer observed_layer(NgxLayer::Core);
     if (!g_inside_ngx_evaluate &&
         (LatchGenericRenoDxConflictIfLoaded() ||
          g_shortfuse_nr_enabled.load(std::memory_order_acquire))) {
@@ -10577,6 +10594,17 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
     // created in the sub-second load-to-rescan interval. All post-hook game
     // creates (including Feature 11) are classified by RememberFeature, so an
     // unknown outermost core handle is concrete evidence of an observer gap.
+    const auto observed_feature = FindFeature(handle);
+    const bool external_nr = observed_feature.owner == NgxOwner::ExternalNr && observed_feature.handle;
+    ScopedRrOwnershipGate external_gate(external_nr, false, true);
+    if (external_nr && external_gate.is_nested())
+        LatchNestedRrOwnershipChange("external Feature 18 Evaluate");
+    else if (external_nr && external_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("external Feature 18 Evaluate");
+    if (!g_inside_ngx_evaluate) ObserveNgxEvaluate(handle);
+    if (external_nr || IsPrivateNrEntry(PrivateNrOperation::Evaluate, handle))
+        return CallNativeEvaluatePassThrough(
+            g_original_core_evaluate, command_list, handle, params, callback);
     if (!g_inside_ngx_evaluate && handle == nullptr)
         ObserveNullEvaluateHandle("direct core Feature Evaluate");
     if (handle != nullptr && !g_inside_ngx_evaluate &&
@@ -10584,8 +10612,8 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
         FindFeature(handle).handle == nullptr) {
         LatchUnknownFeatureHandle(
             "direct late-core Feature Evaluate",
-            "a non-null handle created before the late _nvngx lifecycle "
-            "observer reached its distinct Evaluate entry point",
+            "a non-null handle has no proven layer lifecycle at the "
+            "distinct _nvngx Evaluate entry point",
             ModuleObserverFault::UnknownEvaluate);
         return CallNativeEvaluatePassThrough(
             g_original_core_evaluate, command_list, handle, params, callback);
@@ -10605,6 +10633,7 @@ NgxResult HookCoreEvaluate(ID3D12GraphicsCommandList *command_list,
 NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
                             const NgxHandle *handle, const NgxParams *params,
                             void *callback) {
+    ScopedNgxLayer observed_layer(NgxLayer::Dlssd);
     if (!g_inside_ngx_evaluate &&
         (LatchGenericRenoDxConflictIfLoaded() ||
          g_shortfuse_nr_enabled.load(std::memory_order_acquire))) {
@@ -10618,6 +10647,17 @@ NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
     // concrete signal that the startup-deferred admission rule needs in order
     // to fail closed without penalizing games that merely load the module a
     // few seconds before their first Feature 1 Create.
+    const auto observed_feature = FindFeature(handle);
+    const bool external_nr = observed_feature.owner == NgxOwner::ExternalNr && observed_feature.handle;
+    ScopedRrOwnershipGate external_gate(external_nr, false, true);
+    if (external_nr && external_gate.is_nested())
+        LatchNestedRrOwnershipChange("external Feature 18 Evaluate");
+    else if (external_nr && external_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("external Feature 18 Evaluate");
+    if (!g_inside_ngx_evaluate) ObserveNgxEvaluate(handle);
+    if (external_nr || IsPrivateNrEntry(PrivateNrOperation::Evaluate, handle))
+        return CallNativeEvaluatePassThrough(
+            g_original_dlssd_evaluate, command_list, handle, params, callback);
     if (!g_inside_ngx_evaluate && handle == nullptr)
         ObserveNullEvaluateHandle("direct DLSSD Feature Evaluate");
     if (handle != nullptr && !g_inside_ngx_evaluate &&
@@ -10646,6 +10686,7 @@ NgxResult HookDlssdEvaluate(ID3D12GraphicsCommandList *command_list,
 }
 
 NgxResult HookRelease(NgxHandle *handle) {
+    ScopedNgxLayer observed_layer(NgxLayer::Dlss);
     if (g_release_hook_depth == 0 &&
         LatchGenericRenoDxConflictIfLoaded())
         return g_original_release(handle);
@@ -10655,6 +10696,7 @@ NgxResult HookRelease(NgxHandle *handle) {
         return g_original_release(handle);
     const bool outermost = g_release_hook_depth++ == 0;
     const FeatureRecord feature = FindFeature(handle);
+    ObserveNgxRelease(handle);
     if (outermost && handle != nullptr && feature.handle == nullptr) {
         LatchUnknownFeatureHandle(
             "primary Feature Release",
@@ -10663,15 +10705,14 @@ NgxResult HookRelease(NgxHandle *handle) {
             "proved",
             ModuleObserverFault::UnknownRelease);
     }
-    const bool releasing_rr = outermost && feature.feature_id == 13;
-    ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
-    if (releasing_rr && rr_gate.is_nested())
-        LatchNestedRrOwnershipChange("Feature 13 Release");
-    else if (releasing_rr && rr_gate.acquisition_failed())
-        LatchConcurrentRrOwnershipChange("Feature 13 Release");
+    const bool changing_owner = feature.feature_id == 1 || feature.feature_id == 13 || feature.owner == NgxOwner::ExternalNr;
+    ScopedRrOwnershipGate rr_gate(changing_owner, false, true);
+    if (changing_owner && rr_gate.is_nested())
+        LatchNestedRrOwnershipChange("tracked Feature Release");
+    else if (changing_owner && rr_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("tracked Feature Release");
     const NgxResult result = g_original_release(handle);
     --g_release_hook_depth;
-    if (!outermost) return result;
     if (feature.handle != nullptr) {
         Log("ReleaseFeature handle=%p id=%d (%s)", static_cast<void *>(handle),
             feature.feature_id, FeatureName(feature.feature_id));
@@ -10681,17 +10722,15 @@ NgxResult HookRelease(NgxHandle *handle) {
         // observer bookkeeping and must not make a concurrent Feature 11
         // release contend with the render-chain critical section.
         if (feature.feature_id == 1) {
-            EnterCriticalSection(&g_chain_cs);
-            RetireContextForHandle(handle);
-            LeaveCriticalSection(&g_chain_cs);
+            QueueNgxContextRetirement(feature.context_handle, feature.generation);
         }
-        ForgetFeature(handle);
+        ForgetObservedFeature(handle, feature.generation);
     } else if (feature.handle != nullptr) {
         Log("ReleaseFeature failed for tracked handle=%p result=0x%08X (%s); "
             "ownership and derived resources retained.",
             static_cast<void *>(handle), result, ResultName(result));
-        if (feature.feature_id == 13) {
-            g_feature_tracking_uncertain.store(true, std::memory_order_release);
+        if (feature.feature_id == 13 || feature.owner == NgxOwner::ExternalNr) {
+            LatchRrOwnershipUncertain("NGX Release", "tracked RR or external NR Release failed");
             Log("RR handle release failed; all Feature 1 processing will remain "
                 "fail-closed for this process.");
         }
@@ -10700,6 +10739,7 @@ NgxResult HookRelease(NgxHandle *handle) {
 }
 
 NgxResult HookCoreRelease(NgxHandle *handle) {
+    ScopedNgxLayer observed_layer(NgxLayer::Core);
     if (g_release_hook_depth == 0 &&
         LatchGenericRenoDxConflictIfLoaded())
         return g_original_core_release(handle);
@@ -10709,6 +10749,7 @@ NgxResult HookCoreRelease(NgxHandle *handle) {
         return g_original_core_release(handle);
     const bool outermost = g_release_hook_depth++ == 0;
     const FeatureRecord feature = FindFeature(handle);
+    ObserveNgxRelease(handle);
     if (outermost && handle != nullptr && feature.handle == nullptr) {
         LatchUnknownFeatureHandle(
             "direct core Feature Release",
@@ -10716,32 +10757,29 @@ NgxResult HookCoreRelease(NgxHandle *handle) {
             "the distinct _nvngx Release entry point",
             ModuleObserverFault::UnknownRelease);
     }
-    const bool releasing_rr = outermost && feature.feature_id == 13;
-    ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
-    if (releasing_rr && rr_gate.is_nested())
-        LatchNestedRrOwnershipChange("core Feature 13 Release");
-    else if (releasing_rr && rr_gate.acquisition_failed())
-        LatchConcurrentRrOwnershipChange("core Feature 13 Release");
+    const bool changing_owner = feature.feature_id == 1 || feature.feature_id == 13 || feature.owner == NgxOwner::ExternalNr;
+    ScopedRrOwnershipGate rr_gate(changing_owner, false, true);
+    if (changing_owner && rr_gate.is_nested())
+        LatchNestedRrOwnershipChange("tracked core Feature Release");
+    else if (changing_owner && rr_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("tracked core Feature Release");
     const NgxResult result = g_original_core_release(handle);
     --g_release_hook_depth;
-    if (!outermost) return result;
     if (feature.handle != nullptr) {
         Log("core ReleaseFeature handle=%p id=%d (%s)", static_cast<void *>(handle),
             feature.feature_id, FeatureName(feature.feature_id));
     }
     if (result == kNgxSuccess || result == kNgxFeatureNotFound) {
         if (feature.feature_id == 1) {
-            EnterCriticalSection(&g_chain_cs);
-            RetireContextForHandle(handle);
-            LeaveCriticalSection(&g_chain_cs);
+            QueueNgxContextRetirement(feature.context_handle, feature.generation);
         }
-        ForgetFeature(handle);
+        ForgetObservedFeature(handle, feature.generation);
     } else if (feature.handle != nullptr) {
         Log("core ReleaseFeature failed for tracked handle=%p result=0x%08X (%s); "
             "ownership and derived resources retained.",
             static_cast<void *>(handle), result, ResultName(result));
-        if (feature.feature_id == 13) {
-            g_feature_tracking_uncertain.store(true, std::memory_order_release);
+        if (feature.feature_id == 13 || feature.owner == NgxOwner::ExternalNr) {
+            LatchRrOwnershipUncertain("NGX Release", "tracked RR or external NR Release failed");
             Log("RR handle release failed; all Feature 1 processing will remain "
                 "fail-closed for this process.");
         }
@@ -10750,6 +10788,7 @@ NgxResult HookCoreRelease(NgxHandle *handle) {
 }
 
 NgxResult HookDlssdRelease(NgxHandle *handle) {
+    ScopedNgxLayer observed_layer(NgxLayer::Dlssd);
     if (g_release_hook_depth == 0 &&
         LatchGenericRenoDxConflictIfLoaded())
         return g_original_dlssd_release(handle);
@@ -10759,6 +10798,7 @@ NgxResult HookDlssdRelease(NgxHandle *handle) {
         return g_original_dlssd_release(handle);
     const bool outermost = g_release_hook_depth++ == 0;
     const FeatureRecord feature = FindFeature(handle);
+    ObserveNgxRelease(handle);
     if (outermost && handle != nullptr && feature.handle == nullptr) {
         LatchUnknownFeatureHandle(
             "direct DLSSD Feature Release",
@@ -10766,15 +10806,14 @@ NgxResult HookDlssdRelease(NgxHandle *handle) {
             "the distinct nvngx_dlssd Release entry point",
             ModuleObserverFault::UnknownRelease);
     }
-    const bool releasing_rr = outermost && feature.feature_id == 13;
-    ScopedRrOwnershipGate rr_gate(releasing_rr, false, true);
-    if (releasing_rr && rr_gate.is_nested())
-        LatchNestedRrOwnershipChange("DLSSD Feature 13 Release");
-    else if (releasing_rr && rr_gate.acquisition_failed())
-        LatchConcurrentRrOwnershipChange("DLSSD Feature 13 Release");
+    const bool changing_owner = feature.feature_id == 1 || feature.feature_id == 13 || feature.owner == NgxOwner::ExternalNr;
+    ScopedRrOwnershipGate rr_gate(changing_owner, false, true);
+    if (changing_owner && rr_gate.is_nested())
+        LatchNestedRrOwnershipChange("tracked DLSSD Feature Release");
+    else if (changing_owner && rr_gate.acquisition_failed())
+        LatchConcurrentRrOwnershipChange("tracked DLSSD Feature Release");
     const NgxResult result = g_original_dlssd_release(handle);
     --g_release_hook_depth;
-    if (!outermost) return result;
     if (feature.handle != nullptr) {
         Log("DLSSD ReleaseFeature handle=%p id=%d (%s)",
             static_cast<void *>(handle), feature.feature_id,
@@ -10783,18 +10822,16 @@ NgxResult HookDlssdRelease(NgxHandle *handle) {
     if ((result == kNgxSuccess || result == kNgxFeatureNotFound) &&
         feature.handle != nullptr) {
         if (feature.feature_id == 1) {
-            EnterCriticalSection(&g_chain_cs);
-            RetireContextForHandle(handle);
-            LeaveCriticalSection(&g_chain_cs);
+            QueueNgxContextRetirement(feature.context_handle, feature.generation);
         }
-        ForgetFeature(handle);
+        ForgetObservedFeature(handle, feature.generation);
     } else if (feature.handle != nullptr) {
         Log("DLSSD ReleaseFeature failed for tracked handle=%p "
             "result=0x%08X (%s); ownership retained.",
             static_cast<void *>(handle), result, ResultName(result));
-        if (feature.feature_id == 13) {
+        if (feature.feature_id == 13 || feature.owner == NgxOwner::ExternalNr) {
             LatchRrOwnershipUncertain(
-                "DLSSD Feature 13 Release",
+                "tracked DLSSD Feature Release",
                 "the native release failed for a tracked RR handle");
         }
     }
