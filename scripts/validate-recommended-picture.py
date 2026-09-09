@@ -35,7 +35,7 @@ FIELDS = {
  'light_broad':'LightBroad', 'light_dark':'LightDark',
  'light_reflection':'LightReflection', 'light_structure':'LightStructure', 'light_glow':'LightGlow',
  'light_style_version':'LightStyleVersion','light_preset':'LightPreset','light_preset_color':'LightPresetColor',
- 'light_preview':None,
+ 'light_preview':None, 'light_control_mode':'LightControlMode',
 }
 LIGHT_FIELDS={k for k in FIELDS if k.startswith('light_')}
 PRESERVED={'enabled','depth_mode','r8_output_encoding','jitter_mode','perf_epoch'}
@@ -44,7 +44,7 @@ PRESERVED={'enabled','depth_mode','r8_output_encoding','jitter_mode','perf_epoch
 # current model recommendation and the protection gate enabled.
 RECOMMENDED_OVERRIDES={
  'work_mode':'0', 'custom_work_scale':'1.0', 'intensity':'1.2',
- 'color_protection':'1', 'lighting_lock':'0.2',
+ 'color_protection':'1', 'lighting_lock':'0.2', 'light_control_mode':'1',
 }
 IDENTIFIER=r'[a-z_][a-z0-9_]*'
 
@@ -70,7 +70,7 @@ def check_wiring(cpp,ui,helper):
  assert 'ApplyConfig(next, "ReShade simplified settings")' in overlay
  reset=definition(helper,'void RestoreRecommendedPictureSettings(')
  assert 'nr_light_style::Reset(next);' in reset
- assert set(re.findall(r'next\.('+IDENTIFIER+r')\s*=',reset))==set(FIELDS)-LIGHT_FIELDS
+ assert set(re.findall(r'next\.('+IDENTIFIER+r')\s*=',reset))==(set(FIELDS)-LIGHT_FIELDS)|{'light_control_mode'}
  for forbidden in ['g_config','SaveConfig(','ApplyConfig(','Release','.store(','CreateFeature']:
   assert forbidden not in reset,forbidden
 

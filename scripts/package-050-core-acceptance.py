@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline4'
+VERSION = 'beta0.5-dline5'
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -46,6 +46,9 @@ def package(build: Path, output: Path) -> dict:
     if (result.get('schema') != 'nr050-focused-acceptance-v1' or result.get('success') is not True
             or result.get('warp_verified') is not True or result.get('carrier_compiled') is not False
             or result.get('post_light_style_warp_verified') is not True
+            or result.get('directional_light_style_warp_verified') is not True
+            or result.get('directional_baseline_source_sha256') != 'c681b208ef320b1b9fbd497e3c46485bf3836296a084cd4a741a2b179f1c8208'
+            or result.get('directional_baseline_manifest_sha256') != '212d863167d4b55b5cc613528a2df68600243c73d07195c9136a6fe8b43c18c6'
             or result.get('nvidia_feature18_verified') is not False
             or result.get('game_runtime_verified') is not False
             or result.get('five_percent_performance_gate') != 'unmeasured'
@@ -54,6 +57,8 @@ def package(build: Path, output: Path) -> dict:
             or manifest['integration'].get('version') != VERSION):
         raise ValueError('Exact-source focused acceptance evidence required; no capability promotion.')
     required = {'canonical pinned full-source staging', 'validate-work-config.py',
+                'frozen generated D4 directional reference source',
+                'directional light production scalar and independent negative controls',
                 'validate-color-policy.py', 'validate-bug-sweep.py',
                 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py',
                 'tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py',
@@ -99,13 +104,13 @@ def package(build: Path, output: Path) -> dict:
     artifacts = result['artifacts']
     addons = sorted(n for n in artifacts if n.endswith('.addon64') and VERSION in n)
     if len(addons) != 2 or set(artifacts) != set(addons + ['nrchain_nvngx.dll']):
-        raise ValueError('Expected two dline4 language cores and only the owned bridge.')
+        raise ValueError('Expected two dline5 language cores and only the owned bridge.')
     binaries = {name: checked_file(binary_root, name, entry['sha256']) for name, entry in artifacts.items()}
     for name, data in binaries.items():
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/DLINE4_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
+    guide = (ROOT / 'docs/testing/DLINE5_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     packages = []
     for addon in addons:

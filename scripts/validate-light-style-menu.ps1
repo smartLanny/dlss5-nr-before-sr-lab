@@ -12,8 +12,9 @@ param(
     [string]$ReShadeDllPath,
     [string]$ReShadeSha256 = '0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7',
     [string]$ExpectedSdkCommit = '4a50d1eddace85734871d91792ff214f13f66c01',
-    [string]$ExpectedVersion = 'beta0.5-dline4',
-    [string]$ExpectedPeVersion = '0.5.1.4'
+    [string]$ExpectedVersion = 'beta0.5-dline5',
+    [string]$ExpectedPeVersion = '0.5.1.5',
+    [ValidateSet(0,1)][int]$LightControlMode = 1
 )
 
 # Real hidden-host integration, not a game or preset-click simulation. Generated
@@ -34,6 +35,7 @@ $report = [ordered]@{
     light_style_group_visual_verified = $false; preset_clicks_verified = $false
     nvidia_feature18_verified = $false; game_verified = $false
     visual_review_required = $true; frames = 0; overlay_events = 0
+    fixture_light_control_mode = $LightControlMode
 }
 function Hash([string]$path) { return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
 function Resolve-File([string]$path) {
@@ -155,6 +157,7 @@ WorkMode=0
 CustomWorkScale=1
 '@ | Set-Content -LiteralPath (Join-Path $run 'nr_before_sr.ini') -Encoding utf8
     $iniPath = Join-Path $run 'nr_before_sr.ini'
+    Add-Content -LiteralPath $iniPath -Value ('LightControlMode=' + $LightControlMode) -Encoding utf8
     $iniBefore = Hash $iniPath
     $child = Start-Process -FilePath (Join-Path $run 'menu-host.exe') -WorkingDirectory $run -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $run 'host.log') -RedirectStandardError (Join-Path $run 'host.err.log')

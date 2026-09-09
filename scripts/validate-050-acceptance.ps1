@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$ToolchainRoot,
     [Parameter(Mandatory=$true)][string]$ReShadeSourceRoot,
     [Parameter(Mandatory=$true)][string]$BaselineSource,
+    [Parameter(Mandatory=$true)][string]$DirectionalBaselineSource,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [switch]$RunWarp
 )
@@ -20,6 +21,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve source commit.' }
 $Toolchain = (Resolve-Path -LiteralPath $ToolchainRoot).Path
 $ReShade = (Resolve-Path -LiteralPath $ReShadeSourceRoot).Path
 $Baseline = (Resolve-Path -LiteralPath $BaselineSource).Path
+$DirectionalBaseline = (Resolve-Path -LiteralPath $DirectionalBaselineSource).Path
+$DirectionalManifest = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $DirectionalBaseline))) 'source-manifest.json'
 $Compiler = Join-Path $Toolchain 'bin/x86_64-w64-mingw32-clang++.exe'
 if (-not (Test-Path -LiteralPath $Compiler -PathType Leaf)) { throw 'Compiler missing.' }
 $ReShadeCommit = (& git -C $ReShade rev-parse HEAD).Trim()
@@ -44,11 +47,14 @@ try {
     $env:POST_COMPAT_CORE_SOURCE = Join-Path $Root 'src/nr_before_sr.cpp'
     $env:NR_RESHADE_ROOT = $ReShade
     $env:NR_LLVM_BIN = Join-Path $Toolchain 'bin'
+    if ((Get-FileHash -LiteralPath $DirectionalBaseline -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'c681b208ef320b1b9fbd497e3c46485bf3836296a084cd4a741a2b179f1c8208' -or
+        (Get-FileHash -LiteralPath $DirectionalManifest -Algorithm SHA256).Hash.ToLowerInvariant() -ne '212d863167d4b55b5cc613528a2df68600243c73d07195c9136a6fe8b43c18c6') { throw 'The generated D4 reference does not match the frozen acceptance source.' }
+    $Checks.Add('frozen generated D4 directional reference source')
     & python (Join-Path $PSScriptRoot 'prepare-multi-api-beta.py') --core $Root --upstream $UpstreamRoot --output $Stage
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline4') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline5') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py')) {
         & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler
@@ -97,6 +103,9 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-post-light-style.py') --compiler $Compiler --negative-control
     if ($LASTEXITCODE) { throw 'Legacy-post four-region scalar contract failed.' }
     $Checks.Add('legacy-post production scalar and four negative controls')
+    & python (Join-Path $PSScriptRoot 'validate-directional-light-style.py') --compiler $Compiler --negative-control
+    if ($LASTEXITCODE) { throw 'Directional light production scalar/source contract failed.' }
+    $Checks.Add('directional light production scalar and independent negative controls')
     & python (Join-Path $PSScriptRoot 'validate-post-transform.py') --negative-control
     if ($LASTEXITCODE) { throw 'Post transformation provenance negative controls failed.' }
     $Checks.Add('post transformation exact adapter pair and negative controls')
@@ -104,7 +113,7 @@ try {
     $Checks.Add('all staged production SM5 entries compiled')
     & (Join-Path $Stage 'core/scripts/build.ps1') -ToolchainRoot $Toolchain -ReShadeSourceRoot $ReShade
     $Checks.Add('full staged bilingual Core and nrchain compile/link')
-    & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -PostLightStyle -CompileOnly
+    & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -DirectionalBaselineSource $DirectionalBaseline -PostLightStyle -CompileOnly
     $Checks.Add('generated legacy-post light fixture compiled without GPU dispatch')
     & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain -FirstRecordingOnly
     $Checks.Add('first-recording real Create Capture Restore native API')
@@ -117,9 +126,9 @@ try {
         $Checks.Add('production RR depth cs_5_0 and private R32 WARP readback')
         # The caller owns the serial GPU/WARP slot. Baseline must be the actual
         # frozen reference source, never a synthetic replacement of the model.
-        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -PostLightStyle
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -DirectionalBaselineSource $DirectionalBaseline -PostLightStyle
         $Checks.Add('legacy-post light controls production WARP; synthetic Neural only')
-        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -LightStyle
+        & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -DirectionalBaselineSource $DirectionalBaseline -LightStyle
         $Checks.Add('four-region light controls production WARP; synthetic Neural only')
         & (Join-Path $PSScriptRoot 'validate-codec-gpu.ps1') -ToolchainRoot $Toolchain -SourceRoot (Join-Path $Stage 'core') -BaselineSource $Baseline -CombinedLowGrid
         $Checks.Add('combined low-grid WARP fixture; constructed neural planes, no NVIDIA NR')
@@ -129,12 +138,12 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline4*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline4 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline5*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline5 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 4) { throw 'Wrong numeric PE version.' }
+            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 5) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }
@@ -155,10 +164,13 @@ try {
         success=($null -eq $Failure); failure=$Failure; checks=@($Checks.ToArray());
         source_manifest_sha256=$(if (Test-Path -LiteralPath (Join-Path $Stage 'source-manifest.json')) { (Get-FileHash -LiteralPath (Join-Path $Stage 'source-manifest.json')).Hash.ToLowerInvariant() } else { $null });
         baseline_source_sha256=(Get-FileHash -LiteralPath $Baseline).Hash.ToLowerInvariant();
+        directional_baseline_source_sha256=(Get-FileHash -LiteralPath $DirectionalBaseline).Hash.ToLowerInvariant();
+        directional_baseline_manifest_sha256=(Get-FileHash -LiteralPath $DirectionalManifest).Hash.ToLowerInvariant();
         compiler_sha256=(Get-FileHash -LiteralPath $Compiler).Hash.ToLowerInvariant();
         reshade_commit=$ReShadeCommit; artifacts=$Artifacts;
         warp_verified=($RunWarp.IsPresent -and ($null -eq $Failure));
         post_light_style_warp_verified=($RunWarp.IsPresent -and ($null -eq $Failure));
+        directional_light_style_warp_verified=($RunWarp.IsPresent -and ($null -eq $Failure));
         nvidia_feature18_verified=$false; game_runtime_verified=$false;
         five_percent_performance_gate='unmeasured'; hosted_ci_verified=$false;
         carrier_compiled=$false;

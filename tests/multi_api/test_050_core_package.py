@@ -55,6 +55,10 @@ class PackageGuards(unittest.TestCase):
         result = {'schema': 'nr050-focused-acceptance-v1', 'success': True,
                   'source_commit': commit, 'source_manifest_sha256': m.sha(raw),
                   'warp_verified': True, 'carrier_compiled': False,
+                  'post_light_style_warp_verified': True,
+                  'directional_light_style_warp_verified': True,
+                  'directional_baseline_source_sha256': 'c681b208ef320b1b9fbd497e3c46485bf3836296a084cd4a741a2b179f1c8208',
+                  'directional_baseline_manifest_sha256': '212d863167d4b55b5cc613528a2df68600243c73d07195c9136a6fe8b43c18c6',
                   'nvidia_feature18_verified': False, 'game_runtime_verified': False,
                   'five_percent_performance_gate': 'unmeasured', 'checks': []}
         return result
@@ -64,6 +68,9 @@ class PackageGuards(unittest.TestCase):
             build = Path(tmp)
             original = self.fixture(build)
             changes = ({}, {'success': False}, {'warp_verified': False},
+                       {'post_light_style_warp_verified': False}, {'directional_light_style_warp_verified': False},
+                       {'directional_baseline_source_sha256': '0' * 64},
+                       {'directional_baseline_manifest_sha256': '0' * 64},
                        {'carrier_compiled': True}, {'game_runtime_verified': True},
                        {'nvidia_feature18_verified': True}, {'five_percent_performance_gate': 'pass'},
                        {'source_commit': 'b' * 40})

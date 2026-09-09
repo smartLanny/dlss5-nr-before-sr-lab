@@ -54,11 +54,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline4";
+constexpr const char *kAddonVersion = "beta0.5-dline5";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline4";
+constexpr const char *kBuildIdentity = "beta0.5-dline5";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -891,6 +891,7 @@ struct ChainConfig {
     float light_reflection = 1.f, light_structure = 1.f, light_glow = 0.f;
     unsigned light_preview = 0; // Transient diagnostic view; never persisted.
     unsigned light_style_version = 1, light_preset = 0;
+    unsigned light_control_mode = 0; // Old INIs retain detail-layer controls; composition only.
     float light_preset_color = 1.f; // Resolved colour snapshot of selected preset.
     bool motion_stability = false; // Requested only; requires a proven depth/history contract.
     unsigned int proxy_curve = 1; // 0 legacy, 1 hybrid, 2 reversible
@@ -1413,6 +1414,7 @@ bool SameConfig(const ChainConfig &a, const ChainConfig &b) {
            a.light_glow == b.light_glow && a.light_preview == b.light_preview &&
            a.light_preset == b.light_preset && a.light_style_version == b.light_style_version &&
            a.light_preset_color == b.light_preset_color &&
+           a.light_control_mode == b.light_control_mode &&
            a.motion_stability == b.motion_stability &&
            a.proxy_curve == b.proxy_curve &&
            a.allow_unverified_hdr_color == b.allow_unverified_hdr_color &&
@@ -1524,6 +1526,7 @@ void ReloadConfig(bool force = false) {
     next.light_reflection = ReadIniFloat(L"LightReflection", 1.f);
     next.light_structure = ReadIniFloat(L"LightStructure", 1.f);
     next.light_glow = ReadIniFloat(L"LightGlow", 0.f);
+    next.light_control_mode = GetPrivateProfileIntW(L"NRBeforeSR", L"LightControlMode", 0, g_ini_path);
     next.light_style_version = GetPrivateProfileIntW(L"NRBeforeSR", L"LightStyleVersion", 0, g_ini_path);
     next.light_preset = GetPrivateProfileIntW(L"NRBeforeSR", L"LightPreset", 0, g_ini_path);
     next.light_preview = g_config.light_preview;
@@ -1714,6 +1717,7 @@ bool SaveConfig(const ChainConfig &config) {
     bool light_saved=true;
     const auto record_light=[&](bool succeeded) { light_saved=succeeded&&light_saved; record_write(succeeded); };
     record_light(WriteIniInt(L"LightStyleVersion",0));
+    record_light(WriteIniInt(L"LightControlMode", static_cast<int>(config.light_control_mode)));
     record_light(WriteIniFloat(L"LightBroad", config.light_broad));
     record_light(WriteIniFloat(L"LightDark", config.light_dark));
     record_light(WriteIniFloat(L"LightReflection", config.light_reflection));
@@ -3185,6 +3189,9 @@ bool LightStyleNeutralV1(float broad, float dark, float reflection,
 float LightStyleStrengthV1(float remaining, float edit, float mean, float master,
                           float broad, float dark, float reflection,
                           float structure, float glow);
+float SelectLightStyleStrengthV1(bool wholeDirection, float remaining, float edit,
+                                float mean, float master, float broad, float dark,
+                                float reflection, float structure, float glow);
 float3 LightPartitionPreviewV1(float edit, float mean, float remaining);
 
 // POST_LIGHT_SCALAR_BEGIN
@@ -3196,7 +3203,7 @@ float PostLightTransferRatioV1(float remaining, float edit, float mean,
                                float master, float maxRatio,
                                float broad, float dark, float reflection,
                                float structure, float glow) {
-    float strength = LightStyleStrengthV1(remaining, edit, mean, master,
+    float strength = SelectLightStyleStrengthV1((Passthrough & 524288u) != 0u, remaining, edit, mean, master,
         broad, dark, reflection, structure, glow);
     // The old post path transfers a LINEAR relative edit. Exponentiating this
     // edit would silently change its 1x anchor and its response to protection.
@@ -3559,6 +3566,40 @@ float LightStyleStrengthV1(float remaining, float edit, float mean, float master
     return clamp(master * (fraction * broadGain + (1.0 - fraction) * fineGain),
                  0.0, 4.0);
 }
+// DIRECTIONAL_LIGHT_SCALAR_BEGIN
+// Whole signed-luminance control, not material/face recognition. Classify from
+// the original edit and apply only to its protected remainder. Full glow still
+// removes broad brightening, including any broad real reflection in that class.
+float WholeDirectionalLightStyleStrengthV1(float remaining, float edit, float mean,
+                                          float master, float broad, float dark,
+                                          float reflection, float structure, float glow) {
+    if (!isfinite(master) || !isfinite(remaining) || !isfinite(edit) ||
+        !isfinite(mean) || !isfinite(broad) || !isfinite(dark) ||
+        !isfinite(reflection) || !isfinite(structure) || !isfinite(glow)) return 0.0;
+    master = clamp(master, 0.0, 4.0);
+    if (LightStyleNeutralV1(broad, dark, reflection, structure, glow)) return master;
+    if (master == 0.0 || remaining == 0.0 || edit == 0.0 ||
+        (remaining > 0.0) != (edit > 0.0)) return 0.0;
+    float fraction = LightBroadFractionV1(edit, mean);
+    float direction = edit > 0.0
+        ? clamp(reflection, 0.0, 2.0) : clamp(structure, 0.0, 2.0);
+    float broadGain = edit > 0.0
+        ? clamp(broad, 0.0, 2.0) * (1.0 - saturate(glow))
+        : clamp(dark, 0.0, 2.0);
+    return clamp(master * direction * (fraction * broadGain + (1.0 - fraction)),
+                 0.0, 4.0);
+}
+
+float SelectLightStyleStrengthV1(bool wholeDirection, float remaining, float edit,
+                                float mean, float master, float broad, float dark,
+                                float reflection, float structure, float glow) {
+    if (wholeDirection)
+        return WholeDirectionalLightStyleStrengthV1(remaining, edit, mean, master,
+            broad, dark, reflection, structure, glow);
+    return LightStyleStrengthV1(remaining, edit, mean, master,
+        broad, dark, reflection, structure, glow);
+}
+// DIRECTIONAL_LIGHT_SCALAR_END
 // FOUR_REGION_SCALAR_END
 
 // Read the exact log-edit representation used at the centre. The optional
@@ -3754,7 +3795,7 @@ void CombineV2CS(uint3 tid : SV_DispatchThreadID) {
         lumaStrength = LayeredLumaStrengthV3(logRatio, layerMean, TransferStrength,
             LayerTone, LayerStructure, LayerBright, LayerShadow);
     if (lightStyleActive)
-        lumaStrength = LightStyleStrengthV1(logRatio, lightOriginalEdit,
+        lumaStrength = SelectLightStyleStrengthV1((Passthrough & 524288u) != 0u, logRatio, lightOriginalEdit,
             lightOriginalMean, lumaStrength, LightBroad, LightDark,
             LightReflection, LightStructure, LightGlow);
     float maxRatio = max(MaxLumaRatio, 1.0);
@@ -4190,6 +4231,7 @@ struct NrStageCaptureInfo {
     float light_broad = 1.f, light_dark = 1.f, light_reflection = 1.f;
     float light_structure = 1.f, light_glow = 0.f;
     unsigned light_preview = 0;
+    unsigned light_control_mode = 0; // Dispatch-recorded selector, valid only with active D flags.
     bool light_supported = false;
     bool motion_requested = false;
     float pre_exposure = 1.0f;
@@ -7147,6 +7189,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
     const float effective_color_strength = color_policy.effective_color_strength;
     const unsigned int base_codec_flags = source_flags |
         (light_style_active ? 262144u : 0u) |
+        ((light_style_active && g_config.light_control_mode == 1u) ? 524288u : 0u) |
         ((v2_combine && slot.edit_field_recorded && slot.edit_horizontal_recorded &&
           g_config.low_grid_edit_field && g_config.catmull_edit_restore &&
           g_config.mode==2 && g_config.color_strength<=0.000001f) ? 16384u : 0u) |
@@ -7193,6 +7236,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         f8_info.light_structure=light_style_active?g_config.light_structure:1.f;
         f8_info.light_glow=light_style_active?g_config.light_glow:0.f;
         f8_info.light_preview=light_style_active?g_config.light_preview:0u;
+        f8_info.light_control_mode=(base_codec_flags&524288u)!=0u?1u:0u;
         f8_info.light_supported=light_style_supported;
         f8_info.edge_guard=v2_combine?g_config.edge_guard:0.f;f8_info.proxy_curve=g_config.proxy_curve;
         f8_info.frame_confidence=std::clamp(frame_confidence,0.f,1.f);
@@ -7298,6 +7342,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         info.light_structure = light_style_active ? g_config.light_structure : 1.0f;
         info.light_glow = light_style_active ? g_config.light_glow : 0.0f;
         info.light_preview = light_style_active ? g_config.light_preview : 0u;
+        info.light_control_mode = (codec_flags & 524288u) != 0u ? 1u : 0u;
         info.light_supported = light_style_supported;
         info.proxy_curve = g_config.proxy_curve;
         info.frame_confidence = std::clamp(frame_confidence, 0.0f, 1.0f);
@@ -12688,13 +12733,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline4 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline5 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline4 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline5 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

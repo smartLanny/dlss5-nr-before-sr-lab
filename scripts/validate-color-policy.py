@@ -55,7 +55,7 @@ struct Config {
     float lighting_lock=0;
     int mode=2;
     float transfer_strength=1, color_strength=1;
-    unsigned light_preset=0,light_style_version=1;
+    unsigned light_preset=0,light_style_version=1,light_control_mode=0;
     float light_preset_color=1.f;
 } g_config;
 float ActiveTransferStrength(const Config& c) { return c.transfer_strength; }

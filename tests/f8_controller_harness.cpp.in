@@ -200,9 +200,13 @@ void CompleteMatrixGroup(reshade::api::effect_runtime &r,unsigned expected_group
 }
 void TestShareMatrix(){
     Reset();config.enabled=true;config.mode=1;config.transfer_strength=config.post_transfer_strength=.7f;
+    config.light_control_mode=1;
     disk_config=config;simulate_disk_poll=true;
     const auto original=config;reshade::api::effect_runtime r;Start(r,Comparison::ShareMatrix);
+    disk_config.light_control_mode=0; // A later INI poll must not change a held capture scope.
     Check(g_session->group_count==7&&g_session->groups[0].roi_target==2,"share matrix owns seven bounded two-ROI groups");
+    Check(g_session->groups[0].requested.light_control_mode==1&&g_session->groups[0].actual.light_control_mode==1,
+          "original capture group also preserves the frozen light control mode");
     CompleteMatrixGroup(r,0,false);
     for(unsigned group=1;group<7;++group){
         const auto &g=g_session->groups[group];
@@ -211,6 +215,8 @@ void TestShareMatrix(){
         const unsigned expected_post=group<=3?100u:expected;
         Check(g.requested_post_percent==expected_post&&g.actual_post_percent==expected_post,"matrix post percentage applied only to post route");
         Check(std::fabs(ActiveTransferStrength(g.requested)-.7f)<.001f,"matrix preserves the user's effect strength");
+        Check(g.requested.light_control_mode==1&&g.actual.light_control_mode==1&&config.light_control_mode==1,
+              "all seven capture groups preserve the frozen light control mode");
         if(group<=3)Check(g.requested.work_mode==5&&std::fabs(g.requested.custom_work_scale-expected/100.f)<.001f,
             "pre-SR matrix changes only its working resolution tier");
         CompleteMatrixGroup(r,group);
@@ -221,6 +227,7 @@ void TestShareMatrix(){
     disk_config.skin_structure=1.5f;test_clock+=600;
     Check(SnapshotOverlayConfig().config.skin_structure==1.5f,
           "disk polling resumes after capture releases its hold");
+    Check(config.light_control_mode==0,"a later disk mode request is read only after the capture releases its hold");
     simulate_disk_poll=false;
 
 

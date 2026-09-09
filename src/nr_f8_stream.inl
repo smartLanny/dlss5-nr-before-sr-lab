@@ -31,7 +31,7 @@ void ConfigJson(JsonBuffer &b,const char *key,const ChainConfig &c) {
     b.Append(",\"layeredEnhancement\":%d",c.layered_enhancement);
     b.Float("layerTone",c.layer_tone);b.Float("layerStructure",c.layer_structure);
     b.Float("layerBright",c.layer_bright);b.Float("layerShadow",c.layer_shadow);
-    b.Append(",\"lightStyleVersion\":%u,\"lightPreset\":%u,\"lightPreview\":%u",c.light_style_version,c.light_preset,c.light_preview);
+    b.Append(",\"lightStyleVersion\":%u,\"lightPreset\":%u,\"lightPreview\":%u,\"lightControlMode\":%u",c.light_style_version,c.light_preset,c.light_preview,c.light_control_mode);
     b.Float("lightBroad",c.light_broad);b.Float("lightDark",c.light_dark);
     b.Float("lightReflection",c.light_reflection);b.Float("lightStructure",c.light_structure);
     b.Float("lightGlow",c.light_glow);b.Float("lightPresetColor",c.light_preset_color);b.Append("}");
@@ -60,6 +60,8 @@ JsonBuffer FrameJson(const NrStageCaptureInfo &n,const NrCaptureParams &p,
     b.Float("layerBright",n.layer_bright);b.Float("layerShadow",n.layer_shadow);
     b.Append(",\"lightStyleSupported\":%d,\"lightStyleRecorded\":%d,\"lightPreview\":%u,\"lightReason\":\"%s\"",n.light_supported,(n.codec_flags&262144u)!=0u,n.light_preview,
         !n.light_supported?"route-unsupported":(n.codec_flags&262144u)!=0u?"recorded":"neutral");
+    b.Append(",\"lightControlModeRecorded\":%d",n.light_supported && (n.codec_flags&262144u)!=0u
+        ? static_cast<int>(n.light_control_mode) : -1);
     b.Float("lightBroad",n.light_broad);b.Float("lightDark",n.light_dark);
     b.Float("lightReflection",n.light_reflection);b.Float("lightStructure",n.light_structure);b.Float("lightGlow",n.light_glow);
     b.Append(",\"appliedTuning\":{\"style\":%u,\"autoMask\":%d,\"uiCorrection\":%d",n.identity.tuning.style,n.identity.tuning.auto_mask,n.identity.tuning.ui_correction);

@@ -8,7 +8,7 @@ void AppendPictureConfig(FeedbackSession &s, const ChainConfig &config, bool val
         "requested.layerTone=%.9g\nrequested.layerStructure=%.9g\n"
         "requested.layerBright=%.9g\nrequested.layerShadow=%.9g\n"
         "requested.unverifiedHdrColor=%d\n"
-        "requested.lightStyleVersion=%u\nrequested.lightPreset=%u\nrequested.lightPreview=%u\n"
+        "requested.lightStyleVersion=%u\nrequested.lightPreset=%u\nrequested.lightPreview=%u\nrequested.lightControlMode=%u\n"
         "requested.lightBroad=%.9g\nrequested.lightDark=%.9g\n"
         "requested.lightReflection=%.9g\nrequested.lightStructure=%.9g\n"
         "requested.lightGlow=%.9g\nrequested.lightPresetColor=%.9g\n"
@@ -17,7 +17,7 @@ void AppendPictureConfig(FeedbackSession &s, const ChainConfig &config, bool val
         static_cast<double>(config.layer_tone), static_cast<double>(config.layer_structure),
         static_cast<double>(config.layer_bright), static_cast<double>(config.layer_shadow),
         config.allow_unverified_hdr_color ? 1 : 0,
-        config.light_style_version, config.light_preset, config.light_preview,
+        config.light_style_version, config.light_preset, config.light_preview, config.light_control_mode,
         static_cast<double>(config.light_broad), static_cast<double>(config.light_dark),
         static_cast<double>(config.light_reflection), static_cast<double>(config.light_structure),
         static_cast<double>(config.light_glow), static_cast<double>(config.light_preset_color));

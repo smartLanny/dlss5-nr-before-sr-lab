@@ -18,6 +18,88 @@ RunResult LightRun(Gpu &gpu, int variant, LightCase controls={}, UINT extra=0,
     }
 }
 Float4 LightCenter(const RunResult &r) { return r.output[(23/2+1)*(25+4)+(25/2+2)]; }
+constexpr UINT kDirectionalLightFlag=524288u;
+RunResult WholeLightRun(Gpu &gpu,int variant,LightCase controls={},bool whole=true,
+        float strength=1.f,UINT nw=0,UINT nh=0,float color=0.f,UINT storage=1u) {
+    return Run(gpu,25,23,0,1,storage|kLightFlag|(whole?kDirectionalLightFlag:0u),variant,true,
+        nw,nh,{},0.f,{},strength,{1,1,1,1},true,color,controls);
+}
+unsigned ValidateDirectionalLightStyle(Gpu &gpu) {
+    Gpu d4(kD4BaselineShader);
+    unsigned groups=0;
+    for(int variant:{0,18,30,31,32,33}) {
+        const UINT nw=variant<30?13u:0u,nh=nw?12u:0u;
+        LightCase custom{2.f,.05f,1.91f,1.95f,.7f,0u,.2f};
+        Require(LightEqual(WholeLightRun(d4,variant,custom,false,1,nw,nh,.8f),
+                           WholeLightRun(gpu,variant,custom,false,1,nw,nh,.8f)),
+            "DIRECTION_PRE_MODE0_NONNEUTRAL_D4_BYTES");
+        LightCase neutral;neutral.lighting=.2f;
+        Require(LightEqual(WholeLightRun(d4,variant,neutral,false,1,nw,nh,.8f),
+                           WholeLightRun(gpu,variant,neutral,true,1,nw,nh,.8f)),
+            "DIRECTION_PRE_MODE1_NEUTRAL_D4_BYTES");
+        ++groups;
+    }
+    for(float lighting:{0.f,.2f,1.f}) for(bool positive:{true,false})
+    for(int variant:{30,31}) {
+        LightCase off,on;off.lighting=on.lighting=lighting;
+        if(positive){off.reflection=0;on.reflection=2;}
+        else {off.structure=0;on.structure=2;}
+        const auto zero=WholeLightRun(gpu,variant,off);
+        const auto doubled=WholeLightRun(gpu,variant,on);
+        if(variant==(positive?30:31)) {
+            const float source=LightLuma(zero.original[13u*30u+15u]);
+            const float a=LightLuma(LightCenter(zero)),b=LightLuma(LightCenter(doubled));
+            Require(std::abs(a-source)<1e-5f,"DIRECTION_PRE_WIDE_ZERO_RETURNS_SOURCE");
+            if(lighting<1.f)
+                Require(positive?b>a+.001f:b<a-.001f,"DIRECTION_PRE_WHOLE_WIDE_0_TO_2_RESPONSE");
+            else Require(std::abs(b-source)<1e-5f,"DIRECTION_PRE_FULL_LOCK_NOT_RESURRECTED");
+        } else Require(LightEqual(zero,doubled),"DIRECTION_PRE_NON_TARGET_SIGN_BYTES");
+        ++groups;
+    }
+    for(float lighting:{0.f,.2f,1.f}) for(int variant:{30,31,32,33}) {
+        LightCase base{2.f,.5f,2.f,2.f,0.f,0u,lighting};
+        LightCase glow=base;glow.glow=1;
+        const auto a=WholeLightRun(gpu,variant,base),b=WholeLightRun(gpu,variant,glow);
+        if(variant==30)
+            Require(std::abs(LightLuma(LightCenter(b))-LightLuma(b.original[13u*30u+15u]))<1e-5f,
+                "DIRECTION_PRE_GLOW100_REMOVES_WIDE_AT_2X");
+        else if(variant==31)Require(LightEqual(a,b),"DIRECTION_PRE_GLOW_NEGATIVE_BYTES");
+        else {
+            const Float4 ac=LightCenter(a),bc=LightCenter(b);
+            Require(std::memcmp(&ac,&bc,sizeof(Float4))==0,"DIRECTION_PRE_GLOW_FINE_CENTER_BYTES");
+        }
+        ++groups;
+    }
+    for(int variant:{32,33}) {
+        // Eight pixels from the isolated centre, one of four taps has the
+        // opposite sign. The broad/fine mixture is real texture input. At .5x
+        // master neither comparison is hidden by the legacy ratio ceiling.
+        LightCase controls;controls.reflection=controls.structure=2;
+        const auto old=WholeLightRun(d4,variant,controls,false,.5f);
+        const auto now=WholeLightRun(gpu,variant,controls,true,.5f);
+        const float a=LightLuma(old.output[12u*29u+6u]),b=LightLuma(now.output[12u*29u+6u]);
+        Require(variant==33?b>a+.001f:b<a-.001f,"DIRECTION_PRE_MIXED_SCOPE_RESPONSE");
+        ++groups;
+    }
+    for(UINT storage:{0u,128u,192u}) for(int variant:{0,18}) for(float strength:{1.f,4.f}) {
+        LightCase controls{2.f,.5f,2.f,2.f,.3f,0u,.2f};
+        const auto r=WholeLightRun(gpu,variant,controls,true,strength,13,12,.8f,storage);
+        for(const auto &p:r.output)
+            Require(std::isfinite(p.x)&&std::isfinite(p.y)&&std::isfinite(p.z)&&std::isfinite(p.w),
+                "DIRECTION_PRE_HDR_FINITE");
+        const Float4 center=LightCenter(r);
+        Require(center.w==.625f,"DIRECTION_PRE_HDR_ALPHA");
+        if(storage==0u&&variant==18) {
+            const float original=LightLuma(r.original[13u*30u+15u]),actual=LightLuma(center);
+            Require(actual>=original*.5f-1e-4f&&actual<=original*2.f+1e-4f,
+                "DIRECTION_PRE_HDR_RATIO_BOUND");
+            Require(std::max(center.x,std::max(center.y,center.z))>1.f,
+                "DIRECTION_PRE_HDR_NOT_CLAMPED_TO_SDR");
+        }
+        ++groups;
+    }
+    return groups;
+}
 void ValidateLightStyle(Gpu &gpu) {
     Gpu baseline(kMaintenanceShader);
     unsigned groups=0;
@@ -76,5 +158,6 @@ void ValidateLightStyle(Gpu &gpu) {
         auto r=LightRun(gpu,32,suppress);
         Require(LightCenter(r).w==.625f,"LIGHT_PREVIEW_ALPHA");++groups;
     }
-    std::printf("Light style: %u production WARP groups; baseline bytes, four-region independence, low-grid/colour/Catmull, finite/alpha and preview passed. Synthetic Neural only.\n",groups);
+    const unsigned directional=ValidateDirectionalLightStyle(gpu);groups+=directional;
+    std::printf("Light style: %u production WARP groups (%u whole-direction); D4 mode0/nonneutral and mode1/neutral bytes, wide/fine signs, glow, low-grid/colour/Catmull, HDR/alpha and preview. Synthetic Neural only.\n",groups,directional);
 }

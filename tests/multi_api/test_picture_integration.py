@@ -22,8 +22,8 @@ class PictureIntegration(unittest.TestCase):
         self.assertEqual(args[0], 'rev-parse')
         return m.INTEGRATION_CORE_PINS[args[1].removeprefix('HEAD:')].encode()
 
-    def test_all_dline4_ancestors_required(self):
-        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e', '80a6379640cebbd70851d9929790ceee160ace57', '6a0ad7684683993328a7a98a9bea83ac76b01a64'))
+    def test_all_dline5_ancestors_required(self):
+        self.assertEqual(m.REQUIRED_ANCESTORS, (m.PR131, m.PR132, m.PR134, m.PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e', '80a6379640cebbd70851d9929790ceee160ace57', '6a0ad7684683993328a7a98a9bea83ac76b01a64', 'ec338d7d9d69230f208b25e4fd457cc79d03c465', 'fa450c9ec2abf2aa48dbdd016b6164626260058b'))
         for missing in m.REQUIRED_ANCESTORS:
             with self.subTest(missing=missing), patch.object(m, 'is_ancestor', side_effect=lambda r, c: c != missing), patch.object(m, 'load') as load:
                 with self.assertRaisesRegex(ValueError, 'Missing integration ancestor'):
@@ -98,6 +98,6 @@ class PictureIntegration(unittest.TestCase):
         })
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '83f46f9524a55fa6b6425aa8778b2c003a2f0da3')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '74a1460d5c2d9e03c726e4c8eff57721d8ca9d6c')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'a837cc139a5c0a806c608a53474c033728bdb9d4')
 
 if __name__ == '__main__': unittest.main()

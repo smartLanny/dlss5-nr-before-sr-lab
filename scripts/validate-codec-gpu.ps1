@@ -1,4 +1,4 @@
-param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$LightStyle, [switch]$PostLightStyle)
+param([string]$ToolchainRoot = $env:DLSS5_LLVM_MINGW_ROOT, [switch]$NegativeControl, [switch]$LayerNegativeControl, [string]$SourceRoot, [string]$BaselineSource, [string]$ComparisonOutput, [switch]$CompileOnly, [string]$EditFieldOutput, [string]$CatmullOutput, [switch]$ColorEditField, [string]$InputFilterOutput, [switch]$CombinedLowGrid, [switch]$LightStyle, [switch]$PostLightStyle, [string]$DirectionalBaselineSource)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -16,6 +16,22 @@ if (!$shader.Success -or !$constants.Success -or !$descriptors.Success) {
     throw 'Production codec extraction markers changed; update the GPU harness.'
 }
 $harness = $harness.Replace('// @PRODUCTION_SHADER@', $shader.Value)
+if ($LightStyle -or $PostLightStyle) {
+    if ([string]::IsNullOrWhiteSpace($DirectionalBaselineSource)) { throw 'Light controls require the frozen generated D4 reference as well as D1.' }
+    $d4Source = (Resolve-Path -LiteralPath $DirectionalBaselineSource).Path
+    $d4Core = Split-Path -Parent (Split-Path -Parent $d4Source)
+    $d4ManifestPath = Join-Path (Split-Path -Parent $d4Core) 'source-manifest.json'
+    if ((Get-FileHash -LiteralPath $d4ManifestPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne '212d863167d4b55b5cc613528a2df68600243c73d07195c9136a6fe8b43c18c6') { throw 'Unexpected D4 reference manifest bytes.' }
+    $d4Manifest = Get-Content -LiteralPath $d4ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $d4Hash = (Get-FileHash -LiteralPath $d4Source -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($d4Manifest.source_commit -ne 'ec338d7d9d69230f208b25e4fd457cc79d03c465' -or $d4Manifest.files.'core/src/nr_before_sr.cpp' -ne $d4Hash) { throw 'D4 reference must match its frozen generated source.' }
+    $d4Text = Get-Content -LiteralPath $d4Source -Raw -Encoding UTF8
+    $d4Shader = [regex]::Matches($d4Text, 'const char kCodecShader\[\] = R"HLSL\([\s\S]*?\)HLSL";')
+    if ($d4Shader.Count -ne 1) { throw 'D4 shader extraction is not unique.' }
+    $harness = $harness.Replace('// @DIRECTIONAL_BASELINE_SHADER@', $d4Shader[0].Value.Replace('kCodecShader', 'kD4BaselineShader'))
+} elseif (![string]::IsNullOrWhiteSpace($DirectionalBaselineSource)) {
+    throw 'DirectionalBaselineSource applies only to the light-control fixtures.'
+}
 if($CatmullOutput) {
     if($EditFieldOutput -or $InputFilterOutput -or $ColorEditField -or $ComparisonOutput -or $BaselineSource -or $NegativeControl -or $LayerNegativeControl) {throw 'Run Catmull contract independently.'}
     # Test-only non-fused oracle materializes one R-sized field. No production

@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline4'
-DISPLAY_VERSION = '0.5-dline4'
+VERSION = 'beta0.5-dline5'
+DISPLAY_VERSION = '0.5-dline5'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -25,9 +25,10 @@ STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
 STATE_CURRENT = '3063ae9e44090f3ce3b4e1ccc9816824896c2a20'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd', '59ab029614df6fad6ea1e95df18a0a986be58962', 'b0fd489cdfa79d271c0015e35b62186abd0efcd5', 'e071c778d10cb4f079857f128aad3093defb7b9e', '80a6379640cebbd70851d9929790ceee160ace57', '6a0ad7684683993328a7a98a9bea83ac76b01a64')
+REQUIRED_ANCESTORS += ('ec338d7d9d69230f208b25e4fd457cc79d03c465', 'fa450c9ec2abf2aa48dbdd016b6164626260058b')
 INTEGRATION_CORE_PINS = {
-    'src/nr_feedback_picture.inl': 'fd05bf35896dc16d8428a228198f9df092069574',
-    'config/nr_before_sr.ini': '8ddff731e0f05c6bf16eab52997febb5020fdcf9',
+    'src/nr_feedback_picture.inl': 'cb9c146bd78a6aca13c457d4a7802295c36be3b4',
+    'config/nr_before_sr.ini': 'bb98004fa2fecb27de622fdc95ca5c3713a7da02',
     'scripts/patch-post-compat.py': '035040cc833053f938afbcdb99521a48551ee5e1',
     'src/nr_codec_descriptors.inl': '353c97c74bde56c72cda349fca2e50118000cbcb',
     'src/nr_feedback_core.inl': '8cd643862263291036f3f70eed359bf28ed93b8c',
@@ -35,29 +36,29 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
     'src/nr_f8_sequence.inl': 'f4b2cd5ca77ea273c5f1dd92c6853a68980a2114',
     'src/nr_command_state.inl': '3063ae9e44090f3ce3b4e1ccc9816824896c2a20',
-    'src/nr_feedback_capture.inl': 'fc0b23fc5809121157b389dcca929df070b4b748',
+    'src/nr_feedback_capture.inl': 'f00bbd06d2012c68d59fb5e834f515f0e1c17432',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
     'src/nr_settings_ui.inl': '83f46f9524a55fa6b6425aa8778b2c003a2f0da3',
-    'src/nr_before_sr.cpp': 'bca47bcdec54b3b3c997dbe96cfbb6e945ae5969',
-    'src/nr_recommended_picture.inl': '35afc07bf8af81590e952002a3bc5e60f75f4c8c',
+    'src/nr_before_sr.cpp': '049817784ac188dc33d75e0eb74fe4f1c000eabf',
+    'src/nr_recommended_picture.inl': 'd58c87b37cc8e25c70a0dbc553d617d4db291202',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': '0247d8f53926da2416e28092222e51c202fac9f6',
+    'src/nr_before_sr.rc': 'e750291732c81f677baf45c3bc452e5b045708e5',
     'src/nr_color_policy.inl': '7a7453d479ebf8a9666468d0e287a3c3310697b7',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': '74a1460d5c2d9e03c726e4c8eff57721d8ca9d6c',
+    'scripts/build.ps1': 'a837cc139a5c0a806c608a53474c033728bdb9d4',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '85e6364d1fa357c19bceb97830375ba86142d98d',
     'src/interop/nr_post_feedback.inl': '2522f983d536f2ee6fcdfe070778c9bce0d80092',
     'src/interop/nr_rr_post_runtime.inl': '6f8c98ca7943233f57e10276dbe9943631c9dd05',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
-    'src/nr_f8_stream.inl': 'ec9c92e98bb7aa1853710f4245d2ec85163e4368',
+    'src/nr_f8_stream.inl': 'd3d5e66f221eebdcfbc4e881563963dcd9c15e4c',
     'src/nr_imgui_abi.h': 'd52148f7dc9999c8090947243b9fe6167f457240',
-    'src/nr_light_style.h': 'e2bccf165841f512e97e88080273762cdf7f8548',
-    'src/nr_light_style_ui.inl': '48725ddd09d3efcf92ee94266bde4e6c3e96fed0',
+    'src/nr_light_style.h': '1320dccd90fd3a774908cc142f2742c62808605b',
+    'src/nr_light_style_ui.inl': '4e338c962b96ff221c2cdce9a032c4cc0a6aca07',
     'src/nr_skin_protection.h': 'b09ae7909e8c06452406ecc49e174c6ba8eda4a3',
-    'src/nr_stage_capture.inl': '0352ab55a9e40834c89fc60b00d83d976228a2d1',
+    'src/nr_stage_capture.inl': '0abf85425a3a37796eafd7b634cedcab339228a1',
     'src/nr_guide_contract.h': '19c2af89af734af998e63e3f6251679c4b22ce38',
     'src/nr_rr_depth_adapter.inl': 'b606205e654bdcc9107a7266e71af23724377a86',
     'src/nr_rr_depth_shader.h': '2ea485b7cc58c3a1a17fbf636b8d3cbf2607690b',
@@ -174,7 +175,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.1 dline4 beta' not in resource_text:
+    if '0.5.1 dline5 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -185,7 +186,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.1.4',
+        'core_pe_version': '0.5.1.5',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),
@@ -209,7 +210,8 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'post_work': '50-100 percent Npost/O; 0 disables while retaining precision; invalid requests rejected',
         'rr_linear_depth': 'positive view-Z standard perspective to private R32 HW depth; matrix-derived inversion; unknown projection stays native with F8',
         'compatibility_source': '6a0ad7684683993328a7a98a9bea83ac76b01a64',
-        'light_style': 'D-line pre/post controls with 0.4.7 compatibility; per-route luma and colour retained',
+        'light_style': 'D5 opt-in whole light/dark or unchanged D4 detail layers; both pre/post; 0.4.7 compatibility retained',
+        'light_control_mode': 'INI missing=0; template/recommended full-picture reset=1; group presets retain mode; composition only',
         'post_light_style_game_verified_at_build': False,
         'jitter': 'resolved post color zero jitter; native guide phase requires runtime validation',
         'fg_control': 'not implemented', 'getdesc_spoof': 'not implemented',

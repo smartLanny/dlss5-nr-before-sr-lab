@@ -20,13 +20,44 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
         SettingsNote(ui("This candidate supports pre-SR light controls. If NR is bypassed, requests are retained without applying the effect. 100% retains the original contribution; these are not material or face masks.",
             "本候选已接入前置光影控制。NR 被旁路时，请求保留但效果不应用。100% 保留原有对应成分；这不是材质或人脸识别。"));
 
+    const unsigned modes[]={nr_light_style::WholeLightDark,nr_light_style::DetailLayers};
+    const char *mode_labels[]={ui("Whole light/dark###light-mode-option","完整亮暗###light-mode-option"),
+        ui("Detail layers###light-mode-option","细节分层###light-mode-option")};
+    const float mode_width=std::max(1.f,(SettingsContentWidth()-ImGui::GetStyle().ItemSpacing.x)/2.f);
+    ImGui::PushID("nr-light-control-mode");
+    for (unsigned option=0;option<2;++option) {
+        if (option) ImGui::SameLine();
+        ImGui::PushID(static_cast<int>(option));
+        const bool selected=next.light_control_mode==modes[option];
+        if (selected) ImGui::PushStyleColor(ImGuiCol_Button,ImGui::GetStyleColorVec4(ImGuiCol_Header));
+        const bool clicked=ImGui::Button(mode_labels[option],ImVec2(mode_width,ImGui::GetFrameHeight()*1.25f));
+        if (selected) ImGui::PopStyleColor();
+        if (clicked && !selected) {
+            next.light_control_mode=modes[option]; changed=true; apply_discrete_edit=true;
+        }
+        ImGui::PopID();
+    }
+    ImGui::PopID();
+    const bool whole_light=next.light_control_mode==nr_light_style::WholeLightDark;
+    SettingsNote(whole_light
+        ? ui("Bright and dark gains cover all model changes in that direction. Advanced controls adjust their broad part. Dark at 0% removes added model darkening. This does not identify reflections or faces.",
+            "亮部、暗部增强分别控制该方向的全部模型改动；高级选项再调整其中的大范围部分。暗部设为 0% 可去掉模型新增压暗。这不是反射或人脸识别。")
+        : ui("Detail layers retain the previous controls: reflection and dark structure affect only the fine part of the model changes.",
+            "细节分层保留此前的控制方式：反射增强、暗部结构只影响模型改动中的细节部分。"));
     bool manual=false;
-    manual|=LightStylePercent(ui("Reflection enhancement","反射增强"),
+    manual|=LightStylePercent(whole_light ? ui("Bright enhancement (includes reflections)","亮部增强（含反射）")
+        : ui("Reflection enhancement","反射增强"),
         "##nr-light-reflection",next.light_reflection,2.f);
-    SettingsTooltip(ui("Weights small bright changes, including possible reflections, highlights and other fine bright regions. It does not identify reflective materials. If the model adds little fine bright detail, raising this may have little visible effect.",
-        "控制细小亮部变化，可能包含反光、高光或其他细亮区域，不代表识别了反射材质。模型没有新增细亮变化时，调高也可能不明显。"));
-    manual|=LightStylePercent(ui("Dark structure","暗部结构"),
+    SettingsTooltip(whole_light
+        ? ui("Scales both broad and fine model brightening, including possible reflections and glow. It does not identify materials. Glow suppression still removes broad brightening at 100%.",
+            "同时控制模型新增的大范围和细小提亮，可能包含反射与辉光，不识别材质。辉光抑制为 100% 时，大范围提亮仍会被去掉。")
+        : ui("Weights small bright changes, including possible reflections, highlights and other fine bright regions. It does not identify reflective materials. If the model adds little fine bright detail, raising this may have little visible effect.",
+            "控制细小亮部变化，可能包含反光、高光或其他细亮区域，不代表识别了反射材质。模型没有新增细亮变化时，调高也可能不明显。"));
+    manual|=LightStylePercent(whole_light ? ui("Dark enhancement","暗部增强") : ui("Dark structure","暗部结构"),
         "##nr-light-structure",next.light_structure,2.f);
+    if (whole_light)
+        SettingsTooltip(ui("Scales all model darkening. Below 100% reduces it; 0% removes that model contribution while retaining the game's original shadows.",
+            "控制模型新增的全部压暗。低于 100% 会减弱，0% 去掉这部分模型改动，保留游戏原有阴影。"));
     manual|=LightStylePercent(ui("Glow suppression","辉光抑制"),
         "##nr-light-glow",next.light_glow,1.f);
     SettingsTooltip(ui("Reduces the candidate's broad brightening. This is not a game-engine bloom switch; 0% preserves the neutral candidate.",
@@ -47,7 +78,7 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
         const bool clicked=ImGui::Button(labels[preset],ImVec2(width,0));
         if (selected) ImGui::PopStyleColor();
         if (clicked) {
-            nr_light_style::Write(next,nr_light_style::Select(preset,next.color_strength));
+            nr_light_style::Write(next,nr_light_style::Select(preset,next.color_strength,next.light_control_mode));
             changed=true; apply_discrete_edit=true;
         }
         ImGui::PopID();
@@ -56,14 +87,14 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
     SettingsNote(next.light_preset==nr_light_style::Custom
         ? ui("Custom: values or colour were edited.","自定义：本组数值或颜色已手动调整。")
         : ui("Candidate preset; game quality is still being validated.","候选预设，游戏画质仍在验证。"));
-    SettingsTooltip(ui("Presets change only this group's five coefficients and AI colour amount. Original effect and Less glow keep the current colour; Natural uses 80%. Model, mode and other experiments stay as requested.",
-        "预设只改本组五项系数与 AI 色彩强度。“原样效果”和“减少辉光”保留当前颜色，“自然耐看”设为 80%；模型、处理方式和其他实验开关仍使用原设置。"));
+    SettingsTooltip(ui("Presets keep the selected light control mode and change only this group's five coefficients and AI colour amount. Original effect and Less glow keep the current colour; Natural uses 80%. Model, processing route and other experiments stay as requested.",
+        "预设保留所选光影模式，只改本组五项系数与 AI 色彩强度。“原样效果”和“减少辉光”保留当前颜色，“自然耐看”设为 80%；模型、处理方式和其他实验开关仍使用原设置。"));
 
     if (ImGui::Button(ui("Reset this group###light-reset","本组恢复中性###light-reset"))) {
         nr_light_style::Reset(next); changed=true; apply_discrete_edit=true;
     }
-    SettingsTooltip(ui("Restores neutral light coefficients, keeps AI colour amount and exits diagnostic preview.",
-        "恢复本组中性系数，保留 AI 色彩强度，并退出诊断预览。"));
+    SettingsTooltip(ui("Restores neutral light coefficients, keeps the selected light control mode and AI colour amount, and exits diagnostic preview.",
+        "恢复本组中性系数，保留所选光影模式与 AI 色彩强度，并退出诊断预览。"));
     ImGui::SameLine();
     ImGui::BeginDisabled(has_pending||changed||!undo.Available(generation));
     if (ImGui::Button(ui("Undo group edit###light-undo","撤销本组修改###light-undo")) &&

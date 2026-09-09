@@ -159,7 +159,7 @@ void begin(reshade::api::effect_runtime &runtime, bool archive=true){
         "request and Present preserve all requested configuration bytes and generation");
 }
 void check_light_request(const std::string &report){
-    for(const char *line:{"requested.lightStyleVersion=1\n","requested.lightPreset=2\n","requested.lightPreview=1\n",
+    for(const char *line:{"requested.lightStyleVersion=1\n","requested.lightPreset=2\n","requested.lightPreview=1\n","requested.lightControlMode=1\n",
         "requested.lightBroad=0.5\n","requested.lightDark=0.75\n","requested.lightReflection=1.25\n",
         "requested.lightStructure=1.5\n","requested.lightGlow=0.25\n","requested.lightPresetColor=0.625\n"})
         check(report.find(line)!=std::string::npos,"all D requested values survive actual TXT publication");
@@ -255,10 +255,12 @@ int main(int argc,char **argv) {
     g_config.high_strength_protection=false;g_config.layered_enhancement=true;
     g_config.layer_tone=.5f;g_config.layer_structure=1.5f;g_config.layer_bright=.75f;g_config.layer_shadow=1.25f;
     g_config.light_preset=2;g_config.light_preview=1;g_config.light_broad=.5f;g_config.light_dark=.75f;
+    g_config.light_control_mode=1;
     g_config.light_reflection=1.25f;g_config.light_structure=1.5f;g_config.light_glow=.25f;g_config.light_preset_color=.625f;
     begin(runtime);check(nr_core_feedback::Busy(),"worker owned by current session");
     g_config.layer_bright=2.f; // Worker must serialize the earlier coherent snapshot.
     g_config.light_broad=1.75f;
+    g_config.light_control_mode=0; // Worker must retain the earlier requested control mode.
     const auto first=nr_core_feedback::SnapshotPair();check(!nr_core_feedback::Request(),"no overlapping core jobs");
     drain(); // no second Present, no NR frame, no image or GPU stage functions even exist in this harness
     check(g_feedback_status==3 && !nr_core_feedback::Busy(),"zero-NR core completes independently");
@@ -372,6 +374,7 @@ int main(int argc,char **argv) {
     // Deliberately differ from the requested configuration; this is fixture data,
     // not an NGX success or evidence that the D composition reached a GPU.
     g_config.light_broad=.5f;g_config.style=1;g_config.intensity=.75f;g_config.mode=2;
+    g_config.light_control_mode=1;
     g_config.color_strength=.875f;
     g_applied_nr_identity.instance_id=73;g_applied_nr_identity.frame_id=84;g_applied_nr_identity.config_generation=6;
     g_applied_nr_identity.evaluation=19;g_applied_nr_identity.since_reset=3;g_applied_nr_identity.warmed_up=true;
@@ -386,7 +389,7 @@ int main(int argc,char **argv) {
     nr_core_feedback::Present(&runtime);
     check(std::memcmp(requested_before,&g_config,sizeof(g_config))==0 && g_config_generation==7,
         "F8 Present preserves requested values while reading historical tuning");
-    g_applied_nr_identity={};g_applied_nr_mode=2;g_config.light_broad=1.75f;
+    g_applied_nr_identity={};g_applied_nr_mode=2;g_config.light_broad=1.75f;g_config.light_control_mode=0;
     drain();
     check(g_feedback_status==3,"fresh core completes after image-result reset");
     check(!g_feedback_last_zip[0],"F8 never publishes a ZIP path");
@@ -435,7 +438,7 @@ int main(int argc,char **argv) {
     check_applied_unavailable(*nr_core_feedback::g_full_report,"snapshot-unavailable");
     for(const char *key:{"config","enabled","mode","blend","color","workMode","workScale","lightingLock",
         "detailStability","edgeGuard","intensity","localTone","localStructure","skin","faceMask","uiCorrection","jitterMode","style",
-        "lightStyleVersion","lightPreset","lightPreview","lightBroad","lightDark","lightReflection","lightStructure","lightGlow","lightPresetColor"})
+        "lightStyleVersion","lightPreset","lightPreview","lightControlMode","lightBroad","lightDark","lightReflection","lightStructure","lightGlow","lightPresetColor"})
         check(nr_core_feedback::g_full_report->find(std::string("requested.")+key+"=")==std::string::npos,
             "busy snapshot never exports default or later global requested values");
     check(nr_core_feedback::g_full_report->find("requested.pictureSnapshotValid=0\n")!=std::string::npos,

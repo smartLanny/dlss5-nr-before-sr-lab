@@ -187,7 +187,11 @@ def main():
         if start=='    // Full colour following':
             after=after[:after.index('    if (lightStylePreview)')]
         assert before==after,(start,'legacy colour/exposure/protection statements changed')
-    assert definition(source,'void CombineV2CS(')==definition(baseline,'void CombineV2CS('),'shared V2 post keeps its original log compositor'
+    v2 = definition(source,'void CombineV2CS(')
+    selected = 'SelectLightStyleStrengthV1((Passthrough & 524288u) != 0u, '
+    assert v2.count(selected)==1, 'expected only the explicit directional selector in V2'
+    v2 = v2.replace(selected, 'LightStyleStrengthV1(')
+    assert v2==definition(baseline,'void CombineV2CS('),'shared V2 post keeps its original log compositor apart from the exact selector'
     original_dispatch=definition(baseline,'void DispatchCodec(')
     dispatch=definition(source,'void DispatchCodec(')
     route_start='    const bool independent_chroma ='
