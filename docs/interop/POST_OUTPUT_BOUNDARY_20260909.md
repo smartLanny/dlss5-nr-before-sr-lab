@@ -49,3 +49,23 @@ call observations with the following game's first usage and copy/write events,
 alongside output.1's actual stored samples. No new seven-group capture is needed.
 An incompatible reported boundary warrants a stronger native-state observation
 before any corrective barrier is introduced.
+
+## Frozen validation and deployment
+
+Source `8890fe6d50f17102379272d6c3d785e4131d0e02` passes all 41 local gates,
+including 13 checks against the actual read-only boundary callbacks (CPU), the
+1938 production stored-output WARP assertions and the existing native-state,
+queue, RR and codec gates. Both actual language DLLs load and draw for 40 Presents
+in the private ReShade host. This does not exercise a real native SR callback
+scope; in-game event coverage remains pending.
+
+- Chinese Core: `f27849a99e31b718802335b4c5eea97da49060b36c4ce86cc55df3a756e02beb`
+- English Core: `d8c509bf854754a264ad1bc2d03568cb2a05cc7a6374bd50b180e78695831e2a`
+- Validation: `0597b3cb2209e96edcc18a04ca075547ac51430d0899db6281ad768247730a31`
+- Source manifest: `8b7378c12e866180706159e31dee3d5ccc779b209fda463c5d5623320c657829`
+- Validation log: `0a9a704e320ce87a5a044c730e7b608463bd2addbc3aeb2f4ebe8f864ae8e757`
+
+The Chinese Core was deployed at 2026-09-09 03:32 UTC after the game exited.
+The previous output.1 Core/current configuration were backed up. All 16 existing
+DLL/INI hashes and the separate game settings.cfg remain unchanged. The restore
+helper was checked without rolling back. No output.2 game pass is recorded.
