@@ -29,7 +29,10 @@ def main():
     # or main. The shared files are never edited and their inputs are hashed.
     queue=ROOT/'tests/queue_retirement_harness.cpp';post=ROOT/'tests/post_output_harness.inl'
     q=queue.read_text(encoding='utf-8').split('void OneShot() {',1)[0]+'\n} // namespace queue_test\n'
-    s=post.read_text(encoding='utf-8').split('void Case(queue_test::Fixture',1)[0]+'\n} // namespace post_output_test\n'
+    post_text=post.read_text(encoding='utf-8')
+    post_boundary='std::vector<unsigned char> Case(queue_test::Fixture'
+    if post_text.count(post_boundary)!=1:raise SystemExit('Shared post helper boundary changed.')
+    s=post_text.split(post_boundary,1)[0]+'\n} // namespace post_output_test\n'
     if 'struct Fixture' not in q or 'ReadTexture(' not in s:raise SystemExit('Shared fixture helper boundary changed.')
     fixture=ROOT/'tests/native_color_view_harness.inl'
     (out/'fixture.inl').write_text(q+s+fixture.read_text(encoding='utf-8'),encoding='utf-8')

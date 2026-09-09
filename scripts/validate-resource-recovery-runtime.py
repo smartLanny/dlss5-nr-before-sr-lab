@@ -82,7 +82,7 @@ def main() -> None:
         raise RuntimeError('Borrowed helpers changed during snapshot; retry when their edits settle.')
     borrowed = '' if args.snapshot_cpu else ''.join((
         prefix(helpers['queue_retirement_harness.cpp'], 'void OneShot() {', 'queue_test', 'struct Fixture'),
-        prefix(helpers['post_output_harness.inl'], 'void Case(queue_test::Fixture', 'post_output_test', 'ReadTexture('),
+        prefix(helpers['post_output_harness.inl'], 'std::vector<unsigned char> Case(queue_test::Fixture', 'post_output_test', 'ReadTexture('),
         prefix(helpers['native_color_view_harness.inl'], 'float Half(', 'native_color_test', 'void ResetContext('),
         prefix(helpers['pre_store_probe_harness.inl'], 'void Case(queue_test::Fixture', 'pre_store_test', 'void MakeSource('),
         prefix(helpers['store_quantization_harness.inl'], 'ID3D12Resource *MakeBuffer(', 'store_quantization_test', 'void MakeTexture('),
