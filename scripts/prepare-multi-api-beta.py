@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline7'
-DISPLAY_VERSION = '0.5-dline7'
+VERSION = 'beta0.5-dline8'
+DISPLAY_VERSION = '0.5-dline8'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -28,9 +28,10 @@ REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dd
 REQUIRED_ANCESTORS += ('ec338d7d9d69230f208b25e4fd457cc79d03c465', 'fa450c9ec2abf2aa48dbdd016b6164626260058b')
 REQUIRED_ANCESTORS += ('2b573c2beb2aa6ea1bacbc2ba4f13cdff49df2dc',)
 REQUIRED_ANCESTORS += ('7182b3fd195c8cfb633eec5fa758f3826001a69f',)
+REQUIRED_ANCESTORS += ('13e4ac958587cb2b4542db9cf749315261ec17c6',)
 INTEGRATION_CORE_PINS = {
     'src/nr_feedback_picture.inl': 'cb9c146bd78a6aca13c457d4a7802295c36be3b4',
-    'config/nr_before_sr.ini': '1e4f1527861a1426b52a857fe982d80753496eb1',
+    'config/nr_before_sr.ini': 'cc0b0e6939964e18781dcac06eab304dc6331a3d',
     'scripts/patch-post-compat.py': '035040cc833053f938afbcdb99521a48551ee5e1',
     'src/nr_codec_descriptors.inl': '353c97c74bde56c72cda349fca2e50118000cbcb',
     'src/nr_feedback_core.inl': '8cd643862263291036f3f70eed359bf28ed93b8c',
@@ -40,19 +41,19 @@ INTEGRATION_CORE_PINS = {
     'src/nr_command_state.inl': '3063ae9e44090f3ce3b4e1ccc9816824896c2a20',
     'src/nr_feedback_capture.inl': '5e70b51324c3d7a494716d3b11aa8e8a3b5c4c16',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
-    'src/nr_settings_ui.inl': 'e24f07f5b12f2ccc87bc552ae88d0796042102bf',
-    'src/nr_before_sr.cpp': 'f531d4aca55a96b8f8a18ea3f7fbfe7e65c5b6a7',
+    'src/nr_settings_ui.inl': '9b0e309c9bd34ef9f98c6c920a6c7fcc7f1cadc0',
+    'src/nr_before_sr.cpp': '774c6b27089de181468439be5faf194c688652c6',
     'src/nr_recommended_picture.inl': 'd58c87b37cc8e25c70a0dbc553d617d4db291202',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
-    'src/nr_before_sr.rc': '4c4ac382ce697acee98b543f51aa8bf11d39247f',
-    'src/nr_color_policy.inl': '7a7453d479ebf8a9666468d0e287a3c3310697b7',
+    'src/nr_before_sr.rc': '5d61af94d59ea72812c3755706859e23cc487d34',
+    'src/nr_color_policy.inl': '9e8fecee0246769d0d03a269a9245621ae1ce82c',
     'src/nr_color_amplification.h': '6ed7ff9f9b86cbeafed6711f9fe90d602f1497bd',
     'src/nr_precision_ui.h': 'a0ea17f649ee372bf1089e3ad4438414c5b87335',
-    'scripts/build.ps1': '3d58a4cc8b92701808a62425980798a70673063b',
+    'scripts/build.ps1': 'aaba9199889fe70ba0bc3aaaba61baf8a610b593',
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '85e6364d1fa357c19bceb97830375ba86142d98d',
-    'src/interop/nr_post_feedback.inl': '2522f983d536f2ee6fcdfe070778c9bce0d80092',
+    'src/interop/nr_post_feedback.inl': '43d4dbdb6755c123f491952bdce50755294385c6',
     'src/interop/nr_rr_post_runtime.inl': '6f8c98ca7943233f57e10276dbe9943631c9dd05',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
     'src/nr_f8_stream.inl': 'd5c8144c4ee0b0a519df694a0e82823f4b0fdc1a',
@@ -75,6 +76,10 @@ INTEGRATION_CORE_PINS = {
     'src/nr_face_diagnostic_ui.inl': '3f085ffd52279fcf095e9f284bb36f558f2f1898',
     'src/nr_face_region_selection.inl': 'aabd0d3e6e2d5044f0d16f67b9fc30516a8d5e91',
     'src/nr_f8_gpu.inl': '4f71892f4d3586949e85f9ca80b75535e4854f6f',
+    'src/nr_config_policy.h': '936883dabf13e79058865075e6cf0bbe507c4dbd',
+    'src/nr_config_policy_runtime.inl': '707fdfa24530c8b3dbaf0e81487ca5acf285cbd3',
+    'src/nr_settings_notices_ui.inl': '6b882dd7350f3a6b0eb3c7845881eef21ab36f03',
+    'src/nr_pre_fallback.h': '4929391e41cc353d110a207ebc5abc932f66864d',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
@@ -184,7 +189,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.5.1 dline7 beta' not in resource_text:
+    if '0.5.1 dline8 beta' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -195,7 +200,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.5.1.7',
+        'core_pe_version': '0.5.1.8',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),
@@ -208,6 +213,10 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'optional_layers': 'sparse incoming NGX resource metadata; untyped pointers never inspected; no masks exported or sampled',
         'model_baseline': 'seven model controls only, with generation-bound undo; no automatic reset or face-fix claim',
         'face_diagnostic': 'nine labeled transient groups; moved ROI plus full-screen PNG; actual tuning/fence and exact original-config restore',
+        'extra_strength_policy': 'user range 1..4; one-time saved migration; internal zero-native contract retained',
+        'jitter_policy': 'once-to-zero migration then respect explicit user re-enable; native SR jitter unchanged',
+        'face_isolation_runtime': False,
+        'abc_new_changes_merged': False,
         'post_feedback': 'requested state and sampled RR counters; not GPU completion; same TXT',
         'blend_feedback': 'four observed native blend factors from the same locked state sample; explicit unobserved/unavailable',
         'format_path': 'typed FP16/FP32 SceneColor read -> existing FP16 codec',

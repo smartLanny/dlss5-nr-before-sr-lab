@@ -13,7 +13,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = 'beta0.5-dline7'
+VERSION = 'beta0.5-dline8'
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -62,7 +62,7 @@ def package(build: Path, output: Path) -> dict:
                 'validate-color-policy.py', 'validate-bug-sweep.py',
                 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py',
                 'validate-optional-layer-probe.py',
-                'validate-face-capture-geometry.py',
+                'validate-face-capture-geometry.py', 'validate-config-policy.py', 'tests/test_settings_notices_ui.py',
                 'face diagnostic group8 production GPU ring and invalid group9 WARP',
                 'tests/test_face_selection_ui.py', 'tests/test_ui_refresh.py', 'tests/multi_api/test_rr_post_diagnostics.py',
                 'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py',
@@ -107,13 +107,13 @@ def package(build: Path, output: Path) -> dict:
     artifacts = result['artifacts']
     addons = sorted(n for n in artifacts if n.endswith('.addon64') and VERSION in n)
     if len(addons) != 2 or set(artifacts) != set(addons + ['nrchain_nvngx.dll']):
-        raise ValueError('Expected two dline7 language cores and only the owned bridge.')
+        raise ValueError('Expected two dline8 language cores and only the owned bridge.')
     binaries = {name: checked_file(binary_root, name, entry['sha256']) for name, entry in artifacts.items()}
     for name, data in binaries.items():
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/DLINE7_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
+    guide = (ROOT / 'docs/testing/DLINE8_CORE_ACCEPTANCE.zh-CN.md').read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     packages = []
     for addon in addons:
@@ -130,6 +130,12 @@ def package(build: Path, output: Path) -> dict:
             'rr_depth_adapter': '0.4.7 standard positive view-Z adapter and verified device identity; integration awaits owner game test',
             'post_light_style_warp_verified': True, 'post_light_style_game_verified': False,
             'skin_protection_runtime': False,
+            'face_isolation_runtime': False,
+            'extra_strength_ui_range': [1, 4],
+            'saved_extra_policy_version': 1,
+            'jitter_policy_version': 1,
+            'jitter_migration': 'once off, then respect user re-enable; native SR unchanged',
+            'abc_new_changes_merged': False,
             'optional_layer_probe': 'incoming NGX metadata only; not mask pixels or verified semantic regions',
             'model_baseline_comparison': 'manual seven-control reset with generation-bound undo; not a face-fix claim',
             'face_diagnostic': 'nine transient model-control groups; selected ROI and complete PNGs; exact picture restore; no face algorithm change',

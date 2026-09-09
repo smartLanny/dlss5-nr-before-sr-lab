@@ -219,3 +219,33 @@ NrColorPolicySnapshot SnapshotColorPolicy() {
     LeaveCriticalSection(&g_chain_cs);
     return snapshot;
 }
+
+struct CompatibilityFallbackSnapshot {
+    bool recent = false;
+    bool recorded = false;
+    int requested_mode = 2, effective_mode = 2;
+    unsigned cause = 0;
+    BypassReason failure = BypassReason::None;
+    unsigned long long attempts = 0, recordings = 0;
+};
+CompatibilityFallbackSnapshot SnapshotCompatibilityFallback() {
+    // The producer publishes under this same recursive chain lock. Do not
+    // join a previous request's reason with a newer route/configuration.
+    EnterCriticalSection(&g_chain_cs);
+    CompatibilityFallbackSnapshot out;
+    out.requested_mode = g_config.mode;
+    out.effective_mode = EffectivePictureMode(g_config.mode);
+    out.attempts = g_compat_fallback_attempts.load(std::memory_order_relaxed);
+    out.recordings = g_compat_fallback_recorded.load(std::memory_order_relaxed);
+    out.recent = g_config.enabled && g_config.mode == 2 &&
+        !g_config.identity_use_original && ActiveTransferStrength(g_config) > 0.001f &&
+        !IsRayReconstructionRouteObserved() && IsCompatibilityPostObserved();
+    if (out.recent) {
+        out.cause = g_compat_fallback_cause.load(std::memory_order_relaxed);
+        out.failure = static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_relaxed));
+        const auto colour = SnapshotColorPolicy();
+        out.recorded = colour.status == NrColorPolicyStatus::Current && colour.mode == 1;
+    }
+    LeaveCriticalSection(&g_chain_cs);
+    return out;
+}

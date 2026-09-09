@@ -102,6 +102,8 @@ class CompatibilityRoute(unittest.TestCase):
         self.assertEqual(self.before.count("compatibility_fallback ="), 4)
         self.assertEqual(self.before.count("compatibility_fallback = true"), 3)
         self.assertIn("compatibility_fallback = render_extent_valid", self.before)
+        self.assertIn("nr_pre_fallback::CanAttempt(", self.process)
+        self.assertLess(self.before.rindex("substitution.fallback_cause ="), self.before.index("const bool nr_ready"))
         self.assertIn("compatibility_fallback && g_config.mode == 2", self.after)
 
         before_state = self.process.index(
@@ -173,6 +175,7 @@ class CompatibilityRoute(unittest.TestCase):
 #include <cstdarg>
 #include <cstdlib>
 #include <iostream>
+#include "nr_pre_fallback.h"
 
 struct ID3D12GraphicsCommandList {{}};
 struct NgxHandle {{ int id = 1; }};
@@ -188,6 +191,7 @@ struct FeatureRecord {{ int feature_id = 1; unsigned long long generation = 1; }
 struct Substitution {{
     bool active = false;
     bool compatibility_fallback = false;
+    nr_pre_fallback::Cause fallback_cause = nr_pre_fallback::Cause::None;
 }};
 struct PostSrSubstitution {{
     bool active = false;
@@ -205,6 +209,7 @@ std::atomic<bool> g_feature_tracking_uncertain{{false}};
 std::atomic<unsigned int> g_config_generation{{1}};
 std::atomic<unsigned long long> g_compat_fallback_tick{{0}};
 std::atomic<int> g_compat_fallback_reason{{0}};
+std::atomic<unsigned> g_compat_fallback_cause{{0}};
 std::atomic<unsigned int> g_compat_fallback_config{{0}};
 std::atomic<unsigned long long> g_compat_fallback_attempts{{0}};
 std::atomic<unsigned long long> g_compat_fallback_recorded{{0}};
@@ -309,10 +314,39 @@ int main() {{
           g_compat_fallback_attempts.load() == 0,
           "pre-active-post-ineligible");
 
+    // Unknown or unclassified failures are not repaired by another NR pass.
+    for (unsigned cause : {{0u, 6u, 0xffffffffu}}) {{
+        reset();
+        g_before.compatibility_fallback = true;
+        g_before.fallback_cause = static_cast<nr_pre_fallback::Cause>(cause);
+        g_after.active = true; g_after_admitted = true;
+        result = ProcessRoute(&command, &handle, &params, callback);
+        check(result == kNgxSuccess && g_native_calls == 1 && !g_finish_calls &&
+              !g_compat_fallback_attempts.load(), "unclassified-failure-not-post-eligible");
+    }}
+    for (unsigned cause = 1; cause <= 5; ++cause) {{
+        reset();
+        g_before.compatibility_fallback = true;
+        g_before.fallback_cause = static_cast<nr_pre_fallback::Cause>(cause);
+        g_after.active = true; g_after_admitted = true;
+        result = ProcessRoute(&command, &handle, &params, callback);
+        check(result == kNgxSuccess && g_native_calls == 1 && g_finish_calls == 1 &&
+              g_compat_fallback_recorded.load() == 1 && g_compat_fallback_cause.load() == cause,
+              "eligible-colour-cause-post-once-and-reason-published");
+        reset();
+        g_before.active = true; g_before.compatibility_fallback = true;
+        g_before.fallback_cause = static_cast<nr_pre_fallback::Cause>(cause);
+        g_after.active = true; g_after_admitted = true;
+        result = ProcessRoute(&command, &handle, &params, callback);
+        check(result == kNgxSuccess && g_native_calls == 1 && !g_finish_calls &&
+              !g_compat_fallback_attempts.load(), "active-pre-never-also-post");
+    }}
+
     // Early pre Color rejection selects a post attempt; successful native SR
     // is the only path that may call FinishAfterSr and record the fallback.
     reset();
     g_before.compatibility_fallback = true;
+    g_before.fallback_cause = nr_pre_fallback::Cause::InputStorage;
     g_after.active = true; g_after.redirected_output = true;
     g_after_admitted = true;
     result = ProcessRoute(&command, &handle, &params, callback);
@@ -325,6 +359,7 @@ int main() {{
     // Post preparation rejection returns to native SR without FinishAfterSr.
     reset();
     g_before.compatibility_fallback = true;
+    g_before.fallback_cause = nr_pre_fallback::Cause::InputStorage;
     g_after_admitted = false;
     result = ProcessRoute(&command, &handle, &params, callback);
     check(result == kNgxSuccess && g_prepare_after_calls == 1 &&
@@ -336,6 +371,7 @@ int main() {{
     // false so this seam does not exercise the separate output retry branch.
     reset();
     g_before.compatibility_fallback = true;
+    g_before.fallback_cause = nr_pre_fallback::Cause::InputStorage;
     g_after.active = true; g_after.redirected_output = false;
     g_after_admitted = true; g_native_result = kNgxFailure;
     result = ProcessRoute(&command, &handle, &params, callback);
@@ -356,6 +392,7 @@ int main() {{
                 [
                     compiler,
                     "-std=c++17",
+                    "-I", str(ROOT / "src"),
                     "-O0",
                     "-Wall",
                     "-Wextra",

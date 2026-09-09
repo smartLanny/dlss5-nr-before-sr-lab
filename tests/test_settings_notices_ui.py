@@ -134,7 +134,7 @@ int main() {
         ResetUi(); DrawConfigPolicyMigrationNotice(migration,dismissed);
         Check(Has(zh?"插件保持关闭":"plugin stays off")&&Has("F6"),"legacy zero preserves and explains disabled intent");
         Check(!Has(zh?"旧版低于 1":"below 1 was changed"),"zero uses its specific explanation once");
-        Check(Has(zh?"模型采样方式":"Model sampling"),"sampling migration is described only when changed");
+        Check(Has(zh?"已关闭向 NR 传递 Jitter":"NR jitter forwarding is now off"),"sampling migration is described only when changed");
         migration.persisted=false; migration.failed=true; migration.error=5;
         ResetUi(); DrawConfigPolicyMigrationNotice(migration,dismissed);
         Check(Has(zh?"保存失败":"could not be saved"),"failed persistence is visible");

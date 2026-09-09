@@ -63,6 +63,8 @@ enum class BypassReason { None, Guard };
 std::atomic<unsigned> g_config_generation{7};
 std::atomic<unsigned long long> g_pipeline_stats_generation{12};
 std::atomic<int> g_last_bypass_reason{0};
+std::atomic<unsigned> g_compat_fallback_cause{0};
+std::atomic<unsigned long long> g_compat_fallback_attempts{0},g_compat_fallback_recorded{0};
 bool rr_observed=false;
 bool IsRayReconstructionRouteObserved() { return rr_observed; }
 bool compatibility_post_observed=false;

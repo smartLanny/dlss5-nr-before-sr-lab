@@ -54,7 +54,7 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline7') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne 'beta0.5-dline8') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-core-feedback.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py')) {
         if ($Test -eq 'validate-f8-controller.py') {
@@ -68,13 +68,16 @@ try {
     & python (Join-Path $PSScriptRoot 'validate-optional-layer-probe.py') --compiler $Compiler --negative-control
     if ($LASTEXITCODE) { throw 'Optional layer observer or poison-pointer/cadence negative controls failed.' }
     $Checks.Add('validate-optional-layer-probe.py')
+    & python (Join-Path $PSScriptRoot 'validate-config-policy.py') --compiler $Compiler --negative-control --output-dir (Join-Path $Output 'config-policy')
+    if ($LASTEXITCODE) { throw 'One-time user policy migration or persistence failure contract failed.' }
+    $Checks.Add('validate-config-policy.py')
     & python (Join-Path $PSScriptRoot 'validate-face-capture-geometry.py') --compiler $Compiler --negative-control
     if ($LASTEXITCODE) { throw 'Face diagnostic display geometry admission failed.' }
     $Checks.Add('validate-face-capture-geometry.py')
     & python (Join-Path $PSScriptRoot 'validate-first-recording.py') --compiler $Compiler --negative-control
     if ($LASTEXITCODE) { throw 'First-recording old-policy negative control failed.' }
     $Checks.Add('first-recording old-policy CPU negative control')
-    foreach ($Test in @('tests/test_face_selection_ui.py', 'tests/test_ui_refresh.py', 'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py', 'tests/multi_api/test_rr_post_diagnostics.py', 'tests/test_rr_depth_projection.py', 'tests/test_rr_depth_device_identity.py', 'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py')) {
+    foreach ($Test in @('tests/test_settings_notices_ui.py', 'tests/test_face_selection_ui.py', 'tests/test_ui_refresh.py', 'tests/test_imgui_abi.py', 'tests/test_picture_reset.py', 'tests/test_light_style.py', 'tests/multi_api/test_rr_post_diagnostics.py', 'tests/test_rr_depth_projection.py', 'tests/test_rr_depth_device_identity.py', 'tests/test_compat_route.py', 'tests/test_lighting_edge_weights.py')) {
         & python (Join-Path $Root $Test)
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
         $Checks.Add($Test)
@@ -151,12 +154,12 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline7*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline7 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*beta0.5-dline8*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual dline8 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 7) { throw 'Wrong numeric PE version.' }
+            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 5 -or $Version.FileBuildPart -ne 1 -or $Version.FilePrivatePart -ne 8) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }

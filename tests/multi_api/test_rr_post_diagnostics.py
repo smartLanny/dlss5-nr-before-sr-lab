@@ -38,6 +38,7 @@ int EffectivePictureMode(int requested_mode) {
 }
 std::atomic<unsigned long long> g_compat_fallback_attempts{0}, g_compat_fallback_recorded{0};
 std::atomic<int> g_compat_fallback_reason{0};
+std::atomic<unsigned> g_compat_fallback_cause{0};
 std::atomic<unsigned long long> g_native_command_records{0}, g_native_command_retirements{0}, g_native_command_record_failures{0};
 std::atomic<unsigned long long> g_rr_depth_conversions{0}, g_rr_depth_declines{0};
 '''

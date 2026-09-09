@@ -10,6 +10,8 @@
         prefix,g_config.mode,prefix,EffectivePictureMode(g_config.mode),
         prefix,IsCompatibilityPostObserved()?1:0,prefix,g_compat_fallback_reason.load(),
         prefix,g_compat_fallback_attempts.load(),prefix,g_compat_fallback_recorded.load(),prefix);
+    FeedbackAppend(s,"%s.compat.preInputFallback.cause=%u\n%s.compat.preInputFallback.causeLegend=0:none,1:input-storage,2:input-encoding,3:r8-exposure,4:pq-exposure,5:shader-load\n",
+        prefix,g_compat_fallback_cause.load(std::memory_order_relaxed),prefix);
     FeedbackAppend(s,"%s.commandState.nativeCreated=%llu\n%s.commandState.nativeRetired=%llu\n%s.commandState.nativeRecordFailures=%llu\n",
         prefix,g_native_command_records.load(),prefix,g_native_command_retirements.load(),prefix,g_native_command_record_failures.load());
     FeedbackAppend(s, "%s.post.rr.depthAdapter.recorded=%llu\n%s.post.rr.depthAdapter.declined=%llu\n%s.post.rr.depthAdapter.note=standard positive view-Z projection; dispatch is not GPU completion\n",

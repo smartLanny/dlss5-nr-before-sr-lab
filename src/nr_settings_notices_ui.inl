@@ -21,8 +21,8 @@ void DrawConfigPolicyMigrationNotice(const ConfigPolicyMigrationStatus &status,
             "Extra enhancement below 1 was changed to 1. Lower Model strength if you want a weaker effect.",
             "旧版低于 1 的额外增强已改为 1。想减弱效果，请调低模型强度。"));
     if (status.jitter_changed)
-        SettingsNote(ui("Model sampling now uses the compatibility default.",
-            "模型采样方式已改为兼容默认。"));
+        SettingsNote(ui("NR jitter forwarding is now off. You can turn it on again in the compatibility settings.",
+            "已关闭向 NR 传递 Jitter（采样抖动）；需要时可在兼容设置中重新开启。"));
     if (status.failed)
         SettingsNote(ui(
             "Check that the plugin folder is writable and save an F8 report. These settings currently apply only to this session.",

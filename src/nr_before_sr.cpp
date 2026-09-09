@@ -40,6 +40,7 @@
 #include "nr_ui_activity.h"
 #include "nr_work_config.h"
 #include "nr_face_capture_geometry.h"
+#include "nr_pre_fallback.h"
 
 #ifndef NR_UI_CHINESE
 #define NR_UI_CHINESE 0
@@ -55,11 +56,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline7";
+constexpr const char *kAddonVersion = "beta0.5-dline8";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline7";
+constexpr const char *kBuildIdentity = "beta0.5-dline8";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -921,7 +922,7 @@ struct ChainConfig {
     // Developer-only temporal input selection. Legacy preserves the previous
     // behaviour; GameInputPixel forwards finite game pixel jitter to NR after
     // converting from the game's SR input grid to the NR work grid.
-    NrJitterMode jitter_mode = NrJitterMode::GameInputPixel;
+    NrJitterMode jitter_mode = NrJitterMode::Legacy;
 };
 
 ChainConfig g_config = {};
@@ -1008,6 +1009,7 @@ namespace nr_f8 { extern std::atomic<bool> g_config_hold; }
 std::atomic<unsigned long long> g_compat_fallback_attempts{0}, g_compat_fallback_recorded{0};
 std::atomic<ULONGLONG> g_compat_fallback_tick{0};
 std::atomic<int> g_compat_fallback_reason{0};
+std::atomic<unsigned> g_compat_fallback_cause{0};
 std::atomic<unsigned int> g_compat_fallback_config{0};
 bool IsCompatibilityPostObserved() {
     const auto tick=g_compat_fallback_tick.load(std::memory_order_acquire);
@@ -1343,6 +1345,8 @@ float ReadConfiguredTransferStrength(int configured_mode) {
     return strength;
 }
 
+#include "nr_config_policy_runtime.inl"
+
 void NormalizeConfig(ChainConfig &config) {
     config.mode = config.mode == 2 ? 2 : 1;
     config.layer_tone = std::clamp(FiniteOr(config.layer_tone, 1.0f), 0.0f, 2.0f);
@@ -1471,7 +1475,7 @@ void ReloadConfig(bool force = false) {
         // Missing/invalid modes use the NR -> SR installation default.
         SetLastError(ERROR_SUCCESS);
         const bool mode_written = WriteIniInt(L"Mode", next.mode);
-        const bool version_written = WritePrivateProfileStringW(
+        const bool version_written = mode_written && WritePrivateProfileStringW(
             L"NRBeforeSR", L"ConfigVersion", L"4", g_ini_path) != FALSE;
         // Per the Win32 contract, the all-null cache-flush form returns zero
         // both when it flushes the cache and when it fails. It therefore must
@@ -1571,7 +1575,8 @@ void ReloadConfig(bool force = false) {
     next.r8_output_encoding = GetPrivateProfileIntW(
         L"NRBeforeSR", L"R8OutputEncoding", 0, g_ini_path);
     next.jitter_mode = static_cast<NrJitterMode>(GetPrivateProfileIntW(
-        L"NRBeforeSR", L"JitterMode", 1, g_ini_path));
+        L"NRBeforeSR", L"JitterMode", 0, g_ini_path));
+    ApplyConfigPolicyMigrations(next, new_work_file);
     NormalizeConfig(next);
 
     const bool shortfuse_loaded =
@@ -1761,6 +1766,12 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"PerfEpoch", config.perf_epoch));
     record_write(WriteIniInt(L"R8OutputEncoding", config.r8_output_encoding));
     record_write(WriteIniInt(L"JitterMode", static_cast<int>(config.jitter_mode)));
+    // The concrete mode/strength/master values and shared-strength marker
+    // precede the one-time policy markers. Never certify a partial save.
+    if (ok) record_write(WriteIniInt(L"ExtraStrengthPolicyVersion",
+                                    nr_config_policy::kExtraStrengthVersion));
+    if (ok) record_write(WriteIniInt(L"JitterPolicyVersion",
+                                    nr_config_policy::kJitterVersion));
     // Remove the obsolete option from configs created by older builds.
     // Removing an already-absent legacy key is best effort and must not turn a
     // successfully persisted current configuration into a false failure.
@@ -1774,6 +1785,7 @@ bool SaveConfig(const ChainConfig &config) {
     const unsigned long error = ok ? ERROR_SUCCESS : first_error;
     g_config_persistence_error.store(error, std::memory_order_relaxed);
     g_config_persistence_failed.store(!ok, std::memory_order_release);
+    RecordConfigPolicySave(ok, error);
     return ok;
 }
 
@@ -4179,7 +4191,7 @@ struct NrTuningSignature {
     bool auto_mask = false;
     unsigned int style = 0;
     bool ui_correction = false;
-    NrJitterMode jitter_mode = NrJitterMode::GameInputPixel;
+    NrJitterMode jitter_mode = NrJitterMode::Legacy;
     unsigned int input_filter = 0; // Input/history identity, not an NGX model parameter.
 };
 
@@ -8411,6 +8423,7 @@ struct Substitution {
     bool active = false;
     // Set only at pre-SR input admission, before any NR call or GPU command.
     bool compatibility_fallback = false;
+    nr_pre_fallback::Cause fallback_cause = nr_pre_fallback::Cause::None;
     NgxParams *params = nullptr;
     ID3D12Resource *original_color = nullptr;
     unsigned int base_x = 0;
@@ -8471,6 +8484,10 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         const bool unknown_color =
             storage_contract == PreSrStorageContract::R8EncodingUnknown ||
             storage_contract == PreSrStorageContract::R10EncodingUnknown;
+        if (substitution.compatibility_fallback)
+            substitution.fallback_cause = unknown_color
+                ? nr_pre_fallback::Cause::InputEncoding
+                : nr_pre_fallback::Cause::InputStorage;
         SetBypassReason(unknown_color
             ? BypassReason::InputColorContractUnverified
             : BypassReason::UnsupportedInputFormat);
@@ -8531,6 +8548,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
             color_contract, create_declares_sdr, live_bounded_output);
         if (!live_r8_admitted) {
             substitution.compatibility_fallback = true;
+            substitution.fallback_cause = nr_pre_fallback::Cause::R8Exposure;
             SetBypassReason(BypassReason::InputColorContractUnverified);
             static unsigned int rejected_live_r8_contracts = 0;
             ++rejected_live_r8_contracts;
@@ -8559,6 +8577,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     if (storage_contract == PreSrStorageContract::R10PqHdr &&
         !IsPqDisplayExposureContract(color_contract)) {
         substitution.compatibility_fallback = true;
+        substitution.fallback_cause = nr_pre_fallback::Cause::PqExposure;
         SetBypassReason(BypassReason::InputColorContractUnverified);
         static unsigned int rejected_pq_exposure = 0;
         ++rejected_pq_exposure;
@@ -8586,6 +8605,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
                               &color_format_support,
                               &color_format_query)) {
         substitution.compatibility_fallback = true;
+        substitution.fallback_cause = nr_pre_fallback::Cause::ShaderLoad;
         SetBypassReason(BypassReason::UnsupportedInputFormat);
         static unsigned int rejected_capabilities = 0;
         ++rejected_capabilities;
@@ -10411,10 +10431,12 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     }
     Substitution before_sr = PrepareBeforeSr(
         before_state.command_list, handle, params, feature);
-    const bool compatibility_fallback = before_sr.compatibility_fallback &&
-        !before_sr.active && (g_config.identity_use_original || g_config.post_transfer_strength>0.000001f);
+    const bool compatibility_fallback = nr_pre_fallback::CanAttempt(
+        before_sr.compatibility_fallback, before_sr.active, before_sr.fallback_cause) &&
+        (g_config.identity_use_original || g_config.post_transfer_strength>0.000001f);
     if (compatibility_fallback) {
         g_compat_fallback_reason.store(g_last_bypass_reason.load(std::memory_order_relaxed),std::memory_order_relaxed);
+        g_compat_fallback_cause.store(static_cast<unsigned>(before_sr.fallback_cause),std::memory_order_relaxed);
         g_compat_fallback_config.store(g_config_generation.load(std::memory_order_relaxed),std::memory_order_relaxed);
         g_compat_fallback_tick.store(GetTickCount64(),std::memory_order_release);
         const auto count=++g_compat_fallback_attempts;
@@ -12796,13 +12818,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline7 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline8 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline7 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline8 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "
