@@ -56,7 +56,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_f8_stream.inl': 'd3d5e66f221eebdcfbc4e881563963dcd9c15e4c',
     'src/nr_imgui_abi.h': 'd52148f7dc9999c8090947243b9fe6167f457240',
     'src/nr_light_style.h': '1320dccd90fd3a774908cc142f2742c62808605b',
-    'src/nr_light_style_ui.inl': '4e338c962b96ff221c2cdce9a032c4cc0a6aca07',
+    'src/nr_light_style_ui.inl': 'a298b7240c6dee7fcb60c5685b92f56941f9680b',
     'src/nr_skin_protection.h': 'b09ae7909e8c06452406ecc49e174c6ba8eda4a3',
     'src/nr_stage_capture.inl': '0abf85425a3a37796eafd7b634cedcab339228a1',
     'src/nr_guide_contract.h': '19c2af89af734af998e63e3f6251679c4b22ce38',

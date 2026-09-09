@@ -45,7 +45,7 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
         : ui("Detail layers retain the previous controls: reflection and dark structure affect only the fine part of the model changes.",
             "细节分层保留此前的控制方式：反射增强、暗部结构只影响模型改动中的细节部分。"));
     bool manual=false;
-    manual|=LightStylePercent(whole_light ? ui("Bright enhancement (includes reflections)","亮部增强（含反射）")
+    manual|=LightStylePercent(whole_light ? ui("Bright enhancement","亮部增强（含反射）")
         : ui("Reflection enhancement","反射增强"),
         "##nr-light-reflection",next.light_reflection,2.f);
     SettingsTooltip(whole_light
