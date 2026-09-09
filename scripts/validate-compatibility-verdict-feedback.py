@@ -56,6 +56,9 @@ def main() -> None:
     controls = {
         'production': ('', ''),
         'unknown-as-zero': ('known ? std::to_string(value) : "unknown"', 'known ? std::to_string(value) : "0"'),
+        'hide-execution-without-storage': (
+            'record.Number(rec, "nrSuccessStreak", recovery.nr_success_streak, window_known);',
+            'record.Number(rec, "nrSuccessStreak", recovery.nr_success_streak, storage_proof_current);'),
         'hide-text-truncation': ('if (!complete) session.report_truncated = true;',
                                  'if (prefix_rejected) session.report_truncated = true;'),
         'partial-decision': ('FeedbackAppend(session, "%s", record.text.c_str());',
@@ -66,6 +69,7 @@ def main() -> None:
                              '        offset = end;\n    }'),
     }
     oracles = {'unknown-as-zero': 'UNKNOWN_IS_NOT_ZERO',
+               'hide-execution-without-storage': 'PARTIAL_STORAGE_COUNTERS_VISIBLE',
                'hide-text-truncation': 'TEXT_TRUNCATION_MARKS_REPORT',
                'partial-decision': 'CAPACITY_REJECTS_WHOLE_DECISION'}
     results = []

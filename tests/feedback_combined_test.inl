@@ -483,6 +483,51 @@ void CheckLatestStoreVersusHistoricalProof(reshade::api::effect_runtime &runtime
     check(known.substr(pre_start, known.find('\n', pre_start) - pre_start).find("known:1,match:1,") != std::string::npos &&
           known.substr(post_start, known.find('\n', post_start) - post_start).find("known:1,match:0,") != std::string::npos,
           "known comparison is distinct from whether the frozen sample actually matched");
+
+    // DS1-shaped R10 collector values: complete current execution and 2040
+    // actual samples, but only 1079 comparable expectations. No GPU result is
+    // inferred: these are explicit inputs to the actual complete F8 pipeline.
+    decision.current = {true, 7, 41, 1, 1};
+    decision.resource.scope = decision.observer.scope = decision.command.scope =
+        decision.queue.scope = recovery.scope = decision.current;
+    recovery.state = RecoveryState::Pending;
+    recovery.proof_attempt_id = 0; recovery.writeback_verified = false;
+    post = {};
+    post.mode = 1; post.config = 7; post.feature_generation = 41; post.frame = 106;
+    post.source_physical = post.source_view = post.result_physical = post.result_view = post.result_uav = 24;
+    post.samples = 2040; post.expected_samples = 1079; post.changed = 1893;
+    post.recovery_token = {{{31, 1, 1, 41, 7, 1}, 2001, 2001, 0, 1}, {24, 24, 1, 1}, 17, {606, 12}};
+    post.recovery_target = {2001, 2001, 0};
+    details = {};
+    details.current.input = decision;
+    details.current.key = post.recovery_token.key;
+    details.current.signature = post.recovery_token.signature;
+    details.current.frame = 606;
+    details.proof.state = nr_recovery::State::Pending;
+    details.proof.attempt_id = 17;
+    details.proof.correlated_window = details.proof.descriptor_verified = true;
+    details.proof.nr_success_streak = details.proof.native_success_streak = details.proof.submitted_count = 3;
+    begin(runtime, false); drain();
+    check(nr_core_feedback::g_full_report != nullptr && g_feedback_status == 3,
+          "partial comparison does not prevent complete F8 collection");
+    const auto &partial = *nr_core_feedback::g_full_report;
+    const auto partial_start = partial.find("end.store.post=");
+    check(partial_start != std::string::npos &&
+          partial.substr(partial_start, partial.find('\n', partial_start) - partial_start).find(
+              "samples:2040,expected:1079,invalid:0,actualNonfinite:0,referenceNonfinite:0,known:0,match:unknown,") != std::string::npos,
+          "partial R10 sample comparison is explicitly unknown despite changed actual samples");
+    check(partial.find("end.decision.recovery.nrSuccessStreak=3\n") != std::string::npos &&
+          partial.find("end.decision.recovery.nativeSuccessStreak=3\n") != std::string::npos &&
+          partial.find("end.decision.recovery.submittedCount=3\n") != std::string::npos &&
+          partial.find("end.decision.recovery.storageComparison=unknown\n") != std::string::npos &&
+          partial.find("decision.reason=storage-comparison-unverified\n") != std::string::npos &&
+          partial.find("decision.recoveryResult=pending\n") != std::string::npos &&
+          partial.find("decision.nextAction=needs-visual-F7\n") == std::string::npos,
+          "complete F8 preserves current execution and leaves storage/visual acceptance unproved");
+    check(partial.find("final-consumer-and-present-verification") != std::string::npos &&
+          partial.find("same-attempt-correlated-streak-and-submission-window") == std::string::npos,
+          "remaining storage/consumer gap never hides already available execution");
+    std::filesystem::copy_file(nr_core_feedback::g_report_path, std::filesystem::path(output_root) / "partial-storage.txt");
 }
 
 int main(int argc, char **argv) {

@@ -35,10 +35,13 @@ def main() -> None:
         'one-success': ('kRequiredSuccessStreak = 3', 'kRequiredSuccessStreak = 1'),
         'ignore-config-scope': ('a.config == b.config', 'true'),
         'skip-writeback': ('if (!recovery.writeback_verified)', 'if (false)'),
+        'hide-execution-without-storage': ('if (!recovery.correlated_window)',
+            'if (!recovery.correlated_window || recovery.proof_attempt_id != recovery.attempt_id)'),
     }
     oracles = {'one-success': 'ONE_SUCCESS_NOT_RECOVERY',
                'ignore-config-scope': 'STALE_SCOPE_CANNOT_SUCCEED',
-               'skip-writeback': 'WRITEBACK_REQUIRED'}
+               'skip-writeback': 'WRITEBACK_REQUIRED',
+               'hide-execution-without-storage': 'PARTIAL_STORAGE_PRESERVES_EXECUTION'}
     results = []
     for name, (before, after) in controls.items():
         output = args.output_dir / name

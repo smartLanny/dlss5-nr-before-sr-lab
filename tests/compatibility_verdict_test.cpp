@@ -113,6 +113,43 @@ int main() {
     Check(v.recoveryResult == RecoveryState::Failed && v.stage == Stage::Visual &&
           v.nextAction == NextAction::NeedsCode, "known visual failure is code work, not another unproven recovery success");
 
+    // #203: a partial R10 comparison has no storage proof ID. This does not
+    // erase the ledger's independently correlated native/NR/submission window.
+    i = Proven();
+    i.recovery.proof_attempt_id = 0;
+    i.recovery.writeback_verified = false;
+    i.recovery.state = RecoveryState::Pending;
+    v = Resolve(i);
+    Check(v.stage == Stage::Writeback && v.reason == "storage-comparison-unverified" &&
+          v.recoveryResult == RecoveryState::Pending && !v.evidenceComplete &&
+          v.nextAction == NextAction::AutoRetry && v.autoRecoverable &&
+          Has(v.missingEvidence, "same-attempt-actual-storage-comparison") &&
+          Has(v.missingEvidence, "final-consumer-and-present-verification") &&
+          !Has(v.missingEvidence, "streak-and-submission-window"), "PARTIAL_STORAGE_PRESERVES_EXECUTION");
+    Check(v.firstFailureHistorical && v.firstDefinitiveFailure == "unsupported-input-format" &&
+          i.recovery.nr_success_streak == 3 && i.recovery.submitted_count == 3,
+          "unverified comparison neither latches a new failure nor changes execution input");
+    i.recovery.proof_attempt_id = i.recovery.attempt_id - 1;
+    i.recovery.writeback_verified = true;
+    v = Resolve(i);
+    Check(v.stage == Stage::Writeback && v.recoveryResult == RecoveryState::Pending &&
+          v.nextAction != NextAction::NeedsVisualF7, "old storage proof cannot certify current execution");
+    i.recovery.proof_attempt_id = 0; i.recovery.writeback_verified = false;
+    i.recovery.native_success_streak = 2;
+    Check(Resolve(i).stage == Stage::Native, "missing storage proof preserves an actual short native streak");
+    i.recovery.native_success_streak = 3; i.recovery.nr_success_streak = 2;
+    Check(Resolve(i).stage == Stage::Neural, "missing storage proof preserves an actual short NR streak");
+    i.recovery.nr_success_streak = 3; i.recovery.submitted_count = 2;
+    Check(Resolve(i).stage == Stage::Submission, "missing storage proof preserves an actual short submission window");
+    i = Proven(); i.recovery.proof_attempt_id = 0; i.recovery.writeback_verified = false;
+    i.recovery.state = RecoveryState::Failed; i.recovery.failure_reason = "writeback-failed";
+    i.recovery.failure_definitive = true;
+    v = Resolve(i);
+    Check(v.stage == Stage::Writeback && v.reason == "writeback-failed" &&
+          v.recoveryResult == RecoveryState::Failed && v.evidenceComplete &&
+          v.nextAction == NextAction::NeedsCode && !v.autoRecoverable,
+          "an actual storage failure is distinct from an incomplete comparison");
+
     // #202/#229: the next exposure gate must stay exposure-specific.
     i = Proven();
     i.first_block = {true,true,i.current,"exposure-texture-unverified",true};
