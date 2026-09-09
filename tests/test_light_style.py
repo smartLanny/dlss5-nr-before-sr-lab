@@ -1,4 +1,4 @@
-"""Real light helpers, extracted configuration transactions and Win32 INI IO.
+"""Real light/model helpers, extracted configuration transactions and Win32 INI IO.
 
 No renderer, GPU, model or game is constructed. Runtime logging and bypass
 publication are seams; normalization, history comparisons, apply/undo and
@@ -33,6 +33,7 @@ HARNESS=r'''
 #include <string>
 #include <vector>
 #include "nr_light_style.h"
+#include "nr_model_controls.h"
 #include "nr_work_config.h"
 #include "nr_f8_types.h"
 enum class NrJitterMode:int {Legacy=0,GameInputPixel=1};
@@ -99,6 +100,7 @@ APPLY_OVERLAY
 // The distinct full-picture/post-resolution reset is tested by test_picture_reset.
 OverlayApplyResult ApplyPictureReset(ChainConfig,unsigned) {return OverlayApplyResult::Conflict;}
 APPLY_LIGHT
+APPLY_SETTINGS
 RESTORE
 
 ChainConfig LoadGroup() {
@@ -121,6 +123,93 @@ void Seed(unsigned light_mode=0) {
 int wmain(int argc,wchar_t **argv) {
     if(argc!=2)return 2;
     wcscpy_s(g_ini_path,argv[1]);InitializeCriticalSection(&g_chain_cs);
+    for (unsigned light_mode : {0u, 1u}) for (int route : {1, 2})
+        for (bool face_enabled : {false, true}) {
+        Seed(light_mode);g_config.mode=route;
+        g_config.local_tone=1.89f;g_config.local_structure=1.9f;
+        g_config.auto_mask=face_enabled;g_config.skin_structure=face_enabled?.65f:-1.f;
+        g_config.ui_correction=false;g_config.lighting_lock=.73f;
+        g_config.light_dark=.52f;g_config.light_reflection=1.6f;
+        g_config.light_structure=.7f;g_config.light_glow=.85f;g_config.light_preview=2;
+        g_config.transfer_strength=1.4f;g_config.post_transfer_strength=1.8f;
+        nr_light_style::MarkCustom(g_config);NormalizeConfig(g_config);SaveConfig(g_config);
+        writes=0;write_keys.clear();
+        const auto before=g_config;const auto before_tuning=CurrentNrTuningSignature();
+        nr_light_style::UndoState light_undo;
+        nr_model_controls::UndoState model_undo;
+        auto next=before;nr_model_controls::Reset(next);
+        check(ApplySettingsOverlay(next,1,false,false,light_undo,
+            nr_model_controls::Action::Reset,model_undo)==OverlayApplyResult::Applied,
+            "model baseline uses normal overlay transaction");
+        check(g_config_generation==2&&g_history_generation==1,
+            "model baseline publishes once without changing raster history");
+        check(!SameNrTuningSignature(before_tuning,CurrentNrTuningSignature()),
+            "model baseline reaches the existing NR recreation signature");
+        check(g_config.intensity==1.2f&&g_config.local_tone==1.f&&g_config.local_structure==1.f&&
+            g_config.auto_mask&&g_config.skin_structure==0.f&&g_config.style==0&&g_config.ui_correction,
+            "independent seven-field model baseline");
+        auto unrelated=g_config;
+        nr_model_controls::Write(unrelated,nr_model_controls::Read(before));
+        unrelated.perf_epoch=before.perf_epoch;
+        check(SameConfig(unrelated,before),"model baseline preserves every other configuration field");
+        check(nr_light_style::SameSnapshot(nr_light_style::Read(g_config),nr_light_style::Read(before))&&
+            g_config.light_preview==2,"model baseline preserves D coefficients, mode, colour and preview");
+        check(ReadIniFloat(L"Intensity",-1.f)==1.2f&&ReadIniFloat(L"LocalToneStrength",-1.f)==1.f&&
+            ReadIniFloat(L"LocalStructureStrength",-1.f)==1.f&&ReadIniFloat(L"SkinStructureStrength",-1.f)==0.f&&
+            GetPrivateProfileIntW(L"NRBeforeSR",L"AutoMask",0,g_ini_path)==1&&
+            GetPrivateProfileIntW(L"NRBeforeSR",L"Style",99,g_ini_path)==0&&
+            GetPrivateProfileIntW(L"NRBeforeSR",L"UICorrection",0,g_ini_path)==1,
+            "model baseline persists all seven values through real Win32 INI");
+        check(std::count(write_keys.begin(),write_keys.end(),L"Intensity")==1,
+            "model baseline makes one configuration save");
+        check(model_undo.Available(2)&&!light_undo.valid,"only model reset receives an undo snapshot");
+        const auto reset=g_config;const auto reset_writes=writes;
+        check(ApplySettingsOverlay(reset,2,false,false,light_undo,
+            nr_model_controls::Action::Reset,model_undo)==OverlayApplyResult::Applied&&
+            g_config_generation==2&&writes==reset_writes&&model_undo.Available(2),
+            "repeated baseline is a no-op and retains the previous undo receipt");
+        next=g_config;
+        check(model_undo.Restore(next,2),"model undo prepares the saved seven values");
+        nr_f8::g_config_hold=true;
+        check(ApplySettingsOverlay(next,2,false,false,light_undo,
+            nr_model_controls::Action::Undo,model_undo)==OverlayApplyResult::Busy&&
+            SameConfig(g_config,reset)&&model_undo.Available(2)&&writes==reset_writes,
+            "capture hold defers model undo without losing its receipt");
+        nr_f8::g_config_hold=false;
+        check(ApplySettingsOverlay(next,2,false,false,light_undo,
+            nr_model_controls::Action::Undo,model_undo)==OverlayApplyResult::Applied,
+            "model undo commits after capture hold ends");
+        check(g_config_generation==3&&!model_undo.valid&&
+            nr_model_controls::Same(nr_model_controls::Read(g_config),nr_model_controls::Read(before))&&
+            SameNrTuningSignature(before_tuning,CurrentNrTuningSignature()),
+            "model undo restores off sentinel or enabled strength and consumes its receipt");
+        unrelated=g_config;unrelated.perf_epoch=before.perf_epoch;
+        check(SameConfig(unrelated,before),"model undo preserves every unrelated setting");
+    }
+    {
+        Seed();const auto before=g_config;
+        nr_light_style::UndoState light_undo;nr_model_controls::UndoState model_undo;
+        auto next=g_config;nr_model_controls::Reset(next);
+        nr_f8::g_config_hold=true;
+        check(ApplySettingsOverlay(next,1,false,false,light_undo,
+            nr_model_controls::Action::Reset,model_undo)==OverlayApplyResult::Busy&&
+            SameConfig(g_config,before)&&writes==0&&!model_undo.valid,
+            "capture hold rejects model baseline without mutation or receipt");
+        nr_f8::g_config_hold=false;
+        check(ApplySettingsOverlay(next,0,false,false,light_undo,
+            nr_model_controls::Action::Reset,model_undo)==OverlayApplyResult::Conflict&&
+            SameConfig(g_config,before)&&writes==0&&!model_undo.valid,
+            "stale model reset cannot overwrite a newer generation");
+        ApplySettingsOverlay(next,1,false,false,light_undo,nr_model_controls::Action::Reset,model_undo);
+        next=g_config;check(model_undo.Restore(next,2),"prepare model undo before concurrent edit");
+        auto later=g_config;later.light_dark=.41f;ApplyOverlayConfig(later,2);
+        const auto latest=g_config;const auto latest_writes=writes;
+        check(ApplySettingsOverlay(next,2,false,false,light_undo,
+            nr_model_controls::Action::Undo,model_undo)==OverlayApplyResult::Conflict&&
+            SameConfig(g_config,latest)&&writes==latest_writes&&!model_undo.valid,
+            "stale model undo preserves a later D edit");
+        check(!model_undo.Restore(next,3),"invalidated model snapshot cannot prepare another undo");
+    }
     for(unsigned light_mode:{0u,1u}) for(unsigned preset=0;preset<3;++preset) {
         Seed(light_mode);const auto before=g_config;const auto tuning=CurrentNrTuningSignature();
         auto next=g_config;nr_light_style::Write(next,nr_light_style::Select(preset,next.color_strength,next.light_control_mode));
@@ -284,7 +373,18 @@ def main():
     dispatch=definition(core,'void DispatchCodec(')
     assert 'const bool before_sr = !rr_guarded && !compatibility_post && next.mode == 2;' in ui
     assert 'DrawLightStyleControls(next,before_sr' in ui
-    assert 'ApplyLightStyleOverlay(pending,pending_generation,' in ui
+    assert 'ApplySettingsOverlay(pending,pending_generation,' in ui
+    apply_settings=definition(ui,'OverlayApplyResult ApplySettingsOverlay(')
+    assert 'ApplyLightStyleOverlay(next, expected_generation,' in apply_settings
+    assert apply_settings.count('ApplyLightStyleOverlay(')==1
+    model_section=ui[ui.index('SettingsSection(ui("Model details"'):ui.index('// END PRIMARY MODEL CONTROLS')]
+    assert 'nr_model_controls::Reset(next);' in model_section
+    assert 'Reset model controls###nr-model-reset' in model_section and '恢复模型基准###nr-model-reset' in model_section
+    assert 'Undo model reset###nr-model-undo' in model_section and '撤销模型基准###nr-model-undo' in model_section
+    assert 'nr_model_controls::Action::Reset' in model_section and 'nr_model_controls::Action::Undo' in model_section
+    assert 'model_undo.Observe(current.generation);' in ui
+    for forbidden in ('CreateFeature', 'ReleaseNr', 'ApplyPictureReset(', 'SaveConfig(', 'ApplyConfig('):
+        assert forbidden not in model_section and forbidden not in apply_settings
     assert 'if (color_follow_changed) nr_light_style::MarkCustom(next);' in ui
     assert 'next.mode=' not in group and 'independent_chroma_composition' not in group
     assert group.index('##nr-light-reflection')<group.index('ImGui::CollapsingHeader')
@@ -317,6 +417,7 @@ def main():
         'APPLY_CONFIG':definition(core,'bool ApplyConfig('),
         'APPLY_OVERLAY':definition(core,'OverlayApplyResult ApplyOverlayConfig('),
         'APPLY_LIGHT':definition(group,'OverlayApplyResult ApplyLightStyleOverlay('),
+        'APPLY_SETTINGS':apply_settings,
         'RESTORE':(ROOT/'src/nr_recommended_picture.inl').read_text(encoding='utf-8'),
     }
     reload=definition(core,'void ReloadConfig(')

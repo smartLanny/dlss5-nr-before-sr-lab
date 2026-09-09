@@ -61,7 +61,9 @@ def check_wiring(cpp,ui,helper):
  assert picture < draw.index('if (collecting) ImGui::BeginDisabled();',picture) < call
  assert call < draw.index('if (collecting) ImGui::EndDisabled();',picture)
  assert 'changed = true;' in draw[call:call+100]
- assert 'ApplyLightStyleOverlay(pending,pending_generation,' in draw
+ assert 'ApplySettingsOverlay(pending,pending_generation,' in draw
+ settings=definition(ui,'OverlayApplyResult ApplySettingsOverlay(')
+ assert 'ApplyLightStyleOverlay(next, expected_generation,' in settings
  apply=definition(cpp,'bool ApplyConfig(')
  assert apply.index('NormalizeConfig(next);') < apply.index('g_config = next;') < apply.index('SaveConfig(g_config)')
  assert 'SameHistoryConfig(next, g_config)' in apply

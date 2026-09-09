@@ -1,6 +1,7 @@
 #include "nr_present_api_status.h"
 #include "nr_recommended_picture.inl"
 #include "nr_precision_ui.h"
+#include "nr_model_controls.h"
 
 // A named overlay is an independent ReShade-owned window. nullptr registers
 // inside the add-on settings area, where long panels can displace other add-ons.
@@ -61,6 +62,32 @@ void SettingsNote(const char *text) {
 }
 
 #include "nr_light_style_ui.inl"
+
+// Publish once through the existing overlay transaction. Both group receipts
+// observe the same committed generation while the recursive Win32 lock is held.
+OverlayApplyResult ApplySettingsOverlay(ChainConfig next, unsigned expected_generation,
+    bool picture_reset, bool light_undo_requested, nr_light_style::UndoState &light_undo,
+    nr_model_controls::Action model_action, nr_model_controls::UndoState &model_undo) {
+    EnterCriticalSection(&g_chain_cs);
+    if (model_action == nr_model_controls::Action::Undo &&
+        !model_undo.Available(expected_generation)) {
+        LeaveCriticalSection(&g_chain_cs); return OverlayApplyResult::Conflict;
+    }
+    const auto before = nr_model_controls::Read(g_config);
+    const auto result = ApplyLightStyleOverlay(next, expected_generation,
+        picture_reset, light_undo_requested, light_undo);
+    if (result == OverlayApplyResult::Applied) {
+        const auto committed = g_config_generation.load(std::memory_order_relaxed);
+        if (picture_reset || model_action == nr_model_controls::Action::Undo)
+            model_undo.Clear();
+        else if (model_action == nr_model_controls::Action::Reset &&
+            !nr_model_controls::Same(before, nr_model_controls::Read(g_config)))
+            model_undo.Record(before, committed);
+        else model_undo.Observe(committed);
+    } else if (result == OverlayApplyResult::Conflict) model_undo.Clear();
+    LeaveCriticalSection(&g_chain_cs);
+    return result;
+}
 
 bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded) {
     const bool zh = UseChineseUi();
@@ -290,12 +317,16 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     static bool pending_picture_reset = false;
     static bool pending_light_undo = false;
     static nr_light_style::UndoState light_undo;
+    static nr_model_controls::UndoState model_undo;
+    static auto pending_model_action = nr_model_controls::Action::None;
     static unsigned pending_generation = 0;
     static bool edit_conflict = false;
     const auto current = SnapshotOverlayConfig();
     light_undo.Observe(current.generation);
+    model_undo.Observe(current.generation);
     if (has_pending && pending_generation != current.generation) {
         has_pending = false; pending_picture_reset = false; pending_light_undo = false; edit_conflict = true;
+        pending_model_action = nr_model_controls::Action::None;
     }
     ChainConfig next = has_pending ? pending : current.config;
     bool changed = false;
@@ -403,6 +434,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         RestoreRecommendedPictureSettings(next);
         changed = true;
         pending_picture_reset = true;
+        pending_model_action = nr_model_controls::Action::None;
         apply_discrete_edit = true;
     }
     SettingsTooltip(ui(
@@ -492,6 +524,25 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     }
 #endif
     SettingsSection(ui("Model details", "模型细节"));
+        if (ImGui::Button(ui("Reset model controls###nr-model-reset", "恢复模型基准###nr-model-reset"))) {
+            nr_model_controls::Reset(next);
+            pending_model_action = nr_model_controls::Action::Reset;
+            changed = true;
+            apply_discrete_edit = true;
+        }
+        SettingsTooltip(ui("Restores model strength 1.2, local contrast and overall detail 1, Default style and UI correction. Enables Face adjustment at strength 0 to compare model-control combinations. Face recognition and the visible result depend on the model. Keeps light controls, processing route, colour and working resolution.",
+            "恢复模型强度 1.2、局部明暗和整体细节 1、默认风格与界面保护，并开启人脸调节、强度设为 0，用于排查模型参数组合。人脸识别和实际效果取决于模型。保留光影控制、处理路线、颜色与工作比例。"));
+        ImGui::SameLine();
+        ImGui::BeginDisabled(has_pending || changed || !model_undo.Available(current.generation));
+        if (ImGui::Button(ui("Undo model reset###nr-model-undo", "撤销模型基准###nr-model-undo")) &&
+            model_undo.Restore(next, current.generation)) {
+            pending_model_action = nr_model_controls::Action::Undo;
+            changed = true;
+            apply_discrete_edit = true;
+        }
+        ImGui::EndDisabled();
+        SettingsTooltip(ui("Restores the seven model controls saved by the last committed model reset. Any later settings change invalidates this snapshot.",
+            "恢复最近一次模型基准操作保存的七项模型设置；后续配置改变后，此快照失效。"));
         changed |= SettingsSliderFloat(ui("Model strength", "模型强度"),
             "##nr-model-strength", &next.intensity, 0.f, 2.f, "%.2f");
         SettingsTooltip(ui("Tunes the model itself; recommended 1.2. Extra enhancement controls the final mix separately. Higher values may look less natural.",
@@ -712,10 +763,11 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         has_pending = true; edit_conflict = false;
     }
     if (has_pending && (apply_discrete_edit || !ImGui::IsAnyItemActive())) {
-        const auto result = ApplyLightStyleOverlay(pending,pending_generation,
-            pending_picture_reset,pending_light_undo,light_undo);
+        const auto result = ApplySettingsOverlay(pending,pending_generation,
+            pending_picture_reset,pending_light_undo,light_undo,pending_model_action,model_undo);
         if (result != OverlayApplyResult::Busy) {
             has_pending = false; pending_picture_reset = false; pending_light_undo = false;
+            pending_model_action = nr_model_controls::Action::None;
         }
         if (result == OverlayApplyResult::Conflict) edit_conflict = true;
     }
