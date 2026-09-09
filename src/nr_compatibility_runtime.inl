@@ -23,7 +23,9 @@ nr_compatibility_verdict::Input SnapshotNrCompatibilityVerdict() {
     Input input = snapshot.input;
     const auto config = g_config_generation.load(std::memory_order_acquire);
     const auto requested = static_cast<unsigned>(g_requested_mode_fast.load(std::memory_order_acquire));
-    if (!input.current.available || input.current.config != config || input.current.requested_mode != requested) {
+    const bool different_carrier = g_last_carrier_feature.load(std::memory_order_acquire) == 13 &&
+        input.current.feature_generation != 0 && snapshot.key.resource != 0;
+    if (!input.current.available || input.current.config != config || input.current.requested_mode != requested || different_carrier) {
         input = {}; input.current = {true, config, 0, requested, requested};
         input.first_block = {true, true, input.current,
             g_enabled_fast.load(std::memory_order_acquire) ? "waiting-feature1" : "master-disabled", true};

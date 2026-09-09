@@ -148,7 +148,21 @@ void NrObserveCompatibilityBypass(BypassReason reason) {
     }
     // Early process guards have no classified resource identity. Export their
     // actual cause without borrowing a prior Feature's success evidence.
-    if (reason == BypassReason::None) return;
+    if (reason == BypassReason::None) {
+        AcquireSRWLockExclusive(&g_nr_recovery_lock);
+        auto& value = g_nr_recovery_snapshot;
+        // RR uses the existing separate route. Its successful prepare/finish
+        // clears its unclassified block, but is not Feature1 recovery proof.
+        // An unrelated unscoped notification cannot clear a classified failure.
+        if (!value.input.current.feature_generation && !value.key.resource) {
+            value = {};
+            const auto mode = static_cast<unsigned>(g_requested_mode_fast.load(std::memory_order_acquire));
+            value.input.current = {true, g_config_generation.load(std::memory_order_acquire), 0, mode, mode};
+            value.input.first_block = {true, true, value.input.current, "waiting-feature1", true};
+        }
+        ReleaseSRWLockExclusive(&g_nr_recovery_lock);
+        return;
+    }
     AcquireSRWLockExclusive(&g_nr_recovery_lock);
     for (const auto& scope : g_nr_recovery_scopes)
         if (scope.device) g_nr_recovery.InterruptScope(scope, scope.mode == 1 ? 1u : 0u);
