@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the renamed 0.4.7beta-output.2 compatibility candidate without changing the checkout.
+"""Stage the renamed 0.4.7beta-corefix.1 compatibility candidate without changing the checkout.
 
 Requires #131, #132 and the completed #134 merge. Generated-source availability
 is not game verification. MFG work is deferred for the current owner test batch.
@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.4.7beta-output.2'
-DISPLAY_VERSION = '0.4.7beta-output.2'
+VERSION = '0.4.7beta-corefix.1'
+DISPLAY_VERSION = '0.4.7beta-corefix.1'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -171,7 +171,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.4.7beta-output.2' not in resource_text:
+    if '0.4.7beta-corefix.1' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -182,7 +182,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.4.7.5',
+        'core_pe_version': '0.4.7.6',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),
@@ -194,8 +194,12 @@ def finalize(core: Path, stage: Path, source: str) -> None:
         'feedback': 'F8 single TXT; F7 optional paired archive',
         'post_feedback': 'requested state and sampled RR counters; not GPU completion; same TXT',
         'blend_feedback': 'four observed native blend factors from the same locked state sample; explicit unobserved/unavailable',
-        'format_path': 'typed FP16/FP32 SceneColor read -> existing FP16 codec',
-        'exposure_path': '1x1 mip0 final-scale red channel; typed R16/R32 FLOAT-family view and actual device ShaderLoad; no source UAV requirement',
+        'format_path': 'Exact typed/native view -> unique explicit contract and successful device capability -> ambiguous native fallback; physical storage and typed access reported separately',
+        'exposure_path': '1x1 mip0 final-scale red; typed R8_UNORM or established R16/R32 FLOAT-family reads with actual Texture2D/ShaderLoad proof; queryAttempted distinguishes missing query from driver failure; no source UAV',
+        'resource_recovery': 'same-process normal-carrier retry only after semantics resolve; real descriptor writer, NR/native results, matching Execute and sparse actual stored-value read; failed interpretation latched until genuinely new evidence/lifetime',
+        'compatibility_verdict': 'scoped current first block, retained failure and matching attempt/proof; technical proof requires three correlated carriers; final Present visual remains unobserved without separate F7 proof',
+        'native_observer': 'layered Create/Evaluate/Release identity; external Feature18 ownership distinct from private NR; gaps remain fail-closed',
+        'post_boundary': 'immutable scoped probe window with native barrier/write/submit evidence; no inferred final-screen write or automatic state rewrite',
         'optional_inventory_blocks_on_failure': False,
         'vulkan_native': 'disabled: submit synchronization not implemented',
         'synthetic_legacy': 'not integrated',
