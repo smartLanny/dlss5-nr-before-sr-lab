@@ -3,7 +3,7 @@ from pathlib import Path
 import argparse,base64,datetime,hashlib,json,os,subprocess,zipfile
 
 FUNCTIONS=("void FeedbackAppend(","const char *FeedbackStageBlockReason(",
-           "void FeedbackAppendActivity(","bool RequestFeedbackBundle(",
+           "void FeedbackAppendNgxLifecycle(","void FeedbackAppendActivity(","bool RequestFeedbackBundle(",
            "void FeedbackStageExported(","void OnFeedbackScreenshot(",
            "void FeedbackObserveEvaluate(",
            "bool FeedbackCreateDirectory(",

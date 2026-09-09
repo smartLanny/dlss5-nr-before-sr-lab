@@ -104,6 +104,35 @@ void FeedbackAppendCommandHistory(FeedbackSession &s) {
 }
 #endif
 
+void FeedbackAppendNgxLifecycle(FeedbackSession &s) {
+#if defined(NR_HAS_NGX_LIFECYCLE_EVIDENCE)
+    const auto evidence = SnapshotNgxLifecycleEvidence();
+    FeedbackAppend(s, "ngxLifecycle.schema=1\nngxLifecycle.externalHeld=%u\n"
+        "ngxLifecycle.externalCreating=%u\nngxLifecycle.externalEvaluations=%llu\n"
+        "ngxLifecycle.events=%llu\nngxLifecycle.firstFaultFrozen=%d\n"
+        "ngxLifecycle.layers=0:unspecified,1:dlss,2:core,3:dlssd,4:private-bridge\n"
+        "ngxLifecycle.owners=0:game,1:private-NR,2:external-NR,3:uncertain\n"
+        "ngxLifecycle.operations=1:create-success,2:proven-nested-alias,3:create-failed,4:first-evaluate-or-unknown,5:released,6:release-entry,7:create-entry\n"
+        "ngxLifecycle.contract=bounded process-local tokens; no addresses; absent Create is unknown, not proof of pre-observer timing\n",
+        g_external_nr_handles.load(), g_external_nr_creates.load(),
+        g_external_nr_evaluations.load(), evidence.events, evidence.frozen ? 1 : 0);
+    for (unsigned int group = 0; group != 2; ++group) {
+        const char *label = group ? "recent" : "firstFault";
+        const auto *events = group ? evidence.recent : evidence.first_fault;
+        const unsigned int count = group ? evidence.recent_count : evidence.fault_count;
+        FeedbackAppend(s, "ngxLifecycle.%s.count=%u\n", label, count);
+        for (unsigned int i = 0; i < count; ++i) {
+            const auto &e = events[i];
+            FeedbackAppend(s, "ngxLifecycle.%s.%u=seq:%llu,call:%llu,parent:%llu,handle:%llu,generation:%llu,epoch:%llu,layer:%u,owner:%u,op:%u,feature:%d,result:0x%X\n",
+                label, i, e.sequence, e.call, e.parent, e.handle_token,
+                e.generation, e.epoch, e.layer, e.owner, e.operation, e.feature, e.result);
+        }
+    }
+#else
+    (void)s;
+#endif
+}
+
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
 #if defined(NR_HAS_NATIVE_FORMAT_OBSERVER)
     const auto formats = SnapshotNrFormatDiagnostics();
@@ -288,6 +317,7 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix, g_command_signature_start_deferred.load() ? 1 : 0,
         prefix, g_command_signature_create_calls.load(),
         prefix, g_command_signature_unknown_uses.load());
+    if (std::strcmp(prefix, "end") == 0) FeedbackAppendNgxLifecycle(s);
 }
 
 namespace nr_f8 { bool RequestCore(); void DrawControls(); }
