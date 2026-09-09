@@ -73,6 +73,7 @@ nr_compatibility_verdict::Input SnapshotNrCompatibilityVerdict() {
             resource.admitted = static_cast<bool>(exposure.semantic);
             resource.definitive = exposure.semantic.definitive;
             resource.state = resource.admitted ? ResourceState::Ready :
+                resource.definitive ? ResourceState::Rejected :
                 !exposure.access.query_attempted ? ResourceState::QueryNotAttempted :
                 FAILED(exposure.access.query_result) ? ResourceState::QueryFailed : ResourceState::Rejected;
             resource.reason = exposure.semantic.reason;
