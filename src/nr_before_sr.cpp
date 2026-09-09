@@ -54,11 +54,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "beta0.5-dline5";
+constexpr const char *kAddonVersion = "beta0.5-dline6";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "beta0.5-dline5";
+constexpr const char *kBuildIdentity = "beta0.5-dline6";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -1626,6 +1626,13 @@ void ReloadConfig(bool force = false) {
         g_history_generation.fetch_add(1, std::memory_order_relaxed);
     }
     if (changed || force) {
+        Log("DLight request: config=%u mode=%d scope=%u broad=%.9g dark=%.9g reflection=%.9g structure=%.9g glow=%.9g preview=%u preset=%u lightingLock=%.9g; configuration values, not GPU mask or applied-region evidence.",
+            g_config_generation.load(std::memory_order_relaxed), g_config.mode,
+            g_config.light_control_mode, static_cast<double>(g_config.light_broad),
+            static_cast<double>(g_config.light_dark), static_cast<double>(g_config.light_reflection),
+            static_cast<double>(g_config.light_structure), static_cast<double>(g_config.light_glow),
+            g_config.light_preview, static_cast<unsigned>(g_config.light_preset),
+            static_cast<double>(g_config.lighting_lock));
         Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
             g_config.layered_enhancement, g_config.mode, g_config.layer_tone, g_config.layer_structure, g_config.layer_bright, g_config.layer_shadow);
         Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", g_config.independent_chroma_composition);
@@ -1836,7 +1843,14 @@ bool ApplyConfig(ChainConfig next, const char *source,
         : BypassReason::MasterDisabled);
     const bool persisted = persist_to_ini && !preview_only ? SaveConfig(g_config) : true;
     const ChainConfig applied = g_config;
+    const unsigned applied_generation = g_config_generation.load(std::memory_order_relaxed);
     LeaveCriticalSection(&g_chain_cs);
+    Log("DLight request: config=%u mode=%d scope=%u broad=%.9g dark=%.9g reflection=%.9g structure=%.9g glow=%.9g preview=%u preset=%u lightingLock=%.9g; configuration values, not GPU mask or applied-region evidence.",
+        applied_generation, applied.mode, applied.light_control_mode,
+        static_cast<double>(applied.light_broad), static_cast<double>(applied.light_dark),
+        static_cast<double>(applied.light_reflection), static_cast<double>(applied.light_structure),
+        static_cast<double>(applied.light_glow), applied.light_preview,
+        static_cast<unsigned>(applied.light_preset), static_cast<double>(applied.lighting_lock));
     Log("LayeredEnhancement requested=%d mode=%u tone=%.3f structure=%.3f bright=%.3f shadow=%.3f; single NR; effective luma exponent capped at 4; codec flag=2048.",
         applied.layered_enhancement, applied.mode, applied.layer_tone, applied.layer_structure, applied.layer_bright, applied.layer_shadow);
     Log("IndependentChromaComposition requested=%d; pre/post candidate flag=4096; master zero bypasses; nonzero luma strength and colour strength are independent; actual colour remains policy-gated.", applied.independent_chroma_composition);
@@ -12733,13 +12747,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain beta0.5-dline5 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain beta0.5-dline6 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline5 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain beta0.5-dline6 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "
