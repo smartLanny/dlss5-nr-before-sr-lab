@@ -5,9 +5,10 @@ Stranding Director's Cut, and is inherited unchanged by `0.4.7beta` (#217).
 The installed dev15 SHA256 still matches its deployment receipt. The owner's
 new dev15 F8 proves the first-recording state is now admitted, but queue affinity
 remains unverified and NR/submission counts stay zero. The game is still failing.
-The owner explicitly paused #205 to prioritize the integrated Manager package;
-no queue-policy change was made and the issue remains open. The sections below
-retain the original candidate and validation/deployment history.
+The owner clarified that Manager packaging continues independently while this
+task fixes the queue path. The separate [0.4.7beta-ds1.1 candidate](DS1_QUEUE_RETIREMENT_20260909.md)
+has been locally validated and installed for a new game check; #205 remains
+open. The sections below retain the original first-recording candidate history.
 
 Base: `b5a17cbf0531f7d5fa3e35d0b65df054aa12aa2d`, isolated
 `codex/ds1-first-recording-20260909`. Initial candidate identity:
