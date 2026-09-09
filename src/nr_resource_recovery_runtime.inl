@@ -31,6 +31,9 @@ NrRecoveryDetailSnapshot SnapshotNrRecoveryDetails() {
     return {current, proof};
 }
 struct NrRecoveryCarrierScope {
+#if defined(NR_HAS_TIMING)
+    NrTimingCarrierScope timing;
+#endif
     NrRecoveryCarrierScope* parent = nullptr;
     nr_recovery::Scope scopes[2]{};
     nr_recovery::Carrier carriers[2]{};
@@ -91,6 +94,9 @@ NrRecoveryCarrierScope::NrRecoveryCarrierScope(ID3D12GraphicsCommandList* list,
     const auto requested = static_cast<unsigned>(g_requested_mode_fast.load(std::memory_order_acquire));
     selected_role = requested == 1 ? 1u : 0u;
     snapshot.input.current = {true, config, generation, requested, requested};
+#if defined(NR_HAS_TIMING)
+    timing.Begin(snapshot.frame, generation, config, requested, identity);
+#endif
     snapshot.input.observer = {nr_compatibility_verdict::FactState::Complete,
         snapshot.input.current, "classified-live-Feature1-carrier", true};
     AcquireSRWLockExclusive(&g_nr_recovery_lock);
@@ -137,6 +143,9 @@ NrRecoveryCarrierScope::~NrRecoveryCarrierScope() {
     g_nr_recovery_carrier = parent;
 }
 void NrObserveCompatibilityBypass(BypassReason reason) {
+#if defined(NR_HAS_TIMING)
+    NrTimingBypass(static_cast<unsigned>(reason));
+#endif
     using namespace nr_compatibility_verdict;
     if (auto* frame = g_nr_recovery_carrier) {
         auto& input = frame->snapshot.input;
@@ -175,6 +184,9 @@ void NrObserveCompatibilityBypass(BypassReason reason) {
     ReleaseSRWLockExclusive(&g_nr_recovery_lock);
 }
 void NrRecoveryCommandObserved() {
+#if defined(NR_HAS_TIMING)
+    NrTimingCommandObserved();
+#endif
     if (auto* frame = g_nr_recovery_carrier) {
         frame->command_observed = true;
         frame->snapshot.input.command = {nr_compatibility_verdict::FactState::Complete,

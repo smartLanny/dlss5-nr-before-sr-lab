@@ -23,6 +23,10 @@ NrResolvedColorView NrRecoveryResolve(NrResolvedColorView result, bool post_sr) 
     if (frame->command_observed)
         input.command = {FactState::Complete, input.current, "actual-native-command-state-captured", true};
     snapshot.key = {frame->scopes[role], result.key.resource, result.key.resource, 0, role};
+#if defined(NR_HAS_TIMING)
+    NrTimingSetResource(snapshot.key.scope.device, snapshot.key.resource, snapshot.key.resource_generation,
+        snapshot.key.scope.mode, role, snapshot.key.scope.config_generation);
+#endif
     snapshot.signature = NrRecoveryViewSignature(result);
     const auto semantic = result.semantic ?
         (result.semantic.source == Source::UniqueContract ? nr_recovery::SemanticState::Unique : nr_recovery::SemanticState::Exact) :
@@ -65,6 +69,9 @@ void NrRecoveryAdoptSlot(NrSlot& slot, const nr_recovery::Token& token, bool pos
     slot.recovery_token = token;
     const auto target = NrFormatResourceIdentity(slot.result);
     slot.recovery_target = {target, target, 0};
+#if defined(NR_HAS_TIMING)
+    NrTimingSetTarget(target, target, 0);
+#endif
     const bool programmed = slot.heap && slot.source && slot.result &&
         slot.descriptor_receipt.heap == slot.heap && slot.descriptor_receipt.source == slot.source &&
         slot.descriptor_receipt.result == slot.result &&

@@ -56,7 +56,7 @@ def main() -> None:
     cases = ['one-shot'] if args.old_policy_negative else [
         'one-shot', 'guards', 'pending-context', 'pending-slot',
         'migration', 'one-observation-migration', 'replay', 'discard',
-        'submitted-retirement', 'retirement-timeout', 'retirement-guards', 'post-output', 'boundary-callbacks']
+        'submitted-retirement', 'submitted-retirement-polling', 'retirement-timeout', 'retirement-guards', 'post-output', 'boundary-callbacks']
     results = []
     for case in cases:
         result = run([str(binary), case], case, 30)

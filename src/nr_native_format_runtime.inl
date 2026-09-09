@@ -97,7 +97,14 @@ NgxResult NrCallNativeWithFormatObservation(NativeEvaluate original,
         ID3D12GraphicsCommandList* list, const NgxHandle* handle,
         const NgxParams* params, void* callback, unsigned long long generation) {
     NrNativeFormatScope scope(list, params, generation);
+#if defined(NR_HAS_TIMING)
+    NrTimingScope native_timing(nr_timing::Stage::NativeEvaluate);
+#endif
     const NgxResult result = original(list, handle, params, callback);
+#if defined(NR_HAS_TIMING)
+    NrTimingNativeResult(static_cast<std::int32_t>(result));
+    native_timing.Stop();
+#endif
     scope.Finish(result == kNgxSuccess);
 #if defined(NR_HAS_RESOURCE_RECOVERY)
     NrRecoveryNativeResult(result);

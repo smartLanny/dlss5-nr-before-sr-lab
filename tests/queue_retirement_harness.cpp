@@ -74,6 +74,13 @@ struct Fixture {
     }
     ~Fixture() {
         for (auto &queue : g_lifecycle_queues) {
+#if defined(NR_HAS_SUBMITTED_FENCE_EVENT)
+            if (queue.completion_event.registered_fence && queue.completion_event.event &&
+                WaitForSingleObject(queue.completion_event.event, 1000) == WAIT_OBJECT_0)
+                NrFenceEventNotification(queue.completion_event, true);
+            Check(ReleaseNrSubmittedFenceEvent(queue.completion_event),
+                  "fixture retires deferred event notifications before releasing the fence");
+#endif
             ReleaseCom(queue.fence);
             ReleaseCom(queue.queue);
         }
@@ -311,6 +318,19 @@ void SubmittedRetirement() {
           "no timeout or invented queue affinity");
     Check(g_lifecycle_active_command_lists.load()==0 && context.recording_command_lists==0,
           "continuous owners all detached");
+#if defined(NR_HAS_TIMING) && defined(NR_HAS_SUBMITTED_FENCE_EVENT)
+    unsigned event_handles = 0;
+    for (const auto& queue : g_lifecycle_queues) event_handles += queue.completion_event.event != nullptr;
+    const auto policy = NrTimingPolicySnapshot();
+    auto timing = std::make_unique<nr_timing::Snapshot>(); SnapshotNrTiming(*timing);
+    Check(timing->stages[static_cast<unsigned>(nr_timing::Stage::FenceWait)].count == 7,
+          "actual production preparation records one timing per exact submitted wait");
+    Check(policy.wait.mode == 0 ? event_handles > 0 && event_handles <= 2 : event_handles == 0,
+          "selected event or legacy polling strategy reaches actual production WARP fences");
+    std::printf("SUBMITTED_WAIT_STRATEGY mode=%s phase=%llu event_handles=%u waits=%llu\n",
+        nr_timing::WaitModeName(policy.wait.mode), static_cast<unsigned long long>(policy.wait.phase), event_handles,
+        static_cast<unsigned long long>(timing->stages[static_cast<unsigned>(nr_timing::Stage::FenceWait)].count));
+#endif
 }
 void RetirementTimeout() {
     Fixture f;List first(f),declined(f);
@@ -447,6 +467,11 @@ int main(int argc, char **argv) {
     else if (mode == "guards") queue_test::Guards();
 #ifndef NR_QUEUE_OLD_POLICY_NEGATIVE
     else if (mode == "submitted-retirement") queue_test::SubmittedRetirement();
+#if defined(NR_HAS_TIMING)
+    else if (mode == "submitted-retirement-polling") {
+        NrTimingSetWaitPolicy(1, 2); queue_test::SubmittedRetirement();
+    }
+#endif
     else if (mode == "retirement-timeout") queue_test::RetirementTimeout();
     else if (mode == "retirement-guards") queue_test::RetirementGuards();
     else if (mode == "post-output") post_output_test::Run();
