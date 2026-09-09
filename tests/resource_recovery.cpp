@@ -18,12 +18,13 @@ WritebackProof Actual(const Token& token) {
     return {token.key.resource, token.key.resource_generation, token.key.subresource, true, true, true, 0};
 }
 template<class Policy> Token Start(Policy& ledger, const Key& key, const ViewSignature& signature,
-                                  std::uint64_t frame) {
+                                  std::uint64_t frame,
+                                  WritebackTargetPolicy target_policy = WritebackTargetPolicy::SameResource) {
     const auto resolved = ledger.Resolve(key, signature, SemanticState::Exact);
     Check(resolved.can_attempt, "a resolved live interpretation admits a normal attempt");
     const auto carrier = ledger.ObserveCarrier(key.scope, key.role, frame);
     Check(static_cast<bool>(carrier), "a real carrier receives an internal scope ordinal");
-    const auto token = ledger.Begin(key, signature, carrier);
+    const auto token = ledger.Begin(key, signature, carrier, target_policy);
     Check(static_cast<bool>(token), "actual work receives an exact identity token");
     return token;
 }
@@ -257,9 +258,13 @@ void BoundedEvidenceAndRetirement() {
     Check(!unavailable.can_attempt && unavailable.capacity_unknown, "full failure ledger is unknown and does not evict a latch to retry");
     Check(!full.Resolve(a, signature, SemanticState::Exact).can_attempt, "capacity pressure preserves the oldest failure latch");
     full.RetireResource(a.scope, a.resource, a.resource_generation);
+    Check(!full.RetireInactiveResource(a, {true, true, true}) &&
+          !full.Resolve(c, signature, SemanticState::Exact).can_attempt,
+          "both resource retirement routes preserve failed interpretations until scope destruction");
+    full.RetireScope(a.scope);
     const auto tc = Start(full, c, signature, 1003);
     Check(tc.attempt_id > tb.attempt_id && !full.ReportFailure(ta, Stage::Descriptor, -1),
-          "actual resource retirement frees capacity without reusing attempt identity or accepting old callbacks");
+          "actual scope retirement frees failed capacity without reusing identity or accepting old callbacks");
     full.RetireScope(c.scope);
     Check(full.Resolve(a, signature, SemanticState::Exact).can_attempt, "actual Feature/config retirement frees its complete bounded scope");
     Check(!full.Record(tc, Stage::Submitted, true), "retired scope rejects asynchronous old submission proof");
@@ -286,14 +291,156 @@ void BoundedEvidenceAndRetirement() {
     scopes.RetireScope(a.scope);
     Check(static_cast<bool>(scopes.ObserveCarrier(other.scope, other.role, 1022)), "true scope retirement restores bounded capacity");
 }
+WritebackProof ActualTarget(Target target) {
+    return {target.resource, target.resource_generation, target.subresource, true, true, true, 0};
+}
+void TargetOracle() {
+    const auto key = Resource(); const auto signature = View();
+    const Target target{9001, 71, 2};
+    ResourceRecoveryLedger ledger;
+    const auto token = Start(ledger, key, signature, 1101, WritebackTargetPolicy::Explicit);
+    Check(ledger.BindWritebackTarget(token, target), "PRE binds an owned Result different from its semantic input");
+    Events(ledger, token);
+    auto wrong = ActualTarget(target); ++wrong.resource;
+    ledger.RecordWriteback(token, wrong);
+    const auto result = ledger.Read(key, signature);
+    Check(result.state == State::Latched && !result.writeback_verified && result.first_failure.kind == FailureKind::WrongTarget,
+          "TARGET_ORACLE: actual read from another owned Result must not verify the frozen frame target");
+}
+void PerFrameWritebackTargets() {
+    const auto key = Resource(); const auto signature = View();
+    ResourceRecoveryLedger ledger;
+    std::array<Token, 3> tokens;
+    std::array<Target, 3> targets{{{9001, 71, 0}, {9002, 72, 1}, {9003, 73, 2}}};
+    for (unsigned i = 0; i != 3; ++i) {
+        tokens[i] = Start(ledger, key, signature, 1111 + i, WritebackTargetPolicy::Explicit);
+        Check(ledger.BindWritebackTarget(tokens[i], targets[i]), "each dynamic context freezes its own Result target before submission");
+        Events(ledger, tokens[i]);
+    }
+    Check(tokens[0].attempt_id == tokens[1].attempt_id && tokens[1].attempt_id == tokens[2].attempt_id,
+          "a dynamic owned Result per frame does not create a new semantic interpretation attempt");
+    Check(!ledger.Record(tokens[2], Stage::ActualStorageRead, true), "raw boolean recording cannot bypass the target validator");
+    Check(ledger.Read(key, signature).state == State::Pending, "three NR carriers still require a validated target read");
+    Check(ledger.RecordWriteback(tokens[1], ActualTarget(targets[1])), "out-of-order middle-frame proof matches its own owned Result");
+    Check(ledger.Read(key, signature).state == State::RecoverySucceeded && ledger.Read(key, signature).proof_target == targets[1],
+          "different semantic input and actual PRE output produce a verified recovery");
+    Check(ledger.RecordWriteback(tokens[0], ActualTarget(targets[0])) &&
+          ledger.Read(key, signature).proof_frame_id == tokens[1].carrier.frame_id,
+          "older valid Result proof does not relabel the newer actual proof");
+    Check(ledger.RecordWriteback(tokens[2], ActualTarget(targets[2])) &&
+          ledger.Read(key, signature).proof_target == targets[2], "later frame updates the proof to its independently frozen Result");
+
+    for (unsigned missing_or_conflicting = 0; missing_or_conflicting != 5; ++missing_or_conflicting) {
+        ResourceRecoveryLedger bad;
+        auto token = Start(bad, key, signature, 1120 + missing_or_conflicting, WritebackTargetPolicy::Explicit);
+        if (missing_or_conflicting == 1) {
+            Check(!bad.BindWritebackTarget(token, {}), "empty explicit target cannot be frozen as valid");
+        } else if (missing_or_conflicting == 2) {
+            Check(bad.BindWritebackTarget(token, targets[0]), "first explicit target binding succeeds");
+            Check(bad.BindWritebackTarget(token, targets[0]), "identical pre-submit notification is idempotent");
+            Check(!bad.BindWritebackTarget(token, targets[1]), "a conflicting second binding cannot replace the frozen target");
+        } else if (missing_or_conflicting == 3) {
+            bad.BindWritebackTarget(token, targets[0]);
+            bad.Record(token, Stage::Submitted, true);
+            Check(!bad.BindWritebackTarget(token, targets[0]), "target binding after submission is rejected even if the value matches");
+        } else if (missing_or_conflicting == 4) {
+            bad.BindWritebackTarget(token, targets[0]);
+            Check(bad.RecordWriteback(token, ActualTarget(targets[0])), "readback validates a target frozen before the read");
+            Check(!bad.BindWritebackTarget(token, targets[1]), "target cannot be rebound after an actual read");
+        }
+        Events(bad, token);
+        Check(!bad.RecordWriteback(token, ActualTarget(targets[0])) && !bad.Read(key, signature).writeback_verified,
+              "missing or conflicted frame target never produces verified writeback evidence");
+        Check(!bad.Record(token, Stage::ActualStorageRead, true), "missing target cannot be bypassed by the generic stage API");
+    }
+    for (unsigned identity_field = 0; identity_field != 2; ++identity_field) {
+        ResourceRecoveryLedger bad;
+        auto token = Start(bad, key, signature, 1130 + identity_field, WritebackTargetPolicy::Explicit);
+        bad.BindWritebackTarget(token, targets[0]); Events(bad, token);
+        auto wrong = ActualTarget(targets[0]);
+        if (identity_field) ++wrong.subresource; else ++wrong.resource_generation;
+        bad.RecordWriteback(token, wrong);
+        Check(bad.Read(key, signature).state == State::Latched &&
+              bad.Read(key, signature).first_failure.kind == FailureKind::WrongTarget,
+              "same resource address with a different lifetime or subresource cannot verify the frozen target");
+    }
+    ledger.RetireScope(key.scope);
+    Check(!ledger.BindWritebackTarget(tokens[2], targets[2]) &&
+          !ledger.RecordWriteback(tokens[2], ActualTarget(targets[2])), "scope destruction rejects both old target bindings and old actual reads");
+}
+void RetirementOracle() {
+    const auto key = Resource(); const auto signature = View();
+    ResourceRecoveryLedger ledger; const auto token = Start(ledger, key, signature, 1201);
+    ledger.ReportFailure(token, Stage::NrEvaluate, -42);
+    Check(!ledger.RetireInactiveResource(key, {true, true, true}) &&
+          !ledger.Resolve(key, signature, SemanticState::Exact).can_attempt,
+          "RETIREMENT_ORACLE: a live failed resource remains latched through successful-slot retirement");
+}
+void SafeTransientRetirement() {
+    const auto key = Resource(); const auto signature = View();
+    ResourceRecoveryLedger proof_checks;
+    const auto busy = Start(proof_checks, key, signature, 1210);
+    Check(!proof_checks.RetireInactiveResource(key, {true, true, true}), "a still-recording carrier cannot be reclaimed even with inconsistent external flags");
+    Events(proof_checks, busy, false, false);
+    Check(proof_checks.RetireInactiveResource(key, {true, true, true}),
+          "external retirement proof may reclaim an ended unknown frame without treating it as complete recovery evidence");
+    Check(!proof_checks.Record(busy, Stage::Submitted, true), "reclaimed unknown evidence cannot accept a late synthetic completion");
+    const auto complete = Good(proof_checks, key, signature, 1211);
+    for (unsigned missing = 0; missing != 3; ++missing) {
+        RetirementProof proof{true, true, true};
+        if (!missing) proof.recording_idle = false;
+        else if (missing == 1) proof.gpu_idle = false;
+        else proof.readbacks_collected = false;
+        Check(!proof_checks.RetireInactiveResource(key, proof), "retirement requires recording, GPU completion and collected readbacks as separate real facts");
+    }
+    Check(proof_checks.RetireInactiveResource(key, {true, true, true}), "completed nonfailed resource can be safely retired after external collection");
+    Check(!proof_checks.Record(complete, Stage::Submitted, true) && !proof_checks.RecordWriteback(complete, Actual(complete)),
+          "a retired successful attempt rejects callbacks instead of attaching them to a rebound slot");
+
+    Ledger<4, 8, 2> rotating;
+    const auto failed_key = Resource(7000);
+    const auto failed = Start(rotating, failed_key, signature, 1220);
+    rotating.ReportFailure(failed, Stage::NativeSrEvaluate, -73);
+    rotating.EndCarrier(failed_key.scope, failed_key.role, failed.carrier, true);
+    for (unsigned i = 0; i != 80; ++i) {
+        const auto transient = Resource(7100 + i);
+        Good(rotating, transient, signature, 1221 + i, true);
+        if (i >= 2) Check(rotating.Read(transient, signature).state == State::RecoverySucceeded,
+                          "retired immutable carrier evidence supports continuity across transient resource rotation");
+        Check(rotating.RetireInactiveResource(transient, {true, true, true}),
+              "more than capacity successful transient lifetimes can safely release their slots");
+        Check(!rotating.Resolve(failed_key, signature, SemanticState::Exact).can_attempt,
+              "transient churn never erases a live failed interpretation latch");
+    }
+    rotating.RetireResource(failed_key.scope, failed_key.resource, failed_key.resource_generation);
+    Check(!rotating.Resolve(failed_key, signature, SemanticState::Exact).can_attempt,
+          "resource rebinding without scope destruction preserves the failed signature");
+    rotating.RetireScope(failed_key.scope);
+    Check(rotating.Resolve(failed_key, signature, SemanticState::Exact).can_attempt &&
+          !rotating.ReportFailure(failed, Stage::NativeSrEvaluate, -73), "true Feature/Scope destruction is the boundary that releases failed latches");
+
+    Ledger<2, 4, 2> unknowns;
+    for (unsigned i = 0; i != 12; ++i) {
+        const auto transient = Resource(8100 + i);
+        const auto token = Start(unknowns, transient, signature, 1401 + i);
+        Events(unknowns, token, false, false);
+        Check(unknowns.Read(transient, signature).state == State::Pending &&
+              !unknowns.Read(transient, signature).correlated_window, "retired unknown carriers never manufacture a successful continuous window");
+        Check(unknowns.RetireInactiveResource(transient, {true, true, true}),
+              "externally retired nonfailed unknown resources also do not permanently exhaust bounded slots");
+    }
+}
 }
 int main(int argc, char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "--single-frame-oracle") == 0) SingleFrameOracle();
     else if (argc == 2 && std::strcmp(argv[1], "--submission-oracle") == 0) SubmissionOracle();
+    else if (argc == 2 && std::strcmp(argv[1], "--target-oracle") == 0) TargetOracle();
+    else if (argc == 2 && std::strcmp(argv[1], "--retirement-oracle") == 0) RetirementOracle();
     else {
         SingleFrameOracle(); SubmissionOracle(); WaitingAndIdentity(); ResourceRingAndSparseProof();
         OutOfOrderAndNoCountJoining(); ScopedOrdinalsAndBreaks(); FailureLatchesAndNewEvidence();
         WritebackValidation(); BoundedEvidenceAndRetirement();
+        TargetOracle(); PerFrameWritebackTargets(); RetirementOracle(); SafeTransientRetirement();
     }
     std::printf("%s resource recovery production policy: %u checks, %u failures; no GPU or NGX\n",
                 failures ? "FAIL" : "PASS", checks, failures);
