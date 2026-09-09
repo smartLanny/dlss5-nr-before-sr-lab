@@ -1,4 +1,4 @@
-"""Exercise actual BindNrParameters transition prefix, then snapshot currentness."""
+"""Exercise actual jitter binding, post zero preparation and snapshot currentness."""
 import argparse
 from pathlib import Path
 import subprocess
@@ -10,23 +10,30 @@ s=(a.source or root/'src/nr_before_sr.cpp').read_text(encoding='utf-8-sig')
 start=s.index('    NgxParams *params = context.params;',s.index('bool BindNrParameters('))
 end=s.index('    if (!context.guide_contract_logged',start)
 prefix=s[start:end]
+post=(root/'scripts/patch-post-compat.py').read_text(encoding='utf-8-sig')
+post_start=post.index('    guides.jitter.known = true;')
+post_end=post.index('    NrContext *context = FindOrCreateContext(',post_start)
+post_zero=post[post_start:post_end]
 h=r'''
 #include <atomic>
 #include <cstdio>
+#include <string>
+#include <vector>
 enum class NrJitterMode:int {Legacy,GameInputPixel};
 struct NgxParams{};
-struct NrJitterBinding {bool known=true,valid_x=true,valid_y=true;float x=.25f,y=-.25f,scale_x=1,scale_y=1;unsigned source_width=10,source_height=10;};
-struct Guides {NrJitterBinding jitter;};
+struct NrJitterBinding {bool known=true,valid_x=true,valid_y=true;float x=.25f,y=-.25f,source_x=.5f,source_y=-.5f,scale_x=1,scale_y=1;unsigned source_width=10,source_height=10;};
+struct Guides {NrJitterBinding jitter;float jitter_offset_x=.25f,jitter_offset_y=-.25f;};
 struct Ctx {NgxParams* params=nullptr;bool jitter_status_initialized=true,jitter_last_known=false,jitter_binding_written=false;void*sr_handle=nullptr;};
 struct {NrJitterMode jitter_mode=NrJitterMode::GameInputPixel;} g_config;
 std::atomic<unsigned> g_nr_jitter_status{0};
 int writes=0,failures=0,checks=0;bool retired=false;
+struct Setter {std::string key;double value;};std::vector<Setter> setters;
 void RetireContextForHandle(void*) {retired=true;}
 template<class...A>void Log(const char*,A...){}
-template<class...A>void SetFloat(A...){++writes;}
-template<class...A>void SetUInt(A...){++writes;}
-template<class...A>void SetInt(A...){++writes;}
-bool Bind(Ctx &context,const Guides &guides) {unsigned width=10,height=10;PREFIX return true;}
+void SetFloat(NgxParams*,const char* key,float value){++writes;setters.push_back({key,value});}
+void SetUInt(NgxParams*,const char* key,unsigned value){++writes;setters.push_back({key,static_cast<double>(value)});}
+void SetInt(NgxParams*,const char* key,int value){++writes;setters.push_back({key,static_cast<double>(value)});}
+bool Bind(Ctx &context,const Guides &guides,unsigned width=10,unsigned height=10) {PREFIX return true;}
 void check(bool ok,const char* what) {++checks;if(!ok){++failures;std::printf("FAIL: %s\n",what);}}
 HEADER
 int main(){
@@ -36,10 +43,30 @@ int main(){
  check(g_nr_jitter_status.load()!=2,"transition never publishes forwarded without a write");
  context.jitter_status_initialized=false;retired=false;
  check(Bind(context,guides)&&writes==11&&!retired,"fresh valid block receives actual setters");
+ guides.jitter.known=false;retired=false;const auto prior_writes=writes;
+ check(!Bind(context,guides)&&retired&&writes==prior_writes,"valid-to-unknown retires before stale offsets can be reused");
+ context.jitter_status_initialized=false;retired=false;setters.clear();
+ g_config.jitter_mode=NrJitterMode::Legacy;
+ check(Bind(context,guides)&&!retired&&setters.size()==1&&setters[0].key=="DLSSNR.Jitter.Valid"&&setters[0].value==0,
+       "legacy omitted binding writes only validity, never synthetic zero coordinates");
+ const unsigned width=100,height=50,work_width=50,work_height=25;
+ POST_ZERO
+ context.jitter_status_initialized=false;setters.clear();
+ check(Bind(context,guides,work_width,work_height)&&setters.size()==11&&guides.jitter.known,
+       "actual post preparation keeps a known binding when game jitter forwarding is off");
+ for(const auto& setter:setters)if(setter.key=="Jitter.Offset.X"||setter.key=="Jitter.Offset.Y"||
+     setter.key=="DLSSNR.Jitter.Offset.X"||setter.key=="DLSSNR.Jitter.Offset.Y")
+   check(setter.value==0,"actual post reconstructed grid writes explicit zero coordinates");
+ for(const auto& setter:setters) {
+   if(setter.key=="DLSSNR.Jitter.WorkWidth")check(setter.value==work_width,"post binding uses actual work width");
+   if(setter.key=="DLSSNR.Jitter.WorkHeight")check(setter.value==work_height,"post binding uses actual work height");
+ }
+ check(guides.jitter.scale_x==.5f&&guides.jitter.scale_y==.5f&&guides.jitter_offset_x==0&&guides.jitter_offset_y==0,
+       "post zero retains the actual source-to-work geometry");
  EXTRA
  std::printf("production jitter binding/status: %d checks / %d failures\n",checks,failures);return failures?1:0;
 }
-'''.replace('PREFIX',prefix)
+'''.replace('PREFIX',prefix).replace('POST_ZERO',post_zero)
 header=root/'src/nr_jitter_status.h'
 extra=''
 if header.exists():

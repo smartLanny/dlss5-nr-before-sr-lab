@@ -882,7 +882,7 @@ struct ChainConfig {
     // Developer-only temporal input selection. Legacy preserves the previous
     // behaviour; GameInputPixel forwards finite game pixel jitter to NR after
     // converting from the game's SR input grid to the NR work grid.
-    NrJitterMode jitter_mode = NrJitterMode::GameInputPixel;
+    NrJitterMode jitter_mode = NrJitterMode::Legacy;
 };
 
 ChainConfig g_config = {};
@@ -1344,6 +1344,8 @@ float ReadConfiguredTransferStrength(int configured_mode) {
     return strength;
 }
 
+#include "nr_config_policy_runtime.inl"
+
 void NormalizeConfig(ChainConfig &config) {
     config.mode = config.mode == 2 ? 2 : 1;
     config.layer_tone = std::clamp(FiniteOr(config.layer_tone, 1.0f), 0.0f, 2.0f);
@@ -1555,7 +1557,8 @@ void ReloadConfig(bool force = false) {
     next.r8_output_encoding = GetPrivateProfileIntW(
         L"NRBeforeSR", L"R8OutputEncoding", 0, g_ini_path);
     next.jitter_mode = static_cast<NrJitterMode>(GetPrivateProfileIntW(
-        L"NRBeforeSR", L"JitterMode", 1, g_ini_path));
+        L"NRBeforeSR", L"JitterMode", 0, g_ini_path));
+    ApplyConfigPolicyMigrations(next, new_work_file);
     NormalizeConfig(next);
 
     const bool shortfuse_loaded =
@@ -1725,6 +1728,9 @@ bool SaveConfig(const ChainConfig &config) {
     record_write(WriteIniInt(L"PerfEpoch", config.perf_epoch));
     record_write(WriteIniInt(L"R8OutputEncoding", config.r8_output_encoding));
     record_write(WriteIniInt(L"JitterMode", static_cast<int>(config.jitter_mode)));
+    // Publish the shared one-time policy only after every concrete value.
+    if (ok) record_write(WriteIniInt(L"JitterPolicyVersion",
+                                    nr_config_policy::kJitterVersion));
     // Remove the obsolete option from configs created by older builds.
     // Removing an already-absent legacy key is best effort and must not turn a
     // successfully persisted current configuration into a false failure.
@@ -1738,6 +1744,7 @@ bool SaveConfig(const ChainConfig &config) {
     const unsigned long error = ok ? ERROR_SUCCESS : first_error;
     g_config_persistence_error.store(error, std::memory_order_relaxed);
     g_config_persistence_failed.store(!ok, std::memory_order_release);
+    RecordConfigPolicySave(ok, error);
     return ok;
 }
 
@@ -1787,6 +1794,11 @@ bool ApplyConfig(ChainConfig next, const char *source,
         next.enabled = false;
     RecordWorkRequestStatus(work_request.status);
     if (SameConfig(next, g_config)) {
+        // An explicit no-op edit/reset can retry a failed save without a
+        // history rebuild. Polling and F8 transient changes never retry here.
+        if (persist_to_ini &&
+            g_config_persistence_failed.load(std::memory_order_acquire))
+            SaveConfig(g_config);
         LeaveCriticalSection(&g_chain_cs);
         return false;
     }
@@ -4041,7 +4053,7 @@ struct NrTuningSignature {
     bool auto_mask = false;
     unsigned int style = 0;
     bool ui_correction = false;
-    NrJitterMode jitter_mode = NrJitterMode::GameInputPixel;
+    NrJitterMode jitter_mode = NrJitterMode::Legacy;
     unsigned int input_filter = 0; // Input/history identity, not an NGX model parameter.
 };
 

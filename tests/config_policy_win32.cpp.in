@@ -1,0 +1,292 @@
+#include <windows.h>
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstdio>
+#include <cwchar>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+#include <vector>
+#include "nr_work_config.h"
+
+@JITTER_ENUM@
+@CHAIN_CONFIG@
+ChainConfig g_config;
+wchar_t g_ini_path[MAX_PATH]{};
+CRITICAL_SECTION g_chain_cs;
+ULONGLONG g_config_read_tick = 0, test_tick = 10000;
+std::atomic<ULONGLONG> g_next_config_poll_tick{0};
+std::atomic<bool> g_config_persistence_failed{false}, g_enabled_fast{false};
+std::atomic<int> g_requested_mode_fast{2};
+std::atomic<unsigned long> g_config_persistence_error{0};
+std::atomic<unsigned> g_config_generation{1}, g_history_generation{1};
+std::atomic<unsigned long long> g_nr_successful_evaluations{0};
+bool g_work_config_loaded = false;
+std::atomic<bool> g_work_request_rejected{false};
+namespace nr_f8 { std::atomic<bool> g_config_hold{false}; }
+enum class BypassReason { WaitingForFeature1, MasterDisabled };
+void SetBypassReason(BypassReason) {}
+template<class... T> void Log(const char *, T...) {}
+
+struct Write { std::wstring key; bool succeeded; };
+std::vector<Write> writes;
+unsigned attempted_writes = 0, fail_write = 0;
+std::wstring fail_key;
+BOOL ProfileWrite(const wchar_t *section, const wchar_t *key,
+                  const wchar_t *value, const wchar_t *path) {
+    if (!section && !key && !value)
+        return ::WritePrivateProfileStringW(section, key, value, path);
+    ++attempted_writes;
+    BOOL success;
+    if ((fail_write && attempted_writes == fail_write) ||
+        (key && !fail_key.empty() && fail_key == key)) {
+        SetLastError(ERROR_WRITE_FAULT);
+        success = FALSE;
+    } else {
+        success = ::WritePrivateProfileStringW(section, key, value, path);
+    }
+    writes.push_back({key ? key : L"", success != FALSE});
+    return success;
+}
+ULONGLONG TestTick() { return test_tick; }
+#define WritePrivateProfileStringW ProfileWrite
+#define GetTickCount64 TestTick
+@HELPERS@
+@POLICY_RUNTIME@
+@NORMALIZE@
+@SAME_CONFIG@
+@SAME_HISTORY@
+@ACTIVE_TRANSFER@
+@RELOAD_CONFIG@
+@SAVE_CONFIG@
+@APPLY_CONFIG@
+@SNAPSHOT_CONFIG@
+@POLL_CONFIG@
+@RESTORE_DEFAULTS@
+@TUNING_SIGNATURE@
+@CURRENT_TUNING@
+@SAME_TUNING@
+#undef WritePrivateProfileStringW
+#undef GetTickCount64
+
+int checks = 0, failures = 0;
+void Check(bool success, const char *label) {
+    ++checks;
+    if (!success) { ++failures; std::printf("FAIL %s\n", label); }
+}
+void Put(const wchar_t *key, const wchar_t *value) {
+    Check(::WritePrivateProfileStringW(L"NRBeforeSR", key, value, g_ini_path) != 0,
+          "fixture real Win32 write");
+}
+int Int(const wchar_t *key, int missing = 0) {
+    return GetPrivateProfileIntW(L"NRBeforeSR", key, missing, g_ini_path);
+}
+std::string Bytes() {
+    std::ifstream file(std::filesystem::path(g_ini_path), std::ios::binary);
+    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+void ResetSession() {
+    g_config = {};
+    g_config_policy_migration = {};
+    g_config_policy_attempted = false;
+    g_config_persistence_failed = false;
+    g_config_persistence_error = 0;
+    g_work_config_loaded = false;
+    g_work_request_rejected = false;
+    g_config_read_tick = 0;
+    g_next_config_poll_tick = 0;
+    g_config_generation = g_history_generation = 1;
+    nr_f8::g_config_hold = false;
+    writes.clear(); attempted_writes = fail_write = 0; fail_key.clear();
+    test_tick += 10000;
+}
+void Fixture(const wchar_t *policy = nullptr, const wchar_t *jitter = L"1", int mode = 2) {
+    ResetSession();
+    SetFileAttributesW(g_ini_path, FILE_ATTRIBUTE_NORMAL);
+    DeleteFileW(g_ini_path);
+    Put(L"ConfigVersion", L"4"); Put(L"StrengthConfigVersion", L"1");
+    Put(L"Enabled", L"1"); Put(L"Mode", mode == 1 ? L"1" : L"2");
+    if (policy) Put(L"JitterPolicyVersion", policy);
+    if (jitter) Put(L"JitterMode", jitter);
+    Put(L"TransferStrength", L"0.25"); Put(L"PostTransferStrength", L"0.25");
+    Put(L"WorkMode", L"0"); Put(L"CustomWorkScale", L"1");
+    Put(L"Intensity", L"1.73"); Put(L"LocalToneStrength", L"1.64");
+    Put(L"LocalStructureStrength", L"1.77"); Put(L"AutoMask", L"1");
+    Put(L"SkinStructureStrength", L"1.25"); Put(L"ColorStrength", L"0.61");
+    Put(L"UICorrection", L"0"); Put(L"R8OutputEncoding", L"2"); Put(L"DepthMode", L"1");
+    Put(L"UnrelatedSetting", L"77");
+}
+ChainConfig Load() { ReloadConfig(true); return g_config; }
+void Preserved(const ChainConfig &c) {
+    Check(c.intensity == 1.73f && c.local_tone == 1.64f && c.local_structure == 1.77f &&
+          c.skin_structure == 1.25f && c.auto_mask && c.color_strength == .61f &&
+          !c.ui_correction && c.r8_output_encoding == 2 && c.depth_mode == 1,
+          "jitter migration preserves model and provider settings");
+    Check(c.transfer_strength == .25f && c.post_transfer_strength == .25f && c.enabled &&
+          Int(L"ExtraStrengthPolicyVersion", -1) == -1 && Int(L"UnrelatedSetting") == 77,
+          "jitter migration never imports extra-strength policy");
+}
+void RestartFile(const std::filesystem::path &directory, const wchar_t *name) {
+    Check(CopyFileW(g_ini_path, (directory / name).c_str(), TRUE) != 0,
+          "copy exact persisted restart fixture");
+}
+void PollMany() {
+    for (unsigned i = 0; i < 30; ++i) {
+        test_tick += 1000;
+        PollConfigFromPresent();
+        (void)SnapshotConfig();
+    }
+}
+void TestLegacy(const std::filesystem::path &directory) {
+    for (const wchar_t *policy : {static_cast<const wchar_t *>(nullptr), L"0", L"-1"})
+        for (const wchar_t *jitter : {L"0", L"1"}) for (int mode : {1, 2}) {
+            Fixture(policy, jitter, mode);
+            const auto c = Load();
+            Check(c.jitter_mode == NrJitterMode::Legacy, "old request is forced off once");
+            Check(c.mode == mode, "migration preserves processing route");
+            Preserved(c);
+            Check(writes.size() == 2 && writes[0].key == L"JitterMode" &&
+                  writes[1].key == L"JitterPolicyVersion" && writes[0].succeeded && writes[1].succeeded,
+                  "jitter value is persisted before its marker");
+            Check(Int(L"JitterMode") == 0 && Int(L"JitterPolicyVersion") == 1 &&
+                  Int(L"ConfigVersion") == 4 && Int(L"StrengthConfigVersion") == 1,
+                  "independent policy marker is durable");
+            const auto status = SnapshotConfigPolicyMigrationStatus();
+            Check(status.visible && status.persisted && !status.failed &&
+                  status.jitter_changed == (jitter[0] == L'1'), "migration status is accurate");
+        }
+    RestartFile(directory, L"restart-off.ini");
+    auto manual = g_config;
+    const auto old_signature = CurrentNrTuningSignature();
+    manual.jitter_mode = NrJitterMode::GameInputPixel;
+    Check(ApplyConfig(manual, "manual re-enable"), "manual re-enable is accepted");
+    Check(!SameNrTuningSignature(old_signature, CurrentNrTuningSignature()),
+          "jitter switch changes the existing context-rebuild signature");
+    const auto count = attempted_writes;
+    const auto bytes = Bytes();
+    PollMany();
+    Check(g_config.jitter_mode == NrJitterMode::GameInputPixel && Int(L"JitterMode") == 1 &&
+          Int(L"JitterPolicyVersion") == 1 && attempted_writes == count && Bytes() == bytes,
+          "later polling retains explicit re-enable without rewriting");
+    RestartFile(directory, L"restart-user-on.ini");
+}
+void TestMissingAndCompleted() {
+    Fixture(L"1", L"1");
+    Check(Load().jitter_mode == NrJitterMode::GameInputPixel && writes.empty(),
+          "existing D8 marker preserves its later explicit ON");
+    Check(!SnapshotConfigPolicyMigrationStatus().visible, "completed migration is not repeated");
+    for (const wchar_t *jitter : {static_cast<const wchar_t *>(nullptr), L"-1", L"9", L"invalid"}) {
+        Fixture(L"1", jitter);
+        Check(Load().jitter_mode == NrJitterMode::Legacy, "missing or invalid current setting defaults off");
+        Check(writes.empty(), "completed policy does not rewrite an invalid preference");
+    }
+    Fixture(); DeleteFileW(g_ini_path); ResetSession();
+    Check(Load().jitter_mode == NrJitterMode::Legacy && g_config.enabled &&
+          g_config.transfer_strength == 1.f, "new install defaults off without changing ordinary defaults");
+    Check(Int(L"JitterMode") == 0 && Int(L"JitterPolicyVersion") == 1 &&
+          !SnapshotConfigPolicyMigrationStatus().visible, "new install persists policy without upgrade notice");
+}
+void TestFailures(const std::filesystem::path &directory) {
+    Fixture();
+    Check(SetFileAttributesW(g_ini_path, FILE_ATTRIBUTE_READONLY) != 0, "real read-only fixture");
+    const auto original = Bytes();
+    Check(Load().jitter_mode == NrJitterMode::Legacy, "read-only migration is off in memory");
+    const auto failed = SnapshotConfigPolicyMigrationStatus();
+    Check(failed.failed && !failed.persisted && failed.error && g_config_persistence_failed &&
+          Bytes() == original && Int(L"JitterPolicyVersion", -1) == -1,
+          "read-only failure is visible without a completion marker");
+    auto manual = g_config; manual.jitter_mode = NrJitterMode::GameInputPixel; manual.intensity = 1.21f;
+    Check(ApplyConfig(manual, "manual while read-only"), "live manual choice survives write failure");
+    auto count = attempted_writes;
+    PollMany();
+    Check(g_config.jitter_mode == NrJitterMode::GameInputPixel && g_config.intensity == 1.21f &&
+          attempted_writes == count, "failed save polling never overwrites live manual settings");
+    nr_f8::g_config_hold = true;
+    Check(!ApplyConfig(g_config, "F8 unchanged", false) && attempted_writes == count,
+          "F8 unchanged state never retries a failed save");
+    nr_f8::g_config_hold = false;
+    Check(SetFileAttributesW(g_ini_path, FILE_ATTRIBUTE_NORMAL) != 0, "restore write access");
+    const auto generation = g_config_generation.load();
+    Check(!ApplyConfig(g_config, "explicit save retry"), "unchanged save does not report a config change");
+    Check(!g_config_persistence_failed && !SnapshotConfigPolicyMigrationStatus().failed &&
+          Int(L"JitterMode") == 1 && Int(L"JitterPolicyVersion") == 1 &&
+          g_config_generation == generation, "explicit unchanged choice retries save without history change");
+    RestartFile(directory, L"restart-retried-on.ini");
+
+    Fixture(); fail_write = 1; (void)Load();
+    Check(Int(L"JitterMode") == 1 && Int(L"JitterPolicyVersion", -1) == -1 &&
+          writes.size() == 1 && !writes[0].succeeded && g_config_persistence_failed,
+          "failed value write cannot publish the marker");
+    RestartFile(directory, L"restart-value-failed.ini");
+    Fixture(); fail_write = 2; (void)Load();
+    Check(Int(L"JitterMode") == 0 && Int(L"JitterPolicyVersion", -1) == -1 &&
+          SnapshotConfigPolicyMigrationStatus().failed, "failed marker leaves safe off value uncommitted");
+    RestartFile(directory, L"restart-marker-failed.ini");
+
+    Fixture(); Put(L"StrengthConfigVersion", L"0"); fail_write = 1; (void)Load();
+    Check(g_config.jitter_mode == NrJitterMode::Legacy && Int(L"JitterPolicyVersion", -1) == -1 &&
+          g_config_persistence_failed, "earlier persistence failure cannot certify jitter policy");
+}
+void TestCaptureAndReset(const std::filesystem::path &directory) {
+    Fixture(L"1"); (void)Load();
+    const auto original = g_config; const auto bytes = Bytes(); const auto count = attempted_writes;
+    nr_f8::g_config_hold = true;
+    auto temporary = original; temporary.jitter_mode = NrJitterMode::Legacy;
+    Check(!ApplyConfig(temporary, "ordinary writer while held"), "capture blocks ordinary writes");
+    Check(ApplyConfig(temporary, "F8 comparison", false), "F8 can change transient jitter");
+    Check(SnapshotConfig().jitter_mode == NrJitterMode::Legacy, "capture snapshot retains transient value");
+    Check(ApplyConfig(original, "F8 restore", false), "F8 can restore original jitter");
+    auto restored = SnapshotConfig(); restored.perf_epoch = original.perf_epoch;
+    Check(SameConfig(restored, original) && Bytes() == bytes && attempted_writes == count,
+          "F8 restoration performs no policy or INI writes");
+    nr_f8::g_config_hold = false;
+
+    auto reset = g_config; reset.enabled = false; RestoreRecommendedPictureSettings(reset);
+    Check(reset.jitter_mode == NrJitterMode::Legacy && !reset.enabled &&
+          reset.depth_mode == original.depth_mode && reset.r8_output_encoding == original.r8_output_encoding,
+          "default reset disables jitter while preserving other provider contracts");
+    Check(ApplyConfig(reset, "restore defaults") && Int(L"JitterMode") == 0 && Int(L"JitterPolicyVersion") == 1,
+          "default reset persists off under the completed policy");
+    RestartFile(directory, L"restart-reset-off.ini");
+    const auto reset_count = attempted_writes;
+    reset = g_config; RestoreRecommendedPictureSettings(reset);
+    Check(!ApplyConfig(reset, "repeat reset") && attempted_writes == reset_count,
+          "successful default reset is idempotent");
+    reset.jitter_mode = NrJitterMode::GameInputPixel;
+    Check(ApplyConfig(reset, "re-enable after reset") && Int(L"JitterMode") == 1,
+          "default reset is not a permanent jitter lock");
+
+    Put(L"JitterPolicyVersion", L"0"); writes.clear(); attempted_writes = 0; fail_key = L"JitterMode";
+    Check(!SaveConfig(g_config) && Int(L"JitterPolicyVersion") == 0,
+          "partial full save cannot publish jitter policy");
+    fail_key.clear(); writes.clear(); attempted_writes = 0;
+    Check(SaveConfig(g_config), "explicit full save succeeds after failure");
+    auto index = [&](const wchar_t *key) {
+        for (std::size_t i = 0; i < writes.size(); ++i) if (writes[i].key == key) return i;
+        return writes.size();
+    };
+    Check(index(L"JitterMode") < index(L"JitterPolicyVersion"), "full save publishes value before marker");
+}
+int wmain(int argc, wchar_t **argv) {
+    InitializeCriticalSection(&g_chain_cs);
+    if (argc < 2) return 2;
+    const std::filesystem::path directory = argv[1];
+    if (argc == 5) {
+        wcscpy_s(g_ini_path, argv[2]); ResetSession(); const auto c = Load();
+        Check(static_cast<int>(c.jitter_mode) == std::wcstol(argv[3], nullptr, 10),
+              "fresh process observes expected persisted jitter");
+        Check(c.intensity == std::wcstof(argv[4], nullptr), "fresh process preserves model strength");
+        Check(Int(L"JitterPolicyVersion") == 1 && !g_config_persistence_failed,
+              "fresh process has a completed durable policy");
+    } else {
+        wcscpy_s(g_ini_path, (directory / L"fixture.ini").c_str());
+        Check(ChainConfig{}.jitter_mode == NrJitterMode::Legacy &&
+              NrTuningSignature{}.jitter_mode == NrJitterMode::Legacy, "both in-memory jitter defaults are off");
+        TestLegacy(directory); TestMissingAndCompleted(); TestFailures(directory); TestCaptureAndReset(directory);
+    }
+    DeleteCriticalSection(&g_chain_cs);
+    std::printf("jitter policy Win32: %d checks / %d failures\n", checks, failures);
+    return failures ? 23 : 0;
+}

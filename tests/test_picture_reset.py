@@ -179,8 +179,10 @@ void CheckRestorePreservesContracts() {
           "default reset did not select exact N=R work");
     Check(c.intensity == 1.2f, "default reset did not select model strength 1.2");
     Check(c.color_protection, "default reset did not enable colour protection");
+    Check(c.jitter_mode == NrJitterMode::Legacy,
+          "default reset did not disable experimental NR jitter");
     Check(c.depth_mode == 1 && c.r8_output_encoding == 2 &&
-          c.jitter_mode == NrJitterMode::GameInputPixel && c.perf_epoch == 777,
+          c.perf_epoch == 777,
           "default reset changed game compatibility contracts");
 }
 
