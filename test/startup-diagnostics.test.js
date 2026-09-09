@@ -64,6 +64,21 @@ test('watchWindow distinguishes renderer launch failure from a later crash and c
   }
 });
 
+test('handoff readiness is emitted only after the real window, page and renderer all report readiness', () => {
+  class Window extends EventEmitter { constructor() { super(); this.webContents = new EventEmitter(); } isDestroyed() { return false; } show() {} }
+  const win = new Window(); let ready = 0;
+  const watch = watchWindow(win, { log() {}, fail() {}, onReady() { ready++; } });
+  watch.ready(); assert.equal(ready, 0, 'renderer IPC alone is insufficient');
+  win.webContents.emit('did-finish-load'); assert.equal(ready, 0, 'page load without a visible window is insufficient');
+  win.emit('ready-to-show'); assert.equal(ready, 1);
+  watch.ready(); assert.equal(ready, 1, 'only one terminal readiness callback');
+  const failed = new Window(); let failedReady = 0;
+  const failedWatch = watchWindow(failed, { log() {}, fail() {}, onReady() { failedReady++; } });
+  failed.webContents.emit('preload-error', {}, 'preload.js', new Error('fixture preload failure'));
+  failedWatch.ready(); failed.webContents.emit('did-finish-load'); failed.emit('ready-to-show');
+  assert.equal(failedReady, 0, 'a failed child cannot become ready from late lifecycle events');
+});
+
 test('watchWindow reports preload, renderer, load and readiness timeout failures without changing sandbox flags', async () => {
   class Window extends EventEmitter { constructor() { super(); this.webContents = new EventEmitter(); } isDestroyed() { return false; } show() {} }
   for (const [kind, trigger, title] of [

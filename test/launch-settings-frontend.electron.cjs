@@ -13,10 +13,11 @@ app.disableHardwareAcceleration();
 function installMock() {
   const ok = value => ({ ok: true, value: structuredClone(value) });
   const mock = window.__launchMock = {
-    data: { hardware: { family: 'RTX40', series: ['RTX40'], names: ['NVIDIA GeForce RTX 4090'], source: 'fixture' }, requests: {}, applied: {}, pending: [], driverScope: { name: 'Fixture Shared Profile', applications: ['Game.exe', 'Launcher.exe'], predefined: true, shared: true }, fgComponents: { ready: true, canPrepare: false, missing: [], blockers: [] } },
+    data: { hardware: { family: 'RTX40', series: ['RTX40'], names: ['NVIDIA GeForce RTX 4090'], source: 'fixture' }, requests: {}, applied: {}, pending: [], driverScope: { name: 'Fixture Shared Profile', applications: ['Game.exe', 'Launcher.exe'], predefined: true, shared: true }, fgComponents: { backend: 'mfgunlock', id: 'mfgunlock-0.6.1', route: 'compatibility', ready: true, canPrepare: false, missing: [], blockers: [] } },
     calls: [], failUpdate: false, listener: null
   };
   const game = { id: 'ui-fixture', name: 'SR / FG 界面验证', dir: 'C:\\UI-fixture\\游戏目录', installed: true, supported: true, launcher: '手动添加',
+    nativeDlssAvailable: true, hasNativeDlss: true, nativeFgAvailable: true, enhancementCapabilities: { nativeDlssAvailable: true, nativeFgAvailable: true, staticOnly: true },
     chosen: { apiResolution: { api: 'dx12', evidence: [] }, detectedApiResolution: { api: 'dx12', evidence: [] }, bitness: 64 }, components: { dx11Carrier: false }, addonVersion: '0.4.6-hotfix.1' };
   mock.payload = { ready: true, selectedVersion: '0.4.6-hotfix.1', source: { mode: 'bundled', path: 'C:\\组件\\随程序提供', ready: true }, versions: { '0.4.6-hotfix.1': { label: '0.4.6-hotfix.1', variants: { RTX40: { ready: true, files: [] }, RTX50: { ready: true, files: [] } } } } };
   const originalVersions = structuredClone(mock.payload.versions);
@@ -36,14 +37,19 @@ function installMock() {
     fetchGameIcon: async () => ok(null), fetchGameArt: async () => ok(null),
     onAddonImported: () => {}, onLaunchSettingsApplied: callback => { mock.listener = callback; },
     inspectLaunchSettings: async id => { mock.calls.push(['inspect', id]); return ok(mock.data); },
-    prepareFgComponents: async (id, options) => { mock.calls.push(['prepare-components', id, options]); mock.data.fgComponents = { route: 'compatibility', ready: true, managed: true, missing: [], blockers: [] }; return ok({ prepared: true }); },
+    inspectPreparation: async () => ok({ pending: false, stages: [], runtimeVerified: false }),
+    recoverPreparation: async id => { mock.calls.push(['recover-preparation', id]); return ok({ restored: true }); },
+    prepareFgComponents: async (id, options) => { mock.calls.push(['prepare-components', id, options]); mock.data.fgComponents = { backend: 'mfgunlock', id: 'mfgunlock-0.6.1', route: 'compatibility', ready: true, managed: true, legacyNeedsMigration: false, missing: [], blockers: [] }; mock.data.requests.fg = { request: { backend: 'mfgunlock', mode: 'follow' } }; mock.data.applied.fg = { backend: 'mfgunlock', request: { backend: 'mfgunlock', mode: 'follow' }, readbackVerified: true }; return ok({ prepared: true, requiresRestart: true, runtimeVerified: false }); },
+    recoverFgComponents: async id => { mock.calls.push(['recover-components', id]); mock.data.fgComponents = { backend: 'mfgunlock', id: 'mfgunlock-0.6.1', route: 'compatibility', ready: false, canPrepare: true, migrationPending: false, missing: ['renodx-mfgunlock.addon64'], blockers: [] }; delete mock.data.requests.fg; delete mock.data.applied.fg; return ok({ restored: true }); },
     restoreFgComponents: async id => { mock.calls.push(['restore-components', id]); delete mock.data.requests.fg; delete mock.data.applied.fg; mock.data.fgComponents = { route: 'native', ready: true, missing: [], blockers: [] }; return ok({ restored: true }); },
     updateLaunchSettings: async (id, domain, request, options) => {
       mock.calls.push(['update', id, domain, request, options]);
       if (mock.failUpdate) return { ok: false, error: { code: 'SETTINGS_TEST_UPDATE', message: '模拟自动应用失败' } };
-      if (domain === 'fg' && request.backend === 'rtx40' && mock.data.fgComponents?.ready !== true) {
+      if (domain === 'fg' && request.backend === 'rtx40') return { ok: false, error: { code: 'SETTINGS_FG_MIGRATION_REQUIRED', message: '旧补帧只保留恢复能力。' } };
+      if (domain === 'fg' && request.backend === 'mfgunlock' && mock.data.fgComponents?.blockers?.length) return { ok: false, error: { code: 'SETTINGS_FG_BLOCKED', message: mock.data.fgComponents.blockers.join('；') } };
+      if (domain === 'fg' && request.backend === 'mfgunlock' && mock.data.fgComponents?.ready !== true) {
         mock.calls.push(['auto-prepare-components', id]);
-        mock.data.fgComponents = { route: 'compatibility', ready: true, managed: true, missing: [], blockers: [] };
+        mock.data.fgComponents = { backend: 'mfgunlock', id: 'mfgunlock-0.6.1', route: 'compatibility', ready: true, managed: true, missing: [], blockers: [] };
       }
       mock.data.requests[domain] = { exe: game.dir + '\\game.exe', request, savedAt: new Date().toISOString() };
       mock.data.applied[domain] = { request, backend: request.backend, readbackVerified: true, runtimeVerified: false };
@@ -112,13 +118,19 @@ async function smoke() {
   assert(host.querySelector('.launch-driver-scope')?.textContent.includes('Fixture Shared Profile') && host.querySelector('.launch-driver-scope')?.textContent.includes('关联 2 个启动入口'), 'A shared NVIDIA profile explains that settings affect both launch entries');
   const capabilityHost = document.createElement('div'); capabilityHost.className = 'launch-settings-host'; host.parentElement.appendChild(capabilityHost);
   const writesBeforeCapability = mock.calls.filter(row => row[0] === 'update').length;
-  const capabilityController = window.launchSettingsUi.mount(capabilityHost, 'ui-fixture', { manager: window.manager, nativeDlssAvailable: false });
+  const capabilityController = window.launchSettingsUi.mount(capabilityHost, 'ui-fixture', { manager: window.manager, nativeDlssAvailable: false, nativeFgAvailable: false });
   await capabilityController.ready;
-  assert(capabilityHost.textContent.includes('未检测到普通 DLSS') && [...capabilityHost.querySelectorAll('fieldset')].every(item => item.disabled), 'A game without detected ordinary DLSS clearly disables both SR and FG editors');
+  assert(capabilityHost.textContent.includes('未检测到普通 DLSS') && [...capabilityHost.querySelectorAll('fieldset')].every(item => item.disabled), 'A game with neither native SR nor native FG disables both editors');
   assert(!capabilityHost.querySelector('[data-ls-action="restore-all"]').disabled && !capabilityHost.querySelector('[data-ls-action="prepare"]:not([disabled])'), 'Missing DLSS keeps restoration available while component preparation cannot run');
   await capabilityController.perform('auto', 'sr');
   assert(mock.calls.filter(row => row[0] === 'update').length === writesBeforeCapability, 'A disabled capability cannot be bypassed through the renderer controller');
   capabilityHost.remove();
+  const fgOnlyHost = document.createElement('div'); fgOnlyHost.className = 'launch-settings-host'; host.parentElement.appendChild(fgOnlyHost);
+  const fgOnlyController = window.launchSettingsUi.mount(fgOnlyHost, 'ui-fixture', { manager: window.manager, nativeDlssAvailable: false, nativeFgAvailable: true });
+  await fgOnlyController.ready;
+  assert(fgOnlyHost.querySelector('[data-ls-domain="sr"] fieldset').disabled && !fgOnlyHost.querySelector('[data-ls-domain="fg"] fieldset').disabled,
+    'Real renderer keeps native FG eligibility independent of missing native SR');
+  fgOnlyHost.remove();
   const panel = domain => host.querySelector(`[data-ls-domain="${domain}"]`);
   const field = (domain, key) => panel(domain).querySelector(`[data-ls-field="${key}"]`);
   const set = (domain, key, value) => {
@@ -238,46 +250,55 @@ async function smoke() {
   assert(!field('sr', 'backend') && panel('sr').querySelector('fieldset').disabled && saved('sr').backend === 'optiscaler', 'Legacy OptiScaler requests are preserved for restoration without an editable backend');
   await click(null, 'restore-all');
   assert(!saved('sr') && field('sr', 'renderPercent'), 'Restoring legacy OptiScaler unlocks native SR editing');
-  const preparesBeforeRuntime = count('prepare-components');
-  mock.data.fgComponents = { route: 'compatibility', ready: false, canPrepare: false, missing: [], blockers: ['缺少 VC++ x64 运行库：vcruntime140.dll'], runtime: { status: 'missing', ready: false } };
+  mock.data.fgComponents = { backend: 'mfgunlock', id: 'mfgunlock-0.6.1', route: 'compatibility', ready: false, canPrepare: false, missing: [],
+    blockers: ['DLSS-G 3.5.10 不满足 MFG Unlock 要求，请核对游戏配套的 310.x 运行库。'], fgRuntime: { status: 'outdated', ready: false, version: '3.5.10' } };
   await controller.refresh();
-  assert(panel('fg').querySelector('[data-ls-action="runtime-help"]') && !panel('fg').querySelector('[data-ls-action="prepare"]') && field('fg', 'mode'), 'Missing VC runtime exposes repair guidance while keeping the intended FG choice editable');
-  await click('fg', 'runtime-help');
-  assert(mock.calls.some(row => row[0] === 'open-external' && row[1] === 'vcRuntimeUrl') && count('prepare-components') === preparesBeforeRuntime, 'Runtime help opens the fixed official link without writing game files');
-  await click('fg', 'runtime-check');
-  assert(panel('fg').textContent.includes('运行库检查尚未通过') && field('fg', 'mode'), 'An unsuccessful runtime recheck remains explicit without discarding the intended FG choice');
-  mock.data.fgComponents.runtime.repair = 'game-files'; await controller.refresh();
-  assert(!panel('fg').querySelector('[data-ls-action="runtime-help"]') && panel('fg').textContent.includes('验证游戏文件'), 'A broken game-local DLL is not misrepresented as fixable by installing a system runtime');
-  mock.data.fgComponents = { route: 'compatibility', ready: false, canPrepare: true, missing: ['兼容插件'], blockers: [], runtime: { status: 'available', ready: true } };
-  await click('fg', 'runtime-check');
-  assert(panel('fg').querySelector('[data-ls-action="prepare"]') && panel('fg').textContent.includes('游戏内加载与帧生成仍需验证'), 'Runtime recovery unlocks preparation while keeping game verification separate');
-  mock.data.fgComponents = { route: 'compatibility', ready: false, canPrepare: true, missing: ['兼容插件', '加载器'], blockers: [] };
+  assert(!panel('fg').querySelector('[data-ls-action="runtime-help"]') && !panel('fg').querySelector('[data-ls-action="prepare"]') && panel('fg').textContent.includes('310.x'),
+    'MFG Unlock shows the actual DLSS-G requirement without suggesting an unrelated VC runtime install');
+  const beforeBlockedFg = count('update'); set('fg', 'mode', 'fixed'); set('fg', 'multiplier', 3); await waitForAuto(beforeBlockedFg);
+  assert(panel('fg').textContent.includes('SETTINGS_FG_BLOCKED') && !mock.data.fgComponents.ready, 'An inadequate provider cannot become ready through automatic selection');
+  mock.data.fgComponents = { backend: 'mfgunlock', id: 'mfgunlock-0.6.1', route: 'compatibility', ready: false, canPrepare: true, missing: ['renodx-mfgunlock.addon64'], blockers: [] };
   await controller.refresh();
-  assert(panel('fg').querySelector('[data-ls-action="prepare"]') && field('fg', 'mode') && !field('fg', 'mode').disabled, 'Missing RTX40 components leave FG choices selectable for the automatic backend transaction');
-  const beforeCompat = count('update'); set('fg', 'mode', 'fixed'); set('fg', 'multiplier', 6); await waitForAuto(beforeCompat);
-  assert(mock.data.fgComponents.ready && saved('fg').backend === 'rtx40' && saved('fg').multiplier === 6 && count('auto-prepare-components') === 1, 'RTX40 selection automatically prepares compatibility components and applies the request');
-  assert(panel('fg').textContent.includes('1 帧渲染 + 5 帧生成'), 'RTX40 multiplier includes the rendered frame');
+  assert(panel('fg').querySelector('[data-ls-action="prepare"]') && !panel('fg').textContent.includes('UAL'), 'New preparation names the single Add-on and has no UAL requirement');
+  await click('fg', 'auto');
+  assert(mock.data.fgComponents.ready && saved('fg').backend === 'mfgunlock' && saved('fg').multiplier === 3 && count('auto-prepare-components') === 1,
+    'RTX40 retry prepares the single Add-on and applies the new MFG request');
   for (const series of ['RTX40', 'RTX50']) {
     await hardware(series);
-    const expected = series === 'RTX40' ? 'rtx40' : 'nvidia';
-    assert(controller.getState().drafts.fg.backend === expected, `${series} starts with the correct ${expected} backend`);
+    mock.data.fgComponents = { backend: series === 'RTX40' ? 'mfgunlock' : 'native', route: series === 'RTX40' ? 'compatibility' : 'native', ready: true, missing: [], blockers: [] };
+    await controller.refresh(true);
+    const expected = series === 'RTX40' ? 'mfgunlock' : 'nvidia';
+    assert(controller.getState().drafts.fg.backend === expected, `${series} uses its current backend`);
     const beforeFixed = count('update'); set('fg', 'mode', 'fixed'); set('fg', 'multiplier', 6); await waitForAuto(beforeFixed);
-    assert(saved('fg').backend === expected && saved('fg').multiplier === 6, `${series} fixed 6x automatically uses the correct backend`);
-    assert(panel('fg').textContent.includes('1 帧渲染 + 5 帧生成'), `${series} multiplier includes the rendered frame`);
-    assert(mock.data.applied.fg.request.multiplier === 6, `${series} fixed request is applied without a preview or confirmation`);
-    set('fg', 'mode', 'dynamic'); set('fg', 'targetFps', 144);
-    if (series === 'RTX40') set('fg', 'experimental56', true);
-    const beforeDynamic = count('update'); await waitForAuto(beforeDynamic);
-    assert(saved('fg').mode === 'dynamic' && saved('fg').targetFps === 144 && !('multiplier' in saved('fg')), `${series} dynamic mode omits dormant fixed multiplier`);
-    assert(series === 'RTX40' ? saved('fg').experimental56 === true : !('experimental56' in saved('fg')), `${series} experimental option follows its backend schema`);
-    if (series === 'RTX50') {
+    assert(saved('fg').backend === expected && saved('fg').multiplier === 6, `${series} 6x request uses the correct backend`);
+    assert(panel('fg').textContent.includes('1 帧渲染 + 5 帧生成'), `${series} total multiplier includes the rendered frame`);
+    if (series === 'RTX40') {
+      assert(![...field('fg', 'mode').options].some(row => ['dynamic', 'off'].includes(row.value)) && !field('fg', 'targetFps') && !field('fg', 'experimental56'),
+        'New RTX40 MFG has no legacy dynamic target, old experimental toggle, or unsupported off mode');
+      assert(panel('fg').textContent.includes('请求只会提高较低倍率') && panel('fg').textContent.includes('需要重启') && panel('fg').textContent.includes('Add-ons → MFG Unlock'),
+        'The MFG panel states raise-only requests, restart timing, and its independent in-game menu');
+    } else {
+      set('fg', 'mode', 'dynamic'); set('fg', 'targetFps', 144); const beforeDynamic = count('update'); await waitForAuto(beforeDynamic);
+      assert(saved('fg').mode === 'dynamic' && saved('fg').targetFps === 144 && !('multiplier' in saved('fg')), 'RTX50 retains native dynamic mode without a dormant fixed multiplier');
       const beforeOff = count('update'); set('fg', 'mode', 'off'); await waitForAuto(beforeOff);
-      assert(saved('fg').mode === 'off' && panel('fg').textContent.includes('游戏菜单可能不变'), 'Native FG off has a driver-disable request and honest game-state explanation');
-      set('fg', 'mode', 'restore');
-      assert(panel('fg').textContent.includes('不会关闭 FG'), 'Restore is explicitly distinguished from FG off');
-      const beforeRestoreMode = count('update'); await waitForAuto(beforeRestoreMode);
+      assert(saved('fg').mode === 'off' && panel('fg').textContent.includes('游戏菜单可能不变'), 'Native FG off is a driver request without claiming the game menu changed');
     }
   }
+  await hardware('RTX40');
+  mock.data.requests.fg = { request: { backend: 'rtx40', mode: 'dynamic', targetFps: 144, experimental56: true } };
+  mock.data.fgComponents = { backend: 'mfgunlock', id: 'mfgunlock-0.6.1', route: 'compatibility', ready: false, legacyNeedsMigration: true, migrationReady: false,
+    blockers: ['旧 control 需要先按设置收据恢复'], missing: [] };
+  await controller.refresh(true);
+  assert(panel('fg').querySelector('fieldset').disabled && panel('fg').querySelector('[data-ls-action="migrate-components"]') && panel('fg').textContent.includes('动态目标不会自动转换'),
+    'Historical dynamic FG is preserved and exposes an explicit migration action without resubmission');
+  await click('fg', 'migrate-components');
+  const migrationCall = mock.calls.filter(row => row[0] === 'prepare-components').at(-1);
+  assert(migrationCall[2].migrateLegacy === true && saved('fg').backend === 'mfgunlock' && saved('fg').mode === 'follow' && !('targetFps' in saved('fg')),
+    'Explicit migration requests migration and starts the new scheme in follow-game mode');
+  mock.data.fgComponents.migrationPending = true; mock.data.fgComponents.migrationToken = 'isolated-migration'; await controller.refresh(true);
+  assert(panel('fg').querySelector('[data-ls-action="recover-components"]'), 'Pending MFG migration has a dedicated recovery action');
+  await click('fg', 'recover-components');
+  assert(count('recover-components') === 1 && !mock.data.fgComponents.migrationPending, 'MFG recovery uses the dedicated isolated IPC and refreshes component state');
   await hardware('RTX30');
   assert(panel('fg').querySelector('fieldset').disabled, 'RTX30 is not inferred as RTX40 from payload family');
   await hardware(null, 'unknown');
@@ -303,7 +324,7 @@ async function smoke() {
   assert(panel('sr').textContent.includes('配置已校验') && panel('sr').textContent.includes('不代表游戏当前档位'), 'Failed launch refreshes the retained receipt without claiming game verification');
 
   set('sr', 'quality', 'custom'); set('sr', 'renderPercent', 75); set('sr', 'preset', 'M');
-  set('fg', 'mode', 'dynamic'); set('fg', 'targetFps', 144);
+  set('fg', 'mode', 'fixed'); set('fg', 'multiplier', 4);
   const beforeTabUpdates = count('update');
   const graphicsTab = detail.querySelector('[data-detail-tab="graphics"]'); graphicsTab.focus();
   graphicsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
@@ -318,7 +339,7 @@ async function smoke() {
   document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
   assert(tabs.select('invalid') === false && tabs.active() === 'enhance', 'Invalid tab selection is refused');
   detail.querySelector('.launch-jump-btn').click();
-  assert(tabs.active() === 'graphics' && host.launchSettingsController === controller && field('sr', 'renderPercent').value === '75' && field('fg', 'targetFps').value === '144', 'Returning to graphics preserves both unsaved drafts and the existing controller');
+  assert(tabs.active() === 'graphics' && host.launchSettingsController === controller && field('sr', 'renderPercent').value === '75' && field('fg', 'multiplier').value === '4', 'Returning to graphics preserves both unsaved drafts and the existing controller');
   const viewBeforeApply = document.querySelector('.view.active'); viewBeforeApply.scrollTop = Math.max(80, viewBeforeApply.scrollTop);
   const preservedScroll = viewBeforeApply.scrollTop;
   const resetsBeforeGlobal = count('reset-all');
@@ -372,7 +393,7 @@ const preload = path.join(temporary, 'preload.cjs');
 fs.writeFileSync(preload, `(${installMock.toString()})();`, 'utf8');
 app.whenReady().then(async () => {
   const width = Number(process.env.SRFG_UI_WIDTH) || 900;
-  const win = new BrowserWindow({ width, height: Number(process.env.SRFG_UI_HEIGHT) || 1100, useContentSize: true, show: false, webPreferences: { preload, sandbox: false, contextIsolation: false, nodeIntegration: false, backgroundThrottling: false, offscreen: true } });
+  const win = new BrowserWindow({ width, height: Number(process.env.SRFG_UI_HEIGHT) || 1100, useContentSize: true, show: false, webPreferences: { preload, sandbox: true, contextIsolation: false, nodeIntegration: false, backgroundThrottling: false, offscreen: true } });
   try {
     await win.loadFile(path.join(process.env.MANAGER_UI_ROOT || path.resolve(__dirname, '..'), 'src/renderer/index.html'));
     const result = await win.webContents.executeJavaScript(`(${smoke.toString()})()`);
@@ -382,18 +403,28 @@ app.whenReady().then(async () => {
         const mock=window.__launchMock, host=document.querySelector('.launch-settings-host');
         mock.data.hardware={family:${JSON.stringify(native ? 'RTX50' : 'RTX40')},series:[${JSON.stringify(native ? 'RTX50' : 'RTX40')}],names:[${JSON.stringify(native ? 'NVIDIA GeForce RTX 5090' : 'NVIDIA GeForce RTX 4090')}]};
         mock.data.requests={}; mock.data.applied={};
-        mock.data.fgComponents=${JSON.stringify(native ? { route: 'native', ready: true, missing: [], blockers: [] } : { route: 'compatibility', ready: false, canPrepare: true, missing: ['RTX40MFGCore.dll', 'RTX40MFG.asi', 'RTX40MFG-UI.addon64', 'version.dll'], blockers: [] })};
+        mock.data.fgComponents=${JSON.stringify(native ? { route: 'native', ready: true, missing: [], blockers: [] } : { backend: 'mfgunlock', id: 'mfgunlock-0.6.1', route: 'compatibility', ready: false, canPrepare: true, missing: ['renodx-mfgunlock.addon64'], blockers: [] })};
         await host.launchSettingsController.refresh(true);
         const view=document.querySelector('.view.active');view.scrollTop+=host.getBoundingClientRect().top-view.getBoundingClientRect().top-12;
       })()`);
     }
     if (process.env.SRFG_UI_STATE === 'bridge') await win.webContents.executeJavaScript("(()=>{const row=document.querySelector('.api-config-block'),detail=row.closest('.game-detail'),view=row.closest('.view');detail.detailTabController.select('enhance');view.scrollTop+=row.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()");
-    if (process.env.SRFG_UI_STATE === 'runtime-missing') await win.webContents.executeJavaScript(`(async()=>{const mock=window.__launchMock,host=document.querySelector('.launch-settings-host');mock.data.fgComponents={route:'compatibility',ready:false,canPrepare:false,missing:[],blockers:['缺少 VC++ x64 运行库：vcruntime140.dll、msvcp140.dll。请安装或修复微软运行库后重新检查。'],runtime:{status:'missing',ready:false}};await host.launchSettingsController.refresh(false);const view=document.querySelector('.view.active');view.scrollTop+=host.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()`);
+    if (process.env.SRFG_UI_STATE === 'runtime-missing') await win.webContents.executeJavaScript(`(async()=>{const mock=window.__launchMock,host=document.querySelector('.launch-settings-host');mock.data.fgComponents={backend:'mfgunlock',route:'compatibility',ready:false,canPrepare:false,missing:[],blockers:['DLSS-G 运行库版本尚未满足 MFG Unlock 要求，请核对游戏配套文件。'],fgRuntime:{status:'outdated',ready:false}};await host.launchSettingsController.refresh(false);const view=document.querySelector('.view.active');view.scrollTop+=host.getBoundingClientRect().top-view.getBoundingClientRect().top-12;})()`);
+    if (process.env.SRFG_UI_STATE === 'mfgunlock') await win.webContents.executeJavaScript(`(async()=>{
+      const mock=window.__launchMock,host=document.querySelector('.launch-settings-host'),request={backend:'mfgunlock',mode:'fixed',multiplier:3};
+      mock.data.fgComponents={backend:'mfgunlock',id:'mfgunlock-0.6.1',route:'compatibility',ready:true,managed:true,missing:[],blockers:[]};
+      mock.data.requests.fg={request};mock.data.applied.fg={backend:'mfgunlock',request,readbackVerified:true,runtimeVerified:false};
+      await host.launchSettingsController.refresh(true);
+      await host.launchSettingsController.perform('auto','fg');
+      const view=document.querySelector('.view.active'),panel=host.querySelector('[data-ls-domain="fg"]');
+      view.scrollTop+=panel.getBoundingClientRect().top-view.getBoundingClientRect().top-16;
+      document.getElementById('toast').className='toast';
+    })()`);
     win.webContents.invalidate();
     await new Promise(resolve => setTimeout(resolve, 150));
     const screenshot = process.argv[2];
     if (screenshot) { fs.mkdirSync(path.dirname(path.resolve(screenshot)), { recursive: true }); fs.writeFileSync(path.resolve(screenshot), (await win.webContents.capturePage()).toPNG()); }
-    console.log(JSON.stringify({ ok: true, ...result, screenshot: screenshot || null }, null, 2));
+    console.log(JSON.stringify({ ok: true, sandbox: win.webContents.getLastWebPreferences().sandbox, softwareRendering: app.getGPUFeatureStatus().gpu_compositing !== 'enabled', gpuFeatureStatus: app.getGPUFeatureStatus(), ...result, screenshot: screenshot || null }, null, 2));
     win.destroy(); app.exit(0);
   } catch (error) { console.error(error.stack || error); win.destroy(); app.exit(1); }
 });

@@ -12,7 +12,7 @@ const installMock = harness.slice(harness.indexOf('function installMock()'), har
 const preload = path.join(temporary, 'preload.cjs');
 fs.writeFileSync(preload, `${installMock}\ninstallMock();\n(${function routeMock() {
   const ok = value => ({ ok: true, value: structuredClone(value) });
-  const mock = window.__routeMock = { games: null, calls: [], resolve: null, nrResolve: null, holdNr: false, lists: 0 };
+  const mock = window.__routeMock = { games: null, calls: [], methods: [], resolve: null, nrResolve: null, holdNr: false, lists: 0 };
   const boot = window.manager.boot, readNr = window.manager.readNr;
   const vk = { packageId: 'nr-vulkan-sdr-r5-20260909', coreVersion: '0.4.6-hotfix.1', available: false, installed: false, selectionAvailable: true, selectionReason: '' };
   window.manager.boot = async () => {
@@ -47,7 +47,8 @@ fs.writeFileSync(preload, `${installMock}\ninstallMock();\n(${function routeMock
   window.manager.setGameApi = () => { throw new Error('Separate API save must not be called'); };
   window.manager.repair = () => { throw new Error('Separate version repair must not be called'); };
   window.manager.install = () => { throw new Error('Separate installation must not be called'); };
-  window.manager.applyGameRoute = (id, options) => new Promise(resolve => {
+  const submit = (method, id, options) => new Promise(resolve => {
+    mock.methods.push(method);
     mock.calls.push({ id, options: structuredClone(options) });
     mock.resolve = success => {
       if (success) {
@@ -55,11 +56,18 @@ fs.writeFileSync(preload, `${installMock}\ninstallMock();\n(${function routeMock
         game.installed = true; game.apiOverride = options.api; game.chosen.apiResolution = { api, source: options.api === 'auto' ? 'fixture' : 'override' };
         if (api === 'vulkan') game.vulkan = { ...game.vulkan, installed: true, available: true };
         else game.addonVersion = options.version;
-        resolve(ok({ complete: true, appliedRoute: { api, version: options.version, gameSettingsSynced: Boolean(game.chosen.apiSettings?.canSync) } }));
+        resolve(ok({ complete: true, appliedRoute: { api, version: options.version, gameSettingsSynced: Boolean(game.chosen.apiSettings?.canSync) },
+          ...(method === 'prepareGame' ? { prepared: true, runtimeVerified: false, stages: [
+            { domain: 'nr', status: 'prepared', message: '已准备 NR 配套。' },
+            { domain: 'sr', status: 'retained', message: '保留已有超分选择。' },
+            { domain: 'fg', status: 'unavailable', message: '此游戏未确认原生 FG。' }
+          ] } : {}) }));
       } else resolve({ ok: false, error: { code: 'FIXTURE_APPLY_FAILED', message: '模拟应用失败，原设置保留' } });
       mock.resolve = null;
     };
   });
+  window.manager.applyGameRoute = (id, options) => submit('applyGameRoute', id, options);
+  window.manager.prepareGame = (id, options) => submit('prepareGame', id, options);
 }.toString()})();\n`, 'utf8');
 
 async function smoke() {
@@ -94,6 +102,7 @@ async function smoke() {
   assert(field('route-installed', '.game-detail') === detail && field('route-installed', '.nr-model-strength') === nr && core('route-installed').value === '0.4.7beta', 'Late NR reads neither replace the detail nor reset the selected Core');
   field('route-installed', '.route-apply-btn').click(); await waitUntil(() => mock.calls.length === 1);
   assert(JSON.stringify(mock.calls[0]) === JSON.stringify({ id: 'route-installed', options: { api: 'dx12', version: '0.4.7beta', allowAntiCheat: false } }), 'One request submits the chosen API and 0.4.7 version together');
+  assert(mock.methods[0] === 'applyGameRoute', 'An installed game updates only its selected NR route instead of preparing unrelated settings');
   assert(field('route-installed', '.route-apply-btn').disabled && field('route-installed', '.route-apply-btn').textContent.includes('正在应用'), 'The joint apply button exposes the pending operation');
   mock.resolve(true); await waitUntil(() => !document.body.classList.contains('is-busy')); await settle();
   assert(core('route-installed').value === '0.4.7beta' && field('route-installed', '.installed-version-note').textContent.includes('beta0.4.7'), 'Successful application refreshes to the actual applied 0.4.7');
@@ -110,6 +119,7 @@ async function smoke() {
   assert(!field('route-new', '.game-detail'), 'Folding the card keeps a collapsed layout');
   field('route-new', '.install-btn').click(); await waitUntil(() => mock.calls.length === 2);
   assert(mock.calls[1].options.api === 'vulkan' && mock.calls[1].options.version === 'nr-vulkan-sdr-r5-20260909', 'Collapsed one-click installation submits the saved Vulkan draft pair');
+  assert(mock.methods[1] === 'prepareGame' && mock.calls[1].options.route === 'native', 'A new installation uses the durable one-click preparation IPC with its route');
   mock.resolve(false); await waitUntil(() => !document.body.classList.contains('is-busy')); expand('route-new');
   assert(api('route-new').value === 'vulkan' && core('route-new').value === 'nr-vulkan-sdr-r5-20260909', 'A failed apply retains the draft across collapse and reopen');
   change('route-new', '.game-api-select', 'dx12'); change('route-new', '.game-version-select', '0.3.3-dev-r4');
@@ -154,6 +164,7 @@ async function smoke() {
   const screenshotGame = mock.games.find(row => row.id === 'route-mixed');
   screenshotGame.installed = false; screenshotGame.apiOverride = 'auto'; screenshotGame.chosen.apiResolution = { api: 'mixed' };
   screenshotGame.vulkan.installed = false; screenshotGame.vulkan.available = false;
+  state.preparationResults?.delete('route-mixed');
   await refreshGames(); expand('route-mixed'); change('route-mixed', '.game-api-select', 'vulkan');
   await settle(); document.getElementById('toast').className = 'toast';
   card('route-mixed').scrollIntoView({ block: 'start' }); await settle();
@@ -161,11 +172,12 @@ async function smoke() {
 }
 
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ width: 1200, height: 940, show: false, webPreferences: { preload, sandbox: false, contextIsolation: false, nodeIntegration: false, backgroundThrottling: false, offscreen: true } });
+  const win = new BrowserWindow({ width: 1200, height: 940, show: false, webPreferences: { preload, sandbox: true, contextIsolation: false, nodeIntegration: false, backgroundThrottling: false, offscreen: true } });
   try {
     await win.loadFile(path.join(process.env.MANAGER_UI_ROOT || path.resolve(__dirname, '..'), 'src/renderer/index.html'));
     const result = await win.webContents.executeJavaScript(`(${smoke.toString()})()`);
-    const screenshot = path.join(temporary, 'route-apply.png'); fs.writeFileSync(screenshot, (await win.webContents.capturePage()).toPNG());
-    console.log(JSON.stringify({ ok: true, screenshot, ...result }, null, 2)); win.destroy(); app.exit(0);
+    win.webContents.invalidate(); await new Promise(resolve => setTimeout(resolve, 250));
+    const screenshot = path.resolve(process.argv[2] || path.join(temporary, 'route-apply.png')); fs.mkdirSync(path.dirname(screenshot), { recursive: true }); fs.writeFileSync(screenshot, (await win.webContents.capturePage()).toPNG());
+    console.log(JSON.stringify({ ok: true, screenshot, sandbox: win.webContents.getLastWebPreferences().sandbox, softwareRendering: app.getGPUFeatureStatus().gpu_compositing !== 'enabled', gpuFeatureStatus: app.getGPUFeatureStatus(), ...result }, null, 2)); win.destroy(); app.exit(0);
   } catch (error) { console.error(error.stack || error); win.destroy(); app.exit(1); }
 });

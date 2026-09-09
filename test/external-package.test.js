@@ -19,7 +19,7 @@ test('external build inherits the normal app while excluding native and Vulkan N
   for (const [from, to] of [['scripts/startup-diagnostics.cmd', '启动诊断.cmd'], ['scripts/startup-diagnostics.ps1', 'startup-diagnostics.ps1'],
     ['scripts/startup-compatible.cmd', '兼容启动.cmd'], ['scripts/startup-compatible.ps1', 'startup-compatible.ps1']])
     assert.equal(config.extraFiles.some(row => row.from === from && row.to === to), true, `${to} retained at app root`);
-  assert.equal(config.win.requestedExecutionLevel, 'requireAdministrator'); assert.equal(config.portable.requestExecutionLevel, 'admin');
+  assert.equal(config.win.requestedExecutionLevel, 'asInvoker'); assert.equal(config.portable.requestExecutionLevel, 'user');
   assert.equal(config.portable.artifactName, 'DLSS5-Manager-${version}-external-portable.exe');
   assert.equal(config.nsis.artifactName, 'DLSS5-Manager-Setup-${version}-external.exe'); assert.equal(config.directories.output, 'dist-external');
 });

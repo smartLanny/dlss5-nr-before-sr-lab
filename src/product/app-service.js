@@ -20,13 +20,16 @@ const { createFeedbackCollector } = require('./feedback');
 const { resolveVersion } = require('./version-selection');
 const { resolvePayloadDirectory, inspectSource } = require('./payload-source');
 const { createVulkanService } = require('./vulkan-service');
+const { createFeederService } = require('./feeder-service');
+const { inspectNativeEnhancementCapabilities } = require('./game-enhancement-capabilities');
+const { createGameLaunchBroker } = require('./game-launch-broker');
 const { createReframeworkPreparation } = require('./reframework-preparation');
 const { REFRAMEWORK_ADAPTERS } = require('./reframework-compatibility');
 const { createRdr2ApiSettings } = require('./rdr2-api-settings');
 const { createGameApiSettings } = require('./game-api-settings');
 
 const QUIET_READ_ACTIONS = new Set(['boot', 'games-refresh', 'games-list', 'game-diagnose', 'game-hotkeys-read',
-  'nr-read', 'sr-model-read', 'launch-settings-inspect', 'addon-list', 'game-art', 'game-icon',
+  'nr-read', 'sr-model-read', 'launch-settings-inspect', 'addon-list', 'game-art', 'game-icon', 'game-feeder-inspect',
   'game-selection-icon', 'feedback-build', 'payload-source-read', 'game-reframework-inspect']);
 
 function createAppService({ userData, resourcesPath, appDir, documentsDir, version = '0.0.0', overrides = {} }) {
@@ -38,7 +41,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     assertGameClosed: overrides.assertGameClosed || require('../core/install-guards').assertGameClosed });
   const detectGpu = overrides.detectGpu || readGpu;
   const artService = createArtService({ userData });
-  const feedback = createFeedbackCollector({ userData, productVersion: version });
+  const feedback = createFeedbackCollector({ userData, productVersion: version,
+    resolveFeederLogDirectory: game => feeder.feedbackLogDirectory(game) });
   const payloadInspection = createPayloadInspectionCache();
   const bundledPayloadDir = payloadRoot(fs.existsSync(path.join(resourcesPath || '', 'payload')) ? resourcesPath : appDir);
   let payloadDir = store.read().payloadSourcePath || bundledPayloadDir;
@@ -49,6 +53,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   let activeRefresh = null, refreshGeneration = 0, scanEpoch = 0;
   let hardware = detectGpu();
   const vulkan = overrides.vulkan || createVulkanService({ userData, resourcesPath, appDir, hardware });
+  const feeder = overrides.feeder || createFeederService({ userData, resourcesPath, appDir, hardware });
+  let nativeLaunchBroker = overrides.nativeLaunchBroker;
   const refResources = resourcesPath && fs.existsSync(path.join(resourcesPath, 'reframework-01417', 'component.json'))
     ? path.join(resourcesPath, 'reframework-01417') : path.join(appDir, 'resources', 'reframework-01417');
   const reframework = overrides.reframework || createReframeworkPreparation({ componentRoot: refResources });
@@ -88,6 +94,11 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   }
   const vulkanRoute = game => classifyApi(game?.scan?.chosen) === 'vulkan';
   const vulkanOwned = game => vulkan.summary(game).installed === true;
+  const feederOwned = game => feeder.summary(game).installed === true;
+  function requireNoFeeder(game) {
+    const state = feeder.summary(game);
+    if (state.installed || state.needsRecovery) throw Object.assign(new Error('请先恢复无 DLSS 的 Feeder 配套，再切换原生或 Vulkan 路线。'), { code: 'FEEDER_RESTORE_FIRST' });
+  }
   function requireKnownVulkanOwnership(game) {
     const state = vulkan.summary(game);
     if (state.needsRecovery && !state.installed) throw Object.assign(new Error(state.reason ||
@@ -97,6 +108,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     throw Object.assign(new Error('Vulkan 与原有 DX11 / DX12 加载方式不同。请先卸载当前插件并恢复备份，再选择新的 API 安装。'), { code: 'VULKAN_RESTORE_FIRST' });
   }
   async function settingDirectory(game, kind = 'nr') {
+    if (feederOwned(game)) return feeder.configDir(game, kind);
     if (vulkanOwned(game)) {
       const basePath = vulkan.configDir(game);
       return kind === 'nr' ? path.join(basePath, 'addons') : basePath;
@@ -382,6 +394,16 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   }
 
   async function diagnoseGame(game) {
+    if (feederOwned(game)) {
+      const raw = await feeder.inspect(game);
+      return { payload: { selectedVersion: raw.coreVersion, ready: raw.available }, diagnostic: {
+        complete: raw.ready === true, installed: raw.installed, pending: raw.needsRecovery, deploymentApi: 'dx12',
+        enhancementRoute: 'feeder-dx12', runtimeVerified: false, blockers: raw.blockers || (raw.reason ? [raw.reason] : []),
+        components: [{ key: 'feeder-files', label: '无 DLSS 固定配套', ok: raw.ready === true, detail: raw.reason || '组件校验通过；成品帧后处理，Synthetic 导引' },
+          { key: 'feeder-loaded', label: '本次加载', ok: raw.loaded === true ? true : null, detail: '加载状态与文件准备分别确认' },
+          { key: 'feeder-processed', label: '本次 NR 完成', ok: raw.processed === true ? true : null, detail: raw.detail || '需启动后核对本次完成记录；不代表画质验收' }]
+      } };
+    }
     if (vulkanOwned(game) || vulkanRoute(game) && !readManifest(game.dir)) {
       const raw = await vulkan.diagnose(game), checks = raw.components || {};
       const components = [
@@ -423,6 +445,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   }
 
   async function repairGame(game, options = {}) {
+      if (feederOwned(game)) return feeder.install(game, options);
+      requireNoFeeder(game);
       if (vulkanOwned(game) || vulkanRoute(game)) return vulkan.install(game, options);
       const requestedVersion = options && typeof options.version === 'string' ? options.version : null;
       const version = selectedVersionForGame(game, requestedVersion);
@@ -443,10 +467,16 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     if (!game) return null;
     const { scan, ...safe } = game;
     const vk = vulkan.summary(game);
+    const feed = feeder.summary(game);
+    const enhancements = inspectNativeEnhancementCapabilities(scan);
     const routed = vulkanRoute(game);
     const refInput = reframeworkInput(game);
     const refAdapter = refInput && REFRAMEWORK_ADAPTERS.find(row => row.executable.toLowerCase() === path.basename(refInput.exe).toLowerCase());
-    return { ...safe, vulkan: vk,
+    return { ...safe, vulkan: vk, feeder: feed,
+      enhancementRoute: feed.installed ? 'feeder-dx12' : vk.installed ? 'vulkan' : safe.installed ? 'native-dlss' : null,
+      hasNativeDlss: enhancements.nativeDlssAvailable,
+      nativeFgAvailable: enhancements.nativeFgAvailable,
+      enhancementCapabilities: enhancements,
       ...(safe.chosen?.apiSettings ? { chosen: { ...safe.chosen, apiSettings: {
         kind: safe.chosen.apiSettings.kind, api: safe.chosen.apiSettings.api,
         canSync: safe.chosen.apiSettings.kind === 'rdr2-system-xml' && Boolean(safe.chosen.apiSettings.sha256)
@@ -454,7 +484,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       ...(refAdapter ? { reframework: { matched: true, label: '卡普空 RE 引擎兼容', profile: refAdapter.id } } : {}),
       ...(routed ? { supported: vk.available === true, supportCode: vk.available ? null : 'VULKAN_UNAVAILABLE', supportText: vk.reason || 'Vulkan 桥接 · 试验版' } : {}),
       ...(vk.installed ? { installed: true, addonVersion: vk.coreVersion } : {}),
-      nativeDlssAvailable: Boolean(scan?.primaryDlss && /^nvngx_dlss\.dll$/i.test(scan.primaryDlss.name || '')),
+      ...(feed.installed ? { installed: true, addonVersion: feed.coreVersion } : {}),
+      nativeDlssAvailable: enhancements.nativeDlssAvailable,
       recommendedAddonVersion: safe.recommendedAddonVersion ? recommendedCompatVersion() : null };
   }
 
@@ -482,6 +513,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         typeof options.version !== 'string' || !options.version || options.version.length > 100) throw appError('ERR_BAD_REQUEST');
     const game = findGame(id), chosen = game.scan?.chosen;
     if (!chosen) throw appError('ERR_NO_GAME_EXE');
+    requireNoFeeder(game);
     requireKnownVulkanOwnership(game);
     let detected = chosen.detectedApiResolution || { api: chosen.detectedApi || 'unknown' };
     if (options.api === 'auto' && chosen.apiSettings?.kind === 'rdr2-system-xml') {
@@ -631,7 +663,10 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   async function validateLaunch(id) {
     const game = findGame(id);
     if (!game.scan || !game.scan.chosen || !game.scan.chosen.path) throw appError('ERR_NO_GAME_EXE');
-    if (vulkanOwned(game)) {
+    if (feederOwned(game)) {
+      // The Feeder service checks its fixed package and ordinary-privilege
+      // launch immediately before process creation, independently of SR/FG.
+    } else if (vulkanOwned(game)) {
       if (!vulkanRoute(game)) routeRestoreFirst();
       // The Vulkan launch operation verifies the immutable profile and layer
       // once, immediately before creating its ordinary-privilege process.
@@ -722,6 +757,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     },
     dismissGame: async id => {
       const game = findGame(id);
+      if (feederOwned(game)) await feeder.restore(game);
+      requireNoFeeder(game);
       requireKnownVulkanOwnership(game);
       if (vulkanOwned(game)) await vulkan.restore(game);
       // Removing a library entry also removes this tool's NR deployment. Never
@@ -779,6 +816,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     setGameApi: async (id, api, options = {}) => {
       if (!['auto', 'dx9', 'dx10', 'dx11', 'dx12', 'vulkan', 'opengl'].includes(api)) throw appError('ERR_BAD_REQUEST');
       const game = findGame(id);
+      requireNoFeeder(game);
       if (!game.scan || !game.scan.chosen) throw appError('ERR_NO_GAME_EXE');
       const nextApi = api === 'auto' ? game.scan.chosen.detectedApiResolution?.api || game.scan.chosen.detectedApi || 'unknown' : api;
       if (vulkanOwned(game) && nextApi !== 'vulkan' || readManifest(game.dir) && nextApi === 'vulkan') routeRestoreFirst();
@@ -888,6 +926,8 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     },
     install: async (id, options = {}) => {
       const game = findGame(id);
+      if (feederOwned(game)) return refreshAfterMutation(await feeder.install(game, options));
+      requireNoFeeder(game);
       requireKnownVulkanOwnership(game);
       if (vulkanRoute(game) || vulkanOwned(game)) return refreshAfterMutation(await vulkan.install(game, options));
       const payload = selectedPayload(game, options && typeof options.version === 'string' ? options.version : null);
@@ -898,6 +938,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     repair: async (id, options = {}) => refreshAfterMutation(await repairGame(findGame(id), options)),
     upgradeAddon: async (id, version, options = {}) => {
       const game = findGame(id);
+      requireNoFeeder(game);
       if (vulkanOwned(game) || vulkanRoute(game)) return refreshAfterMutation(await vulkan.install(game, { ...options, version }));
       const imported = importedAddon(version);
       if (!imported) throw appError('ERR_ADDON_NOT_FOUND');
@@ -907,6 +948,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     },
     toggleD3D12: async (id, enabled, options = {}) => {
       const game = findGame(id);
+      requireNoFeeder(game);
       if (vulkanOwned(game) || vulkanRoute(game)) routeRestoreFirst();
       const result = await installer.toggleD3D12({ gameDir: game.dir, enabled: enabled === true, scan: game.scan, allowAntiCheat: options && options.allowAntiCheat === true });
       return refreshAfterMutation(result);
@@ -914,17 +956,23 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     launch: async id => {
       const exe = await validateLaunch(id);
       const game = findGame(id);
+      if (feederOwned(game)) { await feeder.launch(game); return true; }
       if (vulkanOwned(game)) { await vulkan.launch(game); return true; }
-      const { spawn } = require('child_process');
-      await new Promise((resolve, reject) => {
-        const child = spawn(exe, [], { cwd: path.dirname(exe), detached: true, stdio: 'ignore', windowsHide: false });
-        child.once('error', reject);
-        child.once('spawn', () => { child.unref(); resolve(); });
-      });
+      // An explicitly elevated Manager must not silently elevate its games.
+      // The same broker preserves the selected EXE/cwd/arguments and proves a
+      // same-user ordinary token, just as the external routes do.
+      nativeLaunchBroker ||= createGameLaunchBroker({ resourcesPath });
+      try { await nativeLaunchBroker.launch({ exe, args: [], cwd: path.dirname(exe) }); }
+      catch (error) {
+        if (error?.code === 'GAME_LAUNCH_REQUIRES_ELEVATION') throw Object.assign(new Error('该游戏明确要求管理员权限，本次普通权限启动未执行；管理器不会静默提权游戏。'), { code: error.code });
+        throw error;
+      }
       return true;
     },
     uninstall: async (id, removeSettings = false) => {
       const game = findGame(id);
+      if (feederOwned(game)) return refreshAfterMutation(await feeder.restore(game));
+      requireNoFeeder(game);
       if (vulkanOwned(game)) return refreshAfterMutation(await vulkan.restore(game));
       const result = await installer.uninstall({ gameDir: game.dir, removeSettings, scan: game.scan });
       if (result?.removed !== true) {
@@ -935,6 +983,17 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
       return refreshAfterMutation(result);
     },
     diagnose: async id => (await diagnoseGame(findGame(id))).diagnostic,
+    inspectFeeder: async id => feeder.inspect(findGame(id)),
+    installFeeder: async (id, options = {}) => {
+      if (!options || typeof options !== 'object' || Array.isArray(options) ||
+          Object.keys(options).some(key => key !== 'allowAntiCheat') ||
+          options.allowAntiCheat !== undefined && typeof options.allowAntiCheat !== 'boolean') throw appError('ERR_BAD_REQUEST');
+      const game = findGame(id), vk = vulkan.summary(game);
+      if (vk.installed || vk.needsRecovery) routeRestoreFirst();
+      if (readManifest(game.dir)) throw Object.assign(new Error('先恢复原生 DLSS 配套，再准备 Feeder。'), { code: 'FEEDER_ROUTE_CONFLICT' });
+      return refreshAfterMutation(await feeder.install(game, options));
+    },
+    restoreFeeder: async id => refreshAfterMutation(await feeder.restore(findGame(id))),
     readReframework: async id => {
       const input = reframeworkInput(findGame(id));
       if (!input) return { matched: false, ready: false, canPrepare: false, blockers: [] };

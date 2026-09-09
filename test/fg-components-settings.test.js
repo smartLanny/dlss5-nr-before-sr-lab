@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { createFgComponents } = require('../src/product/fg-components');
+const { createFgComponents } = require('../src/product/fg-legacy-components');
 const { createLaunchSettingsService } = require('../src/product/launch-settings-service');
 
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
@@ -45,7 +45,9 @@ test('RTX40 components gate launch settings and both layers restore their own fi
     const status = await components.inspect(id);
     if (!status.ready) throw Object.assign(new Error(status.blockers.join('\n') || `缺少组件：${status.missing.join('、')}`), { code: 'SETTINGS_FG_COMPONENTS_REQUIRED' });
   };
-  const settings = createLaunchSettingsService({ userData: path.join(root, 'user'), appDir: root,
+  // Seed a historical v1 request/receipt through the retained adapter; production
+  // defaults reject this route and only expose its restore operation.
+  const settings = createLaunchSettingsService({ userData: path.join(root, 'user'), appDir: root, allowLegacyControl: true,
     gameDirectory: () => game, gameExecutable: () => exe, detectHardware: async () => ({ family: 'RTX40', series: ['RTX40'] }),
     environment: async () => ({ verified: true, running: [] }), peBitness: () => 64, assertComponents });
   const request = { backend: 'rtx40', mode: 'fixed', multiplier: 3 };

@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { noLinks, inside } = require('./launch-safety');
+const { DIRECTORY: FEEDER_DIRECTORY } = require('./feeder-runtime');
 
 const MAX_LOG_BYTES = 256 * 1024;
 const MAX_OPERATIONS = 80;
@@ -51,7 +52,7 @@ function safeJson(value, includePaths = false) {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, safeJson(item, includePaths)]));
 }
 
-function createFeedbackCollector({ userData, productVersion = '0.0.0' }) {
+function createFeedbackCollector({ userData, productVersion = '0.0.0', resolveFeederLogDirectory = null }) {
   const feedbackDir = path.join(userData, 'feedback');
   const operationsFile = path.join(feedbackDir, 'operations.jsonl');
 
@@ -85,7 +86,7 @@ function createFeedbackCollector({ userData, productVersion = '0.0.0' }) {
     }
   }
 
-  async function readLogs(gameDir, executableDir, managedLogDirs = []) {
+  async function readLogs(gameDir, executableDir, managedLogDirs = [], feederLogDirectory = null) {
     const names = new Set([
       'ReShade.log',
       'nr-before-sr.log',
@@ -96,10 +97,16 @@ function createFeedbackCollector({ userData, productVersion = '0.0.0' }) {
     const files = [];
     const external = managedLogDirs.filter(dir => typeof dir === 'string' && path.isAbsolute(dir) &&
       (inside(path.resolve(userData), path.resolve(dir)) || gameDir && path.resolve(dir).toLowerCase() === path.resolve(gameDir, '_storage_').toLowerCase())).slice(0, 2);
-    for (const dir of [...external, executableDir, gameDir]) {
+    // Only the collector's internal resolver may authorize Feeder logs. Even
+    // then, independently enforce the fixed directory beside the selected EXE.
+    const feeder = typeof feederLogDirectory === 'string' && path.isAbsolute(feederLogDirectory) &&
+      typeof gameDir === 'string' && path.isAbsolute(gameDir) && typeof executableDir === 'string' && path.isAbsolute(executableDir) &&
+      inside(gameDir, executableDir) && path.resolve(feederLogDirectory).toLowerCase() === path.resolve(executableDir, FEEDER_DIRECTORY, 'addons').toLowerCase()
+      ? [feederLogDirectory] : [];
+    for (const dir of [...feeder, ...external, executableDir, gameDir]) {
       if (!dir || !fs.existsSync(dir)) continue;
       let entries = [];
-      try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { continue; }
+      try { await noLinks(dir); entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { continue; }
       for (const entry of entries) {
         if (files.length >= 4) return files;
         if (!entry.isFile() || !names.has(entry.name)) continue;
@@ -143,9 +150,12 @@ function createFeedbackCollector({ userData, productVersion = '0.0.0' }) {
     const executable = chosen && chosen.path ? chosen.path : null;
     const gameDir = game && game.dir ? game.dir : null;
     const executableDir = executable ? path.dirname(executable) : gameDir;
+    let feederLogDirectory = null;
+    try { if (typeof resolveFeederLogDirectory === 'function') feederLogDirectory = await resolveFeederLogDirectory(game); }
+    catch { /* A missing or invalid receipt must not prevent the diagnostic TXT. */ }
     const [operations, logs] = await Promise.all([
       readOperations(gameId),
-      readLogs(gameDir, executableDir, managedLogDirs)
+      readLogs(gameDir, executableDir, managedLogDirs, feederLogDirectory)
     ]);
     const payloadSummary = payload ? {
       selectedVersion: payload.selectedVersion || null,

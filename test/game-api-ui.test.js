@@ -74,13 +74,13 @@ test('one application submits the selected API and Core together without replaci
   const context = uiContext(), calls = [];
   context.state.installing = new Set(); context.setInstallBusy = () => {};
   context.state.payload.versions['0.4.7beta'] = {}; context.state.payload.selectedVersion = '0.4.7beta';
-  context.window = { manager: { applyGameRoute: (...args) => { calls.push(args); return { ok: true, value: { installed: true } }; } } };
+  context.window = { manager: { prepareGame: (...args) => { calls.push(args); return { ok: true, value: { installed: true } }; } } };
   context.runConfirmedAction = work => work(true);
   context.game = { id: 'current-game', chosen: { path: 'C:/Games/Chosen.exe', detectedApiResolution: { api: 'dx12' } }, vulkan: { packageId: 'fixed-vulkan-r5', coreVersion: '0.4.6-hotfix.1', available: true } };
   for (const api of ['auto', 'dx11', 'dx12', 'vulkan']) {
     context.patch = { api }; vm.runInContext('updateRouteDraft(game, patch)', context);
     await vm.runInContext('applyCardRoute(game)', context);
-    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['current-game', { api, version: api === 'vulkan' ? 'fixed-vulkan-r5' : '0.4.7beta', allowAntiCheat: true }]);
+    assert.deepEqual(JSON.parse(JSON.stringify(calls.at(-1))), ['current-game', { api, version: api === 'vulkan' ? 'fixed-vulkan-r5' : '0.4.7beta', route: 'native', allowAntiCheat: true }]);
     assert.equal(context.game.chosen.path, 'C:/Games/Chosen.exe'); assert.equal(context.state.routeDrafts.size, 0);
   }
   assert.doesNotMatch(source, /api-save-btn|version-apply-btn|window\.manager\.setGameApi/);
@@ -196,12 +196,12 @@ test('game cards keep rename available and show a real pending install state', (
   assert.match(markup, /id="renameGameInput"/);
 });
 
-test('Vulkan route uses only its fixed experimental package and never exposes SR/FG without native DLSS', () => {
+test('Vulkan uses its fixed package and retains a read-only-capable graphics panel for scoped restoration', () => {
   const context = { escapeHtml: String, state: { installing: new Set(), addons: [], payload: { selectedVersion: 'ordinary-core', versions: { 'ordinary-core': {} } }, detailTabs: new Map() },
     payloadReadyForHardware: () => false, hardwareLabel: () => 'RTX 50' };
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('), source.indexOf('function renderGames(')), context);
-  context.game = { id: 'vk-game', name: 'VK', installed: true, supported: false, nativeDlssAvailable: false,
+  context.game = { id: 'vk-game', name: 'VK', installed: true, supported: false, nativeDlssAvailable: false, nativeFgAvailable: false,
     chosen: { path: 'C:/Games/VK.exe', bitness: 64, apiResolution: { api: 'vulkan', source: 'override' } },
     vulkan: { available: true, installed: true, coreVersion: '0.4.6-hotfix.1-vulkan-provider', packageId: 'nr-vulkan-e7df0fc', experimental: true } };
   const html = vm.runInContext('gameDetail(game)', context);
@@ -211,8 +211,8 @@ test('Vulkan route uses only its fixed experimental package and never exposes SR
   assert.equal(vm.runInContext('vulkanVersionOption(game)', context), '<option value="nr-vulkan-e7df0fc" selected>0.4.6-hotfix.1 · Beta · Vulkan 桥接</option>');
   assert.doesNotMatch(html, /value="ordinary-core"/);
   assert.match(html, /通过画面和深度估算运动/);
-  assert.match(html, /未检测到普通 DLSS/);
-  assert.doesNotMatch(html, /launch-settings-host|调整超分补帧|d3d12-btn|使用 D3D12 兼容修复/);
+  assert.match(html, /未检测到游戏自带的 DLSS/);
+  assert.match(html, /launch-settings-host/); assert.doesNotMatch(html, /调整超分补帧|d3d12-btn|使用 D3D12 兼容修复/);
   assert.match(vm.runInContext('cardAction(game)', context), /启动游戏/);
   context.game.vulkan.coreVersion = '0.4.7beta'; context.game.vulkan.packageId = 'nr-vulkan-beta047-fixture';
   assert.equal(vm.runInContext('vulkanVersionOption(game)', context), '<option value="nr-vulkan-beta047-fixture" selected>beta0.4.7 · Vulkan 桥接</option>');
@@ -257,7 +257,7 @@ test('collapsed Vulkan install and installed repair pass the exact package ID', 
   const game = { id: 'vk-game', chosen: { apiResolution: { api: 'vulkan' } }, vulkan: { packageId: 'nr-vulkan-e7df0fc', available: true } };
   const card = { dataset: { id: game.id }, querySelector: selector => ({ '.game-card-head': head, '.install-btn': install, '.repair-inline-btn': repair })[selector] || null };
   const context = uiContext(); Object.assign(context, { document: { querySelectorAll: selector => selector === '.game-card' ? [card] : [] },
-    window: { manager: { applyGameRoute: (...args) => { calls.push(['apply', ...args]); return { ok: true, value: {} }; } } },
+    window: { manager: { prepareGame: (...args) => { calls.push(['prepare', ...args]); return { ok: true, value: {} }; } } },
     setInstallBusy() {}, runConfirmedAction: work => Promise.resolve(work(true)), confirmRenameGame() {}, confirmDismissGame() {}, confirmUninstall() {} });
   context.state.games = [game]; context.state.installing = new Set();
   vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('), source.indexOf('function supportBadge(')), context);
@@ -265,8 +265,8 @@ test('collapsed Vulkan install and installed repair pass the exact package ID', 
   vm.runInContext('bindGameCards()', context);
   install.onclick({ stopPropagation() {} }); repair.onclick(); await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
-    ['apply', 'vk-game', { api: 'auto', version: 'nr-vulkan-e7df0fc', allowAntiCheat: true }],
-    ['apply', 'vk-game', { api: 'auto', version: 'nr-vulkan-e7df0fc', allowAntiCheat: true }]
+    ['prepare', 'vk-game', { api: 'auto', version: 'nr-vulkan-e7df0fc', route: 'native', allowAntiCheat: true }],
+    ['prepare', 'vk-game', { api: 'auto', version: 'nr-vulkan-e7df0fc', route: 'native', allowAntiCheat: true }]
   ]);
 });
 

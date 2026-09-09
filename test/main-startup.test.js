@@ -27,10 +27,11 @@ function harness(options = {}) {
     }
     disableHardwareAcceleration() { logs.push({ stage: 'disabled-hardware' }); }
     isReady() { return this.ready; }
-    whenReady() { this.ready = true; return Promise.resolve(); }
+    whenReady() { if (options.deferReady) return new Promise(() => {}); this.ready = true; return Promise.resolve(); }
     getVersion() { return 'test-version'; }
     getPath(name) { return path.join(__dirname, `.startup-${name}`); }
-    requestSingleInstanceLock() { return options.singleInstance !== false; }
+    requestSingleInstanceLock() { logs.push({ stage: 'instance-lock-requested' }); return options.singleInstance !== false; }
+    releaseSingleInstanceLock() { logs.push({ stage: 'instance-lock-released' }); }
     setAppUserModelId() {}
     quit() { this.quitCalls++; }
     exit(code) { this.exitCode = code; }
@@ -47,15 +48,20 @@ function harness(options = {}) {
   const dialog = { async showMessageBox(arg) { dialogs.push(arg); if (options.dialogFailure) throw new Error('dialog unavailable'); return { response: options.dialogResponse ?? 1 }; },
     async showSaveDialog() { return { canceled: true }; }, showErrorBox(title, detail) { errors.push({ title, detail }); }, async showOpenDialog() { return { canceled: true, filePaths: [] }; } };
   const electron = { app, BrowserWindow, ipcMain, dialog, shell: { showItemInFolder() {}, async openExternal() {}, async openPath() { return ''; } }, clipboard: { writeText() {} } };
-  const service = { store: { readRecoveryStatus: () => ({ state: 'ok' }) }, withError: fn => fn(), gameDirectory: () => 'C:\\game', gameExecutable: () => 'C:\\game\\game.exe',
-    gameScan: () => ({ primaryDlss:options.noNativeDlss ? null : {name:'nvngx_dlss.dll'}, streamlineFiles: [], chosen: {}, reshade: {} }), reShadeSource: () => null, importAddonFile: async () => {}, dispose() {} };
-  const launchSettings = options.launchService || { assertReady: async () => {}, restore: async () => {} };
+  const service = { store: { readRecoveryStatus: () => ({ state: 'ok' }) }, withError: options.withError || (fn => fn()), install: options.install || (async () => ({})),
+    gameDirectory: () => 'C:\\game', gameExecutable: () => 'C:\\game\\game.exe',
+    gameScan: () => ({ primaryDlss: options.noNativeDlss ? null : { name: 'nvngx_dlss.dll' },
+      streamlineFiles: options.noNativeFg ? [] : [{ name: 'sl.interposer.dll' }, { name: 'sl.dlss_g.dll' }], chosen: {}, reshade: {} }),
+    reShadeSource: () => null, refreshAfterMutation: async value => value, importAddonFile: async () => {}, dispose() {} };
+  const launchSettings = { assertReady: async () => {}, restore: async () => {}, inspect: async () => ({ requests: {}, applied: {} }), ...options.launchService };
   const fgComponents = options.fgComponents || { inspect: async () => ({ route: 'native', ready: true }) };
   const business = {
     './src/product/app-service': { createAppService: () => service }, './src/product/sr-model-service': { createSrModelService: () => ({ read() {} }) },
     './src/product/launch-settings-service': { createLaunchSettingsService: () => launchSettings },
-    './src/product/launch-coordinator': { createLaunchCoordinator: () => ({ serialize: fn => fn(), assertMutationReady: async () => {}, inspect: async () => {}, launch: async () => ({ launchSettings: [] }) }) },
-    './src/core/install-guards': {}, './src/product/fg-components': { createFgComponents: () => fgComponents },
+    './src/product/launch-coordinator': { createLaunchCoordinator: () => ({ serialize: options.serialize || (fn => fn()),
+      assertMutationReady: options.assertMutationReady || (async () => {}), inspect: async () => {}, launch: async () => ({ launchSettings: [] }) }) },
+    './src/core/install-guards': { assertGameClosed: options.assertGameClosed || (async () => {}) }, './src/product/fg-components': { createFgComponents: () => fgComponents },
+    './src/product/game-preparation': { createGamePreparation: () => ({ assertReady: async () => {}, inspect: async () => ({ pending: false }) }) },
     './src/product/game-support': { classifyApi: () => 'dx12' }
   };
   const fakeProcess = new EventEmitter(); Object.assign(fakeProcess, { argv: options.argv || ['electron', mainFile], env: { SystemRoot: 'C:\\Windows', ...(options.env || {}) }, platform: 'win32',
@@ -65,7 +71,19 @@ function harness(options = {}) {
   const customRequire = request => {
     if (request === 'electron') return electron;
     if (request === './src/product/startup-diagnostics') return { ...realDiagnostics, createStartupDiagnostics: () => startup };
+    if (request === './src/product/startup-elevation') return require('../src/product/startup-elevation');
+    if (request === './src/product/startup-handoff') return { createStartupHandoff: () => ({
+      begin: () => ({ nonce: '22222222-2222-2222-2222-222222222222' }),
+      wait: options.handoffWait || (async () => { logs.push({ stage: 'elevation-child-ready' }); }),
+      cancel: () => logs.push({ stage: 'handoff-cancelled' }), finish: () => logs.push({ stage: 'handoff-finished' }),
+      listen() {}, readyChild: () => true, failChild() {}
+    }) };
     if (request === './src/product/launch-settings-policy') return realLaunchPolicy;
+    if (request === './src/product/fg-workflow') return require('../src/product/fg-workflow');
+    if (request === './src/product/game-enhancement-capabilities') return { inspectNativeEnhancementCapabilities: scan => ({
+      nativeDlssAvailable: Boolean(scan.primaryDlss), nativeFgAvailable: scan.streamlineFiles.some(row => row.name === 'sl.dlss_g.dll') &&
+        scan.streamlineFiles.some(row => row.name === 'sl.interposer.dll')
+    }) };
     if (request === 'child_process') return { execFile(file, args, childOptions, callback) {
       execCalls.push({ file, args, options: childOptions }); execCount++; const row = options.execResults?.[execCount - 1] || { error: null, stdout: 'True' }; setImmediate(() => callback(row.error, row.stdout || '')); return { unref() {} };
     } };
@@ -122,6 +140,7 @@ test('default startup retains sandbox protections and does not request a compati
   const options = h.logs.find(row => row.stage === 'startup-options').details;
   for (const name of ['noSandbox', 'disableGpu', 'disableGpuSandbox', 'softwareRendering']) assert.equal(options[name], false, name);
   assert.equal(saw(h, 'relaunch'), false); assert.equal(saw(h, 'disabled-hardware'), false);
+  assert.equal(h.execCalls.length, 0, 'opening the normal window neither probes PowerShell nor elevates');
   h.window.emit('closed');
 });
 
@@ -152,7 +171,8 @@ test('single-instance without acknowledgement explains the hidden-window conditi
 
 test('UAC child launch failure is logged and shown without invoking a real elevation prompt', async () => {
   const denied = Object.assign(new Error('fixture UAC denied'), { code: 'EACCES' });
-  const h = harness({ packaged: false, execResults: [{ error: null, stdout: 'False' }, { error: denied, stdout: '' }] }); await settle(14);
+  const h = harness({ packaged: false, argv: ['electron', mainFile, '--as-admin'],
+    execResults: [{ error: null, stdout: 'False' }, { error: denied, stdout: '' }] }); await settle(14);
   assert.equal(saw(h, 'elevation-requested'), true); assert.equal(saw(h, 'elevation-failed'), true); assert.equal(h.errors.length, 1);
   assert.match(h.errors[0].detail, /未能启动管理员进程/); assert.equal(h.app.exitCode, 1);
 });
@@ -163,13 +183,13 @@ test('native dialog failure falls back to showErrorBox instead of a silent rejec
 });
 
 test('failure before app readiness synchronously shows an error box and exits', async () => {
-  const h = harness(); h.app.emit('child-process-gone', {}, { type: 'GPU', reason: 'launch-failed', exitCode: 5 }); await settle();
+  const h = harness({ deferReady: true }); h.app.emit('child-process-gone', {}, { type: 'GPU', reason: 'launch-failed', exitCode: 5 }); await settle();
   assert.equal(h.errors.length, 1); assert.match(h.errors[0].detail, /图形子进程无法启动/); assert.equal(h.app.exitCode, 1);
   assert.equal(saw(h, 'startup-failure'), true);
 });
 
 test('an elevation-attempted process that is still non-admin refuses a second spawn', async () => {
-  const h = harness({ packaged: false, argv: ['electron', mainFile, '--elevation-attempted'], execResults: [{ error: null, stdout: 'False' }] }); await settle(12);
+  const h = harness({ packaged: false, argv: ['electron', mainFile, '--as-admin', '--elevation-attempted'], execResults: [{ error: null, stdout: 'False' }] }); await settle(12);
   assert.equal(h.execCalls.length, 1, 'only the administrator check runs'); assert.equal(saw(h, 'elevation-requested'), false);
   assert.equal(h.errors.length, 1); assert.match(h.errors[0].detail, /已停止重启循环/); assert.equal(h.app.exitCode, 1);
 });
@@ -177,11 +197,71 @@ test('an elevation-attempted process that is still non-admin refuses a second sp
 test('portable elevation targets the original shell instead of its temporary inner executable', async t => {
   const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'xiaofeng-portable-shell-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const portable = path.join(root, '小枫 portable.exe'); fs.writeFileSync(portable, 'shell');
-  const h = harness({ packaged: false, env: { PORTABLE_EXECUTABLE_FILE: portable, PORTABLE_EXECUTABLE_DIR: path.join(root, 'temporary-inner') },
+  const h = harness({ packaged: false, argv: ['electron', mainFile, '--as-admin'], env: { PORTABLE_EXECUTABLE_FILE: portable, PORTABLE_EXECUTABLE_DIR: path.join(root, 'temporary-inner') },
     execResults: [{ error: null, stdout: 'False' }, { error: null, stdout: '4321' }] }); await settle(14);
   assert.equal(h.execCalls.length, 2); const command = h.execCalls[1].args.at(-1);
   assert.match(command, new RegExp(portable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))); assert.doesNotMatch(command, /temporary-inner/);
   assert.equal(saw(h, 'elevation-child-started'), true); assert.equal(h.app.quitCalls, 1);
+});
+
+test('startup context is read-only, identifies compatibility mode and does not trust a packaged admin manifest', async () => {
+  const h = harness({ argv: ['manager.exe', '--no-sandbox'], execResults: [{ error: null, stdout: 'False' }] }); await settle();
+  const context = h.handles.get('startup-context');
+  const foreign = await context({ sender: {} }); assert.equal(foreign.ok, false); assert.equal(h.execCalls.length, 0);
+  const result = await context({ sender: h.window.webContents });
+  assert.equal(result.ok, true); assert.equal(result.value.privilege, 'standard'); assert.equal(result.value.mode, 'compatibility');
+  assert.equal(result.value.sandbox, false); assert.equal(result.value.canRestartElevated, true);
+  assert.equal(h.execCalls.length, 1); assert.doesNotMatch(h.execCalls[0].args.at(-1), /Start-Process|RunAs/);
+  assert.equal(saw(h, 'elevation-requested'), false); h.window.emit('closed');
+});
+
+test('explicit administrator restart serializes the handoff and preserves the normal window on UAC cancellation', async () => {
+  const denied = Object.assign(new Error('fixture UAC denied'), { code: 'EACCES' }); let serialized = 0;
+  const h = harness({ serialize: fn => { serialized++; return fn(); },
+    execResults: [{ error: null, stdout: 'False' }, { error: denied, stdout: '' }] }); await settle();
+  const restart = h.handles.get('startup-restart-elevated');
+  assert.equal((await restart({ sender: h.window.webContents }, {})).error.code, 'CONFIRM_REQUIRED');
+  assert.equal((await restart({ sender: {} }, { confirm: true })).error.code, 'CONFIRM_REQUIRED'); assert.equal(h.execCalls.length, 0);
+  const result = await restart({ sender: h.window.webContents }, { confirm: true });
+  assert.equal(result.ok, false); assert.equal(result.error.code, 'STARTUP_ADMIN_RESTART_FAILED'); assert.match(result.error.message, /当前窗口已保留/);
+  assert.equal(serialized, 1); assert.equal(h.app.quitCalls, 0);
+  assert.equal(saw(h, 'instance-lock-released'), true);
+  assert.equal(h.logs.filter(row => row.stage === 'instance-lock-requested').length, 2, 'normal instance reacquires its released lock');
+  assert.match(h.execCalls[1].args.at(-1), /--as-admin/); assert.doesNotMatch(h.execCalls[1].args.at(-1), /--no-sandbox/);
+  h.window.emit('closed');
+});
+
+test('a surviving administrator PID cannot close the original window without a new ready session', async () => {
+  const h = harness({ execResults: [{ error: null, stdout: 'False' }, { error: null, stdout: '4321' }],
+    handoffWait: async () => { throw Object.assign(new Error('fixture process alive without renderer-ready'), { code: 'STARTUP_CHILD_NOT_READY' }); } });
+  await settle();
+  const result = await h.handles.get('startup-restart-elevated')({ sender: h.window.webContents }, { confirm: true });
+  assert.equal(result.ok, false); assert.equal(result.error.code, 'STARTUP_CHILD_NOT_READY');
+  assert.equal(saw(h, 'elevation-child-started'), true); assert.equal(saw(h, 'handoff-cancelled'), true);
+  assert.equal(h.app.quitCalls, 0); assert.equal(h.logs.filter(row => row.stage === 'instance-lock-requested').length, 2);
+  h.window.emit('closed');
+});
+
+test('permission recovery retains the game guard, original error and transaction state without an automatic retry', async () => {
+  const { normalizeError } = require('../src/product/errors'); let guarded = 0, writes = 0;
+  const h = harness({ withError: async work => { try { return { ok: true, value: await work() }; } catch (error) { return { ok: false, error: normalizeError(error) }; } },
+    assertMutationReady: async () => { guarded++; }, install: async () => { writes++; throw Object.assign(new Error('fixture denied'),
+      { code: 'EACCES', details: { pending: true, phase: 'rollback', recoveryStateKnown: false } }); } });
+  await settle();
+  const result = await h.handles.get('game-install')({ sender: h.window.webContents }, 'game');
+  assert.equal(guarded, 1); assert.equal(writes, 1); assert.equal(result.ok, false); assert.equal(result.error.code, 'EACCES');
+  assert.equal(result.error.details.pending, true); assert.equal(result.error.details.recoveryStateKnown, false);
+  assert.equal(result.error.details.recoveryAction, 'restart-elevated'); assert.match(result.error.message, /设置 → 以管理员身份重启/);
+  assert.equal(h.execCalls.length, 0); assert.equal(h.app.quitCalls, 0);
+  h.window.emit('closed');
+});
+
+test('game-closed rejection still prevents a write under ordinary startup', async () => {
+  let writes = 0;
+  const h = harness({ assertMutationReady: async () => { throw Object.assign(new Error('game is running'), { code: 'ERR_GAME_RUNNING' }); },
+    install: async () => { writes++; } }); await settle();
+  await assert.rejects(h.handles.get('game-install')({}, 'game'), { code: 'ERR_GAME_RUNNING' });
+  assert.equal(writes, 0); assert.equal(h.execCalls.length, 0); h.window.emit('closed');
 });
 
 test('launch settings update validates with the real policy before inspecting or preparing FG components', async () => {
@@ -199,14 +279,14 @@ test('launch settings update validates with the real policy before inspecting or
   await settle();
   const update = h.handles.get('launch-settings-update');
   assert.equal(typeof update, 'function');
-  await assert.rejects(update({}, 'game', 'fg', { backend: 'rtx40', mode: 'bogus' }), error => error.code === 'UNKNOWN_MODE');
+  await assert.rejects(update({}, 'game', 'fg', { backend: 'mfgunlock', mode: 'bogus' }), error => error.code === 'SETTINGS_INPUT');
   assert.deepEqual(componentCalls, []);
   assert.deepEqual(settingCalls, []);
 });
 
-test('RTX40 automatic update prepares missing components before preview, apply and save', async () => {
+test('MFG Unlock update uses the real workflow to prepare missing components before preview, apply and save', async () => {
   const order = [];
-  const request = { backend: 'rtx40', mode: 'fixed', multiplier: 3 };
+  const request = { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 };
   const h = harness({
     fgComponents: {
       inspect: async () => { order.push('inspect'); return { route: 'compatibility', ready: false }; },
@@ -222,11 +302,12 @@ test('RTX40 automatic update prepares missing components before preview, apply a
   });
   await settle();
   const result = await h.handles.get('launch-settings-update')({}, 'game', 'fg', request, { allowAntiCheat: true });
-  assert.deepEqual(order, ['ready', 'inspect', 'prepare', 'preview', 'apply', 'save']);
-  assert.equal(result.applied, true); assert.equal(result.saved, true);
+  assert.ok(order.indexOf('ready') < order.indexOf('prepare'));
+  assert.deepEqual(order.filter(value => value !== 'ready'), ['inspect', 'prepare', 'preview', 'apply', 'save']);
+  assert.equal(result.applied, true); assert.equal(result.saved, true); assert.equal(result.backend, 'mfgunlock');
 });
 
-test('RTX40 automatic update rejects a route mismatch without preparing or writing settings', async () => {
+test('MFG Unlock update rejects a route mismatch without preparing or writing settings', async () => {
   const calls = [];
   const h = harness({
     fgComponents: {
@@ -239,9 +320,9 @@ test('RTX40 automatic update rejects a route mismatch without preparing or writi
     }
   });
   await settle();
-  await assert.rejects(h.handles.get('launch-settings-update')({}, 'game', 'fg', { backend: 'rtx40', mode: 'fixed', multiplier: 3 }),
+  await assert.rejects(h.handles.get('launch-settings-update')({}, 'game', 'fg', { backend: 'mfgunlock', mode: 'fixed', multiplier: 3 }),
     error => error.code === 'SETTINGS_FG_ROUTE_MISMATCH');
-  assert.deepEqual(calls, ['ready', 'inspect']);
+  assert.ok(calls.includes('ready')); assert.deepEqual(calls.filter(value => value !== 'ready'), ['inspect']);
 });
 
 test('global launch settings reset attempts both domains and rejects partial restoration', async () => {
@@ -263,15 +344,25 @@ test('global launch settings reset attempts both domains and rejects partial res
   assert.deepEqual(restored, ['fg', 'sr']);
 });
 
-test('missing native DLSS rejects automatic overrides before component or driver work while allowing restore', async () => {
+test('missing SR and FG providers each reject their own override before component or driver work while allowing restore', async () => {
   const calls=[];
-  const h=harness({noNativeDlss:true,fgComponents:{inspect:async()=>calls.push('components')},launchService:{
+  const h=harness({noNativeDlss:true,noNativeFg:true,fgComponents:{inspect:async()=>calls.push('components')},launchService:{
     assertReady:async()=>{},preview:async()=>{calls.push('preview');return{id:'restore'};},apply:async()=>{calls.push('apply');return{restored:true};},save:async()=>calls.push('save')
   }});
   await settle();
   await assert.rejects(h.handles.get('launch-settings-update')({},'game','sr',{backend:'native',quality:'balanced',preset:'auto'}),error=>error.code==='ERR_NO_DLSS');
-  await assert.rejects(h.handles.get('launch-settings-update')({},'game','fg',{backend:'rtx40',mode:'fixed',multiplier:3}),error=>error.code==='ERR_NO_DLSS');
+  await assert.rejects(h.handles.get('launch-settings-update')({},'game','fg',{backend:'mfgunlock',mode:'fixed',multiplier:3}),error=>error.code==='SETTINGS_NO_NATIVE_FG');
   assert.deepEqual(calls,[]);
   const result=await h.handles.get('launch-settings-update')({},'game','fg',{backend:'nvidia',mode:'restore'});
   assert.equal(result.restored,true);assert.deepEqual(calls,['preview','apply','save']);
+});
+
+test('native FG remains independent from a missing SR provider', async () => {
+  const calls = [];
+  const h = harness({ noNativeDlss: true, fgComponents: { inspect: async () => { calls.push('fg-inspect'); return { route: 'native', ready: true }; } },
+    launchService: { preview: async (_id, domain) => { calls.push(`preview-${domain}`); return { id: 'fg-plan' }; },
+      apply: async () => { calls.push('apply'); return { applied: true }; }, save: async () => calls.push('save') } }); await settle();
+  await assert.rejects(h.handles.get('launch-settings-update')({}, 'game', 'sr', { backend: 'native', quality: 'quality', preset: 'auto' }), { code: 'ERR_NO_DLSS' });
+  const result = await h.handles.get('launch-settings-update')({}, 'game', 'fg', { backend: 'nvidia', mode: 'fixed', multiplier: 2 });
+  assert.equal(result.applied, true); assert.deepEqual(calls, ['fg-inspect', 'preview-fg', 'apply', 'save']); h.window.emit('closed');
 });

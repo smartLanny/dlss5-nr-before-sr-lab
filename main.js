@@ -5,8 +5,12 @@ const path = require('path');
 const os = require('os');
 const { execFile } = require('child_process');
 const { createStartupDiagnostics, watchWindow, PROCESS_LAUNCH_GUIDANCE } = require('./src/product/startup-diagnostics');
+const { createStartupElevation, withPermissionRecovery } = require('./src/product/startup-elevation');
+const { createStartupHandoff } = require('./src/product/startup-handoff');
 const startup = createStartupDiagnostics();
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
+const handoff = createStartupHandoff({ directory: startup.directory, sessionId: startup.sessionId, log: startup.log });
+const elevationNonce = process.argv.find(value => typeof value === 'string' && value.startsWith('--elevation-handoff='))?.slice('--elevation-handoff='.length);
 let createAppService, createSrModelService, createLaunchSettingsService, createLaunchCoordinator, installGuards, createFgComponents, classifyApi;
 
 let win = null;
@@ -15,9 +19,12 @@ let srModel = null;
 let launchSettings = null;
 let launchCoordinator = null;
 let fgComponents = null;
+let fgWorkflow = null;
+let preparation = null;
 let windowWatch = null;
 let failureVisible = false;
 let quitting = false;
+let singleInstanceOwned = false;
 app.on('before-quit', () => { quitting = true; });
 const softwareRendering = app.commandLine.hasSwitch('software-rendering');
 if (softwareRendering) { app.disableHardwareAcceleration(); startup.log('software-rendering-requested'); }
@@ -26,6 +33,7 @@ startup.log('startup-options', { noSandbox: app.commandLine.hasSwitch('no-sandbo
   chromium: process.versions.chrome || '', osRelease: os.release(),
   nodeOptionsPresent: Boolean(process.env.NODE_OPTIONS), electronRunAsNodePresent: Boolean(process.env.ELECTRON_RUN_AS_NODE),
   compatibilityLayerPresent: Boolean(process.env.__COMPAT_LAYER) });
+startup.log('elevation-policy', { mode: 'on-demand', requested: app.commandLine.hasSwitch('as-admin') });
 
 async function exportStartupReport() {
   const selected = await dialog.showSaveDialog({ title: '保存精简启动诊断', defaultPath: 'DLSS5-启动诊断.txt', filters: [{ name: '文本诊断', extensions: ['txt'] }] });
@@ -33,6 +41,7 @@ async function exportStartupReport() {
 }
 
 async function startupFailure(title, error, softwareRetry = false) {
+  if (elevationNonce) handoff.failChild(elevationNonce, title);
   startup.log('startup-failure', { title, code: error?.code || '', type: error?.type, reason: error?.reason, exitCode: error?.exitCode,
     message: error?.message || String(error), stack: error?.stack || '' });
   if (failureVisible) return;
@@ -75,43 +84,9 @@ function runPowerShell(command, timeout = 15000) {
     { encoding: 'utf8', windowsHide: true, timeout, maxBuffer: 16384 }, (error, stdout) => error ? reject(error) : resolve(String(stdout).trim())));
 }
 
-async function isWindowsAdministrator() {
-  if (process.platform !== 'win32') return true;
-  // Both shipped EXEs have a verified requireAdministrator PE manifest.
-  // Windows applies it before JS starts; invoking PowerShell again here can
-  // itself be blocked by application-control policy and hide an otherwise usable UI.
-  if (app.isPackaged && !process.env.__COMPAT_LAYER) { startup.log('elevation-enforced-by-manifest'); return true; }
-  try {
-    const result = await runPowerShell('$id=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=New-Object Security.Principal.WindowsPrincipal($id); $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)');
-    if (!/^(?:true|false)$/i.test(result)) throw new Error('无法确认当前进程权限。');
-    return /^true$/i.test(result);
-  } catch (error) {
-    startup.log('administrator-check-failed', { message: error.message });
-    throw new Error('无法检查管理员权限，已停止重复提权。请导出启动诊断。');
-  }
-}
-
-function quotePowerShell(value) {
-  return `'${String(value).replace(/'/g, "''")}'`;
-}
-
-async function relaunchAsAdministrator() {
-  if (await isWindowsAdministrator()) { startup.log('administrator-confirmed'); return true; }
-  if (process.argv.includes('--elevation-attempted')) throw new Error('提权后的进程仍未取得管理员权限，已停止重启循环。');
-  const args = [...process.argv.slice(1).filter(value => typeof value === 'string'), '--elevation-attempted'];
-  const quoteArgument = value => `"${String(value).replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1')}"`;
-  const argumentList = ` -ArgumentList ${quotePowerShell(args.map(quoteArgument).join(' '))}`;
-  // Relaunch the portable shell, not its temporary inner EXE: the first shell
-  // may remove its extraction folder as soon as this process exits.
-  const portable = process.env.PORTABLE_EXECUTABLE_FILE;
-  const target = portable && path.isAbsolute(portable) && /[.]exe$/i.test(portable) && fs.existsSync(portable) ? portable : process.execPath;
-  const command = `$ErrorActionPreference='Stop'; $p=Start-Process -FilePath ${quotePowerShell(target)} -WorkingDirectory ${quotePowerShell(path.dirname(target))}${argumentList} -Verb RunAs -PassThru; Start-Sleep -Milliseconds 700; if($p.HasExited){throw '管理员进程启动后立即退出'}; $p.Id`;
-  startup.log('elevation-requested');
-  try { const childPid = await runPowerShell(command, 60000); startup.log('elevation-child-started', { pid: childPid }); }
-  catch (error) { startup.log('elevation-failed', { message: error.message }); throw new Error('未能启动管理员进程：可能取消了提权、被系统阻止，或程序启动后立即退出。请导出启动诊断。'); }
-  app.quit();
-  return false;
-}
+const elevation = createStartupElevation({ app, runPowerShell, processInfo: process, log: startup.log, handoff,
+  releaseLock() { if (!singleInstanceOwned) return false; app.releaseSingleInstanceLock(); singleInstanceOwned = false; return true; },
+  reacquireLock() { singleInstanceOwned = app.requestSingleInstanceLock({ startupNonce: startup.sessionId }); return singleInstanceOwned; } });
 
 function addonArgs(argv) {
   return (argv || []).filter(file => typeof file === 'string' && /(?:\.addon64|\.zip)$/i.test(file));
@@ -162,7 +137,10 @@ function createWindow() {
     }
   });
   startup.log('window-created');
-  windowWatch = watchWindow(win, { log: startup.log, fail: (...args) => { if (!quitting) void startupFailure(...args); } });
+  windowWatch = watchWindow(win, { log: startup.log, fail: (...args) => { if (!quitting) void startupFailure(...args); },
+    onReady() {
+      if (elevationNonce && !handoff.readyChild(elevationNonce, { administrator: elevation.privilege === 'administrator', instanceLockOwned: singleInstanceOwned })) app.quit();
+    } });
   win.loadFile(path.join(__dirname, 'src', 'renderer', 'index.html')).catch(error => { void startupFailure('界面文件加载失败', error); });
   win.on('closed', () => { win = null; });
 }
@@ -173,6 +151,22 @@ function registerIpc() {
     if (event.sender === win?.webContents) windowWatch?.failed(new Error(String(message || '界面初始化失败').slice(0, 500)));
   });
   ipcMain.handle('startup-export', () => exportStartupReport());
+  const fromMainWindow = event => win && !win.isDestroyed() && event.sender === win.webContents;
+  ipcMain.handle('startup-context', async event => fromMainWindow(event)
+    ? { ok: true, value: await elevation.context() }
+    : { ok: false, error: { code: 'ERR_BAD_REQUEST', message: '启动状态请求来源无效。' } });
+  ipcMain.handle('startup-restart-elevated', async (event, request) => {
+    if (!fromMainWindow(event) || request?.confirm !== true) return { ok: false, error: { code: 'CONFIRM_REQUIRED', message: '请在设置中明确选择“以管理员身份重启”。' } };
+    return launchCoordinator.serialize(async () => {
+      try {
+        const alreadyAdministrator = await elevation.relaunchAsAdministrator();
+        return { ok: true, value: { alreadyAdministrator, restarting: !alreadyAdministrator } };
+      } catch (error) {
+        startup.log('administrator-restart-failed', { code: error.code, message: error.message });
+        return { ok: false, error: { code: error.code || 'STARTUP_ADMIN_RESTART_FAILED', message: error.message } };
+      }
+    });
+  });
   const loggedGameActions = new Set([
     'game-install', 'game-repair', 'game-upgrade-addon', 'game-uninstall', 'game-api-set', 'game-route-apply',
     'game-toggle-d3d12', 'game-launch', 'game-diagnose', 'game-rename', 'game-hotkeys-read',
@@ -180,25 +174,29 @@ function registerIpc() {
     'sr-model-read', 'sr-model-write', 'feedback-export', 'launch-settings-inspect',
     'launch-settings-save', 'launch-settings-preview', 'launch-settings-restore', 'launch-settings-recover',
     'fg-components-prepare', 'fg-components-restore', 'launch-settings-update', 'launch-settings-reset-all',
-    'game-reframework-inspect', 'game-reframework-prepare', 'game-reframework-restore', 'game-reframework-recover'
+    'game-reframework-inspect', 'game-reframework-prepare', 'game-reframework-restore', 'game-reframework-recover',
+    'game-feeder-inspect', 'game-feeder-install', 'game-feeder-restore', 'game-prepare-all', 'game-preparation-recover', 'fg-components-recover'
   ]);
   const guardedActions = new Set(['game-install', 'game-repair', 'game-upgrade-addon', 'game-toggle-d3d12',
-    'game-api-set', 'game-route-apply', 'nr-write', 'nr-default', 'nr-recommended', 'game-hotkey-write', 'game-reframework-prepare', 'game-reframework-restore']);
+    'game-api-set', 'game-route-apply', 'nr-write', 'nr-default', 'nr-recommended', 'game-hotkey-write', 'game-reframework-prepare', 'game-reframework-restore',
+    'game-feeder-install', 'game-feeder-restore', 'game-prepare-all']);
   const serializedActions = new Set([...guardedActions, 'game-launch', 'game-uninstall', 'game-dismiss',
     'game-confirm', 'game-rename', 'settings-update', 'sr-model-write', 'launch-settings-save', 'launch-settings-preview',
     'launch-settings-apply', 'launch-settings-restore', 'launch-settings-recover', 'fg-components-prepare', 'fg-components-restore',
     'payload-source-pick', 'payload-source-reset', 'payload-source-recheck', 'launch-settings-update', 'launch-settings-reset-all',
-    'game-reframework-recover']);
-  const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => service.withError(
+    'game-reframework-recover', 'game-preparation-recover', 'fg-components-recover']);
+  const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => withPermissionRecovery(await service.withError(
     () => {
       const work = async () => {
+        if (elevation.restarting && serializedActions.has(name)) throw Object.assign(new Error('管理员重启正在进行，请等待。'), { code: 'ERR_JOB_BUSY' });
+        if (serializedActions.has(name) && loggedGameActions.has(name) && !['game-preparation-recover', 'launch-settings-recover', 'fg-components-recover'].includes(name)) await preparation?.assertReady(args[0]);
         if (guardedActions.has(name)) await launchCoordinator.assertMutationReady(args[0]);
         return fn(...args);
       };
       return serializedActions.has(name) ? launchCoordinator.serialize(work) : work();
     },
     { action: name, gameId: loggedGameActions.has(name) && typeof args[0] === 'string' ? args[0] : null }
-  ));
+  )));
   call('boot', async () => {
     const data = await service.boot();
     for (const warning of data.discoveryWarnings || []) startup.log('launcher-discovery-warning', { code: warning.code, message: warning.message });
@@ -213,6 +211,12 @@ function registerIpc() {
   call('game-rename', (id, name) => service.renameGame(id, name));
   call('game-api-set', (id, api, options) => service.setGameApi(id, api, options));
   call('game-route-apply', (id, options) => service.applyGameRoute(id, options));
+  call('game-prepare-all', (id, options) => preparation.prepare(id, options));
+  call('game-preparation-inspect', id => preparation.inspect(id));
+  call('game-preparation-recover', id => preparation.recover(id));
+  call('game-feeder-inspect', id => service.inspectFeeder(id));
+  call('game-feeder-install', (id, options) => service.installFeeder(id, options));
+  call('game-feeder-restore', id => service.restoreFeeder(id));
   call('game-toggle-d3d12', (id, enabled, options) => service.toggleD3D12(id, enabled === true, options));
   call('game-uninstall', async (id, removeSettings) => {
     await launchCoordinator.restoreForUninstall(id);
@@ -250,14 +254,17 @@ function registerIpc() {
   call('launch-settings-restore', (id, domain) => launchSettings.restore(id, domain));
   call('launch-settings-recover', id => launchSettings.recover(id));
   call('launch-settings-update', async (id, domain, input, options = {}) => {
-    const request = require('./src/product/launch-settings-policy').validateRequest(domain, input);
+    const policy = require('./src/product/launch-settings-policy');
+    const request = policy.validateRequest(domain, input);
     await launchSettings.assertReady(id);
-    if (!require('./src/product/launch-settings-policy').isRestore(domain, request) && !/^nvngx_dlss\.dll$/i.test(service.gameScan(id)?.primaryDlss?.name || ''))
-      throw Object.assign(new Error('未检测到此游戏的普通 DLSS 组件，请先确认选择的是实际游戏 EXE。'),{code:'ERR_NO_DLSS'});
+    const capability = require('./src/product/game-enhancement-capabilities').inspectNativeEnhancementCapabilities(service.gameScan(id));
+    if (!policy.isRestore(domain, request) && !(domain === 'sr' ? capability.nativeDlssAvailable : capability.nativeFgAvailable))
+      throw Object.assign(new Error(domain === 'sr' ? '未检测到游戏的 DLSS 超分组件。' : '未检测到游戏的原生 Streamline 补帧组件。'), { code: domain === 'sr' ? 'ERR_NO_DLSS' : 'SETTINGS_NO_NATIVE_FG' });
+    if (domain === 'fg' && request.backend === 'mfgunlock' && request.mode !== 'restore') return fgWorkflow.apply(id, request, options);
     if (domain === 'fg' && request.mode !== 'restore') {
+      if (request.backend === 'rtx40') throw Object.assign(new Error('旧补帧后端仅保留恢复能力，请先迁移到 MFG Unlock。'), { code: 'SETTINGS_FG_MIGRATION_REQUIRED' });
       const components = await fgComponents.inspect(id);
-      const expectedRoute = request.backend === 'rtx40' ? 'compatibility' : 'native';
-      if (components.route !== expectedRoute) throw Object.assign(new Error('所选补帧路线与当前显卡不一致，未准备或修改组件。'), { code: 'SETTINGS_FG_ROUTE_MISMATCH' });
+      if (components.route !== 'native') throw Object.assign(new Error('所选补帧路线与当前显卡不一致，未准备或修改组件。'), { code: 'SETTINGS_FG_ROUTE_MISMATCH' });
       if (components.needsCleanup) {
         await launchSettings.restore(id, 'fg');
         await fgComponents.restore(id);
@@ -280,10 +287,10 @@ function registerIpc() {
     return { restored: true, outcomes };
   });
   call('fg-components-prepare', async (id, options) => {
-    await launchSettings.assertReady(id);
-    const result = await fgComponents.prepare(id, { allowAntiCheat: options?.allowAntiCheat === true });
+    const result = await fgWorkflow.prepare(id, options);
     return service.refreshAfterMutation(result);
   });
+  call('fg-components-recover', async id => service.refreshAfterMutation(await fgWorkflow.recover(id)));
   call('fg-components-restore', async id => {
     await launchSettings.assertReady(id);
     await launchSettings.restore(id, 'fg');
@@ -393,8 +400,13 @@ async function startApplication() {
     await app.whenReady(); startup.exportTo(target); app.quit(); return;
   }
   if (process.argv.includes('--diagnostics')) { await app.whenReady(); await exportStartupReport(); app.quit(); return; }
-  if (!await relaunchAsAdministrator()) return;
-  if (!app.requestSingleInstanceLock({ startupNonce: startup.sessionId })) {
+  if (elevationNonce) {
+    if (!app.commandLine.hasSwitch('as-admin') || !process.argv.includes('--elevation-attempted')) throw new Error('管理员启动握手缺少显式授权标记。');
+    handoff.listen(elevationNonce, () => app.quit());
+  }
+  if (app.commandLine.hasSwitch('as-admin') && !await elevation.relaunchAsAdministrator()) return;
+  singleInstanceOwned = app.requestSingleInstanceLock({ startupNonce: startup.sessionId });
+  if (!singleInstanceOwned) {
     startup.log('existing-instance-detected');
     if (await startup.waitForAcknowledgement()) { startup.log('existing-instance-focused'); app.quit(); }
     else await startupFailure('已有管理器进程，但没有确认窗口已显示', new Error('已有进程可能尚未完成启动或没有响应。请先导出诊断，再从任务管理器核对；不会自动结束进程或删除单实例文件。'));
@@ -450,8 +462,12 @@ async function startApplication() {
       userData, resourcesPath: process.resourcesPath, appDir: __dirname,
       gameDirectory: id => service.gameDirectory(id),
       gameExecutable: id => service.gameExecutable(id), legacySrModel: srModel,
-      assertComponents: async id => {
+      assertComponents: async (id, backend) => {
         const state = await fgComponents.inspect(id);
+        if (backend === 'rtx40') throw Object.assign(new Error('旧补帧后端仅允许恢复。'), { code: 'SETTINGS_FG_MIGRATION_REQUIRED' });
+        if (state.migrationPending && !fgWorkflow?.isPreparing(id)) throw Object.assign(new Error('补帧迁移尚未完成，请先恢复。'), { code: 'SETTINGS_FG_MIGRATION_PENDING' });
+        if ((backend === 'mfgunlock' && state.route !== 'compatibility') || (backend === 'nvidia' && state.route !== 'native'))
+          throw Object.assign(new Error('补帧设置与当前显卡路线不一致。'), { code: 'SETTINGS_FG_ROUTE_MISMATCH' });
         if (!state.ready) throw Object.assign(new Error(state.needsCleanup
           ? '请先切换为原生帧生成路线，处理旧兼容组件。'
           : '请先准备完整的帧生成兼容组件，再应用设置。'), { code: 'SETTINGS_COMPONENTS_NOT_READY' });
@@ -462,10 +478,10 @@ async function startApplication() {
       gameDirectory: id => service.gameDirectory(id), gameExecutable: id => service.gameExecutable(id),
       scan: id => {
         const scan = service.gameScan(id);
-        const live = rows => (rows || []).filter(row => row.bitness === 64 && fs.existsSync(row.path));
-        const streamline = live(scan.streamlineFiles).map(row => row.name.toLowerCase());
+        const capability = require('./src/product/game-enhancement-capabilities').inspectNativeEnhancementCapabilities(scan);
         return { api: classifyApi(scan.chosen),
-          streamlineFg: streamline.includes('sl.dlss_g.dll') && streamline.some(name => ['sl.interposer.dll', 'sl.common.dll'].includes(name)),
+          streamlineFg: capability.nativeFgAvailable,
+          dlssgFiles: (scan.dlssFiles || []).filter(row => /^nvngx_dlssg\.dll$/i.test(row.name || '')),
           reshadeAddon: Boolean(scan.reshade?.installed && scan.reshade?.addonSupport)
         };
       },
@@ -473,6 +489,10 @@ async function startApplication() {
         try { return service.reShadeSource(); } catch { return null; }
       }
     });
+    fgWorkflow = require('./src/product/fg-workflow').createFgWorkflow({ settings: launchSettings, components: fgComponents,
+      assertClosed: id => installGuards.assertGameClosed(service.gameDirectory(id), service.gameExecutable(id)) });
+    preparation = require('./src/product/game-preparation').createGamePreparation({ userData, service, settings: launchSettings, components: fgComponents, fgWorkflow,
+      assertClosed: id => installGuards.assertGameClosed(service.gameDirectory(id), service.gameExecutable(id)) });
     launchCoordinator = createLaunchCoordinator({ service, settings: launchSettings, legacySrModel: srModel, guards: installGuards, components: fgComponents });
     for (const file of addonArgs(process.argv)) {
       try { await service.importAddonFile(file); } catch {}

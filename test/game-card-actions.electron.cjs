@@ -19,7 +19,7 @@ fs.writeFileSync(preload, `${installMock}
 installMock();
 (() => {
   const ok = value => ({ ok: true, value: structuredClone(value) });
-  const mock = window.__cardMock = { games: null, calls: [], installResolve: null };
+  const mock = window.__cardMock = { games: null, calls: [], installResolve: null, pending: {}, failRecovery: false };
   const originalBoot = window.manager.boot;
   const clone = () => structuredClone(mock.games || []);
   const seedGames = rows => {
@@ -27,13 +27,19 @@ installMock();
     const chosen = { ...seed.chosen, path: 'C:\\\\Games\\\\Scanned\\\\Game.exe', apiResolution: { api: 'dx12', source: 'fixture', evidence: [] }, detectedApiResolution: { api: 'dx12', source: 'fixture', evidence: [] } };
     return [
       { ...seed, id: 'ui-scanned', name: '扫描游戏', dir: 'C:\\\\Games\\\\Scanned', installed: false, supported: true, supportCode: null, supportText: '支持安装', chosen, apiOverride: 'auto' },
-      { ...seed, id: 'ui-added', name: '已添加游戏', dir: 'C:\\\\Games\\\\Added', installed: true, supported: true, supportCode: null, supportText: '支持安装', chosen: { ...chosen, path: 'C:\\\\Games\\\\Added\\\\Game.exe' }, apiOverride: 'auto' }
+      { ...seed, id: 'ui-added', name: '已添加游戏', dir: 'C:\\\\Games\\\\Added', installed: true, supported: true, supportCode: null, supportText: '支持安装', chosen: { ...chosen, path: 'C:\\\\Games\\\\Added\\\\Game.exe' }, apiOverride: 'auto' },
+      { ...seed, id: 'ui-feeder', name: 'Feeder · 无原生超分补帧', dir: 'C:\\\\Games\\\\Feeder', installed: false, supported: false,
+        chosen: { ...chosen, path: 'C:\\\\Games\\\\Feeder\\\\Game.exe' }, apiOverride: 'auto', hasNativeDlss: false, nativeDlssAvailable: false, nativeFgAvailable: false,
+        enhancementCapabilities: { nativeDlssAvailable: false, nativeFgAvailable: false, staticOnly: true },
+        feeder: { installed: false, available: true, coreVersion: '0.4.7-beta', reason: '固定成品帧 NR 试验配套；不会增加原生超分或补帧。' } }
     ];
   };
   window.manager.boot = async () => {
     const response = await originalBoot();
     if (!mock.games) mock.games = seedGames(response.value.games);
     response.value.games = clone();
+    response.value.hardware = { family: 'RTX50', series: ['RTX50'], names: ['NVIDIA GeForce RTX 5090'], source: 'fixture' };
+    window.__launchMock.data.hardware = structuredClone(response.value.hardware);
     return response;
   };
   window.manager.listGames = async () => ok(clone());
@@ -43,17 +49,25 @@ installMock();
     if (game) game.name = name;
     return ok(clone());
   };
-  window.manager.applyGameRoute = (id, options) => new Promise(resolve => {
-    mock.calls.push(['install', id, options]);
+  window.manager.applyGameRoute = () => { throw new Error('New cards must use prepareGame, not an NR-only installation'); };
+  window.manager.prepareGame = (id, options) => new Promise(resolve => {
+    mock.calls.push(['prepare', id, options]);
     mock.installResolve = result => {
       if (result && result.ok === true) {
         const game = mock.games.find(row => row.id === id);
-        if (game) game.installed = true;
+        if (game) { game.installed = true; if (options.route === 'feeder') game.feeder.installed = true; }
       }
       resolve(result);
       mock.installResolve = null;
     };
   });
+  window.manager.inspectPreparation = async id => ok(mock.pending[id] || { pending: false, stages: [], runtimeVerified: false });
+  window.manager.recoverPreparation = async id => {
+    mock.calls.push(['recover-preparation', id]);
+    if (mock.failRecovery) return { ok: false, error: { code: 'PREPARATION_RECOVERY_REQUIRED', message: '模拟恢复失败，记录仍保留' } };
+    delete mock.pending[id]; const game = mock.games.find(row => row.id === id); game.installed = false; if (game.feeder) game.feeder.installed = false;
+    return ok({ restored: true, outcomes: [{ domain: 'nr', restored: true }], runtimeVerified: false });
+  };
 })();
 `, 'utf8');
 
@@ -113,7 +127,7 @@ async function smoke() {
 
   const installButton = () => card('ui-scanned')?.querySelector('.install-btn');
   installButton().click();
-  await waitForCall('install', 'ui-scanned');
+  await waitForCall('prepare', 'ui-scanned');
   const pending = installButton();
   assert(pending.disabled && pending.getAttribute('aria-busy') === 'true' && pending.getAttribute('aria-live') === 'polite', 'Install pending disables the button and exposes ARIA busy state');
   assert(pending.querySelector('.button-spinner') && pending.textContent.includes('正在安装') && !/\\d+%/.test(pending.textContent), 'Install pending shows the real spinner label without a fake percentage');
@@ -122,22 +136,66 @@ async function smoke() {
   assert(!installButton().querySelector('.button-spinner') && installButton().textContent.includes('一键安装'), 'Failed install clears the busy state and restores the button');
 
   installButton().click();
-  await waitForCall('install', 'ui-scanned');
+  await waitUntil(() => window.__cardMock.calls.filter(row => row[0] === 'prepare' && row[1] === 'ui-scanned').length === 2);
   assert(installButton().disabled && installButton().querySelector('.button-spinner'), 'A second install attempt re-enters the visible pending state');
-  window.__cardMock.installResolve({ ok: true, value: { installed: true } });
+  window.__cardMock.installResolve({ ok: true, value: { prepared: true, runtimeVerified: false, stages: [
+    { domain: 'nr', status: 'prepared', message: '本轮 NR 配套已准备。' },
+    { domain: 'sr', status: 'retained', message: '保留原有质量档选择。' },
+    { domain: 'fg', status: 'unavailable', message: 'MFG 资源摘要不匹配，未准备补帧。' }
+  ] } });
   await waitUntil(() => card('ui-scanned')?.querySelector('.launch-btn'));
   assert(!card('ui-scanned').querySelector('.install-btn'), 'Completed install refreshes to the installed card and removes pending UI');
+  await waitUntil(() => card('ui-scanned').querySelector('.preparation-host')?.textContent.includes('MFG 资源摘要不匹配'));
+  const preparation = () => card('ui-scanned').querySelector('.preparation-host');
+  assert(preparation().textContent.includes('NR · 已准备') && preparation().textContent.includes('SR · 已保留') && preparation().textContent.includes('FG · 条件未满足'),
+    'One-click completion exposes separate NR, SR and FG outcomes without claiming skipped FG was installed');
+  window.__cardMock.pending['ui-scanned'] = { pending: true, stages: [{ domain: 'nr', status: 'prepared', message: '需恢复本轮 NR。' }], failure: { message: 'SR 恢复尚未完成。' } };
+  preparation().querySelector('.preparation-check-btn').click();
+  await waitUntil(() => preparation().querySelector('.preparation-recover-btn'));
+  assert(preparation().querySelector('[role="alert"]').textContent.includes('恢复记录已保留') && preparation().textContent.includes('SR 恢复尚未完成'), 'A pending preparation exposes the durable recovery reason');
+  window.__cardMock.failRecovery = true; preparation().querySelector('.preparation-recover-btn').click();
+  await waitUntil(() => !document.body.classList.contains('is-busy') && document.getElementById('toast').textContent.includes('模拟恢复失败'));
+  assert(preparation().querySelector('.preparation-recover-btn') && window.__cardMock.pending['ui-scanned'], 'Failed recovery retains its action and pending state');
+  window.__cardMock.failRecovery = false; preparation().querySelector('.preparation-recover-btn').click();
+  await waitUntil(() => !document.body.classList.contains('is-busy') && !window.__cardMock.pending['ui-scanned'] && card('ui-scanned').querySelector('.install-btn'));
+  assert(!preparation()?.querySelector('.preparation-recover-btn'), 'Confirmed recovery removes the pending recovery action');
+  assert(!preparation()?.textContent.includes('NR · 已准备'), 'After rollback the card no longer presents a superseded prepared NR result');
+
+  card('ui-feeder').querySelector('.game-card-head').click();
+  const feederDetail = () => card('ui-feeder').querySelector('.game-detail');
+  assert(feederDetail().textContent.includes('无原生 DLSS') && feederDetail().textContent.includes('成品帧') && !feederDetail().querySelector('.game-version-select'),
+    'Feeder card identifies its fixed post-process NR route rather than a native DLSS core choice');
+  feederDetail().querySelector('[data-detail-tab="graphics"]').click();
+  const feederHost = feederDetail().querySelector('.launch-settings-host'); await feederHost.launchSettingsController.ready;
+  assert([...feederHost.querySelectorAll('fieldset')].every(row => row.disabled) && feederHost.textContent.includes('未确认游戏已有 Streamline'),
+    'A Feeder-only card does not unlock either native SR or native FG controls');
+  assert(!feederHost.querySelector('[data-ls-action="prepare"]:not([disabled])'), 'No MFG prepare action is available without original FG');
+  feederDetail().querySelector('[data-detail-tab="enhance"]').click(); card('ui-feeder').querySelector('.install-btn').click();
+  await waitForCall('prepare', 'ui-feeder');
+  assert(window.__cardMock.calls.filter(row => row[0] === 'prepare' && row[1] === 'ui-feeder').at(-1)[2].route === 'feeder', 'Feeder one-click submits the explicit Feeder preparation route');
+  window.__cardMock.installResolve({ ok: true, value: { prepared: true, stages: [
+    { domain: 'nr', status: 'prepared', message: '已准备成品帧 NR，尚未确认游戏内处理。' },
+    { domain: 'sr', status: 'unavailable', message: '无原生 DLSS，未添加超分。' },
+    { domain: 'fg', status: 'unavailable', message: '无原生 Streamline FG，未添加补帧。' }
+  ], runtimeVerified: false } });
+  await waitUntil(() => !document.body.classList.contains('is-busy') && card('ui-feeder').querySelector('.preparation-host')?.textContent.includes('无原生 Streamline'));
+  assert(card('ui-feeder').querySelector('.preparation-host').textContent.includes('尚未确认游戏内处理'), 'Feeder completion retains its unverified in-game processing boundary');
+  card('ui-feeder').scrollIntoView({ block: 'start' });
+  document.getElementById('toast').className = 'toast';
   return { checks };
 }
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ width: 1100, height: 760, show: false, webPreferences: {
-    preload, sandbox: false, contextIsolation: false, nodeIntegration: false, backgroundThrottling: false, offscreen: true
+    preload, sandbox: true, contextIsolation: false, nodeIntegration: false, backgroundThrottling: false, offscreen: true
   } });
   try {
     await win.loadFile(path.join(process.env.MANAGER_UI_ROOT || path.resolve(__dirname, '..'), 'src/renderer/index.html'));
     const result = await win.webContents.executeJavaScript(`(${smoke.toString()})()`);
-    console.log(JSON.stringify({ ok: true, ...result }, null, 2));
+    win.webContents.invalidate(); await new Promise(resolve => setTimeout(resolve, 100));
+    const screenshot = process.argv[2] && path.resolve(process.argv[2]);
+    if (screenshot) { fs.mkdirSync(path.dirname(screenshot), { recursive: true }); fs.writeFileSync(screenshot, (await win.webContents.capturePage()).toPNG()); }
+    console.log(JSON.stringify({ ok: true, screenshot: screenshot || null, sandbox: win.webContents.getLastWebPreferences().sandbox, softwareRendering: app.getGPUFeatureStatus().gpu_compositing !== 'enabled', gpuFeatureStatus: app.getGPUFeatureStatus(), ...result }, null, 2));
     win.destroy(); app.exit(0);
   } catch (error) {
     console.error(error.stack || error);

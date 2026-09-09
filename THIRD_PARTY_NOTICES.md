@@ -27,6 +27,15 @@ The configuration code itself does not implement rendering or frame generation.
 
 ## RTX 40 frame-generation compatibility components
 
+New RTX 40 preparation uses the MIT-licensed
+[MFG Unlock 0.6.1](https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/tag/0.6.1)
+ReShade Add-on from source commit `a975e84712a6bfc84284f50c9621c349ee806734`.
+The pinned binary digest, original README and full license are recorded in
+`resources/fg-mfgunlock/manifest.json` and shipped alongside that Add-on.
+It controls existing Streamline FG; the manager does not bundle or replace
+DLSS-G or Streamline runtime DLLs for this feature. The older components below
+remain available only to identify and restore historical managed installations.
+
 Release resources include the original MIT-licensed components from
 [RTX40MFG-Unlock v1.2](https://github.com/dashdogy/RTX40MFG-Unlock/releases/tag/v1.2):
 RTX40MFGCore.dll, RTX40MFG.asi and RTX40MFG-UI.addon64. The full copyright and
@@ -78,6 +87,13 @@ retains its CC0 notice. The runtime recipe records each shipped file's digest
 and provenance separately.
 
 ## NVIDIA runtime
+
+The optional DX12 Feeder package uses the same pinned Feeder/VORT/ReShade
+shader sources described above, with a separate DX12 adapter owned by this
+project. It processes completed frames with synthetic guidance and is not
+native game SR or FG. Its recipe retains per-file provenance and licenses,
+including VORT's CC BY-NC 4.0 notice. The package also includes the separately
+licensed NR Core and NVIDIA NR runtime supplied by the release maintainer.
 
 `nvngx_dlssnr.dll` is not part of this repository and is not licensed by the
 MIT license above. The project does not download, commit or grant rights to any

@@ -84,7 +84,7 @@ function createLaunchSettingsService(options = {}) {
         value.lastTransaction != null && (!value.lastTransaction || !/^[a-f0-9-]{36}$/.test(value.lastTransaction.id || '') || !['sr', 'fg'].includes(value.lastTransaction.domain) || typeof value.lastTransaction.restoring !== 'boolean'))
       fail('SETTINGS_RECEIPT_INVALID', '启动设置恢复记录与当前 EXE 不一致。');
     for (const [domain, row] of Object.entries(value.applied)) {
-      const allowed = domain === 'sr' ? ['native', 'optiscaler'] : ['nvidia', 'rtx40'];
+      const allowed = domain === 'sr' ? ['native', 'optiscaler'] : ['nvidia', 'rtx40', 'mfgunlock'];
       if (!row || !allowed.includes(row.backend) || !samePath(row.exe, t.exe) || !row.request || typeof row.request !== 'object') fail('SETTINGS_RECEIPT_INVALID', '启动设置域记录无效。');
       policy.validateRequest(domain, row.request);
       if (['native', 'nvidia'].includes(row.backend)) {
@@ -92,6 +92,7 @@ function createLaunchSettingsService(options = {}) {
             !row.lastValues || Object.keys(row.lastValues).length !== row.ids.length || row.ids.some(id => !validSetting(row.lastValues[id]))) fail('SETTINGS_RECEIPT_INVALID', '驱动设置恢复范围无效。');
       } else {
         if (!policy.validConfigName(row.name, row.backend) || typeof row.baselineText !== 'string' || Buffer.byteLength(row.baselineText) > 1024 * 1024 || !row.lastValues || typeof row.lastValues !== 'object') fail('SETTINGS_RECEIPT_INVALID', '配置文件恢复范围无效。');
+        if (row.baselineMissing !== undefined && (typeof row.baselineMissing !== 'boolean' || row.backend !== 'mfgunlock')) fail('SETTINGS_RECEIPT_INVALID', '配置文件初始状态无效。');
         const allowedKeys = Object.keys(policy.values(row.baselineText, row.backend));
         if (Object.keys(row.lastValues).some(key => !allowedKeys.includes(key))) fail('SETTINGS_RECEIPT_INVALID', '配置文件恢复键无效。');
       }
@@ -125,6 +126,8 @@ function createLaunchSettingsService(options = {}) {
   async function markSrManaged(t) { const state = requests(); state.games[t.key] = { ...(state.games[t.key] || {}), _srManaged: { exe: t.exe, managedAt: new Date().toISOString() } }; await saveRequests(state); }
   async function save(id, domain, input) {
     return serialize(async () => { const t = target(id), request = policy.validateRequest(domain, input), state = requests();
+      if (request.backend === 'rtx40' && request.mode !== 'restore' && options.allowLegacyControl !== true)
+        fail('SETTINGS_FG_MIGRATION_REQUIRED', '旧补帧方案只保留恢复能力，请先迁移到 MFG Unlock，再重新选择倍率。');
       state.games[t.key] = { ...(state.games[t.key] || {}), [domain]: { exe: t.exe, request, savedAt: new Date().toISOString() } };
       if (domain === 'sr') state.games[t.key]._srManaged = { exe: t.exe, managedAt: new Date().toISOString() };
       await saveRequests(state); return { saved: true, applied: false, nextLaunch: true };
@@ -177,7 +180,9 @@ function createLaunchSettingsService(options = {}) {
     const t = target(id); await assertReady(id); await noLinks(t.exe);
     const saved = requestRow(id, domain), request = policy.validateRequest(domain, input || saved?.request);
     const currentReceipt = receipt(t), old = currentReceipt.applied[domain] || null, restoring = policy.isRestore(domain, request);
-    if (domain === 'fg' && !restoring && options.assertComponents) await options.assertComponents(id);
+    if (request.backend === 'rtx40' && !restoring && options.allowLegacyControl !== true)
+      fail('SETTINGS_FG_MIGRATION_REQUIRED', '旧补帧方案只保留恢复能力，请先迁移并重新选择设置。');
+    if (domain === 'fg' && !restoring && options.assertComponents) await options.assertComponents(id, request.backend);
     if (old && !samePath(old.exe, t.exe)) fail('SETTINGS_EXE_CHANGED', '请先恢复原 EXE 的启动设置。');
     if (old && old.backend !== request.backend && !restoring) fail('SETTINGS_RESTORE_FIRST', '请先恢复当前设置后端。');
     const plan = { id: crypto.randomUUID(), expires: Date.now() + 120000, gameId: id, domain, request, backend: restoring && old ? old.backend : request.backend,
@@ -205,14 +210,16 @@ function createLaunchSettingsService(options = {}) {
       if (!plan.noOp && before.profile && !validProfile(before.profile, t))
         plan.blockers.push('当前 NVIDIA 配置不是可确认的游戏官方配置或独立 EXE 配置，未修改参数；原样启动游戏不受影响。');
     } else {
-      if (plan.backend === 'rtx40' && !restoring && !(series.length === 1 && series[0] === 'RTX40')) plan.blockers.push('未唯一确认 RTX 40，社区 FG 请求不会写入。');
+      if (['rtx40', 'mfgunlock'].includes(plan.backend) && !restoring && !(series.length === 1 && series[0] === 'RTX40')) plan.blockers.push('未唯一确认 RTX 40，社区 FG 请求不会写入。');
       const controlRoot = path.dirname(t.exe);
       const name = old?.name || await policy.controlPath(controlRoot, plan.backend), file = path.join(controlRoot, name);
-      const before = await policy.readText(file, true);
-      if (before === null) fail('SETTINGS_BACKEND_MISSING', '没有找到该后端的现有配置。');
+      const beforeFile = await policy.readText(file, true);
+      if (beforeFile === null && (plan.backend !== 'mfgunlock' || old || restoring)) fail('SETTINGS_BACKEND_MISSING', '没有找到该后端的现有配置。');
+      const before = beforeFile ?? '';
       const currentValues = policy.values(before, plan.backend);
       if (old && !policy.same(Object.fromEntries(Object.keys(old.lastValues).map(key => [key, currentValues[key]])), old.lastValues)) fail('SETTINGS_EXTERNAL_CHANGE', '本工具接管的配置键已被外部修改。');
-      let content, baselineText = old?.baselineText || before;
+      let content, baselineText = old?.baselineText ?? before;
+      const baselineMissing = old?.baselineMissing === true || !old && beforeFile === null;
       if (restoring) content = policy.restoreText(before, baselineText, old.lastValues, plan.backend);
       else { const result = policy.compileFile(before, request); content = result.content; plan.warnings.push(...result.warnings); plan.requiresReview = result.requiresReview === true; }
       const afterValues = policy.values(content, plan.backend), keys = Object.keys(afterValues).filter(key => !policy.same(currentValues[key], afterValues[key]));
@@ -228,7 +235,9 @@ function createLaunchSettingsService(options = {}) {
       }
       plan.operations = keys.map(key => ({ action: restoring ? 'restore-config-key' : 'set-config-key', key }));
       const owned = [...new Set([...Object.keys(old?.lastValues || {}), ...keys])];
-      plan.change = { name, file, beforeHash: policy.hash(before), afterHash: policy.hash(content), content, baselineText,
+      const deleteAfter = restoring && baselineMissing && content.trim() === '';
+      plan.change = { name, file, beforeHash: beforeFile === null ? null : policy.hash(before), afterHash: deleteAfter ? null : policy.hash(content), content, baselineText,
+        baselineMissing, deleteAfter,
         lastValues: Object.fromEntries(owned.map(key => [key, afterValues[key]])) };
       plan.noOp = !restoring && plan.change.beforeHash === plan.change.afterHash;
     }
@@ -302,7 +311,7 @@ function createLaunchSettingsService(options = {}) {
       if (!plan.restoring && peBitness(t.exe) !== 64) fail('SETTINGS_EXE_INVALID', '启动设置只支持当前绑定的 Windows x64 游戏 EXE。');
       if (!plan.restoring && (!plan.exeHash || await digestFile(t.exe) !== plan.exeHash)) fail('SETTINGS_EXE_CHANGED', '游戏 EXE 在预览后改变。');
       await assertStopped(t);
-      if (plan.domain === 'fg' && !plan.restoring && options.assertComponents) await options.assertComponents(plan.gameId);
+      if (plan.domain === 'fg' && !plan.restoring && options.assertComponents) await options.assertComponents(plan.gameId, plan.request.backend);
       if (plan.domain === 'sr' && legacySrModel?.migrationInfo) {
         const info = await legacySrModel.migrationInfo(plan.gameId);
         if (info?.baselineCaptured) {
@@ -330,7 +339,9 @@ function createLaunchSettingsService(options = {}) {
         if (plan.change) {
           await journal.capture(t.dir, plan.change.file);
           if (await digestFile(plan.change.file) !== plan.change.beforeHash) fail('FILE_CHANGED', '配置在预览后改变。');
-          await noLinks(plan.change.file); await fsp.writeFile(plan.change.file, plan.change.content, 'utf8');
+          await noLinks(plan.change.file);
+          if (plan.change.deleteAfter) await fsp.unlink(plan.change.file);
+          else await fsp.writeFile(plan.change.file, plan.change.content, 'utf8');
           if (await digestFile(plan.change.file) !== plan.change.afterHash) fail('WRITE_VERIFY_FAILED', '配置写入后校验失败。');
         }
         let driverAfter = null;
@@ -350,7 +361,8 @@ function createLaunchSettingsService(options = {}) {
         else if (plan.driver) next[plan.domain] = { exe: t.exe, backend: plan.backend, request: plan.request, profile: driverAfter.profile, ids: plan.driver.ids,
           baseline: plan.driver.baseline, lastValues: subset(driverAfter, plan.driver.ids), runtimeVerified: false };
         else next[plan.domain] = { exe: t.exe, backend: plan.backend, request: plan.request, name: plan.change.name,
-          baselineText: plan.change.baselineText, lastValues: plan.change.lastValues, runtimeVerified: false };
+          baselineText: plan.change.baselineText, ...(plan.backend === 'mfgunlock' ? { baselineMissing: plan.change.baselineMissing } : {}),
+          lastValues: plan.change.lastValues, runtimeVerified: false };
         if (plan.driver && !Object.values(currentReceipt.applied).some(value => ['native', 'nvidia'].includes(value.backend)))
           currentReceipt.driverOriginalProfile = clone(plan.driver.before.profile);
         currentReceipt.applied = next; currentReceipt.lastTransaction = { id: transactionId, domain: plan.domain, restoring: plan.restoring }; await writeReceipt(t, currentReceipt);

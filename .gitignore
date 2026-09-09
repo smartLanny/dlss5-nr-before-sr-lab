@@ -1,6 +1,8 @@
 node_modules/
 dist/
 dist-external/
+dist-beta1-final/
+dist-beta1-verified/
 out/
 output/
 build/
@@ -18,3 +20,8 @@ resources/vulkan-reshade/
 resources/vulkan-runtime/
 
 resources/reframework-01417/
+
+# Release assets are staged from pinned sources; do not commit runtime binaries.
+resources/feeder-runtime/**
+!resources/feeder-runtime/recipe.json
+resources/fg-mfgunlock/*.addon64

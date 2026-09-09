@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 
 function Send-Result([bool]$Ok, $Result, [string]$Code, [string]$Message) {
   [Console]::Out.WriteLine((@{ version = 1; ok = $Ok; result = $Result; code = $Code; error = $Message } | ConvertTo-Json -Compress -Depth 8))
@@ -48,6 +50,9 @@ public static class XiaofengGameLaunchBroker {
   [DllImport("advapi32.dll", SetLastError=true)] static extern bool DuplicateTokenEx(IntPtr existing, UInt32 access, IntPtr attributes, int impersonation, int tokenType, out IntPtr token);
   [DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool CreateProcessWithTokenW(IntPtr token, UInt32 logonFlags, string applicationName,
     StringBuilder commandLine, UInt32 creationFlags, IntPtr environment, string currentDirectory, ref STARTUPINFO startup, out PROCESS_INFORMATION process);
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool CreateProcessW(string applicationName, StringBuilder commandLine,
+    IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles, UInt32 creationFlags, IntPtr environment,
+    string currentDirectory, ref STARTUPINFO startup, out PROCESS_INFORMATION process);
   [DllImport("advapi32.dll", SetLastError=true)] static extern bool GetTokenInformation(IntPtr token, int informationClass, IntPtr information, int length, out int returnLength);
   [DllImport("advapi32.dll")] static extern bool IsValidSid(IntPtr sid);
   [DllImport("advapi32.dll")] static extern UInt32 GetLengthSid(IntPtr sid);
@@ -58,9 +63,9 @@ public static class XiaofengGameLaunchBroker {
   [DllImport("kernel32.dll", SetLastError=true)] static extern UInt32 WaitForSingleObject(IntPtr handle, UInt32 milliseconds);
 
   sealed class Handles : IDisposable {
-    public IntPtr ShellProcess, ShellToken, PrimaryToken;
-    public UInt32 ShellPid, SessionId; public string Sid; public bool Elevated;
-    public void Dispose() { if (PrimaryToken != IntPtr.Zero) CloseHandle(PrimaryToken); if (ShellToken != IntPtr.Zero) CloseHandle(ShellToken); if (ShellProcess != IntPtr.Zero) CloseHandle(ShellProcess); }
+    public IntPtr ShellProcess, ShellToken, PrimaryToken, CurrentToken;
+    public UInt32 ShellPid, SessionId; public string Sid; public bool Elevated, BrokerElevated;
+    public void Dispose() { if (CurrentToken != IntPtr.Zero) CloseHandle(CurrentToken); if (PrimaryToken != IntPtr.Zero) CloseHandle(PrimaryToken); if (ShellToken != IntPtr.Zero) CloseHandle(ShellToken); if (ShellProcess != IntPtr.Zero) CloseHandle(ShellProcess); }
   }
   static Exception Error(string code, string message) { return new Exception(code + "|" + message); }
   static void Win32(bool ok, string code, string message) { if (!ok) throw Error(code, message + " (Win32 " + Marshal.GetLastWin32Error() + ")"); }
@@ -93,19 +98,19 @@ public static class XiaofengGameLaunchBroker {
     UInt32 pid; if (GetWindowThreadProcessId(window, out pid) == 0 || pid == 0) throw Error("GAME_LAUNCH_SHELL_MISSING", "Cannot identify the interactive desktop shell.");
     var h = new Handles(); h.ShellPid = pid;
     try {
+      Win32(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, out h.CurrentToken), "GAME_LAUNCH_TOKEN_QUERY", "Cannot read the Manager token.");
+      h.BrokerElevated = Elevated(h.CurrentToken);
       h.ShellProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid); if (h.ShellProcess == IntPtr.Zero) throw Error("GAME_LAUNCH_SHELL_TOKEN", "Cannot open the desktop shell process.");
-      Win32(OpenProcessToken(h.ShellProcess, TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY, out h.ShellToken), "GAME_LAUNCH_SHELL_TOKEN", "Cannot open the desktop shell token.");
-      Win32(DuplicateTokenEx(h.ShellToken, MAXIMUM_ALLOWED, IntPtr.Zero, SecurityImpersonation, TokenPrimary, out h.PrimaryToken), "GAME_LAUNCH_SHELL_TOKEN", "Cannot duplicate the desktop shell primary token.");
-      h.Sid = Sid(h.PrimaryToken); h.SessionId = Session(h.PrimaryToken); h.Elevated = Elevated(h.PrimaryToken);
+      UInt32 shellAccess = TOKEN_QUERY | (h.BrokerElevated ? TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY : 0);
+      Win32(OpenProcessToken(h.ShellProcess, shellAccess, out h.ShellToken), "GAME_LAUNCH_SHELL_TOKEN", "Cannot open the desktop shell token.");
+      h.Sid = Sid(h.ShellToken); h.SessionId = Session(h.ShellToken); h.Elevated = Elevated(h.ShellToken);
       UInt32 processSession; Win32(ProcessIdToSessionId(pid, out processSession), "GAME_LAUNCH_SESSION_MISMATCH", "Cannot read the desktop shell session.");
       if (processSession != h.SessionId) throw Error("GAME_LAUNCH_SESSION_MISMATCH", "Desktop shell process and token sessions differ.");
-      IntPtr current; Win32(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, out current), "GAME_LAUNCH_TOKEN_QUERY", "Cannot read the Manager token.");
-      try {
-        if (!Elevated(current)) throw Error("GAME_LAUNCH_BROKER_NOT_ELEVATED", "Manager helper is not elevated; no privilege transition was proven.");
-        if (!String.Equals(Sid(current), h.Sid, StringComparison.OrdinalIgnoreCase) || Session(current) != h.SessionId)
-          throw Error("GAME_LAUNCH_SESSION_MISMATCH", "Manager and desktop shell do not belong to the same user and session.");
-      } finally { CloseHandle(current); }
+      if (!String.Equals(Sid(h.CurrentToken), h.Sid, StringComparison.OrdinalIgnoreCase) || Session(h.CurrentToken) != h.SessionId)
+        throw Error("GAME_LAUNCH_SESSION_MISMATCH", "Manager and desktop shell do not belong to the same user and session.");
       if (h.Elevated) throw Error("GAME_LAUNCH_SHELL_ELEVATED", "Desktop shell token is elevated; Vulkan user layers would remain unavailable.");
+      if (h.BrokerElevated)
+        Win32(DuplicateTokenEx(h.ShellToken, MAXIMUM_ALLOWED, IntPtr.Zero, SecurityImpersonation, TokenPrimary, out h.PrimaryToken), "GAME_LAUNCH_SHELL_TOKEN", "Cannot duplicate the desktop shell primary token.");
       return h;
     } catch { h.Dispose(); throw; }
   }
@@ -136,7 +141,7 @@ public static class XiaofengGameLaunchBroker {
     }
     output.Append('\\', slashes * 2); output.Append('"'); return output.ToString();
   }
-  static IDictionary<string,object> Public(Handles shell) { return new Dictionary<string,object> { {"launchable", true}, {"elevated", false}, {"userSid", shell.Sid}, {"sessionId", (int)shell.SessionId}, {"shellPid", (int)shell.ShellPid} }; }
+  static IDictionary<string,object> Public(Handles shell) { return new Dictionary<string,object> { {"launchable", true}, {"elevated", false}, {"userSid", shell.Sid}, {"sessionId", (int)shell.SessionId}, {"shellPid", (int)shell.ShellPid}, {"launchMethod", shell.BrokerElevated ? "shell-token" : "current-token"} }; }
   public static IDictionary<string,object> Inspect() { using (var shell = ShellToken()) return Public(shell); }
   public static IDictionary<string,object> Launch(string exe, string[] args, IDictionary<string,string> environment, string cwd, string expectedSid, UInt32 expectedSession, UInt32 expectedShellPid) {
     using (var shell = ShellToken()) {
@@ -144,12 +149,19 @@ public static class XiaofengGameLaunchBroker {
         throw Error("GAME_LAUNCH_SHELL_CHANGED", "Desktop shell identity changed after inspection; retry the launch.");
       IntPtr source = IntPtr.Zero, custom = IntPtr.Zero; PROCESS_INFORMATION process = new PROCESS_INFORMATION(); bool created = false, resumed = false;
       try {
-        custom = Environment(shell.PrimaryToken, environment, out source);
+        custom = Environment(shell.BrokerElevated ? shell.PrimaryToken : shell.CurrentToken, environment, out source);
         string command = Quote(exe) + (args.Length == 0 ? "" : " " + String.Join(" ", args.Select(Quote)));
         if (command.Length > 32766) throw Error("GAME_LAUNCH_REQUEST_INVALID", "Game command line exceeds the Windows process limit.");
         var startup = new STARTUPINFO { cb = (UInt32)Marshal.SizeOf(typeof(STARTUPINFO)), lpDesktop = "winsta0\\default", dwFlags = STARTF_USESHOWWINDOW, wShowWindow = SW_SHOWNORMAL };
-        Win32(CreateProcessWithTokenW(shell.PrimaryToken, LOGON_WITH_PROFILE, exe, new StringBuilder(command), CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
-          custom, cwd, ref startup, out process), "GAME_LAUNCH_CREATE_FAILED", "Cannot create the game with the desktop user token.");
+        // Ordinary callers already have the verified user's non-elevated token.
+        // Elevated callers retain the explicit shell-token privilege transition.
+        // Both paths keep the child suspended until its actual token is checked.
+        bool launched = shell.BrokerElevated
+          ? CreateProcessWithTokenW(shell.PrimaryToken, LOGON_WITH_PROFILE, exe, new StringBuilder(command), CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+              custom, cwd, ref startup, out process)
+          : CreateProcessW(exe, new StringBuilder(command), IntPtr.Zero, IntPtr.Zero, false, CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+              custom, cwd, ref startup, out process);
+        Win32(launched, "GAME_LAUNCH_CREATE_FAILED", "Cannot create the game with the verified non-elevated user token.");
         created = true; IntPtr childToken;
         Win32(OpenProcessToken(process.hProcess, TOKEN_QUERY, out childToken), "GAME_LAUNCH_TOKEN_QUERY", "Cannot verify the suspended game token.");
         try {

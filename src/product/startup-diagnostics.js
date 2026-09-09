@@ -99,22 +99,25 @@ function createStartupDiagnostics(options = {}) {
   return { sessionId, directory, log, report, exportTo, acknowledge, waitForAcknowledgement };
 }
 
-function watchWindow(window, { log, fail }, timeoutMs = 25000) {
-  let visible = false, completed = false, pageLoaded = false;
+function watchWindow(window, { log, fail, onReady }, timeoutMs = 25000) {
+  let visible = false, completed = false, pageLoaded = false, rendererReady = false, readyNotified = false, startupFailed = false;
+  const notifyReady = () => {
+    if (!startupFailed && !readyNotified && visible && pageLoaded && rendererReady) { readyNotified = true; onReady?.(); }
+  };
   const timer = setTimeout(() => {
     if (!completed && visible && pageLoaded) log('renderer-data-still-loading');
-    else if (!completed) fail('界面初始化超时', new Error('窗口尚未完成初始化。可以导出启动诊断；不必先删除旧配置。'));
+    else if (!completed) { startupFailed = true; fail('界面初始化超时', new Error('窗口尚未完成初始化。可以导出启动诊断；不必先删除旧配置。')); }
   }, timeoutMs);
   timer.unref?.();
   const clear = () => { completed = true; clearTimeout(timer); };
-  window.once('ready-to-show', () => { if (!window.isDestroyed()) { visible = true; window.show(); log('window-visible'); } });
-  window.webContents.once('did-finish-load', () => { pageLoaded = true; log('page-loaded'); });
+  window.once('ready-to-show', () => { if (!window.isDestroyed()) { visible = true; window.show(); log('window-visible'); notifyReady(); } });
+  window.webContents.once('did-finish-load', () => { pageLoaded = true; log('page-loaded'); notifyReady(); });
   window.webContents.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
-    if (isMainFrame !== false && code !== -3) { clear(); fail('界面文件加载失败', Object.assign(new Error(description), { code })); }
+    if (isMainFrame !== false && code !== -3) { startupFailed = true; clear(); fail('界面文件加载失败', Object.assign(new Error(description), { code })); }
   });
-  window.webContents.on('preload-error', (_event, _file, error) => { clear(); fail('界面连接模块加载失败', error); });
+  window.webContents.on('preload-error', (_event, _file, error) => { startupFailed = true; clear(); fail('界面连接模块加载失败', error); });
   window.webContents.on('render-process-gone', (_event, details) => {
-    clear();
+    startupFailed = true; clear();
     log('render-process-gone', { type: 'Renderer', reason: details.reason, exitCode: details.exitCode });
     if (details.reason === 'clean-exit') return;
     const launchFailure = ['launch-failed', 'integrity-failure'].includes(details.reason);
@@ -122,9 +125,9 @@ function watchWindow(window, { log, fail }, timeoutMs = 25000) {
     fail(launchFailure ? '界面子进程无法启动' : '界面进程意外退出',
       Object.assign(new Error(message), { type: 'Renderer', reason: details.reason, exitCode: details.exitCode }), !launchFailure);
   });
-  window.on('unresponsive', () => { log('window-unresponsive', { visible }); fail('界面暂时无响应', new Error('界面没有响应，请先导出诊断。'), true); });
-  window.once('closed', clear);
-  return { ready() { clear(); log('renderer-ready'); }, failed(error) { clear(); fail('界面初始化失败', error); } };
+  window.on('unresponsive', () => { startupFailed = true; log('window-unresponsive', { visible }); fail('界面暂时无响应', new Error('界面没有响应，请先导出诊断。'), true); });
+  window.once('closed', () => { startupFailed = true; clear(); });
+  return { ready() { clear(); rendererReady = true; log('renderer-ready'); notifyReady(); }, failed(error) { startupFailed = true; clear(); fail('界面初始化失败', error); } };
 }
 
 module.exports = { createStartupDiagnostics, watchWindow, MAX_LOG, PROCESS_LAUNCH_GUIDANCE };

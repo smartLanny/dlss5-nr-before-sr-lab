@@ -140,6 +140,14 @@
             <b>原文件备份 + 恢复记录</b>
           </div>
         </div>
+        <div class="panel settings-panel startup-panel" id="startupSettings" aria-labelledby="startupSettingsTitle">
+          <h3 id="startupSettingsTitle">启动与权限</h3>
+          <div class="setting-row"><div><strong>本次启动方式</strong><p>正常启动保留默认沙箱，兼容入口仅用于临时排障。</p></div><b id="startupMode">正在读取…</b></div>
+          <div class="setting-row"><div><strong>管理器权限</strong><p>浏览界面无需管理员权限。只有操作受保护目录或驱动设置时，才可能需要提权。</p></div><b id="startupPrivilege">正在读取…</b></div>
+          <p class="startup-mode-note" id="startupModeNote" hidden></p>
+          <div class="startup-actions"><button class="button" id="startupRefreshBtn" type="button">刷新状态</button><button class="button" id="startupRestartAdminBtn" type="button" disabled>以管理员身份重启</button></div>
+          <p class="startup-message" id="startupMessage" role="status" aria-live="polite"></p>
+        </div>
         <details class="panel settings-panel product-information">
           <summary>关于管理器 <span id="settingsVersion"></span></summary>
           <div class="info-row"><span>核心版本</span><b>按游戏管理 · 0.3 稳定 / 0.4 Beta</b></div>
@@ -180,6 +188,7 @@
   <script src="action-flow.js"></script>
   <script src="game-detail-tabs.js"></script>
   <script src="launch-settings-ui.js"></script>
+  <script src="startup-ui.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

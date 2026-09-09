@@ -40,7 +40,7 @@ test('an installation family alone never grants FG capability', () => {
   assert.equal(ui.hardwareFacts({ family: 'RTX40', series: ['RTX40'], names: ['RTX 3090'] }).fgBackend, null);
   assert.equal(ui.hardwareFacts({ family: 'mixed', series: ['RTX40', 'RTX50'] }).fgBackend, null);
   assert.equal(ui.hardwareFacts({ series: ['RTX40'], source: 'unavailable' }).fgBackend, null);
-  assert.equal(ui.hardwareFacts({ family: 'RTX40', series: ['RTX40'], names: ['NVIDIA GeForce RTX 4090'] }).fgBackend, 'rtx40');
+  assert.equal(ui.hardwareFacts({ family: 'RTX40', series: ['RTX40'], names: ['NVIDIA GeForce RTX 4090'] }).fgBackend, 'mfgunlock');
   assert.equal(ui.hardwareFacts({ family: 'RTX50', series: ['RTX50'] }).fgBackend, 'nvidia');
   assert.equal(ui.recommendedPreset({ family: 'RTX30', series: ['RTX30'] }), 'K');
   assert.equal(ui.recommendedPreset({ family: 'RTX40', series: ['RTX40'] }), 'M');
@@ -153,7 +153,7 @@ test('missing game DLSS capability blocks edits and preparation but keeps global
     fgComponents: { route: 'compatibility', ready: false, canPrepare: true, missing: ['compatibility files'], blockers: [] } };
   const host = { isConnected: true, innerHTML: '', querySelector: () => null };
   let writes = 0;
-  const controller = ui.mount(host, 'no-dlss', { nativeDlssAvailable: false, manager: {
+  const controller = ui.mount(host, 'no-dlss', { nativeDlssAvailable: false, nativeFgAvailable: false, manager: {
     inspectLaunchSettings: async () => ({ ok: true, value: data }),
     updateLaunchSettings: async () => { writes++; return { ok: true, value: { applied: true } }; },
     prepareFgComponents: async () => { writes++; return { ok: true, value: { prepared: true } }; }
@@ -249,7 +249,7 @@ test('RTX40 fields remain selectable while components await automatic preparatio
   assert.match(host.innerHTML, /更改补帧选项时会自动准备配套组件/);
   assert.match(host.innerHTML, /data-ls-field="mode"/);
   await controller.perform('prepare', 'fg');
-  assert.deepEqual(calls, [['game', { allowAntiCheat: false }]]);
+  assert.deepEqual(calls, [['game', { allowAntiCheat: false, migrateLegacy: false }]]);
   assert.match(host.innerHTML, /data-ls-field="mode"/);
   const native = ui.fgComponentMarkup({ hardware: { family: 'RTX50', series: ['RTX50'] }, fgComponents: { route: 'native', ready: true } }, false);
   assert.match(native, /RTX 50 · 原生帧生成/);

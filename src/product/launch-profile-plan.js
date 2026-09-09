@@ -5,9 +5,11 @@
 // profile-aware NVAPI adapter. No FS, subprocess, injection or network here.
 const { createHash } = require('node:crypto');
 const ini = require('./launch-ini');
+const mfgUnlock = require('./mfgunlock-config');
 const SOURCES = Object.freeze({
   optiscaler: 'da70e61e1542a0b99adcb24168ff941e42109567',
   rtx40: '4e776d068f91b4a665425542bb005dd57cc3d891',
+  mfgunlock: mfgUnlock.SOURCE,
   nvapi: '87dca625e83fd89a983e19b904e5f3a580da90d2'
 });
 const SR_MODES = Object.freeze({ performance: 0, balanced: 1, quality: 2, dlaa: 4, ultraPerformance: 5, custom: 6 });
@@ -213,4 +215,4 @@ function planRtx40Mfg(text, request, status = null, now = Date.now()) {
   return plan('rtx40', { domain: 'fg', destination: 'RTX40MFG-Universal.json', beforeSha256: hash(text), afterSha256: hash(content),
     content, feasibility, evidence, warnings, requiresReview: original.generatedOnlyDebug === true, automaticApplicationAllowed: false });
 }
-module.exports = { SOURCES, DRS, planNvidiaSr, planOptiScalerSr, planRtx40Mfg, reviewMfgStatus };
+module.exports = { SOURCES, DRS, planNvidiaSr, planOptiScalerSr, planRtx40Mfg, planMfgUnlock: mfgUnlock.compile, reviewMfgStatus };

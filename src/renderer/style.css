@@ -122,6 +122,9 @@ input[type="range"] { accent-color: var(--green); width: 100%; }
 .config-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .compat-actions { display: flex; align-items: center; gap: 9px; margin-top: 14px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .config-note { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.preparation-host ul { margin: 14px 0; padding-left: 20px; color: var(--muted); font-size: 12px; }
+.preparation-host li { margin: 7px 0; font-weight: 400; line-height: 1.65; }
+.preparation-host li strong { color: var(--text); font-weight: 600; }
 .shortcut-block { margin-top: 15px; padding-top: 12px; border-top: 1px solid #222931; }
 .shortcut-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 3px; }
 .shortcut-head h4 { margin: 0; }
@@ -204,6 +207,10 @@ select { border: 1px solid var(--line); background: #171c20; color: var(--text);
 .setting-row > div, .info-row > div { min-width: 0; }
 .setting-row > select, .setting-row > b { flex: 0 0 auto; max-width: 42%; }
 .setting-row p { margin-top: 5px; }
+.startup-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.startup-mode-note { margin-top: 12px; padding: 11px 13px; border: 1px solid #6a5127; border-radius: 8px; background: #241e13; color: #e7cc91; font-size: 12px; line-height: 1.7; }
+.startup-message { min-height: 1.7em; margin-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.startup-message.error { color: #eea0a0; }
 .info-row span { color: var(--muted); }
 .toast { position: fixed; right: 24px; bottom: 24px; max-width: 420px; background: #20262b; border: 1px solid #364049; border-radius: 9px; padding: 11px 14px; opacity: 0; transform: translateY(10px); pointer-events: none; transition: .18s; }
 .toast.show { opacity: 1; transform: none; }

@@ -1,0 +1,949 @@
+{
+  "schema": 2,
+  "route": "feeder-dx12",
+  "core": "0.4.7beta",
+  "hardwareScope": "RTX5090 Laptop; RGBA8 confirmed sRGB; controlled renderer",
+  "fixedSizeCallbackProcessed": true,
+  "controlledResizeProcessed": true,
+  "completeAcceptance": false,
+  "realGameVerified": false,
+  "on": {
+    "source": "feeder-dx12-run600-r1",
+    "pid": 80040,
+    "gpu": "NVIDIA GeForce RTX 5090 Laptop GPU",
+    "frames": 600,
+    "drawCalls": 1800,
+    "samples": [
+      {
+        "frame": 60,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "51a30b53769a7403",
+        "outputHash": "ae69cd4766ba11b5",
+        "depthHash": "dcda0877bfae1403"
+      },
+      {
+        "frame": 120,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "1d5e5a589364a53b",
+        "outputHash": "396f78e79361de6a",
+        "depthHash": "365b91f5d0ecd2c3"
+      },
+      {
+        "frame": 180,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "b7513261446611c3",
+        "outputHash": "cdcf954197b8cfcd",
+        "depthHash": "6b4dfe0ab5872603"
+      },
+      {
+        "frame": 240,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "1d00990bac09d62b",
+        "outputHash": "9d524bb2a98adda5",
+        "depthHash": "b30a4817333e679f"
+      },
+      {
+        "frame": 300,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "e911c883a0eb20c3",
+        "outputHash": "f61decdcf529c923",
+        "depthHash": "ff50ed5408f0d293"
+      },
+      {
+        "frame": 360,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "e916ae9abed8094b",
+        "outputHash": "50a96119ed18de57",
+        "depthHash": "a4d6f8c264213c03"
+      },
+      {
+        "frame": 420,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "fae98a097d755a03",
+        "outputHash": "200e834d00767f8a",
+        "depthHash": "59b2fd9d374ecac3"
+      },
+      {
+        "frame": 480,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "1692d5b876222ff4",
+        "outputHash": "65e6625164cb55ad",
+        "depthHash": "25f99e036fce6e7b"
+      },
+      {
+        "frame": 540,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "31fcd5230164334c",
+        "outputHash": "e620776c040606c5",
+        "depthHash": "72381950858d1ee7"
+      },
+      {
+        "frame": 600,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "9c03619c7d530f23",
+        "outputHash": "d0052d5f3411f30b",
+        "depthHash": "7334b311c82822c3"
+      }
+    ],
+    "actualSrgbSwapchain": true,
+    "sameSession": true,
+    "nrCompletionMarkers": [
+      {
+        "localTime": "13:59:35.748",
+        "completedCount": 1
+      },
+      {
+        "localTime": "13:59:35.756",
+        "completedCount": 2
+      },
+      {
+        "localTime": "13:59:35.761",
+        "completedCount": 3
+      },
+      {
+        "localTime": "13:59:36.158",
+        "completedCount": 60
+      },
+      {
+        "localTime": "13:59:36.574",
+        "completedCount": 120
+      },
+      {
+        "localTime": "13:59:36.991",
+        "completedCount": 180
+      },
+      {
+        "localTime": "13:59:37.408",
+        "completedCount": 240
+      },
+      {
+        "localTime": "13:59:37.825",
+        "completedCount": 300
+      },
+      {
+        "localTime": "13:59:38.241",
+        "completedCount": 360
+      },
+      {
+        "localTime": "13:59:38.658",
+        "completedCount": 420
+      },
+      {
+        "localTime": "13:59:39.074",
+        "completedCount": 480
+      },
+      {
+        "localTime": "13:59:39.491",
+        "completedCount": 540
+      }
+    ],
+    "actualCoreEvaluationObserved": true,
+    "hazardObserved": false,
+    "evaluations": [
+      {
+        "localTime": "13:59:35.706",
+        "count": 1,
+        "width": 640,
+        "height": 360
+      },
+      {
+        "localTime": "13:59:35.740",
+        "count": 2,
+        "width": 640,
+        "height": 360
+      },
+      {
+        "localTime": "13:59:35.745",
+        "count": 3,
+        "width": 640,
+        "height": 360
+      }
+    ],
+    "resourceTimeline": [
+      "13:59:27.699  [feed] building: 640x360 backbuffer R8G8B8A8_UNORM (same-device D3D12, depth reversed=1)",
+      "13:59:35.702  post-SR signed feature 18 create 640x360 guides=640x360 result=0x00000001(Success) handle=000001D34A74EFF0",
+      "13:59:39.908  Deferred Feature 18 retirement for SR handle=00007FFFF102DAC8 mode=1 extent=640x360 until recorded command lists and GPU fences complete."
+    ],
+    "resize": false,
+    "resizeAt": null,
+    "resizeStartedUtc": null,
+    "resizeCompletedUtc": null,
+    "nrWritebacksBeforeResize": null,
+    "reportExit": "clean",
+    "osExitCode": null,
+    "osExitObserved": false,
+    "files": {
+      "report": {
+        "sha256": "ea2b075ee17e59c10b0baea749269c0f502c84eed576b404f1d921ef91e3ea08",
+        "bytes": 2018
+      },
+      "feeder": {
+        "sha256": "19a4b3fd0c2e5cb0964e42c7d11054833338da4f64f9a6cf7f2c39718f5aa636",
+        "bytes": 6118
+      },
+      "core": {
+        "sha256": "868b934ccb4c8ccc03bee366bc24d809a2609af302888ffd73cac62265be7ba9",
+        "bytes": 10261
+      },
+      "reshade": {
+        "sha256": "d3d8022833145360a299eae80799fb5f1a596deddb18bc13a18267d1497a107d",
+        "bytes": 10863
+      }
+    }
+  },
+  "off": {
+    "source": "feeder-dx12-off-r1",
+    "pid": 71048,
+    "gpu": "NVIDIA GeForce RTX 5090 Laptop GPU",
+    "frames": 600,
+    "drawCalls": 1800,
+    "samples": [
+      {
+        "frame": 60,
+        "changedRgbPixels": 45260,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "51a30b53769a7403",
+        "outputHash": "c24e2203b57bad3b",
+        "depthHash": "dcda0877bfae1403"
+      },
+      {
+        "frame": 120,
+        "changedRgbPixels": 45260,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "1d5e5a589364a53b",
+        "outputHash": "a19a2f45a6a79ef3",
+        "depthHash": "365b91f5d0ecd2c3"
+      },
+      {
+        "frame": 180,
+        "changedRgbPixels": 45260,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "b7513261446611c3",
+        "outputHash": "5b91df5cc5882cbb",
+        "depthHash": "6b4dfe0ab5872603"
+      },
+      {
+        "frame": 240,
+        "changedRgbPixels": 45260,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "1d00990bac09d62b",
+        "outputHash": "41948728638a2203",
+        "depthHash": "b30a4817333e679f"
+      },
+      {
+        "frame": 300,
+        "changedRgbPixels": 45260,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "e911c883a0eb20c3",
+        "outputHash": "dac86ae55f45ecbb",
+        "depthHash": "ff50ed5408f0d293"
+      },
+      {
+        "frame": 360,
+        "changedRgbPixels": 45260,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "e916ae9abed8094b",
+        "outputHash": "529ec7e78c1734e3",
+        "depthHash": "a4d6f8c264213c03"
+      },
+      {
+        "frame": 420,
+        "changedRgbPixels": 45260,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "fae98a097d755a03",
+        "outputHash": "67cc2c91d385acfb",
+        "depthHash": "59b2fd9d374ecac3"
+      },
+      {
+        "frame": 480,
+        "changedRgbPixels": 45260,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "1692d5b876222ff4",
+        "outputHash": "8b5e408497515c",
+        "depthHash": "25f99e036fce6e7b"
+      },
+      {
+        "frame": 540,
+        "changedRgbPixels": 45260,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "31fcd5230164334c",
+        "outputHash": "f65b807c7a5b77d4",
+        "depthHash": "72381950858d1ee7"
+      },
+      {
+        "frame": 600,
+        "changedRgbPixels": 45260,
+        "changedAlphaPixels": 0,
+        "depthKinds": 3,
+        "inputHash": "9c03619c7d530f23",
+        "outputHash": "82ce6f03d8327d5b",
+        "depthHash": "7334b311c82822c3"
+      }
+    ],
+    "actualSrgbSwapchain": true,
+    "sameSession": true,
+    "nrCompletionMarkers": [],
+    "actualCoreEvaluationObserved": false,
+    "hazardObserved": false,
+    "evaluations": [],
+    "resourceTimeline": [],
+    "resize": false,
+    "resizeAt": null,
+    "resizeStartedUtc": null,
+    "resizeCompletedUtc": null,
+    "nrWritebacksBeforeResize": null,
+    "reportExit": "clean",
+    "osExitCode": null,
+    "osExitObserved": false,
+    "files": {
+      "report": {
+        "sha256": "da856e4e979cc50091db5b3d7f323b3890b22851eeece8bc349f045940321c39",
+        "bytes": 2006
+      },
+      "feeder": {
+        "sha256": "eaec5d4e23f8d4397342f38ae98fef00eb54f75dcd038f441b80d1927d874ff3",
+        "bytes": 1730
+      },
+      "core": {
+        "sha256": "a015485fc63ad6dd768052e1d5fc90a9000e4a1083d697764d30e7e9d861dde2",
+        "bytes": 3383
+      },
+      "reshade": {
+        "sha256": "b326505f2adac4d51bc9a64932dd51a2f399446dfd216e04b9a3920abf19e237",
+        "bytes": 10075
+      }
+    }
+  },
+  "paired": {
+    "nrOnlyOn": true,
+    "allInputsMatched": true,
+    "pairs": [
+      {
+        "frame": 60,
+        "sameInput": true,
+        "minimumExtraChangedPixels": 185140,
+        "alphaPreserved": true
+      },
+      {
+        "frame": 120,
+        "sameInput": true,
+        "minimumExtraChangedPixels": 185140,
+        "alphaPreserved": true
+      },
+      {
+        "frame": 180,
+        "sameInput": true,
+        "minimumExtraChangedPixels": 185140,
+        "alphaPreserved": true
+      },
+      {
+        "frame": 240,
+        "sameInput": true,
+        "minimumExtraChangedPixels": 185140,
+        "alphaPreserved": true
+      },
+      {
+        "frame": 300,
+        "sameInput": true,
+        "minimumExtraChangedPixels": 185140,
+        "alphaPreserved": true
+      },
+      {
+        "frame": 360,
+        "sameInput": true,
+        "minimumExtraChangedPixels": 185140,
+        "alphaPreserved": true
+      },
+      {
+        "frame": 420,
+        "sameInput": true,
+        "minimumExtraChangedPixels": 185140,
+        "alphaPreserved": true
+      },
+      {
+        "frame": 480,
+        "sameInput": true,
+        "minimumExtraChangedPixels": 185140,
+        "alphaPreserved": true
+      },
+      {
+        "frame": 540,
+        "sameInput": true,
+        "minimumExtraChangedPixels": 185140,
+        "alphaPreserved": true
+      },
+      {
+        "frame": 600,
+        "sameInput": true,
+        "minimumExtraChangedPixels": 185140,
+        "alphaPreserved": true
+      }
+    ],
+    "caveat": "NR-off retains a fixed ReShade output difference. Pixel comparison measures the additional change, not an assertion that every NR-off pixel equals the raw scene."
+  },
+  "resize": {
+    "source": "feeder-dx12-resize-r3-evidence",
+    "pid": 98580,
+    "gpu": "NVIDIA GeForce RTX 5090 Laptop GPU",
+    "frames": 1200,
+    "drawCalls": 3600,
+    "samples": [
+      {
+        "frame": 60,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "width": 640,
+        "height": 360,
+        "utc": "2026-09-09T06:11:34.605Z",
+        "coreQuery": true,
+        "nrWritebacks": 53,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "51a30b53769a7403",
+        "outputHash": "ae69cd4766ba11b5",
+        "depthHash": "dcda0877bfae1403"
+      },
+      {
+        "frame": 120,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "width": 640,
+        "height": 360,
+        "utc": "2026-09-09T06:11:36.124Z",
+        "coreQuery": true,
+        "nrWritebacks": 113,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "1d5e5a589364a53b",
+        "outputHash": "396f78e79361de6a",
+        "depthHash": "365b91f5d0ecd2c3"
+      },
+      {
+        "frame": 180,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "width": 640,
+        "height": 360,
+        "utc": "2026-09-09T06:11:37.693Z",
+        "coreQuery": true,
+        "nrWritebacks": 173,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "b7513261446611c3",
+        "outputHash": "cdcf954197b8cfcd",
+        "depthHash": "6b4dfe0ab5872603"
+      },
+      {
+        "frame": 240,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "width": 640,
+        "height": 360,
+        "utc": "2026-09-09T06:11:39.443Z",
+        "coreQuery": true,
+        "nrWritebacks": 233,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "1d00990bac09d62b",
+        "outputHash": "9d524bb2a98adda5",
+        "depthHash": "b30a4817333e679f"
+      },
+      {
+        "frame": 300,
+        "changedRgbPixels": 230400,
+        "changedAlphaPixels": 0,
+        "width": 640,
+        "height": 360,
+        "utc": "2026-09-09T06:11:40.793Z",
+        "coreQuery": true,
+        "nrWritebacks": 293,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "e911c883a0eb20c3",
+        "outputHash": "f61decdcf529c923",
+        "depthHash": "ff50ed5408f0d293"
+      },
+      {
+        "frame": 360,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:11:42.666Z",
+        "coreQuery": true,
+        "nrWritebacks": 55,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "1510359e59cf4cae",
+        "outputHash": "8be11c5ab5a98d3",
+        "depthHash": "9aa09cc0378f605b"
+      },
+      {
+        "frame": 420,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:11:44.409Z",
+        "coreQuery": true,
+        "nrWritebacks": 115,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "c3012df4316c0942",
+        "outputHash": "adb9d00212e95c87",
+        "depthHash": "ac44e1ab3cb7c0a3"
+      },
+      {
+        "frame": 480,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:11:45.916Z",
+        "coreQuery": true,
+        "nrWritebacks": 175,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "38db8e4aa49ad883",
+        "outputHash": "5810bb32ae955ccb",
+        "depthHash": "ce72e81b5a63da3"
+      },
+      {
+        "frame": 540,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:11:47.602Z",
+        "coreQuery": true,
+        "nrWritebacks": 235,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "ee26feda1ed030a1",
+        "outputHash": "9098291233f02227",
+        "depthHash": "1b89a544d2f19bb7"
+      },
+      {
+        "frame": 600,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:11:49.061Z",
+        "coreQuery": true,
+        "nrWritebacks": 295,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "d987a67c02e5facb",
+        "outputHash": "d941e6838ba5c9a1",
+        "depthHash": "e0254b92a3873233"
+      },
+      {
+        "frame": 660,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:11:50.416Z",
+        "coreQuery": true,
+        "nrWritebacks": 355,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "263ee97b00e91616",
+        "outputHash": "8edca8b3c0101228",
+        "depthHash": "9548ce1ca046891b"
+      },
+      {
+        "frame": 720,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:11:51.988Z",
+        "coreQuery": true,
+        "nrWritebacks": 415,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "c576f37eacf79f57",
+        "outputHash": "772ae28555c9b987",
+        "depthHash": "e1de6e6a495c2b5f"
+      },
+      {
+        "frame": 780,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:11:53.213Z",
+        "coreQuery": true,
+        "nrWritebacks": 475,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "e984fd99f381ea27",
+        "outputHash": "883294e8b3c4ff98",
+        "depthHash": "b579aaaf54b06a87"
+      },
+      {
+        "frame": 840,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:11:54.782Z",
+        "coreQuery": true,
+        "nrWritebacks": 535,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "38d915b2bb214c62",
+        "outputHash": "815d765936fc6f1",
+        "depthHash": "cbb3f15be88f2df3"
+      },
+      {
+        "frame": 900,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:11:56.566Z",
+        "coreQuery": true,
+        "nrWritebacks": 595,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "7cab48cd16af2042",
+        "outputHash": "39964b802c73ad63",
+        "depthHash": "73b0b8dc09abbca3"
+      },
+      {
+        "frame": 960,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:11:58.161Z",
+        "coreQuery": true,
+        "nrWritebacks": 655,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "2628935647546beb",
+        "outputHash": "593c2809376f10c6",
+        "depthHash": "a35022a32b380593"
+      },
+      {
+        "frame": 1020,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:11:59.786Z",
+        "coreQuery": true,
+        "nrWritebacks": 715,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "2e853e2e86e3efe4",
+        "outputHash": "b5f8c8d831adc333",
+        "depthHash": "ee1b5a2c88ed794f"
+      },
+      {
+        "frame": 1080,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:12:01.184Z",
+        "coreQuery": true,
+        "nrWritebacks": 775,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "cf7a4236f7449c90",
+        "outputHash": "32a5ef7c7a9669c",
+        "depthHash": "7ae88ff34afe207b"
+      },
+      {
+        "frame": 1140,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:12:02.718Z",
+        "coreQuery": true,
+        "nrWritebacks": 835,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "18ce7253afba0f7a",
+        "outputHash": "6ae13b372467a4e7",
+        "depthHash": "10a251e067e3d193"
+      },
+      {
+        "frame": 1200,
+        "changedRgbPixels": 331776,
+        "changedAlphaPixels": 0,
+        "width": 768,
+        "height": 432,
+        "utc": "2026-09-09T06:12:04.517Z",
+        "coreQuery": true,
+        "nrWritebacks": 895,
+        "providerOwner": 1145845062,
+        "lastBypass": 0,
+        "depthKinds": 3,
+        "inputHash": "c416553da9841a9b",
+        "outputHash": "1f76667f0c027014",
+        "depthHash": "8f19917c963498d3"
+      }
+    ],
+    "actualSrgbSwapchain": true,
+    "sameSession": true,
+    "nrCompletionMarkers": [
+      {
+        "localTime": "14:11:33.131",
+        "completedCount": 1
+      },
+      {
+        "localTime": "14:11:33.155",
+        "completedCount": 2
+      },
+      {
+        "localTime": "14:11:33.166",
+        "completedCount": 3
+      },
+      {
+        "localTime": "14:11:34.793",
+        "completedCount": 60
+      },
+      {
+        "localTime": "14:11:36.295",
+        "completedCount": 120
+      },
+      {
+        "localTime": "14:11:37.901",
+        "completedCount": 180
+      },
+      {
+        "localTime": "14:11:39.564",
+        "completedCount": 240
+      },
+      {
+        "localTime": "14:11:41.384",
+        "completedCount": 300
+      },
+      {
+        "localTime": "14:11:42.952",
+        "completedCount": 360
+      },
+      {
+        "localTime": "14:11:44.608",
+        "completedCount": 420
+      },
+      {
+        "localTime": "14:11:46.108",
+        "completedCount": 480
+      },
+      {
+        "localTime": "14:11:47.975",
+        "completedCount": 540
+      },
+      {
+        "localTime": "14:11:49.322",
+        "completedCount": 600
+      },
+      {
+        "localTime": "14:11:50.608",
+        "completedCount": 660
+      },
+      {
+        "localTime": "14:11:52.281",
+        "completedCount": 720
+      },
+      {
+        "localTime": "14:11:53.571",
+        "completedCount": 780
+      },
+      {
+        "localTime": "14:11:55.135",
+        "completedCount": 840
+      },
+      {
+        "localTime": "14:11:56.908",
+        "completedCount": 900
+      },
+      {
+        "localTime": "14:11:58.390",
+        "completedCount": 960
+      },
+      {
+        "localTime": "14:12:00.159",
+        "completedCount": 1020
+      },
+      {
+        "localTime": "14:12:01.525",
+        "completedCount": 1080
+      },
+      {
+        "localTime": "14:12:03.071",
+        "completedCount": 1140
+      }
+    ],
+    "actualCoreEvaluationObserved": true,
+    "hazardObserved": false,
+    "evaluations": [
+      {
+        "localTime": "14:11:33.102",
+        "count": 1,
+        "width": 640,
+        "height": 360
+      },
+      {
+        "localTime": "14:11:33.122",
+        "count": 2,
+        "width": 640,
+        "height": 360
+      },
+      {
+        "localTime": "14:11:33.126",
+        "count": 3,
+        "width": 640,
+        "height": 360
+      },
+      {
+        "localTime": "14:11:41.166",
+        "count": 1,
+        "width": 768,
+        "height": 432
+      },
+      {
+        "localTime": "14:11:41.174",
+        "count": 2,
+        "width": 768,
+        "height": 432
+      },
+      {
+        "localTime": "14:11:41.210",
+        "count": 3,
+        "width": 768,
+        "height": 432
+      },
+      {
+        "localTime": "14:11:56.658",
+        "count": 600,
+        "width": 768,
+        "height": 432
+      }
+    ],
+    "resourceTimeline": [
+      "14:11:26.242  [feed] building: 640x360 backbuffer R8G8B8A8_UNORM (same-device D3D12, depth reversed=1)",
+      "14:11:33.098  post-SR signed feature 18 create 640x360 guides=640x360 result=0x00000001(Success) handle=000002766490DD00",
+      "14:11:40.997  Deferred Feature 18 retirement for SR handle=00007FFFF102DAC8 mode=1 extent=640x360 until recorded command lists and GPU fences complete.",
+      "14:11:40.997  [feed] building: 768x432 backbuffer R8G8B8A8_UNORM (same-device D3D12, depth reversed=1)",
+      "14:11:41.000  GPU retirement fence completed for SR handle=00007FFFF102DAC8 mode=1 extent=640x360; scheduling Feature 18 release outside locks.",
+      "14:11:41.001  NR ReleaseFeature handle=000002766490DD00 result=0x00000001",
+      "14:11:41.165  post-SR signed feature 18 create 768x432 guides=768x432 result=0x00000001(Success) handle=000002765B435FD0",
+      "14:12:04.558  Deferred Feature 18 retirement for SR handle=00007FFFF102DAC8 mode=1 extent=768x432 until recorded command lists and GPU fences complete."
+    ],
+    "resize": true,
+    "resizeAt": 301,
+    "resizeStartedUtc": "2026-09-09T06:11:40.804Z",
+    "resizeCompletedUtc": "2026-09-09T06:11:40.837Z",
+    "nrWritebacksBeforeResize": 293,
+    "reportExit": "clean",
+    "osExitCode": 0,
+    "osExitObserved": true,
+    "files": {
+      "report": {
+        "sha256": "87303cd427d7f4bb268303b74035f7faecbbe3120da42d21d232a0c1a5c50de0",
+        "bytes": 6661
+      },
+      "feeder": {
+        "sha256": "dffda84d07f1c87e509031cb41998796dddafe52d7c3be3be2d4377fe2e6ef34",
+        "bytes": 9549
+      },
+      "core": {
+        "sha256": "05f678385a950ffe511da01d4b5bd19fd4f57b735bbde0d12b4a57a4b0b89aff",
+        "bytes": 13876
+      },
+      "reshade": {
+        "sha256": "241cf683e39ae4a946b7b2d0285a9197a64882fcbd062935f12545b912c3d82d",
+        "bytes": 11915
+      }
+    }
+  },
+  "resizeEvidence": {
+    "processed": true,
+    "initialSize": {
+      "width": 640,
+      "height": 360
+    },
+    "resizedSize": {
+      "width": 768,
+      "height": 432
+    },
+    "resizeCount": 1,
+    "counterEpochs": {
+      "beforeResize": 293,
+      "afterResizeFirstSample": 55,
+      "afterResizeLastSample": 895,
+      "explanation": "Core resource ownership is released at resize; writeback counters restart in a new epoch. These values are not a single cumulative total."
+    },
+    "sameFrameReadback": {
+      "beforeSamples": 5,
+      "afterSamples": 15,
+      "everySampleChangedRgb": true,
+      "everySamplePreservedAlpha": true,
+      "comparison": "Each sample compares the scene readback before Present with the processed readback after that same Present. Samples are not compared across animation frames or across resize. Pixel changes alone are not attributed entirely to NR; the separate NR-off control and actual callback/Core counters establish NR execution."
+    }
+  },
+  "resizeBoundary": "One 640x360 to 768x432 resize recovered real callback/Core evaluation and writeback in a new counter epoch.",
+  "limits": [
+    "no real-game acceptance",
+    "no HDR/BGRA/DX11/x86 acceptance",
+    "Synthetic guides; semantic depth/MV quality is not accepted",
+    "OS exit status unavailable for initial fixed-size on/off runs",
+    "ReShade shutdown reference-count warnings retained for later lifecycle validation"
+  ]
+}

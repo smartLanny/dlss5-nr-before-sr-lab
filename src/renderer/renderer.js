@@ -133,10 +133,13 @@ function setInstallBusy(id, value) {
 }
 
 function isVulkanRoute(game) { return game?.chosen?.apiResolution?.api === 'vulkan'; }
+function isFeederRoute(game) { return game?.feeder?.installed === true || game?.nativeDlssAvailable === false && game?.chosen?.apiResolution?.api === 'dx12'; }
 function routeInstalled(game) { return isVulkanRoute(game) ? game?.vulkan?.installed === true : game?.installed === true; }
-function routeSupported(game) { return isVulkanRoute(game) ? game?.vulkan?.available === true : game?.supported === true; }
+function routeSupported(game) { return isVulkanRoute(game) ? game?.vulkan?.available === true : isFeederRoute(game) ? game?.feeder?.available === true : game?.supported === true; }
 
 function supportBadge(game) {
+  if (game.feeder?.needsRecovery === true) return '<span class="badge bad">Feeder 需恢复</span>';
+  if (isFeederRoute(game) && !game.installed && game.feeder?.available) return '<span class="badge">Feeder 试验配套</span>';
   if (isVulkanRoute(game) && game.vulkan?.needsRecovery === true) return '<span class="badge bad">Vulkan 需恢复</span>';
   if (routeInstalled(game)) return '<span class="badge good">已安装</span>';
   if (routeSupported(game)) return '<span class="badge good">支持安装</span>';
@@ -325,6 +328,7 @@ function cardAction(game) {
   if (game.vulkan?.installed === true && game.vulkan?.needsRecovery === true)
     return `<button class="button" disabled>需先恢复配套</button><button class="button primary card-open">恢复配套</button>${rename}${dismiss}`;
   if (routeInstalled(game)) return `<button class="button primary launch-btn">启动游戏</button><button class="button subtle card-open">设置</button>${rename}${dismiss}`;
+  if (isFeederRoute(game)) return game.feeder?.available ? `${installButton}${rename}${dismiss}` : `<button class="button" disabled>Feeder 暂不可用</button>${rename}${dismiss}`;
   if (state.routeDrafts?.has(game.id) && ['dx11', 'dx12', 'vulkan'].includes(routeSelection(game).resolvedApi)) {
     const selected = routeSelection(game);
     if (routeNeedsRestore(game, selected)) return `<button class="button" disabled>需先恢复配套</button>${rename}${dismiss}`;
@@ -375,7 +379,8 @@ function updateRouteDraft(game, patch) {
   return draft;
 }
 function routeNeedsRestore(game, selection = routeSelection(game)) {
-  return game.vulkan?.needsRecovery === true || game.vulkan?.installed === true && selection.resolvedApi !== 'vulkan' ||
+  return game.feeder?.needsRecovery === true || game.feeder?.installed === true && selection.resolvedApi !== 'dx12' ||
+    game.vulkan?.needsRecovery === true || game.vulkan?.installed === true && selection.resolvedApi !== 'vulkan' ||
     game.installed === true && game.vulkan?.installed !== true && selection.resolvedApi === 'vulkan';
 }
 function vulkanCoreLabel(game) {
@@ -390,10 +395,15 @@ function vulkanSelectionState(game) {
 }
 function routeApplyRow(game) {
   const selected = routeSelection(game), recovery = routeNeedsRestore(game, selected);
+  if (selected.resolvedApi === 'dx12' && game.nativeDlssAvailable === false) {
+    const disabled = recovery || game.feeder?.available !== true || !game.chosen, busy = Boolean(state.installing?.has(game.id));
+    const label = game.feeder?.installed ? '核对并修复 Feeder' : '一键准备 Feeder';
+    return `<div class="route-apply-row"><p class="config-note">${escapeHtml(game.feeder?.reason || '固定配套提供成品帧 NR；不会给游戏增加原生 DLSS 超分或补帧。')}</p><button class="button primary route-apply-btn" data-base-disabled="${disabled}" data-idle-label="${label}"${disabled || busy ? ' disabled' : ''}>${busy ? '正在准备…' : label}</button></div>`;
+  }
   const vulkan = selected.resolvedApi === 'vulkan';
   const note = recovery ? '已有配套需要先卸载。请在下方设置中点击“卸载插件”，再应用新的 API 与核心。'
     : `${selected.dirty ? '尚未应用：' : '将一起应用：'}${API_LABELS[selected.resolvedApi] || 'API 待确认'} · ${vulkan ? vulkanCoreLabel(game) : coreVersionLabel(selected.version)}。`;
-  const label = game.installed || game.vulkan?.installed ? '应用设置' : '应用并安装';
+  const label = game.installed || game.vulkan?.installed ? '应用设置' : '一键准备画面增强';
   const unavailableVersion = !vulkan && !Object.prototype.hasOwnProperty.call(state.payload?.versions || {}, selected.version) &&
     !(game.installed && state.addons?.some(item => item.id === selected.version && item.addonOnly));
   const disabled = recovery || !game.chosen || !['dx11', 'dx12', 'vulkan'].includes(selected.resolvedApi) || !selected.version ||
@@ -403,6 +413,7 @@ function routeApplyRow(game) {
 }
 function routeControlsMarkup(game) {
   const selected = routeSelection(game);
+  if (selected.resolvedApi === 'dx12' && game.nativeDlssAvailable === false) return `${apiControls(game)}<div class="config-block core-selection"><h4>无原生 DLSS · Feeder 试验路线</h4><p class="config-note">${escapeHtml(game.feeder?.coreVersion || '0.4.7-beta')} 固定配套 · RTX50 / 64 位 DX12 / 已确认 sRGB 的 RGBA8 画面。</p><p class="config-note">使用成品帧和估算导引进行 NR 后处理，效果与原生游戏输入路线不同。当前不支持 HDR；游戏内处理成功需单独确认。</p></div>${routeApplyRow(game)}`;
   return `${apiControls(game)}${selected.resolvedApi === 'vulkan' ? vulkanRouteMarkup(game) : `<div class="config-block core-selection"><h4>Addon 核心版本</h4>${addonVersionRow(game)}<p class="config-note">API 与核心版本选好后，一次应用。beta0.4.7 为当前默认；稳定兼容版仍可选择。</p></div>`}${routeApplyRow(game)}`;
 }
 
@@ -447,12 +458,17 @@ async function applyCardRoute(game) {
   setInstallBusy(game.id, true);
   try {
     return await runConfirmedAction(async allowAntiCheat => {
-      const result = await window.manager.applyGameRoute(game.id, { api: selected.api, version: selected.version, allowAntiCheat });
+      const feeder = selected.resolvedApi === 'dx12' && game.nativeDlssAvailable === false;
+      const result = feeder && game.feeder?.installed
+        ? await window.manager.installFeeder(game.id, { allowAntiCheat })
+        : !game.installed
+          ? await window.manager.prepareGame(game.id, { api: selected.api, version: selected.version, route: feeder ? 'feeder' : 'native', allowAntiCheat })
+          : await window.manager.applyGameRoute(game.id, { api: selected.api, version: selected.version, allowAntiCheat });
       // Keep failed or superseded drafts. Clear only the exact successful
       // submission, before the action's list refresh renders the saved state.
       if (result?.ok === true && routeDraft(game) === submitted) state.routeDrafts.delete(game.id);
       return result;
-    }, game.installed || game.vulkan?.installed ? '设置已应用，核心已更新' : '安装完成', true, game.id);
+    }, game.installed || game.vulkan?.installed ? '设置已应用，核心已更新' : '一键准备完成，请核对各项结果', true, game.id);
   } finally { setInstallBusy(game.id, false); }
 }
 
@@ -603,13 +619,14 @@ function gameDetail(game) {
   const title = supported ? '安装条件已确认'
     : game.supportCode === 'ERR_API_SELECTION_REQUIRED' ? '等待应用 API 与核心' : '安装前需要处理';
   const installDetail = supported
-    ? (vulkan ? '已匹配固定 Vulkan 试验组件，可使用上方“一键安装”。' : payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可使用上方“一键安装”。` : '请到“组件管理”选择完整安装组件，再返回安装。')
+    ? (vulkan ? '已匹配固定 Vulkan 试验组件，可使用上方“一键安装”。' : isFeederRoute(game) ? '已匹配无原生 DLSS 的 Feeder 试验配套，可使用上方“一键准备”。' : payloadReadyForHardware() ? `已匹配 ${hardwareLabel()} 组件，可使用上方“一键安装”。` : '请到“组件管理”选择完整安装组件，再返回安装。')
     : game.supportCode === 'ERR_API_SELECTION_REQUIRED' ? '请在上方选择游戏实际使用的 API 与核心，然后点击“应用并安装”。'
     : vulkan ? game.vulkan?.reason || 'Vulkan 试验桥接当前不可用。'
+    : isFeederRoute(game) ? game.feeder?.reason || 'Feeder 试验配套当前不可用。'
     : game.supportText || '请先选择游戏实际运行的 EXE。';
-  const routeRepair = vulkan ? '' : compatibilityRepairMarkup(game, true);
+  const routeRepair = vulkan || isFeederRoute(game) ? '' : compatibilityRepairMarkup(game, true);
   const installationStatus = installed ? `<div class="config-block component-block"><div class="config-title"><div><h4>安装状态</h4><p class="section-caption">文件与安装记录</p></div><span class="component-summary" role="status">检查中</span></div><div class="component-body">正在检查…</div><div class="diagnostic-actions"><button class="button primary repair-inline-btn">一键修复</button><button class="button subtle feedback-inline-btn">保存反馈</button><button class="button danger uninstall-inline-btn">卸载插件</button></div>${routeRepair}</div>` : '';
-  const launchJump = game.nativeDlssAvailable === false ? '<p class="config-note">未检测到游戏自带的普通 DLSS；当前只提供画面增强设置。</p>' : '<button class="button subtle launch-jump-btn" type="button">调整超分补帧</button>';
+  const launchJump = game.nativeDlssAvailable === false && game.nativeFgAvailable === false ? '<p class="config-note">未检测到游戏自带的 DLSS 超分或补帧组件；当前提供画面增强设置。</p>' : '<button class="button subtle launch-jump-btn" type="button">调整超分补帧</button>';
   const preinstallCompatibility = !installed && !vulkan ? compatibilityRepairMarkup(game, false) : '';
   const nr = installed ? `<div class="enhancement-layout">
     <div class="config-block enhancement-controls">
@@ -630,17 +647,43 @@ function gameDetail(game) {
       ${launchJump}
     </div></aside>
   </div>` : `<div class="config-block detail-empty"><h4>${title}</h4><p class="config-note">${escapeHtml(installDetail)}</p><p class="config-note">安装完成后，可在这里调整风格和增强强度。</p>${preinstallCompatibility}</div>`;
-  const graphics = game.chosen && game.nativeDlssAvailable !== false ? '<section class="launch-settings-host" aria-label="超分补帧启动设置"><p class="config-note">正在读取超分补帧设置…</p></section>'
-    : game.chosen ? `<div class="config-block detail-empty"><h4>未检测到普通 DLSS</h4><p class="config-note">${vulkan ? '当前 Vulkan 试验路线提供 NR 画面增强；' : ''}没有可验证的普通 DLSS 超分组件，因此不提供超分或补帧设置。</p></div>`
+  const graphics = game.chosen ? '<section class="launch-settings-host" aria-label="超分补帧启动设置"><p class="config-note">正在读取超分补帧设置…</p></section>'
     : '<div class="config-block detail-empty"><h4>请先确认游戏 EXE</h4><p class="config-note">选择实际运行程序后，才能读取此游戏的超分补帧设置。</p></div>';
   const route = `<div class="route-layout game-route-controls">${routeControlsMarkup(game)}</div>`;
   const tabs = [['enhance', '画面设置'], ['graphics', '超分补帧']];
   return `<div class="game-detail" data-game-detail="${escapeHtml(game.id)}" data-detail-key="${escapeHtml(key)}">
+    <div class="config-block preparation-host" aria-label="一键准备结果">${preparationMarkup(game)}</div>
     ${route}
     <div class="detail-tabs" role="tablist" aria-label="游戏设置分类">${tabs.map(([id, label]) => `<button id="detail-${encodeURIComponent(game.id)}-${id}-tab" type="button" data-detail-tab="${id}" aria-controls="detail-${encodeURIComponent(game.id)}-${id}-panel" aria-selected="${id === active}" tabindex="${id === active ? 0 : -1}">${label}</button>`).join('')}</div>
     ${[['enhance', nr], ['graphics', graphics]].map(([id, content]) => `<section id="detail-${encodeURIComponent(game.id)}-${id}-panel" data-detail-panel="${id}" aria-labelledby="detail-${encodeURIComponent(game.id)}-${id}-tab"${id !== active ? ' hidden' : ''}>${content}</section>`).join('')}
     <div class="detail-footer"><span class="path-line" title="${escapeHtml(game.chosen?.path || game.dir)}">${escapeHtml(game.chosen?.path || game.dir)}</span><button class="button subtle open-folder-btn">打开目录</button></div>
   </div>`;
+}
+
+function preparationMarkup(game, pending = null) {
+  const result = state.preparationResults?.get(game.id), rows = result?.stages || pending?.stages || [];
+  const labels = { prepared: '已准备', retained: '已保留', unavailable: '条件未满足' };
+  return `<h4>一键准备 NR / 超分 / 补帧</h4><p class="config-note">按游戏与显卡条件准备，保留已有选择。请先关闭游戏；超分和帧生成仍需在游戏设置中开启。</p>${rows.length ? `<ul>${rows.map(row => `<li><strong>${escapeHtml(row.domain.toUpperCase())} · ${escapeHtml(labels[row.status] || row.status)}</strong>：${escapeHtml(row.message)}</li>`).join('')}</ul>` : ''}${pending?.pending ? `<p class="launch-error" role="alert">上次一键准备未完成，恢复记录已保留。${escapeHtml(pending.failure?.message || '')}</p><button class="button preparation-recover-btn" type="button">恢复未完成准备</button>` : `<div class="config-actions">${game.installed ? '<button class="button preparation-all-btn" type="button">一键准备适用功能</button>' : ''}<button class="button subtle preparation-check-btn" type="button">检查准备状态</button></div>`}`;
+}
+async function loadPreparationCard(host, game) {
+  if (!host || !window.manager.inspectPreparation) return;
+  try {
+    const pending = unwrap(await window.manager.inspectPreparation(game.id));
+    if (host.isConnected === false) return;
+    host.innerHTML = preparationMarkup(game, pending);
+    bindPreparationActions(host, game);
+  } catch (error) { if (host.isConnected !== false) host.innerHTML = `<p class="launch-error" role="alert">${escapeHtml(error.message)}</p>`; }
+}
+function bindPreparationActions(host, game) {
+  const check = host.querySelector('.preparation-check-btn');
+  if (check) check.onclick = () => loadPreparationCard(host, game);
+  const recover = host.querySelector('.preparation-recover-btn');
+  if (recover) recover.onclick = () => runAction(() => window.manager.recoverPreparation(game.id), '本次准备内容已恢复', true, game.id);
+  const all = host.querySelector('.preparation-all-btn');
+  if (all) all.onclick = () => {
+    const selected = routeSelection(game);
+    void runConfirmedAction(allowAntiCheat => window.manager.prepareGame(game.id, { api: selected.api, version: selected.version, route: isFeederRoute(game) ? 'feeder' : 'native', allowAntiCheat }), '一键准备完成，请核对各项结果', true, game.id);
+  };
 }
 
 
@@ -745,10 +788,11 @@ function bindGameCards() {
     const id = card.dataset.id;
     const game = state.games.find(row => row.id === id);
     const detail = card.querySelector('.game-detail');
+    if (detail?.querySelector('.preparation-host')) void loadPreparationCard(detail.querySelector('.preparation-host'), game);
     if (detail && !detail.detailTabController && window.GameDetailTabs) {
       const mountGraphics = () => {
         const host = detail.querySelector('.launch-settings-host');
-        if (host && window.launchSettingsUi && !host.launchSettingsController) window.launchSettingsUi.mount(host, id, {nativeDlssAvailable:game?.nativeDlssAvailable});
+        if (host && window.launchSettingsUi && !host.launchSettingsController) window.launchSettingsUi.mount(host, id, {nativeDlssAvailable:game?.nativeDlssAvailable,nativeFgAvailable:game?.nativeFgAvailable});
       };
       detail.detailTabController = window.GameDetailTabs.mount(detail, {
         initial: state.detailTabs.get(detail.dataset.detailKey) === 'graphics' ? 'graphics' : 'enhance',
@@ -991,6 +1035,12 @@ async function runAction(work, success, refresh = true, gameId = null, onError =
       refresh ? () => refreshGames({ gameId }) : null
     );
     if (!outcome.completed) throw outcome.error;
+    if (gameId && Array.isArray(outcome.value?.stages)) {
+      (state.preparationResults ||= new Map()).set(gameId, outcome.value);
+      state.expanded = gameId; renderGames();
+    } else if (gameId && (outcome.value?.restored === true || outcome.value?.removed === true) && state.preparationResults?.has(gameId)) {
+      state.preparationResults.delete(gameId); renderGames();
+    }
     const automaticReframeworkFailure = outcome.value?.reframework?.automatic === true && outcome.value.reframework.ready === false;
     toast(actionSuccessMessage(success, outcome.value), automaticReframeworkFailure);
     if (gameId && outcome.value?.reframework?.automatic === true) {
@@ -1013,7 +1063,13 @@ async function runAction(work, success, refresh = true, gameId = null, onError =
       }
       const code = error.code && error.code !== 'ERR_INTERNAL' ? ` [${error.code}]` : '';
       const hint = gameId ? '；可在“修复”页保存反馈日志' : '';
-      toast(`${error.message}${code}${hint}`, true);
+      const permission = error.details?.recoveryAction === 'restart-elevated' ? '；请在“设置”中选择“以管理员身份重启”后重试' : '';
+      toast(`${error.message}${code}${permission}${hint}`, true);
+      if (gameId && /^PREPARATION_/.test(error.code || '')) {
+        const game = state.games.find(row => row.id === gameId);
+        const host = [...document.querySelectorAll('.game-card')].find(card => card.dataset.id === gameId)?.querySelector('.preparation-host');
+        if (game && host) void loadPreparationCard(host, game);
+      }
     }
     return false;
   }

@@ -52,4 +52,18 @@ function assess(scan, options = {}) {
   return { supported: true, code: null };
 }
 
-module.exports = { assess, apiSupported, isDx11Only, classifyApi };
+// An independent post-process route. Native installation retains its ordinary
+// DLSS requirement above; Feeder does not imply SR or FG availability.
+function assessFeeder(scan) {
+  const reject = (code, message) => ({ supported: false, code, message });
+  if (!scan?.chosen) return reject('FEEDER_GAME_REQUIRED', '请先选择游戏 EXE。');
+  if (scan.chosen.emulator || scan.emulator) return reject('FEEDER_EMULATOR_UNSUPPORTED', '首批 Feeder 不支持模拟器。');
+  if (Number(scan.chosen.bitness) !== 64) return reject('FEEDER_GAME_ARCH', '首批 Feeder 只支持 x64 游戏。');
+  if (classifyApi(scan.chosen) !== 'dx12') return reject('FEEDER_API_REQUIRED', '先确认所选 EXE 使用 DirectX 12；其他 API 不使用此配套。');
+  if (scan.primaryDlss && /^nvngx_dlss\.dll$/i.test(scan.primaryDlss.name || '') &&
+      !/(?:^|[\\/])_DLSS5_Feeder(?:[\\/]|$)/i.test(scan.primaryDlss.path || ''))
+    return reject('FEEDER_NATIVE_DLSS_PRESENT', '已发现原生或模组 DLSS，请使用原生 NR 路线。');
+  return { supported: true, code: null, message: null, provenance: 'Synthetic', scope: 'post-process' };
+}
+
+module.exports = { assess, assessFeeder, apiSupported, isDx11Only, classifyApi };

@@ -47,10 +47,14 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
     await service.validateLaunch(id);
     await closed(id);
     if (components) {
+      const migration = await components.inspectMigration?.(id);
+      if (migration?.migrationPending) throw Object.assign(new Error('补帧迁移尚未完成，请先恢复或完成迁移再启动游戏。'), { code: 'SETTINGS_FG_MIGRATION_PENDING' });
       const requests = typeof settings.savedRequests === 'function' ? await settings.savedRequests(id) : (await settings.inspect(id)).requests;
       const fg = requests?.fg?.request;
       if (fg && fg.mode !== 'restore') {
         const readiness = await components.inspect(id);
+        if (readiness.migrationPending) throw Object.assign(new Error('补帧迁移尚未完成，请先恢复。'), { code: 'SETTINGS_FG_MIGRATION_PENDING' });
+        if (fg.backend === 'rtx40') throw Object.assign(new Error('旧补帧设置需要先迁移或撤销；不会在启动时重新安装旧组件。'), { code: 'SETTINGS_FG_MIGRATION_REQUIRED' });
         if (!readiness.ready) throw Object.assign(new Error(readiness.needsCleanup
           ? '请先在 FG 区域切换为原生路线，移除旧兼容组件。'
           : '帧生成组件尚未就绪，请先在 FG 区域准备兼容组件或处理提示。'), { code: 'SETTINGS_COMPONENTS_NOT_READY' });

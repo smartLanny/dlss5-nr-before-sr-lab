@@ -11,9 +11,12 @@ const shell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/Windo
 const quote = value => `'${String(value).replace(/'/g, "''")}'`;
 
 function run(body) {
-  const command = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=New-Object Text.UTF8Encoding($false); . ${quote(script)}; ${body}`;
-  const result = spawnSync(shell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')],
-    { encoding: 'utf8', timeout: 15000, windowsHide: true });
+  const logs = fs.mkdtempSync(path.join(os.tmpdir(), 'manager-compatible-log-'));
+  const command = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=New-Object Text.UTF8Encoding($false); . ${quote(script)} -LogDirectory ${quote(logs)}; ${body}`;
+  let result;
+  try { result = spawnSync(shell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')],
+    { encoding: 'utf8', timeout: 15000, windowsHide: true }); }
+  finally { fs.rmSync(logs, { recursive: true, force: true }); }
   assert.equal(result.error, undefined, result.error?.message);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return result.stdout.trim();
@@ -31,7 +34,7 @@ test('helper keeps Chinese text readable in system PowerShell and ships beside b
   const build = require('../package.json').build;
   assert.ok(build.extraFiles.some(row => row.from === 'scripts/startup-compatible.cmd' && row.to === '兼容启动.cmd'));
   assert.ok(build.extraFiles.some(row => row.from === 'scripts/startup-compatible.ps1' && row.to === 'startup-compatible.ps1'));
-  assert.equal(build.win.requestedExecutionLevel, 'requireAdministrator');
+  assert.equal(build.win.requestedExecutionLevel, 'asInvoker');
 });
 
 test('target resolution preserves the dragged EXE and literal path, refuses ambiguous directories and Setup', { skip: process.platform !== 'win32' }, t => {
@@ -64,7 +67,7 @@ test('compatibility launch requires opt-in, cancels without launch, and sends on
     $script:launches[0] | ConvertTo-Json -Compress
   `);
   const row = JSON.parse(output.split(/\r?\n/).at(-1));
-  assert.deepEqual(row, { cwd: f.dir, args: '--no-sandbox', file: f.exe, window: 'Hidden' });
+  assert.deepEqual(row, { cwd: f.dir, args: '--no-sandbox', file: f.exe, window: 'Normal' });
   assert.match(output, /不代表界面已经加载成功/);
   assert.deepEqual(fs.readdirSync(f.dir), [path.basename(f.exe)], 'no executable, shortcut or config is rewritten');
 });
@@ -79,4 +82,23 @@ test('OS launch errors propagate without a retry or persistent fallback', { skip
     catch { if($_.Exception.Message -ne 'fixture UAC declined'){throw}; if($script:count -ne 1){throw 'retried'}; 'declined-once' }
   `);
   assert.match(output, /declined-once/);
+});
+
+test('independent helper logs consent, cancellation and launch failure without recording target paths or claiming renderer readiness', { skip: process.platform !== 'win32' }, t => {
+  const f = fixture(t);
+  const output = run(`
+    function Get-CompatibleTargetInfo { param($File) [pscustomobject]@{File='fixture';Product='fixture';Version='fixture'} }
+    function Read-Host { param($Prompt) 'n' }
+    $null=Invoke-CompatibleStartup -Requested ${quote(f.exe)}
+    function Start-Process { throw ('fixture failure at ' + ${quote(f.exe)}) }
+    try { Invoke-CompatibleStartup -Requested ${quote(f.exe)} -Accepted } catch { }
+    $events=@(Get-ChildItem -LiteralPath $LogDirectory -File | ForEach-Object { Get-Content -LiteralPath $_.FullName -Encoding UTF8 | ForEach-Object { $_ | ConvertFrom-Json } })
+    $events | ConvertTo-Json -Compress
+  `);
+  const events = JSON.parse(output.split(/\r?\n/).at(-1));
+  assert.ok(events.some(row => row.stage === 'compatibility-launch-cancelled'));
+  assert.ok(events.some(row => row.stage === 'compatibility-consent' && row.noSandbox === true && row.persistent === false));
+  assert.ok(events.some(row => row.stage === 'compatibility-launch-failed'));
+  assert.doesNotMatch(JSON.stringify(events), /O'Brien|manager-compat-|中文/);
+  assert.equal(events.some(row => row.rendererReady === true), false);
 });

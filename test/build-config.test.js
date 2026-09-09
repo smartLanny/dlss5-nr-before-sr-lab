@@ -6,12 +6,13 @@ const fs = require('fs');
 const packageJson = require('../package.json');
 const { DX11_COMPAT_LABEL, DX11_COMPAT_CARRIER } = require('../src/product/constants');
 
-test('Windows builds request administrator privileges for game-directory writes', () => {
-  assert.equal(packageJson.build.win.requestedExecutionLevel, 'requireAdministrator');
+test('Windows GUI and portable launch normally without requiring elevation', () => {
+  assert.equal(packageJson.build.win.requestedExecutionLevel, 'asInvoker');
+  assert.equal(packageJson.build.portable.requestExecutionLevel, 'user');
 });
 
 test('portable startup hands off to a UAC-elevated process when needed', () => {
-  const main = fs.readFileSync(require.resolve('../main.js'), 'utf8');
+  const main = fs.readFileSync(require.resolve('../src/product/startup-elevation.js'), 'utf8');
   assert.match(main, /Start-Process/);
   assert.match(main, /-Verb RunAs/);
   assert.match(main, /WindowsBuiltInRole/);

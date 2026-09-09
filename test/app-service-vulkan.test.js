@@ -5,8 +5,6 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { EventEmitter } = require('node:events');
-const childProcess = require('node:child_process');
 const { createAppService } = require('../src/product/app-service');
 const { createCompactBundle } = require('../src/product/payload');
 const { newManifest, manifestPath } = require('../src/product/manifest');
@@ -41,6 +39,15 @@ function fixture(t, options = {}) {
   const owned = new Set(options.vulkanInstalled ? [exe.toLowerCase()] : []);
   let restoreFailure = null, diagnosisComplete = options.diagnosisComplete !== false;
   const calls = { vulkan: [], installer: [], scans: [] };
+  let feederInstalled = options.feederInstalled === true;
+  const feeder = options.feeder === true ? {
+    summary() { return { available: true, installed: feederInstalled, coreVersion: '0.4.7beta', packageId: 'nr-feeder-dx12-047-sdr-20260909', provenance: 'Synthetic', ready: false }; },
+    configDir(_game, kind) { return kind === 'nr' ? addons : configDir; },
+    async inspect() { return { ...this.summary(), ready: feederInstalled, loaded: 'unknown', processed: 'unknown', runtimeVerified: false }; },
+    async install(game, value) { (calls.feeder ||= []).push(['install', game.id, value]); feederInstalled = true; return { installed: true }; },
+    async restore(game) { (calls.feeder ||= []).push(['restore', game.id]); feederInstalled = false; return { restored: true }; },
+    async launch(game) { (calls.feeder ||= []).push(['launch', game.id]); return { pid: 45, elevated: false }; }
+  } : undefined;
   const vulkan = {
     summary(game) {
       return { available: options.vulkanAvailable !== false, installed: owned.has(game.scan.chosen.path.toLowerCase()),
@@ -80,14 +87,16 @@ function fixture(t, options = {}) {
       const excluded = (state.excludedGames || []).some(row => path.resolve(row.dir || '').toLowerCase() === gameDir.toLowerCase());
       if (excluded) return [];
       return [{ id: gameId, name: 'Fixture Game', launcher: 'manual', dir: gameDir, installed: normalInstalled,
-        supported: api === 'dx12', supportCode: null, chosen, scan: { gameDir, chosen, exeCandidates: [chosen],
-          primaryDlss: api === 'dx12' ? { name: 'nvngx_dlss.dll', path: path.join(gameDir, 'nvngx_dlss.dll') } : null,
+        supported: api === 'dx12' && !options.noDlss, supportCode: options.noDlss ? 'ERR_NO_DLSS' : null, chosen, scan: { gameDir, chosen, exeCandidates: [chosen],
+          primaryDlss: api === 'dx12' && !options.noDlss ? { name: 'nvngx_dlss.dll', path: path.join(gameDir, 'nvngx_dlss.dll') } : null,
           dlssFiles: [], reshade: { installed: false } } }];
     },
     dispose() {}
   };
   const service = createAppService({ userData: path.join(root, 'user-data'), resourcesPath: path.join(root, 'resources'), appDir: root,
-    overrides: { library, installer, vulkan, detectGpu: () => ({ family: 'RTX50', series: ['RTX50'] }) } });
+    overrides: { library, installer, vulkan, feeder, nativeLaunchBroker: { async launch(input) { calls.native ||= []; calls.native.push(input);
+      if (options.nativeLaunchError) throw options.nativeLaunchError; return { pid: 22, elevated: false }; } },
+      detectGpu: () => ({ family: 'RTX50', series: ['RTX50'] }) } });
   return { root, gameDir, exe, configDir, addons, gameId, service, calls, vulkan, installer, owned,
     failRestore(error) { restoreFailure = error; }, setDiagnosis(value) { diagnosisComplete = value; } };
 }
@@ -173,13 +182,15 @@ test('ordinary DX12 install and launch do not depend on a Vulkan package', async
   await f.service.install(f.gameId, { version: '0.3.3.5' });
   assert.equal(f.calls.installer.filter(row => row[0] === 'install').length, 1);
   assert.equal(f.calls.vulkan.filter(row => row[0] === 'install').length, 0);
-  const originalSpawn = childProcess.spawn, spawned = [];
-  childProcess.spawn = (file, args, options) => {
-    spawned.push({ file, args, options }); const child = new EventEmitter(); child.unref = () => {}; process.nextTick(() => child.emit('spawn')); return child;
-  };
-  try { assert.equal(await f.service.launch(f.gameId), true); } finally { childProcess.spawn = originalSpawn; }
-  assert.equal(spawned.length, 1); assert.equal(path.resolve(spawned[0].file), path.resolve(f.exe));
+  assert.equal(await f.service.launch(f.gameId), true);
+  assert.deepEqual(f.calls.native, [{ exe: f.exe, args: [], cwd: path.dirname(f.exe) }]);
   assert.equal(f.calls.vulkan.filter(row => row[0] === 'broker-launch').length, 0);
+});
+
+test('native launch never silently elevates a requires-administrator game', async t => {
+  const f = fixture(t, { detectedApi: 'dx12', nativeLaunchError: Object.assign(new Error('Vulkan-specific old message'), { code: 'GAME_LAUNCH_REQUIRES_ELEVATION' }) });
+  await f.service.boot();
+  await assert.rejects(f.service.launch(f.gameId), error => error.code === 'GAME_LAUNCH_REQUIRES_ELEVATION' && /游戏明确要求管理员权限/.test(error.message) && !/Vulkan/.test(error.message));
 });
 
 test('broken Vulkan binding still exports the failure when its configuration path cannot be read', async t => {
@@ -188,4 +199,27 @@ test('broken Vulkan binding still exports the failure when its configuration pat
   f.vulkan.configDir=broken;f.vulkan.diagnose=broken;
   const report=await f.service.collectFeedback(f.gameId);
   assert.match(report.text,/Vulkan 绑定损坏/);assert.match(report.text,/反馈日志/);
+});
+
+test('no-DLSS preparation, repair, settings, diagnosis, launch and restore keep their independent Feeder owner', async t => {
+  const f = fixture(t, { detectedApi: 'dx12', noDlss: true, feeder: true }); await f.service.boot();
+  const before = (await f.service.listGames())[0]; assert.equal(before.supportCode, 'ERR_NO_DLSS'); assert.equal(before.nativeDlssAvailable, false); assert.equal(before.nativeFgAvailable, false);
+  await f.service.installFeeder(f.gameId, { allowAntiCheat: true }); await f.service.repair(f.gameId);
+  const after = (await f.service.listGames())[0]; assert.equal(after.enhancementRoute, 'feeder-dx12'); assert.equal(after.installed, true); assert.equal(after.supportCode, 'ERR_NO_DLSS');
+  await f.service.writeNrSettings(f.gameId, { Style: 2 }); assert.match(fs.readFileSync(path.join(f.addons, 'nr_before_sr.ini'), 'utf8'), /Style=2/);
+  const diagnosis = await f.service.diagnose(f.gameId); assert.equal(diagnosis.enhancementRoute, 'feeder-dx12'); assert.equal(diagnosis.complete, true); assert.equal(diagnosis.runtimeVerified, false);
+  assert.equal((await f.service.inspectFeeder(f.gameId)).processed, 'unknown');
+  for (const change of [() => f.service.setGameApi(f.gameId, 'vulkan'), () => f.service.upgradeAddon(f.gameId, '0.3.3.5'), () => f.service.toggleD3D12(f.gameId, true)])
+    await assert.rejects(change(), { code: 'FEEDER_RESTORE_FIRST' });
+  await f.service.launch(f.gameId); assert.equal(f.calls.feeder.filter(row => row[0] === 'launch').length, 1);
+  assert.deepEqual(f.calls.installer, []); assert.deepEqual(f.calls.vulkan, []); assert.equal(f.calls.native, undefined);
+  await f.service.uninstall(f.gameId); assert.equal((await f.service.listGames())[0].installed, false);
+});
+
+test('the Feeder entry rejects unsupported options and preserves existing Vulkan/native ownership', async t => {
+  const f = fixture(t, { detectedApi: 'dx12', noDlss: true, feeder: true }); await f.service.boot();
+  for (const options of [{ version: 'other' }, { allowAntiCheat: 'yes' }, []]) await assert.rejects(f.service.installFeeder(f.gameId, options), { code: 'ERR_BAD_REQUEST' });
+  writeNativeManifest(f); await assert.rejects(f.service.installFeeder(f.gameId), { code: 'FEEDER_ROUTE_CONFLICT' }); assert.equal(f.calls.feeder, undefined);
+  const vk = fixture(t, { detectedApi: 'dx12', noDlss: true, feeder: true, vulkanInstalled: true }); await vk.service.boot();
+  await assert.rejects(vk.service.installFeeder(vk.gameId), { code: 'VULKAN_RESTORE_FIRST' }); assert.equal(vk.calls.feeder, undefined);
 });

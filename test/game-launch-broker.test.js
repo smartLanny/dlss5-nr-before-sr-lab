@@ -97,13 +97,17 @@ test('bad targets, helper failures and unproved shell tokens remain distinct', a
 
 test('native helper uses a suspended process and verifies its token before resuming', () => {
   const source = fs.readFileSync(scriptPath, 'utf8');
-  for (const api of ['GetShellWindow', 'GetWindowThreadProcessId', 'OpenProcessToken', 'DuplicateTokenEx', 'CreateEnvironmentBlock', 'CreateProcessWithTokenW', 'ResumeThread', 'TerminateProcess']) assert.match(source, new RegExp(api));
+  for (const api of ['GetShellWindow', 'GetWindowThreadProcessId', 'OpenProcessToken', 'DuplicateTokenEx', 'CreateEnvironmentBlock', 'CreateProcessWithTokenW', 'CreateProcessW', 'ResumeThread', 'TerminateProcess']) assert.match(source, new RegExp(api));
   assert.match(source, /CREATE_SUSPENDED \| CREATE_UNICODE_ENVIRONMENT/);
   assert.match(source, /CreateProcessWithTokenW\(shell\.PrimaryToken[^]*?exe,[^]*?new StringBuilder\(command\)/);
   const created = source.indexOf('CreateProcessWithTokenW(shell.PrimaryToken');
   const verified = source.indexOf('OpenProcessToken(process.hProcess', created);
   const resumed = source.indexOf('ResumeThread(process.hThread)', verified);
   assert.ok(created >= 0 && verified > created && resumed > verified, 'child token verification precedes ResumeThread');
+  const ordinaryCreated = source.indexOf('CreateProcessW(exe, new StringBuilder(command)');
+  assert.ok(ordinaryCreated > created && ordinaryCreated < verified, 'ordinary path performs the same suspended-child verification');
+  assert.match(source, /shell\.BrokerElevated\s*\? CreateProcessWithTokenW/);
+  assert.doesNotMatch(source, /GAME_LAUNCH_BROKER_NOT_ELEVATED/);
   assert.match(source, /created && !resumed[^]*?TerminateProcess/);
   assert.doesNotMatch(source, /runas|Start-Process|taskkill|TerminateProcess\(shell/iu);
 });
@@ -148,8 +152,52 @@ test('real helper performs a read-only inspection of the current interactive she
   try {
     const result = await broker.inspect({ exe: process.execPath });
     assert.equal(result.elevated, false); assert.equal(result.launchable, true); assert.match(result.userSid, /^S-1-/); assert.ok(result.sessionId >= 0); assert.ok(result.shellPid > 0);
+    assert.ok(['current-token', 'shell-token'].includes(result.launchMethod));
   } catch (error) {
-    assert.ok(['GAME_LAUNCH_BROKER_NOT_ELEVATED', 'GAME_LAUNCH_SHELL_MISSING', 'GAME_LAUNCH_SHELL_TOKEN', 'GAME_LAUNCH_SESSION_MISMATCH', 'GAME_LAUNCH_SHELL_ELEVATED'].includes(error.code), `unexpected inspection error: ${error.code} ${error.message}`);
-    t.diagnostic(`read-only shell inspection returned the explicit gate ${error.code}`);
+    assert.ok(['GAME_LAUNCH_SHELL_MISSING', 'GAME_LAUNCH_SHELL_TOKEN', 'GAME_LAUNCH_SESSION_MISMATCH', 'GAME_LAUNCH_SHELL_ELEVATED'].includes(error.code), `unexpected inspection error: ${error.code} ${error.message}`);
+    t.skip(`interactive token unavailable: ${error.code}`);
   }
+});
+
+test('real ordinary helper launches a CPU-only fixture with verified token, quoted args and a scoped environment', { timeout: 30000 }, async t => {
+  if (process.platform !== 'win32') return t.skip('Windows-only process creation');
+  const powershell = findPowerShell(); if (!powershell) return t.skip('PowerShell unavailable');
+  const broker = createGameLaunchBroker({ powershell: path.resolve(powershell), scriptPath, timeoutMs: 15000 });
+  try { await broker.inspect({ exe: process.execPath }); }
+  catch (error) {
+    if (['GAME_LAUNCH_SHELL_MISSING', 'GAME_LAUNCH_SHELL_TOKEN', 'GAME_LAUNCH_SESSION_MISMATCH', 'GAME_LAUNCH_SHELL_ELEVATED'].includes(error.code)) return t.skip(`interactive token unavailable: ${error.code}`);
+    throw error;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-broker-cpu-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const relay = path.join(root, 'ordinary relay.cjs'), payload = path.join(root, 'cpu child.cjs');
+  const report = path.join(root, 'relay.json'), output = path.join(root, 'child.json');
+  const args = ['value with space', 'quote"tail\\', '中文 [fixture]'];
+  fs.writeFileSync(payload, `const fs=require('node:fs'); fs.writeFileSync(process.argv[2],JSON.stringify({pid:process.pid,args:process.argv.slice(3),cwd:process.cwd(),layer:process.env.VK_LAYER_PATH,unexpected:process.env.XIAOFENG_BROKER_FIXTURE_SECRET||null}));`);
+  fs.writeFileSync(relay, `
+const fs=require('node:fs');
+const {createGameLaunchBroker}=require(${JSON.stringify(require.resolve('../src/product/game-launch-broker'))});
+(async()=>{
+  const broker=createGameLaunchBroker({powershell:${JSON.stringify(path.resolve(powershell))},scriptPath:${JSON.stringify(scriptPath)},timeoutMs:15000});
+  const inspection=await broker.inspect({exe:process.execPath});
+  if(inspection.launchMethod!=='current-token') throw new Error('ordinary relay is not using the ordinary process path');
+  process.env.XIAOFENG_BROKER_FIXTURE_SECRET='parent-only';
+  const result=await broker.launch({exe:process.execPath,args:${JSON.stringify([payload, output, ...args])},cwd:${JSON.stringify(root)},env:{VK_LAYER_PATH:${JSON.stringify(root)}}});
+  fs.writeFileSync(${JSON.stringify(report)},JSON.stringify({ok:true,method:inspection.launchMethod,elevated:result.elevated,pid:result.pid}));
+})().catch(error=>{fs.writeFileSync(${JSON.stringify(report)},JSON.stringify({ok:false,code:error.code,message:error.message}));process.exitCode=1;});
+`);
+  // Even when the test host is elevated, this first hop creates the ordinary
+  // relay. Its second hop must exercise CreateProcessW, never a game or GPU load.
+  await broker.launch({ exe: process.execPath, args: [relay], cwd: root });
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline && (!fs.existsSync(report) || !fs.existsSync(output))) {
+    if (fs.existsSync(report) && JSON.parse(fs.readFileSync(report, 'utf8')).ok === false) break;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.equal(fs.existsSync(report), true, 'ordinary helper returned a fixture report');
+  const result = JSON.parse(fs.readFileSync(report, 'utf8')); assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.method, 'current-token'); assert.equal(result.elevated, false);
+  assert.equal(fs.existsSync(output), true, 'verified child executed the CPU fixture');
+  const child = JSON.parse(fs.readFileSync(output, 'utf8'));
+  assert.equal(child.pid, result.pid); assert.deepEqual(child.args, args); assert.equal(child.cwd, root); assert.equal(child.layer, root); assert.equal(child.unexpected, null);
 });

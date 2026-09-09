@@ -30,14 +30,14 @@ function temporary(t) {
   return root;
 }
 
-test('portable outer launcher and inner executable use their distinct supported elevation settings', () => {
+test('portable launcher and GUI run at ordinary privilege with a matching beta build version', () => {
   const pkg = require('../package.json'), lock = require('../package-lock.json');
   const schema = require('../node_modules/app-builder-lib/scheme.json');
   const portable = schema.definitions.PortableOptions.properties.requestExecutionLevel;
   assert.ok(portable.enum.includes(pkg.build.portable.requestExecutionLevel));
-  assert.equal(pkg.build.portable.requestExecutionLevel, 'admin');
-  assert.equal(pkg.build.win.requestedExecutionLevel, 'requireAdministrator');
-  const developmentVersion = pkg.version.match(/^(\d+\.\d+\.\d+)-hotfix\.\d+-dev\.(\d+)$/);
+  assert.equal(pkg.build.portable.requestExecutionLevel, 'user');
+  assert.equal(pkg.build.win.requestedExecutionLevel, 'asInvoker');
+  const developmentVersion = pkg.version.match(/^(\d+\.\d+\.\d+)-beta\.(\d+)$/);
   assert.ok(developmentVersion); assert.equal(pkg.build.buildVersion, `${developmentVersion[1]}.${developmentVersion[2]}`);
   assert.equal(lock.version, pkg.version); assert.equal(lock.packages[''].version, pkg.version);
   const target = fs.readFileSync(require.resolve('app-builder-lib/out/targets/nsis/NsisTarget'), 'utf8');

@@ -33,6 +33,9 @@ function fixture(t, options = {}) {
   fs.mkdirSync(exeDir, { recursive: true }); fs.writeFileSync(exe, 'synthetic');
   const driver = fakeDriver(), legacy = options.legacy || { migrationInfo: async () => ({ baselineCaptured: false }) };
   const service = createLaunchSettingsService({ userData: path.join(root, 'user'), appDir: root,
+    // Historical fixtures exercise protocol-11 receipt creation/restoration.
+    // Production omits this escape hatch and refuses new legacy requests.
+    allowLegacyControl: true,
     gameDirectory: () => game, gameExecutable: () => exe, driver, legacySrModel: legacy,
     detectHardware: async () => ({ family: options.family || 'RTX50', series: [options.family || 'RTX50'] }),
     environment: async () => ({ verified: true, running: [] }), peBitness: () => 64, ...(options.service || {}) });
@@ -47,6 +50,40 @@ test('generic launch recovery cannot bypass REFramework ownership checks', async
   const before = f.driver.peek();
   await assert.rejects(f.service.recover('g'), { code: 'REF_RECOVERY_REQUIRED' });
   assert.equal(fs.readFileSync(pending, 'utf8'), bytes); assert.deepEqual(f.driver.peek(), before);
+});
+
+test('new MFG config is scoped to ReShade.ini, restores missing files, and refuses stale/legacy requests', async t => {
+  const checked = [];
+  const f = fixture(t, { family: 'RTX40', service: { allowLegacyControl: false, assertComponents: async (id, backend) => checked.push([id, backend]) } });
+  const file = path.join(f.exeDir, 'ReShade.ini'), originalDriver = f.driver.peek();
+  const request = { backend: 'mfgunlock', mode: 'fixed', multiplier: 4 };
+  const preview = await f.service.preview('g', 'fg', request);
+  await f.service.apply(preview.id, { confirm: true }); await f.service.save('g', 'fg', request);
+  assert.match(fs.readFileSync(file, 'utf8'), /ForceMultiplier=4/);
+  assert.equal(fs.existsSync(path.join(f.exeDir, 'RTX40MFG-Universal.json')), false);
+  assert.equal((await f.service.inspect('g')).applied.fg.readbackVerified, true);
+  assert.equal((await f.service.inspect('g')).runtimeVerified, false);
+  assert.deepEqual(f.driver.peek(), originalDriver);
+  assert.deepEqual(checked, [['g', 'mfgunlock'], ['g', 'mfgunlock']]);
+  await f.service.restore('g', 'fg'); assert.equal(fs.existsSync(file), false);
+  await assert.rejects(f.service.preview('g', 'fg', { backend: 'rtx40', mode: 'dynamic', targetFps: 120 }), { code: 'SETTINGS_FG_MIGRATION_REQUIRED' });
+  await assert.rejects(f.service.save('g', 'fg', { backend: 'rtx40', mode: 'follow' }), { code: 'SETTINGS_FG_MIGRATION_REQUIRED' });
+  assert.deepEqual(await f.service.pending('g'), []);
+});
+
+test('MFG restoration preserves later ReShade settings, and preview/apply catches a file appearing in between', async t => {
+  const f = fixture(t, { family: 'RTX40' }), file = path.join(f.exeDir, 'ReShade.ini');
+  const request = { backend: 'mfgunlock', mode: 'follow' };
+  let preview = await f.service.preview('g', 'fg', request);
+  fs.writeFileSync(file, '[GENERAL]\nPresetPath=player.ini\n');
+  await assert.rejects(f.service.apply(preview.id, { confirm: true }), { code: 'FILE_CHANGED' });
+  assert.equal(fs.readFileSync(file, 'utf8'), '[GENERAL]\nPresetPath=player.ini\n');
+  preview = await f.service.preview('g', 'fg', request); await f.service.apply(preview.id, { confirm: true });
+  fs.appendFileSync(file, '[INPUT]\nKeyOverlay=36\n');
+  await f.service.restore('g', 'fg');
+  assert.match(fs.readFileSync(file, 'utf8'), /PresetPath=player.ini/);
+  assert.match(fs.readFileSync(file, 'utf8'), /KeyOverlay=36/);
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /ForceMultiplier|RenoDX.MFGUnlock/);
 });
 
 test('native SR owns four keys, leaves FG isolated and restores through the shared file journal', async t => {

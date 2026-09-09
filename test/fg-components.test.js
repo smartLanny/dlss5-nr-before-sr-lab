@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { createFgComponents, mergeUalConfig, validControl } = require('../src/product/fg-components');
+const { createFgComponents, mergeUalConfig, validControl } = require('../src/product/fg-legacy-components');
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 
 function fixture(t, options = {}) {
@@ -80,7 +80,7 @@ test('RTX40 runtime gate blocks a complete component set without writing and cle
   for (const role of ['core', 'asi', 'overlay']) fs.copyFileSync(path.join(f.resources, f.files[role].file), path.join(f.dir, f.files[role].file));
   fs.copyFileSync(path.join(f.resources, f.files.ual.file), path.join(f.dir, 'version.dll'));
   fs.writeFileSync(path.join(f.dir, 'version.ini'), '[GlobalSets]\nLoadPlugins=1\nLoadFromScriptsOnly=1\nLoadExtraPlugins=RTX40MFG.asi\nDontLoadFromDllMain=0\nForceEntryPointHook=0\n');
-  fs.writeFileSync(path.join(f.dir, 'RTX40MFG-Universal.json'), require('../src/product/fg-components').DEFAULT_CONTROL);
+  fs.writeFileSync(path.join(f.dir, 'RTX40MFG-Universal.json'), require('../src/product/fg-legacy-components').DEFAULT_CONTROL);
   const before = await f.service.inspect('g');
   assert.equal(before.runtime.status, 'missing'); assert.equal(before.ready, false); assert.equal(before.canPrepare, false);
   await assert.rejects(f.service.prepare('g'), { code: 'SETTINGS_FG_BLOCKED' });
