@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the renamed 0.4.7beta-corefix.1 compatibility candidate without changing the checkout.
+"""Stage the renamed 0.4.7beta-corefix.2 compatibility candidate without changing the checkout.
 
 Requires #131, #132 and the completed #134 merge. Generated-source availability
 is not game verification. MFG work is deferred for the current owner test batch.
@@ -14,8 +14,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = '0.4.7beta-corefix.1'
-DISPLAY_VERSION = '0.4.7beta-corefix.1'
+VERSION = '0.4.7beta-corefix.2'
+DISPLAY_VERSION = '0.4.7beta-corefix.2'
 CARRIER_NAME = 'dlss5-native-carrier-045-dx11-compat.addon64'
 UPSTREAM = '28aed4099b0fe1c207b20b5fee5364c0773c25c2'
 PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
@@ -191,7 +191,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
                            encoding='utf-8', newline='\n')
     rc = stage / 'core/src/nr_before_sr.rc'
     resource_text = rc.read_text(encoding='utf-8')
-    if '0.4.7beta-corefix.1' not in resource_text:
+    if '0.4.7beta-corefix.2' not in resource_text:
         raise ValueError('Missing expected inherited PE description')
     rc.write_text(resource_text,
                   encoding='utf-8', newline='\n')
@@ -202,7 +202,7 @@ def finalize(core: Path, stage: Path, source: str) -> None:
     manifest = json.loads(mf.read_text(encoding='utf-8'))
     manifest['integration'] = {
         'version': VERSION, 'display_version': DISPLAY_VERSION, 'source_commit': source,
-        'core_pe_version': '0.4.7.6',
+        'core_pe_version': '0.4.7.7',
         # Retain the original dual-parent field for existing artifact readers.
         'parents_in_history': [PR131, PR132],
         'required_ancestors': list(REQUIRED_ANCESTORS),

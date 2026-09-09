@@ -50,7 +50,7 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne '0.4.7beta-corefix.1') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne '0.4.7beta-corefix.2') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     foreach ($Pair in @(@('validate-resource-semantics.py','resource-semantics'), @('validate-resource-recovery.py','resource-recovery'), @('validate-native-format-observer.py','native-format-observer'))) {
         & python (Join-Path $PSScriptRoot $Pair[0]) --source-root (Join-Path $Stage 'core') --compiler $Compiler --output (Join-Path $Output $Pair[1])
@@ -86,6 +86,12 @@ try {
     & $ActivityProbe
     if ($LASTEXITCODE) { throw 'UI activity probe failed.' }
     $Checks.Add('bounded UI activity alternating/stall/scope/reopen CPU gate')
+    $ProbePolicy = Join-Path $Output 'probe-policy.exe'
+    & $Compiler -std=c++17 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/probe_policy_test.cpp') -o $ProbePolicy
+    if ($LASTEXITCODE) { throw 'Probe policy compile failed.' }
+    & $ProbePolicy
+    if ($LASTEXITCODE) { throw 'Probe phase isolation failed.' }
+    $Checks.Add('process-local automatic GPU sampling policy and concurrent phase snapshots CPU')
     foreach ($Test in @('validate-color-policy.py', 'validate-bug-sweep.py', 'validate-strength-migration.py', 'validate-f8-controller.py', 'validate-command-creation.py', 'validate-first-recording.py', 'validate-reset-notification-gap.py', 'validate-core-feedback.py')) {
         & python (Join-Path $PSScriptRoot $Test) --compiler $Compiler
         if ($LASTEXITCODE) { throw "Owner feedback regression failed: $Test" }
@@ -152,6 +158,7 @@ try {
         $Checks.Add('production one-shot queue retirement WARP')
         $Checks.Add('production bounded submitted-retirement and output binding WARP')
         $Checks.Add('production post-store readback with unused-target negative control WARP')
+        $Checks.Add('production ordinary paused sampling equivalence and late-readback phase WARP')
         $Checks.Add('production read-only post-boundary callbacks and identity isolation CPU')
         & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain
         $Checks.Add('native command creation and lifecycle; full state and negative restore WARP')
@@ -171,8 +178,8 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*0.4.7beta-corefix.1*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual 0.4.7beta-corefix.1 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*0.4.7beta-corefix.2*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual 0.4.7beta-corefix.2 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
