@@ -62,10 +62,10 @@ function fixture(t, options = {}) {
     async write(name, expected, desired) { calls.push(desired.exists ? 'registry-add' : 'registry-remove'); assert.deepEqual(await this.read(name), expected); if (desired.exists) values.set(name.toLowerCase(), structuredClone(desired)); else values.delete(name.toLowerCase()); }
   };
   const guards = { antiCheatPresent: () => antiCheat, async assertGameClosed() { calls.push('closed'); if (running) throw Object.assign(new Error('game running'), { code: 'ERR_GAME_RUNNING' }); } };
-  const broker = { async inspect() { calls.push('broker-inspect'); return { elevated: false, launchable: true }; },
+  const broker = { async inspect() { calls.push('broker-inspect'); if (options.launchInspectionError) throw options.launchInspectionError; return { elevated: false, launchable: true }; },
     async launch(input) { calls.push(['launch', input]); return { pid: 1234, elevated: false }; } };
   const create = extra => createVulkanService({ userData, appDir, resourcesPath, hardware,
-    overrides: { pe, profile, activation, registry, guards, broker, async writeBinding(file, state) {
+    overrides: { pe, profile, activation, registry, guards, broker, executionLevel: () => options.executionLevel || 'asInvoker', async writeBinding(file, state) {
       if (firstBindingFailure) { firstBindingFailure = false; throw Object.assign(new Error('binding write denied'), { code: 'EACCES' }); }
       if (bindingClearFailure && !state.bindings.length) { bindingClearFailure = false; throw Object.assign(new Error('binding delete denied'), { code: 'EACCES' }); }
       if (archivedSaveFailure && state.bindings.some(row => row.phase === 'archived')) { archivedSaveFailure = false; throw Object.assign(new Error('archive receipt denied'), { code: 'EACCES' }); }
@@ -113,6 +113,33 @@ test('Vulkan package selection is independent of the saved API and retains real 
   assert.equal(service.summary(game).selectionAvailable, false);
   assert.match(service.summary(game).selectionReason, /缺少文件/);
   assert.deepEqual(f.calls, []); assert.equal(f.values.size, 0); assert.equal(fs.existsSync(f.bindingPath), false);
+});
+
+test('administrator-required EXEs are unavailable before selecting the Vulkan package', t => {
+  const f = fixture(t, { executionLevel: 'requireAdministrator' }), game = f.game('elevated-summary');
+  for (const api of ['mixed', 'vulkan']) {
+    game.scan.chosen.apiResolution.api = api;
+    const info = f.create().summary(game);
+    assert.equal(info.available, false); assert.equal(info.selectionAvailable, false);
+    assert.match(info.selectionReason, /管理员权限/);
+  }
+  assert.deepEqual(f.calls, []); assert.equal(fs.existsSync(f.bindingPath), false);
+});
+
+test('launch preflight rejection leaves no profile, binding, activation or registry state', async t => {
+  for (const code of ['GAME_LAUNCH_REQUIRES_ELEVATION', 'GAME_LAUNCH_TOKEN_MISMATCH']) {
+    const options = { launchInspectionError: Object.assign(new Error('launch preflight rejected'), { code }) };
+    const f = fixture(t, options), game = f.game('preflight-' + code), service = f.create();
+    await assert.rejects(service.install(game), { code });
+    assert.equal(f.calls.includes('profile-start'), false);
+    assert.equal(fs.existsSync(f.profile.runtimeRoot), false);
+    assert.equal(fs.existsSync(f.bindingPath), false);
+    assert.equal(fs.existsSync(path.join(f.userData, 'vulkan-deployment')), false);
+    assert.equal(fs.existsSync(path.join(game.dir, 'ReShade.ini')), false); assert.equal(f.values.size, 0);
+    options.launchInspectionError = null;
+    assert.equal((await service.install(game)).installed, true, 'a corrected launch context can retry without recovery');
+    assert.ok(f.calls.indexOf('broker-inspect') < f.calls.indexOf('profile-published'));
+  }
 });
 
 test('install publishes profile and binding before activation; real diagnosis distinguishes configuration from runtime', async t => {

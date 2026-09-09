@@ -123,6 +123,21 @@ function createFeedbackCollector({ userData, productVersion = '0.0.0' }) {
     }).join('\n');
   }
 
+  function deploymentLine(diagnostic) {
+    const api = diagnostic && diagnostic.deploymentApi;
+    if (!api) return '已部署 API：未记录';
+    if (String(api).toLowerCase() !== 'vulkan') return `已部署 API：${api}`;
+    const state = String(diagnostic.deploymentState || '').toLowerCase();
+    const readyState = ['ready', 'installed', 'deployed'].includes(state);
+    const incompleteState = ['pending', 'prepared', 'incomplete', 'recovery-required', 'failed'].includes(state);
+    const components = new Map((diagnostic.components || []).map(row => [row && row.key, row]));
+    const layer = components.get('vulkan-layer');
+    const activation = components.get('vulkan-activation');
+    const ready = diagnostic.pending !== true && !incompleteState && (readyState || diagnostic.complete === true ||
+      Boolean(layer && activation && layer.ok === true && activation.ok === true));
+    return ready ? '已部署 API：vulkan' : '部署状态：Vulkan 准备未完成';
+  }
+
   async function buildReport({ game, diagnostic = null, hardware = null, payload = null, settings = null, gameId = null, includePaths = false, managedLogDirs = [] }) {
     const chosen = game && game.chosen ? game.chosen : null;
     const executable = chosen && chosen.path ? chosen.path : null;
@@ -153,7 +168,7 @@ function createFeedbackCollector({ userData, productVersion = '0.0.0' }) {
       `图形 API：${chosen && chosen.apiLabel ? chosen.apiLabel : '未知'}`,
       `API 选择：${game && game.apiOverride ? game.apiOverride : 'auto'}`,
       `API 证据：${chosen && chosen.apiResolution ? JSON.stringify(safeJson(chosen.apiResolution, includePaths)) : '未记录'}`,
-      `已部署 API：${diagnostic && diagnostic.deploymentApi ? diagnostic.deploymentApi : '未记录'}`,
+      deploymentLine(diagnostic),
       `位数：${chosen && chosen.bitness ? chosen.bitness : '未知'}`,
       '',
       '[硬件与组件]',

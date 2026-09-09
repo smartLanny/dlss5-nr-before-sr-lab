@@ -10,7 +10,7 @@ const { createVulkanRuntimeProfile } = require('./vulkan-runtime-profile');
 const { createVulkanDeployment } = require('./vulkan-deployment');
 const { createReshadeVulkanActivation } = require('./reshade-vulkan-activation');
 const { createWindowsRegistryValues } = require('./windows-registry-values');
-const { createGameLaunchBroker } = require('./game-launch-broker');
+const { createGameLaunchBroker, executionLevel } = require('./game-launch-broker');
 const { createVulkanRuntimeEvidence } = require('./vulkan-runtime-evidence');
 const { detectGpuAsync } = require('./gpu');
 const guardsDefault = require('../core/install-guards');
@@ -48,6 +48,7 @@ function createVulkanService(options = {}) {
   const identity = createVulkanRuntimeProfile({ userData });
   const evidence = overrides.evidence || createVulkanRuntimeEvidence({ userData });
   const guards = overrides.guards || guardsDefault, pe = overrides.pe || peDefault;
+  const readExecutionLevel = overrides.executionLevel || executionLevel;
   const writeBinding = overrides.writeBinding || atomicJson;
   let hardware = options.hardware && typeof options.hardware !== 'function' ? options.hardware : null;
   const detectHardware = typeof options.hardware === 'function' ? options.hardware : overrides.detectHardware || detectGpuAsync;
@@ -224,6 +225,8 @@ function createVulkanService(options = {}) {
           reason = '旧 Vulkan 运行路径过长。请先在设置中点击“卸载插件”，再用新版管理器重新安装；新配套会自动使用短目录。'; needsRecovery = true;
         }
       }
+      if (!reason && ['requireAdministrator', 'highestAvailable'].includes(readExecutionLevel(target.exe)))
+        reason = '该游戏 EXE 要求管理员权限；当前 Vulkan 用户加载层仅支持普通权限游戏。';
     } catch (error) { reason = error.message; needsRecovery ||= error.details?.needsRecovery === true; }
     const hint = row ? { matched: false, uncertain: false } : recoveryHint(game);
     if (hint.matched || hint.uncertain) { needsRecovery = true; reason ||= 'Vulkan 来源记录或激活仍存在，请先诊断绑定恢复状态。'; }
@@ -290,6 +293,11 @@ function createVulkanService(options = {}) {
       }
       if (fs.existsSync(path.join(path.dirname(target.exe), 'ReShade.ini')))
         fail('VULKAN_EXTERNAL_RESHADE', '游戏已有未知 ReShade.ini，未自动接管；请先核对并用原工具恢复。');
+      // Prove launch compatibility before publishing a profile or durable binding.
+      // Deployment repeats the check at its own write boundary to reject drift.
+      const launch = await getBroker().inspect({ exe: target.exe });
+      if (!launch || launch.elevated !== false || launch.launchable !== true)
+        fail('VULKAN_ELEVATED_HKCU', '当前启动方式不能证明游戏以普通权限读取 Vulkan 用户加载层，未安装。');
       let phase = 'profile', profilePublished = false, bindingSaved = false;
       try {
         const published = await profile.prepare({ exe: target.exe, recipe: source.recipe, packageRoot: source.packageRoot });

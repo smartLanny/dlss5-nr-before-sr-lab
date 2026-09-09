@@ -245,6 +245,11 @@ test('unavailable Vulkan gives the backend reason and cannot render an install a
   assert.match(recoveryDetail, /旧 Vulkan 运行路径过长/);
   assert.match(recoveryDetail, /卸载插件/);
   assert.match(vm.runInContext('vulkanRouteMarkup(game)', context), /badge bad">需恢复/);
+  context.game.installed = true;
+  context.game.chosen.apiResolution = { api: 'dx11', source: 'override' };
+  const rolledBackApi = vm.runInContext('cardAction(game)', context);
+  assert.match(rolledBackApi, /card-open">恢复配套/);
+  assert.doesNotMatch(rolledBackApi, /launch-btn|install-btn/);
 });
 
 test('collapsed Vulkan install and installed repair pass the exact package ID', async () => {

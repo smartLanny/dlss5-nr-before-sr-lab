@@ -77,3 +77,29 @@ test('external Vulkan feedback retains startup identity and recent failure with 
   const refused=await collector.buildReport({game:{name:'sample',dir:root},managedLogDirs:[outside]});
   assert.doesNotMatch(refused.text,/OUTSIDE_NOT_INCLUDED/);
 });
+
+test('feedback distinguishes an incomplete Vulkan preparation from a deployed route', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dlss5-feedback-vulkan-state-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const collector = createFeedbackCollector({ userData: path.join(root, 'user') });
+  const game = { name: 'Endfield fixture', dir: root,
+    chosen: { path: path.join(root, 'Endfield.exe'), apiLabel: 'Vulkan', bitness: 64 } };
+  const components = [
+    { key: 'vulkan-profile', label: '外部运行组件', ok: true },
+    { key: 'vulkan-layer', label: 'Vulkan 加载层', ok: false, detail: '需要管理员权限，加载层尚未写入' },
+    { key: 'vulkan-activation', label: '按游戏激活', ok: false, detail: '尚未完成激活' }
+  ];
+  const prepared = await collector.buildReport({ game, diagnostic: {
+    complete: false, pending: true, deploymentApi: 'vulkan', components
+  } });
+  assert.match(prepared.text, /部署状态：Vulkan 准备未完成/);
+  assert.doesNotMatch(prepared.text, /已部署 API：vulkan/);
+  assert.match(prepared.text, /Vulkan 加载层：需要管理员权限，加载层尚未写入/);
+
+  const deployed = await collector.buildReport({ game, diagnostic: {
+    complete: true, pending: false, deploymentApi: 'vulkan',
+    components: components.map(row => ({ ...row, ok: true, detail: null }))
+  } });
+  assert.match(deployed.text, /已部署 API：vulkan/);
+  assert.doesNotMatch(deployed.text, /Vulkan 准备未完成/);
+});
