@@ -68,6 +68,7 @@ def package(build: Path, output: Path) -> dict:
                 'native command creation and lifecycle; full state and negative restore WARP',
                 'production one-shot queue retirement WARP',
                 'production bounded submitted-retirement and output binding WARP',
+                'production post-store readback with unused-target negative control WARP',
                 'production RR depth cs_5_0 and private R32 WARP readback',
                 'validate-recommended-picture.py', 'recommended independent negative control',
                 'test_post_patch.py', 'test_picture_integration.py',
@@ -100,7 +101,7 @@ def package(build: Path, output: Path) -> dict:
         if len(data) != artifacts[name]['bytes']:
             raise ValueError(f'Binary length mismatch: {name}')
     notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_bytes() + b'\n\nMinHook license\n' + (ROOT / 'third_party/minhook/LICENSE.txt').read_bytes()
-    guide = (ROOT / 'docs/testing/CORE_047BETA_RETIREMENT_ACCEPTANCE.zh-CN.md').read_bytes()
+    guide = (ROOT / 'docs/testing/CORE_047BETA_OUTPUT_ACCEPTANCE.zh-CN.md').read_bytes()
     output.mkdir(parents=True, exist_ok=False)
     packages = []
     for addon in addons:

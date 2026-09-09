@@ -112,6 +112,7 @@ try {
         if ($LASTEXITCODE) { throw 'Production one-shot queue retirement WARP gate failed.' }
         $Checks.Add('production one-shot queue retirement WARP')
         $Checks.Add('production bounded submitted-retirement and output binding WARP')
+        $Checks.Add('production post-store readback with unused-target negative control WARP')
         & (Join-Path $PSScriptRoot 'validate-command-state-native.ps1') -ToolchainRoot $Toolchain
         $Checks.Add('native command creation and lifecycle; full state and negative restore WARP')
         & (Join-Path $PSScriptRoot 'validate-rr-depth-gpu.ps1') -ToolchainRoot $Toolchain -OutputRoot (Join-Path $Output 'rr-depth-warp') -RunWarp
@@ -131,7 +132,7 @@ try {
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo
-            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 4 -or $Version.FileBuildPart -ne 7 -or $Version.FilePrivatePart -ne 3) { throw 'Wrong numeric PE version.' }
+            if ($Version.FileMajorPart -ne 0 -or $Version.FileMinorPart -ne 4 -or $Version.FileBuildPart -ne 7 -or $Version.FilePrivatePart -ne 4) { throw 'Wrong numeric PE version.' }
         }
         $Artifacts[$File.Name] = [ordered]@{ bytes=$File.Length; sha256=(Get-FileHash -LiteralPath $File.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
     }
