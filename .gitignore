@@ -3,6 +3,7 @@ dist/
 dist-external/
 dist-beta1-final/
 dist-beta1-verified/
+dist-beta1-release/
 out/
 output/
 build/

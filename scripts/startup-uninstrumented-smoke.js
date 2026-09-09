@@ -126,4 +126,4 @@ if (require.main === module) {
     if (!result.ok) process.exitCode = 1;
   }).catch(error => { console.error(JSON.stringify({ ok: false, error: error.message, artifactRoot: error.artifactRoot }, null, 2)); process.exitCode = 1; });
 }
-module.exports = { runUninstrumentedSmoke, validateIsolationProof };
+module.exports = { runUninstrumentedSmoke, validateIsolationProof, processWindow, startupLog };

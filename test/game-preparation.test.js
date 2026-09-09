@@ -233,3 +233,46 @@ test('explicit recovery completes the underlying journal before scoped compensat
   assert.equal((await f.preparation.inspect('g')).pending,false);
   assert.equal(fs.existsSync(f.paths.nr),false);
 });
+
+test('one-click recovery resolves REFramework through its owner before completing compensation', async t => {
+  const f=fixture(t,{failAt:'applied-sr',restoreFailure:'restore-sr'});
+  await assert.rejects(f.preparation.prepare('g'),{code:'PREPARATION_RECOVERY_REQUIRED'});
+  f.controls.failAt=null; f.controls.restoreFailure=null;f.controls.settingsPending=true;
+  const order=[];let refPending=true;
+  f.settings.pending=async()=>[{kind:'file-journal'}];
+  f.settings.recover=async()=>{order.push('settings-recover');if(refPending)throw Object.assign(new Error('use owner'),{code:'REF_RECOVERY_REQUIRED'});f.controls.settingsPending=false;};
+  f.service.recoverReframework=async()=>{order.push('ref-owner');refPending=false;};f.service.refresh=async()=>{};
+  await f.preparation.recover('g');
+  assert.deepEqual(order,['settings-recover','ref-owner','settings-recover']);
+  assert.equal((await f.preparation.inspect('g')).pending,false);assert.equal(fs.existsSync(f.paths.nr),false);
+});
+
+test('one-click recovery dispatches FG file ownership before compensating native or Feeder NR', async t => {
+  for (const route of ['native', 'feeder']) {
+    const f = fixture(t, { sr: route !== 'feeder', failAt: 'prepared-fg', restoreFailure: 'restore-fg' });
+    await assert.rejects(f.preparation.prepare('g', { route }), { code: 'PREPARATION_RECOVERY_REQUIRED' });
+    f.controls.failAt = null; f.controls.restoreFailure = null; f.controls.settingsPending = true;
+    const order = []; let filePending = true;
+    f.settings.pending = async () => [{ kind: 'file-journal' }];
+    f.settings.recover = async () => { order.push('settings-recover'); if (filePending) throw Object.assign(new Error('use FG owner'), { code: 'SETTINGS_FG_FILE_RECOVERY_REQUIRED' }); f.controls.settingsPending = false; };
+    f.dependencies.components.recoverPending = async () => { order.push('fg-owner'); filePending = false; };
+    f.service.refresh = async () => {};
+    await f.preparation.recover('g');
+    assert.deepEqual(order, ['settings-recover', 'fg-owner', 'settings-recover'], route);
+    assert.equal((await f.preparation.inspect('g')).pending, false);
+    assert.equal(fs.existsSync(f.paths.nr), false); assert.equal(fs.existsSync(f.paths.feeder), false);
+  }
+});
+
+test('one-click recovery retains its ledger and NR when the FG owner finds an external replacement', async t => {
+  const f = fixture(t, { failAt: 'prepared-fg', restoreFailure: 'restore-fg' });
+  await assert.rejects(f.preparation.prepare('g'), { code: 'PREPARATION_RECOVERY_REQUIRED' });
+  f.controls.failAt = null; f.controls.restoreFailure = null; f.controls.settingsPending = true;
+  f.settings.pending = async () => [{ kind: 'file-journal' }];
+  f.settings.recover = async () => { throw Object.assign(new Error('use owner'), { code: 'SETTINGS_FG_FILE_RECOVERY_REQUIRED' }); };
+  f.dependencies.components.recoverPending = async () => { throw Object.assign(new Error('external replacement'), { code: 'SETTINGS_FG_FILE_CHANGED' }); };
+  const before = f.calls.length;
+  await assert.rejects(f.preparation.recover('g'), { code: 'SETTINGS_FG_FILE_CHANGED' });
+  assert.equal(f.calls.length, before); assert.equal((await f.preparation.inspect('g')).pending, true);
+  assert.equal(fs.existsSync(f.paths.nr), true); assert.equal(fs.existsSync(f.paths.fgComponents), true);
+});

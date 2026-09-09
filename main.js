@@ -179,17 +179,17 @@ function registerIpc() {
   ]);
   const guardedActions = new Set(['game-install', 'game-repair', 'game-upgrade-addon', 'game-toggle-d3d12',
     'game-api-set', 'game-route-apply', 'nr-write', 'nr-default', 'nr-recommended', 'game-hotkey-write', 'game-reframework-prepare', 'game-reframework-restore',
-    'game-feeder-install', 'game-feeder-restore', 'game-prepare-all']);
+    'game-feeder-install', 'game-prepare-all']);
   const serializedActions = new Set([...guardedActions, 'game-launch', 'game-uninstall', 'game-dismiss',
     'game-confirm', 'game-rename', 'settings-update', 'sr-model-write', 'launch-settings-save', 'launch-settings-preview',
     'launch-settings-apply', 'launch-settings-restore', 'launch-settings-recover', 'fg-components-prepare', 'fg-components-restore',
     'payload-source-pick', 'payload-source-reset', 'payload-source-recheck', 'launch-settings-update', 'launch-settings-reset-all',
-    'game-reframework-recover', 'game-preparation-recover', 'fg-components-recover']);
+    'game-reframework-recover', 'game-feeder-restore', 'game-preparation-recover', 'fg-components-recover']);
   const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => withPermissionRecovery(await service.withError(
     () => {
       const work = async () => {
         if (elevation.restarting && serializedActions.has(name)) throw Object.assign(new Error('管理员重启正在进行，请等待。'), { code: 'ERR_JOB_BUSY' });
-        if (serializedActions.has(name) && loggedGameActions.has(name) && !['game-preparation-recover', 'launch-settings-recover', 'fg-components-recover'].includes(name)) await preparation?.assertReady(args[0]);
+        if (serializedActions.has(name) && loggedGameActions.has(name) && !['game-preparation-recover', 'launch-settings-recover', 'fg-components-recover', 'game-reframework-recover', 'game-feeder-restore'].includes(name)) await preparation?.assertReady(args[0]);
         if (guardedActions.has(name)) await launchCoordinator.assertMutationReady(args[0]);
         return fn(...args);
       };
@@ -216,7 +216,13 @@ function registerIpc() {
   call('game-preparation-recover', id => preparation.recover(id));
   call('game-feeder-inspect', id => service.inspectFeeder(id));
   call('game-feeder-install', (id, options) => service.installFeeder(id, options));
-  call('game-feeder-restore', id => service.restoreFeeder(id));
+  call('game-feeder-restore', async id => {
+    const pending = await launchSettings.pending(id);
+    if (pending.some(row => row.kind !== 'file-journal')) throw Object.assign(new Error('驱动设置有未完成操作，请先恢复超分补帧设置。'), { code: 'SETTINGS_RECOVERY_FIRST' });
+    // The Feeder owner validates its WAL, current files and game process. A
+    // generic pending-file guard would make this recovery impossible to reach.
+    return service.restoreFeeder(id);
+  });
   call('game-toggle-d3d12', (id, enabled, options) => service.toggleD3D12(id, enabled === true, options));
   call('game-uninstall', async (id, removeSettings) => {
     await launchCoordinator.restoreForUninstall(id);

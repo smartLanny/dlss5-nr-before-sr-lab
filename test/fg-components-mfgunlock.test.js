@@ -9,6 +9,7 @@ const { createFgComponents } = require('../src/product/fg-components');
 const { createFgComponents: createLegacy } = require('../src/product/fg-legacy-components');
 const { ADDON, SHA256, sha256 } = require('../src/product/fg-mfgunlock-resources');
 const journal = require('../src/core/file-journal');
+const { createLaunchSettingsService } = require('../src/product/launch-settings-service');
 const resourceRoot = path.resolve(__dirname, '../resources');
 
 function fixture(t, overrides = {}) {
@@ -43,6 +44,122 @@ function oldSnapshot(f) {
   return new Map([...names.map(name => path.join(f.dir, name)), f.receipt].map(file => [file, bytes(file)]));
 }
 function assertSnapshot(snapshot) { for (const [file, expected] of snapshot) assert.deepEqual(bytes(file), expected, file); }
+
+async function interruptedNewAddon(t) {
+  let atCopy = null, f;
+  f = fixture(t, { copyFile: async (...args) => {
+    atCopy = JSON.parse(fs.readFileSync(journal.pendingPath(f.game), 'utf8'));
+    await fsp.copyFile(...args);
+    throw Object.assign(new Error('stopped after first Add-on copy before receipt'), { preservePending: true });
+  } });
+  await assert.rejects(f.service.prepare('g'), { code: 'errBackendRecovery' });
+  const settings = createLaunchSettingsService({ userData: path.join(f.root, 'user'), appDir: f.root, resourcesPath: f.resources,
+    gameDirectory: () => f.game, gameExecutable: () => f.exe, driver: {}, assertGameClosed: f.options.assertGameClosed });
+  return { ...f, atCopy, settings, pending: journal.pendingPath(f.game) };
+}
+
+test('earliest FG copy already has durable owner and hashes; generic refuses and dedicated recovery clears a clean WAL', async t => {
+  const f = await interruptedNewAddon(t);
+  assert.equal(f.atCopy.owner.product, 'xiaofeng-fg-components'); assert.equal(f.atCopy.owner.exe, f.exe);
+  assert.equal(f.atCopy.owner.operation, 'prepare');
+  const check = f.atCopy.owner.checks.find(row => row.rel.endsWith(ADDON));
+  assert.deepEqual(check, { rel: path.relative(f.game, f.addon), before: null, after: [SHA256] });
+  assert.equal(f.atCopy.files.some(row => row.rel.endsWith('xiaofeng-fg-components.json')), false);
+  assert.equal(fs.existsSync(f.receipt), false); assert.equal(sha256(bytes(f.addon)), SHA256);
+  const pendingBytes = bytes(f.pending);
+  await assert.rejects(f.settings.recover('g'), { code: 'SETTINGS_FG_FILE_RECOVERY_REQUIRED' });
+  assert.deepEqual(bytes(f.pending), pendingBytes); assert.equal(sha256(bytes(f.addon)), SHA256);
+  const restarted = createFgComponents(f.options), status = await restarted.inspect('g');
+  assert.equal(status.fileRecoveryPending, true); assert.equal(status.ready, false); assert.equal(status.canPrepare, false);
+  assert.equal((await restarted.inspectMigration('g')).fileRecoveryPending, true);
+  f.state.running = true; await assert.rejects(restarted.recoverPending('g'), { code: 'GAME_RUNNING' }); assert.deepEqual(bytes(f.pending), pendingBytes);
+  f.state.running = false; assert.equal((await restarted.recoverPending('g')).recovered, true);
+  assert.equal(fs.existsSync(f.addon), false); assert.equal(fs.existsSync(f.receipt), false); assert.equal(fs.existsSync(f.pending), false);
+  assert.equal((await restarted.inspectPending('g')).fileRecoveryPending, false);
+});
+
+test('same earliest FG fixture preserves an external replacement and WAL through both recovery entrances', async t => {
+  const f = await interruptedNewAddon(t), replacement = Buffer.from('external replacement after MFG interrupted install');
+  fs.writeFileSync(f.addon, replacement); const pendingBytes = bytes(f.pending);
+  assert.equal(sha256(replacement), '400e34ddd9d035df9d7d7b3181dc21209abde667163fa63d687acbe68bdb6b9b');
+  await assert.rejects(f.settings.recover('g'), { code: 'SETTINGS_FG_FILE_RECOVERY_REQUIRED' });
+  await assert.rejects(createFgComponents(f.options).recoverPending('g'), { code: 'SETTINGS_FG_EXTERNAL_CHANGE' });
+  assert.deepEqual(bytes(f.addon), replacement); assert.deepEqual(bytes(f.pending), pendingBytes);
+  assert.equal(fs.existsSync(f.receipt), false);
+});
+
+test('FG recovery rejects another owner or EXE, foreign targets, and changed snapshot hashes without touching peers', async t => {
+  for (const tamper of ['owner', 'exe', 'target', 'hash', 'directory', 'alias', 'manifest']) {
+    const f = await interruptedNewAddon(t), state = JSON.parse(bytes(f.pending));
+    if (tamper === 'owner') state.owner.product = 'other-product';
+    if (tamper === 'exe') state.owner.exe = path.join(f.dir, 'Other.exe');
+    if (tamper === 'target') { state.files[1].rel = 'Bin/foreign.addon64'; state.owner.checks[0].rel = 'Bin/foreign.addon64'; }
+    if (tamper === 'hash') state.owner.checks[0].before = 'f'.repeat(64);
+    if (tamper === 'directory') state.dirs.push('Bin/unrelated-directory');
+    if (tamper === 'alias') { state.files[1].rel = 'Bin/../Bin/' + ADDON; state.owner.checks[0].rel = state.files[1].rel; }
+    if (tamper === 'manifest') fs.writeFileSync(path.join(f.game, '_DLSS5_Backup/manifest.json'), 'later native installation');
+    fs.writeFileSync(f.pending, JSON.stringify(state)); const before = bytes(f.pending), addon = bytes(f.addon);
+    await assert.rejects(f.service.recoverPending('g'));
+    assert.deepEqual(bytes(f.pending), before); assert.deepEqual(bytes(f.addon), addon);
+  }
+});
+
+test('dedicated FG recovery is serialized across component service instances', async t => {
+  const f = await interruptedNewAddon(t); let release, reached;
+  const hold = new Promise(resolve => release = resolve), entered = new Promise(resolve => reached = resolve);
+  const delayed = createFgComponents({ ...f.options, journal: { ...journal, recover: async game => { reached(); await hold; return journal.recover(game); } } });
+  const first = delayed.recoverPending('g'); await entered;
+  try { await assert.rejects(createFgComponents(f.options).recoverPending('g'), { code: 'SETTINGS_FG_FILE_BUSY' }); }
+  finally { release(); }
+  assert.equal((await first).recovered, true); assert.equal(fs.existsSync(f.pending), false);
+});
+
+test('old unmarked FG WAL admits only the exact pinned Add-on and preserves the same external-change boundary', async t => {
+  for (const external of [false, true]) {
+    const f = await interruptedNewAddon(t), state = JSON.parse(bytes(f.pending)); delete state.owner;
+    fs.writeFileSync(f.pending, JSON.stringify(state));
+    if (external) fs.writeFileSync(f.addon, 'external old-WAL replacement');
+    await assert.rejects(f.settings.recover('g'), { code: 'SETTINGS_FG_FILE_RECOVERY_REQUIRED' });
+    if (external) {
+      const before = bytes(f.pending); await assert.rejects(f.service.recoverPending('g'), { code: 'SETTINGS_FG_EXTERNAL_CHANGE' });
+      assert.equal(fs.readFileSync(f.addon, 'utf8'), 'external old-WAL replacement'); assert.deepEqual(bytes(f.pending), before);
+    } else {
+      await f.service.recoverPending('g'); assert.equal(fs.existsSync(f.addon), false); assert.equal(fs.existsSync(f.pending), false);
+    }
+  }
+});
+
+test('legacy migration interruption restores only its recorded targets through dedicated file recovery', async t => {
+  let stop = false, f;
+  const guardedJournal = { ...journal, capture: async (game, file) => {
+    await journal.capture(game, file);
+    if (stop && path.basename(file) === 'version.ini' && !fs.existsSync(path.join(f.dir, 'RTX40MFG-Universal.json')))
+      throw Object.assign(new Error('interrupted after first legacy deletion'), { preservePending: true });
+  } };
+  f = fixture(t, { journal: guardedJournal }); await f.legacy.prepare('g'); const original = oldSnapshot(f); stop = true;
+  await assert.rejects(f.service.migrateLegacy('g'), { code: 'errBackendRecovery' });
+  const wal = JSON.parse(bytes(journal.pendingPath(f.game)));
+  assert.equal(wal.owner.product, 'xiaofeng-fg-components'); assert.equal(wal.owner.operation, 'legacy-restore');
+  assert.equal(fs.existsSync(path.join(f.dir, 'RTX40MFG-Universal.json')), false);
+  stop = false; await createFgComponents(f.options).recoverPending('g'); assertSnapshot(original);
+  assert.equal(fs.existsSync(journal.pendingPath(f.game)), false);
+  assert.equal((await f.service.inspectMigration('g')).migrationPending, false);
+});
+
+test('interrupted managed MFG uninstall is recoverable with the original Add-on and receipt snapshots', async t => {
+  let stop = false, f;
+  const guardedJournal = { ...journal, capture: async (game, file) => {
+    await journal.capture(game, file);
+    if (stop && path.basename(file) === 'xiaofeng-fg-components.json' && !fs.existsSync(f.addon))
+      throw Object.assign(new Error('interrupted uninstall after Add-on removal'), { preservePending: true });
+  } };
+  f = fixture(t, { journal: guardedJournal }); await f.service.prepare('g'); const originalReceipt = bytes(f.receipt); stop = true;
+  await assert.rejects(f.service.restore('g'), { code: 'errBackendRecovery' });
+  const wal = JSON.parse(bytes(journal.pendingPath(f.game))); assert.equal(wal.owner.operation, 'restore');
+  stop = false; await createFgComponents(f.options).recoverPending('g');
+  assert.equal(sha256(bytes(f.addon)), SHA256); assert.deepEqual(bytes(f.receipt), originalReceipt);
+  assert.equal(fs.existsSync(journal.pendingPath(f.game)), false);
+});
 
 test('new dispatcher installs exactly one add-on, leaves loaders and both config sources unchanged', async t => {
   const f = fixture(t);

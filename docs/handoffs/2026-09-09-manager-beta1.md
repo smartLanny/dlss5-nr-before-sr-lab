@@ -9,7 +9,8 @@
 - 准备意图在各子事务前持久保存。失败先恢复本轮新增 SR/FG 设置，再撤销新增组件与 NR；恢复失败保留记录并阻止继续写入或启动。底层文件/驱动日志和补帧迁移分别恢复，不嵌套文件事务。
 - 新 RTX40 路线只安装 MFG Unlock 0.6.1，旧 v1 组件仍可识别、恢复和显式迁移。只写 `ReShade.ini` 的 `RenoDX.MFGUnlock/Enabled`、`ForceMultiplier`；不暴露旧动态目标、MaxCount、帧节奏补丁或全局策略。更高倍率只向上请求，不能作为关闭/降低 FG 的开关。菜单为 ReShade → Add-ons → MFG Unlock。
 - Feeder 为独立 x64 DX12 / RTX50 / RGBA8 明确 sRGB 成品帧 NR 路线。使用项目 Core 唯一 NR owner 与估算导引；不把配套私有 DLL 认作游戏原生 SR/FG。原生 DLSS、Feeder、Vulkan 各有固定配套和恢复边界。
-- 主反馈入口根据有效 Feeder 收据授权所选 EXE 旁固定 Add-ons 日志目录，保留 `nr-before-sr.log` 与 `dlss5-feed.log` 的有界头尾内容；任意目录、其他 EXE、伪造收据及链接不获授权。此修正之后重新打包，早期 `dist-beta1-final` 仅为预检，最终目录为 `dist-beta1-verified`。
+- 主反馈入口根据有效 Feeder 收据授权所选 EXE 旁固定 Add-ons 日志目录，保留 `nr-before-sr.log` 与 `dlss5-feed.log` 的有界头尾内容；任意目录、其他 EXE、伪造收据及链接不获授权。正式复核修正后重新打包，早期 `dist-beta1-final`、`dist-beta1-verified` 和 pre-review ZIP 仅为候选证据，最终目录为 `dist-beta1-release`。
+- 正式复核补齐 REFramework、Feeder 和 FG 的专用恢复入口。一键准备记录与通用写入限制不会挡住恢复入口；未知/混合 API 游戏可显式选 DX12 进入符合条件的 Feeder 路线。FG 在第一次文件修改前绑定事务归属和游戏 EXE，并保存目标前后摘要；即使复制后尚无组件收据，中断也必须经过专用恢复。外部文件变更时保留文件和记录，不报告已撤销，不继续启动。
 
 ## 固定运行配套
 
@@ -20,7 +21,7 @@
 
 ## 验证与证据边界
 
-全量单元运行 `build/final-unit.tap`：754 项，751 通过，3 项需要额外样本而跳过，0 失败。后续 Feeder 边界变动另跑对应安装、恢复、日志与原生/Vulkan 回归。三项真实 Electron 界面测试共 186 项检查通过：普通权限、沙箱开启、软件渲染，mock IPC 与临时 userData；这不等于真实驱动/游戏联测。
+正式复核修正后的完整 CPU/单元运行 `build/release-unit.tap`：796 项，793 通过，3 项需要额外样本而跳过，0 失败，包含共用 journal 的原生 NR、Vulkan、REFramework、旧无 owner 记录及新 FG 中断恢复。新添加的嵌包校验工具另有 `build/release-embedded-tools.tap`。早期三项真实 Electron 界面测试共 186 项通过；修正后的 FG 界面 141 项、游戏卡片 32 项通过，普通权限、沙箱开启、软件渲染，mock IPC 与临时 userData。LS pending、资格缺失时专用恢复按钮仍可用。这些检查不等于真实驱动/游戏联测。
 
 Feeder 主反馈修正后的安装/恢复、反馈、原生/Vulkan 和 REFramework 定向回归 39 项全部通过。
 

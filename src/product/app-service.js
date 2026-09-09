@@ -95,6 +95,32 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   const vulkanRoute = game => classifyApi(game?.scan?.chosen) === 'vulkan';
   const vulkanOwned = game => vulkan.summary(game).installed === true;
   const feederOwned = game => feeder.summary(game).installed === true;
+  function feederRouteSelection(game, api) {
+    const chosen = game.scan?.chosen;
+    if (!chosen) throw appError('ERR_NO_GAME_EXE');
+    let detected = chosen.detectedApiResolution || { api: chosen.detectedApi || 'unknown' };
+    if (api === 'auto' && chosen.apiSettings?.kind === 'rdr2-system-xml') {
+      const current = apiSettingsReader.read({ ...chosen.apiSettings, exe: chosen.path });
+      detected = { api: current.api || 'unknown', source: 'game-settings', evidence: [] };
+    }
+    const nextApi = api === 'auto' ? detected.api : api;
+    if (nextApi !== 'dx12') throw appError(['unknown', 'mixed'].includes(nextApi) ? 'ERR_API_SELECTION_REQUIRED' : 'ERR_UNSUPPORTED_API');
+    if (Array.isArray(chosen.supportedApis) && !chosen.supportedApis.includes(nextApi)) throw appError('ERR_UNSUPPORTED_API');
+    const selected = { ...chosen, apiResolution: { api: nextApi,
+      source: api === 'auto' ? detected.source : 'override', evidence: detected.evidence || [] } };
+    return { ...game, apiOverride: api, chosen: selected,
+      scan: { ...game.scan, chosen: selected, componentSelection: { ...game.scan.componentSelection, dx11Carrier: false } } };
+  }
+  function feederSelectionSummary(game, current, vk) {
+    try {
+      if (vk.installed || vk.needsRecovery) routeRestoreFirst();
+      if (readManifest(game.dir)) throw Object.assign(new Error('先恢复原生 DLSS 配套，再准备 Feeder。'), { code: 'FEEDER_ROUTE_CONFLICT' });
+      const selected = feeder.summary(feederRouteSelection(game, 'dx12'));
+      return { ...current, selectionAvailable: selected.available === true, selectionReason: selected.reason || null };
+    } catch (error) {
+      return { ...current, selectionAvailable: false, selectionReason: error.message };
+    }
+  }
   function requireNoFeeder(game) {
     const state = feeder.summary(game);
     if (state.installed || state.needsRecovery) throw Object.assign(new Error('请先恢复无 DLSS 的 Feeder 配套，再切换原生或 Vulkan 路线。'), { code: 'FEEDER_RESTORE_FIRST' });
@@ -467,7 +493,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     if (!game) return null;
     const { scan, ...safe } = game;
     const vk = vulkan.summary(game);
-    const feed = feeder.summary(game);
+    const feed = feederSelectionSummary(game, feeder.summary(game), vk);
     const enhancements = inspectNativeEnhancementCapabilities(scan);
     const routed = vulkanRoute(game);
     const refInput = reframeworkInput(game);
@@ -986,12 +1012,39 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     inspectFeeder: async id => feeder.inspect(findGame(id)),
     installFeeder: async (id, options = {}) => {
       if (!options || typeof options !== 'object' || Array.isArray(options) ||
-          Object.keys(options).some(key => key !== 'allowAntiCheat') ||
+          Object.keys(options).some(key => !['api', 'allowAntiCheat'].includes(key)) ||
+          options.api !== undefined && !['auto', 'dx12'].includes(options.api) ||
           options.allowAntiCheat !== undefined && typeof options.allowAntiCheat !== 'boolean') throw appError('ERR_BAD_REQUEST');
       const game = findGame(id), vk = vulkan.summary(game);
       if (vk.installed || vk.needsRecovery) routeRestoreFirst();
       if (readManifest(game.dir)) throw Object.assign(new Error('先恢复原生 DLSS 配套，再准备 Feeder。'), { code: 'FEEDER_ROUTE_CONFLICT' });
-      return refreshAfterMutation(await feeder.install(game, options));
+      const installOptions = { allowAntiCheat: options.allowAntiCheat === true };
+      if (options.api === undefined) return refreshAfterMutation(await feeder.install(game, installOptions));
+      const routed = feederRouteSelection(game, options.api), current = feeder.summary(game);
+      if (current.installed || current.needsRecovery) {
+        // Repairs keep the original EXE/API binding. A same-API request may
+        // repair files, but cannot silently turn an existing route into another.
+        if (classifyApi(game.scan.chosen) !== 'dx12')
+          throw Object.assign(new Error('请先恢复已有 Feeder 配套，再更改其 API 绑定。'), { code: 'FEEDER_RESTORE_FIRST' });
+        return refreshAfterMutation(await feeder.install(game, installOptions));
+      }
+      const state = store.read(), key = pathKey(game.dir);
+      let settingChange, preferenceWritten = false, result;
+      try {
+        result = await feeder.install(routed, installOptions, async () => {
+          // Feeder invokes this only after package, process, anti-cheat and
+          // launch preflight, immediately before its existing file transaction.
+          settingChange = await gameApiSettings.apply(game, options.api);
+          await store.write({ gameOverrides: { ...state.gameOverrides,
+            [key]: { ...state.gameOverrides[key], api: options.api, apiExecutable: game.scan.chosen.path } } });
+          preferenceWritten = true;
+        });
+      } catch (error) {
+        if (preferenceWritten || settingChange?.changed) await rollbackApiChoice(error, state, key, settingChange);
+        throw error;
+      }
+      return refreshAfterMutation({ ...result, appliedRoute: { api: 'dx12', version: result.coreVersion,
+        gameSettingsSynced: settingChange?.applied === true } });
     },
     restoreFeeder: async id => refreshAfterMutation(await feeder.restore(findGame(id))),
     readReframework: async id => {

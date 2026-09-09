@@ -52,8 +52,8 @@ function harness(options = {}) {
     gameDirectory: () => 'C:\\game', gameExecutable: () => 'C:\\game\\game.exe',
     gameScan: () => ({ primaryDlss: options.noNativeDlss ? null : { name: 'nvngx_dlss.dll' },
       streamlineFiles: options.noNativeFg ? [] : [{ name: 'sl.interposer.dll' }, { name: 'sl.dlss_g.dll' }], chosen: {}, reshade: {} }),
-    reShadeSource: () => null, refreshAfterMutation: async value => value, importAddonFile: async () => {}, dispose() {} };
-  const launchSettings = { assertReady: async () => {}, restore: async () => {}, inspect: async () => ({ requests: {}, applied: {} }), ...options.launchService };
+    reShadeSource: () => null, refreshAfterMutation: async value => value, importAddonFile: async () => {}, dispose() {}, ...options.appService };
+  const launchSettings = { assertReady: async () => {}, pending: async () => [], restore: async () => {}, inspect: async () => ({ requests: {}, applied: {} }), ...options.launchService };
   const fgComponents = options.fgComponents || { inspect: async () => ({ route: 'native', ready: true }) };
   const business = {
     './src/product/app-service': { createAppService: () => service }, './src/product/sr-model-service': { createSrModelService: () => ({ read() {} }) },
@@ -61,7 +61,7 @@ function harness(options = {}) {
     './src/product/launch-coordinator': { createLaunchCoordinator: () => ({ serialize: options.serialize || (fn => fn()),
       assertMutationReady: options.assertMutationReady || (async () => {}), inspect: async () => {}, launch: async () => ({ launchSettings: [] }) }) },
     './src/core/install-guards': { assertGameClosed: options.assertGameClosed || (async () => {}) }, './src/product/fg-components': { createFgComponents: () => fgComponents },
-    './src/product/game-preparation': { createGamePreparation: () => ({ assertReady: async () => {}, inspect: async () => ({ pending: false }) }) },
+    './src/product/game-preparation': { createGamePreparation: () => ({ assertReady: async () => {}, inspect: async () => ({ pending: false }), ...options.preparationService }) },
     './src/product/game-support': { classifyApi: () => 'dx12' }
   };
   const fakeProcess = new EventEmitter(); Object.assign(fakeProcess, { argv: options.argv || ['electron', mainFile], env: { SystemRoot: 'C:\\Windows', ...(options.env || {}) }, platform: 'win32',
@@ -365,4 +365,45 @@ test('native FG remains independent from a missing SR provider', async () => {
   await assert.rejects(h.handles.get('launch-settings-update')({}, 'game', 'sr', { backend: 'native', quality: 'quality', preset: 'auto' }), { code: 'ERR_NO_DLSS' });
   const result = await h.handles.get('launch-settings-update')({}, 'game', 'fg', { backend: 'nvidia', mode: 'fixed', multiplier: 2 });
   assert.equal(result.applied, true); assert.deepEqual(calls, ['fg-inspect', 'preview-fg', 'apply', 'save']); h.window.emit('closed');
+});
+
+test('specialized recovery remains reachable while a one-click preparation ledger is pending', async () => {
+  const calls = [];
+  const h = harness({ preparationService: { assertReady: async () => {throw Object.assign(new Error('pending preparation'),{code:'PREPARATION_PENDING'});} },
+    assertMutationReady: async () => {throw Object.assign(new Error('pending files'),{code:'SETTINGS_RECOVERY_FIRST'});},
+    serialize: async work => {calls.push('serialized'); return work();},
+    launchService: {pending: async () => [{kind:'file-journal'}]},
+    appService: {restoreFeeder: async () => {calls.push('feeder-owner'); return {restored:true};}, recoverReframework: async () => {calls.push('ref-owner');return {recovered:true};}} });
+  await settle();
+  assert.equal((await h.handles.get('game-feeder-restore')({},'g')).restored,true);
+  assert.equal((await h.handles.get('game-reframework-recover')({},'g')).recovered,true);
+  assert.deepEqual(calls,['serialized','feeder-owner','serialized','ref-owner']);
+  await assert.rejects(h.handles.get('game-install')({},'g'),{code:'PREPARATION_PENDING'});
+});
+
+test('Feeder recovery preserves the driver-pending guard and propagates owner failures', async () => {
+  let calls=0;
+  const h=harness({launchService:{pending:async()=>[{kind:'driver-receipt'}]},appService:{restoreFeeder:async()=>{calls++;}}});
+  await settle(); await assert.rejects(h.handles.get('game-feeder-restore')({},'g'),{code:'SETTINGS_RECOVERY_FIRST'}); assert.equal(calls,0);
+  const conflict=harness({launchService:{pending:async()=>[{kind:'file-journal'}]},appService:{restoreFeeder:async()=>{throw Object.assign(new Error('external file changed'),{code:'FEEDER_FILE_CHANGED'});}}});
+  await settle();await assert.rejects(conflict.handles.get('game-feeder-restore')({},'g'),{code:'FEEDER_FILE_CHANGED'});
+});
+
+test('FG file recovery remains serialized and reachable through pending preparation and file guards', async () => {
+  const calls = []; let filesPending = true;
+  const h = harness({
+    preparationService: { assertReady: async () => { throw Object.assign(new Error('pending preparation'), { code: 'PREPARATION_PENDING' }); } },
+    assertMutationReady: async () => { throw new Error('generic write guard must not run'); },
+    serialize: async work => { calls.push('serialized'); return work(); },
+    assertGameClosed: async () => { calls.push('closed'); },
+    launchService: { assertReady: async () => { calls.push('settings-ready'); if (filesPending) throw new Error('pending files'); } },
+    fgComponents: {
+      recoverPending: async () => { calls.push('fg-owner'); filesPending = false; return { recovered: true }; },
+      inspectMigration: async () => ({ migrationPending: false, fileRecoveryPending: false })
+    }
+  });
+  await settle();
+  assert.equal((await h.handles.get('fg-components-recover')({}, 'g')).restored, true);
+  assert.deepEqual(calls, ['serialized', 'closed', 'fg-owner', 'settings-ready']);
+  await assert.rejects(h.handles.get('game-install')({}, 'g'), { code: 'PREPARATION_PENDING' });
 });

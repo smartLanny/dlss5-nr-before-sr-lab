@@ -197,4 +197,4 @@ if (require.main === module) {
     if (!result.ok) process.exitCode = 1;
   })().catch(error => { console.error(JSON.stringify({ ok: false, staticOnly: true, launched: false, error: error.message }, null, 2)); process.exitCode = 1; });
 }
-module.exports = { STARTUP_FILES, RUNTIME_FILES, sourceCopies, archiveSourceFiles, startupContract, verifyManagerRelease, parseArguments };
+module.exports = { STARTUP_FILES, RUNTIME_FILES, sourceCopies, archiveSourceFiles, startupContract, verifyManagerRelease, parseArguments, hashFile, walk };

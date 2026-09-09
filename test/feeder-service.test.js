@@ -12,6 +12,7 @@ const { inspectNativeEnhancementCapabilities } = require('../src/product/game-en
 const journal = require('../src/core/file-journal');
 const { createAppService } = require('../src/product/app-service');
 const { createFeedbackCollector } = require('../src/product/feedback');
+const { createRdr2ApiSettings } = require('../src/product/rdr2-api-settings');
 
 function peBytes(machine = 0x8664) {
   const b = Buffer.alloc(160); b.writeUInt16LE(0x5a4d); b.writeUInt32LE(64, 60); b.writeUInt32LE(0x4550, 64);
@@ -19,7 +20,8 @@ function peBytes(machine = 0x8664) {
 }
 function fixture(t, options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'feeder-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const gameRoot = path.join(root, 'game'), exeDir = path.join(gameRoot, 'bin'), exe = path.join(exeDir, 'Game.exe');
+  const gameRoot = path.join(root, 'game'), exeDir = options.rdr2 ? gameRoot : path.join(gameRoot, 'bin');
+  const exe = path.join(exeDir, options.rdr2 ? 'RDR2.exe' : 'Game.exe');
   const appDir = path.join(root, 'app'), packageRoot = path.join(appDir, 'resources', 'feeder-runtime');
   fs.mkdirSync(exeDir, { recursive: true }); fs.writeFileSync(exe, peBytes()); fs.mkdirSync(packageRoot, { recursive: true });
   const items = [
@@ -59,6 +61,118 @@ function fixture(t, options = {}) {
     receipt: path.join(gameRoot, RECEIPT), file: target => path.join(exeDir, target), setRunning: value => running = value,
     setAntiCheat: value => antiCheat = value, setElevated: value => elevated = value };
 }
+
+function apiFixture(t, options = {}) {
+  const f = fixture(t, { rdr2: options.rdr2 === true }), userData = path.join(f.root, 'user');
+  const documentsDir = path.join(f.root, 'documents');
+  const settingsFile = path.join(documentsDir, 'Rockstar Games', 'Red Dead Redemption 2', 'Settings', 'system.xml');
+  if (options.rdr2) {
+    fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+    fs.writeFileSync(settingsFile, '<rage__fwuiSystemSettingsCollection><advancedGraphics><API>kSettingAPI_Vulkan</API></advancedGraphics></rage__fwuiSystemSettingsCollection>');
+  }
+  const reader = createRdr2ApiSettings({ documentsDir }), feeder = f.service(options.feederOverrides);
+  const library = { async scanAll(state) {
+    const settings = options.rdr2 ? reader.read({ exe: f.exe, steamAppId: '1174180', entryRoot: f.gameRoot }) : null;
+    const detectedApi = settings?.api || options.detectedApi || 'unknown';
+    const saved = state.gameOverrides[path.resolve(f.gameRoot).toLowerCase()];
+    const bound = saved?.apiExecutable?.toLowerCase() === f.exe.toLowerCase() && saved.api !== 'auto';
+    const chosen = { ...f.chosen, apiSettings: settings, supportedApis: options.supportedApis,
+      detectedApi, detectedApiResolution: { api: detectedApi, source: 'fixture', evidence: [] },
+      apiResolution: { api: bound ? saved.api : detectedApi, source: bound ? 'override' : 'fixture', evidence: [] } };
+    return [{ ...f.game, chosen, apiOverride: bound ? saved.api : 'auto', installed: false,
+      scan: { ...f.game.scan, chosen } }];
+  } };
+  const vulkan = { summary: () => ({ installed: options.vulkanInstalled === true,
+    needsRecovery: options.vulkanPending === true, available: false }) };
+  const app = createAppService({ userData, appDir: f.appDir, resourcesPath: path.join(f.appDir, 'resources'), documentsDir,
+    overrides: { library, feeder, vulkan, apiSettingsReader: reader,
+      detectGpu: () => f.hardware, assertGameClosed: async () => {} } });
+  return { ...f, app, feeder, settingsFile, key: path.resolve(f.gameRoot).toLowerCase() };
+}
+
+test('AppService commits an EXE-bound DX12 choice before installing Feeder for an unknown API', async t => {
+  const f = apiFixture(t), [before] = await f.app.refresh();
+  assert.equal(before.chosen.apiResolution.api, 'unknown');
+  assert.equal(before.feeder.available, false);
+  assert.equal(before.feeder.selectionAvailable, true);
+  const result = await f.app.installFeeder('test', { api: 'dx12' });
+  assert.equal(result.installed, true); assert.equal(result.appliedRoute.api, 'dx12');
+  assert.equal(fs.existsSync(f.receipt), true);
+  assert.equal(f.app.store.read().gameOverrides[f.key].api, 'dx12');
+  assert.equal(f.app.store.read().gameOverrides[f.key].apiExecutable, f.exe);
+  const [after] = await f.app.refresh();
+  assert.equal(after.chosen.apiResolution.api, 'dx12'); assert.equal(after.feeder.available, true);
+  assert.equal((await f.feeder.inspect({ ...f.game, scan: { ...f.game.scan, chosen: after.chosen } })).ready, true);
+});
+
+test('AppService restores both the previous API choice and actual game settings when Feeder copying fails', async t => {
+  const f = apiFixture(t, { rdr2: true, feederOverrides: { async copyFile() { throw new Error('copy failure'); } } });
+  await f.app.store.write({ gameOverrides: { [f.key]: { api: 'vulkan', apiExecutable: f.exe, name: 'Keep this name' } } });
+  await f.app.refresh();
+  const original = fs.readFileSync(f.settingsFile), before = f.app.store.read().gameOverrides;
+  await assert.rejects(f.app.installFeeder('test', { api: 'dx12' }), /copy failure/);
+  assert.deepEqual(f.app.store.read().gameOverrides, before);
+  assert.deepEqual(fs.readFileSync(f.settingsFile), original);
+  assert.equal(fs.existsSync(f.receipt), false); assert.equal(fs.existsSync(f.file('dxgi.dll')), false);
+  assert.equal(fs.existsSync(journal.pendingPath(f.gameRoot)), false);
+});
+
+test('Feeder auto selection uses current detection and leaves the existing auto binding in place on same-API repair', async t => {
+  const f = apiFixture(t, { detectedApi: 'dx12' }); await f.app.refresh();
+  assert.equal((await f.app.installFeeder('test', { api: 'auto' })).installed, true);
+  const before = f.app.store.read().gameOverrides;
+  assert.equal((await f.app.installFeeder('test', { api: 'dx12' })).repaired, true);
+  assert.deepEqual(f.app.store.read().gameOverrides, before);
+  assert.equal((await f.app.listGames())[0].chosen.apiResolution.source, 'fixture');
+});
+
+test('Feeder API selection preserves supported-API, hardware, package and route restrictions', async t => {
+  for (const restriction of ['api', 'gpu', 'bitness', 'package', 'vulkan', 'vulkan-pending', 'native']) {
+    const f = apiFixture(t, { supportedApis: restriction === 'api' ? ['vulkan'] : undefined,
+      vulkanInstalled: restriction === 'vulkan', vulkanPending: restriction === 'vulkan-pending' });
+    if (restriction === 'gpu') f.hardware.family = 'RTX40';
+    if (restriction === 'bitness') f.chosen.bitness = 32;
+    if (restriction === 'package') fs.unlinkSync(path.join(f.packageRoot, 'recipe.json'));
+    if (restriction === 'native') {
+      const { newManifest, manifestPath } = require('../src/product/manifest');
+      fs.mkdirSync(path.dirname(manifestPath(f.gameRoot)), { recursive: true });
+      fs.writeFileSync(manifestPath(f.gameRoot), JSON.stringify(newManifest(f.gameRoot, f.exe, 'dx12')));
+    }
+    const [game] = await f.app.refresh(), before = f.app.store.read().gameOverrides;
+    assert.equal(game.feeder.selectionAvailable, false, restriction);
+    assert.ok(game.feeder.selectionReason, restriction);
+    await assert.rejects(f.app.installFeeder('test', { api: 'dx12' }));
+    assert.deepEqual(f.app.store.read().gameOverrides, before, restriction);
+    assert.equal(fs.existsSync(f.receipt), false, restriction);
+  }
+});
+
+test('Feeder preflight rejects running games, anti-cheat and invalid source files before API settings change', async t => {
+  for (const restriction of ['running', 'anti-cheat', 'source']) {
+    const f = apiFixture(t, { rdr2: true });
+    if (restriction === 'running') f.setRunning(true);
+    if (restriction === 'anti-cheat') f.setAntiCheat(true);
+    if (restriction === 'source') fs.writeFileSync(path.join(f.packageRoot, 'dxgi.dll'), 'changed');
+    await f.app.refresh();
+    const original = fs.readFileSync(f.settingsFile), before = f.app.store.read().gameOverrides;
+    await assert.rejects(f.app.installFeeder('test', { api: 'dx12' }));
+    assert.deepEqual(fs.readFileSync(f.settingsFile), original, restriction);
+    assert.deepEqual(f.app.store.read().gameOverrides, before, restriction);
+    assert.equal(fs.existsSync(path.join(f.root, 'user', 'game-api-backups')), false, restriction);
+    assert.equal(fs.existsSync(f.receipt), false, restriction);
+  }
+});
+
+test('an installed Feeder accepts same-API repair while preserving its saved binding and rejects unresolved auto selection', async t => {
+  const f = apiFixture(t); await f.app.refresh();
+  await f.app.installFeeder('test', { api: 'dx12' });
+  const before = f.app.store.read().gameOverrides, receipt = fs.readFileSync(f.receipt);
+  assert.equal((await f.app.installFeeder('test', { api: 'dx12' })).repaired, true);
+  assert.deepEqual(f.app.store.read().gameOverrides, before);
+  await assert.rejects(f.app.installFeeder('test', { api: 'auto' }), { code: 'ERR_API_SELECTION_REQUIRED' });
+  assert.deepEqual(f.app.store.read().gameOverrides, before);
+  assert.equal(JSON.parse(fs.readFileSync(f.receipt)).installId, JSON.parse(receipt).installId);
+});
 
 test('Feeder gets a separate no-DLSS admission without weakening native installation', () => {
   const scan = { chosen: { bitness: 64, apiResolution: { api: 'dx12' } }, primaryDlss: null };

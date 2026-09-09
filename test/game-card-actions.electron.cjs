@@ -36,7 +36,17 @@ installMock();
   };
   window.manager.boot = async () => {
     const response = await originalBoot();
-    if (!mock.games) mock.games = seedGames(response.value.games);
+    if (!mock.games) {
+      mock.games = seedGames(response.value.games);
+      const feeder = mock.games.find(row => row.id === 'ui-feeder');
+      mock.games.push({ ...structuredClone(feeder), id: 'ui-feeder-api', name: 'Feeder · 手动确认 API',
+        chosen: { ...feeder.chosen, apiResolution: { api: 'unknown', source: 'fixture' }, detectedApiResolution: { api: 'unknown', source: 'fixture' } },
+        supportCode: 'ERR_API_SELECTION_REQUIRED', feeder: { ...feeder.feeder, available: false,
+          reason: '先确认所选 EXE 使用 DirectX 12。', selectionAvailable: true, selectionReason: null } });
+      mock.games.push({ ...structuredClone(feeder), id: 'ui-feeder-recovery', name: 'Feeder · 恢复未完成安装', installed: true,
+        feeder: { ...feeder.feeder, installed: true, available: false, needsRecovery: true,
+          selectionAvailable: false, selectionReason: 'Feeder 有未完成操作，请先恢复。' } });
+    }
     response.value.games = clone();
     response.value.hardware = { family: 'RTX50', series: ['RTX50'], names: ['NVIDIA GeForce RTX 5090'], source: 'fixture' };
     window.__launchMock.data.hardware = structuredClone(response.value.hardware);
@@ -55,13 +65,31 @@ installMock();
     mock.installResolve = result => {
       if (result && result.ok === true) {
         const game = mock.games.find(row => row.id === id);
-        if (game) { game.installed = true; if (options.route === 'feeder') game.feeder.installed = true; }
+        if (game) {
+          game.installed = true;
+          if (options.route === 'feeder') {
+            game.feeder.installed = true; game.feeder.available = true;
+            if (options.api && options.api !== 'auto') {
+              game.apiOverride = options.api;
+              game.chosen.apiResolution = { api: options.api, source: 'override', evidence: [] };
+            }
+          }
+        }
       }
       resolve(result);
       mock.installResolve = null;
     };
   });
   window.manager.inspectPreparation = async id => ok(mock.pending[id] || { pending: false, stages: [], runtimeVerified: false });
+  window.manager.restoreFeeder = async id => {
+    mock.calls.push(['restore-feeder', id]);
+    const game = mock.games.find(row => row.id === id);
+    game.installed = false; game.feeder.installed = false; game.feeder.needsRecovery = false; game.feeder.available = true;
+    game.feeder.selectionAvailable = true; game.feeder.selectionReason = null;
+    return ok({ restored: true, runtimeVerified: false });
+  };
+  const originalGenericRecovery = window.manager.recoverLaunchSettings;
+  window.manager.recoverLaunchSettings = (...args) => { mock.calls.push(['generic-recovery', ...args]); return originalGenericRecovery(...args); };
   window.manager.recoverPreparation = async id => {
     mock.calls.push(['recover-preparation', id]);
     if (mock.failRecovery) return { ok: false, error: { code: 'PREPARATION_RECOVERY_REQUIRED', message: '模拟恢复失败，记录仍保留' } };
@@ -160,6 +188,31 @@ async function smoke() {
   await waitUntil(() => !document.body.classList.contains('is-busy') && !window.__cardMock.pending['ui-scanned'] && card('ui-scanned').querySelector('.install-btn'));
   assert(!preparation()?.querySelector('.preparation-recover-btn'), 'Confirmed recovery removes the pending recovery action');
   assert(!preparation()?.textContent.includes('NR · 已准备'), 'After rollback the card no longer presents a superseded prepared NR result');
+
+  card('ui-feeder-api').querySelector('.game-card-head').click();
+  const apiCard = () => card('ui-feeder-api'), apiSelect = apiCard().querySelector('.game-api-select');
+  assert(apiSelect.value === 'auto' && apiCard().textContent.includes('API 待确认'), 'An unidentified Feeder API remains unconfirmed before an explicit selection');
+  apiSelect.value = 'dx12'; apiSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  const apiApply = apiCard().querySelector('.route-apply-btn');
+  assert(apiApply && !apiApply.disabled && apiApply.textContent.includes('一键准备 Feeder'), 'Selecting DX12 enables the Feeder detail action using candidate eligibility');
+  assert(apiCard().querySelector('.install-btn') && !apiCard().querySelector('.install-btn').disabled, 'Selecting DX12 enables the matching card-header action');
+  apiApply.click(); await waitForCall('prepare', 'ui-feeder-api');
+  const selectedRequest = window.__cardMock.calls.find(row => row[0] === 'prepare' && row[1] === 'ui-feeder-api')[2];
+  assert(selectedRequest.api === 'dx12' && selectedRequest.route === 'feeder', 'The real DOM submission carries both the manual DX12 selection and Feeder route');
+  window.__cardMock.installResolve({ ok: true, value: { prepared: true, runtimeVerified: false, stages: [
+    { domain: 'nr', status: 'prepared', message: '已按确认的 DX12 准备 Feeder。' }
+  ] } });
+  await waitUntil(() => !document.body.classList.contains('is-busy') && apiCard().querySelector('.launch-btn'));
+  assert(apiCard().querySelector('.game-api-select').value === 'dx12', 'Successful preparation retains the committed DX12 selection after refresh');
+
+  const recoveringCard = () => card('ui-feeder-recovery');
+  const ownerRecovery = recoveringCard().querySelector('.feeder-recover-btn');
+  assert(ownerRecovery && ownerRecovery.textContent.includes('恢复并卸载 Feeder') && !recoveringCard().querySelector('.launch-btn'), 'A pending Feeder transaction exposes its owner recovery action instead of game launch');
+  ownerRecovery.click(); await waitForCall('restore-feeder', 'ui-feeder-recovery');
+  await waitUntil(() => !document.body.classList.contains('is-busy') && !recoveringCard().querySelector('.feeder-recover-btn'));
+  assert(window.__cardMock.calls.filter(row => row[0] === 'restore-feeder' && row[1] === 'ui-feeder-recovery').length === 1 &&
+    !window.__cardMock.calls.some(row => row[0] === 'generic-recovery'), 'Feeder recovery invokes only its dedicated owner API once');
+  assert(Boolean(recoveringCard().querySelector('.install-btn')), 'Confirmed owner recovery removes the pending state and restores the preparation entry');
 
   card('ui-feeder').querySelector('.game-card-head').click();
   const feederDetail = () => card('ui-feeder').querySelector('.game-detail');

@@ -109,3 +109,32 @@ test('unreadable authoritative migration state never claims preparation was roll
   await assert.rejects(f.workflow.apply('g',request,{migrateLegacy:true}),error=>error.code==='SETTINGS_FG_RECOVERY_REQUIRED'&&error.details.recoveryErrors[0].phase==='migration-status');
   assert.equal(f.calls.includes('rollback-legacy-components'),false);
 });
+
+test('file interruption before a component receipt never claims rollback or reinstates legacy hooks', async () => {
+  const f = fixture({ failAt: 'prepare-new' });
+  f.components.inspectMigration = async () => ({ ...f.status(), fileRecoveryPending: true });
+  await assert.rejects(f.workflow.apply('g', request, { migrateLegacy: true }), error => {
+    assert.equal(error.code, 'SETTINGS_FG_RECOVERY_REQUIRED');
+    assert.equal(error.details.recoveryErrors[0].code, 'SETTINGS_FG_FILE_RECOVERY_REQUIRED');
+    assert.equal(error.details.preparationRolledBack, undefined);
+    return true;
+  });
+  assert.equal(f.calls.includes('rollback-legacy-components'), false);
+});
+
+test('dedicated FG recovery clears component files before the generic readiness guard', async () => {
+  const f = fixture({ alreadyNew: true }); let pending = true;
+  f.components.recoverPending = async () => { f.calls.push('recover-component-files'); pending = false; return { recovered: true }; };
+  f.settings.assertReady = async () => { f.calls.push('assert-ready'); if (pending) throw new Error('pending files'); };
+  const result = await f.workflow.recover('g');
+  assert.equal(result.restored, true); assert.equal(result.unchanged, false);
+  assert.deepEqual(f.calls, ['assert-closed', 'recover-component-files', 'assert-ready']);
+});
+
+test('component recovery conflicts preserve the journal and stop later settings or migration writes', async () => {
+  const f = fixture({ pending: true });
+  f.components.recoverPending = async () => { f.calls.push('recover-component-files'); throw Object.assign(new Error('external replacement'), { code: 'SETTINGS_FG_FILE_CHANGED' }); };
+  await assert.rejects(f.workflow.recover('g'), { code: 'SETTINGS_FG_FILE_CHANGED' });
+  assert.deepEqual(f.calls, ['assert-closed', 'recover-component-files']);
+  assert.equal(f.status().migrationPending, true);
+});

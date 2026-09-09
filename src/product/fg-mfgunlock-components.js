@@ -13,6 +13,7 @@ const { inspectAddonLayout, addonValues } = require('./reshade-layout');
 const { createFgComponents: createLegacyFgComponents } = require('./fg-legacy-components');
 const { ID, BACKEND, ADDON, SHA256, sha256, readMfgUnlockResources } = require('./fg-mfgunlock-resources');
 const { createMigrationStore, copyNewFile, hashFile, same } = require('./fg-migration-components');
+const { createFgPendingRecovery, jsonHash } = require('./fg-pending-recovery');
 
 const COMPETING = /(?:rtx[-_ ]?40[-_ ]?mfg|mfg[-_ ]?unlock|mfgadaunlock|(?:^|[\\/._ -])mfg(?:[._ -]|$))/i;
 function fail(code, message, details) { throw Object.assign(new Error(message), { code, details }); }
@@ -25,7 +26,8 @@ function createMfgUnlockComponents(options = {}) {
   const antiCheatPresent = options.antiCheatPresent || guards.antiCheatPresent;
   const scan = options.scan || (async () => ({})), detectHardware = options.detectHardware || detectGpuAsync;
   const legacy = createLegacyFgComponents(options);
-  const migrations = createMigrationStore({ journal, assertGameClosed });
+  const fileRecovery = createFgPendingRecovery({ journal, assertGameClosed });
+  const migrations = createMigrationStore({ journal, assertGameClosed, fileRecovery });
   const undos = new Map();
   const resources = fs.existsSync(path.join(options.resourcesPath || '', 'fg-mfgunlock', 'manifest.json'))
     ? path.join(options.resourcesPath, 'fg-mfgunlock') : path.join(options.appDir || '', 'resources', 'fg-mfgunlock');
@@ -83,6 +85,7 @@ function createMfgUnlockComponents(options = {}) {
   }
   async function inspect(id) {
     const t = target(id); await noLinks(t.exe);
+    const fileState = await fileRecovery.inspect(t);
     const observed = await scan(id), hardware = await detectHardware();
     const series = [...new Set(Array.isArray(hardware?.series) ? hardware.series : [])];
     const route = series.length === 1 && series[0] === 'RTX50' ? 'native' : series.length === 1 && series[0] === 'RTX40' ? 'compatibility' : 'unsupported';
@@ -135,9 +138,10 @@ function createMfgUnlockComponents(options = {}) {
     const migrationReady = Boolean(legacyNeedsMigration && legacyPlan && conflicts.length === 0 && blockers.length === 0);
     const needsCleanup = route !== 'compatibility' && Boolean(owned || actual);
     if (route === 'native' && actual && !owned) conflicts.push('检测到外部 MFG Unlock；原生 FG 路线不会自动移除它。');
+    if (fileState.fileRecoveryPending) blockers.push(fileState.fileRecoveryBlocker);
     const ready = !legacyNeedsMigration && !needsCleanup && !blockers.length && !conflicts.length && (route === 'native' || route === 'compatibility' && actual === SHA256);
     const allBlockers = [...blockers, ...conflicts, ...(legacyNeedsMigration ? ['旧 RTX40 MFG 需要先恢复旧设置并迁移受管组件。'] : [])];
-    return { backend: BACKEND, id: ID, route, ready, managed: Boolean(owned), receipt: Boolean(owned), needsCleanup,
+    return { backend: BACKEND, id: ID, route, ready, managed: Boolean(owned), receipt: Boolean(owned), needsCleanup, ...fileState,
       legacyNeedsMigration, migrationReady, migrationPending: Boolean(pending), migrationToken: pending?.token || null, migrationState: pending?.state || null,
       conflicts: [...new Set(conflicts)], blockers: [...new Set(allBlockers)], missing, canPrepare: route === 'compatibility' && !legacyNeedsMigration && !blockers.length && !conflicts.length && !ready,
       components, api: observed?.api || 'unknown', exe: t.exe, fgRuntime, runtimeVerified: false, panel: 'MFG Unlock', configurationReadAt: 'process-attach',
@@ -161,17 +165,20 @@ function createMfgUnlockComponents(options = {}) {
     const manifest = readMfgUnlockResources(resources), addon = journal.safePath(t.game, path.relative(t.game, path.join(t.dir, ADDON)));
     const before = hashFile(addon), receiptBeforeText = fs.existsSync(receiptFile(t)) ? fs.readFileSync(receiptFile(t), 'utf8') : null;
     const undoToken = crypto.randomUUID(); let delta;
-    const result = await journal.transaction(t.game, async () => {
+    const result = await fileRecovery.transaction(t, 'prepare', async () => {
       await noLinks(addon); await noLinks(receiptFile(t));
       if (hashFile(addon) !== before || hashFile(receiptFile(t)) !== (receiptBeforeText === null ? null : sha256(Buffer.from(receiptBeforeText)))) fail('SETTINGS_FG_EXTERNAL_CHANGE', 'FG 文件在准备前改变。');
       const fresh = await inspect(id);
       if (fresh.blockers.length) fail('SETTINGS_FG_BLOCKED', fresh.blockers.join('\n'));
       await assertGameClosed(t.game, t.exe);
-      if (before === null) await copyNewFile({ journal, game: t.game, source: manifest.files.addon.source, dest: addon, copyFile: options.copyFile });
+      if (before === null) {
+        await fileRecovery.capture(t, addon, SHA256);
+        await copyNewFile({ journal, game: t.game, source: manifest.files.addon.source, dest: addon, copyFile: options.copyFile });
+      }
       if (hashFile(addon) !== SHA256) fail('SETTINGS_FG_WRITE', 'MFG Unlock 写入后摘要不匹配。');
       const row = { role: 'addon', rel: path.relative(t.game, addon), mode: prior?.files?.[0]?.mode === 'created' || before === null ? 'created' : 'adopted', after: SHA256 };
       const next = { version: 2, backend: BACKEND, id: ID, releaseVersion: '0.6.1', exe: t.exe, preparedAt: new Date().toISOString(), files: [row] };
-      await journal.capture(t.game, receiptFile(t)); await (options.writeReceipt || atomicJson)(receiptFile(t), next);
+      await fileRecovery.capture(t, receiptFile(t), jsonHash(next)); await (options.writeReceipt || atomicJson)(receiptFile(t), next);
       const receiptAfter = hashFile(receiptFile(t));
       if (JSON.stringify(await receipt(t)) !== JSON.stringify(next)) fail('SETTINGS_FG_WRITE', 'MFG Unlock 收据写入校验失败。');
       delta = { undoToken, addonRel: row.rel, addonBefore: before, addonAfter: SHA256, receiptBeforeText, receiptAfter };
@@ -190,16 +197,30 @@ function createMfgUnlockComponents(options = {}) {
     const check = async () => { await noLinks(addon); await noLinks(receiptFile(t));
       if (hashFile(addon) !== delta.addonAfter || hashFile(receiptFile(t)) !== delta.receiptAfter) fail('SETTINGS_FG_EXTERNAL_CHANGE', 'FG 准备后文件已被外部修改，未撤销。'); };
     await check();
-    const result = await journal.transaction(t.game, async () => {
+    const result = await fileRecovery.transaction(t, 'undo-prepare', async () => {
       await check();
       await assertGameClosed(t.game, t.exe);
-      if (delta.addonBefore === null) { await journal.capture(t.game, addon); await fsp.unlink(addon); }
-      await journal.capture(t.game, receiptFile(t));
+      if (delta.addonBefore === null) { await fileRecovery.capture(t, addon, null); await fsp.unlink(addon); }
+      await fileRecovery.capture(t, receiptFile(t), delta.receiptBeforeText === null ? null : sha256(Buffer.from(delta.receiptBeforeText)));
       if (delta.receiptBeforeText === null) await fsp.unlink(receiptFile(t)); else await fsp.writeFile(receiptFile(t), delta.receiptBeforeText, 'utf8');
       if (undo.migrationToken) await migrations.unprepare(t, undo.migrationToken);
       return { restored: true, removed: delta.addonBefore === null ? [ADDON] : [], retained: delta.addonBefore === SHA256 ? [ADDON] : [], runtimeVerified: false };
     });
     undos.delete(token); return result;
+  }
+  async function restoreLegacy(id, restoreOptions = {}) {
+    const t = target(id);
+    const adapter = createLegacyFgComponents({ ...options, journal: { ...journal,
+      transaction: (_game, work) => fileRecovery.transaction(t, 'legacy-restore', work) } });
+    return adapter.restore(id, { ...restoreOptions, beforeMutation: async plan => {
+      const retained = new Set(plan.retained.map(rel => rel.toLowerCase()));
+      for (const row of plan.receipt.files) {
+        if (row.mode === 'adopted' || retained.has(row.rel.toLowerCase())) continue;
+        await fileRecovery.capture(t, journal.safePath(t.game, row.rel), row.mode === 'created' ? null : row.before);
+      }
+      await fileRecovery.capture(t, receiptFile(t), null);
+      await restoreOptions.beforeMutation?.(plan);
+    } });
   }
   async function migrateLegacy(id, { allowAntiCheat = false } = {}) {
     const t = target(id); await guard(t, 'migrate-fg-components', allowAntiCheat);
@@ -209,7 +230,7 @@ function createMfgUnlockComponents(options = {}) {
     if (!status.legacyNeedsMigration) return { migrated: false, unchanged: true, migrationToken: null };
     if (!status.migrationReady) fail('SETTINGS_FG_MIGRATION_BLOCKED', status.blockers.join('\n'), status);
     let record;
-    const result = await legacy.restore(id, { retainSharedLoaders: true,
+    const result = await restoreLegacy(id, { retainSharedLoaders: true,
       beforeMutation: async plan => { record = await migrations.begin(t, plan); await assertGameClosed(t.game, t.exe); },
       afterMutation: async () => { record = await migrations.removed(t); } });
     return { ...result, migrated: true, backend: BACKEND, id: ID, migrationToken: record.token, migrationPending: true };
@@ -218,23 +239,25 @@ function createMfgUnlockComponents(options = {}) {
     const t = target(id); await noLinks(t.exe);
     if (await migrations.read(t)) fail('SETTINGS_FG_MIGRATION_PENDING', '迁移快照仍在，请使用迁移恢复入口。');
     const prior = await receipt(t); if (!prior) return { restored: false, unchanged: true };
-    if (prior.version === 1) return legacy.restore(id, { retainSharedLoaders: true });
+    if (prior.version === 1) return restoreLegacy(id, { retainSharedLoaders: true });
     await assertGameClosed(t.game, t.exe);
     const row = prior.files[0], addon = journal.safePath(t.game, row.rel);
     const check = async () => { await noLinks(addon); const now = await receipt(t);
       if (JSON.stringify(now) !== JSON.stringify(prior)) fail('SETTINGS_FG_EXTERNAL_CHANGE', 'FG 收据已改变。');
       const actual = hashFile(addon); if (row.mode === 'created' && actual !== null && actual !== row.after) fail('SETTINGS_FG_EXTERNAL_CHANGE', 'MFG Unlock 已被外部修改，未删除。'); };
     await check();
-    return journal.transaction(t.game, async () => {
+    return fileRecovery.transaction(t, 'restore', async () => {
       await check();
       await assertGameClosed(t.game, t.exe);
-      if (row.mode === 'created' && fs.existsSync(addon)) { await journal.capture(t.game, addon); await fsp.unlink(addon); }
-      await journal.capture(t.game, receiptFile(t)); await fsp.unlink(receiptFile(t));
+      if (row.mode === 'created' && fs.existsSync(addon)) { await fileRecovery.capture(t, addon, null); await fsp.unlink(addon); }
+      await fileRecovery.capture(t, receiptFile(t), null); await fsp.unlink(receiptFile(t));
       return { restored: true, retained: row.mode === 'adopted' ? [row.rel] : [], runtimeVerified: false };
     });
   }
   return Object.freeze({ inspect, prepare, restore, migrateLegacy, rollbackPrepare,
-    inspectMigration: async id => { const pending = await migrations.read(target(id)); return { migrationPending: Boolean(pending), migrationToken: pending?.token || null }; },
+    inspectPending: id => fileRecovery.inspect(target(id)),
+    recoverPending: id => fileRecovery.recover(target(id)),
+    inspectMigration: async id => { const t = target(id), pending = await migrations.read(t); return { migrationPending: Boolean(pending), migrationToken: pending?.token || null, ...await fileRecovery.inspect(t) }; },
     commitPrepare: (id, token) => { const t = target(id), undo = undos.get(token); if (undo && !same(undo.t.exe, t.exe)) fail('SETTINGS_FG_UNDO_TOKEN', 'FG 撤销凭据属于另一游戏。'); undos.delete(token); return { committed: true }; },
     rollbackMigration: (id, token) => migrations.finish(id, target(id), token, true),
     commitMigration: (id, token) => migrations.finish(id, target(id), token, false),

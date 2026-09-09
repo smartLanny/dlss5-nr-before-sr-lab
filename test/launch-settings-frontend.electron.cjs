@@ -131,6 +131,37 @@ async function smoke() {
   assert(fgOnlyHost.querySelector('[data-ls-domain="sr"] fieldset').disabled && !fgOnlyHost.querySelector('[data-ls-domain="fg"] fieldset').disabled,
     'Real renderer keeps native FG eligibility independent of missing native SR');
   fgOnlyHost.remove();
+  for (const [kind, pending] of [['component WAL', { fileRecoveryPending: true }], ['migration', { migrationPending: true }], ['migration token', { migrationPending: { token: 'fixture-migration' } }]]) {
+    const recoveryHost = document.createElement('div'); recoveryHost.className = 'launch-settings-host'; host.parentElement.appendChild(recoveryHost);
+    const data = { hardware: { family: 'RTX40', series: ['RTX40'] }, requests: {}, applied: {}, pending: [{ kind: 'file-journal' }],
+      fgComponents: { backend: 'mfgunlock', route: 'compatibility', ready: false, canPrepare: true, managed: true, missing: [], blockers: [], ...pending } };
+    const recoveryCalls = []; let finishRecovery;
+    const recoveryController = window.launchSettingsUi.mount(recoveryHost, 'fg-owner-fixture', {
+      nativeDlssAvailable: false, nativeFgAvailable: false, manager: {
+        inspectLaunchSettings: async () => ({ ok: true, value: structuredClone(data) }),
+        recoverFgComponents: id => { recoveryCalls.push(['owner', id]); return new Promise(resolve => { finishRecovery = () => {
+          data.pending = []; data.fgComponents.fileRecoveryPending = false; data.fgComponents.migrationPending = false;
+          resolve({ ok: true, value: { restored: true } });
+        }; }); },
+        recoverLaunchSettings: async () => { recoveryCalls.push(['generic']); throw new Error('Wrong recovery owner'); }
+      }
+    });
+    await recoveryController.ready;
+    const recoverButton = () => recoveryHost.querySelector('[data-ls-action="recover-components"]');
+    assert(recoverButton() && !recoverButton().disabled && !recoverButton().closest('fieldset'), `${kind} exposes an enabled owner recovery button outside the disabled editors`);
+    assert(recoverButton().textContent.includes(pending.fileRecoveryPending ? '恢复未完成组件操作' : '恢复未完成迁移'), `${kind} identifies the pending operation in the recovery action`);
+    assert([...recoveryHost.querySelectorAll('fieldset')].every(node => node.disabled) && recoveryHost.querySelector('[data-ls-action="restore-all"]').disabled &&
+      recoveryHost.querySelector('[data-ls-action="remove-components"]').disabled, `${kind} keeps normal writes disabled while LS recovery and native FG eligibility are unresolved`);
+    recoverButton().click();
+    await waitUntil(() => finishRecovery);
+    assert(recoveryController.getState().busy && recoverButton().disabled, `${kind} disables duplicate recovery while the owner operation is running`);
+    recoverButton().click();
+    assert(recoveryCalls.length === 1 && recoveryCalls[0][0] === 'owner' && recoveryCalls[0][1] === 'fg-owner-fixture', `${kind} calls recoverFgComponents once and never the generic recovery API`);
+    finishRecovery(); await waitUntil(() => !recoveryController.getState().busy);
+    assert(!recoverButton() && recoveryHost.querySelector('[data-ls-domain="fg"] fieldset').disabled && recoveryHost.querySelector('[data-ls-action="prepare"]').disabled,
+      `${kind} clears its recovery action after success without granting missing FG capability`);
+    recoveryHost.remove();
+  }
   const panel = domain => host.querySelector(`[data-ls-domain="${domain}"]`);
   const field = (domain, key) => panel(domain).querySelector(`[data-ls-field="${key}"]`);
   const set = (domain, key, value) => {

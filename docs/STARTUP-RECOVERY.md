@@ -62,3 +62,19 @@ node scripts/startup-uninstrumented-smoke.js --executable "C:\candidate\win-unpa
 ```
 
 检查强制要求上一项证明与当前 EXE、ASAR 的 SHA256 一致。实际启动只传临时配置目录参数，不带调试开关、不替换游戏服务、保持默认沙箱；允许程序正常只读发现实际游戏，不点击安装或应用设置。观察约 15–20 秒，用生产启动日志的三项就绪事件及系统窗口可见性判断，再只关闭已核对路径、创建时间和 PID 的本次窗口。这能验证当前电脑上新配置下的普通启动，仍不代表目标电脑或原有配置环境已通过。
+
+portable 还需验证它实际解压、启动的内层应用，可在上述 unpacked 检查完成后执行：
+
+```powershell
+node scripts/startup-portable-smoke.js --portable "C:\candidate\DLSS5-Manager-0.4.7-beta.1-portable.exe" --unpacked-executable "C:\candidate\win-unpacked\DLSS 5 AI 超分管理器.exe" --unpacked-proof "C:\candidate\manager-runtime-verification.json" --logs "C:\candidate\portable-logs" --output "C:\candidate\manager-portable-verification.json"
+```
+
+该检查先在 portable 内层应用第一行前确认临时配置参数实际生效，再通过系统父子关系、创建时间和普通用户令牌绑定唯一内层进程，并核对内层 EXE、ASAR 与已验证的 unpacked 完全一致。完成隔离证明后，再以相同 portable 文件做无调试仪器的普通启动。只认内层应用的真实就绪事件与可见窗口，外壳存活不算成功；不能可靠绑定时停止此项。结束时仅关闭本次核定身份的进程。Setup 仍需单独验证，以上不运行安装器。
+
+Setup 与 portable 的内嵌发行文件也须只读核对：
+
+```powershell
+node scripts/verify-embedded-payloads.js --unpacked "C:\candidate\win-unpacked" --setup "C:\candidate\DLSS5-Manager-Setup-0.4.7-beta.1.exe" --portable "C:\candidate\DLSS5-Manager-0.4.7-beta.1-portable.exe" --logs "C:\candidate\embedded-logs" --output "C:\candidate\embedded-payloads.json"
+```
+
+默认使用构建依赖中的 `7za.exe`，也可用 `--7za` 指定本次已知的构建工具。Setup 和 portable 始终作为压缩数据读取：先核对实际应用清单与整个 EXE 摘要，再定位内嵌 7z 压缩段、核对其边界和 SHA256，静态解压到新临时目录，逐文件对照完整 unpacked。若两份压缩段字节完全一致，则共享一次完整文件摘要证明；不同压缩段分别解压核对。报告包含主 EXE、`app.asar`、全部配套资源和辅助文件的对照，执行前后复核输入未变。此流程不运行安装器，不会创建安装记录，也不能据此宣布 Setup 的现场崩溃已修复。

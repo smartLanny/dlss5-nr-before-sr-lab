@@ -48,6 +48,7 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
     await closed(id);
     if (components) {
       const migration = await components.inspectMigration?.(id);
+      if (migration?.fileRecoveryPending) throw Object.assign(new Error('补帧组件文件操作尚未完成，请先恢复再启动游戏。'), { code: 'SETTINGS_FG_FILE_RECOVERY_REQUIRED' });
       if (migration?.migrationPending) throw Object.assign(new Error('补帧迁移尚未完成，请先恢复或完成迁移再启动游戏。'), { code: 'SETTINGS_FG_MIGRATION_PENDING' });
       const requests = typeof settings.savedRequests === 'function' ? await settings.savedRequests(id) : (await settings.inspect(id)).requests;
       const fg = requests?.fg?.request;
@@ -89,10 +90,14 @@ function createLaunchCoordinator({ service, settings, legacySrModel, guards, com
   return { serialize, launch, restoreForUninstall,
     async inspect(id) {
       if (!components) return settings.inspect(id);
-      const [snapshot, fgComponents] = await Promise.all([settings.inspect(id), components.inspect(id).catch(error => ({
-        route: 'unknown', ready: false, canPrepare: false, missing: [], blockers: [error.message || '无法确认 FG 组件状态。'],
-        errorCode: error.code || 'SETTINGS_COMPONENTS_UNKNOWN'
-      }))]);
+      const [snapshot, fgComponents] = await Promise.all([settings.inspect(id), components.inspect(id).catch(async error => {
+        // A partially restored receipt must not hide its independent WAL
+        // recovery entry behind the failed component eligibility inspection.
+        let recovery = {};
+        try { recovery = await components.inspectPending?.(id) || {}; } catch {}
+        return { route: 'unknown', ready: false, canPrepare: false, missing: [], blockers: [error.message || '无法确认 FG 组件状态。'],
+          errorCode: error.code || 'SETTINGS_COMPONENTS_UNKNOWN', ...recovery };
+      })]);
       return { ...snapshot, fgComponents };
     },
     assertMutationReady: id => settings.assertReady(id),

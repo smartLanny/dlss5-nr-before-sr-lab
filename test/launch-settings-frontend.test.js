@@ -169,6 +169,55 @@ test('missing game DLSS capability blocks edits and preparation but keeps global
   assert.equal(writes, 0);
 });
 
+test('FG owner recovery remains available with component WAL or migration, LS pending and missing native FG', async () => {
+  for (const pending of [{ fileRecoveryPending: true }, { migrationPending: true }, { migrationPending: { token: 'migration-fixture' } }]) {
+    const data = { hardware: { family: 'RTX40', series: ['RTX40'] }, requests: {}, applied: {}, pending: [{ kind: 'file-journal' }],
+      fgComponents: { backend: 'mfgunlock', route: 'compatibility', ready: false, canPrepare: true, managed: true, missing: [], blockers: [], ...pending } };
+    const host = { isConnected: true, innerHTML: '', querySelector: () => null }, calls = [];
+    let complete;
+    const controller = ui.mount(host, 'recovery-game', { nativeDlssAvailable: false, nativeFgAvailable: false, manager: {
+      inspectLaunchSettings: async () => ({ ok: true, value: structuredClone(data) }),
+      recoverFgComponents: id => { calls.push(['owner', id]); return new Promise(resolve => { complete = () => {
+        data.pending = []; data.fgComponents.fileRecoveryPending = false; data.fgComponents.migrationPending = false;
+        resolve({ ok: true, value: { restored: true } });
+      }; }); },
+      recoverLaunchSettings: async () => { calls.push(['generic']); throw new Error('Wrong recovery owner'); }
+    } });
+    await controller.ready;
+    assert.match(host.innerHTML, /data-ls-action="recover-components"(?![^>]* disabled)/);
+    assert.match(host.innerHTML, pending.fileRecoveryPending ? /恢复未完成组件操作/ : /恢复未完成迁移/);
+    assert.match(host.innerHTML, /data-ls-action="restore-all"[^>]* disabled/);
+    assert.match(host.innerHTML, /data-ls-action="remove-components"[^>]* disabled/);
+    assert.match(host.innerHTML, /<fieldset disabled/);
+    const recovering = controller.perform('recover-components', 'fg');
+    assert.equal(controller.getState().busy, true);
+    assert.match(host.innerHTML, /data-ls-action="recover-components"[^>]* disabled/);
+    await controller.perform('recover-components', 'fg');
+    assert.deepEqual(calls, [['owner', 'recovery-game']]);
+    complete(); await recovering;
+    assert.equal(controller.getState().busy, false);
+    assert.doesNotMatch(host.innerHTML, /data-ls-action="recover-components"/);
+    assert.match(host.innerHTML, /data-ls-action="prepare"[^>]* disabled/);
+    assert.match(host.innerHTML, /<fieldset disabled/, 'recovery cannot create native capability');
+  }
+});
+
+test('a rejected FG owner recovery preserves its enabled recovery entry and the pending receipt', async () => {
+  const data = { hardware: { family: 'RTX40', series: ['RTX40'] }, requests: {}, applied: {}, pending: [{ kind: 'file-journal' }],
+    fgComponents: { backend: 'mfgunlock', route: 'compatibility', ready: false, fileRecoveryPending: true, missing: [], blockers: [] } };
+  const host = { isConnected: true, innerHTML: '', querySelector: () => null };
+  let ownerCalls = 0;
+  const controller = ui.mount(host, 'blocked-owner', { nativeFgAvailable: false, manager: {
+    inspectLaunchSettings: async () => ({ ok: true, value: structuredClone(data) }),
+    recoverFgComponents: async () => { ownerCalls++; return { ok: false, error: { code: 'FG_FILE_CHANGED', message: '外部文件已改变，记录仍保留。' } }; }
+  } });
+  await controller.ready; await controller.perform('recover-components', 'fg');
+  assert.equal(ownerCalls, 1); assert.equal(controller.getState().busy, false);
+  assert.match(host.innerHTML, /外部文件已改变/);
+  assert.match(host.innerHTML, /data-ls-action="recover-components"(?![^>]* disabled)/);
+  assert.equal(data.fgComponents.fileRecoveryPending, true); assert.equal(data.pending.length, 1);
+});
+
 test('SR model recommendation is hardware-bound and does not write during initialization', async () => {
   for (const [series, expected] of [['RTX30', 'K'], ['RTX40', 'M'], ['RTX50', 'M']]) {
     const data = { hardware: { family: series, series: [series] }, requests: {}, applied: {}, pending: [] };

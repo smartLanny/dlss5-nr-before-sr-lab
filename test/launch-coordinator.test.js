@@ -36,6 +36,14 @@ test('plain launch reads saved intent without probing NVIDIA profile scope or co
   const f=fixture({savedRequests:async()=>({}),inspect:async()=>{throw Error('plain launch must not inspect GPU settings');}}, {inspect:async()=>{throw Error('no FG request');}});
   await f.module.launch('a');assert.equal(f.calls.includes('launch'),true);
 });
+test('plain launch cannot bypass an interrupted FG component transaction without a saved FG request', async () => {
+  const f = fixture({ savedRequests: async () => ({}) }, {
+    inspectMigration: async () => ({ migrationPending: false, fileRecoveryPending: true }),
+    inspect: async () => { throw new Error('full FG inspection is unnecessary'); }
+  });
+  await assert.rejects(f.module.launch('a'), { code: 'SETTINGS_FG_FILE_RECOVERY_REQUIRED' });
+  assert.equal(f.calls.includes('settings'), false); assert.equal(f.calls.includes('launch'), false);
+});
 test('failed settings and invalid launch preflight cannot start the game', async () => {
   const outcomes = [{ domain: 'sr', applied: true, runtimeVerified: false },
     { domain: 'fg', applied: false, code: 'SETTINGS_BACKEND_MISSING', reason: 'missing' }];
@@ -184,4 +192,14 @@ test('FG payload failure leaves SR status and pending recovery visible', async (
   const actual = await f.module.inspect('a');
   assert.deepEqual(actual.requests, snapshot.requests); assert.deepEqual(actual.pending, snapshot.pending);
   assert.equal(actual.fgComponents.ready, false); assert.equal(actual.fgComponents.errorCode, 'ERR_PAYLOAD_MISSING');
+});
+
+test('an unreadable interrupted FG receipt cannot hide the independent file recovery entry', async () => {
+  const f = fixture({ inspect: async () => ({ pending: [{ kind: 'file-journal' }], requests: {} }) }, {
+    inspect: async () => { throw Object.assign(new Error('interrupted receipt'), { code: 'SETTINGS_FG_RECEIPT_INVALID' }); },
+    inspectPending: async () => ({ fileRecoveryPending: true, fileRecoveryOwner: 'xiaofeng-fg-components' })
+  });
+  const result = await f.module.inspect('a');
+  assert.equal(result.fgComponents.fileRecoveryPending, true); assert.equal(result.fgComponents.canPrepare, false);
+  assert.equal(result.fgComponents.errorCode, 'SETTINGS_FG_RECEIPT_INVALID'); assert.equal(result.pending.length, 1);
 });

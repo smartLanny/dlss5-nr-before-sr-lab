@@ -292,6 +292,18 @@ function createLaunchSettingsService(options = {}) {
         const pending = JSON.parse(await fsp.readFile(pendingFile, 'utf8'));
         if (pending.files?.some(row => String(row.rel || '').replace(/\\/g, '/').toLowerCase() === '_dlss5_backup/reframework-preparation.json'))
           fail('REF_RECOVERY_REQUIRED', 'REFramework 有未完成操作，请在“RE 引擎兼容”区域恢复，以保留外部新出现的文件。');
+        if (pending.files?.some(row => {
+          const rel = String(row.rel || '').replace(/\\/g, '/').toLowerCase();
+          return rel === '_dlss5_backup/xiaofeng-feeder.json' || /(?:^|\/)_dlss5_feeder\//.test(rel) || rel.startsWith('_dlss5_backup/feeder-settings/');
+        })) fail('FEEDER_RECOVERY_REQUIRED', 'Feeder 有未完成操作，请在游戏卡片中选择“恢复并卸载 Feeder”，保留外部修改检查。');
+        if (pending.owner && pending.owner.product !== 'xiaofeng-fg-components')
+          fail('SETTINGS_RECOVERY_OWNER', '此文件事务属于其他组件，请使用对应的专用恢复入口。');
+        if (pending.owner?.product === 'xiaofeng-fg-components' || pending.files?.some(row => {
+          const rel = String(row.rel || '').replace(/\\/g, '/').toLowerCase();
+          return ['_dlss5_backup/xiaofeng-fg-components.json', '_dlss5_backup/xiaofeng-fg-migration.json'].includes(rel) ||
+            rel.startsWith('_dlss5_backup/.fg-migration/') ||
+            ['renodx-mfgunlock.addon64', 'rtx40mfgcore.dll', 'rtx40mfg.asi', 'rtx40mfg-ui.addon64', 'rtx40mfg-universal.json'].includes(path.posix.basename(rel));
+        })) fail('SETTINGS_FG_FILE_RECOVERY_REQUIRED', '补帧组件文件操作未完成，请在 FG 区域选择“恢复未完成组件操作”。');
       }
       const driverRestored = await restoreDriverPending(t);
       const filesRestored = fs.existsSync(journal.pendingPath(t.dir)) ? await journal.recover(t.dir) : false;

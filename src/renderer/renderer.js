@@ -325,13 +325,17 @@ function cardAction(game) {
   const installButton = `<button class="button primary install-btn${installBusy ? ' is-busy' : ''}" aria-live="polite" aria-busy="${installBusy}"${installBusy ? ' disabled' : ''}>${installBusy ? '<span class="button-spinner" aria-hidden="true"></span><span>正在安装…</span>' : '一键安装'}</button>`;
   const rename = '<button class="button subtle rename-game-btn" type="button" title="修改游戏名称">改名</button>';
   const dismiss = '<button class="icon-button dismiss-game-btn" title="移除这个游戏" aria-label="移除这个游戏">×</button>';
+  if (game.feeder?.needsRecovery === true)
+    return `<button class="button primary feeder-recover-btn" type="button">恢复并卸载 Feeder</button><button class="button subtle card-open">设置</button>${rename}${dismiss}`;
   if (game.vulkan?.installed === true && game.vulkan?.needsRecovery === true)
     return `<button class="button" disabled>需先恢复配套</button><button class="button primary card-open">恢复配套</button>${rename}${dismiss}`;
   if (routeInstalled(game)) return `<button class="button primary launch-btn">启动游戏</button><button class="button subtle card-open">设置</button>${rename}${dismiss}`;
-  if (isFeederRoute(game)) return game.feeder?.available ? `${installButton}${rename}${dismiss}` : `<button class="button" disabled>Feeder 暂不可用</button>${rename}${dismiss}`;
+  if (isFeederRoute(game) && routeSelection(game).resolvedApi === 'dx12') return feederSelectionState(game).available ? `${installButton}${rename}${dismiss}` : `<button class="button" disabled>Feeder 暂不可用</button>${rename}${dismiss}`;
   if (state.routeDrafts?.has(game.id) && ['dx11', 'dx12', 'vulkan'].includes(routeSelection(game).resolvedApi)) {
     const selected = routeSelection(game);
     if (routeNeedsRestore(game, selected)) return `<button class="button" disabled>需先恢复配套</button>${rename}${dismiss}`;
+    if (selected.resolvedApi === 'dx12' && game.nativeDlssAvailable === false && !feederSelectionState(game, selected).available)
+      return `<button class="button" disabled>Feeder 暂不可用</button>${rename}${dismiss}`;
     if (selected.resolvedApi === 'vulkan' && (!vulkanSelectionState(game).available || !game.vulkan?.packageId))
       return `<button class="button" disabled>Vulkan 暂不可用</button>${rename}${dismiss}`;
     return `${installButton}${rename}${dismiss}`;
@@ -393,12 +397,18 @@ function vulkanSelectionState(game) {
   const reason = explicit ? info.selectionReason : info.reason;
   return { available, reason: typeof reason === 'string' ? reason.trim() : '' };
 }
+function feederSelectionState(game, selected = routeSelection(game)) {
+  const info = game.feeder || {}, explicit = typeof info.selectionAvailable === 'boolean';
+  return { available: selected.resolvedApi === 'dx12' && info.needsRecovery !== true && (explicit ? info.selectionAvailable : info.available) === true,
+    reason: (explicit ? info.selectionReason : info.reason) || '' };
+}
 function routeApplyRow(game) {
   const selected = routeSelection(game), recovery = routeNeedsRestore(game, selected);
   if (selected.resolvedApi === 'dx12' && game.nativeDlssAvailable === false) {
-    const disabled = recovery || game.feeder?.available !== true || !game.chosen, busy = Boolean(state.installing?.has(game.id));
+    const feederSelection = feederSelectionState(game, selected);
+    const disabled = recovery || !feederSelection.available || !game.chosen, busy = Boolean(state.installing?.has(game.id));
     const label = game.feeder?.installed ? '核对并修复 Feeder' : '一键准备 Feeder';
-    return `<div class="route-apply-row"><p class="config-note">${escapeHtml(game.feeder?.reason || '固定配套提供成品帧 NR；不会给游戏增加原生 DLSS 超分或补帧。')}</p><button class="button primary route-apply-btn" data-base-disabled="${disabled}" data-idle-label="${label}"${disabled || busy ? ' disabled' : ''}>${busy ? '正在准备…' : label}</button></div>`;
+    return `<div class="route-apply-row"><p class="config-note">${escapeHtml(feederSelection.reason || '固定配套提供成品帧 NR；不会给游戏增加原生 DLSS 超分或补帧。')}</p><button class="button primary route-apply-btn" data-base-disabled="${disabled}" data-idle-label="${label}"${disabled || busy ? ' disabled' : ''}>${busy ? '正在准备…' : label}</button></div>`;
   }
   const vulkan = selected.resolvedApi === 'vulkan';
   const note = recovery ? '已有配套需要先卸载。请在下方设置中点击“卸载插件”，再应用新的 API 与核心。'
@@ -437,6 +447,8 @@ function bindCardHeaderActions(card, game) {
   const sourceButton = card.querySelector('.payload-open-btn');
   if (sourceButton) sourceButton.onclick = event => { event.stopPropagation(); switchView('addons'); $('choosePayloadSourceBtn').focus(); };
   const launch = card.querySelector('.launch-btn');
+  const feederRecovery = card.querySelector('.feeder-recover-btn');
+  if (feederRecovery) feederRecovery.onclick = event => { event.stopPropagation(); void runAction(() => window.manager.restoreFeeder(id), 'Feeder 已恢复并卸载；一键准备记录如仍存在，请继续恢复准备', true, id); };
   if (launch) launch.onclick = event => { event.stopPropagation(); runAction(() => window.manager.launch(id), '游戏已启动', false, id); };
   const rename = card.querySelector('.rename-game-btn');
   if (rename) rename.onclick = event => { event.stopPropagation(); confirmRenameGame(id); };
@@ -455,12 +467,13 @@ async function applyCardRoute(game) {
   const selected = routeSelection(game), submitted = routeDraft(game);
   if (routeNeedsRestore(game, selected) || selected.resolvedApi === 'vulkan' &&
       (!game.vulkan?.packageId || !vulkanSelectionState(game).available)) return false;
+  if (selected.resolvedApi === 'dx12' && game.nativeDlssAvailable === false && !feederSelectionState(game, selected).available) return false;
   setInstallBusy(game.id, true);
   try {
     return await runConfirmedAction(async allowAntiCheat => {
       const feeder = selected.resolvedApi === 'dx12' && game.nativeDlssAvailable === false;
       const result = feeder && game.feeder?.installed
-        ? await window.manager.installFeeder(game.id, { allowAntiCheat })
+        ? await window.manager.installFeeder(game.id, { api: selected.api, allowAntiCheat })
         : !game.installed
           ? await window.manager.prepareGame(game.id, { api: selected.api, version: selected.version, route: feeder ? 'feeder' : 'native', allowAntiCheat })
           : await window.manager.applyGameRoute(game.id, { api: selected.api, version: selected.version, allowAntiCheat });
@@ -801,7 +814,7 @@ function bindGameCards() {
       if (detail.detailTabController.active() === 'graphics') mountGraphics();
     }
     card.querySelector('.game-card-head').onclick = event => {
-      if (event.target.closest('.install-btn') || event.target.closest('.launch-btn') || event.target.closest('.rename-game-btn') || event.target.closest('.dismiss-game-btn')) return;
+      if (event.target.closest('.install-btn') || event.target.closest('.launch-btn') || event.target.closest('.feeder-recover-btn') || event.target.closest('.rename-game-btn') || event.target.closest('.dismiss-game-btn')) return;
       state.expanded = state.expanded === id ? null : id;
       renderGames();
     };

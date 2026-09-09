@@ -378,3 +378,35 @@ test('runtime evidence awaiting verification is neutral and distinct from a brok
   const html=vm.runInContext('diagnosticRows(rows)',context);
   assert.match(html,/diag-icon pending">○/);assert.match(html,/diag-icon bad">×/);assert.match(html,/1 项文件检查通过/);
 });
+
+test('manual DX12 Feeder selection uses candidate eligibility and submits the selected API', async () => {
+  const context=uiContext(),calls=[];
+  vm.runInContext(source.slice(source.indexOf('function cardAction('),source.indexOf('const API_LABELS')),context);
+  vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('),source.indexOf('function hardwareLabel(')),context);
+  context.state.installing=new Set();context.setInstallBusy=()=>{};context.runConfirmedAction=work=>work(true);
+  context.window={manager:{prepareGame:(...args)=>{calls.push(args);return {ok:true,value:{prepared:true}};}}};
+  context.game={id:'unknown-feeder',nativeDlssAvailable:false,nativeFgAvailable:false,chosen:{path:'C:/Games/Old.exe',bitness:64,apiResolution:{api:'unknown'},detectedApiResolution:{api:'unknown'}},
+    feeder:{available:false,reason:'current API unknown',selectionAvailable:true,selectionReason:'',coreVersion:'0.4.7beta'}};
+  vm.runInContext("updateRouteDraft(game,{api:'dx12'})",context);
+  assert.match(vm.runInContext('routeApplyRow(game)',context),/data-base-disabled="false"/);
+  assert.match(vm.runInContext('cardAction(game)',context),/install-btn/);
+  await vm.runInContext('applyCardRoute(game)',context);
+  assert.equal(calls[0][1].api,'dx12');assert.equal(calls[0][1].route,'feeder');
+  context.game.feeder.selectionAvailable=false;context.game.feeder.selectionReason='hardware blocked';
+  vm.runInContext("updateRouteDraft(game,{api:'dx12'})",context);
+  assert.match(vm.runInContext('routeApplyRow(game)',context),/data-base-disabled="true"/);
+  assert.match(vm.runInContext('cardAction(game)',context),/disabled>Feeder/);
+  assert.equal(await vm.runInContext('applyCardRoute(game)',context),false);assert.equal(calls.length,1);
+});
+
+test('a Feeder recovery card exposes its dedicated owner action instead of launch', async () => {
+  const context=uiContext(),button={},calls=[];
+  vm.runInContext(source.slice(source.indexOf('function cardAction('),source.indexOf('const API_LABELS')),context);
+  context.game={id:'pending-feeder',installed:true,feeder:{installed:true,needsRecovery:true},chosen:{apiResolution:{api:'dx12'}}};
+  vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('),source.indexOf('function hardwareLabel(')),context);
+  const html=vm.runInContext('cardAction(game)',context);assert.match(html,/恢复并卸载 Feeder/);assert.doesNotMatch(html,/launch-btn|install-btn/);
+  context.card={querySelector:selector=>selector==='.feeder-recover-btn'?button:null};
+  context.window={manager:{restoreFeeder:id=>{calls.push(id);return {ok:true,value:{restored:true}};}}};context.runAction=work=>work();
+  vm.runInContext('bindCardHeaderActions(card,game)',context);await button.onclick({stopPropagation(){}});
+  assert.deepEqual(calls,['pending-feeder']);
+});

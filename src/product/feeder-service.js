@@ -172,7 +172,7 @@ function createFeederService(options) {
     const evidence = await readFeederEvidence({ exeDir: target.dir, lastLaunch: row.lastLaunch });
     return { ...info, ...evidence, ready, components: files, blockers, reason: info.reason || blockers[0] || null };
   }
-  async function install(game, installOptions = {}) {
+  async function install(game, installOptions = {}, beforeWrite = null) {
     const target = selected(game);
     return serial(target, async () => {
       const info = summary(game);
@@ -190,6 +190,7 @@ function createFeederService(options) {
       if (old && previous.files.every(file => file.valid)) await validateConfiguration(target, old.recipe);
       const row = old || { version: 1, product: PRODUCT, installId: crypto.randomUUID(), game: { dir: target.root, exe: path.relative(target.root, target.exe) },
         recipe: pkg.recipe, recipeFingerprint: pkg.fingerprint, files: [], lastLaunch: null, installedAt: new Date().toISOString() };
+      if (beforeWrite) { await beforeWrite(); await assertClosed(target); }
       await journal.transaction(target.root, async () => {
         await journal.capture(target.root, target.receipt);
         for (const spec of pkg.recipe.files) {

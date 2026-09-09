@@ -76,8 +76,14 @@ function createGamePreparation({ userData, service, settings, components, fgWork
     await assertClosed(id);
     const pending = typeof settings.pending === 'function' ? await settings.pending(id) : [];
     if (pending.length) {
-      if (record.route === 'feeder' && record.intent.nr && !record.baseline.nr) await service.restoreFeeder(id);
-      else await settings.recover(id);
+      try { await settings.recover(id); }
+      catch (cause) {
+        if (cause.code === 'REF_RECOVERY_REQUIRED' && typeof service.recoverReframework === 'function') await service.recoverReframework(id);
+        else if (cause.code === 'FEEDER_RECOVERY_REQUIRED' && record.route === 'feeder' && record.intent.nr && !record.baseline.nr) await service.restoreFeeder(id);
+        else if (cause.code === 'SETTINGS_FG_FILE_RECOVERY_REQUIRED' && record.intent.fg && typeof components.recoverPending === 'function') await components.recoverPending(id);
+        else throw cause;
+        await settings.recover(id);
+      }
       await service.refresh();
     }
     return service.refreshAfterMutation(await compensate(t, record));
@@ -105,7 +111,7 @@ function createGamePreparation({ userData, service, settings, components, fgWork
       if (record.baseline.nr) row('nr', 'retained', '保留已安装的画面增强配套。');
       else {
         await begin('nr');
-        if (route === 'feeder') await service.installFeeder(id, { allowAntiCheat: options.allowAntiCheat === true });
+        if (route === 'feeder') await service.installFeeder(id, { ...(options.api ? { api: options.api } : {}), allowAntiCheat: options.allowAntiCheat === true });
         else {
           const installed = await service.applyGameRoute(id, { api: options.api, version: options.version, allowAntiCheat: options.allowAntiCheat === true });
           if (installed?.reframework?.automatic === true && installed.reframework.ready === false)

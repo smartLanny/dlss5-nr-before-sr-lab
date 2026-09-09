@@ -342,3 +342,12 @@ test('pending recovery remains visible with a corrupt current receipt and legacy
   await f.service.recover('g'); assert.equal(recovered, true); assert.deepEqual(await f.service.pending('g'), []);
   const after = await f.service.inspect('g'); assert.equal(after.legacy.error.code, 'SETTINGS_LEGACY_MIGRATION'); assert.match(after.notice, /旧 SR/);
 });
+
+test('generic recovery refuses Feeder WAL before touching either files or the driver', async t => {
+  for (const rel of ['_DLSS5_Backup/xiaofeng-feeder.json','Bin/_DLSS5_Feeder/addons/core.addon64','_DLSS5_Backup/feeder-settings/test/old.ini']) {
+    const f=fixture(t),pending=path.join(f.game,'_DLSS5_Backup/pending-switch.json');
+    fs.mkdirSync(path.dirname(pending),{recursive:true}); const bytes=JSON.stringify({files:[{rel}]}); fs.writeFileSync(pending,bytes);
+    const before=f.driver.peek(); await assert.rejects(f.service.recover('g'),{code:'FEEDER_RECOVERY_REQUIRED'});
+    assert.equal(fs.readFileSync(pending,'utf8'),bytes);assert.deepEqual(f.driver.peek(),before);
+  }
+});

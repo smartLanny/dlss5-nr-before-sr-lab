@@ -16,8 +16,8 @@ async function unusedLoopbackPort() {
   await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   return port;
 }
-async function inspectorConnection(port) {
-  const deadline = Date.now() + 10000; let target;
+async function inspectorConnection(port, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs; let target;
   while (!target && Date.now() < deadline) {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(500) });
@@ -87,4 +87,4 @@ async function startPackagedWithIsolation({ executable, mainFile, entry, directo
     throw error;
   } finally { inspector?.close(); }
 }
-module.exports = { startPackagedWithIsolation };
+module.exports = { startPackagedWithIsolation, unusedLoopbackPort, inspectorConnection };

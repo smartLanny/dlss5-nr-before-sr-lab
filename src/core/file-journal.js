@@ -60,6 +60,17 @@ async function capture(gameDir, target) {
   state.files.push({ rel, existed, snapshot });
   await atomicJson(pendingPath(gameDir), state);
 }
+// Additive owner metadata for callers with stricter recovery contracts. This
+// does not change capture/rollback behavior of existing unannotated callers.
+async function setOwner(gameDir, owner) {
+  const state = active.get(rootKey(gameDir));
+  if (!state || !owner || typeof owner !== 'object' || Array.isArray(owner)) throw error('errBackupInvalid');
+  const text = JSON.stringify(owner);
+  if (Buffer.byteLength(text) > 128 * 1024 || typeof owner.product !== 'string' || !owner.product) throw error('errBackupInvalid');
+  if (state.owner && (state.owner.product !== owner.product || state.owner.exe !== owner.exe)) throw error('errBackupInvalid');
+  state.owner = JSON.parse(text);
+  await atomicJson(pendingPath(gameDir), state);
+}
 async function cleanup(gameDir, state) {
   // Only our numbered snapshots and now-empty transaction folder.
   for (const item of state.files) {
@@ -123,4 +134,4 @@ async function transaction(gameDir, work) {
     throw cause;
   }
 }
-module.exports = { safePath, capture, transaction, recover, pendingPath, atomicJson };
+module.exports = { safePath, capture, setOwner, transaction, recover, pendingPath, atomicJson };

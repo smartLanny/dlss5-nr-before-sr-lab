@@ -53,8 +53,12 @@ function createFgWorkflow({ settings, components, assertClosed }) {
       const recoveryErrors = [];
       // A migration can persist its token and then throw before returning it.
       // Recover the authoritative record rather than reporting a false undo.
-      if (!migrationToken) {
-        try { const current = await (components.inspectMigration ? components.inspectMigration(id) : components.inspect(id)); if (current.migrationPending) migrationToken = current.migrationToken; }
+      {
+        try {
+          const current = await (components.inspectMigration ? components.inspectMigration(id) : components.inspect(id));
+          if (!migrationToken && current.migrationPending) migrationToken = current.migrationToken;
+          if (current.fileRecoveryPending) recoveryErrors.push({ phase: 'component-files', code: 'SETTINGS_FG_FILE_RECOVERY_REQUIRED', message: '补帧组件文件操作尚未完成，请使用专用恢复入口。' });
+        }
         catch (error) { recoveryErrors.push({ phase: 'migration-status', code: error.code, message: error.message }); }
       }
       if (configAttempted) {
@@ -83,9 +87,12 @@ function createFgWorkflow({ settings, components, assertClosed }) {
     return apply(id, request, options);
   }
   async function recover(id) {
-    await ready(id);
+    await assertClosed(id);
+    const files = await components.recoverPending?.(id);
+    await settings.assertReady(id);
     const status = await (components.inspectMigration ? components.inspectMigration(id) : components.inspect(id));
-    if (!status.migrationPending || !status.migrationToken) return { restored: false, unchanged: true };
+    if (!status.migrationPending || !status.migrationToken) return { ...files, restored: files?.recovered === true || files?.restored === true,
+      unchanged: files?.recovered !== true && files?.restored !== true };
     const state = await settings.inspect(id);
     if (state.applied?.fg?.backend === 'mfgunlock' || state.requests?.fg?.request?.backend === 'mfgunlock') await settings.restore(id, 'fg');
     return components.rollbackMigration(id, status.migrationToken);
