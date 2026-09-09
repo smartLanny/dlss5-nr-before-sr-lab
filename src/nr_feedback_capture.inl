@@ -128,6 +128,11 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix, g_queue_affinity_admitted_frames.load(), prefix, g_queue_affinity_unknown_bypass_frames.load(),
         prefix, g_queue_affinity_prediction_bypass_frames.load(), prefix, g_queue_affinity_actual_mismatches.load(),
         prefix, g_queue_affinity_marker_failures.load(), prefix, g_queue_retired_admitted_frames.load(), prefix);
+    FeedbackAppend(s, "%s.queue.retirementWaits=%llu\n%s.queue.retirementWaitCompleted=%llu\n"
+        "%s.queue.retirementWaitTimeouts=%llu\n%s.queue.retirementWaitTotalMs=%llu\n%s.queue.retirementWaitMaxMs=%llu\n",
+        prefix,g_queue_retirement_waits.load(),prefix,g_queue_retirement_wait_completed.load(),
+        prefix,g_queue_retirement_wait_timeouts.load(),prefix,g_queue_retirement_wait_ms.load(),
+        prefix,g_queue_retirement_wait_max_ms.load());
 #endif
 #if defined(NR_HAS_COMMAND_STATE_EVIDENCE)
     const auto evidence = SnapshotCommandStateEvidence();

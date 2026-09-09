@@ -33,6 +33,8 @@ def main() -> None:
               '-I'+str(ROOT/'third_party/minhook/include'),
               '-I'+str(args.reshade.resolve()/'include'),
               '-I'+str(args.reshade.resolve()/'deps/imgui')]
+    if args.old_policy_negative:
+        common.append('-DNR_QUEUE_OLD_POLICY_NEGATIVE')
     def run(command: list[str], name: str, timeout: int = 180) -> subprocess.CompletedProcess:
         result = subprocess.run(command, cwd=out, capture_output=True, text=True,
                                 encoding='utf-8', errors='replace', timeout=timeout)
@@ -53,7 +55,8 @@ def main() -> None:
          '-ld3d12', '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'], 'compile-core')
     cases = ['one-shot'] if args.old_policy_negative else [
         'one-shot', 'guards', 'pending-context', 'pending-slot',
-        'migration', 'one-observation-migration', 'replay', 'discard']
+        'migration', 'one-observation-migration', 'replay', 'discard',
+        'submitted-retirement', 'retirement-timeout', 'retirement-guards', 'post-output']
     results = []
     for case in cases:
         result = run([str(binary), case], case, 30)

@@ -285,34 +285,11 @@ nr_ui_activity::Sample ReadUiActivity(unsigned config_generation) {
     return window.Observe(GetTickCount64(),counters,{config_generation,epoch},reason);
 }
 
-void DrawSettings(reshade::api::effect_runtime *runtime) {
-    const bool use_chinese_ui = UseChineseUi();
-    const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
-    static ChainConfig pending = {};
-    static bool has_pending = false;
-    static bool pending_picture_reset = false;
-    static unsigned pending_generation = 0;
-    static bool edit_conflict = false;
-    const auto current = SnapshotOverlayConfig();
-    if (has_pending && pending_generation != current.generation) {
-        has_pending = false; pending_picture_reset = false; edit_conflict = true;
-    }
-    ChainConfig next = has_pending ? pending : current.config;
-    bool changed = false;
-    // Local styling follows ReShade's palette and never changes another panel.
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
-        ImVec2(ImGui::GetStyle().ItemSpacing.x, 7.0f));
-    ImGui::SeparatorText(ui("Zhuangjizhai DLSS 5", "装机宅DLSS 5"));
-    ImGui::TextDisabled("%s | %s", kAddonVersion,
-                        use_chinese_ui ? kAddonAuthor : kAddonAuthorAscii);
-    ImGui::TextDisabled("%s", kOfficialReleaseUrl);
-    ImGui::TextDisabled("%s", ui("QQ group 2: 392308850", "交流群（二群）：392308850"));
-    if (kChineseUi && !use_chinese_ui)
-        ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
-    // Keep controls stationary while live status text changes (#121).
-    ImGui::BeginChild("nr-live-status", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 4.25f), true);
-    const auto activity=ReadUiActivity(current.generation);
+void DrawNrActivityStatus(reshade::api::effect_runtime *runtime,
+                          const ChainConfig &config,unsigned generation) {
+    const bool zh=UseChineseUi();
+    const auto ui=[zh](const char *en,const char *cn){return zh?cn:en;};
+    const auto activity=ReadUiActivity(generation);
     // A carrier can safely skip between two submitted NR frames. Keep the
     // entire summary on one window instead of contradicting it every frame.
     // The unfiltered per-carrier reason and counters remain in diagnostics/F8.
@@ -321,7 +298,7 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
         ImGui::TextWrapped("%s", ui(
             "This ReShade window is using Direct3D 11, so DLSS 5 NR cannot run. Switch the game to Direct3D 12, then install ReShade Full Add-on for Direct3D 12.",
             "当前 ReShade 画面使用 Direct3D 11，本插件无法运行。请把游戏切换到 Direct3D 12，并为 D3D12 安装 ReShade Full Add-on。"));
-    else if (!current.config.enabled || ActiveTransferStrength(current.config) <= 0.000001f)
+    else if (!config.enabled || ActiveTransferStrength(config) <= 0.000001f)
         ImGui::TextWrapped("%s", ui("Native game SR. Enable the plugin and raise effect strength to compare NR.",
             "当前为游戏原生 SR。启用插件并提高效果强度，即可对比 NR。"));
     else if (!activity.valid)
@@ -333,6 +310,9 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     else if (activity.Processing())
         ImGui::TextWrapped("%s", ui("Recent NR processing and output submission observed. Use F6 to compare the picture.",
             "最近已观察到 NR 处理和画面输出提交。按 F6 对比实际效果。"));
+    else if (reason == BypassReason::QueueRetirementTimeout)
+        ImGui::TextWrapped("%s", ui("Submitted NR did not finish within the bounded wait. Native output is retained for these settings; use F8 before retrying with F6.",
+            "上一轮 NR 未在等待上限内完成；当前设置保持原生输出。请先按 F8 记录，再用 F6 重新尝试。"));
     else if (reason == BypassReason::RuntimeUnavailable)
         ImGui::TextWrapped("%s", ui("NR runtime could not load or initialize. Keep your NVIDIA DLLs; install the matching nrchain_nvngx.dll and nvngx_dlssnr.dll beside the addon. Use F8 for the actual failure record.",
             "NR 运行库加载或初始化失败。保留显卡对应 NVIDIA DLL，将配套 nrchain_nvngx.dll 与 nvngx_dlssnr.dll 放在插件旁；按 F8 记录具体失败。"));
@@ -382,6 +362,36 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
             "近期暂未观察到新的 NR 画面输出提交。请进入实际场景；持续无效时按 F8 反馈。"));
     SettingsTooltip(ui("Updated about once per second from recent process counters. Submission is not proof of presentation or picture quality. Per-evaluation reasons remain in F8.",
         "约每秒根据近期处理计数更新。提交不等于已显示或画质已改善；每次评估的具体原因仍保留在 F8。"));
+}
+
+void DrawSettings(reshade::api::effect_runtime *runtime) {
+    const bool use_chinese_ui = UseChineseUi();
+    const auto ui = [use_chinese_ui](const char *en, const char *zh) { return use_chinese_ui ? zh : en; };
+    static ChainConfig pending = {};
+    static bool has_pending = false;
+    static bool pending_picture_reset = false;
+    static unsigned pending_generation = 0;
+    static bool edit_conflict = false;
+    const auto current = SnapshotOverlayConfig();
+    if (has_pending && pending_generation != current.generation) {
+        has_pending = false; pending_picture_reset = false; edit_conflict = true;
+    }
+    ChainConfig next = has_pending ? pending : current.config;
+    bool changed = false;
+    // Local styling follows ReShade's palette and never changes another panel.
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+        ImVec2(ImGui::GetStyle().ItemSpacing.x, 7.0f));
+    ImGui::SeparatorText(ui("Zhuangjizhai DLSS 5", "装机宅DLSS 5"));
+    ImGui::TextDisabled("%s | %s", kAddonVersion,
+                        use_chinese_ui ? kAddonAuthor : kAddonAuthorAscii);
+    ImGui::TextDisabled("%s", kOfficialReleaseUrl);
+    ImGui::TextDisabled("%s", ui("QQ group 2: 392308850", "交流群（二群）：392308850"));
+    if (kChineseUi && !use_chinese_ui)
+        ImGui::TextWrapped("Chinese glyphs are unavailable in the current ReShade font, so this panel is using English instead of broken squares. In ReShade Settings > Overlay & Styling, choose zh-CN/System Default or C:\\Windows\\Fonts\\msyh.ttc, then restart the game.");
+    // Keep controls stationary while live status text changes (#121).
+    ImGui::BeginChild("nr-live-status", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 4.25f), true);
+    DrawNrActivityStatus(runtime,current.config,current.generation);
 
 
     if (next.identity_use_original)

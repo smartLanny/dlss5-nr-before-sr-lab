@@ -263,12 +263,10 @@ def patch_core(text: str) -> str:
 def patch_diagnostics(text: str) -> str:
     # The original panel treats any historical RR handle as permanent bypass.
     # Only an actual guard reason means that in the post-compatible runtime.
-    text=once(text,'    } else if (rr_protected ||\n               bypass_reason == BypassReason::RayReconstructionGuard) {',
-        '    } else if (bypass_reason == BypassReason::RayReconstructionGuard) {')
     text=once(text,'    } else if (rr_protected) {',
         '    } else if (bypass_reason == BypassReason::RayReconstructionGuard) {')
     start=text.index('        ImGui::Text(ui("Perfect chain:')
-    end=text.index('\n    if (generic_renodx_conflict) {',start)
+    end=text.index('\n    if (ImGui::CollapsingHeader(ui("Per-evaluation details"',start)
     text=text[:start]+'''        ImGui::Text(ui("Historical NR raster: %ux%u | reference grid %ux%u | %.0f%%",
                        "历史 NR 尺寸：%u x %u | 参考网格 %u x %u | %.0f%%"),
                     width, height, nr_render_width, nr_render_height,

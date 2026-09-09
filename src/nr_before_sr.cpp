@@ -54,11 +54,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "0.4.7beta-queue.2";
+constexpr const char *kAddonVersion = "0.4.7beta-queue.3";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "0.4.7beta-queue.2";
+constexpr const char *kBuildIdentity = "0.4.7beta-queue.3";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -367,6 +367,7 @@ enum class BypassReason : int {
     CommandStateUnverified,
     RuntimeUnavailable,
     CodecUnavailable,
+    QueueRetirementTimeout,
 };
 
 std::atomic<int> g_last_bypass_reason{
@@ -401,6 +402,11 @@ std::atomic<unsigned long long> g_lifecycle_safe_bypass_frames{0};
 // actual queue mismatch at Execute is fail-closed and permanently diagnosed.
 std::atomic<unsigned long long> g_queue_affinity_admitted_frames{0};
 std::atomic<unsigned long long> g_queue_retired_admitted_frames{0};
+std::atomic<unsigned long long> g_queue_retirement_waits{0};
+std::atomic<unsigned long long> g_queue_retirement_wait_completed{0};
+std::atomic<unsigned long long> g_queue_retirement_wait_timeouts{0};
+std::atomic<unsigned long long> g_queue_retirement_wait_ms{0};
+std::atomic<unsigned long long> g_queue_retirement_wait_max_ms{0};
 std::atomic<unsigned long long> g_queue_affinity_unknown_bypass_frames{0};
 std::atomic<unsigned long long> g_queue_affinity_prediction_bypass_frames{0};
 std::atomic<unsigned long long> g_queue_affinity_actual_mismatches{0};
@@ -468,6 +474,7 @@ const char *BypassReasonName(BypassReason reason) {
         return "command-state-unverified";
     case BypassReason::RuntimeUnavailable: return "nr-runtime-unavailable";
     case BypassReason::CodecUnavailable: return "codec-unavailable";
+    case BypassReason::QueueRetirementTimeout: return "queue-retirement-timeout";
     default: return "unknown";
     }
 }
@@ -4148,6 +4155,10 @@ struct NrContext {
     bool awaiting_fence_signal = false;
     int mode = 0;
     bool failed = false;
+    // A bounded CPU wait can time out on a game's future dependency. Do not
+    // repeat that stall every frame; a new committed configuration retries.
+    bool retirement_wait_blocked = false;
+    unsigned int retirement_wait_blocked_generation = 0;
     NrSlot slots[8] = {};
 };
 
@@ -5076,6 +5087,78 @@ bool CanBeginContextUseLocked(ID3D12GraphicsCommandList *command_list,
                 1, std::memory_order_relaxed);
     }
     return true;
+}
+
+bool PrepareContextUseLocked(ID3D12GraphicsCommandList *command_list,
+                             NrContext &context) {
+    CommandListQueueMarker marker = {};
+    bool missing = false;
+    const bool observed = ReadLastSubmissionQueueMarker(command_list, marker, &missing);
+    const bool valid_unknown_history = (!observed && missing) ||
+        (observed && marker.flags == 0 && marker.stable_submissions > 0 &&
+         marker.stable_submissions < kRequiredStableQueueSubmissions);
+    // Existing stable/migrated/malformed marker behavior stays in the strict
+    // admission function. Never turn a bad marker into a completion fallback.
+    if (!valid_unknown_history) return CanBeginContextUseLocked(command_list, context);
+    const unsigned int generation=g_config_generation.load(std::memory_order_relaxed);
+    if (context.retirement_wait_blocked &&
+        context.retirement_wait_blocked_generation == generation) {
+        SetBypassReason(BypassReason::QueueRetirementTimeout);
+        return false;
+    }
+    if (!IsContextFenceCompleteLocked(context) &&
+        !g_lifecycle_tracking_uncertain.load(std::memory_order_acquire) &&
+        !context.awaiting_fence_signal && context.pending_recording_token == 0 &&
+        !context.failed && !context.retired &&
+        !context.create_dependencies_quarantined && !context.lifecycle_dependencies_quarantined &&
+        context.completion_fence_value != 0 && context.last_submission_queue != nullptr &&
+        context.last_submission_queue->fence != nullptr) {
+        // CompleteSubmissionBatch publishes this exact fence/value only after
+        // native Execute and its private Signal have both returned. Its GPU
+        // completion requires no Core lock. Keep context/queue ownership pinned
+        // under g_chain_cs; never wait on an unsubmitted recording, an awaiting
+        // Signal, a guessed queue, or a new GPU Wait dependency.
+        constexpr ULONGLONG kRetirementWaitBudgetMs=50;
+        const ULONGLONG started=GetTickCount64();
+        const auto count=g_queue_retirement_waits.fetch_add(1,std::memory_order_relaxed)+1;
+        bool completed=false,removed=false;
+        for (;;) {
+            const auto value=ID3D12Fence_GetCompletedValue(context.last_submission_queue->fence);
+            removed=value==UINT64_MAX;
+            completed=!removed && value>=context.completion_fence_value;
+            const ULONGLONG now=GetTickCount64();
+            if (completed || removed || now<started || now-started>=kRetirementWaitBudgetMs) break;
+            Sleep(1);
+        }
+        const ULONGLONG finished=GetTickCount64();
+        const ULONGLONG elapsed=finished>=started?finished-started:0;
+        g_queue_retirement_wait_ms.fetch_add(elapsed,std::memory_order_relaxed);
+        auto maximum=g_queue_retirement_wait_max_ms.load(std::memory_order_relaxed);
+        while (maximum<elapsed && !g_queue_retirement_wait_max_ms.compare_exchange_weak(
+                maximum,elapsed,std::memory_order_relaxed)) {}
+        if (removed) {
+            MarkLifecycleUncertain("device removal while observing submitted NR completion");
+            SetBypassReason(BypassReason::LifecycleIsolation);
+            return false;
+        }
+        if (!completed) {
+            context.retirement_wait_blocked=true;
+            context.retirement_wait_blocked_generation=generation;
+            g_queue_retirement_wait_timeouts.fetch_add(1,std::memory_order_relaxed);
+            SetBypassReason(BypassReason::QueueRetirementTimeout);
+            Log("[queue-retirement] submitted NR completion timed out after %llu ms; "
+                "no new NR was recorded, current native SR continues, no repeated "
+                "wait in config=%u. Existing dependencies remain pinned.",elapsed,generation);
+            return false;
+        }
+        g_queue_retirement_wait_completed.fetch_add(1,std::memory_order_relaxed);
+        if (count<=3 || count%600==0)
+            Log("[queue-retirement] exact submitted NR fence completed after %llu ms "
+                "(wait=%llu); strict retired admission follows, no queue prediction.",elapsed,count);
+    }
+    // Still require the original queue/state/ownership proof. Waiting itself
+    // grants no recording permission and is never repeated by RecordNrUse.
+    return CanBeginContextUseLocked(command_list, context);
 }
 
 bool RecordNrUseLocked(ID3D12GraphicsCommandList *command_list,
@@ -8402,7 +8485,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
         }
         context->next_create_retry_frame = 0;
     }
-    if (!CanBeginContextUseLocked(command_list, *context)) {
+    if (!PrepareContextUseLocked(command_list, *context)) {
         ReleaseCom(device);
         return substitution;
     }
@@ -8914,7 +8997,7 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         }
         context->next_create_retry_frame = 0;
     }
-    if (!CanBeginContextUseLocked(command_list, *context)) {
+    if (!PrepareContextUseLocked(command_list, *context)) {
         ReleaseCom(device);
         return substitution;
     }
@@ -11758,8 +11841,11 @@ void OnPresent(reshade::api::command_queue *queue, reshade::api::swapchain *swap
     ReleaseSRWLockExclusive(&g_present_observer_lock);
 }
 
-void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
-    const ChainConfig next = SnapshotConfig();
+void DrawNrActivityStatus(reshade::api::effect_runtime *,const ChainConfig &,unsigned);
+
+void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
+    const auto current=SnapshotOverlayConfig();
+    const ChainConfig next=current.config;
     const bool before_sr = next.mode == 2;
     const bool has_pending = false;
     const bool use_chinese_ui = UseChineseUi();
@@ -11986,123 +12072,8 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
     const bool dlssd_observer_ready =
         g_dlssd_lifecycle_hooks_ready.load(std::memory_order_relaxed);
 
-    const char *brief_status_en = "Active";
-    const char *brief_status_zh = "运行中";
-    const char *brief_reason_en = before_sr
-        ? "Render-resolution NR is feeding the game's original DLSS SR."
-        : "The full-resolution SR -> NR comparison path is active.";
-    const char *brief_reason_zh = before_sr
-        ? "渲染分辨率 NR 正在送入游戏原生 DLSS SR。"
-        : "全分辨率 SR -> NR 高画质对比链路正在运行。";
-    if (generic_renodx_conflict) {
-        brief_status_en = "Duplicate NR plugin";
-        brief_status_zh = "重复 NR 插件";
-        brief_reason_en = "Remove renodx-dlss5.addon64 and restart; this process remains on native SR.";
-        brief_reason_zh = "请删除 renodx-dlss5.addon64 并重启；本进程持续使用原生 SR。";
-    } else if (shortfuse_nr_enabled) {
-        brief_status_en = "Safe bypass";
-        brief_status_zh = "安全旁路";
-        brief_reason_en = "ShortFuse currently owns NR; double processing is blocked.";
-        brief_reason_zh = "ShortFuse 当前拥有 NR；已阻止重复处理。";
-    } else if (!next.enabled) {
-        brief_status_en = "Pure game path";
-        brief_status_zh = "纯游戏链路";
-        brief_reason_en = "F6 master switch is off; Feature 18 is not executed.";
-        brief_reason_zh = "F6 总开关已关闭；不会执行 Feature 18。";
-    } else if (module_observer_installing ||
-               bypass_reason == BypassReason::ModuleObserverInstalling) {
-        brief_status_en = "Warming up safely";
-        brief_status_zh = "安全预热中";
-        brief_reason_en = "A deferred NGX module observer is being installed; this frame stays native.";
-        brief_reason_zh = "正在补挂延迟加载的 NGX 模块观察器；本帧保持原生链路。";
-    } else if (module_observer_uncertain ||
-               bypass_reason == BypassReason::ModuleObserverUncertain) {
-        brief_status_en = "Safe bypass";
-        brief_status_zh = "安全旁路";
-        brief_reason_en = "An NGX handle or RR-capable module escaped lifecycle observation; ownership cannot be proven for this process.";
-        brief_reason_zh = "检测到 NGX 句柄或 RR 模块绕过了生命周期观察；本进程无法证明其所有权状态。";
-    } else if (failed_create_quarantine) {
-        brief_status_en = "Safe isolation";
-        brief_status_zh = "安全隔离";
-        brief_reason_en = "Feature 18 returned an invalid failure/handle pair; restart the game.";
-        brief_reason_zh = "Feature 18 返回了异常的失败/句柄组合；请重启游戏。";
-    } else if (rr_protected ||
-               bypass_reason == BypassReason::RayReconstructionGuard) {
-        brief_status_en = "Safe bypass";
-        brief_status_zh = "安全旁路";
-        brief_reason_en = "Ray Reconstruction is active; the game RR/SR chain is left untouched.";
-        brief_reason_zh = "光线重构正在运行；游戏 RR/SR 链路保持原样。";
-    } else if (unverified_exposure_texture_bypass ||
-               bypass_reason == BypassReason::ExposureTextureUnverified) {
-        brief_status_en = "Safe bypass";
-        brief_status_zh = "安全旁路";
-        brief_reason_en = "The live ExposureTexture contract is unknown or unsupported.";
-        brief_reason_zh = "当前 ExposureTexture 合同未知或不受支持。";
-    } else if (bypass_reason == BypassReason::OutputColorContractUnverified) {
-        brief_status_en = "Safe bypass";
-        brief_status_zh = "安全旁路";
-        brief_reason_en = "The packed/8-bit output colour contract is unverified.";
-        brief_reason_zh = "打包或 8 位输出色彩合同尚未验证。";
-    } else if (bypass_reason == BypassReason::InputColorContractUnverified) {
-        brief_status_en = "Safe bypass";
-        brief_status_zh = "安全旁路";
-        brief_reason_en = "The packed/8-bit render input conflicts with the live DLSS colour contract.";
-        brief_reason_zh = "打包或 8 位渲染输入与当前 DLSS 色彩合同不一致。";
-    } else if (bypass_reason == BypassReason::UnsupportedInputFormat) {
-        brief_status_en = "Safe bypass";
-        brief_status_zh = "安全旁路";
-        brief_reason_en = "The render-resolution Color format is unsupported.";
-        brief_reason_zh = "渲染分辨率 Color 格式不受支持。";
-    } else if (bypass_reason == BypassReason::UnsupportedOutputFormat) {
-        brief_status_en = "Safe bypass";
-        brief_status_zh = "安全旁路";
-        brief_reason_en = "The output Color format/usage contract is unsupported.";
-        brief_reason_zh = "输出 Color 格式或用法合同不受支持。";
-    } else if (bypass_reason == BypassReason::RuntimeRejected) {
-        brief_status_en = "Safe bypass";
-        brief_status_zh = "安全旁路";
-        brief_reason_en = "The installed NR runtime rejected Feature 18 creation.";
-        brief_reason_zh = "当前 NR 运行库拒绝创建 Feature 18。";
-    } else if (bypass_reason == BypassReason::QueueAffinityUnverified) {
-        brief_status_en = "Warming up safely";
-        brief_status_zh = "安全预热中";
-        brief_reason_en = "The command list has not yet proved stable graphics-queue affinity.";
-        brief_reason_zh = "命令列表尚未证明稳定的图形队列归属。";
-    } else if (bypass_reason == BypassReason::CommandStateUnverified) {
-        brief_status_en = "Native frame";
-        brief_status_zh = "本帧原生旁路";
-        if (g_command_signature_start_deferred.load(std::memory_order_relaxed) &&
-            g_command_signature_unknown_uses.load(std::memory_order_relaxed) != 0) {
-            brief_reason_en = "NR started after the game created indirect commands. Restart with NR enabled so their state can be observed safely.";
-            brief_reason_zh = "游戏先创建了间接命令，之后才开启 NR。请保持 NR 开启并重启游戏，才能安全观察这些状态。";
-        } else {
-            brief_reason_en = "This command list cannot yet be restored safely; the current frame stays native.";
-            brief_reason_zh = "当前命令列表尚不能安全恢复；本帧保持原生。";
-        }
-    } else if (bypass_reason == BypassReason::Feature1TransactionBusy) {
-        brief_status_en = "Native frame";
-        brief_status_zh = "本帧原生旁路";
-        brief_reason_en = "Another Feature 1 transaction owns the chain; this frame stays native without being misclassified as RR.";
-        brief_reason_zh = "另一条 Feature 1 调用正占用链路；本帧保持原生，不会误判为光线重构。";
-    } else if (bypass_reason == BypassReason::LifecycleIsolation ||
-               safety_tracking_uncertain) {
-        brief_status_en = "Safe bypass";
-        brief_status_zh = "安全旁路";
-        brief_reason_en = "GPU lifecycle or hook ownership is uncertain; native SR is preserved.";
-        brief_reason_zh = "GPU 生命周期或 Hook 所有权不确定；已保留原生 SR。";
-    } else if (bypass_reason == BypassReason::WaitingForFeature1 ||
-               evaluations == 0) {
-        brief_status_en = "Waiting";
-        brief_status_zh = "等待中";
-        brief_reason_en = "No compatible DLSS Super Resolution frame has been observed yet.";
-        brief_reason_zh = "尚未观察到兼容的 DLSS 超分帧。";
-    }
-
-    ImGui::SeparatorText(ui("Current status", "当前状态"));
-    ImGui::Text(ui("Current status: %s", "当前状态：%s"),
-                ui(brief_status_en, brief_status_zh));
-    ImGui::TextWrapped(ui("Reason: %s", "原因：%s"),
-                       ui(brief_reason_en, brief_reason_zh));
+    ImGui::SeparatorText(ui("Recent activity", "近期状态"));
+    DrawNrActivityStatus(runtime,next,current.generation);
     ImGui::TextDisabled(
         ui("Module observer: rescans=%llu core=%s DLSSD=%s observer-gap=%s fault=%s startup-covered=%s preflight=%llu/%llu F1-create=%llu/%llu in-flight=%u null-evals=%llu",
            "模块观察器：重扫=%llu core=%s DLSSD=%s 观察缺口=%s 首因=%s 启动补挂=%s 预扫=%llu/%llu F1创建=%llu/%llu 进行中=%u 空句柄调用=%llu"),
@@ -12155,152 +12126,154 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
                "存活 RR 句柄：%u 个；在游戏明确 Release 或重启前持续安全旁路。"),
             live_rr_handles);
     }
+    if (ImGui::CollapsingHeader(ui("Per-evaluation details", "单次评估细节"))) {
+    ImGui::BeginChild("nr-evaluation-detail",ImVec2(0,ImGui::GetTextLineHeightWithSpacing()*4.25f),true);
     if (generic_renodx_conflict) {
         ImGui::TextWrapped("%s", ui(
-            "Status: duplicate NR owner renodx-dlss5.addon64 was detected. "
+            "Last evaluation: duplicate NR owner renodx-dlss5.addon64 was detected. "
             "All this add-on's NGX calls stay native for the process. Remove "
             "that file and restart; disabling its checkbox is insufficient.",
-            "状态：检测到重复 NR 所有者 renodx-dlss5.addon64。本进程中本插件"
+            "单次评估：检测到重复 NR 所有者 renodx-dlss5.addon64。本进程中本插件"
             "所有 NGX 调用均保持原生透传。请删除该文件并重启；只关复选框不够。"));
     } else if (shortfuse_nr_enabled) {
-        ImGui::Text("%s", ui("Status: ShortFuse NR owns this frame",
-                              "状态：本帧由 ShortFuse NR 接管"));
+        ImGui::Text("%s", ui("Last evaluation: ShortFuse NR owns this frame",
+                              "单次评估：本帧由 ShortFuse NR 接管"));
     } else if (!next.enabled) {
         ImGui::Text("%s", rr_protected
-            ? ui("Status: game Ray Reconstruction + SR only (F6 master off)",
-                 "状态：仅游戏光线重构 + SR（F6 总开关已关闭）")
-            : ui("Status: pure SR (F6 master off)",
-                 "状态：纯 SR（F6 总开关已关闭）"));
+            ? ui("Last evaluation: game Ray Reconstruction + SR only (F6 master off)",
+                 "单次评估：仅游戏光线重构 + SR（F6 总开关已关闭）")
+            : ui("Last evaluation: pure SR (F6 master off)",
+                 "单次评估：纯 SR（F6 总开关已关闭）"));
     } else if (failed_create_quarantine) {
         ImGui::TextWrapped("%s", ui(
-            "Status: a failed Feature 18 Create returned a non-null handle. "
+            "Last evaluation: a failed Feature 18 Create returned a non-null handle. "
             "Its complete GPU dependency set is isolated and every later NR "
             "attempt is disabled until the game restarts.",
-            "状态：Feature 18 创建失败时仍返回了非空句柄。其完整 GPU 依赖"
+            "单次评估：Feature 18 创建失败时仍返回了非空句柄。其完整 GPU 依赖"
             "已被隔离，本进程后续 NR 尝试全部停用；请重启游戏。"));
     } else if (module_observer_installing ||
                bypass_reason == BypassReason::ModuleObserverInstalling) {
         ImGui::TextWrapped("%s", ui(
-            "Status: deferred NGX lifecycle hooks are being installed. The "
+            "Last evaluation: deferred NGX lifecycle hooks are being installed. The "
             "current frame is passed through natively; processing resumes "
             "only after observer coverage is complete.",
-            "状态：正在补挂延迟加载的 NGX 生命周期 Hook。本帧原样旁路；"
+            "单次评估：正在补挂延迟加载的 NGX 生命周期 Hook。本帧原样旁路；"
             "只有观察器覆盖完成后才恢复处理。"));
     } else if (module_observer_uncertain ||
                bypass_reason == BypassReason::ModuleObserverUncertain) {
         ImGui::TextWrapped("%s", ui(
-            "Status: an NGX handle or RR-capable module was observed outside "
+            "Last evaluation: an NGX handle or RR-capable module was observed outside "
             "the complete lifecycle hook transaction. An earlier Feature 13 "
             "handle cannot be ruled out; native SR is preserved until restart. "
             "See [module] and ownership lines in nr-before-sr.log.",
-            "状态：检测到 NGX 句柄或可承载 RR 的模块绕过了完整生命周期 Hook。"
+            "单次评估：检测到 NGX 句柄或可承载 RR 的模块绕过了完整生命周期 Hook。"
             "无法排除更早已创建 Feature 13 句柄；重启前持续保留原生 SR。"
             "请查看 nr-before-sr.log 中的 [module] 与所有权记录。"));
     } else if (safety_tracking_uncertain) {
         ImGui::TextWrapped("%s", ui(
-            "Status: safety tracking became uncertain, so Feature 18 is "
+            "Last evaluation: safety tracking became uncertain, so Feature 18 is "
             "disabled for this process and native game SR is preserved. "
             "Restart the game and include nr-before-sr.log when reporting it.",
-            "状态：安全跟踪状态不确定，本进程已禁用 Feature 18 并保留游戏原始 "
+            "单次评估：安全跟踪状态不确定，本进程已禁用 Feature 18 并保留游戏原始 "
             "SR。请重启游戏；反馈时请附上 nr-before-sr.log。"));
     } else if (rr_protected) {
         ImGui::TextWrapped("%s", ui(
-            "Status: Ray Reconstruction owns this process and is left completely "
+            "Last evaluation: Ray Reconstruction owns this process and is left completely "
             "untouched. Disable RR in-game; if the title retains its Feature 13 "
             "handle, restart once with RR already off to use SR -> NR or NR -> SR.",
-            "状态：光线重构当前拥有本进程链路，本插件完全不改写。若要使用 "
+            "单次评估：光线重构当前拥有本进程链路，本插件完全不改写。若要使用 "
             "SR -> NR 或 NR -> SR，请先在游戏内关闭 RR；若游戏仍保留 "
             "Feature 13 句柄，请在 RR 已关闭的状态下重启一次。"));
     } else if (unverified_exposure_texture_bypass) {
         ImGui::TextWrapped("%s", ui(
-            "Status: the live ExposureTexture is not a supported 1x1 "
+            "Last evaluation: the live ExposureTexture is not a supported 1x1 "
             "exposure-scale shader-load contract. The add-on is preserving "
             "the game's original SR to prevent an exposure or colour shift.",
-            "状态：当前 ExposureTexture 不符合受支持的 1x1 曝光缩放 shader-load "
+            "单次评估：当前 ExposureTexture 不符合受支持的 1x1 曝光缩放 shader-load "
              "合同。为避免曝光或颜色偏移，本插件已保留游戏原始 SR。"));
     } else if (bypass_reason == BypassReason::QueueAffinityUnverified) {
         ImGui::TextWrapped(
-            ui("Status: this command list has not yet proved two stable "
+            ui("Last evaluation: this command list has not yet proved two stable "
                "submissions on one D3D12 graphics queue, or it has migrated. "
                "Native SR is kept (live queues %u, bypass count %llu).",
-               "状态：当前命令列表尚未证明在同一 D3D12 图形队列稳定提交两次，"
+               "单次评估：当前命令列表尚未证明在同一 D3D12 图形队列稳定提交两次，"
                "或已发生过队列迁移；本帧保留原生 SR（存活队列 %u，累计旁路 "
                "%llu 帧）。"),
             live_graphics_queues, queue_contract_bypasses);
     } else if (bypass_reason == BypassReason::Feature1TransactionBusy) {
         ImGui::TextWrapped(
-            ui("Status: a concurrent Feature 1 transaction already owns the "
+            ui("Last evaluation: a concurrent Feature 1 transaction already owns the "
                "NR chain, so this call stayed native (count %llu). It was not "
                "classified as Ray Reconstruction and NR history was not reset.",
-               "状态：另一条并发 Feature 1 调用正在使用 NR 链路，因此本次调用"
+               "单次评估：另一条并发 Feature 1 调用正在使用 NR 链路，因此本次调用"
                "保持原生（累计 %llu 次）。它不会被误判为光线重构，也不会重置 "
                "NR 历史。"),
             feature1_busy_bypasses);
     } else if (bypass_reason == BypassReason::LifecycleIsolation) {
         ImGui::TextWrapped(
-            ui("Status: this frame kept native SR because the Feature 18 "
+            ui("Last evaluation: this frame kept native SR because the Feature 18 "
                "context/queue fence could not yet be proven safe (count %llu).",
-               "状态：本帧无法证明 Feature 18 上下文 / 队列 fence 已安全，"
+               "单次评估：本帧无法证明 Feature 18 上下文 / 队列 fence 已安全，"
                "因此保留原生 SR（累计 %llu 帧）。"),
             lifecycle_safe_bypasses);
     } else if (bypass_reason == BypassReason::UnsupportedInputFormat) {
         ImGui::TextWrapped(ui(
-            "Status: the render-resolution Color contract is unsupported "
+            "Last evaluation: the render-resolution Color contract is unsupported "
             "(format %u, %s). Native SR is preserved.",
-            "状态：渲染分辨率 Color 合同不支持（格式 %u，%s），已保留原生 SR。"),
+            "单次评估：渲染分辨率 Color 合同不支持（格式 %u，%s），已保留原生 SR。"),
             static_cast<unsigned int>(pre_sr_color_format),
             FormatName(pre_sr_color_format));
     } else if (bypass_reason == BypassReason::InputColorContractUnverified) {
         ImGui::TextWrapped(ui(
-            "Status: the render-resolution Color contract is ambiguous "
+            "Last evaluation: the render-resolution Color contract is ambiguous "
             "(format %u, %s). R8 requires bounded UNORM values plus a unit "
             "exposure contract, corroborated by either current R8 Output or "
             "the live Feature 1 SDR flag. Packed R10 requires HDR/PQ with "
             "unit exposure. NR -> SR is safely bypassed.",
-            "状态：渲染分辨率 Color 合同存在歧义（格式 %u，%s）。R8 需要有界 "
+            "单次评估：渲染分辨率 Color 合同存在歧义（格式 %u，%s）。R8 需要有界 "
             "UNORM 数值、单位曝光，并由当前 R8 Output 或本次 Feature 1 的 SDR "
             "标志佐证；打包 R10 必须是 HDR/PQ 且曝光合同为 1；NR -> SR 已安全旁路。"),
             static_cast<unsigned int>(pre_sr_color_format),
             FormatName(pre_sr_color_format));
     } else if (bypass_reason == BypassReason::OutputColorContractUnverified) {
         ImGui::TextWrapped(ui(
-            "Status: the packed/8-bit output contract is unverified (format %u). "
+            "Last evaluation: the packed/8-bit output contract is unverified (format %u). "
             "R8 needs an explicit linear/sRGB profile; R10 needs HDR/PQ with "
             "unity exposure. SR -> NR is safely bypassed.",
-            "状态：打包或 8 位输出合同尚未验证（格式 %u）。R8 需要明确的 "
+            "单次评估：打包或 8 位输出合同尚未验证（格式 %u）。R8 需要明确的 "
             "linear / sRGB 配置；R10 需要 HDR/PQ 且曝光合同为 1；SR -> NR 已安全旁路。"),
             static_cast<unsigned int>(output_format));
     } else if (bypass_reason == BypassReason::UnsupportedOutputFormat) {
         ImGui::TextWrapped(ui(
-            "Status: SR -> NR rejected the live output resource contract "
+            "Last evaluation: SR -> NR rejected the live output resource contract "
             "(format %u, %s). Native SR is preserved.",
-            "状态：SR -> NR 拒绝了当前输出资源合同（格式 %u，%s），已保留原生 SR。"),
+            "单次评估：SR -> NR 拒绝了当前输出资源合同（格式 %u，%s），已保留原生 SR。"),
             static_cast<unsigned int>(output_format), FormatName(output_format));
     } else if (before_sr && pre_sr_runtime_rejected) {
         ImGui::TextWrapped(
-            ui("Status: the signed NR runtime rejected Feature 18 creation "
+            ui("Last evaluation: the signed NR runtime rejected Feature 18 creation "
                "(0x%08X). The game SR is preserved; a setting toggle retries "
                "immediately. If this remains, verify RTX 50 GPU, driver 615+ "
                "and the packaged nvngx_dlssnr.dll.",
-               "状态：签名 NR 运行库拒绝创建 Feature 18（0x%08X）。已保留"
+               "单次评估：签名 NR 运行库拒绝创建 Feature 18（0x%08X）。已保留"
                "游戏 SR；切换任意设置会立即重试。若持续出现，请确认 RTX 50、"
                "615+ 驱动及压缩包内的 nvngx_dlssnr.dll。"),
             last_create_result);
     } else if (!before_sr && post_sr_runtime_rejected) {
         ImGui::TextWrapped(
             ui(
-                "Status: this signed NR runtime rejected the game's Post-SR "
+                "Last evaluation: this signed NR runtime rejected the game's Post-SR "
                 "guide contract (0x%08X); original SR is retained. Use NR -> SR instead.",
-                "状态：当前签名 NR 运行库拒绝了游戏的 Post-SR guides 合同，"
+                "单次评估：当前签名 NR 运行库拒绝了游戏的 Post-SR guides 合同，"
                 "错误码 0x%08X；已保留原始 SR，请改用 NR -> SR。"),
             last_create_result);
     } else if (evaluations == 0) {
         ImGui::Text("%s", ui(
-            "Status: waiting for a compatible DLSS Super Resolution frame",
-            "状态：等待兼容的 DLSS 超分帧"));
+            "Last evaluation: waiting for a compatible DLSS Super Resolution frame",
+            "单次评估：等待兼容的 DLSS 超分帧"));
     } else {
-        ImGui::Text(ui("Status: %s at %ux%u  |  NR frames: %llu",
-                       "状态：%s，NR 分辨率 %u x %u  |  NR 帧数：%llu"),
+        ImGui::Text(ui("Last evaluation: %s at %ux%u  |  NR frames: %llu",
+                       "单次评估：%s，NR 分辨率 %u x %u  |  NR 帧数：%llu"),
                     before_sr ? "NR -> SR" : "SR -> NR",
                     width, height, evaluations);
     }
@@ -12314,6 +12287,8 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
         ImGui::TextDisabled("%s", ui(
             "Post-SR R11 native snapshot -> FP16 NR -> typed R11 write-back is active.",
             "后置 R11 原生快照 -> FP16 NR -> R11 typed 写回已启用。"));
+    }
+    ImGui::EndChild();
     }
     ImGui::TextDisabled(
         ui("NR transfer recorded/bound/submitted: %llu/%llu/%llu | "
@@ -12488,13 +12463,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain 0.4.7beta-queue.2 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain 0.4.7beta-queue.3 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain 0.4.7beta-queue.2 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain 0.4.7beta-queue.3 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "
