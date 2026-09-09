@@ -11,7 +11,7 @@ void WriteCodecDescriptorSet(ID3D12Device *device, const NrSlot &slot,
     auto uav=[&](UINT i,ID3D12Resource *resource,DXGI_FORMAT format) {
         D3D12_UNORDERED_ACCESS_VIEW_DESC d={};d.Format=format;d.ViewDimension=D3D12_UAV_DIMENSION_TEXTURE2D;
         ID3D12Device_CreateUnorderedAccessView(device,resource,nullptr,&d,at(i)); };
-    srv(0,slot.source,slot.source_format);
+    srv(0,slot.source,slot.source_srv_format);
     srv(1,slot.proxy,DXGI_FORMAT_R16G16B16A16_FLOAT);
     srv(2,slot.neural,DXGI_FORMAT_R16G16B16A16_FLOAT);
     srv(3,slot.motion_source,slot.motion_source?ID3D12Resource_GetDesc(slot.motion_source).Format:DXGI_FORMAT_R16G16_FLOAT);
@@ -86,7 +86,7 @@ void WritePostSrSnapshotDescriptors(ID3D12Device *device, const NrSlot &slot) {
     WriteCodecDescriptorSet(device, slot, slot.snapshot_heap);
     auto cpu = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.snapshot_heap);
     D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
-    srv.Format = slot.result_format;
+    srv.Format = slot.result_srv_format;
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = 1;
@@ -100,6 +100,6 @@ void WritePostSrSnapshotDescriptors(ID3D12Device *device, const NrSlot &slot) {
     // never uses the optional edit-field SRV for picture composition.
     cpu=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.snapshot_heap);
     cpu.ptr+=static_cast<SIZE_T>(g_codec.descriptor_size)*kCodecEditFieldSrvIndex;
-    srv.Format=slot.source_format;
+    srv.Format=slot.source_srv_format;
     ID3D12Device_CreateShaderResourceView(device,slot.source,&srv,cpu);
 }

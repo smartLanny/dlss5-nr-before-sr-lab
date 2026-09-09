@@ -30,6 +30,9 @@
 #include "nr_imgui_abi.h"
 
 #include "MinHook.h"
+#include "interop/nr_format_access.h"
+#include "nr_native_format.h"
+#define NR_HAS_NATIVE_FORMAT_OBSERVER 1
 #include "interop/nr_post_compat.h"
 #include "nr_guide_contract.h"
 #include "nr_rr_depth_projection.h"
@@ -1120,8 +1123,14 @@ bool IsUnityExposureContract(const ColorContract &contract) {
 bool IsPreSrBoundedR8Contract(const ColorContract &contract,
                               bool create_declares_sdr,
                               bool live_bounded_output) {
+    if (create_declares_sdr) {
+        // NGX's LDR contract ignores the HDR-only ExposureTexture. Preserve the
+        // native parameter and still reject contradictory scalar transforms.
+        ColorContract ldr = contract;
+        ldr.exposure_texture = nullptr;
+        return IsUnityExposureContract(ldr);
+    }
     if (!IsUnityExposureContract(contract)) return false;
-    if (create_declares_sdr) return true;
     // Overriding a contradictory HDR Create flag needs positive evidence.
     // Missing/invalid scalars sanitize to one for other paths, but that default
     // must not be mistaken for an explicitly declared bounded R8 contract.
@@ -4073,8 +4082,11 @@ struct NrSlot {
     ID3D12DescriptorHeap *stats_clear_heap = nullptr;
     ID3D12DescriptorHeap *capture_cpu_heap = nullptr;
     ID3D12DescriptorHeap *snapshot_heap = nullptr;
-    DXGI_FORMAT source_format = DXGI_FORMAT_UNKNOWN;
-    DXGI_FORMAT result_format = DXGI_FORMAT_UNKNOWN;
+    DXGI_FORMAT source_format = DXGI_FORMAT_UNKNOWN; // physical storage
+    DXGI_FORMAT source_srv_format = DXGI_FORMAT_UNKNOWN; // actual typed read view
+    DXGI_FORMAT result_format = DXGI_FORMAT_UNKNOWN; // physical storage
+    DXGI_FORMAT result_srv_format = DXGI_FORMAT_UNKNOWN;
+    nr_native_format::Key native_format_key{};
     DXGI_FORMAT result_uav_format = DXGI_FORMAT_UNKNOWN;
     CodecColorMode codec_color_mode = CodecColorMode::Automatic;
     bool converts_source_format = false;
@@ -6136,6 +6148,9 @@ bool CreateDeltaStatsBuffers(ID3D12Device *device, NrSlot &slot) {
     return true;
 }
 
+#include "interop/nr_format_access_d3d12.inl"
+#include "nr_native_format_runtime.inl"
+
 enum class PostSrStorageContract {
     Unsupported,
     Fp16,
@@ -6145,6 +6160,7 @@ enum class PostSrStorageContract {
     R8LinearProfiled,
     R8SrgbProfiled,
     R8EncodingUnknown,
+    R8NativeBounded,
 };
 
 enum class PreSrStorageContract {
@@ -6158,10 +6174,14 @@ enum class PreSrStorageContract {
     // same Feature 1 handle between FP16 and bounded R8 resources.
     R8BoundedCandidate,
     R8EncodingUnknown,
+    Fp32, // typed/capability checked; same existing canonical codec
 };
 
 PreSrStorageContract ClassifyPreSrStorage(DXGI_FORMAT format,
                                           int feature_create_flags) {
+    format = NrSceneReadFormat(format);
+    if (format == DXGI_FORMAT_R32G32B32A32_FLOAT)
+        return PreSrStorageContract::Fp32;
     if (format == DXGI_FORMAT_R16G16B16A16_FLOAT)
         return PreSrStorageContract::Fp16;
     if (format == DXGI_FORMAT_R11G11B10_FLOAT)
@@ -6180,7 +6200,8 @@ PreSrStorageContract ClassifyPreSrStorage(DXGI_FORMAT format,
 }
 
 bool IsUsablePreSrStorage(PreSrStorageContract contract) {
-    return contract == PreSrStorageContract::Fp16 ||
+    return contract == PreSrStorageContract::Fp32 ||
+           contract == PreSrStorageContract::Fp16 ||
            contract == PreSrStorageContract::R11Float ||
            contract == PreSrStorageContract::R10PqHdr ||
            contract == PreSrStorageContract::R8BoundedCandidate;
@@ -6212,7 +6233,7 @@ bool SupportsPreSrStorage(ID3D12Device *device,
         return false;
 
     D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {};
-    support.Format = desc.Format;
+    support.Format = NrSceneReadFormat(desc.Format);
     const HRESULT hr = ID3D12Device_CheckFeatureSupport(
         device, D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support));
     if (reported != nullptr) *reported = support;
@@ -6223,7 +6244,8 @@ bool SupportsPreSrStorage(ID3D12Device *device,
 }
 
 PostSrStorageContract ClassifyPostSrStorage(DXGI_FORMAT format,
-                                            int feature_create_flags) {
+                                            int feature_create_flags,
+                                            bool native_bounded_output = false) {
     if (format == DXGI_FORMAT_R16G16B16A16_FLOAT)
         return PostSrStorageContract::Fp16;
     if (format == DXGI_FORMAT_R11G11B10_FLOAT)
@@ -6237,6 +6259,8 @@ PostSrStorageContract ClassifyPostSrStorage(DXGI_FORMAT format,
             return PostSrStorageContract::R8LinearProfiled;
         if (g_config.r8_output_encoding == 2)
             return PostSrStorageContract::R8SrgbProfiled;
+        if (native_bounded_output && (feature_create_flags & 1) == 0)
+            return PostSrStorageContract::R8NativeBounded;
         return PostSrStorageContract::R8EncodingUnknown;
     }
     // A typed sRGB resource cannot be assumed to permit the required UNORM
@@ -6248,7 +6272,8 @@ PostSrStorageContract ClassifyPostSrStorage(DXGI_FORMAT format,
 }
 
 bool IsUsablePostSrStorage(PostSrStorageContract contract) {
-    return contract == PostSrStorageContract::Fp16 ||
+    return contract == PostSrStorageContract::R8NativeBounded ||
+           contract == PostSrStorageContract::Fp16 ||
            contract == PostSrStorageContract::R11Float ||
            contract == PostSrStorageContract::R10PqHdr ||
            contract == PostSrStorageContract::R8LinearProfiled ||
@@ -6256,6 +6281,8 @@ bool IsUsablePostSrStorage(PostSrStorageContract contract) {
 }
 
 CodecColorMode PostSrCodecColorMode(PostSrStorageContract contract) {
+    if (contract == PostSrStorageContract::R8NativeBounded)
+        return CodecColorMode::ModelEncodedValueDomain;
     if (contract == PostSrStorageContract::R10PqHdr)
         return CodecColorMode::PqEncodedHdr;
     if (contract == PostSrStorageContract::R8LinearProfiled)
@@ -6333,9 +6360,14 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
                 ID3D12Resource *exposure, NrSlot &slot,
                 CodecColorMode pre_sr_color_mode =
                     CodecColorMode::Automatic,
-                int feature_create_flags = 0) {
+                int feature_create_flags = 0,
+                unsigned long long feature_generation = 0) {
     const D3D12_RESOURCE_DESC external_desc =
         ID3D12Resource_GetDesc(external);
+    const auto external_view = NrResolveColorView(device, external, external_desc,
+        feature_generation, post_sr, feature_create_flags);
+    if (!external_view) return false;
+    slot.native_format_key = external_view.key;
     slot.key = external;
     if (exposure != nullptr) {
         ID3D12Resource_AddRef(exposure);
@@ -6345,9 +6377,9 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     slot.owns_result = !post_sr;
     if (post_sr) {
         const PostSrStorageContract contract =
-            ClassifyPostSrStorage(external_desc.Format,
-                                  feature_create_flags);
-        if (!SupportsPostSrStorage(device, external_desc, contract)) {
+            ClassifyPostSrStorage(external_view.typed.Format,
+                                  feature_create_flags, external_view.native_bounded_output);
+        if (!SupportsPostSrStorage(device, external_view.typed, contract)) {
             Log("CreateSlot rejected post-SR output contract format=%u (%s) "
                 "flags=0x%X profileEncoding=%d.",
                 static_cast<unsigned int>(external_desc.Format),
@@ -6358,7 +6390,8 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
             return false;
         }
         slot.result_format = external_desc.Format;
-        slot.result_uav_format = PostSrUavFormat(external_desc.Format);
+        slot.result_srv_format = external_view.typed.Format;
+        slot.result_uav_format = static_cast<DXGI_FORMAT>(external_view.plan.uav);
         slot.codec_color_mode = PostSrCodecColorMode(contract);
         // Native SR keeps its own Output; FP16 uses an exact copy, packed formats use the codec.
         slot.snapshots_native_output = true;
@@ -6383,19 +6416,33 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
         // resource whose exact previous state we do not own.
         slot.source_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
         slot.result_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        slot.result_srv_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
         slot.result_uav_format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     }
     const D3D12_RESOURCE_DESC source_desc =
         ID3D12Resource_GetDesc(slot.source);
     slot.source_format = source_desc.Format;
+    slot.source_srv_format = post_sr ? NrResolveSceneSrv(device, source_desc) : external_view.typed.Format;
+    if (slot.source_srv_format == DXGI_FORMAT_UNKNOWN) {
+        Log("SceneColor typed SRV capability unavailable: resourceFormat=%u; "
+            "native SR retained. Collect F8 for BUG feedback.",
+            static_cast<unsigned int>(source_desc.Format));
+        DestroySlot(slot);
+        return false;
+    }
+    if (slot.source_format != slot.source_srv_format)
+        Log("SceneColor typed-view path: physical=%u view=%u; "
+            "resolved typed view -> canonical FP16; physical layout is retained.",
+            static_cast<unsigned int>(slot.source_format),
+            static_cast<unsigned int>(slot.source_srv_format));
     slot.converts_source_format =
         slot.source_format != DXGI_FORMAT_R16G16B16A16_FLOAT;
     const bool source_format_supported =
-        IsNativeSceneColorFormat(slot.source_format) ||
+        NrIsFloatSceneStorage(slot.source_srv_format) ||
         (!post_sr &&
-         slot.source_format == DXGI_FORMAT_R10G10B10A2_UNORM &&
+         slot.source_srv_format == DXGI_FORMAT_R10G10B10A2_UNORM &&
          slot.codec_color_mode == CodecColorMode::PqEncodedHdr) ||
-        (!post_sr && slot.source_format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+        (!post_sr && slot.source_srv_format == DXGI_FORMAT_R8G8B8A8_UNORM &&
          slot.codec_color_mode == CodecColorMode::ModelEncodedValueDomain);
     if (!source_format_supported) {
         Log("CreateSlot rejected unsupported source format=%u (%s).",
@@ -6441,7 +6488,7 @@ bool CreateSlot(ID3D12Device *device, ID3D12Resource *external,
     }
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
-    srv.Format = slot.source_format;
+    srv.Format = slot.source_srv_format;
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = 1;
@@ -6796,24 +6843,28 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
                         bool post_sr, ID3D12Resource *exposure, NrSlot &slot,
                         CodecColorMode pre_sr_color_mode =
                             CodecColorMode::Automatic,
-                        int feature_create_flags = 0) {
+                        int feature_create_flags = 0,
+                        unsigned long long feature_generation = 0) {
     if (device == nullptr || external == nullptr || slot.heap == nullptr)
         return false;
     if (!CanMutateSlotLocked(slot)) return false;
 
     const D3D12_RESOURCE_DESC external_desc =
         ID3D12Resource_GetDesc(external);
+    const auto external_view = NrResolveColorView(device, external, external_desc,
+        feature_generation, post_sr, feature_create_flags);
+    if (!external_view) return false;
     D3D12_CPU_DESCRIPTOR_HANDLE cpu =
         ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
 
     if (post_sr) {
         const PostSrStorageContract contract =
-            ClassifyPostSrStorage(external_desc.Format,
-                                  feature_create_flags);
+            ClassifyPostSrStorage(external_view.typed.Format,
+                                  feature_create_flags, external_view.native_bounded_output);
         const bool snapshot = true; // FP16 copy and packed shader snapshots both retain native Output.
         const CodecColorMode codec_color_mode = PostSrCodecColorMode(contract);
         if (!slot.owns_source || slot.owns_result ||
-            !SupportsPostSrStorage(device, external_desc, contract) ||
+            !SupportsPostSrStorage(device, external_view.typed, contract) ||
             slot.snapshots_native_output != snapshot ||
             slot.result_format != external_desc.Format)
             return false;
@@ -6821,9 +6872,11 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
         ID3D12Resource_AddRef(external);
         ReleaseCom(slot.result);
         slot.key = external;
+        slot.native_format_key = external_view.key;
         slot.result = external;
         slot.result_format = external_desc.Format;
-        slot.result_uav_format = PostSrUavFormat(external_desc.Format);
+        slot.result_srv_format = external_view.typed.Format;
+        slot.result_uav_format = static_cast<DXGI_FORMAT>(external_view.plan.uav);
         slot.codec_color_mode = codec_color_mode;
         slot.result_state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         cpu.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) *
@@ -6838,7 +6891,7 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
                 ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(
                     slot.snapshot_heap);
             D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
-            srv.Format = slot.result_format;
+            srv.Format = slot.result_srv_format;
             srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
             srv.Shader4ComponentMapping =
                 D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -6853,11 +6906,14 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
         return true;
     }
 
+    const DXGI_FORMAT source_srv_format = external_view.typed.Format;
+    if (source_srv_format == DXGI_FORMAT_UNKNOWN) return false;
+
     const bool pre_source_supported =
-        IsNativeSceneColorFormat(external_desc.Format) ||
-        (external_desc.Format == DXGI_FORMAT_R10G10B10A2_UNORM &&
+        NrIsFloatSceneStorage(source_srv_format) ||
+        (source_srv_format == DXGI_FORMAT_R10G10B10A2_UNORM &&
          pre_sr_color_mode == CodecColorMode::PqEncodedHdr) ||
-        (external_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM &&
+        (source_srv_format == DXGI_FORMAT_R8G8B8A8_UNORM &&
          pre_sr_color_mode == CodecColorMode::ModelEncodedValueDomain);
     if (slot.owns_source || !slot.owns_result || !pre_source_supported ||
         slot.result == nullptr)
@@ -6894,14 +6950,16 @@ bool RebindSlotExternal(ID3D12Device *device, ID3D12Resource *external,
     ID3D12Resource_AddRef(external);
     ReleaseCom(slot.source);
     slot.key = external;
+    slot.native_format_key = external_view.key;
     slot.source = external;
     slot.source_format = external_desc.Format;
+    slot.source_srv_format = source_srv_format;
     slot.converts_source_format =
         slot.source_format != DXGI_FORMAT_R16G16B16A16_FLOAT;
     slot.codec_color_mode = pre_sr_color_mode;
     slot.source_state = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
     D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
-    srv.Format = slot.source_format;
+    srv.Format = slot.source_srv_format;
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = 1;
@@ -6939,19 +6997,26 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
                          CodecColorMode pre_sr_color_mode =
                              CodecColorMode::Automatic,
                          int feature_create_flags = 0) {
+    const auto desc = ID3D12Resource_GetDesc(external);
+    const auto current_view = NrResolveColorView(device, external, desc,
+        context.feature_generation, post_sr, feature_create_flags);
+    if (!current_view) return nullptr;
     const unsigned long long serial = ++context.slot_serial;
     NrSlot *empty = nullptr;
     for (auto &slot : context.slots) {
         if (slot.key == external && slot.exposure_source == exposure) {
+            if (!(slot.native_format_key == current_view.key) ||
+                (post_sr ? slot.result_srv_format : slot.source_srv_format) != current_view.typed.Format)
+                return nullptr;
             if (post_sr) {
                 const D3D12_RESOURCE_DESC desc =
                     ID3D12Resource_GetDesc(external);
                 const PostSrStorageContract contract =
-                    ClassifyPostSrStorage(desc.Format,
-                                          feature_create_flags);
+                    ClassifyPostSrStorage(current_view.typed.Format,
+                                          feature_create_flags, current_view.native_bounded_output);
                 const CodecColorMode current_mode =
                     PostSrCodecColorMode(contract);
-                if (!SupportsPostSrStorage(device, desc, contract))
+                if (!SupportsPostSrStorage(device, current_view.typed, contract))
                     return nullptr;
                 if (slot.codec_color_mode != current_mode) {
                     Log("Post-SR color contract changed on a reused Output: "
@@ -6972,7 +7037,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
     if (empty != nullptr) {
         if (!CreateSlot(device, external, context.width, context.height,
                         post_sr, exposure, *empty, pre_sr_color_mode,
-                        feature_create_flags))
+                        feature_create_flags, context.feature_generation))
             return nullptr;
         empty->last_used_serial = serial;
         return empty;
@@ -6993,7 +7058,7 @@ NrSlot *FindOrCreateSlot(NrContext &context, ID3D12Device *device,
         ? serial - oldest->last_used_serial : 0;
     if (oldest == nullptr ||
         !RebindSlotExternal(device, external, post_sr, exposure, *oldest,
-                            pre_sr_color_mode, feature_create_flags)) {
+                            pre_sr_color_mode, feature_create_flags, context.feature_generation)) {
         static unsigned int rejected_reuses = 0;
         ++rejected_reuses;
         if (rejected_reuses <= 3 || (rejected_reuses % 600) == 0) {
@@ -8372,8 +8437,11 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     const D3D12_RESOURCE_DESC color_desc = ID3D12Resource_GetDesc(color);
     g_last_pre_sr_color_format.store(
         static_cast<unsigned int>(color_desc.Format), std::memory_order_relaxed);
-    const PreSrStorageContract storage_contract =
-        ClassifyPreSrStorage(color_desc.Format, feature.create_flags);
+    const auto color_view = NrResolveColorViewFromList(command_list, color, color_desc,
+        feature.generation, false, feature.create_flags);
+    const PreSrStorageContract storage_contract = color_view
+        ? ClassifyPreSrStorage(color_view.typed.Format, feature.create_flags)
+        : PreSrStorageContract::Unsupported;
     if (!render_extent_valid || width == 0 || height == 0 ||
         !TextureContainsRegion(color, color_x, color_y, width, height) ||
         !IsUsablePreSrStorage(storage_contract)) {
@@ -8495,7 +8563,7 @@ Substitution PrepareBeforeSr(ID3D12GraphicsCommandList *command_list,
     if (FAILED(hr) || device == nullptr) return substitution;
     D3D12_FEATURE_DATA_FORMAT_SUPPORT color_format_support = {};
     HRESULT color_format_query = E_INVALIDARG;
-    if (!SupportsPreSrStorage(device, color_desc, storage_contract,
+    if (!SupportsPreSrStorage(device, color_view.typed, storage_contract,
                               &color_format_support,
                               &color_format_query)) {
         substitution.compatibility_fallback = true;
@@ -8953,8 +9021,12 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
         }
         return substitution;
     }
-    const PostSrStorageContract storage_contract =
-        ClassifyPostSrStorage(output_desc.Format, feature.create_flags);
+    const auto output_view = NrResolveColorViewFromList(command_list, output, output_desc,
+        feature.generation, true, feature.create_flags);
+    const PostSrStorageContract storage_contract = output_view
+        ? ClassifyPostSrStorage(output_view.typed.Format, feature.create_flags,
+                               output_view.native_bounded_output)
+        : PostSrStorageContract::Unsupported;
     if (width == 0 || height == 0 ||
         !TextureContainsRegion(output, output_x, output_y, width, height) ||
         !IsUsablePostSrStorage(storage_contract) ||
@@ -8984,6 +9056,11 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     }
 
     const ColorContract color_contract = ReadColorContract(sr_params);
+    if (storage_contract == PostSrStorageContract::R8NativeBounded &&
+        !IsPreSrBoundedR8Contract(color_contract, true, false)) {
+        SetBypassReason(BypassReason::OutputColorContractUnverified);
+        return substitution;
+    }
     if (storage_contract == PostSrStorageContract::R10PqHdr &&
         !IsPqDisplayExposureContract(color_contract)) {
         SetBypassReason(BypassReason::OutputColorContractUnverified);
@@ -9036,7 +9113,7 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     D3D12_FEATURE_DATA_FORMAT_SUPPORT output_format_support = {};
     HRESULT output_format_query = E_INVALIDARG;
     const bool storage_supported = SupportsPostSrStorage(
-        device, output_desc, storage_contract, &output_format_support,
+        device, output_view.typed, storage_contract, &output_format_support,
         &output_format_query);
     if (storage_supported &&
         storage_contract == PostSrStorageContract::R10PqHdr) {
@@ -9468,6 +9545,7 @@ bool AllowExperimentalNullPsoCarrier() {
     return allowed;
 }
 #include "nr_command_state.inl"
+#include "nr_native_format_hooks.inl"
 std::atomic<bool> g_evaluate_hooks_ready{false};
 std::atomic<bool> g_evaluate_hooks_enabled{false};
 std::atomic<bool> g_evaluate_target_overflow{false};
@@ -10157,6 +10235,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         return original(command_list, handle, params, callback);
     }
 
+    NrPrepareFormatObservation(command_list);
+
     // This is a classified outermost Feature 1 call. Cached RR handles remain
     // registered for lifetime tracking, but do not block the game's selected
     // SR route. Nested vendor forwarding is already handled by DispatchEvaluate;
@@ -10173,7 +10253,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                 "during an active Ray Reconstruction transaction/create "
                 "(cached RR handles=%u).", guarded, live_rr_handles);
         }
-        return original(command_list, handle, params, callback);
+        return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
 
     g_last_carrier_feature.store(feature.feature_id, std::memory_order_relaxed);
@@ -10254,19 +10334,19 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                     "without changing RR/history state.", busy);
             }
         }
-        return original(command_list, handle, params, callback);
+        return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     if (g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
         SetBypassReason(BypassReason::LifecycleIsolation);
         rr_transaction.Release();
-        return original(command_list, handle, params, callback);
+        return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     if (ShouldGuardFeature1ForRayReconstruction()) {
         SetBypassReason(BypassReason::RayReconstructionGuard);
         g_last_carrier_feature.store(13, std::memory_order_relaxed);
         g_rr_guard_was_active.store(true, std::memory_order_relaxed);
         rr_transaction.Release();
-        return original(command_list, handle, params, callback);
+        return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     if (g_rr_guard_was_active.exchange(false, std::memory_order_relaxed)) {
         // The game selected an ordinary SR evaluation again. Reset its prior
@@ -10290,7 +10370,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         g_rr_guard_was_active.store(true, std::memory_order_relaxed);
         LeaveCriticalSection(&g_chain_cs);
         rr_transaction.Release();
-        return original(command_list, handle, params, callback);
+        return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     // A zero visible transfer is the user's pure-game-SR baseline.  Previous
     // builds still created/evaluated Feature 18 and paid its full GPU cost even
@@ -10311,7 +10391,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
                                                         std::memory_order_relaxed);
         LeaveCriticalSection(&g_chain_cs);
         rr_transaction.Release();
-        return original(command_list, handle, params, callback);
+        return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     // Each prepare path begins its diagnostic scope only after input admission.
     // A front-colour rejection may select post without resetting its counters
@@ -10321,7 +10401,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     if (!before_state.active) {
         LeaveCriticalSection(&g_chain_cs);
         rr_transaction.Release();
-        return original(command_list, handle, params, callback);
+        return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     Substitution before_sr = PrepareBeforeSr(
         before_state.command_list, handle, params, feature);
@@ -10346,7 +10426,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     if (!before_sr.active && !after_sr.active) {
         LeaveCriticalSection(&g_chain_cs);
         rr_transaction.Release();
-        return original(command_list, handle, params, callback);
+        return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
     if (rr_transaction.transaction_aborted() ||
         g_feature_tracking_uncertain.load(std::memory_order_acquire)) {
@@ -10358,13 +10438,13 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         QuarantineAbortedRrTransactionLocked(command_list);
         LeaveCriticalSection(&g_chain_cs);
         rr_transaction.Release();
-        return original(command_list, handle, params, callback);
+        return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
     }
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
     NrNativeOutputTraceScope native_output_trace(after_sr.active?after_sr.original_output:nullptr,
         before_state.command_list);
 #endif
-    NgxResult result = original(command_list, handle, params, callback);
+    NgxResult result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
     after_sr.native_boundary=native_output_trace.Finish();
 #endif
@@ -10387,7 +10467,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
         g_config.retry_original_on_sr_failure) {
         Log("%s failed with NR-derived Color: 0x%08X (%s); retrying original Color.",
             FeatureName(feature.feature_id), result, ResultName(result));
-        result = original(command_list, handle, params, callback);
+        result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
         retried_original_color = true;
         Log("Original-Color %s retry result=0x%08X (%s).",
             FeatureName(feature.feature_id), result, ResultName(result));
@@ -10419,7 +10499,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             } else if (after_sr.redirected_output) {
                 Log("[command-state] post-SR state unavailable; native SR is "
                     "re-evaluated to its original Output without NR work.");
-                result = original(command_list, handle, params, callback);
+                result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
             } else {
                 static unsigned int post_state_failures = 0;
                 const unsigned int count = ++post_state_failures;
@@ -10435,7 +10515,7 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
             Log("%s failed while targeting the post-upscaling intermediate: "
                 "0x%08X (%s); retrying the original Output.",
                 FeatureName(feature.feature_id), result, ResultName(result));
-            result = original(command_list, handle, params, callback);
+            result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
             Log("Original-Output %s retry result=0x%08X (%s).",
                 FeatureName(feature.feature_id), result, ResultName(result));
             if (rr_transaction.transaction_aborted() ||
@@ -12667,6 +12747,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnDestroyCommandQueue);
         reshade::register_event<reshade::addon_event::init_device>(
             OnCommandStateInitDevice);
+        reshade::register_event<reshade::addon_event::init_device>(OnNrFormatInitDevice);
         reshade::register_event<reshade::addon_event::init_command_list>(
             OnCommandStateInitList);
         reshade::register_event<reshade::addon_event::execute_command_list>(
@@ -12691,6 +12772,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
                 OnCommandStateInitList);
             reshade::unregister_event<reshade::addon_event::init_device>(
                 OnCommandStateInitDevice);
+            reshade::unregister_event<reshade::addon_event::init_device>(OnNrFormatInitDevice);
             reshade::unregister_overlay(kSettingsOverlayName, DrawSettings);
             reshade::unregister_event<reshade::addon_event::reshade_present>(
                 OnReShadePresent);
@@ -12714,6 +12796,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
             OnCommandStateInitList);
         reshade::unregister_event<reshade::addon_event::init_device>(
             OnCommandStateInitDevice);
+        reshade::unregister_event<reshade::addon_event::init_device>(OnNrFormatInitDevice);
         reshade::unregister_overlay(kSettingsOverlayName, DrawSettings);
         reshade::unregister_event<reshade::addon_event::reshade_present>(
             OnReShadePresent);

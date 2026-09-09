@@ -352,8 +352,11 @@ def patch_ui(text: str) -> str:
 def patch_descriptors(text: str) -> str:
     # Main/snapshot/F7 descriptor rebuilds must retain the same typed view as
     # the first dispatch; physical TYPELESS is never a legal texture SRV.
-    text=once(text,'srv(0,slot.source,slot.source_format);',
-        'srv(0,slot.source,slot.source_srv_format);')
+    if 'srv(0,slot.source,slot.source_format);' in text:
+        text=once(text,'srv(0,slot.source,slot.source_format);',
+            'srv(0,slot.source,slot.source_srv_format);')
+    elif text.count('srv(0,slot.source,slot.source_srv_format);') != 1:
+        raise ValueError('Missing unique resolved source SRV writer')
     return once(text,
         'slot.motion_source?ID3D12Resource_GetDesc(slot.motion_source).Format:DXGI_FORMAT_R16G16_FLOAT',
         'slot.motion_source?NrMotionReadFormat(ID3D12Resource_GetDesc(slot.motion_source).Format):DXGI_FORMAT_R16G16_FLOAT')

@@ -105,6 +105,24 @@ void FeedbackAppendCommandHistory(FeedbackSession &s) {
 #endif
 
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
+#if defined(NR_HAS_NATIVE_FORMAT_OBSERVER)
+    const auto formats = SnapshotNrFormatDiagnostics();
+    for (unsigned role = 0; role != 2; ++role) {
+        for (unsigned first = 0; first != 2; ++first) {
+            const auto& d = first ? formats.first_unknown[role] : formats.latest[role];
+            FeedbackAppend(s, "%s.format.%s.%s=available:%d,physical:%u,srv:%u,uav:%u,"
+                "config:%u,feature:%llu,deviceId:%llu,resourceId:%llu,observedCall:%llu,"
+                "viewStatus:%s,provenance:%u,hookCoverage:%d,conflict:%d,nativeFailed:%d\n",
+                prefix, role ? "output" : "color", first ? "firstUnknown" : "latest",
+                d.available, d.physical, d.srv, d.uav, d.config, d.feature, d.device,
+                d.resource, d.observed_call, nr_format_access::StatusName(d.status),
+                static_cast<unsigned>(d.provenance), d.coverage, d.conflict, d.native_failed);
+        }
+    }
+    FeedbackAppend(s, "%s.format.coverage=native Feature1 synchronous view creation only; "
+        "pre-existing/worker-thread views unobserved; no descriptor-address reuse; "
+        "viewReady is not color/NR/game admission; provenance=0:none,1:typed,2:native-view,3:float-contract\n", prefix);
+#endif
 #if defined(NR_HAS_RUNTIME_LOAD_EVIDENCE)
     const auto load = SnapshotRuntimeLoadEvidence();
     FeedbackAppend(s, "%s.runtime.available=%d\n%s.runtime.stage=%s\n%s.runtime.ageMs=%llu\n"
