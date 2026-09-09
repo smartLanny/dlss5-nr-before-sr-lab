@@ -28,9 +28,22 @@ CONDITION_FIELDS = ("width", "height", "frames", "warmup", "input", "game", "sr"
 CHAIN_REQUEST_FIELDS = ("frames", "samples", "warmup", "capture_first", "capture_count",
                         "fixed_dt", "output_width", "output_height", "dlss_mode",
                         "animations", "camera_input", "fg", "rr")
+CHAIN_OPTIONAL_REQUEST_FIELDS = ("motion", "motion_period_frames", "motion_lateral_extent_m", "fixed_preparation_frames")
 CHAIN_HISTORY_FIELDS = ("epoch", "epoch_frame", "epoch_frame_one_based", "warmup",
                         "scene", "scene_time", "camera", "fov", "render_width", "render_height",
                         "output_width", "output_height", "dlss_mode", "jitter", "reset", "sr_sequence")
+CHAIN_OPTIONAL_HISTORY_FIELDS = ("motion", "motion_frame", "motion_phase", "guide_capture_boundary")
+CHAIN_GUIDE_PLANES = ("depth", "motion_vectors")
+CHAIN_PLANE_FORMATS = {
+    "input_color": ("render", "RGBA16_FLOAT_LE", "<f2", 4),
+    "sr_output": ("output", "RGBA16_FLOAT_LE", "<f2", 4),
+    "depth": ("render", "D24_UNORM_LE_X8_ZERO", "<u4", 1),
+    "motion_vectors": ("render", "RG16_FLOAT_LE", "<f2", 2),
+}
+CHAIN_GUIDE_SEMANTICS = {
+    "depth": "Original renderer device depth: low 24 bits / (2^24-1), unused high byte zero, no stencil; not linear depth or meters",
+    "motion_vectors": "Original renderer R-grid XY FP16 pairs; this analyzer does not infer vector sign, units, jitter convention or O-grid reprojection",
+}
 ENHANCEMENT_FORMULAS = {
     "residuals": "rF=F_RGB-S_RGB; rC=C_RGB-S_RGB; e=C_RGB-F_RGB",
     "effect_gain": "sum(rC*rF)/sum(rF*rF); signed projection onto the FP8 enhancement",
@@ -442,6 +455,36 @@ class ChainCapture:
         # JSON accepts NaN by default; metadata containing it is not a matchable contract.
         json.dumps([request, complete, epoch, rows], allow_nan=False)
         self.conditions = {key: request[key] for key in CHAIN_REQUEST_FIELDS}
+        self.conditions.update({key: request[key] for key in CHAIN_OPTIONAL_REQUEST_FIELDS if key in request})
+        receipts = (("requested.json", request), ("epoch-start.json", epoch), ("completed.json", complete))
+        fixed_preparation = None
+        if any("fixed_preparation_frames" in receipt for _, receipt in receipts):
+            targets = []
+            for name, receipt in receipts:
+                target = receipt.get("fixed_preparation_frames")
+                if type(target) is not int or target < 0:
+                    raise ValueError(f"{role}: missing or invalid fixed_preparation_frames in {name}")
+                targets.append(target)
+            if len(set(targets)) != 1:
+                raise ValueError(f"{role}: fixed_preparation_frames mismatch across the three receipts")
+            fixed_preparation = targets[0]
+        self.preparation = {"fixed_preparation_frames": fixed_preparation,
+                            "epoch_preparation_frames": epoch.get("preparation_frames"),
+                            "completed_preparation_frames": complete.get("preparation_frames"),
+                            "fixed_count_verified": fixed_preparation is not None and fixed_preparation > 0}
+        for name, receipt in receipts[1:]:
+            actual = receipt.get("preparation_frames")
+            if actual is not None and (type(actual) is not int or actual < 0):
+                raise ValueError(f"{role}: invalid actual preparation_frames in {name}")
+            if self.preparation["fixed_count_verified"] and actual != fixed_preparation:
+                raise ValueError(f"{role}: actual preparation_frames in {name} does not equal fixed target {fixed_preparation}")
+        if "motion" in request and type(request["motion"]) is not bool:
+            raise ValueError(f"{role}: invalid motion flag")
+        if request.get("motion") is True:
+            if (type(request.get("motion_period_frames")) is not int or request["motion_period_frames"] <= 0 or
+                    type(request.get("motion_lateral_extent_m")) not in (int, float) or
+                    request["motion_lateral_extent_m"] <= 0):
+                raise ValueError(f"{role}: invalid motion path metadata")
         for key in ("frames", "samples", "output_width", "output_height", "capture_count"):
             if type(request[key]) is not int or request[key] <= 0:
                 raise ValueError(f"{role}: invalid {key}")
@@ -489,7 +532,14 @@ class ChainCapture:
                     type(row.get("scene_time")) not in (int, float) or type(row.get("fov")) not in (int, float) or
                     not isinstance(row.get("scene"), str) or not row["scene"]):
                 raise ValueError(f"{role}: missing camera/jitter identity at {index}")
-        self.history = [{key: row[key] for key in CHAIN_HISTORY_FIELDS} for row in rows]
+            if "motion" in request and row.get("motion") is not request["motion"]:
+                raise ValueError(f"{role}: frame/request motion flag mismatch at {index}")
+            if request.get("motion") is True:
+                if (any(type(row.get(key)) is not int or row[key] < 0 for key in ("motion_frame", "motion_phase")) or
+                        not isinstance(row.get("guide_capture_boundary"), str) or not row["guide_capture_boundary"]):
+                    raise ValueError(f"{role}: missing motion/guide history identity at {index}")
+        self.history = [{**{key: row[key] for key in CHAIN_HISTORY_FIELDS},
+                         **{key: row[key] for key in CHAIN_OPTIONAL_HISTORY_FIELDS if key in row}} for row in rows]
         self.rows = rows
         self.frame_indices = list(range(first, first + captures))
 
@@ -499,17 +549,46 @@ class ChainCapture:
         if len(planes) != 1:
             raise ValueError(f"{self.role}: expected one {name} plane at frame {index}")
         plane = planes[0]
-        prefix = "render" if name == "input_color" else "output"
+        if name not in CHAIN_PLANE_FORMATS:
+            raise ValueError(f"Unsupported chain readback plane: {name}")
+        prefix, format_name, dtype, channels = CHAIN_PLANE_FORMATS[name]
         width, height = row[prefix + "_width"], row[prefix + "_height"]
         path = self.directory / f"frame-{index:03d}" / (name + ".raw")
-        expected_bytes = width * height * 8
-        if (plane.get("format") != "RGBA16_FLOAT_LE" or plane.get("width") != width or
-                plane.get("height") != height or plane.get("bytes_per_pixel") != 8 or
+        bytes_per_pixel = np.dtype(dtype).itemsize * channels
+        expected_bytes = width * height * bytes_per_pixel
+        if (plane.get("format") != format_name or plane.get("width") != width or
+                plane.get("height") != height or plane.get("bytes_per_pixel") != bytes_per_pixel or
                 plane.get("packed_bytes") != expected_bytes or path.stat().st_size != expected_bytes):
             raise ValueError(f"{self.role}: {name} shape/format/byte count mismatch at frame {index}")
-        array = np.memmap(path, mode="r", dtype="<f2", shape=(height, width, 4))
+        array = np.memmap(path, mode="r", dtype=dtype, shape=(height, width, channels))
         stack.callback(array._mmap.close)
-        return array, {"path": str(path), "sha256": sha256(path), "shape_hwc": [height, width, 4]}
+        if name == "depth" and (plane.get("depth_bits") != 24 or plane.get("stencil_captured") is not False or
+                                np.any(array & np.uint32(0xff000000))):
+            raise ValueError(f"{self.role}: depth requires 24 valid bits, zero unused byte and no stencil at frame {index}")
+        if name == "motion_vectors" and not np.isfinite(array).all():
+            raise ValueError(f"{self.role}: motion_vectors contains NaN or infinity at frame {index}")
+        receipt = {"path": str(path), "sha256": sha256(path), "shape_hwc": [height, width, channels],
+                   "format": format_name, "dtype": dtype, "packed_bytes": expected_bytes}
+        if name in CHAIN_GUIDE_SEMANTICS:
+            receipt["semantics"] = CHAIN_GUIDE_SEMANTICS[name]
+            receipt["capture_boundary"] = row.get("guide_capture_boundary", "not_recorded")
+        return array, receipt
+
+
+def compare_chain_guides(runs, index, stack):
+    """Compare only shared guides; report partial coverage without inventing missing data."""
+    result = {}
+    for name in CHAIN_GUIDE_PLANES:
+        present = [run for run in runs if any(plane.get("name") == name for plane in run.rows[index]["planes"])]
+        entry = {"status": "not_compared_missing_roles", "roles_present": [run.role for run in present],
+                 "receipts": [], "semantics": CHAIN_GUIDE_SEMANTICS[name]}
+        if len(present) == len(runs):
+            receipts = [run.readback(index, name, stack)[1] for run in runs]
+            if len({item["sha256"] for item in receipts}) != 1:
+                raise ValueError(f"{name} raw identity mismatch across S/F/C at frame {index}")
+            entry.update(status="matched_byte_exact", receipts=receipts)
+        result[name] = entry
+    return result
 
 
 def enhancement_metrics(sums, elements):
@@ -574,6 +653,7 @@ def build_enhancement_report(paths):
             inputs = [run.readback(index, "input_color", stack)[1] for run in runs]
             if len({item["sha256"] for item in inputs}) != 1:
                 raise ValueError(f"Input RGB(A) raw identity mismatch across S/F/C at frame {index}")
+            guides = compare_chain_guides(runs, index, stack)
             outputs = [run.readback(index, "sr_output", stack) for run in runs]
             previous = None
             reset = runs[0].rows[index]["reset"]
@@ -585,23 +665,33 @@ def build_enhancement_report(paths):
             pooled += result.pop("sums")
             elements += result["metrics"]["rgb_elements"]
             comparisons.append({"epoch_frame": index, "conditions": runs[0].history[index],
-                                "input_color": inputs, "sr_output": [item[1] for item in outputs], **result})
+                                "input_color": inputs, "guides": guides,
+                                "sr_output": [item[1] for item in outputs], **result})
             previous_index = index
     return {"schema": 1, "scope": "CPU O-grid enhancement residual comparison: pure SR S, original FP8 F, candidate C",
             "analysis_completed": True, "checks_passed": True, "all_data_valid": True,
             "cuda_initialized": False, "gpu_launches": 0, "quality_qualified": False,
             "auto_qualified": False, "game_quality_qualified": False, "temporal_quality_qualified": False,
             "pipeline_roles_verified": False,
+            "internal_state_equivalence_verified": False,
             "formula_origin": "Explicit local definitions; external research-report definitions were not established",
             "formulas": ENHANCEMENT_FORMULAS,
             "metric_units": "Raw O-grid RGB values; float64 accumulation; alpha excluded; no clipping or gamma transform",
             "normalization_note": "Zero reference residual gives null normalized metrics, never an epsilon-defined score. No quality thresholds applied.",
             "pooling": "Sum energies/projection and RGB element counts across frames before normalizing; not a mean of ratios",
-            "validation_boundary": "Full epoch metadata and captured original-input SHA256 match. Uncaptured input pixels and actual pipeline roles require independent receipts; require_core=false alone does not disable a loaded Core.",
+            "validation_boundary": "Full epoch metadata and captured original-input SHA256 match. Shared depth/MV planes must also match raw SHA256; missing guide roles are explicitly unverified. Uncaptured input pixels and actual pipeline roles require independent receipts; require_core=false alone does not disable a loaded Core.",
+            "guide_comparison_policy": "Each R-grid guide is compared only when all S/F/C roles capture it at that frame; no guide conversion or motion compensation is performed",
+            "guide_coverage": {name: {"compared_frames": sum(row["guides"][name]["status"] == "matched_byte_exact"
+                                                              for row in comparisons),
+                                       "captured_frames": len(comparisons),
+                                       "all_frames_compared": all(row["guides"][name]["status"] == "matched_byte_exact"
+                                                                  for row in comparisons)} for name in CHAIN_GUIDE_PLANES},
             "temporal_note": "Adjacent image-coordinate error changes are not motion-compensated and do not qualify flicker, disocclusion, or game temporal stability.",
             "receipt_note": "SHA256 values identify analyzed raw files; host FNV receipt checksums were not recomputed.",
+            "preparation_note": "A positive fixed preparation target must agree in requested/epoch/completed receipts and equal both actual counts. Legacy or zero-target preparation counts are reported, not assumed equal. Matching metadata or preparation counts does not prove full internal-state equivalence.",
             "runs": [{"role": run.role, "directory": str(run.directory), "conditions": run.conditions,
-                      "epoch": run.epoch, "metadata_sha256": {name: sha256(run.directory / name) for name in
+                      "epoch": run.epoch, "preparation": run.preparation,
+                      "metadata_sha256": {name: sha256(run.directory / name) for name in
                           ("requested.json", "completed.json", "epoch-start.json", "frames.jsonl")}} for run in runs],
             "comparisons": comparisons, "pooled_metrics": enhancement_metrics(pooled, elements)}
 

@@ -168,11 +168,34 @@ display files were byte-identical across eight frames. Both complete color
 diagnostic blocks also matched, including their stage statistics and hashes.
 Two short order-reversed comparisons saved 0.04029 and 0.04125 ms in composition.
 Their complete-NR timings drifted with Feature18, so they do not establish a
-complete-NR speedup. Long paired validation remains pending in this handoff.
+complete-NR speedup. Five long three-way paired blocks are now complete: 9,000
+valid measured samples under the owner's shared desktop conditions. Relative
+to the common-host upstream profile, composition saves 0.040835 ms on average
+(whole-block 95% interval 0.039997–0.041846), while complete NR saves 0.050%
+with an interval of −2.703% to +2.334%. Whole-NR improvement is not established.
+Shared GPU and unlocked CPU power conditions cannot grant formal qualification.
 Evidence: `chain-fixed-reference-diag-equivalence-r1.json` (SHA-256
 `67f51c503f66646a69ad76d09b4dca682558b8a967f67156276b7ec3e825f381`),
 `diagnostic-gate-short-decision-r1.json` and
 `diagnostic-gate-source-integration-r1`.
+
+The first 720-frame motion comparison used six versus seven preparation
+frames and had small output differences. A same-profile repeat matched
+byte-for-byte. A fixed-64 preparation attempt correctly failed before the
+measurement epoch because hybrid was not ready. With fixed-512 preparation,
+both reference and diagnostic runs had 510 successful preparation NR calls,
+then an independent Reset and 128 warmup frames. Across the 64 captured frames
+around the second camera reversal, all 320 input/depth/MV/SR/display planes
+matched byte-for-byte (`motion512-reference-vs-diag-raw-r1.json`). Preserve the
+earlier differences; this experiment does not prove their sole cause or qualify
+all motion/disocclusion behavior. See the [cost and experiment report](NVFP4_PERFORMANCE_20260909.zh-CN.md)
+for real-Core versus synthetic-input boundaries, common-host upstream scope,
+SM82/170 parameter control, and unresolved internal Swin computation/sync costs.
+The original-FP8 versus FP8-with-gating motion control also matches all 320
+planes. Recomputed fixed-512 enhancement reports for upstream versus gated
+upstream agree frame-for-frame: pooled effect_gain=1.00973531 and
+residual_nrmse=0.08974568. This retains the existing hybrid-to-FP8 numerical
+difference and is not an all-scene quality threshold.
 
 ## Evidence obtained before the GPU pause
 
@@ -236,9 +259,12 @@ NR-to-SR timing by exact query ticket; output is buffered until the recording
 is fence-complete and reset. Its source changes and kernel bindings have a
 separate manifest. Per-process identity distinguishes appended evidence.
 
-Remaining acceptance includes five long interleaved A/B blocks on the frozen
-complete-NR candidate, motion/disocclusion captures with depth and motion
-vectors, game validation, and HDR/DRS coverage. Record the real NVIDIA driver
+Motion captures with depth and vectors have been obtained; they cover a bounded
+camera-motion segment and are not full temporal or game qualification. Five
+long interleaved blocks on the frozen complete-NR candidate have completed,
+with shared-GPU status retained and no established full-NR gain. Game validation
+and HDR/DRS coverage remain.
+Record the real NVIDIA driver
 build identity; a CUDA driver API version is not driver 610.62. The full-NR
 10% target, game/temporal quality and Auto policy are still unqualified.
 

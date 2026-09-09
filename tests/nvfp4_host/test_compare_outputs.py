@@ -360,6 +360,156 @@ class EnhancementComparisonTests(unittest.TestCase):
         self.assertFalse(report["analysis_completed"])
         self.assertIn("ValueError", report["error"])
 
+    def add_motion_guides(self, path):
+        request_file = path / "requested.json"
+        request = json.loads(request_file.read_text())
+        request.update(motion=True, motion_period_frames=360, motion_lateral_extent_m=.4)
+        request_file.write_text(json.dumps(request))
+        def edit(rows):
+            for row in rows:
+                index = row["epoch_frame"]
+                row.update(motion=True, motion_frame=max(index - 1, 0), motion_phase=max(index - 1, 0),
+                           guide_capture_boundary="post-SR original renderer depth/MV resources; after timing end",
+                           scene_time=float(np.float32(max(index - 1, 0) / 60)),
+                           camera=[0, float(np.float32(1.8)), index / 180, 1, float(np.float32(1.8)), index / 180])
+                if row["capture"]:
+                    for name, values, format_name in (
+                        ("depth", np.array([[[1], [0xffffff]]], dtype="<u4"), "D24_UNORM_LE_X8_ZERO"),
+                        ("motion_vectors", np.array([[[1, -2], [-.5, .25]]], dtype="<f2"), "RG16_FLOAT_LE")):
+                        values.tofile(path / f"frame-{index:03d}" / (name + ".raw"))
+                        plane = {"name": name, "width": 2, "height": 1, "bytes_per_pixel": 4,
+                                 "format": format_name, "packed_bytes": 8}
+                        if name == "depth":
+                            plane.update(depth_bits=24, stencil_captured=False)
+                        row["planes"].append(plane)
+        self.edit_history(path, edit)
+
+    def test_motion_actual_float_metadata_and_shared_guides_are_compared(self):
+        paths = self.triplet()
+        for path in paths:
+            self.add_motion_guides(path)
+        report = compare.build_enhancement_report(paths)
+        self.assertTrue(report["checks_passed"])
+        self.assertEqual(report["comparisons"][1]["temporal"]["status"], "measured_unwarped")
+        for name in compare.CHAIN_GUIDE_PLANES:
+            self.assertTrue(report["guide_coverage"][name]["all_frames_compared"])
+            receipts = report["comparisons"][0]["guides"][name]["receipts"]
+            self.assertEqual(len(receipts), 3)
+            self.assertEqual(len({item["sha256"] for item in receipts}), 1)
+        self.edit_history(paths[2], lambda rows: rows[0].update(motion_phase=42))
+        with self.assertRaisesRegex(ValueError, "history mismatch"):
+            compare.build_enhancement_report(paths)
+
+    def test_motion_request_mismatch_is_refused(self):
+        paths = self.triplet()
+        for path in paths:
+            self.add_motion_guides(path)
+        request_file = paths[1] / "requested.json"
+        request = json.loads(request_file.read_text())
+        request["motion_lateral_extent_m"] = .8
+        request_file.write_text(json.dumps(request))
+        with self.assertRaisesRegex(ValueError, "conditions mismatch"):
+            compare.build_enhancement_report(paths)
+
+    def test_partial_guide_coverage_is_explicit_and_never_claimed_equal(self):
+        paths = self.triplet()
+        for path in paths:
+            self.add_motion_guides(path)
+        self.edit_history(paths[2], lambda rows: rows[1].update(
+            planes=[plane for plane in rows[1]["planes"] if plane["name"] != "depth"]))
+        report = compare.build_enhancement_report(paths)
+        guide = report["comparisons"][0]["guides"]["depth"]
+        self.assertEqual(guide["status"], "not_compared_missing_roles")
+        self.assertEqual(guide["roles_present"], ["pure_sr", "fp8"])
+        self.assertFalse(report["guide_coverage"]["depth"]["all_frames_compared"])
+        self.assertEqual(report["guide_coverage"]["depth"]["compared_frames"], 1)
+
+    def test_guide_raw_mismatches_and_invalid_storage_are_refused(self):
+        paths = self.triplet()
+        for path in paths:
+            self.add_motion_guides(path)
+        cases = (("depth", np.array([[[2], [0xffffff]]], dtype="<u4"), "depth raw identity mismatch"),
+                 ("motion_vectors", np.ones((1, 2, 2), dtype="<f2"), "motion_vectors raw identity mismatch"),
+                 ("depth", np.full((1, 2, 1), 0xff000001, dtype="<u4"), "zero unused byte"),
+                 ("motion_vectors", np.full((1, 2, 2), np.nan, dtype="<f2"), "NaN or infinity"))
+        for name, values, message in cases:
+            raw = paths[2] / "frame-001" / (name + ".raw")
+            original = raw.read_bytes()
+            with self.subTest(name=name, message=message):
+                try:
+                    values.tofile(raw)
+                    with self.assertRaisesRegex(ValueError, message):
+                        compare.build_enhancement_report(paths)
+                finally:
+                    raw.write_bytes(original)
+
+    @staticmethod
+    def set_preparation_receipts(path, target, actual):
+        for name in ("requested.json", "epoch-start.json", "completed.json"):
+            file = path / name
+            receipt = json.loads(file.read_text())
+            if target is not None:
+                receipt["fixed_preparation_frames"] = target
+            if name != "requested.json":
+                receipt["preparation_frames"] = actual
+            file.write_text(json.dumps(receipt))
+
+    def test_preparation_counts_are_reported_without_internal_state_equivalence(self):
+        paths = self.triplet()
+        for target in (None, 0, 64):
+            for path, actual in zip(paths, (1, 3, 6) if target != 64 else (64, 64, 64)):
+                self.set_preparation_receipts(path, target, actual)
+            report = compare.build_enhancement_report(paths)
+            self.assertTrue(report["checks_passed"])
+            self.assertFalse(report["internal_state_equivalence_verified"])
+            self.assertEqual([run["preparation"]["epoch_preparation_frames"] for run in report["runs"]],
+                             [64, 64, 64] if target == 64 else [1, 3, 6])
+            self.assertTrue(all(run["preparation"]["fixed_count_verified"] is (target == 64) for run in report["runs"]))
+
+    def test_fixed_preparation_target_mismatch_is_refused(self):
+        paths = self.triplet()
+        for path in paths:
+            self.set_preparation_receipts(path, 64, 64)
+        file = paths[2] / "epoch-start.json"
+        receipt = json.loads(file.read_text())
+        receipt["fixed_preparation_frames"] = 63
+        file.write_text(json.dumps(receipt))
+        with self.assertRaisesRegex(ValueError, "fixed_preparation_frames mismatch"):
+            compare.build_enhancement_report(paths)
+        self.set_preparation_receipts(paths[2], 65, 65)
+        with self.assertRaisesRegex(ValueError, "conditions mismatch"):
+            compare.build_enhancement_report(paths)
+
+    def test_fixed_preparation_actual_65_is_refused(self):
+        paths = self.triplet()
+        for path in paths:
+            self.set_preparation_receipts(path, 64, 64)
+        for name in ("epoch-start.json", "completed.json"):
+            with self.subTest(receipt=name):
+                self.set_preparation_receipts(paths[2], 64, 64)
+                file = paths[2] / name
+                receipt = json.loads(file.read_text())
+                receipt["preparation_frames"] = 65
+                file.write_text(json.dumps(receipt))
+                with self.assertRaisesRegex(ValueError, "actual preparation_frames"):
+                    compare.build_enhancement_report(paths)
+
+    def test_fixed_preparation_invalid_or_missing_target_is_refused(self):
+        paths = self.triplet()
+        for path in paths:
+            self.set_preparation_receipts(path, 64, 64)
+        file = paths[2] / "completed.json"
+        for value in (-1, 64.0, True, None):
+            with self.subTest(value=value):
+                receipt = json.loads(file.read_text())
+                if value is None:
+                    receipt.pop("fixed_preparation_frames", None)
+                else:
+                    receipt["fixed_preparation_frames"] = value
+                file.write_text(json.dumps(receipt))
+                with self.assertRaisesRegex(ValueError, "invalid fixed_preparation_frames"):
+                    compare.build_enhancement_report(paths)
+
 
 if __name__ == "__main__":
     unittest.main()
