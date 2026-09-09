@@ -144,9 +144,12 @@ void Case(queue_test::Fixture &f,DXGI_FORMAT physical,bool half,bool identity,bo
     WriteCodecDescriptorSet(f.device,*slot,slot->heap);
     Check(RebindSlotExternal(f.device,next.resource,false,nullptr,*slot,
         mode,0,generation),"retired real slot can rotate before readback collection");
-    if(hdr)Check(slot->native_format_key==frozen_key&&frozen_key==nr_native_format::Key{},
-          "direct typed FP32 retains the production unknown observer key");
-    else Check(!(slot->native_format_key==frozen_key),"fixture rotated to a different actual resource lifetime");
+    Check(static_cast<bool>(frozen_key)&&static_cast<bool>(slot->native_format_key)&&
+          slot->native_format_key.device==frozen_key.device&&
+          slot->native_format_key.feature==frozen_key.feature&&
+          slot->native_format_key.role==frozen_key.role&&
+          slot->native_format_key.resource!=frozen_key.resource,
+          "typed and typeless inputs retain distinct resource lifetimes across slot rotation");
     CollectSlotDeltaStatsLocked(context,*slot);
     const auto evidence=SnapshotPreStoreEvidence();
     Check(!slot->delta_stats_pending&&evidence.frame==frozen_identity.frame_id&&evidence.mode==2,
