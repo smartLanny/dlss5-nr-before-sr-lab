@@ -262,6 +262,84 @@ void OnFeedbackScreenshot(reshade::api::effect_runtime *runtime, const char *pat
     nr_f8::Screenshot(runtime, path);
 }
 
+#include "nr_optional_layer_probe.h"
+
+// OPTIONAL_LAYER_OBSERVER_BEGIN
+void FeedbackAppendLayerScalar(FeedbackSession &s, const NgxParams *params,
+                               const char *label, const char *key) {
+    unsigned value = 0;
+    const auto query = nr_optional_layer_probe::ReadUnsigned(
+        ParamSlot<GetUIntFn>(params, 12), params, key, kNgxSuccess, value);
+    if (query.Present()) FeedbackAppend(s, ",%s:%u", label, value);
+    else if (query.state == nr_optional_layer_probe::QueryState::MissingGetter)
+        FeedbackAppend(s, ",%s:missing-getter", label);
+    else FeedbackAppend(s, ",%s:getter-error(0x%08X)", label, query.result);
+}
+
+void FeedbackAppendOptionalLayers(FeedbackSession &s, const NgxParams *params,
+                                  const FeatureRecord &feature,
+                                  unsigned long long carrier) {
+    // The first sparse observation only. Preserve the existing tail reserve;
+    // this complete bounded record is optional, not a reason to grow the TXT.
+    constexpr std::size_t tail_reserve = 8192;
+    if (s.report_used > sizeof(s.report) - tail_reserve -
+            nr_optional_layer_probe::kReportBudget) {
+        FeedbackAppend(s, "layerProbe.status=skipped-metadata-budget\n");
+        return;
+    }
+    FeedbackAppend(s, "layerProbe.schema=1\nlayerProbe.contract=%s\n"
+        "layerProbe.sample=%u featureId=%d generation=%llu carrier=%llu\n"
+        "layerProbe.scope=incoming-NGX-before-native-Evaluate; CPU-metadata-only; engine-and-Streamline-not-enumerated\n"
+        "layerProbe.meaning=names-do-not-prove-layers; not-supplied-requires-both-success-null; errors-or-missing-getters-are-unknown; no-pointer-addresses-or-GPU-use\n",
+        nr_optional_layer_probe::kContract, s.observations, feature.feature_id,
+        feature.generation, carrier);
+    const auto typed_getter = ParamSlot<GetD3D12Fn>(params, 9);
+    const auto untyped_getter = ParamSlot<GetVoidFn>(params, 8);
+    for (const auto &layer : nr_optional_layer_probe::kLayers) {
+        ID3D12Resource *typed_value = nullptr;
+        void *untyped_value = nullptr;
+        const auto typed = nr_optional_layer_probe::ReadPointer(
+            typed_getter, params, layer.key, kNgxSuccess, typed_value);
+        const auto untyped = nr_optional_layer_probe::ReadPointer(
+            untyped_getter, params, layer.key, kNgxSuccess, untyped_value);
+        const bool known_empty = typed.state == nr_optional_layer_probe::QueryState::Null &&
+            untyped.state == nr_optional_layer_probe::QueryState::Null;
+        const char *status = typed.Present() ? "typed-present" :
+            untyped.Present() ? "untyped-present-not-inspected" :
+            known_empty ? "not-supplied" : "unknown-access";
+        FeedbackAppend(s, "layerProbe.%s=status:%s,typed:%s", layer.key, status,
+            nr_optional_layer_probe::QueryName(typed.state));
+        if (typed.state != nr_optional_layer_probe::QueryState::MissingGetter)
+            FeedbackAppend(s, "(0x%08X)", typed.result);
+        FeedbackAppend(s, ",untyped:%s", nr_optional_layer_probe::QueryName(untyped.state));
+        if (untyped.state != nr_optional_layer_probe::QueryState::MissingGetter)
+            FeedbackAppend(s, "(0x%08X)", untyped.result);
+        // A successful typed getter is the only descriptor-inspection gate.
+        // Never cast, dereference, retain, bind or sample an untyped pointer.
+        if (typed.Present()) {
+            const auto d = ID3D12Resource_GetDesc(typed_value);
+            FeedbackAppend(s, ",dim:%u,size:%llux%u,format:%u,array:%u,mips:%u,samples:%u,flags:%u",
+                static_cast<unsigned>(d.Dimension), d.Width, d.Height,
+                static_cast<unsigned>(d.Format), d.DepthOrArraySize,
+                d.MipLevels, d.SampleDesc.Count, static_cast<unsigned>(d.Flags));
+        }
+        if (typed.Present() || untyped.Present()) {
+            const char *labels[] = {"x", "y", "w", "h"};
+            bool has_rect = false;
+            for (unsigned i = 0; i < 4; ++i) if (layer.rect[i] != nullptr) {
+                FeedbackAppendLayerScalar(s, params, labels[i], layer.rect[i]);
+                has_rect = true;
+            }
+            if (!has_rect) FeedbackAppend(s, ",rect:not-in-key-contract");
+        }
+        FeedbackAppend(s, "\n");
+    }
+    FeedbackAppend(s, "layerProbe.roughnessMode=0:separate,1:normals-w");
+    FeedbackAppendLayerScalar(s, params, "observed", nr_optional_layer_probe::kRoughnessMode);
+    FeedbackAppend(s, "\nlayerProbe.complete=1\n");
+}
+// OPTIONAL_LAYER_OBSERVER_END
+
 void FeedbackObserveEvaluate(const NgxParams *params, const FeatureRecord &feature,
                              unsigned long long carrier) {
     if (g_feedback_status.load(std::memory_order_relaxed) != 1) return;
@@ -317,6 +395,7 @@ void FeedbackObserveEvaluate(const NgxParams *params, const FeatureRecord &featu
                         d.SampleDesc.Count, static_cast<unsigned int>(d.Flags));
                 } else FeedbackAppend(*s, "resource.%s=absent\n", key);
             }
+            if (s->observations == 1) FeedbackAppendOptionalLayers(*s, params, feature, carrier);
         }
     }
     ReleaseSRWLockExclusive(&g_feedback_lock);
