@@ -398,6 +398,168 @@ void Case(queue_test::Fixture& fixture, const Scenario& scenario) {
     scene.RetireAfterDrainAndCollection(scenario.fault != Fault::RecordOnly);
 }
 
+NgxResult CallPostNativeTestDouble(queue_test::Fixture& fixture, ID3D12GraphicsCommandList* list,
+                                   Texture& output, unsigned long long generation,
+                                   post_output_test::ClearViews& clear) {
+    native_color_test::Params params(output.resource, true); NgxHandle handle{811}; unsigned callback = 818;
+    D3D12_DESCRIPTOR_HEAP_DESC hd{}; hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV; hd.NumDescriptors = 1;
+    ID3D12DescriptorHeap* heap = nullptr;
+    Hr(ID3D12Device_CreateDescriptorHeap(fixture.device, &hd, IID_ID3D12DescriptorHeap,
+                                        reinterpret_cast<void**>(&heap)), "post native callback real descriptor heap");
+    const auto destination = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(heap);
+    const auto calls = native_test_double_calls;
+    const auto original = [&](ID3D12GraphicsCommandList* actual_list, const NgxHandle* actual_handle,
+                              const NgxParams* actual_params, void* actual_callback) {
+        ++native_test_double_calls;
+        Check(actual_list == list && actual_handle == &handle && actual_params == &params.base && actual_callback == &callback,
+              "post native callback preserves all original arguments");
+        D3D12_UNORDERED_ACCESS_VIEW_DESC view{};
+        view.Format = DXGI_FORMAT_R11G11B10_FLOAT; view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        ID3D12Device_CreateUnorderedAccessView(fixture.device, output.resource, nullptr, &view, destination);
+        const float native[] = {.25f, .375f, .5f, 1.f};
+        clear.Clear(fixture.device, list, output.resource, 0, native);
+        return kNgxSuccess;
+    };
+    const auto result = NrCallNativeWithFormatObservation(original, list, &handle, &params.base, &callback, generation);
+    Check(result == kNgxSuccess && native_test_double_calls == calls + 1, "post native result is recorded once through the actual wrapper");
+    ReleaseCom(heap); return result;
+}
+
+// Reuses the same real typed upload and poison placement as the independent
+// DS2 storage oracle, then additionally exercises RuntimeRecovery receipt flow.
+// nonfinite: 0 = normal; 1 = actual target only; 2 = reference snapshot only.
+void PostCase(queue_test::Fixture& fixture, const char* name, unsigned nonfinite) {
+    const auto nr_before = nr_test_double_calls, native_before = native_test_double_calls;
+    const auto generation = ++native_color_test::next_generation;
+    native_color_test::ResetContext(true, generation, 8, 6);
+    auto& context = queue_test::context;
+    context.instance_id = generation + 200000; context.evaluations = 0;
+    context.config_generation = static_cast<unsigned>(generation);
+    g_config_generation = context.config_generation; g_requested_mode_fast.store(1);
+    Texture output;
+    store_quantization_test::MakeTexture(fixture, output, DXGI_FORMAT_R11G11B10_FLOAT,
+        DXGI_FORMAT_R11G11B10_FLOAT, 16, 12,
+        std::vector<store_quantization_test::Pixel>(16 * 12, {.25f, .375f, .5f, 1.f}), true);
+    const auto before = ReadTexture(fixture, output.resource, output.state);
+    nr_recovery::Token token; NrSlot* selected_slot = nullptr;
+    NrPostStoreEvidence stored;
+    const unsigned frames = nonfinite ? 1u : 3u;
+    for (unsigned index = 0; index < frames; ++index) {
+        queue_test::List list(fixture); post_output_test::ClearViews clear(fixture.device);
+        ID3D12Resource* unused = nullptr;
+        // Same ordering as ProcessEvaluate: publish the real native-format
+        // device receipt before the carrier scope freezes its device identity.
+        NrPrepareFormatObservation(list.native);
+        {
+            NrRecoveryCarrierScope carrier(list.native, generation);
+            ++g_carrier_evaluations; BeginPipelineStatsScopeLocked(generation, 1);
+            ID3D12GraphicsCommandList_SetPipelineState(list.native, g_codec.copy);
+            selected_slot = FindOrCreateSlot(context, fixture.device, output.resource, true, nullptr,
+                                            CodecColorMode::Automatic, 1);
+            Check(selected_slot && selected_slot->result == output.resource && !selected_slot->owns_result &&
+                  selected_slot->snapshot_heap, "actual post R11 admission retains the external native Output");
+            auto& slot = *selected_slot; token = slot.recovery_token;
+            Check(token && token.key.role == 1 && token.key.scope.mode == 1 &&
+                  slot.recovery_target.resource == NrFormatResourceIdentity(output.resource),
+                  "post attempt and frozen writeback target identify the actual external Output");
+            ColorContract color{};
+            ArmDeltaStatsCaptureLocked(slot, context, color);
+            Check(RecordNrUseLocked(list.native, context, slot), "actual post carrier owns its resources through recording and retirement");
+            CallPostNativeTestDouble(fixture, list.native, output, generation, clear);
+            NativeCommandStateScope after_native(list.native);
+            Check(after_native.active, "post state capture uses the actual native callback's final bindings");
+            NrRecoveryCommandObserved();
+            PostSrSubstitution substitution{};
+            substitution.slot = &slot; substitution.width = substitution.work_width = 8;
+            substitution.height = substitution.work_height = 6;
+            substitution.output_base_x = 3; substitution.output_base_y = 2;
+            substitution.native_output_snapshot = true;
+            Check(DispatchPostSrNativeSnapshot(list.native, substitution), "production post snapshot reads the native R11 Output");
+            if (nonfinite) {
+                const auto desc = ID3D12Resource_GetDesc(output.resource);
+                D3D12_HEAP_PROPERTIES heap{}; heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+                Hr(ID3D12Device_CreateCommittedResource(fixture.device, &heap, D3D12_HEAP_FLAG_NONE, &desc,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr, IID_ID3D12Resource,
+                    reinterpret_cast<void**>(&unused)), "isolated nonfinite control uses a separate real R11 write target");
+                auto destination = ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.heap);
+                destination.ptr += static_cast<SIZE_T>(g_codec.descriptor_size) * kCodecResultUavIndex;
+                D3D12_UNORDERED_ACCESS_VIEW_DESC view{};
+                view.Format = DXGI_FORMAT_R11G11B10_FLOAT; view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+                ID3D12Device_CreateUnorderedAccessView(fixture.device, unused, nullptr, &view, destination);
+                const float poison[] = {std::numeric_limits<float>::quiet_NaN(), .375f, .5f, 1.f};
+                if (nonfinite == 1) clear.Clear(fixture.device, list.native, slot.result, 0, poison);
+                else {
+                    Transition(list.native, slot.source, slot.source_state, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    clear.Clear(fixture.device, list.native, slot.source, 0, poison);
+                    Transition(list.native, slot.source, slot.source_state, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                }
+            }
+            Transition(list.native, slot.proxy, slot.proxy_state, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            DispatchCodec(list.native, slot, g_codec.encode, 8, 6, color, true, 0, 0, 0, 0,
+                          slot.codec_color_mode, 8, 6, 8, 6, 1, 1);
+            UavBarrier(list.native, slot.proxy);
+            Transition(list.native, slot.proxy, slot.proxy_state, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            Transition(list.native, slot.neural, slot.neural_state, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            Check(CallNrTestDouble(fixture, list.native, slot, clear, false) == kNgxSuccess,
+                  "post NR testDouble status reaches the production result recorder");
+            ++context.evaluations; CompleteNrDiagnosticEvaluation(context, slot);
+            UavBarrier(list.native, slot.neural);
+            Transition(list.native, slot.neural, slot.neural_state, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            DispatchCodec(list.native, slot, g_codec.combine, 8, 6, color, true, 0, 0, 3, 2,
+                          slot.codec_color_mode, 8, 6, 8, 6, 1, 1);
+            Check(slot.stored_result_metadata.recorded && slot.stored_result_metadata.mode == 1 &&
+                  slot.stored_result_metadata.recovery_token == token, "actual post probe freezes mode and attempt before asynchronous collection");
+            UavBarrier(list.native, slot.result);
+            Check(RecordVisibleTransferLocked(list.native, generation, 1), "actual post transfer records a matching native queue receipt");
+            SetBypassReason(BypassReason::None);
+            after_native.Restore();
+        }
+        list.Close(); list.Submit(fixture.a); fixture.Drain(fixture.a);
+        CollectSlotDeltaStatsLocked(context, *selected_slot);
+        Check(selected_slot->delta_stats_pending, "post comparison remains pending while its recording still owns resources");
+        list.Detach(); CollectSlotDeltaStatsLocked(context, *selected_slot);
+        stored = SnapshotPostStoreEvidence();
+        Check(!selected_slot->delta_stats_pending && stored.recovery_token == token && stored.samples != 0 &&
+              stored.result_uav == DXGI_FORMAT_R11G11B10_FLOAT, "real post collector publishes the exact R11 stored evidence");
+        const auto proof = Read(token);
+        if (!nonfinite) {
+            Check(stored.comparison_known && stored.matches_expected && !stored.actual_nonfinite && !stored.reference_nonfinite,
+                  "post R11 actual storage agrees with the format-specific production comparison");
+            Check(proof.state == (index < 2 ? nr_recovery::State::Pending : nr_recovery::State::RecoverySucceeded),
+                  "post runtime needs three complete carriers before recovery succeeds");
+        }
+        ReleaseCom(unused);
+    }
+    const auto proof = Read(token);
+    if (!nonfinite) {
+        const auto after = ReadTexture(fixture, output.resource, selected_slot->result_state);
+        Check(after != before, "post composition reached the real external native Output storage");
+        const auto input = SnapshotNrCompatibilityVerdict();
+        const auto verdict = nr_compatibility_verdict::Resolve(input);
+        Check(input.current.requested_mode == 1 && input.current.effective_mode == 1 &&
+              input.recovery.state == nr_compatibility_verdict::RecoveryState::Succeeded &&
+              verdict.stage == nr_compatibility_verdict::Stage::Visual &&
+              verdict.nextAction == nr_compatibility_verdict::NextAction::NeedsVisualF7,
+              "post technical recovery remains separate from final visual acceptance");
+    } else if (nonfinite == 1) {
+        Check(stored.actual_nonfinite && !stored.reference_nonfinite && !stored.comparison_known &&
+              proof.state == nr_recovery::State::Latched && proof.first_failure.kind == nr_recovery::FailureKind::NonFinite,
+              "measured actual-only nonfinite Output latches a real storage failure");
+    } else {
+        Check(!stored.actual_nonfinite && stored.reference_nonfinite && !stored.comparison_known &&
+              proof.state == nr_recovery::State::Pending && !proof.first_failure.present && !proof.writeback_verified,
+              "reference-only nonfinite leaves writeback unknown without inventing an actual output failure");
+    }
+    std::printf("RUNTIME_RECOVERY_POST actual_nonfinite=%d reference_nonfinite=%d known=%d matches=%d format=%u\n",
+                stored.actual_nonfinite, stored.reference_nonfinite, stored.comparison_known, stored.matches_expected, stored.result_uav);
+    std::printf("RUNTIME_RECOVERY_CASE %s PASS nr_callbacks=%u native_callbacks=%u state=%s attempt=%llu proof=%llu\n",
+                name, nr_test_double_calls - nr_before, native_test_double_calls - native_before,
+                nr_recovery::StateName(proof.state), static_cast<unsigned long long>(proof.attempt_id),
+                static_cast<unsigned long long>(proof.proof_attempt_id));
+    NrRecoveryRetireFeature(generation);
+    for (auto& slot : context.slots) DestroySlot(slot);
+}
+
 int Run(int argc, char** argv) {
     Check(GetEnvironmentVariableA("NR_VALIDATION_WARP_ONLY", nullptr, 0) != 0,
           "runner explicitly selected WARP-only validation");
@@ -408,6 +570,10 @@ int Run(int argc, char** argv) {
     unsigned executed = 0;
     for (const auto& scenario : scenarios) if (!std::strcmp(selected, "all") || !std::strcmp(selected, scenario.name)) {
         Case(fixture, scenario); ++executed;
+    }
+    const char* post_names[] = {"post-r11-recover", "post-actual-nonfinite", "post-reference-nonfinite"};
+    for (unsigned i = 0; i != 3; ++i) if (!std::strcmp(selected, "all") || !std::strcmp(selected, "post") || !std::strcmp(selected, post_names[i])) {
+        PostCase(fixture, post_names[i], i); ++executed;
     }
     Check(executed != 0, "requested runtime scenario exists");
     std::printf("RUNTIME_RECOVERY WARP PASS cases=%u checks=%u; real full Core/descriptor/command/Execute/fence/readback; scripted NR/native callback results, no NVIDIA NR/game\n",
