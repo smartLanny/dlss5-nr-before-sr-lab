@@ -66,6 +66,6 @@ class PictureIntegration(unittest.TestCase):
             'src/nr_feedback_text.h', 'src/nr_feedback_single_text.h', 'src/nr_f8_sequence.inl', 'src/nr_runtime_load_evidence.inl'})
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '35436118cef4e6f322eb489150840c222ecfc8d9')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '66d7390a7e39e5cf5e9869ef0450d87d9e97e3e3')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '900dde4e80414b22ef311f686eb45eb86fe5ccff')
 
 if __name__ == '__main__': unittest.main()

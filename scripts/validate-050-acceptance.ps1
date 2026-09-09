@@ -48,7 +48,7 @@ try {
     if ($LASTEXITCODE) { throw 'Pinned source staging failed.' }
     $ManifestPath = Join-Path $Stage 'source-manifest.json'
     $Manifest = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne '0.4.7beta-queue.3') { throw 'Source identity mismatch.' }
+    if ($Manifest.source_commit -ne $Commit -or $Manifest.integration.version -ne '0.4.7beta-output.1') { throw 'Source identity mismatch.' }
     $Checks.Add('canonical pinned full-source staging')
     $ActivityProbe = Join-Path $Output 'ui-activity.exe'
     & $Compiler -std=c++17 -O2 -static -Wall -Wextra -Werror -I (Join-Path $Stage 'core/src') (Join-Path $Root 'tests/ui_activity_test.cpp') -o $ActivityProbe
@@ -126,8 +126,8 @@ try {
         if ($Hash -ne $Entry.Value) { throw "Staged source changed: $($Entry.Name)" }
     }
     $CoreBuild = Join-Path $Stage 'core/build'
-    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*0.4.7beta-queue.3*.addon64')
-    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual 0.4.7beta-queue.3 Core artifacts.' }
+    $Addons = @(Get-ChildItem -LiteralPath $CoreBuild -Filter '*0.4.7beta-output.1*.addon64')
+    if ($Addons.Count -ne 2) { throw 'Expected exactly two bilingual 0.4.7beta-output.1 Core artifacts.' }
     foreach ($File in @($Addons) + @(Get-Item -LiteralPath (Join-Path $CoreBuild 'nrchain_nvngx.dll'))) {
         if ($File.Extension -eq '.addon64') {
             $Version = $File.VersionInfo

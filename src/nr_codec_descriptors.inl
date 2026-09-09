@@ -96,4 +96,10 @@ void WritePostSrSnapshotDescriptors(ID3D12Device *device, const NrSlot &slot) {
     uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
     ID3D12Device_CreateUnorderedAccessView(device, slot.source, nullptr, &uav, cpu);
+    // Read-only pre-NR reference for the sparse post-store probe; this heap
+    // never uses the optional edit-field SRV for picture composition.
+    cpu=ID3D12DescriptorHeap_GetCPUDescriptorHandleForHeapStart(slot.snapshot_heap);
+    cpu.ptr+=static_cast<SIZE_T>(g_codec.descriptor_size)*kCodecEditFieldSrvIndex;
+    srv.Format=slot.source_format;
+    ID3D12Device_CreateShaderResourceView(device,slot.source,&srv,cpu);
 }

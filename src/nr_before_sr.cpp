@@ -54,11 +54,11 @@ using NgxResult = std::uint32_t;
 constexpr NgxResult kNgxSuccess = 0x00000001u;
 constexpr NgxResult kNgxFeatureNotFound = 0xBAD00004u;
 constexpr bool kChineseUi = NR_UI_CHINESE != 0;
-constexpr const char *kAddonVersion = "0.4.7beta-queue.3";
+constexpr const char *kAddonVersion = "0.4.7beta-output.1";
 // Deliberately stable: release authenticity is carried by the signed manifest
 // and SHA-256, while this identifier makes clean source rebuilds reproducible.
 // Do not use __DATE__/__TIME__ here.
-constexpr const char *kBuildIdentity = "0.4.7beta-queue.3";
+constexpr const char *kBuildIdentity = "0.4.7beta-output.1";
 #ifndef NR_SOURCE_COMMIT
 #define NR_SOURCE_COMMIT "unknown"
 #endif
@@ -425,7 +425,9 @@ std::atomic<unsigned long long> g_pipeline_transfer_recorded{0};
 std::atomic<unsigned long long> g_pipeline_transfer_bound{0};
 std::atomic<unsigned long long> g_pipeline_transfer_submitted{0};
 constexpr unsigned int kDiagnosticStageCount = 4;
-constexpr unsigned int kDiagnosticStatsUintCount = 28;
+// The first 28 words retain the original model/composition diagnostic layout.
+// Words 28..39 hold sparse post-store evidence; no pixel images are exported.
+constexpr unsigned int kDiagnosticStatsUintCount = 40;
 constexpr unsigned int kDiagnosticStatsBytes =
     kDiagnosticStatsUintCount * sizeof(std::uint32_t);
 std::atomic<float> g_last_diagnostic_r[kDiagnosticStageCount] = {};
@@ -2191,6 +2193,7 @@ struct Codec {
     // V2 is isolated so Mode 1 and the legacy reference path remain available.
     ID3D12PipelineState *encode_v2 = nullptr;
     ID3D12PipelineState *combine_v2 = nullptr;
+    ID3D12PipelineState *post_store_probe = nullptr;
     ID3D12PipelineState *copy = nullptr;
     ID3D12PipelineState *motion_resample = nullptr;
     ID3D12RootSignature *rr_depth_root = nullptr;
@@ -3120,8 +3123,53 @@ bool CapturePixelAddress(uint2 coord, out uint planeBytes, out uint offset) {
     return true;
 }
 
+// Hashes are only corroborating evidence: typed storage can quantize the
+// expected value. Deltas are raw stored RGB differences, capped at 1 for means.
+uint PostStoredHash(float3 value, uint2 coord) {
+    uint3 q = (uint3)round(saturate(value) * 1023.0);
+    return DiagnosticHash(coord.x ^ (coord.y * 0x9e3779b9u) ^
+                          q.x ^ (q.y << 10) ^ (q.z << 20));
+}
+void RecordPostStoreExpected(uint2 coord, float3 expected) {
+    if ((Passthrough & 131072u) == 0u || (coord.x & 31u) != 0u ||
+        (coord.y & 31u) != 0u) return;
+    float3 original = OriginalColor.Load(int3(coord + uint2(SourceBaseX, SourceBaseY), 0)).rgb;
+    if (!all(isfinite(original)) || !all(isfinite(expected))) return;
+    float delta = max(abs(expected.x-original.x),
+        max(abs(expected.y-original.y), abs(expected.z-original.z)));
+    uint ignored;
+    DeltaStats.InterlockedXor(132u, PostStoredHash(original,coord), ignored);
+    DeltaStats.InterlockedXor(136u, PostStoredHash(expected,coord), ignored);
+    DeltaStats.InterlockedAdd(144u, (uint)round(saturate(delta)*65535.0), ignored);
+    DeltaStats.InterlockedMax(148u, (uint)(min(delta,4095.0)*1048576.0), ignored);
+    if (delta > (1.0/1024.0)) DeltaStats.InterlockedAdd(152u,1u,ignored);
+    DeltaStats.InterlockedAdd(156u,1u,ignored);
+}
+
+[numthreads(8, 8, 1)]
+void ProbePostStoreCS(uint3 tid : SV_DispatchThreadID) {
+    uint2 coord = tid.xy * 32u;
+    if (coord.x >= Width || coord.y >= Height) return;
+    // This separate dispatch runs after the real Output's UAV->SRV barrier.
+    // Snapshot heap t0 is the external Output; t5 is its private pre-NR copy.
+    float3 actual = OriginalColor.Load(int3(coord + uint2(DestinationBaseX,DestinationBaseY),0)).rgb;
+    float3 original = EditField.Load(int3(coord,0)).rgb;
+    uint ignored;
+    DeltaStats.InterlockedAdd(112u,1u,ignored);
+    if (!all(isfinite(actual)) || !all(isfinite(original))) {
+        DeltaStats.InterlockedAdd(120u,1u,ignored); return;
+    }
+    float delta = max(abs(actual.x-original.x),
+        max(abs(actual.y-original.y),abs(actual.z-original.z)));
+    if (delta > (1.0/1024.0)) DeltaStats.InterlockedAdd(116u,1u,ignored);
+    DeltaStats.InterlockedMax(124u,(uint)(min(delta,4095.0)*1048576.0),ignored);
+    DeltaStats.InterlockedAdd(128u,(uint)round(saturate(delta)*65535.0),ignored);
+    DeltaStats.InterlockedXor(140u,PostStoredHash(actual,coord),ignored);
+}
+
 void WriteCombined(uint2 coord, uint2 destinationCoord, float4 result) {
     ResultOut[destinationCoord] = result;
+    RecordPostStoreExpected(coord,result.rgb);
     uint planeBytes, offset;
     if (!CapturePixelAddress(coord, planeBytes, offset)) return;
     uint2 sourceCoord = coord + uint2(SourceBaseX, SourceBaseY);
@@ -3324,6 +3372,7 @@ void CombineCS(uint3 tid : SV_DispatchThreadID) {
 
 void WriteCombinedV2(uint2 coord, uint2 destinationCoord, float4 result) {
     ResultOut[destinationCoord] = result;
+    RecordPostStoreExpected(coord,result.rgb);
     uint planeBytes, offset;
     if (!CapturePixelAddress(coord, planeBytes, offset)) return;
     StageCapture.Store4(offset,
@@ -3842,6 +3891,18 @@ bool EnsureCodec(ID3D12Device *device) {
         return false;
     }
 
+    // Optional evidence only. A probe compilation/allocation failure must not
+    // disable an otherwise valid codec or change the native output path.
+    ID3DBlob *probe = CompileCodecShader("ProbePostStoreCS");
+    if (probe) {
+        pipeline.CS.pShaderBytecode = probe->lpVtbl->GetBufferPointer(probe);
+        pipeline.CS.BytecodeLength = probe->lpVtbl->GetBufferSize(probe);
+        const HRESULT probe_hr = ID3D12Device_CreateComputePipelineState(
+            device,&pipeline,IID_ID3D12PipelineState,
+            reinterpret_cast<void **>(&g_codec.post_store_probe));
+        if (FAILED(probe_hr)) Log("Post-store probe unavailable: 0x%08X",probe_hr);
+        ReleaseCom(probe);
+    }
     ID3D12Device_AddRef(device);
     g_codec.device = device;
     g_codec.descriptor_size = ID3D12Device_GetDescriptorHandleIncrementSize(
@@ -4049,6 +4110,20 @@ struct NrSlot {
     bool suppress_transfer_this_frame = false;
     NrDiagnosticIdentity diagnostic_identity = {};
 };
+
+struct NrPostStoreEvidence {
+    unsigned long long frame=0,feature_generation=0,tick=0;
+    unsigned int config=0,samples=0,expected_samples=0,changed=0,expected_changed=0,invalid=0;
+    unsigned int before_hash=0,expected_hash=0,actual_hash=0;
+    float expected_mean=0,actual_mean=0,expected_max=0,actual_max=0;
+};
+NrPostStoreEvidence g_post_store_evidence; // g_diagnostic_snapshot_lock
+NrPostStoreEvidence SnapshotPostStoreEvidence() {
+    AcquireSRWLockShared(&g_diagnostic_snapshot_lock);
+    const auto result=g_post_store_evidence;
+    ReleaseSRWLockShared(&g_diagnostic_snapshot_lock);
+    return result;
+}
 
 // The leaked Feature 18 runtime snapshots these controls during CreateFeature
 // (the public evaluate parameter block is not a reliable live-tuning API).
@@ -4490,6 +4565,31 @@ void CollectSlotDeltaStatsLocked(NrContext &context, NrSlot &slot) {
     ID3D12Resource_Unmap(slot.delta_stats_readback, 0, &written_range);
     slot.delta_stats_pending = false;
 
+    if (values[28] && values[39]) {
+        NrPostStoreEvidence evidence;
+        evidence.frame=slot.diagnostic_identity.frame_id;
+        evidence.feature_generation=slot.diagnostic_feature_generation;
+        evidence.config=slot.diagnostic_identity.config_generation;
+        evidence.tick=GetTickCount64();
+        evidence.samples=values[28]; evidence.changed=values[29]; evidence.invalid=values[30];
+        evidence.actual_max=static_cast<float>(values[31])/1048576.0f;
+        evidence.actual_mean=static_cast<float>(values[32])/(values[28]*65535.0f);
+        evidence.before_hash=values[33]; evidence.expected_hash=values[34]; evidence.actual_hash=values[35];
+        evidence.expected_mean=static_cast<float>(values[36])/(values[39]*65535.0f);
+        evidence.expected_max=static_cast<float>(values[37])/1048576.0f;
+        evidence.expected_changed=values[38]; evidence.expected_samples=values[39];
+        AcquireSRWLockExclusive(&g_diagnostic_snapshot_lock);
+        if (evidence.frame>=g_post_store_evidence.frame) g_post_store_evidence=evidence;
+        ReleaseSRWLockExclusive(&g_diagnostic_snapshot_lock);
+        static unsigned reports=0;
+        if (++reports<=3 || reports%120==0)
+            Log("[post-store] frame=%llu config=%u samples=%u/%u changed=%u/%u "
+                "meanStoredDelta expected=%.6f actual=%.6f invalid=%u "
+                "hash before=%08X expected=%08X actual=%08X; read after actual Output store, not Present.",
+                evidence.frame,evidence.config,evidence.expected_samples,evidence.samples,
+                evidence.expected_changed,evidence.changed,evidence.expected_mean,evidence.actual_mean,
+                evidence.invalid,evidence.before_hash,evidence.expected_hash,evidence.actual_hash);
+    }
     if (sample_count == 0) return;
     const float max_delta = static_cast<float>(max_quantized) / 1048576.0f;
     const float max_final_delta =
@@ -7030,6 +7130,9 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         slot.delta_stats_capture_armed && !slot.delta_stats_pending &&
         slot.delta_stats != nullptr && slot.delta_stats_readback != nullptr &&
         slot.stats_clear_heap != nullptr;
+    const bool probe_post_store = capture_delta && slot.snapshots_native_output &&
+        g_config.mode == 1 && slot.snapshot_heap != nullptr && g_codec.post_store_probe != nullptr &&
+        ((static_cast<unsigned long long>(width)+31)/32)*((static_cast<unsigned long long>(height)+31)/32)<=65535;
     unsigned int source_flags = hdr_input ? 0u : 1u;
     if (color_mode == CodecColorMode::LinearSdr)
         source_flags = 16u;
@@ -7050,6 +7153,7 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         g_config.color_strength, ActiveTransferStrength(g_config), g_config.color_protection);
     const float effective_color_strength = color_policy.effective_color_strength;
     const unsigned int base_codec_flags = source_flags |
+        (probe_post_store ? 131072u : 0u) |
         ((v2_combine && slot.edit_field_recorded && slot.edit_horizontal_recorded &&
           g_config.low_grid_edit_field && g_config.catmull_edit_restore &&
           g_config.mode==2 && g_config.color_strength<=0.000001f) ? 16384u : 0u) |
@@ -7240,6 +7344,19 @@ void DispatchCodec(ID3D12GraphicsCommandList *command_list, NrSlot &slot,
         slot.stage_capture.pending = true;
         slot.stage_capture.armed = false;
         RetireStageCaptureOwnerLocked(slot);
+    }
+    if (probe_post_store) {
+        // Read the stored target while the same slot/recording owns it. Only
+        // the already-armed sparse diagnostic sample pays for this dispatch.
+        UavBarrier(command_list,slot.result);
+        Transition(command_list,slot.result,slot.result_state,D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        ID3D12DescriptorHeap *probe_heaps[]={slot.snapshot_heap};
+        ID3D12GraphicsCommandList_SetDescriptorHeaps(command_list,1,probe_heaps);
+        const auto probe_gpu=ID3D12DescriptorHeap_GetGPUDescriptorHandleForHeapStart(slot.snapshot_heap);
+        ID3D12GraphicsCommandList_SetComputeRootDescriptorTable(command_list,0,probe_gpu);
+        ID3D12GraphicsCommandList_SetPipelineState(command_list,g_codec.post_store_probe);
+        ID3D12GraphicsCommandList_Dispatch(command_list,(width+255)/256,(height+255)/256,1);
+        Transition(command_list,slot.result,slot.result_state,D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
     if (capture_delta) {
         UavBarrier(command_list, slot.delta_stats);
@@ -12463,13 +12580,13 @@ void DrawTechnicalDiagnostics(reshade::api::effect_runtime *runtime) {
 
 #if NR_UI_CHINESE
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 NR Perfect Chain 0.4.7beta-queue.3 (Chinese UI) | Bilibili UID 941799";
+    "DLSS 5 NR Perfect Chain 0.4.7beta-output.1 (Chinese UI) | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to NR before native SR with an independent NR working resolution. "
     "Chinese controls fall back to readable English when ReShade lacks CJK glyphs.";
 #else
 extern "C" __declspec(dllexport) const char *NAME =
-    "DLSS 5 AI Rendering Perfect Chain 0.4.7beta-queue.3 | Bilibili UID 941799";
+    "DLSS 5 AI Rendering Perfect Chain 0.4.7beta-output.1 | Bilibili UID 941799";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Defaults to render-resolution NR before the game's native Super Resolution, "
     "with output-resolution post-SR NR available for comparison. Includes an F6 master "

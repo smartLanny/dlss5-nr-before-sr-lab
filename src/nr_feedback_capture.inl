@@ -133,6 +133,20 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
         prefix,g_queue_retirement_waits.load(),prefix,g_queue_retirement_wait_completed.load(),
         prefix,g_queue_retirement_wait_timeouts.load(),prefix,g_queue_retirement_wait_ms.load(),
         prefix,g_queue_retirement_wait_max_ms.load());
+    const auto stored=SnapshotPostStoreEvidence();
+    FeedbackAppend(s,"%s.post.outputProbe.available=%d\n%s.post.outputProbe.frame=%llu\n"
+        "%s.post.outputProbe.config=%u\n%s.post.outputProbe.featureGeneration=%llu\n%s.post.outputProbe.ageMs=%llu\n"
+        "%s.post.outputProbe.samples=%u\n%s.post.outputProbe.expectedSamples=%u\n"
+        "%s.post.outputProbe.changed=%u\n%s.post.outputProbe.expectedChanged=%u\n%s.post.outputProbe.invalid=%u\n"
+        "%s.post.outputProbe.meanStoredDelta=%.7f\n%s.post.outputProbe.expectedMeanStoredDelta=%.7f\n"
+        "%s.post.outputProbe.maxStoredDelta=%.7f\n%s.post.outputProbe.expectedMaxStoredDelta=%.7f\n"
+        "%s.post.outputProbe.beforeHash=%08X\n%s.post.outputProbe.expectedHash=%08X\n%s.post.outputProbe.actualHash=%08X\n"
+        "%s.post.outputProbe.note=sparse raw RGB read after external Output store; expected is pre-store float; typed quantization may differ; mean delta capped at 1; not Present or same-frame fullscreen evidence\n",
+        prefix,stored.samples!=0,prefix,stored.frame,prefix,stored.config,prefix,stored.feature_generation,
+        prefix,stored.tick?GetTickCount64()-stored.tick:0,prefix,stored.samples,prefix,stored.expected_samples,
+        prefix,stored.changed,prefix,stored.expected_changed,prefix,stored.invalid,
+        prefix,stored.actual_mean,prefix,stored.expected_mean,prefix,stored.actual_max,prefix,stored.expected_max,
+        prefix,stored.before_hash,prefix,stored.expected_hash,prefix,stored.actual_hash,prefix);
 #endif
 #if defined(NR_HAS_COMMAND_STATE_EVIDENCE)
     const auto evidence = SnapshotCommandStateEvidence();
