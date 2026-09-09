@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Compile full frozen Core and compare its diagnostic quantization to typed WARP stores."""
+from pathlib import Path
+import argparse
+import hashlib
+import json
+import shutil
+import subprocess
+
+ROOT=Path(__file__).resolve().parents[1]
+def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
+def main():
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--compiler',type=Path,required=True)
+    p.add_argument('--reshade',type=Path,required=True)
+    p.add_argument('--source',type=Path,required=True)
+    p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--compile-only',action='store_true')
+    p.add_argument('--core-only',action='store_true',help='Run the Core integration cases after a separately recorded numerical oracle pass.')
+    a=p.parse_args();out=a.output.resolve();source=a.source.resolve(strict=True)
+    if out.exists():raise SystemExit('Use a fresh output directory; preserve prior evidence.')
+    out.mkdir(parents=True);snapshot=out/'core/src';shutil.copytree(source.parent,snapshot)
+    hashes={str(f.relative_to(snapshot)):sha(f) for f in sorted(snapshot.rglob('*')) if f.is_file()}
+    queue=ROOT/'tests/queue_retirement_harness.cpp'
+    helpers=[ROOT/'tests'/f for f in ('post_output_harness.inl','native_color_view_harness.inl','pre_store_probe_harness.inl')]
+    fixture=ROOT/'tests/store_quantization_harness.inl'
+    q=queue.read_text(encoding='utf-8').split('void OneShot() {',1)[0]+'\n} // namespace queue_test\n'
+    if 'struct Fixture' not in q:raise SystemExit('Shared WARP fixture boundary changed.')
+    (out/'fixture.inl').write_text('\n'.join([q,*[f.read_text(encoding='utf-8') for f in helpers],fixture.read_text(encoding='utf-8')]),encoding='utf-8')
+    wrapper=out/'store-quantization.cpp'
+    wrapper.write_text('#include "'+(snapshot/'nr_before_sr.cpp').as_posix()+'"\n#include "fixture.inl"\n'
+        'int main(int argc,char **argv){std::setvbuf(stdout,nullptr,_IONBF,0);store_quantization_test::Run(argc<2||std::strcmp(argv[1],"--core-only")!=0);return 0;}\n',encoding='utf-8')
+    compiler=a.compiler.resolve(strict=True);c_compiler=compiler.with_name(compiler.name.replace('clang++','clang'))
+    common=['-O1','-DNDEBUG','-DUNICODE','-D_UNICODE','-D_WIN64','-ffunction-sections','-fdata-sections',
+            '-I'+str(ROOT/'third_party/minhook/include'),'-I'+str(a.reshade.resolve()/'include'),'-I'+str(a.reshade.resolve()/'deps/imgui')]
+    def run(command,name,timeout=240):
+        r=subprocess.run(command,cwd=out,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=timeout)
+        (out/(name+'.txt')).write_text(r.stdout+r.stderr,encoding='utf-8')
+        if r.returncode:print((r.stdout+r.stderr)[-12000:])
+        return r
+    objects=[]
+    for rel in ('buffer.c','hook.c','trampoline.c','hde/hde64.c'):
+        obj=out/(Path(rel).stem+'.o');r=run([str(c_compiler),*common,'-std=c17','-c',str(ROOT/'third_party/minhook/src'/rel),'-o',str(obj)],'compile-'+obj.stem)
+        if r.returncode:raise SystemExit(r.returncode)
+        objects.append(str(obj))
+    exe=out/'store-quantization.exe'
+    r=run([str(compiler),*common,'-std=c++20','-static','-Wl,--gc-sections',str(wrapper),*objects,'-o',str(exe),
+           '-lkernel32','-luser32','-ld3d12','-ldxgi','-ldxguid','-lole32','-luuid','-ld3dcompiler','-lshell32'],'compile-core')
+    if r.returncode:raise SystemExit(r.returncode)
+    record={'schema':1,'source_inputs_sha256':hashes,'fixture_sha256':sha(fixture),'binary_sha256':sha(exe),
+            'borrowed_helpers_sha256':{f.name:sha(f) for f in [queue,*helpers]},'production_translation_unit':True,
+            'warp_only':True,'nvidia_nr':False,'game_verified':False,'core_only':a.core_only,'run_exit':None}
+    if not a.compile_only:
+        r=run([str(exe),*(['--core-only'] if a.core_only else [])],'run',240);record['run_exit']=r.returncode;print(r.stdout)
+    (out/'result.json').write_text(json.dumps(record,indent=2)+'\n',encoding='utf-8')
+    raise SystemExit(r.returncode)
+if __name__=='__main__':main()
