@@ -54,6 +54,54 @@ manifest `212d863167d4b55b5cc613528a2df68600243c73d07195c9136a6fe8b43c18c6`.
 The packager requires both reference hashes and the new successful gate flags.
 Unknown post transformations remain rejected by the prior exact adapter proof.
 
-Production source identity, full bilingual build, CPU/WARP results, actual menu
-inspection, package hashes and deployment are pending and will be recorded after
-they execute. No unrun check is counted as passed.
+The final production source is `2b573c2beb2aa6ea1bacbc2ba4f13cdff49df2dc`,
+beta0.5-dline5 / PE0.5.1.5. The first source `9a5f92d` completed its 45 gates,
+then actual English-menu inspection found the long bright-control label left
+too little slider width. The follow-up only shortened that English label and
+repinned it. The final source again passed all 45 exact-source checks.
+
+The final WARP runs passed 214 pre-light and 130 post-light groups, each with
+44 new whole-direction/D4-reference groups. Existing RR-depth, native-command
+state/lifetime and combined low-grid gates remain passing. The source scalar
+gate passed 128419 assertions and six compiled numeric negative controls;
+the old four-region and post scalar gates remained passing. Config/undo and
+capture tests verify scope persistence, capture freezing, missing-key fallback,
+and unchanged NR history/tuning identity.
+
+Both language DLLs were exercised with mode 0 and mode 1 in real ReShade menu
+hosts. Each final run completed 40 frames and six overlay events, retained its
+fixture INI, and reverified all 113 generated source hashes. The final screenshot
+from each of the four runs was visually inspected for labels, selected mode,
+usable slider width and menu ordering. Twelve images were produced, but only
+those four final images were visually inspected; no preset/mode clicks were
+injected. One earlier final-binary run completed 40 frames but received an extra
+early overlay-open before the scripted requests. Its strict seven-event rejection
+is preserved. One same-binary repeat passed the unchanged six-event assertions;
+the extra event's cause was not established or classified as a game crash.
+
+FXC emits X4000 at the selector call. A separate initialized-input fixture and
+both complete combine entry points reproduced it; inspection found no missing
+return or uninitialized input path. An equivalent explicit-else variant removes
+the diagnostic, but its DXBC differs from the frozen variant. Source and
+disassembly evidence is preserved; the candidate was not changed merely to
+silence this compiler flow diagnostic. Numeric/NaN and WARP evidence remain
+separate from that analysis and do not establish safety for every possible input.
+
+Final source-manifest SHA256:
+`f7843f2cd1c88bd114b15efc69f0385bce5c8efe8ae1b0b94bc0d0ffb2a424ca`.
+Validation-log SHA256:
+`c02a803c975e6fb9d415f7b6e10fee153e0439546b926af1091c1a8d01944ec4`.
+
+| Artifact | Bytes | SHA256 |
+| --- | ---: | --- |
+| Chinese Core | 1875968 | `ee931632246d1b593dd8c94fe9bc285988fce3e93e38f3ed0dffb0c247120584` |
+| English Core | 1845248 | `f7b78334765d059e1fdb9fc574f4c2d5eb7caf0a13ebe66b584d6990e5236cb6` |
+| nrchain | 8192 | `46041a5ff91ae2fd907e310d132aabc3c4a1ecd48dace511b8672909d5d9c2fb` |
+
+The Chinese final Core replaced D4 in the closed NTE installation. Independent
+checks confirmed one live Core and byte-identical personal INI, ReShade and
+bridge. D4/settings were backed up, and the guarded Core-only rollback passed
+its read-only preflight. No game or RR setting was changed and no game launched.
+The preserved INI has no new selector key, so the owner explicitly chooses
+Whole light/dark for the test. D5 game/face/motion quality and GPU cost remain
+unverified; no main/stable merge, release or capability promotion is implied.
