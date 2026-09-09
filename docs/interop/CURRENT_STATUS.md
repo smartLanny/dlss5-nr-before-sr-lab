@@ -5,7 +5,15 @@
 维护者要求将已在鬼武者过测的dev16候选命名为0.4.7beta。当前版本文字、
 双语文件名、PE版本和测试包说明统一更名；生产行为与默认设置不变。
 历史0.5提交、旧包与测试记录保留原名，改名不代表合入主分支或发布正式版。
-本轮构建与产物记录将在验证完成后补充；[使用说明](../testing/CORE_047BETA_ACCEPTANCE.zh-CN.md)。
+本轮构建与产物记录见下方 Provider Core 交接条目；[使用说明](../testing/CORE_047BETA_ACCEPTANCE.zh-CN.md)。
+
+## 2026-09-09：0.4.7beta Core 外部 Provider 受控验收
+
+独立 Core 候选在保留 047 算法、界面和默认设置的基础上，新增四个版本化
+外部 Provider 导出及 canonical `IUnknown` 设备身份解包。离线生成、双语链接和
+受控 Vulkan GPU 链路均已通过；该链路不是实际游戏兼容、画质或性能验收。
+来源、产物哈希、可复现命令、受控 600 帧结果和隐私安全边界见
+[047 Vulkan Provider Core 交接记录](VULKAN_PROVIDER_047_HANDOFF.md)。
 
 ## 2026-09-09 dev16：双路线块、光照默认0与模型1.2
 
