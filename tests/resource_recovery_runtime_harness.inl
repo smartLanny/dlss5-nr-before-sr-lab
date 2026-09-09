@@ -208,7 +208,7 @@ void InitializeResultReference(ColdScene& scene) {
     UavBarrier(init.native, slot.result); post_output_test::Submit(scene.fixture, init);
 }
 
-nr_recovery::Token Frame(ColdScene& scene, Fault fault, bool gate_completion) {
+nr_recovery::Token Frame(ColdScene& scene, Fault fault, bool gate_completion, bool defer_collection = false) {
     auto& fixture = scene.fixture;
     queue_test::List list(fixture); nr_recovery::Token token;
     post_output_test::ClearViews clear(fixture.device);
@@ -299,8 +299,13 @@ nr_recovery::Token Frame(ColdScene& scene, Fault fault, bool gate_completion) {
             Check(scene.slot->delta_stats_pending, "even completed GPU work waits for its retained recording owner");
         }
         list.Detach();
-        CollectSlotDeltaStatsLocked(queue_test::context, *scene.slot);
-        if (nr_ok) {
+        if (defer_collection) {
+            Check(nr_ok && scene.slot->delta_stats_pending && CanMutateSlotLocked(*scene.slot) &&
+                  scene.slot->stored_result_metadata.recovery_token == token &&
+                  Read(token).state == nr_recovery::State::Pending && !Read(token).first_failure.present,
+                  "completed real GPU readback remains pending until the next regular carrier collects its frozen evidence");
+        } else CollectSlotDeltaStatsLocked(queue_test::context, *scene.slot);
+        if (nr_ok && !defer_collection) {
             const auto stored = SnapshotPreStoreEvidence();
             Check(!scene.slot->delta_stats_pending && stored.recovery_token == token && stored.samples != 0,
                   "actual collector publishes only the completed frame's frozen stored evidence");
@@ -396,6 +401,66 @@ void Case(queue_test::Fixture& fixture, const Scenario& scenario) {
                 nr_recovery::StateName(proof.state), static_cast<unsigned long long>(proof.attempt_id),
                 static_cast<unsigned long long>(proof.proof_attempt_id));
     scene.RetireAfterDrainAndCollection(scenario.fault != Fault::RecordOnly);
+}
+
+void DelayedCollectorFailure(queue_test::Fixture& fixture) {
+    const auto nr_before = nr_test_double_calls, native_before = native_test_double_calls;
+    ColdScene scene(fixture); ColdNativeCarrier(scene);
+    const auto previous = Frame(scene, Fault::WrongTarget, false, true);
+    Check(Read(previous).submitted_count == 1 && scene.slot->delta_stats_pending,
+          "deferred wrong-target control has a real submission and an uncollected actual stored read");
+    queue_test::List list(fixture); nr_recovery::Token current;
+    post_output_test::ClearViews clear(fixture.device);
+    {
+        NrRecoveryCarrierScope carrier(list.native, scene.generation);
+        ++g_carrier_evaluations;
+        BeginPipelineStatsScopeLocked(scene.generation, 2);
+        ID3D12GraphicsCommandList_SetPipelineState(list.native, g_codec.copy);
+        NativeCommandStateScope state(list.native);
+        Check(state.active, "delayed-collector carrier captures the actual command state");
+        NrRecoveryCommandObserved();
+        scene.AdmitNextCarrier(); current = scene.slot->recovery_token;
+        Check(current && current.attempt_id == previous.attempt_id && current.carrier.ordinal == previous.carrier.ordinal + 1 &&
+              !(current == previous) && scene.slot->stored_result_metadata.recovery_token == previous &&
+              scene.slot->delta_stats_pending && NrRecoveryMayRecord(*scene.slot),
+              "next carrier has a new frame token in the same attempt while the completed prior frame still owns its readback metadata");
+        const auto nr_calls = nr_test_double_calls;
+        ColorContract color{};
+        // This is the production prepare call order: Arm collects completed
+        // prior work, then MayRecord is checked before resource recording or
+        // the scripted model boundary. No ledger failure is injected here.
+        ArmDeltaStatsCaptureLocked(*scene.slot, queue_test::context, color);
+        const bool may_record = NrRecoveryMayRecord(*scene.slot);
+        if (may_record) CallNrTestDouble(fixture, list.native, *scene.slot, clear, true);
+        const auto proof = Read(current);
+        const auto stored = SnapshotPreStoreEvidence();
+        Check(!may_record && nr_test_double_calls == nr_calls && !scene.slot->delta_stats_capture_armed,
+              "DELAYED_COLLECTOR_ORACLE: a failure found while arming stops the current carrier before another NR callback");
+        Check(!scene.slot->delta_stats_pending && stored.samples != 0 && stored.comparison_known && !stored.matches_expected &&
+              stored.recovery_token == previous && stored.recovery_target == scene.slot->recovery_target &&
+              proof.state == nr_recovery::State::Latched && proof.first_failure.stage == nr_recovery::Stage::ActualStorageRead &&
+              proof.first_failure.token == previous,
+              "late actual Result read latches the prior frame identity without attributing its GPU failure to the new carrier");
+        state.Restore();
+        Check(CallNativeTestDouble(scene, list.native, kNgxSuccess) == kNgxSuccess && nr_test_double_calls == nr_calls &&
+              Read(current).state == nr_recovery::State::Latched && Read(current).first_failure.token == previous,
+              "current native SR callback still runs once with its original success and cannot erase the delayed storage failure");
+    }
+    list.Close();
+    const auto proof = Read(current);
+    const auto snapshot = SnapshotNrCompatibilityVerdict();
+    Check(snapshot.recovery.state == nr_compatibility_verdict::RecoveryState::Failed &&
+          snapshot.first_block.unresolved && snapshot.first_block.reason == "writeback-failed" &&
+          !proof.correlated_window && !proof.writeback_verified,
+          "current compatibility snapshot exposes the late storage block and cannot publish recovery");
+    std::printf("RUNTIME_RECOVERY_DELAYED previous_frame=%llu current_frame=%llu failure_frame=%llu nr_callbacks=%u native_callbacks=%u\n",
+                static_cast<unsigned long long>(previous.carrier.frame_id), static_cast<unsigned long long>(current.carrier.frame_id),
+                static_cast<unsigned long long>(proof.first_failure.token.carrier.frame_id), nr_test_double_calls - nr_before,
+                native_test_double_calls - native_before);
+    std::printf("RUNTIME_RECOVERY_CASE delayed-collector-failure PASS nr_callbacks=%u native_callbacks=%u state=%s attempt=%llu proof=%llu\n",
+                nr_test_double_calls - nr_before, native_test_double_calls - native_before, nr_recovery::StateName(proof.state),
+                static_cast<unsigned long long>(proof.attempt_id), static_cast<unsigned long long>(proof.proof_attempt_id));
+    scene.RetireAfterDrainAndCollection();
 }
 
 NgxResult CallPostNativeTestDouble(queue_test::Fixture& fixture, ID3D12GraphicsCommandList* list,
@@ -570,6 +635,9 @@ int Run(int argc, char** argv) {
     unsigned executed = 0;
     for (const auto& scenario : scenarios) if (!std::strcmp(selected, "all") || !std::strcmp(selected, scenario.name)) {
         Case(fixture, scenario); ++executed;
+    }
+    if (!std::strcmp(selected, "all") || !std::strcmp(selected, "delayed-collector-failure")) {
+        DelayedCollectorFailure(fixture); ++executed;
     }
     const char* post_names[] = {"post-r11-recover", "post-actual-nonfinite", "post-reference-nonfinite"};
     for (unsigned i = 0; i != 3; ++i) if (!std::strcmp(selected, "all") || !std::strcmp(selected, "post") || !std::strcmp(selected, post_names[i])) {

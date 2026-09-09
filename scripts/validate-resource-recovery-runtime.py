@@ -3,7 +3,7 @@
 
 Default operation compiles only. --prepare-only freezes inputs. --run-warp is
 the only mode which starts a GPU device. --snapshot-cpu runs the actual mapper
-with synthetic value facts plus an inverse historical-loss control, without a
+with synthetic value facts plus inverse history/signature controls, without a
 device or GPU. A pending fixture never reports a test pass.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-PRE_CASES = ('cold-auto-recover', 'missing-descriptor', 'nr-failure', 'native-failure', 'record-only', 'wrong-target')
+PRE_CASES = ('cold-auto-recover', 'missing-descriptor', 'nr-failure', 'native-failure', 'record-only', 'wrong-target', 'delayed-collector-failure')
 POST_CASES = ('post-r11-recover', 'post-actual-nonfinite', 'post-reference-nonfinite')
 CASES = PRE_CASES + POST_CASES
 
@@ -126,7 +126,8 @@ def main() -> None:
         'minhook_inputs_sha256': {name: sha(data) for name, data in minhook.items()},
         'compiler_sha256': sha(compiler.read_bytes()), 'commands': [],
         'production_translation_unit': True, 'production_policy_replaced': False,
-        'planned_cases': ['receipt-overflow', 'frame-history', 'failed-and-unavailable'] if args.snapshot_cpu else list(CASES),
+        'planned_cases': ['receipt-overflow', 'frame-history', 'failed-and-unavailable', 'typed-native-cache-churn',
+                          'typeless-native-cache-churn'] if args.snapshot_cpu else list(CASES),
         'case': 'snapshot-cpu' if args.snapshot_cpu else args.case, 'compile_exit': None, 'run_exit': None,
         'gpu_executed': False, 'nvidia_nr': False, 'game_verified': False,
         'vendor_boundary': 'synthetic CPU value facts; production snapshot mapper and overflow adapter' if args.snapshot_cpu else
@@ -186,42 +187,52 @@ def main() -> None:
             print(positive.stdout)
             summary.update(run_exit=positive.returncode, status='failed' if positive.returncode else 'snapshot-positive-passed',
                            positive_output=positive.stdout.strip())
-            compatibility_name = 'nr_compatibility_runtime.inl'
-            original = source_contents[compatibility_name].decode('utf-8-sig')
-            anchor = 'if (proof.capacity_unknown) {'
-            if original.count(anchor) != 1:
-                save()
-                raise SystemExit('Historical-loss inverse anchor changed; update the narrowly scoped private mutation.')
-            mutated = original.replace(anchor,
-                'if (proof.capacity_unknown || proof.frame_evidence_lost || snapshot.receipt_overflow) {', 1).encode('utf-8')
-            negative_snapshot = output / 'old-history-core/src'
-            for name, data in source_contents.items():
-                path = negative_snapshot / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(mutated if name == compatibility_name else data)
-            negative_wrapper = output / 'snapshot-old-history.cpp'
-            negative_wrapper.write_text('#include "' + (negative_snapshot / source.name).as_posix() + '"\n'
-                '#include "runtime-fixture.inl"\nint main(int argc,char** argv){std::setvbuf(stdout,nullptr,_IONBF,0);'
-                'return resource_recovery_snapshot_test::Run(argc,argv);}\n', encoding='utf-8')
-            negative_binary = output / 'snapshot-old-history.exe'
-            negative_compile = run([str(compiler), *common, '-std=c++20', '-static', '-Wl,--gc-sections',
-                str(negative_wrapper), *objects, '-o', str(negative_binary), '-lkernel32', '-luser32', '-ld3d12',
-                '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'], 'compile-old-history')
-            if negative_compile.returncode:
-                summary.update(status='negative-control-compile-failed', negative_compile_exit=negative_compile.returncode)
-                save()
-                raise SystemExit(negative_compile.returncode)
-            negative = run([str(negative_binary)], 'snapshot-old-history', 30)
-            caught = negative.returncode == 41 and all(marker in negative.stdout for marker in
-                ('RECEIPT_HISTORY_ORACLE', 'FRAME_HISTORY_ORACLE'))
-            passed = positive.returncode == 0 and 'SNAPSHOT_CPU PASS' in positive.stdout and caught
-            summary.update(status='pass' if passed else 'failed', negative_control={
-                'name': 'historical-loss-permanent-unavailable', 'caught': caught, 'exit': negative.returncode,
-                'source_file': compatibility_name, 'original_sha256': sha(source_contents[compatibility_name]),
-                'mutated_sha256': sha(mutated), 'binary_sha256': sha(negative_binary.read_bytes()),
-                'output': negative.stdout.strip()}, gpu_executed=False, device_created=False)
+            inverses = (
+                ('old-history', 'nr_compatibility_runtime.inl', r'if \(proof\.capacity_unknown\) \{',
+                 'if (proof.capacity_unknown || proof.frame_evidence_lost || snapshot.receipt_overflow) {',
+                 ('RECEIPT_HISTORY_ORACLE', 'FRAME_HISTORY_ORACLE')),
+                ('old-view-signature', 'nr_resource_recovery_semantics.inl',
+                 r'return \{result\.plan\.srv, result\.plan\.uav,\s*static_cast<unsigned>\(result\.semantic\.contract\), 1\};',
+                 'return {result.plan.srv, result.plan.uav, static_cast<unsigned>(result.semantic.source), '
+                 'result.semantic.source == nr_resource_semantics::Source::ObservedNativeView ? '
+                 'result.evidence.first_call : (static_cast<unsigned long long>(result.semantic.contract) + 1)};',
+                 ('SIGNATURE_SOURCE_ORACLE', 'SIGNATURE_CHURN_ORACLE')),
+            )
+            controls = []
+            for label, source_file, anchor, replacement, markers in inverses:
+                original = source_contents[source_file].decode('utf-8-sig')
+                if len(re.findall(anchor, original)) != 1:
+                    save()
+                    raise SystemExit(label + ' inverse anchor changed; update the narrowly scoped private mutation.')
+                mutated = re.sub(anchor, lambda _: replacement, original, count=1).encode('utf-8')
+                negative_snapshot = output / (label + '-core/src')
+                for name, data in source_contents.items():
+                    path = negative_snapshot / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(mutated if name == source_file else data)
+                negative_wrapper = output / ('snapshot-' + label + '.cpp')
+                negative_wrapper.write_text('#include "' + (negative_snapshot / source.name).as_posix() + '"\n'
+                    '#include "runtime-fixture.inl"\nint main(int argc,char** argv){std::setvbuf(stdout,nullptr,_IONBF,0);'
+                    'return resource_recovery_snapshot_test::Run(argc,argv);}\n', encoding='utf-8')
+                negative_binary = output / ('snapshot-' + label + '.exe')
+                negative_compile = run([str(compiler), *common, '-std=c++20', '-static', '-Wl,--gc-sections',
+                    str(negative_wrapper), *objects, '-o', str(negative_binary), '-lkernel32', '-luser32', '-ld3d12',
+                    '-ldxgi', '-ldxguid', '-lole32', '-luuid', '-ld3dcompiler', '-lshell32'], 'compile-' + label)
+                if negative_compile.returncode:
+                    summary.update(status='negative-control-compile-failed', negative_compile_exit=negative_compile.returncode)
+                    save()
+                    raise SystemExit(negative_compile.returncode)
+                negative = run([str(negative_binary)], 'snapshot-' + label, 30)
+                caught = negative.returncode == 41 and all(marker in negative.stdout for marker in markers)
+                controls.append({'name': label, 'caught': caught, 'exit': negative.returncode,
+                    'source_file': source_file, 'original_sha256': sha(source_contents[source_file]),
+                    'mutated_sha256': sha(mutated), 'binary_sha256': sha(negative_binary.read_bytes()),
+                    'output': negative.stdout.strip()})
+            passed = positive.returncode == 0 and 'SNAPSHOT_CPU PASS' in positive.stdout and all(c['caught'] for c in controls)
+            summary.update(status='pass' if passed else 'failed', negative_control=controls[0], negative_controls=controls,
+                           gpu_executed=False, device_created=False)
             save()
-            print(('PASS' if passed else 'FAIL') + ' actual snapshot mapper CPU wiring and historical-loss inverse control; no GPU/device/NGX')
+            print(('PASS' if passed else 'FAIL') + ' actual snapshot mapper CPU wiring and history/signature inverse controls; no GPU/device/NGX')
             raise SystemExit(0 if passed else 1)
         elif args.run_warp:
             summary['gpu_executed'] = True
