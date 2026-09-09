@@ -59,7 +59,11 @@ def generate(source: str, feedback_source: str, template: str, negative: str = '
         # its non-rendering admission prefix verbatim, with RR work disabled by
         # the fixture. Reaching rendering is an error, never a simulated pass.
         rr = definition(rr_source, 'NgxResult ProcessRrPost(')
-        rr = rr[:rr.index('    // RR calls must also train the existing real queue-affinity observer.')]
+        disabled_guard = definition(rr, '    if(!nr_post_settings::Read().rr')
+        # This fixture exercises only the disabled RR admission branch. Stop at
+        # that actual guard's closing brace, before enabled-route timing and its
+        # native-call wrapper. The full RR function has its own runtime fixture.
+        rr = rr[:rr.index(disabled_guard) + len(disabled_guard)] + '\n'
         rr += '    Check(false,"RR rendering outside lifecycle fixture"); return 0;\n}\n'
         process = rr + '\n' + process
     feedback = definition(feedback_source, 'void FeedbackAppendNgxLifecycle(')
