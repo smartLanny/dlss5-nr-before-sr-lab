@@ -108,6 +108,9 @@ class CompatibilityRoute(unittest.TestCase):
             "    NativeCommandStateScope before_state(command_list);"
         )
         early = self.process[:before_state]
+        native_return = "return original(command_list, handle, params, callback);"
+        observed_return = "return NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);"
+        observation = early.index("NrPrepareFormatObservation(command_list);")
         for guard in (
             "!g_enabled_fast.load(std::memory_order_acquire)",
             "OtherNrOwnerActive()",
@@ -123,11 +126,12 @@ class CompatibilityRoute(unittest.TestCase):
             self.assertIn(guard, early)
             guard_pos = early.index(guard)
             self.assertNotEqual(
-                early.find("return original(command_list, handle, params, callback);", guard_pos),
+                early.find(native_return if guard_pos < observation else observed_return, guard_pos),
                 -1,
                 guard,
             )
-        self.assertGreaterEqual(early.count("return original(command_list, handle, params, callback);"), 7)
+        self.assertEqual(early.count(native_return), 5)
+        self.assertEqual(early.count(observed_return), 6)
 
         state_start = self.process.index(
             "    NativeCommandStateScope before_state(command_list);"
@@ -137,7 +141,7 @@ class CompatibilityRoute(unittest.TestCase):
         )
         state_boundary = self.process[state_start:before_prepare]
         self.assertIn("if (!before_state.active)", state_boundary)
-        self.assertIn("return original(command_list, handle, params, callback);", state_boundary)
+        self.assertIn(observed_return, state_boundary)
 
         after_prepare = self.process.index(
             "    PostSrSubstitution after_sr = PrepareAfterSr("
@@ -168,6 +172,10 @@ class CompatibilityRoute(unittest.TestCase):
             self.skipTest("no host C++ compiler; source-contract test still runs")
 
         suffix = _process_suffix(self.source)
+        native_forward = 'template <class NativeEvaluate>\n' + _function_block(
+            (CORE.parent / 'nr_native_format_runtime.inl').read_text(encoding='utf-8'),
+            'NgxResult NrCallNativeWithFormatObservation('
+        )
         harness = f'''
 #include <atomic>
 #include <cstdarg>
@@ -182,6 +190,13 @@ using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList*,
     const NgxHandle*, const NgxParams*, void*);
 constexpr NgxResult kNgxSuccess = 0;
 constexpr NgxResult kNgxFailure = 0x801;
+// Preserve the production native forwarding body, with value-only observer seams.
+struct NrNativeFormatScope {{
+    NrNativeFormatScope(ID3D12GraphicsCommandList*,const NgxParams*,unsigned long long) {{}}
+    void Finish(bool) {{}}
+}};
+void NrRecoveryCommandObserved() {{}}
+{native_forward}
 enum class BypassReason {{ LifecycleIsolation = 1 }};
 
 struct FeatureRecord {{ int feature_id = 1; unsigned long long generation = 1; }};

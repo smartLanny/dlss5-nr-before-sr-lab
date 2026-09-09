@@ -22,6 +22,10 @@ struct NrRecoveryCarrierScope {
 };
 void NrRecoveryRetireFeature(unsigned long long) {}
 void NrPrepareFormatObservation(ID3D12GraphicsCommandList *) {}
+namespace nr_post_settings {
+struct Snapshot { bool rr=false; };
+Snapshot Read() { return {}; } // This lifecycle fixture records no RR rendering.
+}
 using CreateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *, int, NgxParams *, NgxHandle **);
 using EvaluateFeatureFn = NgxResult (*)(ID3D12GraphicsCommandList *, const NgxHandle *, const NgxParams *, void *);
 using ReleaseFeatureFn = NgxResult (*)(NgxHandle *);

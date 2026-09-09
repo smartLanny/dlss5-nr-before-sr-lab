@@ -24,7 +24,7 @@ def definition(source: str, marker: str) -> str:
     return source[start:end]
 
 
-def generate(source: str, feedback_source: str, template: str, negative: str = '') -> str:
+def generate(source: str, feedback_source: str, template: str, negative: str = '', rr_source: str = '') -> str:
     declarations = source[source.index('enum class NgxLayer'):source.index('\nvoid LogUInt(')]
     # The actual module include, FeatureRecord, gate, and registry wrappers stay
     # intact. Only unrelated logging/types and the opaque native runtime are fake.
@@ -54,6 +54,14 @@ def generate(source: str, feedback_source: str, template: str, negative: str = '
     process = definition(source, 'NgxResult ProcessEvaluate(')
     process = process[:process.index('    // This is a classified outermost Feature 1 call.')]
     process += '    (void)all; ++plugin_attempts; return original(command_list, handle, params, callback);\n}\n'
+    if 'return ProcessRrPost(' in process:
+        # Staged Core dispatches classified RR through this actual helper. Keep
+        # its non-rendering admission prefix verbatim, with RR work disabled by
+        # the fixture. Reaching rendering is an error, never a simulated pass.
+        rr = definition(rr_source, 'NgxResult ProcessRrPost(')
+        rr = rr[:rr.index('    // RR calls must also train the existing real queue-affinity observer.')]
+        rr += '    Check(false,"RR rendering outside lifecycle fixture"); return 0;\n}\n'
+        process = rr + '\n' + process
     feedback = definition(feedback_source, 'void FeedbackAppendNgxLifecycle(')
     return (template.replace('// @TYPES@', types)
             .replace('// @DECLARATIONS@', declarations)
@@ -73,6 +81,7 @@ def main() -> None:
         'core': args.source,
         'lifecycle': args.source.parent / 'nr_ngx_lifecycle.inl',
         'feedback': args.source.parent / 'nr_feedback_capture.inl',
+        'rr_dispatch': args.source.parent / 'interop/nr_rr_post_runtime.inl',
         'harness': ROOT / 'tests/ngx_lifecycle_harness.cpp.in',
         'runner': Path(__file__),
     }
@@ -97,7 +106,8 @@ def main() -> None:
         leaf = variant or 'production'
         cpp = args.output_dir / (leaf + '.cpp')
         exe = args.output_dir / (leaf + '.exe')
-        cpp.write_text(generate(source, feedback_source, template, variant), encoding='utf-8')
+        cpp.write_text(generate(source, feedback_source, template, variant,
+                                captured['rr_dispatch'].decode('utf-8-sig')), encoding='utf-8')
         command = [args.compiler, '-std=c++20', '-O0', '-Wall', '-Wextra', '-Werror',
                    '-static', '-I' + str(args.source.parent), str(cpp), '-o', str(exe)]
         built = subprocess.run(command, capture_output=True, text=True,

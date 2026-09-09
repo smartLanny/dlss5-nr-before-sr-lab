@@ -259,9 +259,13 @@ if __name__=='__main__':
         run(compiler,'null-raster',raster(cs))
         run(compiler,'blend-pointer',blend_pointer(cs))
         run(compiler,'blend-pointer-negative',blend_pointer(cs, True), 'BLEND_NULL_FORWARD_ORACLE')
-        assert 'if (record == nullptr)\n        g_command_state_registration_repair_needed.store(true' in cs
+        assert 'if (record == nullptr || record->owner == nullptr)\n        g_command_state_registration_repair_needed.store(true' in cs
         assert 'g_command_state_registration_repair_needed.store(record == nullptr' not in cs
         ui=(ROOT/'src/nr_settings_ui.inl').read_text(encoding='utf-8-sig')
-        assert 'next.mode = mode == 0 ? 2 : 1; changed = true;' in ui
-        assert 'if (rr_guarded) ImGui::EndDisabled();' in ui
+        route = definition(ui, 'bool DrawProcessingModeBlocks(')
+        assert 'const int requested_mode = option == 0 ? 2 : 1;' in route
+        assert 'const int shown_mode = rr_guarded ? 1 : next.mode;' in route
+        assert 'if (clicked && !rr_guarded && !selected) {\n            next.mode = requested_mode;\n            changed = true;' in route
+        assert 'if (rr_guarded) ImGui::BeginDisabled();' in route
+        assert 'if (rr_guarded) ImGui::EndDisabled();' in route
         print('PASS sticky registration / visible comparison integration')
