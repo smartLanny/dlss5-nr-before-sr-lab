@@ -214,8 +214,7 @@ function createVulkanService(options = {}) {
     try {
       row = bound(game); const target = selected(game); assertSelected(row, target);
       source = packages(target.exe);
-      if (!vulkanRoute(game)) reason = '当前游戏路线不是已确认的 Vulkan。';
-      else if (!rtx50(hardware)) reason = '尚未确认唯一的 RTX 50 设备。';
+      if (!rtx50(hardware)) reason = '尚未确认唯一的 RTX 50 设备。';
       else if (game.scan.chosen.bitness !== 64) reason = '当前 Vulkan 配套仅支持 x64。';
       if (row && row.phase !== 'installed') { reason = 'Vulkan 绑定有未完成操作，请先诊断或恢复。'; needsRecovery = true; }
       else if (row && !same(row.basePath, source.place.basePath)) reason = '已安装旧固定配套；升级前需要先恢复。';
@@ -229,7 +228,12 @@ function createVulkanService(options = {}) {
     const hint = row ? { matched: false, uncertain: false } : recoveryHint(game);
     if (hint.matched || hint.uncertain) { needsRecovery = true; reason ||= 'Vulkan 来源记录或激活仍存在，请先诊断绑定恢复状态。'; }
     needsRecovery ||= Boolean(row && row.phase !== 'installed');
-    return { available: !reason && !needsRecovery && Boolean(source) && rtx50(hardware) && vulkanRoute(game) && game?.scan?.chosen?.bitness === 64,
+    // Draft API choices have not changed the saved route yet. Report whether
+    // this fixed package can be selected separately from current-route readiness.
+    const selectionAvailable = !reason && !needsRecovery && Boolean(source) && rtx50(hardware) && game?.scan?.chosen?.bitness === 64;
+    const selectionReason = reason;
+    if (!reason && !vulkanRoute(game)) reason = '当前游戏路线不是已确认的 Vulkan。';
+    return { available: selectionAvailable && vulkanRoute(game), selectionAvailable, selectionReason,
       installed: Boolean(row) || hint.matched, status: row?.phase || (needsRecovery ? 'recovery-required' : 'absent'), needsRecovery,
       coreVersion: row?.coreVersion || source?.recipe.coreVersion || null,
       packageId: row?.packageId || source?.recipe.id || null, reason, experimental: true };

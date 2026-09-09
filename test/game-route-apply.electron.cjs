@@ -14,7 +14,7 @@ fs.writeFileSync(preload, `${installMock}\ninstallMock();\n(${function routeMock
   const ok = value => ({ ok: true, value: structuredClone(value) });
   const mock = window.__routeMock = { games: null, calls: [], resolve: null, nrResolve: null, holdNr: false, lists: 0 };
   const boot = window.manager.boot, readNr = window.manager.readNr;
-  const vk = { packageId: 'nr-vulkan-sdr-r5-20260909', coreVersion: '0.4.6-hotfix.1', available: false, installed: false };
+  const vk = { packageId: 'nr-vulkan-sdr-r5-20260909', coreVersion: '0.4.6-hotfix.1', available: false, installed: false, selectionAvailable: true, selectionReason: '' };
   window.manager.boot = async () => {
     const result = await boot(), seed = result.value.games[0];
     const variants = { RTX40: { ready: true, files: [] }, RTX50: { ready: true, files: [] } };
@@ -31,7 +31,14 @@ fs.writeFileSync(preload, `${installMock}\ninstallMock();\n(${function routeMock
       { ...seed, id: 'route-default', name: '默认安装测试', dir: 'C:/Fixture/Default', installed: false, addonVersion: null, supported: true, apiOverride: 'auto', chosen: { ...chosen, path: 'C:/Fixture/Default/Game.exe' }, vulkan: { ...vk } },
       { ...seed, id: 'route-recovery', name: '旧 Vulkan 恢复测试', dir: 'C:/Fixture/Recovery', installed: true, supported: false, apiOverride: 'vulkan',
         chosen: { ...chosen, path: 'C:/Fixture/Recovery/Game.exe', apiResolution: { api: 'vulkan', source: 'override' } },
-        vulkan: { ...vk, installed: true, needsRecovery: true, reason: '旧 Vulkan 运行路径过长。请先在设置中点击“卸载插件”，再用新版管理器重新安装；新配套会自动使用短目录。' } }
+        vulkan: { ...vk, installed: true, needsRecovery: true, selectionAvailable: false, selectionReason: '旧 Vulkan 运行路径过长。', reason: '旧 Vulkan 运行路径过长。请先在设置中点击“卸载插件”，再用新版管理器重新安装；新配套会自动使用短目录。' } },
+      ...['mixed', 'unknown'].map(api => ({ ...seed, id: `route-${api}`, name: `Endfield ${api} 草稿测试`, dir: `C:/Fixture/${api}`, installed: false,
+        supported: false, supportCode: 'ERR_API_SELECTION_REQUIRED', addonVersion: null, apiOverride: 'auto',
+        chosen: { ...chosen, path: `C:/Fixture/${api}/Endfield.exe`, apiResolution: { api }, detectedApiResolution: { api } },
+        vulkan: { ...vk, coreVersion: '0.4.7beta', packageId: 'nr-vulkan-beta047-fixture', reason: '当前路线尚未确认为 Vulkan' } })),
+      { ...seed, id: 'route-blocked', name: 'Vulkan 硬限制测试', dir: 'C:/Fixture/Blocked', installed: false, supported: true, addonVersion: null,
+        apiOverride: 'auto', chosen: { ...chosen, path: 'C:/Fixture/Blocked/Game.exe' },
+        vulkan: { ...vk, coreVersion: '0.4.7beta', packageId: 'nr-vulkan-beta047-fixture', selectionAvailable: false, selectionReason: '当前只支持 RTX 50', reason: '旧路线未确认' } }
     ];
     result.value.games = structuredClone(mock.games); return result;
   };
@@ -117,8 +124,39 @@ async function smoke() {
   change('route-installed', '.game-api-select', 'vulkan');
   assert(field('route-installed', '.route-apply-btn').disabled && field('route-installed', '.route-draft-note').textContent.includes('先卸载'), 'A native-to-Vulkan draft preserves the restore-first boundary');
   change('route-installed', '.game-api-select', 'dx12'); await settle();
+
+  for (const detected of ['mixed', 'unknown']) {
+    const id = `route-${detected}`; expand(id); await settle();
+    const beforeDetail = field(id, '.game-detail'), beforeLists = mock.lists, beforeCalls = mock.calls.length;
+    change(id, '.game-api-select', 'vulkan');
+    const selectedRoute = field(id, '.game-route-controls');
+    assert(selectedRoute.textContent.includes('可准备') && selectedRoute.textContent.includes('beta0.4.7 · Vulkan 桥接') &&
+      !selectedRoute.textContent.includes('当前路线尚未确认为 Vulkan') && !selectedRoute.textContent.includes('Vulkan 试验桥接当前不可用'), `${detected} to Vulkan shows ready beta0.4.7 without the saved-route rejection`);
+    assert(field(id, '.game-detail') === beforeDetail && mock.calls.length === beforeCalls && mock.lists === beforeLists &&
+      !field(id, '.route-apply-btn').disabled && field(id, '.install-btn') && !field(id, '.install-btn').disabled, `${detected} draft updates both available actions without IPC or replacing the detail`);
+    field(id, '.route-apply-btn').click(); await waitUntil(() => mock.calls.length === beforeCalls + 1);
+    assert(mock.calls.at(-1).options.api === 'vulkan' && mock.calls.at(-1).options.version === 'nr-vulkan-beta047-fixture', `${detected} application submits the exact beta0.4.7 Vulkan package`);
+    mock.resolve(true); await waitUntil(() => !document.body.classList.contains('is-busy')); await settle();
+    assert(field(id, '.launch-btn') && api(id).value === 'vulkan' && field(id, '.vulkan-route-block .badge').textContent === '已安装' &&
+      core(id).selectedOptions[0].textContent === 'beta0.4.7 · Vulkan 桥接' && !field(id, '.game-route-controls').textContent.includes('当前路线尚未确认为 Vulkan'), `${detected} successful application refreshes to the installed Vulkan route without contradictory status`);
+  }
+  expand('route-blocked'); await settle();
+  assert(field('route-blocked', '.install-btn') && !field('route-blocked', '.install-btn').disabled, 'A native-ready fixture initially has an install action');
+  const beforeBlockedCalls = mock.calls.length, beforeBlockedLists = mock.lists;
+  change('route-blocked', '.game-api-select', 'vulkan');
+  const blockedApply = field('route-blocked', '.route-apply-btn');
+  assert(blockedApply.disabled && field('route-blocked', '.vulkan-route-block').textContent.includes('当前只支持 RTX 50') &&
+    !field('route-blocked', '.install-btn'), 'A hard Vulkan limit disables apply and replaces the existing header install action immediately');
+  blockedApply.click(); expand('route-blocked'); await settle();
+  assert(!field('route-blocked', '.install-btn') && mock.calls.length === beforeBlockedCalls && mock.lists === beforeBlockedLists, 'A hard-blocked collapsed Vulkan draft has no install action and submits no IPC');
   assert(!window.__launchMock.error, 'The renderer finishes without a startup or interaction error');
-  document.getElementById('view-games').scrollTop = 0; await settle();
+  // Return the isolated fixture to the reported pre-apply state for the image.
+  const screenshotGame = mock.games.find(row => row.id === 'route-mixed');
+  screenshotGame.installed = false; screenshotGame.apiOverride = 'auto'; screenshotGame.chosen.apiResolution = { api: 'mixed' };
+  screenshotGame.vulkan.installed = false; screenshotGame.vulkan.available = false;
+  await refreshGames(); expand('route-mixed'); change('route-mixed', '.game-api-select', 'vulkan');
+  await settle(); document.getElementById('toast').className = 'toast';
+  card('route-mixed').scrollIntoView({ block: 'start' }); await settle();
   return { checks, calls: mock.calls };
 }
 

@@ -76,7 +76,7 @@ test('one application submits the selected API and Core together without replaci
   context.state.payload.versions['0.4.7beta'] = {}; context.state.payload.selectedVersion = '0.4.7beta';
   context.window = { manager: { applyGameRoute: (...args) => { calls.push(args); return { ok: true, value: { installed: true } }; } } };
   context.runConfirmedAction = work => work(true);
-  context.game = { id: 'current-game', chosen: { path: 'C:/Games/Chosen.exe', detectedApiResolution: { api: 'dx12' } }, vulkan: { packageId: 'fixed-vulkan-r5', coreVersion: '0.4.6-hotfix.1' } };
+  context.game = { id: 'current-game', chosen: { path: 'C:/Games/Chosen.exe', detectedApiResolution: { api: 'dx12' } }, vulkan: { packageId: 'fixed-vulkan-r5', coreVersion: '0.4.6-hotfix.1', available: true } };
   for (const api of ['auto', 'dx11', 'dx12', 'vulkan']) {
     context.patch = { api }; vm.runInContext('updateRouteDraft(game, patch)', context);
     await vm.runInContext('applyCardRoute(game)', context);
@@ -99,6 +99,43 @@ test('known multiple-API games show their supported choices and a stable Vulkan 
   const after = vm.runInContext('apiControls(game)', context);
   assert.match(after, /value="vulkan">Vulkan<\/option>/);
   assert.doesNotMatch(after, /Vulkan（当前不可用）|Vulkan（试验版）/);
+});
+
+test('an unknown or mixed API draft uses Vulkan selection readiness without the saved-route rejection', () => {
+  const context = uiContext(); context.state.installing = new Set();
+  vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('), source.indexOf('function supportBadge(')), context);
+  vm.runInContext(source.slice(source.indexOf('function cardAction('), source.indexOf('const API_LABELS')), context);
+  for (const api of ['unknown', 'mixed']) {
+    context.game = { id: api, installed: false, apiOverride: 'auto', chosen: { path: `C:/Fixture/${api}.exe`,
+      detectedApiResolution: { api }, apiResolution: { api } }, vulkan: { coreVersion: '0.4.7beta', packageId: 'fixed-beta047-fixture',
+      available: false, reason: '当前路线尚未确认为 Vulkan', selectionAvailable: true, selectionReason: '' } };
+    vm.runInContext("updateRouteDraft(game, { api: 'vulkan' })", context);
+    const html = vm.runInContext('routeControlsMarkup(game)', context);
+    assert.match(html, /可准备/); assert.match(html, /beta0\.4\.7 · Vulkan 桥接/);
+    assert.doesNotMatch(html, /当前路线尚未确认为 Vulkan|Vulkan 试验桥接当前不可用/);
+    assert.match(html, /route-apply-btn[^>]*data-base-disabled="false"/);
+    assert.match(vm.runInContext('cardAction(game)', context), /install-btn/);
+    assert.equal(context.game.apiOverride, 'auto'); assert.equal(context.game.chosen.apiResolution.api, api);
+  }
+});
+
+test('Vulkan hard selection blockers disable apply and collapsed install without submitting IPC', async () => {
+  const context = uiContext(), calls = []; context.state.installing = new Set();
+  context.window = { manager: { applyGameRoute: (...args) => calls.push(args) } };
+  vm.runInContext(source.slice(source.indexOf('function isVulkanRoute('), source.indexOf('function supportBadge(')), context);
+  vm.runInContext(source.slice(source.indexOf('function cardAction('), source.indexOf('const API_LABELS')), context);
+  for (const reason of ['Vulkan 配套文件缺失', '当前只支持 RTX 50', '需要先恢复配套']) {
+    context.game = { id: reason, installed: false, chosen: { path: 'C:/Fixture/Blocked.exe', detectedApiResolution: { api: 'mixed' } },
+      vulkan: { available: true, reason: '旧路线信息', selectionAvailable: false, selectionReason: reason,
+        coreVersion: '0.4.7beta', packageId: 'fixed-beta047-fixture', needsRecovery: reason === '需要先恢复配套' } };
+    vm.runInContext("updateRouteDraft(game, { api: 'vulkan' })", context);
+    const html = vm.runInContext('routeControlsMarkup(game)', context);
+    assert.ok(html.includes(reason)); assert.doesNotMatch(html, /旧路线信息/);
+    assert.match(html, /route-apply-btn[^>]* disabled/);
+    assert.doesNotMatch(vm.runInContext('cardAction(game)', context), /install-btn/);
+    assert.equal(await vm.runInContext('applyCardRoute(game)', context), false);
+  }
+  assert.deepEqual(calls, []);
 });
 
 test('an unreadable RDR2 settings file keeps API selection manual without claiming game-settings sync', () => {

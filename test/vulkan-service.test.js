@@ -92,6 +92,29 @@ test('summary only reads metadata and missing/unaccepted packages stay unavailab
   assert.equal(service.summary(game).available, false); assert.match(service.summary(game).reason, /尚未提供/);
 });
 
+test('Vulkan package selection is independent of the saved API and retains real blockers', t => {
+  const f = fixture(t), game = f.game('draft-selection'), service = f.create();
+  for (const api of ['unknown', 'mixed', 'dx12']) {
+    game.scan.chosen.apiResolution.api = api;
+    const result = service.summary(game);
+    assert.equal(result.available, false, 'unsaved route is not active');
+    assert.match(result.reason, /路线不是已确认/);
+    assert.equal(result.selectionAvailable, true, 'the fixed package can be selected before applying Vulkan');
+    assert.equal(result.selectionReason, null);
+  }
+  f.hardware.family = 'RTX40'; f.hardware.series = ['RTX40'];
+  assert.equal(service.summary(game).selectionAvailable, false);
+  assert.match(service.summary(game).selectionReason, /RTX 50/);
+  f.hardware.family = 'RTX50'; f.hardware.series = ['RTX50']; game.scan.chosen.bitness = 32;
+  assert.equal(service.summary(game).selectionAvailable, false);
+  assert.match(service.summary(game).selectionReason, /x64/);
+  game.scan.chosen.bitness = 64;
+  fs.unlinkSync(path.join(f.runtimeRoot, 'core.addon64'));
+  assert.equal(service.summary(game).selectionAvailable, false);
+  assert.match(service.summary(game).selectionReason, /缺少文件/);
+  assert.deepEqual(f.calls, []); assert.equal(f.values.size, 0); assert.equal(fs.existsSync(f.bindingPath), false);
+});
+
 test('install publishes profile and binding before activation; real diagnosis distinguishes configuration from runtime', async t => {
   const f = fixture(t), game = f.game('ordered'), service = f.create();
   const result = await service.install(game);
