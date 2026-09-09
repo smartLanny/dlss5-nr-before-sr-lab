@@ -35,6 +35,7 @@ HARNESS=r'''
 #include "nr_light_style.h"
 #include "nr_model_controls.h"
 #include "nr_work_config.h"
+#include "nr_config_policy.h"
 #include "nr_f8_types.h"
 enum class NrJitterMode:int {Legacy=0,GameInputPixel=1};
 CHAIN_CONFIG
@@ -92,6 +93,7 @@ LIGHT_FLAGS
 #define WritePrivateProfileStringW TestProfileWrite
 WRITE_INT
 WRITE_FLOAT
+#include "nr_config_policy_runtime.inl"
 SAVE_CONFIG
 #undef WritePrivateProfileStringW
 APPLY_CONFIG
