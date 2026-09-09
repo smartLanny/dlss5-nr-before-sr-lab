@@ -22,7 +22,7 @@ function fixture(t, name = 'OnimushaWotS.exe') {
   const gameDir = path.join(root, 'game'), storage = path.join(gameDir, '_storage_');
   fs.mkdirSync(storage, { recursive: true });
   const exe = path.join(gameDir, name); fs.writeFileSync(exe, 'fixture exe');
-  const config = '[NRBeforeSR]\nStyle=1\nIntensity=1.7\nWorkMode=2\n';
+  const config = '[NRBeforeSR]\nStyle=1\nIntensity=1.7\nWorkMode=2\nJitterMode=1\nJitterPolicyVersion=1\n';
   fs.writeFileSync(path.join(gameDir, 'nr_before_sr.ini'), config);
   fs.writeFileSync(path.join(storage, 'nr_before_sr.ini'), config.replace('Style=1', 'Style=2'));
   fs.writeFileSync(path.join(gameDir, 'ReShade.ini'), '[INPUT]\nKeyOverlay=36,0,0,0\n');
@@ -76,8 +76,15 @@ test('REFramework NR edits and 0.4.7 defaults target the effective storage INI a
   assert.equal((await f.service.readNrSettings('ref-game')).Style, 2);
   await f.service.writeNrSettings('ref-game', { Style: 1 });
   assert.match(fs.readFileSync(path.join(f.storage, 'nr_before_sr.ini'), 'utf8'), /Style=1/);
+  assert.match(fs.readFileSync(path.join(f.storage, 'nr_before_sr.ini'), 'utf8'), /JitterMode=1\nJitterPolicyVersion=1/);
+  await assert.rejects(f.service.writeNrSettings('ref-game', { JitterMode: 0 }), { code: 'ERR_BAD_REQUEST' });
   await f.service.applyDefault('ref-game');
   assert.equal((await f.service.readNrSettings('ref-game')).Intensity, 1.2);
+  const stored = path.join(f.storage, 'nr_before_sr.ini');
+  assert.match(fs.readFileSync(stored, 'utf8'), /JitterMode=0\nJitterPolicyVersion=1/);
+  fs.writeFileSync(stored, fs.readFileSync(stored, 'utf8').replace('JitterMode=0', 'JitterMode=1'));
+  await f.service.applyRecommended('ref-game');
+  assert.match(fs.readFileSync(stored, 'utf8'), /JitterMode=0\nJitterPolicyVersion=1/);
   assert.deepEqual(fs.readFileSync(path.join(f.gameDir, 'nr_before_sr.ini')), rootBefore);
   await f.service.writeGameHotkey('ref-game', 'reshade', { key: 187, ctrl: true, shift: false, alt: false });
   assert.equal((await f.service.readGameHotkeys('ref-game')).reshade.key, 187);

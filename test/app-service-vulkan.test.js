@@ -184,13 +184,17 @@ test('Vulkan launch uses its broker service only after diagnosis is complete', a
 
 test('Vulkan NR settings and ReShade shortcut use the external profile instead of the game directory', async t => {
   const f = fixture(t, { vulkanInstalled: true }); await f.service.boot();
+  const nrFile = path.join(f.addons, 'nr_before_sr.ini');
+  fs.appendFileSync(nrFile, 'JitterMode=1\nJitterPolicyVersion=1\n');
   assert.equal((await f.service.readNrSettings(f.gameId)).Style, 1);
   await f.service.writeNrSettings(f.gameId, { Style: 2 });
   assert.match(fs.readFileSync(path.join(f.addons, 'nr_before_sr.ini'), 'utf8'), /Style=2/);
+  assert.match(fs.readFileSync(nrFile, 'utf8'), /JitterMode=1\nJitterPolicyVersion=1/);
   await f.service.writeGameHotkey(f.gameId, 'reshade', { key: 187, ctrl: true, shift: false, alt: false });
   assert.match(fs.readFileSync(path.join(f.configDir, 'ReShade.ini'), 'utf8'), /KeyOverlay=187,1,0,0/);
   assert.equal((await f.service.readGameHotkeys(f.gameId)).reshade.key, 187);
   await f.service.applyDefault(f.gameId);
+  assert.match(fs.readFileSync(nrFile, 'utf8'), /JitterMode=0\nJitterPolicyVersion=1/);
   assert.equal(fs.existsSync(path.join(f.gameDir, 'nr_before_sr.ini')), false);
   assert.equal(fs.existsSync(path.join(f.gameDir, 'ReShade.ini')), false);
 });

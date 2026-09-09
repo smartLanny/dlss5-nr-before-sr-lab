@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { parseSection, updateSection, writeConfig, readConfig } = require('../src/product/nr-config');
+const { parseSection, updateSection, writeConfig, writeDefaultConfig, readConfig } = require('../src/product/nr-config');
 
 test('parses and normalizes public NR settings', () => {
   const value = parseSection('[NRBeforeSR]\nEnabled=1\nMode=9\nIntensity=9\nWorkMode=7\nCustomWorkScale=0.1\nStyle=2\nAutoMask=0\nColorStrength=2\nSkinStructureStrength=3\n');
@@ -83,4 +83,44 @@ test('recommended reset sets both final blend routes to one without confusing mo
   assert.equal(defaultPatch('0.4.7beta').Intensity, 1.2);
   assert.equal(defaultPatch('0.4.7beta').ColorStrength, 1);
   assert.equal(defaultPatch('0.4.6-hotfix.1').Intensity, 1);
+});
+
+test('ordinary NR edits preserve jitter choices and reject developer or policy keys', () => {
+  const original = '[NRBeforeSR]\nIntensity=1\nJitterMode=1\nJitterPolicyVersion=1\n';
+  assert.match(updateSection(original, { Intensity: 1.2 }), /JitterMode=1\nJitterPolicyVersion=1/);
+  for (const key of ['JitterMode', 'JitterPolicyVersion']) {
+    assert.throws(() => updateSection(original, { [key]: 0 }), { code: 'ERR_BAD_REQUEST' });
+  }
+});
+
+test('explicit default write disables jitter and preserves its policy marker and other sections', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-jitter-reset-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'nr_before_sr.ini');
+  const original = '; keep\r\n[Other]\r\nJitterMode=1\r\n[NRBeforeSR]\r\n' +
+    '; experiment\r\njittermode = 1\r\nJitterMode=1\r\nJitterPolicyVersion=3\r\n' +
+    'Intensity=1.7\r\nProviderValue=keep\r\n';
+  fs.writeFileSync(file, original);
+  await writeDefaultConfig(file, { Intensity: 1.2 });
+  const saved = fs.readFileSync(file, 'utf8');
+  assert.match(saved, /\[Other\]\r\nJitterMode=1/);
+  assert.match(saved, /; experiment\r\nJitterMode = 0\r\nJitterMode=0/);
+  assert.match(saved, /JitterPolicyVersion=3/);
+  assert.match(saved, /Intensity=1.2\r\nProviderValue=keep/);
+  assert.equal(fs.existsSync(`${file}.xiaofeng.tmp`), false);
+  await writeConfig(file, { Style: 1 });
+  assert.match(fs.readFileSync(file, 'utf8'), /JitterPolicyVersion=3/);
+});
+
+test('default write does not invent or complete the Core migration marker', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaofeng-jitter-policy-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'nr_before_sr.ini');
+  await writeDefaultConfig(file, { Enabled: 1 });
+  assert.match(fs.readFileSync(file, 'utf8'), /JitterMode=0/);
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /JitterPolicyVersion/);
+  fs.writeFileSync(file, '[NRBeforeSR]\nJitterMode=1\nJitterPolicyVersion=0\n');
+  await writeDefaultConfig(file, { Enabled: 1 });
+  assert.match(fs.readFileSync(file, 'utf8'), /JitterMode=0\nJitterPolicyVersion=0/);
+  await assert.rejects(writeDefaultConfig(file, { JitterMode: 1 }), { code: 'ERR_BAD_REQUEST' });
 });

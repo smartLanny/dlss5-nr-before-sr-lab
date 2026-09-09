@@ -10,7 +10,7 @@ const { createLibraryWorkerClient } = require('./library-worker-client');
 const { createPayloadInspectionCache } = require('./payload-inspection-cache');
 const { createInstaller } = require('./installer');
 const { payloadRoot, readBundle, requirePayload, sha256 } = require('./payload');
-const { readConfig, writeConfig, defaultPatch } = require('./nr-config');
+const { readConfig, writeConfig, writeDefaultConfig, defaultPatch } = require('./nr-config');
 const { readReShadeHotkey, writeReShadeHotkey } = require('./hotkeys');
 const { readManifest, assertManifestExecutable, manifestPath } = require('./manifest');
 const { appError, normalizeError, MESSAGES } = require('./errors');
@@ -1747,7 +1747,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         delete patch.CustomWorkScale;
         patch.ColorStrength = 0;
       }
-      return writeConfig(file, patch);
+      return writeDefaultConfig(file, patch);
     },
     applyRecommended: async id => {
       const game = findGame(id);
@@ -1761,7 +1761,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
         delete patch.CustomWorkScale;
         patch.ColorStrength = 0;
       }
-      return writeConfig(file, patch);
+      return writeDefaultConfig(file, patch);
     }
   };
 }

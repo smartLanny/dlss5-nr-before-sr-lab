@@ -87,6 +87,11 @@ function updateSection(text, patch) {
     normalized[key] = normalizeValue(key, value);
   }
 
+  return updateNormalizedSection(text, normalized);
+}
+
+function updateNormalizedSection(text, normalized, ignoreKeyCase = false) {
+
   const newline = String(text || '').includes('\r\n') ? '\r\n' : '\n';
   const lines = String(text || '').split(/\r?\n/);
   let start = -1;
@@ -114,8 +119,11 @@ function updateSection(text, patch) {
   for (let i = start + 1; i < end; i++) {
     const pair = lines[i].match(/^(\s*)([^=;#]+?)(\s*=\s*)(.*)$/);
     if (!pair) continue;
-    const key = pair[2].trim();
-    if (!(key in normalized)) continue;
+    const storedKey = pair[2].trim();
+    const key = ignoreKeyCase
+      ? Object.keys(normalized).find(name => name.toLowerCase() === storedKey.toLowerCase())
+      : storedKey;
+    if (!key || !(key in normalized)) continue;
     lines[i] = `${pair[1]}${key}${pair[3]}${normalized[key]}`;
     seen.add(key);
   }
@@ -127,11 +135,23 @@ function updateSection(text, patch) {
 }
 
 async function writeConfig(file, patch) {
+  return writeUpdatedConfig(file, text => updateSection(text, patch));
+}
+
+// Only the existing explicit default operations use this fixed internal key.
+// Ordinary writeNr requests retain their public allowlist. Core owns the
+// JitterPolicyVersion migration marker; preserve it exactly as stored.
+async function writeDefaultConfig(file, patch) {
+  return writeUpdatedConfig(file, text => updateNormalizedSection(
+    updateSection(text, patch), { JitterMode: 0 }, true));
+}
+
+async function writeUpdatedConfig(file, update) {
   let current = '';
   try { current = await fs.promises.readFile(file, 'utf8'); } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
-  const next = updateSection(current, patch);
+  const next = update(current);
   await fs.promises.mkdir(path.dirname(file), { recursive: true });
   const temp = `${file}.xiaofeng.tmp`;
   await fs.promises.writeFile(temp, next, 'utf8');
@@ -165,6 +185,7 @@ module.exports = {
   parseSection,
   updateSection,
   writeConfig,
+  writeDefaultConfig,
   defaultPatch,
   recommendedPatch,
   normalizeValue
