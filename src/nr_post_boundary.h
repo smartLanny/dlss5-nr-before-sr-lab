@@ -85,8 +85,21 @@ struct Native {
     std::uint32_t exact_matches=0,exact_other_lists=0,exact_global=0,unknown_operations=0,coverage=0;
     std::uint32_t count=0,dropped=0;
     std::uint32_t other_rtv_binds=0,other_rtv_clears=0;
+    // Frozen at this native return. These are value identities from this call,
+    // never the independently advancing latest descriptor-use snapshot.
+    std::uint64_t use_call=0;
     List list;
     Event events[kNativeEvents];
+    template<class Use> bool AttachUse(const Use &use,std::uint64_t device,
+            std::uint64_t feature,std::uint64_t semantic_resource) {
+        use_call=0;
+        if(!use.call || !use.finished || !use.identity_known || !list.known ||
+           !device || !feature || !semantic_resource || use.device!=device ||
+           list.device!=device || use.feature!=feature || use.semantic_resource!=semantic_resource ||
+           use.list!=list.token || use.reset!=list.reset || use.list_address!=list.address)return false;
+        use_call=use.call;
+        return true;
+    }
     void Barrier(bool same_list,bool target,std::uint32_t before,std::uint32_t after) {
         Increment(callbacks);
         if(!target)return;
@@ -105,6 +118,9 @@ struct Native {
         }
     }
 };
+struct RecoveryLink {
+    std::uint64_t attempt=0,carrier=0,ordinal=0;
+};
 struct Window {
     std::uint64_t trace=0,frame=0,feature=0,tick=0,closed_tick=0,device=0;
     std::uint64_t origin_queue=0,origin_submission=0,descriptor_resource=0;
@@ -118,6 +134,7 @@ struct Window {
     Close close=Close::Open;
     ObservationScope observation;
     Provenance provenance=Provenance::Unknown;
+    RecoveryLink recovery;
     Native native;
     Event events[kFollowingEvents];
     void Barrier(std::uint32_t before,std::uint32_t after) {

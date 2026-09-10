@@ -203,7 +203,8 @@ void ObservePostBoundarySubmission(const nr_post_boundary::List &list,std::uint6
 std::uint64_t PublishPostBoundary(ID3D12Resource *resource,const nr_post_boundary::Native &native,
         const NrDiagnosticIdentity &identity,unsigned long long feature,std::uint64_t device=0,
         const nr_post_boundary::ObservationScope &observation={},
-        nr_post_boundary::Provenance provenance=nr_post_boundary::Provenance::Unknown) {
+        nr_post_boundary::Provenance provenance=nr_post_boundary::Provenance::Unknown,
+        const nr_post_boundary::RecoveryLink &recovery={}) {
     if(!resource||!identity.frame_id)return 0;
     if(provenance!=nr_post_boundary::Provenance::Unknown &&
        (!observation || observation.config!=identity.config_generation || observation.feature!=feature))return 0;
@@ -219,6 +220,7 @@ std::uint64_t PublishPostBoundary(ID3D12Resource *resource,const nr_post_boundar
     g_post_boundary_current.feature=feature;
     g_post_boundary_current.observation=observation;
     g_post_boundary_current.provenance=provenance;
+    g_post_boundary_current.recovery=recovery;
     g_post_boundary_current.native=native;
     g_post_boundary_current.device=native.list.device;
     g_post_boundary_current.coverage=native.coverage;

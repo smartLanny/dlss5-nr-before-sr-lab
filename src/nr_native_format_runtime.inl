@@ -112,6 +112,14 @@ NgxResult NrCallNativeWithFormatObservation(NativeEvaluate original,
     const NgxResult result = original(list, handle, params, callback);
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     descriptor_use.Finish(result==kNgxSuccess);
+#if defined(NR_HAS_POST_BOUNDARY_TRACE)
+    if(g_native_output_trace && g_native_output_trace->resource==
+            reinterpret_cast<std::uint64_t>(scope.resources[1])) {
+        const auto use=descriptor_use.call?SnapshotNrDescriptorUse(descriptor_use.call):nr_descriptor::NativeUse{};
+        g_native_output_trace->evidence.AttachUse(use,scope.keys[1].device,
+            scope.keys[1].feature,scope.keys[1].resource);
+    }
+#endif
 #endif
 #if defined(NR_HAS_TIMING)
     NrTimingNativeResult(static_cast<std::int32_t>(result));

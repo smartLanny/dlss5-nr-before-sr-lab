@@ -31,6 +31,23 @@ void Run() {
     metadata.identity=first;metadata.native_key=slot.native_format_key;metadata.mode=1;metadata.recorded=true;
     metadata.feature_generation=3;metadata.probe_policy=normal;metadata.recovery_target=slot.recovery_target;
     metadata.recovery_token.key={{17,17,1,3,9,1},101,101,0,1};
+    metadata.recovery_token.attempt_id=21;metadata.recovery_token.carrier={81,31};
+    slot.recovery_token=metadata.recovery_token;
+    nr_descriptor::NativeUse linked;linked.call=41;linked.carrier=91;linked.resource=111;
+    linked.semantic_resource=101;linked.device=17;linked.feature=3;linked.list=71;linked.reset=4;
+    linked.list_address=0x5050;linked.identity_known=true;linked.finished=true;linked.native_success=true;
+    linked.observed_typed=24;linked.matches=1;linked.after_native_valid=true;
+    substitution.native_boundary.list={0x5050,71,4,17,true};
+    Check(substitution.native_boundary.AttachUse(linked,17,3,101),"same native call binds exact output list reset and feature identities");
+    for(unsigned field=0;field<7;++field) {
+        auto wrong=linked;
+        if(field==0)++wrong.list;else if(field==1)++wrong.reset;else if(field==2)++wrong.list_address;
+        else if(field==3)++wrong.device;else if(field==4)++wrong.feature;else if(field==5)++wrong.semantic_resource;
+        else wrong.call=0;
+        Check(!substitution.native_boundary.AttachUse(wrong,17,3,101) && !substitution.native_boundary.use_call,
+              "wrong or unavailable native identity clears the link instead of retaining an earlier success");
+    }
+    substitution.native_boundary.AttachUse(linked,17,3,101);
     metadata.result_uav=static_cast<unsigned>(DXGI_FORMAT_R10G10B10A2_UNORM);
     slot.post_boundary_probe_recorded=true;
     PublishPostBoundaryRecording(substitution,first,3,0x4444);
@@ -38,6 +55,10 @@ void Run() {
     ClosePostBoundaryAtPresent(0x4444);
     Check(trace_a && SnapshotPostBoundary(trace_a,first.frame_id,9,3).provenance==Provenance::StoreProbe,
           "production publisher pairs exact normal store identity");
+    const auto linked_window=SnapshotPostBoundary(trace_a,first.frame_id,9,3);
+    Check(linked_window.recovery.attempt==21 && linked_window.recovery.carrier==81 && linked_window.recovery.ordinal==31 &&
+          linked_window.native.use_call==41,
+          "published window freezes native call and same-recording recovery attempt without conflating frame domains");
     const StoreProbeReference stored{trace_a,first.frame_id,scope_a};
     Check(SelectPostBoundary(scope_a,stored).kind==SelectionKind::CurrentStoreProbe,"current exact store is paired");
     auto mismatched_identity=first;++mismatched_identity.frame_id;
@@ -67,6 +88,7 @@ void Run() {
     Check(boundary_native_test::forwarded==native_before+1 && substitution.native_boundary.exact_matches==1,
           "paused native transition observed and forwarded exactly once");
     ++context->evaluations;CompleteNrDiagnosticEvaluation(*context,slot);const auto second=g_applied_nr_identity;
+    slot.recovery_token.attempt_id=22;slot.recovery_token.carrier={82,32};
     Check(second.frame_id>first.frame_id && slot.diagnostic_identity.frame_id==frozen_identity.frame_id,
           "successful paused evaluation has fresh identity without relabeling old sample");
     const auto before_publish=boundary_native_test::forwarded;
@@ -81,6 +103,9 @@ void Run() {
           selected.scope_current && selected.phase_current && selected.window.trace==trace_b &&
           selected.window.frame==second.frame_id && selected.window.count==kFollowingEvents && selected.window.dropped==2,
           "paused current recording wins while historical store reference stays distinct and bounded");
+    Check(selected.window.recovery.attempt==22 && selected.window.recovery.carrier==82 &&
+          SnapshotPostBoundary(trace_a,first.frame_id,9,3).recovery.attempt==21,
+          "paused recovery link advances while the original store window retains its own attempt");
     Check(slot.post_boundary_trace_id==trace_a && !std::memcmp(&metadata,&frozen,sizeof(frozen)) &&
           !slot.delta_stats_capture_armed && !slot.delta_stats_pending && config==g_config_generation.load() &&
           history==g_history_generation.load(),"readonly recording preserves GPU sample metadata config and history");
@@ -94,6 +119,8 @@ void Run() {
     auto &receipt=g_nr_recovery_snapshot;receipt={};receipt.key=metadata.recovery_token.key;
     receipt.input.current={true,9,3,1,1};
     auto feedback=std::make_unique<FeedbackSession>();FeedbackAppendActivity(*feedback,"end");
+    Check(std::strstr(feedback->report,"end.post.boundary.callLink=attempt:22,recoveryCarrier:82,recoveryOrdinal:32,nativeUseCall:0"),
+          "F8 serializes the selected window link and does not borrow the latest native-use snapshot");
     Check(std::strstr(feedback->report,"end.post.boundary.selection=current-read-only-recording") &&
           std::strstr(feedback->report,"end.post.boundary.pairedWithProbe=0") &&
           std::strstr(feedback->report,"end.post.boundary.phaseCurrent=1") &&
