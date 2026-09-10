@@ -70,7 +70,15 @@ function createFeedbackService({getSession,getEvidence=async()=>({}),collectLogs
       try{
         if(!same(p.session,await getSession()))fail('当前游戏或配置已变化，请重新生成反馈','SESSION_CHANGED');
         // Only the host's save dialog chooses a destination. Renderer cannot supply a path.
-        const result=await writePackage({filename:`compat-${p.report.reportId}.zip`,bytes:Buffer.from(p.bytes),reportId:p.report.reportId});
+        // The host invokes this again after the dialog closes and before opening
+        // its wx handle, so a long-lived dialog cannot export stale preview data.
+        const validateBeforeWrite=async()=>{
+          prune();
+          if(previews.get(request.previewId)!==p||p.state!=='saving')fail('预览已过期，请重新生成','PREVIEW_EXPIRED');
+          if(!same(p.session,await getSession()))fail('当前游戏或配置已变化，请重新生成反馈','SESSION_CHANGED');
+          return true;
+        };
+        const result=await writePackage({filename:`compat-${p.report.reportId}.zip`,bytes:Buffer.from(p.bytes),reportId:p.report.reportId,validateBeforeWrite});
         if(result?.cancelled===true){p.state='ready';return {cancelled:true};}
         if(result?.saved!==true)fail('没有取得本地保存回执','SAVE_NOT_CONFIRMED');
         p.state='saved';previews.delete(request.previewId);

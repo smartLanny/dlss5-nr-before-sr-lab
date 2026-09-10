@@ -62,9 +62,13 @@ function installMock(features, options = {}) {
     ui = value; value.mount = () => { mock.calls.push(['legacy-mount']); throw Error('production inline path must not mount the legacy writer'); };
   } });
   Object.defineProperty(window, 'GamePageUi', { configurable: true, get: () => page, set: value => {
+    const originalFactory = !page;
     page = value; const mount = value.mount;
     value.mount = (host, manager, options) => { const controller = mount(host, manager, options); host.__gpController = controller;
-      const id = host.dataset.gameDetail; mock.mounts.set(id, (mock.mounts.get(id) || 0) + 1); return controller; };
+      // Composition adapters call the original factory; count actual base
+      // controller creation once, while exposing the final wrapped controller.
+      if (originalFactory) { const id = host.dataset.gameDetail; mock.mounts.set(id, (mock.mounts.get(id) || 0) + 1); }
+      return controller; };
   } });
   const payload = { ready: true, selectedVersion: '0.4.7beta', versions: { '0.4.7beta': { label: 'beta0.4.7', variants: { RTX40: { ready: true, files: [] } } } }, source: { mode: 'bundled', path: 'C:\\UI-fixture\\payload', ready: true } };
   const games = () => Object.values(mock.assessments).filter(row => !mock.removed.has(row.gameId)).map(row => row.game);

@@ -653,9 +653,8 @@ async function initializeServices({ worker = false, hoyoWorker = false, workerCo
       beforeLaunch: async (id, session) => {
         await service.prepareRuntimeLaunch(id, session);
         const result = await runtimeVerification.prepare(id, session);
-        // Optional local feedback metadata must never prevent the existing launch.
-        try { await compatibilityFeedback?.captureLaunch(id, session); }
-        catch (error) { startup.log('compatibility-snapshot-unavailable', { code: error.code || 'UNAVAILABLE' }); }
+        await require('./src/product/compatibility-launch').captureCompatibilitySnapshot(
+          compatibilityFeedback, id, session, { log: startup.log });
         return result;
       },
       onGameMatched: async (id, session) => { await service.recordRuntimeLaunch(id, session); return runtimeVerification.matched(id, session); },
@@ -688,12 +687,16 @@ async function initializeServices({ worker = false, hoyoWorker = false, workerCo
       assessment: gameAssessment, sessions: launchSessions,
       modules: async id => [...await service.gameModuleManifest(id), ...await fgComponents.ownedModuleManifest(id)],
       collectReport: collectSessionFeedback, managerVersion: app.getVersion(),
-      writePackage: async ({ filename, bytes }) => {
+      writePackage: async ({ filename, bytes, validateBeforeWrite }) => {
         const selected = await dialog.showSaveDialog(win, { title: '保存兼容反馈包',
           defaultPath: path.join(app.getPath('downloads'), filename), filters: [{ name: '兼容反馈包', extensions: ['zip'] }] });
         if (selected.canceled || !selected.filePath) return { cancelled: true };
+        await validateBeforeWrite();
         await require('./src/product/launch-safety').noLinks(selected.filePath);
-        const handle = await fs.promises.open(selected.filePath, 'wx');
+        const handle = await fs.promises.open(selected.filePath, 'wx').catch(error => {
+          if (error.code === 'EEXIST') throw Object.assign(new Error('保存位置已有同名文件，请选择新的文件名。'), { code: 'COMPATIBILITY_FILE_EXISTS' });
+          throw error;
+        });
         try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
         try { shell.showItemInFolder(selected.filePath); } catch {}
         return { saved: true };

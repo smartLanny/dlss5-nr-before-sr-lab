@@ -649,7 +649,7 @@ test('HoYo native operation binds the launcher digest, then installs directly in
   const plans = createOperationPlans({ userData: path.join(f.root, 'operations'), service: f.service,
     settings: { assertReady: async () => {} }, components: {}, environment: { assertReady: async () => {} }, preparation: { assertReady: async () => {} },
     guards: { assertGameClosed: async () => {} } });
-  const request = { api: 'dx11', route: 'native', loadingBackend: 'hoyoshade', hoyo: { family: 'genshin', channel: 'cn', launcher: { kind: 'hoyoplay', path: launcher } } };
+  const request = { api: 'dx11', version: DX11_COMPAT_VERSION, route: 'native', loadingBackend: 'hoyoshade', hoyo: { family: 'genshin', channel: 'cn', launcher: { kind: 'hoyoplay', path: launcher } } };
   const plan = await plans.preview(id, request); assert.equal(plan.blockers.length, 0); assert.equal(plan.resolved.loadingBackend, 'hoyoshade');
   assert.equal(plan.resolved.launcherSha256, sha256(launcher));
   assert.equal(fs.existsSync(path.join(path.dirname(exe), 'dxgi.dll')), false);

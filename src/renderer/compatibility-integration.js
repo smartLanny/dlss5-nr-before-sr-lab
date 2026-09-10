@@ -106,6 +106,21 @@
           [...row.addedNodes, ...row.removedNodes].every(node => node === footer)))) update();
     });
     observer.observe(host, { childList: true, subtree: true });
+    // A library/client switch removes the old card/editor from the stable
+    // workspace while keeping its controller cached for reuse. Close the
+    // feedback context at that boundary, but keep the existing GamePageUi
+    // controller alive so renderer.js can reattach it later.
+    let detached = false;
+    const lifecycleRoot = host.closest('#gameList,#hoyoWorkspace,#repairMaintenance') || document.body;
+    const lifecycleObserver = new MutationObserver(() => {
+      if (!host.isConnected) {
+        if (detached) return;
+        detached = true; generation++; closeToken(); widget?.closeFeedback();
+      } else if (detached) {
+        detached = false; update();
+      }
+    });
+    lifecycleObserver.observe(lifecycleRoot, { childList: true, subtree: true });
     const wrapped = { ...controller };
     for (const name of ['open','resume','refresh','selectTab']) if (typeof controller[name] === 'function') {
       wrapped[name] = (...args) => {
@@ -114,7 +129,7 @@
         return result;
       };
     }
-    wrapped.dispose = () => { disposed = true; generation++; observer.disconnect(); closeToken(); widget?.destroy(); controller.dispose(); footer.remove(); };
+    wrapped.dispose = () => { disposed = true; generation++; observer.disconnect(); lifecycleObserver.disconnect(); closeToken(); widget?.destroy(); controller.dispose(); footer.remove(); };
     return wrapped;
   }
   scope.GamePageUi = { ...original, mount };

@@ -57,6 +57,29 @@ test('historical launch cannot promote old module or NR success',async()=>{
   const c=await f.service.open('game-1'),p=await f.service.preview(c.token,request);
   assert.equal(c.contextSource,'manual-snapshot');assert.equal(p.report.outcome.stages.loaded.state,'unknown');
 });
+test('native target EXE change invalidates launch snapshot and runtime evidence',async()=>{
+  const f=fixture();await f.service.captureLaunch('game-1',f.native);f.native.targetExe='/games/test/other.exe';
+  const c=await f.service.open('game-1'),p=await f.service.preview(c.token,request);
+  assert.equal(c.contextSource,'manual-snapshot');assert.equal(p.report.outcome.stages.loaded.state,'unknown');assert.equal(p.report.outcome.stages.nr.state,'unknown');
+});
+test('cancelled launch capture cannot publish a late snapshot',async()=>{
+  const f=fixture();let checks=0;
+  await f.service.captureLaunch('game-1',f.native,{cancelled:()=>++checks>1});
+  assert.equal((await f.service.open('game-1')).contextSource,'manual-snapshot');
+});
+test('component metadata failure keeps manual feedback available',async()=>{
+  const data={gameId:'game-1',game:{name:'测试游戏',version:'1',exeSha256:'b'.repeat(64)},api:{effectiveApi:'dx12'},layout:{exe:'/games/test/game.exe',version:'1',inputRoute:'native',generation:1}};
+  const service=createCompatibilityFeedback({assessment:{assess:async()=>structuredClone(data)},sessions:{inspect:async()=>null},modules:async()=>{throw Object.assign(new Error('receipt unavailable'),{code:'SETTINGS_FG_EXTERNAL_CHANGE'});},drivers:async()=>({gpus:[],renderAdapter:null}),writePackage:async()=>({saved:true}),now:()=>new Date('2026-09-11T01:01:00Z')});
+  const c=await service.open('game-1'),p=await service.preview(c.token,{includeLogs:false,ratings:{}});
+  assert.equal(c.contextSource,'manual-snapshot');assert.equal(p.report.outcome.stages.nr.state,'unknown');assert.equal(p.report.session.components.length,0);
+});
+test('failed component capture cannot publish or reuse a launch snapshot',async()=>{
+  const f=fixture();let available=true;
+  const service=createCompatibilityFeedback({assessment:{assess:async()=>structuredClone(f.data)},sessions:{inspect:async()=>structuredClone(f.native)},modules:async()=>{if(!available)throw new Error('receipt unavailable');return [];},drivers:async()=>({gpus:[],renderAdapter:null}),writePackage:async()=>({saved:true}),now:()=>new Date(Date.parse(requestedAt)+1000)});
+  await service.captureLaunch('game-1',f.native);available=false;await service.captureLaunch('game-1',f.native);const c=await service.open('game-1');
+  assert.equal(c.contextSource,'manual-snapshot');
+  const p=await service.preview(c.token,request);assert.equal(p.report.outcome.stages.loaded.state,'unknown');assert.equal(p.report.outcome.stages.nr.state,'unknown');
+});
 test('existing feedback text remains historical attachment, never current process evidence',async()=>{
   const f=fixture(),c=await f.service.open('game-1'),p=await f.service.preview(c.token,{...request,includeLogs:true});
   assert.equal(f.logs(),1);assert.equal(p.report.attachments.find(r=>r.path.startsWith('logs/')).scope,'historical');

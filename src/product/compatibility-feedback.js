@@ -8,6 +8,7 @@ const { collectDrivers } = require('../compatibility/drivers.cjs');
 const NR_KEYS = ['Enabled', 'Mode', 'WorkMode', 'CustomWorkScale', 'Style', 'Intensity', 'AutoMask', 'ColorStrength',
   'SkinStructureStrength', 'LocalToneStrength', 'LocalStructureStrength', 'TransferStrength', 'PostTransferStrength'];
 const samePath = (a, b) => typeof a === 'string' && typeof b === 'string' && path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+const identityPath = value => typeof value === 'string' && value ? path.resolve(value).toLowerCase() : null;
 function scalarSettings(value) {
   const source = value?.config || value?.settings || value || {};
   return Object.fromEntries(NR_KEYS.filter(k => typeof source[k] === 'number' && Number.isFinite(source[k])).map(k => [k, source[k]]));
@@ -56,7 +57,7 @@ function contextIdentity(data, input, native) {
   return digest({ gameId: data.gameId, exe: data.layout?.exe || data.game?.executable || data.game?.chosen?.path || null,
     bindingId: data.layout?.bindingId || null, recipe: input.recipe, components: input.components,
     configuration: input.configuration, historical: native?.historical === true, nativeSessionId: UUID.test(native?.sessionId || '') ? native.sessionId : null,
-    requestedAt: native?.requestedAt || null });
+    nativeTargetExe: identityPath(native?.targetExe), requestedAt: native?.requestedAt || null });
 }
 function verificationObservations(verification, snapshot, native, observedAt) {
   if (!native || native.historical || native.sessionId !== snapshot.sessionId || !native.process ||
@@ -75,7 +76,7 @@ function verificationObservations(verification, snapshot, native, observedAt) {
 function createCompatibilityFeedback({ assessment, sessions, modules = async () => [], collectReport = async () => null,
   writePackage, managerVersion, managerBuild = '1cc34bf5+compatibility-ux', drivers = collectDrivers, now = () => new Date() }) {
   if (!assessment?.assess || !sessions?.inspect || typeof writePackage !== 'function') throw new TypeError('缺少现有管理器接口');
-  const launchSnapshots = new Map(), contexts = new Map();
+  const launchSnapshots = new Map(), contexts = new Map(), captureGenerations = new Map();
   let driverPromise = null, disposed = false, opening = false;
   // Driver queries are bounded and only run at a launch snapshot / explicit feedback request, never while rendering cards.
   async function inventory() {
@@ -85,18 +86,31 @@ function createCompatibilityFeedback({ assessment, sessions, modules = async () 
   }
   async function facts(id, knownEnvironment) {
     if (typeof id !== 'string' || !id || id.length > 200) fail('目标游戏无效', 'COMPATIBILITY_TARGET');
-    const [data, native, rows] = await Promise.all([assessment.assess(id, { sections: ['installation', 'enhancements'] }), sessions.inspect(id), modules(id)]);
+    // Component ownership is optional feedback metadata. A guarded owner
+    // service may reject when its receipt is unreadable; preserve manual
+    // feedback and leave technical stages unknown in that case.
+    const moduleList = Promise.resolve().then(() => modules(id)).then(rows => ({
+      rows: Array.isArray(rows) ? rows : [], available: Array.isArray(rows)
+    })).catch(() => ({ rows: [], available: false }));
+    const [data, native, moduleState] = await Promise.all([assessment.assess(id, { sections: ['installation', 'enhancements'] }), sessions.inspect(id), moduleList]);
     if (data.gameId !== id) fail('检查结果属于另一游戏', 'COMPATIBILITY_TARGET');
-    const input = snapshotInput(data, rows, knownEnvironment || await inventory(), managerVersion, managerBuild);
-    return { data, native, input, identity: contextIdentity(data, input, native) };
+    const input = snapshotInput(data, moduleState.rows, knownEnvironment || await inventory(), managerVersion, managerBuild);
+    return { data, native, input, modulesAvailable: moduleState.available,
+      identity: digest({ context: contextIdentity(data, input, native), modulesAvailable: moduleState.available }) };
   }
-  async function captureLaunch(id, native) {
-    if (disposed || !UUID.test(native?.sessionId || '') || !Number.isFinite(Date.parse(native.requestedAt))) return;
+  async function captureLaunch(id, native, controls = {}) {
+    const generation = (captureGenerations.get(id) || 0) + 1;
+    captureGenerations.set(id, generation);
+    const cancelled = () => typeof controls?.cancelled === 'function' && controls.cancelled() === true;
+    if (disposed || cancelled() || !UUID.test(native?.sessionId || '') || !Number.isFinite(Date.parse(native.requestedAt))) return;
     const f = await facts(id);
+    if (disposed || cancelled() || captureGenerations.get(id) !== generation) return;
+    if (!f.modulesAvailable) { launchSnapshots.delete(id); return; }
     if (!samePath(native.targetExe, f.data.layout?.exe || f.data.game?.executable || f.data.game?.chosen?.path) ||
-        f.native?.sessionId !== native.sessionId || f.native.historical) return;
+        !samePath(native.targetExe, f.native?.targetExe) || f.native?.sessionId !== native.sessionId || f.native.historical) return;
     const snapshot = createSession({ ...f.input, contextSource: 'launch-snapshot' },
       { uuid: () => native.sessionId, now: () => new Date(native.requestedAt) });
+    if (disposed || cancelled() || captureGenerations.get(id) !== generation) return;
     launchSnapshots.set(id, { snapshot, identity: f.identity });
     while (launchSnapshots.size > 64) launchSnapshots.delete(launchSnapshots.keys().next().value);
   }
@@ -140,7 +154,8 @@ function createCompatibilityFeedback({ assessment, sessions, modules = async () 
       contexts.set(token, c);
       return { token, contextKey: snapshot.sessionId, game: snapshot.game.name, recipe: snapshot.recipe.name,
         contextSource: snapshot.contextSource,
-        contextNote: matched ? '本次启动前配套快照。技术状态与体验评价分别记录。' :
+        contextNote: matched ? '本次启动前配套快照。技术状态与体验评价分别记录。' : !f.modulesAvailable ?
+          '组件清单暂不可读：仅记录当前配置，技术状态保持未知。' :
           '未取得匹配的启动前快照：仅记录当前配置，不会把它当成上次游玩的确切配套。',
         driverInventory: snapshot.environment.gpus.map(row => ({ name: row.name, driver: row.driverDisplay || row.driverRaw })),
         driverNote: '显卡清单不等于实际渲染设备；无法绑定时明确保留未知。' };
@@ -160,7 +175,7 @@ function createCompatibilityFeedback({ assessment, sessions, modules = async () 
     save: (token, request) => operation(token, c => c.service.save(request)),
     discard: (token, previewId) => entry(token).service.discard(previewId),
     close(token) { const c = contexts.get(token); if (!c) return false; if (c.busy) c.closeRequested = true; else { c.service.dispose(); contexts.delete(token); } return true; },
-    dispose() { disposed = true; for (const c of contexts.values()) c.service.dispose(); contexts.clear(); launchSnapshots.clear(); }
+    dispose() { disposed = true; for (const c of contexts.values()) c.service.dispose(); contexts.clear(); launchSnapshots.clear(); captureGenerations.clear(); }
   };
 }
 module.exports = { createCompatibilityFeedback, snapshotInput, scalarSettings, verificationObservations, contextIdentity };
