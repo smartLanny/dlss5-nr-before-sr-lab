@@ -72,6 +72,8 @@ def package(build: Path, output: Path) -> dict:
         'bounded UI activity alternating/stall/scope/reopen CPU gate',
                 'ui-activity-receipt-runtime-cpu',
                 'descriptor-alias-runtime-cpu',
+                'production native Clear CPU request and exact fresh-call guard CPU',
+                'production native Clear CPU format declaration and fresh-call rejection WARP',
                 'production paused current-phase read-only boundary and historical-store isolation CPU',
                 'validate-color-policy.py', 'validate-bug-sweep.py',
                 'validate-strength-migration.py', 'validate-f8-controller.py',
