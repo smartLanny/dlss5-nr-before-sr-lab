@@ -15,7 +15,7 @@ enum class Kind : unsigned { Unknown, Srv, Uav, Rtv, Other };
 enum class Reason : unsigned {
     None, HeapUnknown, SlotUnknown, WritePending, ViewUnknown, ResourceRetired,
     WrongKind, WrongDevice, WrongResource, WrongHeap, DifferentViews,
-    ShapeUnknown, RevisionChanged, Capacity
+    ShapeUnknown, RevisionChanged, Capacity, CoverageLost
 };
 struct Resource {
     Id id=0, device=0, address=0;
@@ -139,7 +139,7 @@ struct RtvBatch {
 };
 struct PoolCounters {
     unsigned active=0,capacity=0;
-    Id drops=0,evictions=0;
+    Id drops=0,evictions=0,ambiguities=0;
     bool coverage_lost=false;
 };
 struct Counters {
@@ -160,25 +160,27 @@ inline void Increment(Id &value) { if(value!=std::numeric_limits<Id>::max())++va
 // end a probe; deletion repairs the cluster instead of accumulating tombstones.
 template<class Value,unsigned Capacity> struct LiveTable {
     static_assert(Capacity>0);
-    std::array<Value,Capacity> values{};
+    static constexpr unsigned BucketCapacity=Capacity*2;
+    std::array<Value,BucketCapacity> values{};
     unsigned active=0;
     static unsigned Hash(Id id) {
         id^=id>>30;id*=0xbf58476d1ce4e5b9ull;id^=id>>27;id*=0x94d049bb133111ebull;id^=id>>31;
-        return static_cast<unsigned>(id%Capacity);
+        return static_cast<unsigned>(id%BucketCapacity);
     }
     const Value *Find(Id id) const {
         if(!id)return nullptr;
         unsigned n=Hash(id);
-        for(unsigned i=0;i<Capacity;++i,n=(n+1)%Capacity) {
+        for(unsigned i=0;i<BucketCapacity;++i,n=(n+1)%BucketCapacity) {
             if(values[n].id==id)return &values[n];
             if(!values[n].id)return nullptr;
         }
         return nullptr;
     }
     bool Insert(Value value) {
+        if(auto *existing=const_cast<Value *>(Find(value.id))){*existing=value;return true;}
+        if(active==Capacity)return false;
         unsigned n=Hash(value.id);
-        for(unsigned i=0;i<Capacity;++i,n=(n+1)%Capacity) {
-            if(values[n].id==value.id){values[n]=value;return true;}
+        for(unsigned i=0;i<BucketCapacity;++i,n=(n+1)%BucketCapacity) {
             if(!values[n].id){values[n]=value;++active;return true;}
         }
         return false;
@@ -186,8 +188,8 @@ template<class Value,unsigned Capacity> struct LiveTable {
     bool Erase(Id id) {
         const auto *entry=Find(id);if(!entry)return false;
         unsigned n=static_cast<unsigned>(entry-values.data());values[n]={};--active;
-        for(unsigned i=0;i<Capacity-1;++i) {
-            n=(n+1)%Capacity;if(!values[n].id)break;
+        for(unsigned i=0;i<BucketCapacity-1;++i) {
+            n=(n+1)%BucketCapacity;if(!values[n].id)break;
             const auto move=values[n];values[n]={};--active;Insert(move);
         }
         return true;
@@ -213,7 +215,7 @@ class Registry {
         unsigned free=1,oldest=0,newest=0,active=0;
         Slots(){for(unsigned i=0;i<Capacity;++i)values[i].chain=i+1<Capacity?i+2:0;}
         static unsigned Hash(Id heap,unsigned index) {
-            return LiveTable<Resource,Capacity>::Hash(heap^(static_cast<Id>(index)*0x9E3779B185EBCA87ull));
+            return LiveTable<Resource,Capacity>::Hash(heap^(static_cast<Id>(index)*0x9E3779B185EBCA87ull))%Capacity;
         }
         Slot *Find(Id heap,unsigned index) {
             for(auto n=buckets[Hash(heap,index)];n;n=values[n-1].chain) {
@@ -257,8 +259,8 @@ class Registry {
     mutable std::mutex mutex;
     LiveTable<Heap,HeapCapacity> heaps;
     LiveTable<Resource,ResourceCapacity> resources;
-    Slots<CpuSlotCapacity> cpu_slots;
-    Slots<GpuSlotCapacity> gpu_slots;
+    mutable Slots<CpuSlotCapacity> cpu_slots;
+    mutable Slots<GpuSlotCapacity> gpu_slots;
     std::array<Range,HeapCapacity> cpu_ranges{},gpu_ranges{};
     unsigned cpu_range_count=0,gpu_range_count=0;
     Id epoch=1,revision=0;
@@ -272,7 +274,7 @@ class Registry {
     }
     void RebuildRanges() {
         cpu_range_count=gpu_range_count=0;
-        for(unsigned i=0;i<HeapCapacity;++i) {
+        for(unsigned i=0;i<heaps.values.size();++i) {
             const auto &h=heaps.values[i];if(!h)continue;
             const Id size=static_cast<Id>(h.count-1)*h.stride;
             cpu_ranges[cpu_range_count++]={h.cpu,h.cpu+size,0,i};
@@ -302,8 +304,19 @@ class Registry {
     const Slot *FindSlot(const Heap &h,unsigned index) const {
         return h.shader_visible?gpu_slots.Find(h.id,index):cpu_slots.Find(h.id,index);
     }
+    void TouchUseLocked(const Receipt &receipt) const {
+        if(!receipt)return;
+        const auto *heap=HeapId(receipt.stamp.heap);if(!heap)return;
+        const auto touch=[&](auto &pool) {
+            auto *slot=pool.Find(heap->id,receipt.stamp.index);
+            if(slot && !slot->pending && slot->stamp.epoch==receipt.stamp.epoch &&
+               slot->stamp.revision==receipt.stamp.revision)pool.Touch(*slot);
+        };
+        if(heap->shader_visible)touch(gpu_slots);else touch(cpu_slots);
+    }
     Receipt Read(const Location &where,Kind expected) const {
-        Receipt result;if(!where.heap)return result;
+        Receipt result;
+        if(!where.heap){if(counters.heaps.coverage_lost)result.reason=Reason::CoverageLost;return result;}
         const auto &h=*where.heap;result.shader_visible=h.shader_visible;
         result.stamp.heap=h.id;result.stamp.index=where.index;
         const auto *s=FindSlot(h,where.index);
@@ -312,6 +325,7 @@ class Registry {
         if(s->pending){result.reason=Reason::WritePending;return result;}
         result.view=s->value;
         if(!s->value.known){result.reason=Reason::ViewUnknown;return result;}
+        if(counters.resources.coverage_lost){result.reason=Reason::CoverageLost;return result;}
         if(!ResourceCurrent(s->value.resource)){result.reason=Reason::ResourceRetired;return result;}
         if(s->value.resource.device!=h.device){result.reason=Reason::WrongDevice;return result;}
         if(expected!=Kind::Unknown && s->value.kind!=expected){result.reason=Reason::WrongKind;return result;}
@@ -365,7 +379,18 @@ public:
     void ObserveResource(Resource resource) {
         if(!resource)return;std::lock_guard guard(mutex);
         const auto *old=resources.Find(resource.id);
-        if((old && (old->device!=resource.device || old->address!=resource.address)) || !resources.Insert(resource)) {
+        if(old) {
+            if(old->device!=resource.device || old->address!=resource.address) {
+                Increment(counters.resources.ambiguities);counters.resources.coverage_lost=true;InvalidateLocked();
+            }
+            return;
+        }
+        // Cold identity publication checks address uniqueness once. Copies and
+        // receipt validation consult the flag and full-key index, never scan it.
+        for(const auto &r:resources.values)if(r.id && r.address==resource.address) {
+            Increment(counters.resources.ambiguities);counters.resources.coverage_lost=true;InvalidateLocked();break;
+        }
+        if(!resources.Insert(resource)) {
             Increment(counters.resources.drops);counters.resources.coverage_lost=true;InvalidateLocked();
         }
     }
@@ -377,7 +402,7 @@ public:
         if(const auto *old=heaps.Find(heap.id)) {
             if(old->device==heap.device && old->address==heap.address && old->cpu==heap.cpu && old->gpu==heap.gpu &&
                old->count==heap.count && old->stride==heap.stride && old->type==heap.type && old->shader_visible==heap.shader_visible)return true;
-            Increment(counters.heaps.drops);counters.heaps.coverage_lost=true;InvalidateLocked();return false;
+            Increment(counters.heaps.ambiguities);counters.heaps.coverage_lost=true;InvalidateLocked();return false;
         }
         if(!heaps.Insert(heap)) {
             Increment(counters.heaps.drops);counters.heaps.coverage_lost=true;InvalidateLocked();return false;
@@ -385,11 +410,15 @@ public:
         // Losing uniqueness must also retire earlier slot revisions; otherwise
         // writes during the ambiguous interval could leave a stale receipt that
         // appears current again after the second heap is destroyed.
-        for(const auto &other:heaps.values)if(other.id && other.id!=heap.id && other.type==heap.type) {
+        for(const auto &other:heaps.values)if(other.id && other.id!=heap.id) {
             const Id span=static_cast<Id>(heap.count-1)*heap.stride,other_span=static_cast<Id>(other.count-1)*other.stride;
+            if(heap.address==other.address) {
+                Increment(counters.heaps.ambiguities);counters.heaps.coverage_lost=true;InvalidateLocked();break;
+            }
+            if(other.type!=heap.type)continue;
             if((heap.cpu<=other.cpu+other_span && other.cpu<=heap.cpu+span) ||
                (heap.shader_visible && other.shader_visible && heap.gpu<=other.gpu+other_span && other.gpu<=heap.gpu+span)) {
-                InvalidateLocked();break;
+                Increment(counters.heaps.ambiguities);InvalidateLocked();break;
             }
         }
         RebuildRanges();return true;
@@ -406,10 +435,10 @@ public:
     void RetireDevice(Id device) {
         std::lock_guard guard(mutex);
         // Erasure may move the next entry into this slot; revisit it.
-        for(unsigned i=0;i<ResourceCapacity;) {
+        for(unsigned i=0;i<resources.values.size();) {
             const auto &r=resources.values[i];if(r.id && r.device==device){resources.Erase(r.id);Increment(counters.resources_retired);}else ++i;
         }
-        for(unsigned i=0;i<HeapCapacity;) {
+        for(unsigned i=0;i<heaps.values.size();) {
             const auto &h=heaps.values[i];if(h.id && h.device==device) {
                 const auto id=h.id;cpu_slots.RetireHeap(id);gpu_slots.RetireHeap(id);heaps.Erase(id);Increment(counters.heaps_retired);
             }else ++i;
@@ -445,6 +474,7 @@ public:
     }
     Write BeginCopy(Id destination,Id source,unsigned type) {
         std::lock_guard guard(mutex);const auto from=Read(Locate(source,type,false),Kind::Unknown);
+        if(from && !from.shader_visible)TouchUseLocked(from);
         auto write=BeginLocked(Locate(destination,type,false),from && !from.shader_visible?from.view:View{});
         write.source=from;write.copy=true;Increment(counters.copies);return write;
     }
@@ -475,7 +505,7 @@ public:
         if(!pair.cpu.view.shape_known || !pair.cpu.view.typed || !pair.cpu.view.format) {
             pair.reason=Reason::ShapeUnknown;return pair;
         }
-        pair.reason=Reason::None;return pair;
+        pair.reason=Reason::None;TouchUseLocked(pair.cpu);TouchUseLocked(pair.gpu);return pair;
     }
     void Invalidate(){std::lock_guard guard(mutex);InvalidateLocked();}
     Counters SnapshotCounters() const {
@@ -527,6 +557,7 @@ inline const char *ReasonName(Reason reason) {
     case Reason::DifferentViews:return "CPU-GPU-view-mismatch";
     case Reason::ShapeUnknown:return "view-shape-or-type-unknown";
     case Reason::RevisionChanged:return "descriptor-revision-changed";
+    case Reason::CoverageLost:return "identity-coverage-lost";
     default:return "bounded-capacity-exceeded";
     }
 }

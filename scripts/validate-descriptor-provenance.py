@@ -32,9 +32,10 @@ def main():
     parser.add_argument('--reshade', type=Path)
     parser.add_argument('--overlay-root', type=Path, help='Explicit nonfrozen component overlay for development only.')
     parser.add_argument('--cpu-only', action='store_true')
+    parser.add_argument('--throughput-only', action='store_true', help='Run only bounded CPU copy throughput/retention observation, no GPU.')
     parser.add_argument('--compile-only', action='store_true')
     args = parser.parse_args()
-    if not args.cpu_only and (not args.source or not args.reshade):
+    if not (args.cpu_only or args.throughput_only) and (not args.source or not args.reshade):
         parser.error('--source and --reshade are required for the full production WARP fixture')
     out = args.output.resolve()
     if out.exists():
@@ -79,12 +80,15 @@ def main():
             shutil.copyfile(ROOT/'src'/name, snapshot/name)
     record['source_inputs_sha256'] = {str(path.relative_to(snapshot)): sha(path)
         for path in sorted(snapshot.rglob('*')) if path.is_file()}
-    fixture = ROOT/'tests/descriptor_provenance.cpp'
+    fixture = ROOT/'tests'/('descriptor_provenance_throughput.cpp' if args.throughput_only else 'descriptor_provenance.cpp')
     shutil.copyfile(fixture, out/'descriptor-cpu.cpp')
     record['cpu_fixture_sha256'] = sha(fixture)
+    record['bounded_cpu_throughput_only'] = args.throughput_only
     # Compile the exact production call-selection accessor against value-only
     # globals; an overwritten ring slot must never masquerade as another call.
-    adapter = ROOT/'src/nr_descriptor_provenance_runtime.inl'
+    adapter = snapshot/'nr_descriptor_provenance_runtime.inl'
+    if not adapter.exists():
+        adapter = ROOT/'src/nr_descriptor_provenance_runtime.inl'
     adapter_text = adapter.read_text(encoding='utf-8-sig')
     first = adapter_text.index('nr_descriptor::NativeUse SnapshotNrDescriptorUse(')
     last = adapter_text.index('\nstd::uint64_t NrDescriptorResourceToken(', first)
@@ -93,6 +97,7 @@ def main():
         'nr_descriptor::NativeUse g_nr_descriptor_uses[64];\n'
         'std::uint64_t g_nr_descriptor_next_call=0;\n'+adapter_text[first:last]+'\n', encoding='utf-8')
     record['cpu_snapshot_adapter_sha256'] = sha(out/'descriptor-use-snapshot.inl')
+    record['cpu_snapshot_production_source_sha256'] = sha(adapter)
 
     def run(command, name, timeout=180):
         result = subprocess.run([str(item) for item in command], cwd=out, capture_output=True,
@@ -118,7 +123,7 @@ def main():
         code = record['cpu_exit'] = run([cpu], 'cpu', 30)
         if code:
             save();raise SystemExit(code)
-    if args.cpu_only:
+    if args.cpu_only or args.throughput_only:
         save();return
 
     queue = ROOT/'tests/queue_retirement_harness.cpp'
