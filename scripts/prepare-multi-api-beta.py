@@ -22,7 +22,7 @@ PR131 = 'f88adc33d04803982d98336a3d26e7081bb66f9f'
 PR132 = '2ab31a17388fb9cfe3c6394397df4cb555b7a172'
 PR134 = '145689aee077fa51c54d0b1dba2d79bc38633b2c'
 STATE_132 = '5e067f23051cc313a668e91332e82eef9a5bbcf1'
-STATE_CURRENT = '64dee8eb8877d8a6abc8b5adcff15c29f7c2ea44'
+STATE_CURRENT = 'f7af44852dd6c2b39da215b027eaf3f524e06024'
 PR137 = '7aa6500ee79deca0689ec85faf2bbb8301d181b7'
 REQUIRED_ANCESTORS = (PR131, PR132, PR134, PR137, 'fefd447033b21cf0ae979aa53b7dddc1a8a3e20c', 'c6389f7ea2b7cf865cc23a3bf0afb2268678e3cd')
 INTEGRATION_CORE_PINS = {
@@ -33,8 +33,8 @@ INTEGRATION_CORE_PINS = {
     'src/nr_config_policy_runtime.inl': 'e53599a24745bf8addc051b9a85387909931e2eb',
     'src/nr_config_policy.h': '7a01d6c3e35f732b8e62e0264822f03f4385c155',
     'src/nr_probe_policy.h': '79e7971268d8ba0535cb41cb8ae48d0540c9a177',
-    'src/nr_post_boundary.h': '1e057ac71967bf08490f321ddd81c77d81ef5196',
-    'src/nr_post_boundary_runtime.inl': '2232e3d9336eaa382786f7c214b2109e5fb95b13',
+    'src/nr_post_boundary.h': '4b82c78a4a26c44547cce0089088e57af8daf65e',
+    'src/nr_post_boundary_runtime.inl': '0535cbf754d1b95bed1f719353c0b2e63f2a5063',
     'src/nr_ui_activity.h': 'd647d17104c1b5d00ac2769dabde71abfc9ff59f',
     'src/nr_imgui_abi.h': 'd52148f7dc9999c8090947243b9fe6167f457240',
     'src/nr_f8_stream.inl': '8bf90f5ee2e32566428ee07c8fd9ac80491eeac7',
@@ -51,11 +51,11 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_text.h': '6f3711a2d7be284e40d961fb5eb1632ddd92147e',
     'src/nr_feedback_single_text.h': 'ac9c2a65879a667f6eeecb0560ccae44196b4edb',
     'src/nr_f8_sequence.inl': 'f4b2cd5ca77ea273c5f1dd92c6853a68980a2114',
-    'src/nr_command_state.inl': '64dee8eb8877d8a6abc8b5adcff15c29f7c2ea44',
-    'src/nr_feedback_capture.inl': 'd8e6c4a737f623d554d1efc5d1f38425460491ff',
+    'src/nr_command_state.inl': 'f7af44852dd6c2b39da215b027eaf3f524e06024',
+    'src/nr_feedback_capture.inl': 'a84efdd55b4eaab01fb4cc71c2cacb9a9f8af3b8',
     'src/nr_runtime_load_evidence.inl': '78e491e9465f4fd3cb453dbcf12a0cfd976ae514',
     'src/nr_settings_ui.inl': 'f1f0f80ee39aee5c70aea13b17f94c270780efb1',
-    'src/nr_before_sr.cpp': '3f4832e8a903a5185f54de36a89e81ba0f61a9d0',
+    'src/nr_before_sr.cpp': '9de582eb6afd2e2797ff0b8569cfb26f58ce2e98',
     'src/nr_recommended_picture.inl': 'ec39e98b859f37a4c033d4f08f55c180f616aaf8',
     'src/nr_work_config.h': '2621edc3b84ae83cbdb31ea6056f5b6a5dd81ec6',
     'src/nr_before_sr.rc': '009d8a408f2c13c6f9af353360f9006a6069f576',
@@ -66,7 +66,7 @@ INTEGRATION_CORE_PINS = {
     'src/interop/nr_ngx_parameter_abi.h': '0036426de8c9ccb4a9e2b22aaf4d87d3e2e1b038',
     'src/interop/nr_post_settings.inl': 'be18e0f3b12120913bc6f0e38e3084a46fa5fbb2',
     'src/interop/nr_post_ui.inl': '6e24852f73b462828c8a98360e489b2205f74ef9',
-    'src/interop/nr_post_feedback.inl': '15a4266466a2d68491081c793a282af911ced2f2',
+    'src/interop/nr_post_feedback.inl': '7f933d86d9a2d0d9f30fe74c4b6be7c6865bba70',
     'src/interop/nr_rr_post_runtime.inl': '23c7ddd0348e0db8438ba17323b2ba4de6db2090',
     'src/interop/nr_rr_depth_evidence.inl': 'eb05e590bc4c29648bd5bac3fa7f81e3fb5b3661',
     'scripts/patch-exposure-access.py': '6edb4379bb65e26f7928c0c0f598b18aa87857c7',
@@ -80,16 +80,20 @@ INTEGRATION_CORE_PINS = {
     'src/nr_feedback_limits.h': '001a8c371fe16dd459368b75d23c2650d98dbf64',
     'src/nr_feedback_report.inl': '07ac914f64d1361cda0d1b4301077247d05bccfa',
     'src/nr_native_format.h': '6e2ed15171f527c0c8a0c5aeb0e696d0a4aa7d5d',
-    'src/nr_native_format_hooks.inl': 'ba294196b773759ed220b77447464208178388cf',
-    'src/nr_native_format_runtime.inl': 'c8bcb1fd186247105d3ac57a304edcc224e273e8',
+    'src/nr_native_format_hooks.inl': 'd46fda45d79373fca914e38e211edbeaaa524f87',
+    'src/nr_native_format_runtime.inl': 'b56502a40dc201c4f2fa9b5eade9b9e02527031e',
     'src/nr_ngx_lifecycle.inl': '2438ea980f5f8bfdbf56f50eb717851e660dc250',
-    'src/nr_post_boundary_native.inl': '8056887db195253da07017112602989a6e69bd38',
+    'src/nr_post_boundary_native.inl': '28d50ae7e4199674a576424dd133f7632fd4ba2f',
     'src/nr_resource_recovery.h': '00ccad3695ed4bb38016938dfd764242a80122a1',
     'src/nr_resource_recovery_runtime.inl': '3349bc1cb33847cea0010147f4bc35fcf5bd068b',
     'src/nr_resource_recovery_semantics.inl': '63e362fbbd8c959f593d4e4288cde01426fb79de',
     'src/nr_resource_semantics.h': '81874dae21f36985d6b78a9b7e738f2c1d251f99',
-    'src/nr_route_compatibility.h': 'de77a93618aba8e5374867cbdcbb2694776a48b8',
-    'src/nr_route_compatibility_runtime.inl': '1ec7fbd5e075890b35fe2fb1fe191cde39503e9c',
+    'src/nr_route_compatibility.h': '3e7006e48ea39639bb9a3ea59a6abe5414f9f377',
+    'src/nr_route_compatibility_runtime.inl': '7c3b93dc457f896087d179d7d6b9ffe04ff907ad',
+    'src/nr_descriptor_provenance.h': '4e9471d5ecf056d15d6474b9b7a5d042991f08af',
+    'src/nr_descriptor_provenance_runtime.inl': '148fe3a50968dce4ce44011d8ae00fac12e037c7',
+    'src/nr_descriptor_provenance_hooks.inl': '3f797734c2461704144ba2101f6e4801923ce5fc',
+    'src/nr_descriptor_provenance_commands.inl': '3010e993e30d5443b0fb8eef870d436acb45a7bd',
 }
 BRIDGE_BLOBS = {
     'src/bridge.inc': '244e3ae373b33b40763dc36e8ce967e152cbb505',
