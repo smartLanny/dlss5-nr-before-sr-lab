@@ -242,12 +242,14 @@ void ForgetPostBoundary(std::uint64_t resource) {
     ReleaseSRWLockExclusive(&g_post_boundary_lock);
 }
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
-void ForgetPostBoundaryDescriptorResource(std::uint64_t address,std::uint64_t identity) {
-    if(!identity || g_post_boundary_resource.load(std::memory_order_acquire)!=address ||
+void ForgetPostBoundaryDescriptorResource(std::uint64_t /*address*/,std::uint64_t identity) {
+    // The first attached interface may be a shorter-lived proxy. Retirement
+    // names the unique descriptor lifetime, not that interface's raw address.
+    if(!identity ||
        g_post_boundary_descriptor_resource.load(std::memory_order_acquire)!=identity)return;
     AcquireSRWLockExclusive(&g_post_boundary_lock);
-    if(g_post_boundary_resource.load(std::memory_order_relaxed)==address &&
-       g_post_boundary_current.descriptor_resource==identity)
+    if(g_post_boundary_current.descriptor_resource==identity &&
+       g_post_boundary_descriptor_resource.load(std::memory_order_relaxed)==identity)
         ClosePostBoundaryLocked(nr_post_boundary::Close::ResourceRetired);
     ReleaseSRWLockExclusive(&g_post_boundary_lock);
 }

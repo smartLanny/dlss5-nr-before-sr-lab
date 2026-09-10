@@ -1,9 +1,18 @@
-// Native command hooks inspect only value records. They do not call GetDevice,
-// query private data, read descriptors from GPU memory, or parse shader tables.
+// Command identity uses the exact forwarded lifetime token. No descriptor GPU
+// memory, virtual-address bit pattern, or shader-table inference is involved.
+bool NrDescriptorObserveCommandLayer(ID3D12GraphicsCommandList *list) {
+    const auto identity=SnapshotPostBoundaryList(list);
+    if(!identity.known && PostBoundaryRecordingActive())
+        MarkPostBoundaryObservationGap(nr_post_boundary::IdentityUnknown);
+    return identity.known && identity.address==reinterpret_cast<std::uint64_t>(list);
+}
 std::uint64_t NrDescriptorBoundHeap(ID3D12GraphicsCommandList *list) {
+    const auto identity=SnapshotPostBoundaryList(list);
+    if(!identity.known)return 0;
     std::uint64_t address=0;
     AcquireSRWLockShared(&g_command_state_lock);
-    for(const auto &entry:g_command_states)if(entry.native==list && entry.token && entry.lifetime_ready) {
+    for(const auto &entry:g_command_states)if(entry.token==identity.token && entry.native_resets==identity.reset &&
+            reinterpret_cast<std::uint64_t>(entry.native)==identity.address && entry.lifetime_ready) {
         if(entry.state && entry.state->known &&
            !(entry.state->unknown_domains&D3D12_GRAPHICS_STATE_DESCRIPTOR_HEAP))
             address=reinterpret_cast<std::uint64_t>(entry.state->heaps[0]);

@@ -99,6 +99,9 @@ template <class NativeEvaluate>
 NgxResult NrCallNativeWithFormatObservation(NativeEvaluate original,
         ID3D12GraphicsCommandList* list, const NgxHandle* handle,
         const NgxParams* params, void* callback, unsigned long long generation) {
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    NrPostBoundaryAliasScope list_alias(list);
+#endif
     NrNativeFormatScope scope(list, params, generation);
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     NrDescriptorNativeUseScope descriptor_use(scope,list,generation);
@@ -128,6 +131,9 @@ void NrPrepareFormatObservation(ID3D12GraphicsCommandList* list) {
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
         EnsureNrDescriptorHooks(device);
         EnsureNrDescriptorCommandHooks(list);
+        const auto identity=ResolvePostBoundaryListForObservation(list);
+        if(identity.known && identity.address!=reinterpret_cast<std::uint64_t>(list))
+            EnsureNrDescriptorCommandHooks(reinterpret_cast<ID3D12GraphicsCommandList *>(identity.address));
 #endif
         ID3D12Device_Release(device);
     }
