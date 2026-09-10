@@ -244,7 +244,8 @@ NR_POST_NATIVE_HOOK(CopyTextureRegion,(ID3D12GraphicsCommandList *list,const D3D
         const auto descriptors=observe?NrDescriptorCaptureUav(list,gpu,cpu,resource):nr_descriptor::Pair{}; \
         using Fn=decltype(ID3D12GraphicsCommandListVtbl::NAME); \
         reinterpret_cast<Fn>(g_post_hook_##NAME.originals[I])(list,gpu,cpu,resource,values,count,rects); \
-        if(observe)ObservePostBoundaryUavDescriptor(list,resource,descriptors,count,rects); \
+        if(observe)ObservePostBoundaryUavDescriptor(list,resource,descriptors, \
+            NrDescriptorCaptureUav(list,gpu,cpu,resource),count,rects); \
     } \
     void *const g_post_detours_##NAME[4]={reinterpret_cast<void *>(&PostHook##NAME<0>), \
         reinterpret_cast<void *>(&PostHook##NAME<1>),reinterpret_cast<void *>(&PostHook##NAME<2>),reinterpret_cast<void *>(&PostHook##NAME<3>)};

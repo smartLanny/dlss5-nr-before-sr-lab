@@ -9486,6 +9486,8 @@ void RestoreSubstitution(Substitution &substitution) {
 }
 
 struct PostSrSubstitution {
+    nr_native_clear::Receipt prepared_clear_request;
+    nr_native_clear::Invocation current_clear_request;
     bool active = false;
     bool redirected_output = false;
     bool native_output_snapshot = false;
@@ -9832,6 +9834,7 @@ PostSrSubstitution PrepareAfterSr(ID3D12GraphicsCommandList *command_list,
     substitution.color_contract = color_contract;
     substitution.guides = guides;
     substitution.native_output_snapshot = slot->snapshots_native_output;
+    if(output_view.clear_source)substitution.prepared_clear_request=output_view.clear_request;
     ArmPostBoundaryObservationLocked(substitution,NrProbePolicySnapshot());
     // No Output/subrect mutation: native SR completes before the private snapshot.
     g_nr_transfer_attempted_frames.fetch_add(1,
@@ -9936,6 +9939,12 @@ bool FinishAfterSr(ID3D12GraphicsCommandList *command_list,
                    const NgxParams *sr_params, const FeatureRecord &feature,
                    PostSrSubstitution &substitution) {
     (void)sr_params;
+    if(substitution.prepared_clear_request.call &&
+       !NrNativeClearMayFinish(command_list,substitution.original_output,feature.generation,
+           substitution.prepared_clear_request.format,substitution.prepared_clear_request,substitution.current_clear_request)) {
+        SetBypassReason(BypassReason::UnsupportedOutputFormat);
+        return false;
+    }
     NrContext &context = *substitution.context;
     NrSlot &slot = *substitution.slot;
     const unsigned int width = substitution.width;
@@ -11170,7 +11179,8 @@ NgxResult ProcessEvaluate(EvaluateFeatureFn original,
     NrNativeOutputTraceScope native_output_trace(trace_post_boundary?after_sr.original_output:nullptr,
         before_state.command_list,boundary_coverage);
 #endif
-    NgxResult result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation);
+    NgxResult result = NrCallNativeWithFormatObservation(original, command_list, handle, params, callback, feature.generation,
+        &after_sr.current_clear_request);
 #if defined(NR_HAS_POST_BOUNDARY_TRACE)
     after_sr.native_boundary=native_output_trace.Finish();
 #endif

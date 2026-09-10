@@ -304,8 +304,11 @@ struct NrDescriptorNativeUseScope {
     }
     ~NrDescriptorNativeUseScope(){Finish(false);}
 };
+void NrObserveNativeClearRequest(ID3D12GraphicsCommandList*,ID3D12Resource*,
+        const nr_descriptor::Pair&,const nr_descriptor::Pair&,UINT,const D3D12_RECT*);
 void NrDescriptorObserveNativeClear(ID3D12GraphicsCommandList *list,ID3D12Resource *resource,
-        const nr_descriptor::Pair &pair) {
+        const nr_descriptor::Pair &pair,const nr_descriptor::Pair &after,UINT count,const D3D12_RECT *rects) {
+    NrObserveNativeClearRequest(list,resource,pair,after,count,rects);
     const auto call=g_nr_descriptor_active_call;
     if(!call)return;
     const auto identity=SnapshotPostBoundaryList(list);
