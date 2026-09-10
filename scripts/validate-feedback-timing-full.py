@@ -32,7 +32,7 @@ def main():
     parser.add_argument('--source-manifest', type=Path,
                         help='Defaults to source-root/../source-manifest.json; all compiled Core inputs must match it.')
     parser.add_argument('--output-dir', type=Path, required=True)
-    parser.add_argument('--negative-control', choices=('omit-end-timing', 'old-probe-current', 'old-tail-reserve',
+    parser.add_argument('--negative-control', choices=('omit-end-timing', 'old-probe-current', 'old-tail-reserve', 'old-metadata-limit',
                         'redact-timing-numbers', 'bypass-timing-privacy', 'untyped-decimal-exemption'))
     parser.add_argument('--compile-only', action='store_true')
     args = parser.parse_args()
@@ -75,8 +75,11 @@ def main():
                     'available && sample.probe_policy.phase==probe_policy.phase &&\n                sample.probe_policy.mode==probe_policy.mode',
                     'available', 'FULL_CORE_F8_OLD_PROBE_PHASE')
     elif args.negative_control == 'old-tail-reserve':
-        mutation = ('src/nr_feedback_limits.h', 'kMandatoryTailBytes = 80u * 1024u',
-                    'kMandatoryTailBytes = 64u * 1024u', 'FULL_CORE_F8_CAPACITY')
+        mutation = ('src/nr_feedback_limits.h', 'kMandatoryTailBytes = 96u * 1024u',
+                    'kMandatoryTailBytes = 80u * 1024u', 'FULL_CORE_F8_CAPACITY')
+    elif args.negative_control == 'old-metadata-limit':
+        mutation = ('src/nr_feedback_limits.h', 'kMetadataBytes = 160u * 1024u',
+                    'kMetadataBytes = 128u * 1024u', 'FULL_CORE_F8_CAPACITY')
     elif args.negative_control == 'redact-timing-numbers':
         mutation = ('src/nr_feedback_text.h', 'line = RedactSensitiveLine(std::move(line), true);',
                     'line = RedactSensitiveLine(std::move(line), false);', 'FULL_CORE_F8_TYPED_METADATA_PRIVACY')
@@ -235,7 +238,8 @@ BOOL WINAPI FeedbackFixtureCounter(LARGE_INTEGER* value) {
                'clock_fault_injection': 'Win32 QPF/QPC only; real, unavailable, or deterministic 12-16 digit clocks; fresh process per case',
                'gpu_executed': False, 'ngx_executed': False, 'game_verified': False,
                'worker_equivalent_bytes': 8192, 'timeline_burst_bytes': 4096,
-               'scope': 'metadata capacity including full timeline burst and 8 KiB worker-equivalent body; raw-to-final-to-disk timing field equality and actual Python summary; precise typed-number/privacy counterexamples through the actual single-text collector; no worker module enumeration or GPU execution'}
+               'private_counter_failure_width_allowance_per_snapshot': 2048,
+               'scope': 'metadata capacity including full route and descriptor/boundary records, real three-carrier recovery proof, actual 8192-slot/six-format descriptor inventory, full timeline burst, 8 KiB worker-equivalent body and 2 KiB private-counter/failure width allowance per snapshot; raw-to-final-to-disk timing field equality and actual Python summary; precise typed-number/privacy counterexamples through the actual single-text collector; no worker module enumeration or GPU execution'}
     (out / 'validation.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
     print('receipt:', out / 'validation.json')
     if not args.compile_only and not receipt['passed']:
