@@ -1,5 +1,17 @@
 # 统一开发与测试交接入口
 
+## 2026-09-11 corefix.6：GPU 槽淘汰下保留独立 CPU Clear 格式声明
+
+冻结源 `04bb64fa64b8020a21f8283f5d99cfc581cdbc12`，源码清单 SHA-256 为
+`8372455b9c3e092f1973c4ef8bff453d81f82312994b917e283ec6364f77194d`，Core PE 为 `0.4.7.11`。
+最终 `build-r4/validation.json` 成功通过 78 项检查，双语 Core、`nrchain_nvngx.dll`、CPU 与 WARP 均通过；产物身份、SHA 和边界见 [Corefix.6 源码交接](COREFIX6_CPU_CLEAR_20260911.md)。
+
+本轮允许稳定 CPU non-visible typed UAV 在 GPU 描述符槽未观察到或已淘汰时留下独立 CPU preparation 声明，但仍核验显式资源、设备、地址、shape、lifetime、原生成功和 exact current-call/Feature/config gate。已知 GPU 冲突、错 heap/device、退休、写入中和覆盖缺口继续拒绝；CPU 声明不升级 GPU use、Execute/submission 或 Present 证据。CPU 完整 production TU 通过 162 项断言和 5 个 mutation controls；真实 WARP 通过 450 项检查，覆盖 65,537 槽淘汰、Clear、fresh guard、Execute 后 GPU proof 保持 unknown 与 readback 存储。
+
+前三次整套尝试保留为未通过：r1 pins 未同步，r2 旧 `test_picture_integration.py` build blob 断言，r3 旧 PE.10 数值断言；r4 在测试/身份核验修正后通过。最终双语菜单各 461 帧、8 阶段/8 份 F8、34 项自动检查通过，18 张原图已核对，既有长诊断行裁切单列。首轮中文 189 帧后因测试脚本释放坐标与移动后的按钮失配而停止，记录保留；只修私有脚本后完成一次重跑，未改生产 Core。
+
+当前只安排绝区零关闭再开启 NR、约 30 秒、一份 F8；[中文指南](../testing/CORE_047BETA_COREFIX6_ACCEPTANCE.zh-CN.md)／[English guide](../testing/CORE_047BETA_COREFIX6_ACCEPTANCE.en.md)。死亡搁浅仍无持续效果且偶有闪烁，2040 点 store match 不代表 Present；不部署 DS、不要求重复四阶段。#2/#205/#203 保持开放，不自动合并 main/release 或发布稳定版。
+
 ## 2026-09-11 corefix.5：保持描述符证据，核验当前原生格式请求
 
 冻结运行源 `f2dc19f56d07bfe7c6d1effa271ea321cbf391d6` 完成 78 项同源本地 CPU、双语编译与 WARP 验收。近期状态改用共享进程窗口，修正另一绘制线程的自身空档误重置；描述符活对象改为完整键，CPU/GPU 槽分离，真实容量缺口和别名冲突继续拒绝。当前 Feature 的原生 Clear 可留下独立 CPU 格式候选，后置 GPU 命令前仍核验本次调用；缓存、准备、当前准入与 GPU 使用分别说明。UNORM 8/10 逐点合法存储区间比较覆盖同一批稀疏坐标，缺样等情况保持 unknown，原合成与采样模式保持。
