@@ -7,6 +7,22 @@ bool NrDescriptorObserveCommandLayer(ID3D12GraphicsCommandList *list) {
         MarkPostBoundaryObservationGap(nr_post_boundary::IdentityUnknown);
     return identity.known && identity.address==reinterpret_cast<std::uint64_t>(list);
 }
+void NrDescriptorObserveBoundHeaps(ID3D12GraphicsCommandList *list,UINT count,ID3D12DescriptorHeap *const *heaps) {
+    // The real setter supplies live objects, including heaps created before
+    // addon initialization. Metadata does not reconstruct their earlier views.
+    // This runs outside command-state and value-registry locks, and only on the
+    // canonical native list during an active observation scope.
+    if((!g_nr_descriptor_active_call && !PostBoundaryRecordingActive()) || !count || count>2 || !heaps ||
+       !NrDescriptorObserveCommandLayer(list))return;
+    for(UINT i=0;i<count;++i) {
+        auto *heap=heaps[i];
+        if(!heap || g_nr_descriptors.HeapAt(reinterpret_cast<std::uint64_t>(heap)))continue;
+        ID3D12Device *device=nullptr;
+        if(SUCCEEDED(ID3D12DescriptorHeap_GetDevice(heap,IID_ID3D12Device,reinterpret_cast<void **>(&device))) && device) {
+            NrDescriptorTrackHeap(device,heap);ID3D12Device_Release(device);
+        }
+    }
+}
 std::uint64_t NrDescriptorBoundHeap(ID3D12GraphicsCommandList *list) {
     const auto identity=SnapshotPostBoundaryList(list);
     if(!identity.known)return 0;

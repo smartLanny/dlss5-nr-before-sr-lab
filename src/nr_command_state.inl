@@ -647,6 +647,7 @@ void ObservePostBoundaryStateCommand(ID3D12GraphicsCommandList *,const char *);
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
 nr_descriptor::RtvBatch NrDescriptorCaptureRtvBatch(UINT,const D3D12_CPU_DESCRIPTOR_HANDLE *,BOOL);
 void ObservePostBoundaryRtvBatch(ID3D12GraphicsCommandList *,const nr_descriptor::RtvBatch &);
+void NrDescriptorObserveBoundHeaps(ID3D12GraphicsCommandList *,UINT,ID3D12DescriptorHeap *const *);
 #endif
 #define NR_POST_OBSERVE_STATE(LIST,NAME) ObservePostBoundaryStateCommand(reinterpret_cast<ID3D12GraphicsCommandList *>(LIST),NAME)
 #else
@@ -668,8 +669,20 @@ NR_STATE_HOOK(SetPipelineState, (ID3D12GraphicsCommandList *command_list, ID3D12
     (command_list, pipeline), CommandStateSetPipeline(state,pipeline);)
 NR_STATE_HOOK(ClearState, (ID3D12GraphicsCommandList *command_list, ID3D12PipelineState *pipeline),
     (command_list, pipeline), ResetNativeCommandState(state, pipeline, "ClearState"))
-NR_STATE_HOOK(SetDescriptorHeaps, (ID3D12GraphicsCommandList *command_list, UINT count, ID3D12DescriptorHeap *const *heaps),
-    (command_list, count, heaps), CommandStateSetHeaps(state, count, heaps))
+CommandStateHookFamily g_state_SetDescriptorHeaps;
+template<unsigned I> void STDMETHODCALLTYPE StateHookSetDescriptorHeaps(ID3D12GraphicsCommandList *command_list,
+        UINT count,ID3D12DescriptorHeap *const *heaps) {
+    using Fn=decltype(ID3D12GraphicsCommandListVtbl::SetDescriptorHeaps);
+    reinterpret_cast<Fn>(g_state_SetDescriptorHeaps.originals[I])(command_list,count,heaps);
+#if defined(NR_HAS_DESCRIPTOR_PROVENANCE) && defined(NR_HAS_POST_BOUNDARY_TRACE)
+    NrDescriptorObserveBoundHeaps(command_list,count,heaps);
+#endif
+    MutateNativeCommandState(command_list,[&](NativeCommandState &state){CommandStateSetHeaps(state,count,heaps);});
+    NR_POST_OBSERVE_STATE(command_list,"SetDescriptorHeaps");
+}
+void *const g_state_detours_SetDescriptorHeaps[4]={
+    reinterpret_cast<void *>(&StateHookSetDescriptorHeaps<0>),reinterpret_cast<void *>(&StateHookSetDescriptorHeaps<1>),
+    reinterpret_cast<void *>(&StateHookSetDescriptorHeaps<2>),reinterpret_cast<void *>(&StateHookSetDescriptorHeaps<3>)};
 #define NR_STATE_STAGE(NAME, STAGE) \
 NR_STATE_HOOK(Set##NAME##RootSignature, (ID3D12GraphicsCommandList *command_list, ID3D12RootSignature *root), \
     (command_list, root), CommandStateSetRoot(state, STAGE, root)) \

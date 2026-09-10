@@ -4,7 +4,9 @@
 #include <barrier>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
 #include <thread>
+#include "descriptor-use-snapshot.inl"
 
 using namespace nr_descriptor;
 std::atomic<unsigned> checks{0};
@@ -111,13 +113,80 @@ void LifetimesAndCapacity() {
     auto write=small.BeginWrite(cpu.cpu,0,MakeView());small.Finish(write);
     const auto receipt=small.Cpu(cpu.cpu,0);
     write=small.BeginWrite(cpu.cpu+64,0,MakeView());small.Finish(write);
-    Check(!small.Current(receipt),"bounded slot collision loses evidence instead of aliasing another slot");
+    Check(small.Current(receipt),"two distinct slots survive a former direct-map collision while space remains");
+    write=small.BeginWrite(cpu.cpu+32,0,MakeView());small.Finish(write);
+    Check(!small.Current(receipt),"actual full CPU pool evicts the oldest completed slot and revokes its receipt");
     small.ObserveResource({3,7,0x7000});
-    Check(!small.Cpu(cpu.cpu+64,0),"bounded resource eviction invalidates referencing slots");
+    Check(static_cast<bool>(small.Cpu(cpu.cpu+64,0)),"second live resource cannot evict a different complete key");
     Heap overlap=cpu;overlap.id=2;overlap.address+=1;small.ObserveHeap(overlap);
     Check(!small.Cpu(cpu.cpu,0),"overlapping live heap ranges do not pick an arbitrary owner");
     Heap invalid=cpu;invalid.cpu=~Id{0}-4;
     Check(!small.ObserveHeap(invalid),"heap handle arithmetic cannot wrap");
+}
+void CompleteKeysAndPools() {
+    auto registry=std::make_unique<Registry<>>();
+    const Resource target{3448,7,0x5000};registry->ObserveResource(target);
+    Heap original=cpu;original.id=10;original.count=8193;
+    Heap remote=gpu;remote.id=11;remote.cpu=0x1000000;remote.gpu=0x2000000;
+    Check(registry->ObserveHeap(original)&&registry->ObserveHeap(remote),"original counterexample heap pair registered");
+    const auto put=[&](Id handle){const auto w=registry->BeginWrite(handle,0,MakeView(target));registry->Finish(w);};
+    put(original.cpu);put(remote.cpu);
+    const auto pair=registry->UavPair(7,target,remote.id,remote.gpu,original.cpu);
+    Check(static_cast<bool>(pair),"original counterexample pair is known");
+    registry->ObserveResource({3448+2048,7,0x9000});
+    Check(registry->ResourceAt(target.address).id==target.id,"former 2048-modulus resource collision preserves Output");
+    Check(registry->ResourceInventory(target.id).lifetime_known,"Output inventory retains its live resource");
+    Check(registry->Current(pair),"unrelated resource registration preserves the paired view");
+    Heap unrelated=cpu;unrelated.id=10+256;unrelated.address+=0x10000;unrelated.cpu=0x4000000;
+    Check(registry->ObserveHeap(unrelated),"former 256-modulus heap collision registers a separate live key");
+    Check(registry->Current(pair),"unrelated heap registration preserves the original range");
+    put(original.cpu+8192*32);
+    Check(registry->Current(pair),"same-heap slots 0 and 8192 both survive with free capacity");
+    const auto counts=registry->SnapshotCounters();
+    Check(!counts.evictions&&!counts.resources_retired&&!counts.heaps_retired,"collision repairs do not fabricate retirement or eviction");
+    Check(counts.heaps.active==3&&counts.resources.active==2&&counts.cpu_slots.active==2&&counts.gpu_slots.active==1,
+        "per-domain occupancy counts distinct complete keys");
+    Check(sizeof(Registry<>)<=16u*1024u*1024u,"default bounded registry fits the 16 MiB static budget");
+    std::printf("registry bytes: %zu\n",sizeof(Registry<>));
+
+    Registry<4,4,2,4> split;split.ObserveResource(output);split.ObserveHeap(cpu);split.ObserveHeap(gpu);
+    auto w=split.BeginWrite(cpu.cpu,0,MakeView());split.Finish(w);const auto source=split.Cpu(cpu.cpu,0);
+    for(unsigned i=0;i<16;++i){w=split.BeginCopy(gpu.cpu+i*32,cpu.cpu,0);split.Finish(w);}
+    const auto domains=split.SnapshotCounters();
+    Check(split.Current(source),"GPU copy churn never evicts the persistent CPU source");
+    Check(domains.cpu_slots.active==1&&!domains.cpu_slots.evictions&&domains.gpu_slots.active==4&&domains.gpu_slots.evictions==12,
+        "GPU eviction is charged only at real GPU capacity and only to that pool");
+    Check(split.Gpu(gpu.gpu+15*32,0).view.format==28,"GPU copy after repeated turnover still resolves its retained CPU source");
+
+    Registry<1,2,2,2> heap_full;heap_full.ObserveResource(output);heap_full.ObserveHeap(cpu);
+    w=heap_full.BeginWrite(cpu.cpu,0,MakeView());heap_full.Finish(w);const auto before=heap_full.Cpu(cpu.cpu,0);
+    Heap overlap=cpu;overlap.id=99;overlap.address+=1;
+    Check(!heap_full.ObserveHeap(overlap),"full live heap pool drops new evidence instead of replacing a live heap");
+    Check(!heap_full.Current(before)&&!heap_full.Cpu(cpu.cpu,0),"omitted overlapping heap makes existing uniqueness unknown");
+    heap_full.RetireHeap(99);w=heap_full.BeginWrite(cpu.cpu,0,MakeView());heap_full.Finish(w);
+    Check(!heap_full.Cpu(cpu.cpu,0),"retiring an omitted heap cannot revive pre-drop evidence");
+    const auto heap_counts=heap_full.SnapshotCounters().heaps;
+    Check(heap_counts.active==1&&heap_counts.capacity==1&&heap_counts.drops==1&&!heap_counts.evictions&&heap_counts.coverage_lost,
+        "heap capacity loss is explicit and sticky");
+
+    Registry<2,1,2,2> resource_full;resource_full.ObserveResource(output);resource_full.ObserveHeap(cpu);
+    w=resource_full.BeginWrite(cpu.cpu,0,MakeView());resource_full.Finish(w);
+    resource_full.ObserveResource({9,7,output.address});resource_full.RetireResource(9);
+    Check(!resource_full.ResourceAt(output.address)&&!resource_full.Cpu(cpu.cpu,0),"dropped same-address resource never makes retained alias authoritative");
+    const auto resource_counts=resource_full.SnapshotCounters().resources;
+    Check(resource_counts.active==1&&resource_counts.capacity==1&&resource_counts.drops==1&&!resource_counts.evictions&&resource_counts.coverage_lost,
+        "resource capacity loss is separate from actual retirement");
+
+    Registry<2,2,1,1> pending;pending.ObserveResource(output);pending.ObserveHeap(cpu);
+    const auto a=pending.BeginWrite(cpu.cpu,0,MakeView());
+    const auto lost=pending.BeginWrite(cpu.cpu+32,0,MakeView());pending.Finish(lost);
+    Check(!lost.destination.heap&&pending.SnapshotCounters().cpu_slots.drops==1,"full pool never evicts an in-flight write");
+    pending.Finish(a);Check(static_cast<bool>(pending.Cpu(cpu.cpu,0)),"original pending write completes after unrelated full-pool drop");
+    const auto b=pending.BeginWrite(cpu.cpu,0,MakeView());pending.Invalidate();
+    const auto c=pending.BeginWrite(cpu.cpu,0,MakeView(output,30));pending.Finish(c);pending.Finish(b);
+    Check(!pending.Cpu(cpu.cpu,0),"writes overlapping across global invalidation remain unknown");
+    w=pending.BeginWrite(cpu.cpu,0,MakeView());pending.Finish(w);
+    Check(static_cast<bool>(pending.Cpu(cpu.cpu,0)),"all pre-invalidation pending writers retire without stranding the slot");
 }
 void ConcurrentWrites() {
     TestRegistry registry;Seed(registry);
@@ -140,6 +209,18 @@ void ConcurrentWrites() {
     first.join();second.join();
     Check(registry.SnapshotCounters().overlaps==256,"all forced overlap races are reported exactly once");
 }
+void CallSnapshots() {
+    Check(!SnapshotNrDescriptorUse().call,"empty use ring has no latest native call");
+    g_nr_descriptor_next_call=2;g_nr_descriptor_uses[1].call=1;g_nr_descriptor_uses[2].call=2;
+    Check(SnapshotNrDescriptorUse().call==2,"default snapshot retains latest-call behavior");
+    Check(SnapshotNrDescriptorUse(1).call==1,"explicit snapshot selects requested prior call");
+    Check(!SnapshotNrDescriptorUse(3).call,"unpublished call does not borrow latest evidence");
+    g_nr_descriptor_uses[1].call=65;g_nr_descriptor_next_call=65;
+    Check(!SnapshotNrDescriptorUse(1).call,"wrapped slot cannot answer a superseded call");
+    Check(SnapshotNrDescriptorUse(65).call==65,"wrapped current call remains selectable");
+    g_nr_descriptor_next_call=129;
+    Check(!SnapshotNrDescriptorUse().call,"latest accessor also checks exact slot identity");
+}
 struct Rect {std::int32_t left,top,right,bottom;};
 void ClearExtents() {
     auto view=MakeView();
@@ -159,6 +240,6 @@ void ClearExtents() {
     Check(sizeof(nr_post_boundary::Window)<4096,"full event windows retain the small worker-stack budget");
 }
 int main() {
-    CachedUse();CopiesAndOverwrites();LifetimesAndCapacity();ConcurrentWrites();ClearExtents();
+    CachedUse();CopiesAndOverwrites();LifetimesAndCapacity();CompleteKeysAndPools();ConcurrentWrites();CallSnapshots();ClearExtents();
     std::printf("PASS descriptor provenance CPU: %u checks; production registry, copy/reuse/retirement/concurrency/range negatives; no GPU\n",checks.load());
 }

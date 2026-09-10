@@ -338,9 +338,11 @@ void NrDescriptorExecuteReturned(std::uint64_t submission) {
     std::lock_guard guard(g_nr_descriptor_use_mutex);
     for(auto &entry:g_nr_descriptor_uses)if(entry.submission_seen && entry.submission==submission)entry.execute_returned=true;
 }
-nr_descriptor::NativeUse SnapshotNrDescriptorUse() {
+nr_descriptor::NativeUse SnapshotNrDescriptorUse(std::uint64_t call=0) {
     std::lock_guard guard(g_nr_descriptor_use_mutex);
-    return g_nr_descriptor_uses[g_nr_descriptor_next_call%64];
+    if(!call)call=g_nr_descriptor_next_call;
+    const auto &entry=g_nr_descriptor_uses[call%64];
+    return entry.call==call?entry:nr_descriptor::NativeUse{};
 }
 std::uint64_t NrDescriptorResourceToken(std::uint64_t address) {
     return g_nr_descriptors.ResourceAt(address).id;
