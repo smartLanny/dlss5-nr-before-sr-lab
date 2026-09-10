@@ -33,7 +33,7 @@ const char *UiStateText(nr_dual_status_runtime::UiState value, bool zh) {
 void DrawQuickUi(ChainConfig& next,bool& changed,bool& discrete,
                  bool has_pending=false) {
     const bool zh=UseChineseUi();
-    ImGui::SeparatorText(zh?"二次 AI 增强（实验）":"Second AI enhancement (experimental)");
+    ImGui::SeparatorText(zh?"二次 AI 增强（实验）":"Second AI (experimental)");
     bool enabled=next.nr_passes==2;
     if(ImGui::Checkbox(zh?"启用二次 AI 增强":"Enable second AI enhancement",&enabled)){
         next.nr_passes=enabled?2:1;changed=true;discrete=true;

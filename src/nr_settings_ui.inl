@@ -145,8 +145,8 @@ bool DrawProcessingModeBlocks(ChainConfig &next, bool rr_guarded, int effective_
     const bool zh = UseChineseUi();
     const auto ui = [zh](const char *en, const char *cn) { return zh ? cn : en; };
     const char *labels[] = {
-        ui("Enhance first, then upscale###route-option", "先增强，后放大###route-option"),
-        ui("Upscale first, then enhance###route-option", "先放大，后增强###route-option")};
+        ui("Enhance first###route-option", "先增强，后放大###route-option"),
+        ui("Upscale first###route-option", "先放大，后增强###route-option")};
     const float width = std::max(1.0f,
         (SettingsContentWidth() - ImGui::GetStyle().ItemSpacing.x) / 2.0f);
     bool changed = false;
@@ -470,8 +470,8 @@ void DrawSettings(reshade::api::effect_runtime *runtime) {
     const auto activity=ReadUiActivity();
     if (activity.valid) {
         const bool processing = activity.delta.nr > 0 && activity.delta.submitted > 0;
-        ImGui::TextUnformatted(processing ? ui("Recent activity: AI processing and output submission observed.", "最近状态：已观察到 AI 处理和画面输出提交。") :
-            ui("Recent activity: no new AI output yet.", "最近状态：暂未观察到新的 AI 画面输出。"));
+        ImGui::TextUnformatted(processing ? ui("AI processing observed.", "最近状态：已观察到 AI 处理和画面输出提交。") :
+            ui("No recent AI output.", "最近状态：暂未观察到新的 AI 画面输出。"));
     } else ImGui::TextDisabled("%s", ui("Checking AI activity...", "正在检查 AI 是否开始处理……"));
     SettingsTooltip(ui("Recent process activity, not FPS or measured picture quality. Detailed counters are in F8.", "根据最近处理记录显示，不代表帧率或实测画质；完整诊断计数保留在 F8 报告。"));
     const auto live_reason = static_cast<BypassReason>(g_last_bypass_reason.load(std::memory_order_acquire));

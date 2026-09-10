@@ -18,7 +18,7 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
     SettingsField(ui("Scope of brightening and darkening", "增亮、压暗的作用范围"));
 
     const unsigned modes[]={nr_light_style::WholeLightDark,nr_light_style::DetailLayers};
-    const char *mode_labels[]={ui("All light/dark changes###light-mode-option","全部亮暗变化###light-mode-option"),
+    const char *mode_labels[]={ui("All light/dark###light-mode-option","全部亮暗变化###light-mode-option"),
         ui("Fine changes only###light-mode-option","仅细小变化###light-mode-option")};
     const float mode_width=std::max(1.f,(SettingsContentWidth()-ImGui::GetStyle().ItemSpacing.x)/2.f);
     ImGui::PushID("nr-light-control-mode");

@@ -198,8 +198,8 @@ class UiRefreshContract(unittest.TestCase):
         self.assertIn("not guaranteed face detection", self.ui)
 
     def test_d13_common_controls_keep_precision_and_face_order(self):
-        self.assertIn('"Enhance first, then upscale###route-option", "先增强，后放大###route-option"', self.ui)
-        self.assertIn('"Upscale first, then enhance###route-option", "先放大，后增强###route-option"', self.ui)
+        self.assertIn('"Enhance first###route-option", "先增强，后放大###route-option"', self.ui)
+        self.assertIn('"Upscale first###route-option", "先放大，后增强###route-option"', self.ui)
         picture_start = self.ui.index('if (ImGui::BeginTabItem(ui("Picture###nr-picture"')
         feedback_start = self.ui.index('if (ImGui::BeginTabItem(ui("Feedback and diagnostics###nr-feedback-diagnostics"')
         picture = self.ui[picture_start:feedback_start]
