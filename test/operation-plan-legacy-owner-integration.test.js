@@ -13,6 +13,11 @@ const { createLegacyRuntime } = require('../src/product/legacy-runtime');
 const { UPSTREAM } = require('../src/product/legacy-runtime-catalog');
 const { fingerprint } = require('../src/product/feeder-runtime');
 const { getIni } = require('../src/product/launch-ini');
+const { createHoYoDiscovery } = require('../src/product/hoyo-discovery');
+const { createHoYoWorkflow } = require('../src/product/hoyo-workflow');
+const { createHoYoLauncher } = require('../src/product/hoyo-launcher');
+const { createLaunchSessions } = require('../src/product/launch-session');
+const { emptyVerification } = require('../src/product/runtime-verification');
 const confirm = plan => ({ confirm: true, fingerprint: plan.fingerprint });
 
 function runtimeFixture(root, pe, loader) {
@@ -127,11 +132,76 @@ test('official AppService hotkey edits keep a fresh Feeder default-key installat
   const preview = await stablePreview(f, { route: 'feeder', api: 'dx11', loadingBackend: 'local', deployment: 'local' });
   await f.plans.apply(preview.planId, confirm(preview));
   const game = (await f.service.listGames())[0], layout = f.service.getLayout(f.id);
-  assert.equal(getIni(fs.readFileSync(layout.activeConfigPath, 'utf8'), 'INPUT', 'KeyOverlay'), '187,0,0,0');
+  assert.equal(getIni(fs.readFileSync(layout.activeConfigPath, 'utf8'), 'INPUT', 'KeyOverlay'), '36,0,0,0');
   await f.service.writeGameHotkey(f.id, 'reshade', { key: 121, ctrl: true, shift: false, alt: false });
   assert.equal((await f.special.modern.inspect(game)).ready, true); assert.equal((await f.service.inspectDeployment(f.id)).ready, true);
   const repair = await stablePreview(f, { repair: true }); await f.plans.apply(repair.planId, confirm(repair));
   assert.equal(getIni(fs.readFileSync(layout.activeConfigPath, 'utf8'), 'INPUT', 'KeyOverlay'), '121,1,0,0');
   const restore = await stablePreview(f, { uninstall: 'restore' }); await f.plans.apply(restore.planId, confirm(restore));
   assert.equal(getIni(fs.readFileSync(path.join(f.exeDir, 'ReShade.ini'), 'utf8'), 'INPUT', 'KeyOverlay'), '121,1,0,0');
+});
+
+test('restored HoYo receipts keep the public game in its dedicated page without presenting the old profile as active', async t => {
+  const f = await jointFixture(t, 'hoyoshade');
+  const initial = (await f.service.boot()).games.find(row => row.id === f.id);
+  assert.equal(initial.hoyoManaged, true, 'first boot classifies a recognized formal client before opening discovery');
+  assert.equal(initial.hoyo.installed, false);
+  const request = { route: 'feeder', api: 'dx11', loadingBackend: 'hoyoshade',
+    hoyo: { family: 'genshin', channel: 'cn', launcher: { kind: 'hoyoplay', path: f.special.launcher } } };
+  const install = await stablePreview(f, request); await f.plans.apply(install.planId, confirm(install));
+  assert.equal(f.service.getLayout(f.id).loadingBackend, 'hoyoshade');
+  const restore = await stablePreview(f, { uninstall: 'restore' }); await f.plans.apply(restore.planId, confirm(restore));
+  const receiptFile = path.join(f.gameRoot, PROFILE_RECEIPT), receiptBytes = fs.readFileSync(receiptFile), receipt = JSON.parse(receiptBytes);
+  assert.equal(receipt.mode, 'local'); assert.equal(receipt.removed, true); assert.ok(receipt.hoyoProfile, 'restore retains the historical launcher binding');
+  const layout = f.service.getLayout(f.id), deployment = await f.service.inspectDeployment(f.id);
+  assert.equal(layout.mode, 'local'); assert.equal(layout.loadingBackend, 'local'); assert.notEqual(layout.needsRecovery, true);
+  assert.equal(deployment.installed, false); assert.notEqual(deployment.needsRecovery, true);
+  const restored = (await f.service.boot()).games.find(row => row.id === f.id);
+  assert.equal(restored.hoyoManaged, true); assert.equal(restored.installed, false);
+  assert.equal(restored.hoyo.installed, false, 'a saved inactive profile is not an active HoYo installation');
+  assert.equal(restored.hoyo.selected.launcher.path, f.special.launcher, 'the previous launcher remains available for rebinding');
+  assert.deepEqual(fs.readFileSync(receiptFile), receiptBytes);
+});
+
+test('historical launch sessions after a real HoYo restore do not resolve the inactive launcher or block a new installation preview', async t => {
+  const f = await jointFixture(t, 'hoyoshade');
+  const install = await stablePreview(f, { route: 'feeder', api: 'dx11', loadingBackend: 'hoyoshade',
+    hoyo: { family: 'genshin', channel: 'cn', launcher: { kind: 'hoyoplay', path: f.special.launcher } } });
+  await f.plans.apply(install.planId, confirm(install));
+  const restore = await stablePreview(f, { uninstall: 'restore' }); await f.plans.apply(restore.planId, confirm(restore));
+  const receiptFile = path.join(f.gameRoot, PROFILE_RECEIPT), receiptBytes = fs.readFileSync(receiptFile), receipt = JSON.parse(receiptBytes);
+  const historical = { version: 1, sessionId: 'old-hoyo-session', gameId: f.id, targetExe: f.exe, mode: 'hoyoplay', status: 'failed',
+    requestedAt: '2026-09-10T10:00:00.000Z', error: { code: 'OLD_HELPER_FAILURE', message: 'Previous installation failure' } };
+  put(path.join(f.userData, 'launch-sessions', sha(f.id) + '.json'), JSON.stringify(historical));
+  let inactiveResolutions = 0;
+  const launcher = createHoYoLauncher({ broker: { launch: async () => { throw Error('never launch in this test'); } } });
+  const sessions = createLaunchSessions({ userData: f.userData,
+    game: async id => {
+      const layout = f.service.getLayout(id);
+      // This is the same ownership branch used by main's launch-session adapter.
+      if (layout.loadingBackend === 'hoyoshade') { inactiveResolutions++; return launcher.resolve(layout); }
+      return { exe: f.service.gameExecutable(id), launchMode: 'exe' };
+    }, broker: {}, processes: { find: async () => [] } });
+  const old = await sessions.inspect(f.id); assert.equal(old.historical, true); assert.equal(old.status, 'failed'); assert.equal(inactiveResolutions, 0);
+  const discovery = createHoYoDiscovery({ appData: path.join(f.root, 'no-appdata'), programFiles: [],
+    readRegistry: async () => ({ launchers: [], gameRoots: [], starwardUserData: [] }),
+    knownGames: () => f.service.listGames(), savedBindings: [receipt.hoyoProfile] });
+  const flow = createHoYoWorkflow({ userData: f.userData, service: f.service, operations: f.plans, launches: sessions, discovery,
+    verification: { assess: async () => emptyVerification(null, null) }, launch: async () => { throw Error('never launch in this test'); } });
+  const current = (await flow.discover()).games[0];
+  assert.equal(current.gameId, f.id); assert.equal(current.phase, 'install'); assert.equal(current.error, null); assert.equal(current.installation.installed, false);
+  assert.equal(current.binding.status, 'confirmed'); assert.equal(current.binding.launcher.path, f.special.launcher);
+  assert.equal(current.session.historical, true); assert.equal(inactiveResolutions, 0);
+  const retiredShaders = path.join(f.special.external.location((await f.service.listGames())[0]).runtimeDir, 'reshade-shaders');
+  assert.equal(fs.existsSync(retiredShaders), true);
+  assert.equal(fs.readdirSync(retiredShaders, { recursive: true, withFileTypes: true }).filter(row => !row.isDirectory()).length, 0,
+    'legacy restore has removed every owned shader/texture file; any remaining directory tree is empty');
+  const unknown = path.join(retiredShaders, 'Shaders', 'unknown.fx'), unknownBytes = Buffer.from('unowned user shader; preserve byte for byte');
+  put(unknown, unknownBytes);
+  await assert.rejects(flow.preview(current.id, 'install'), { code: 'DEPLOYMENT_PROFILE_EXISTS' });
+  assert.deepEqual(fs.readFileSync(unknown), unknownBytes); assert.deepEqual(fs.readFileSync(receiptFile), receiptBytes);
+  fs.unlinkSync(unknown);
+  const plan = await flow.preview(current.id, 'install'); assert.deepEqual(plan.blockers, []);
+  assert.equal(plan.gameId, f.id); assert.equal(plan.request.hoyo.launcher.path, f.special.launcher);
+  assert.deepEqual(fs.readFileSync(receiptFile), receiptBytes, 'discovery and preview preserve the restored receipt');
 });

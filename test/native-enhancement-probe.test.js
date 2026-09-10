@@ -70,6 +70,26 @@ test('Steam catalogue grants 50-series modes only after linked trusted FG and ex
   f.imports.set(f.exe, []); assert.equal((await probe.inspect('g', 'fg')).support.status, 'unknown');
 });
 
+test('007 First Light exposes its official 6X and Dynamic support only for the verified linked Steam installation', async t => {
+  const f = fixture(t), exe = f.file('007FirstLight.exe');
+  for (const name of ['nvngx_dlssg.dll', 'sl.dlss_g.dll', 'sl.interposer.dll']) f.file(name);
+  f.scan.chosen.path = exe; f.imports.set(exe, ['sl.interposer.dll']);
+  const metadata = { verifiedSteamAppId: '3768760', steamIdentityVerified: true };
+  const probe = createNativeEnhancementProbe({ ...f.options, gameExecutable: () => exe, gameMetadata: () => metadata });
+  const supported = await probe.inspect('007', 'fg');
+  assert.equal(supported.support.catalogue.id, '007-first-light');
+  assert.match(supported.support.catalogue.source, /nvidia\.com.*007-first-light/);
+  assert.deepEqual(supported.support.capabilities.multipliers, [2, 3, 4, 5, 6]);
+  assert.equal(supported.support.capabilities.dynamic, true);
+  assert.equal(supported.support.staticOnly, true); assert.equal(supported.gameSetting.state, 'unknown');
+  metadata.steamIdentityVerified = false;
+  assert.deepEqual((await probe.inspect('007', 'fg')).support.capabilities.multipliers, [2]);
+  metadata.steamIdentityVerified = true; metadata.verifiedSteamAppId = '1091500';
+  assert.deepEqual((await probe.inspect('007', 'fg')).support.capabilities.multipliers, [2]);
+  metadata.verifiedSteamAppId = '3768760'; f.imports.set(exe, []);
+  assert.equal((await probe.inspect('007', 'fg')).support.status, 'unknown', 'the official title cannot authorize loose DLSS files');
+});
+
 test('ambiguity, outside-game assets and NR-only files cannot establish SR or FG', async t => {
   const f = fixture(t); f.file('nvngx_dlssnr.dll'); f.markers.set(f.exe, ['nvngx_dlss.dll']);
   assert.equal((await f.probe.inspect('g', 'sr')).support.status, 'unknown');

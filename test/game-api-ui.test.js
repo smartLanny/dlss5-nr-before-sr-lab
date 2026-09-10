@@ -111,7 +111,7 @@ test('an unknown or mixed API draft uses Vulkan selection readiness without the 
       available: false, reason: '当前路线尚未确认为 Vulkan', selectionAvailable: true, selectionReason: '' } };
     vm.runInContext("updateRouteDraft(game, { api: 'vulkan' })", context);
     const html = vm.runInContext('routeControlsMarkup(game)', context);
-    assert.match(html, /可准备/); assert.match(html, /beta0\.4\.7 · Vulkan 桥接/);
+    assert.match(html, /可准备/); assert.match(html, /0\.4\.7beta · Vulkan 桥接/);
     assert.doesNotMatch(html, /当前路线尚未确认为 Vulkan|Vulkan 试验桥接当前不可用/);
     assert.match(html, /route-apply-btn[^>]*data-base-disabled="false"/);
     assert.match(vm.runInContext('cardAction(game)', context), /install-btn/);
@@ -215,8 +215,8 @@ test('Vulkan uses its fixed package and retains a read-only-capable graphics pan
   assert.match(html, /launch-settings-host/); assert.doesNotMatch(html, /调整超分补帧|d3d12-btn|使用 D3D12 兼容修复/);
   assert.match(vm.runInContext('cardAction(game)', context), /启动游戏/);
   context.game.vulkan.coreVersion = '0.4.7beta'; context.game.vulkan.packageId = 'nr-vulkan-beta047-fixture';
-  assert.equal(vm.runInContext('vulkanVersionOption(game)', context), '<option value="nr-vulkan-beta047-fixture" selected>beta0.4.7 · Vulkan 桥接</option>');
-  assert.match(vm.runInContext('vulkanRouteMarkup(game)', context), /当前实际核心为 beta0\.4\.7/);
+  assert.equal(vm.runInContext('vulkanVersionOption(game)', context), '<option value="nr-vulkan-beta047-fixture" selected>0.4.7beta · Vulkan 桥接</option>');
+  assert.match(vm.runInContext('vulkanRouteMarkup(game)', context), /当前实际核心为 0\.4\.7beta/);
   assert.doesNotMatch(vm.runInContext('vulkanVersionOption(game)', context), /0\.4\.6|Beta · Vulkan/);
   context.game = { id: 'dx-game', installed: true, supported: true, addonVersion: 'ordinary-core', nativeDlssAvailable: true,
     chosen: { path: 'C:/Games/DX.exe', bitness: 64, apiResolution: { api: 'dx12', source: 'override' } } };
@@ -348,8 +348,8 @@ test('retired catalog selection offers its replacement while preserving the actu
   assert.match(html, /已安装：0\.4\.6 · Beta/);
   assert.match(html, /可更新为 0\.4\.6-hotfix\.1 · Beta/);
   assert.match(html, /点击“应用设置”后才会更换核心/);
-  assert.match(html, /value="0\.4\.6-hotfix\.1" selected/);
-  assert.doesNotMatch(html, /value="0\.4\.6"/);
+  assert.match(html, /value="0\.4\.6" selected disabled/);
+  assert.doesNotMatch(html, /value="0\.4\.6-hotfix\.1" selected/);
   assert.equal(context.game.addonVersion, '0.4.6');
   assert.match(vm.runInContext("actionSuccessMessage('修复完成', {payloadReplacement:{from:'0.4.6',to:'0.4.6-hotfix.1'}})", context), /已应用替代核心 0\.4\.6-hotfix\.1/);
   assert.equal(vm.runInContext("actionSuccessMessage('修复完成', {})", context), '修复完成');

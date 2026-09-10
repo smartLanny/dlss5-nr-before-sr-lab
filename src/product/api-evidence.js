@@ -267,6 +267,11 @@ function annotateApi(scan, root, context = {}) {
     if (result.inspected) coverage.engineModules.inspected++;
   }
   addLegacyEvidence(chosen, signals, pe, exeBits);
+  const multiBackendEngine = eligibleModules.some(row => /^(?:unityplayer|gameassembly)\.dll$/i.test(path.basename(row.path)));
+  if (multiBackendEngine) for (const row of signals) if (row.kind === 'capability') {
+    row.eligible = false;
+    row.message += '；Unity 静态后端能力不能证明本游戏实际使用的 API';
+  }
   for (const row of signals) if (row.kind === 'capability' && exceptions.includes(row.api)) {
     row.eligible = false; row.message += '；官方入口已确认，这是静态兼容能力';
   }
@@ -293,6 +298,7 @@ function annotateApi(scan, root, context = {}) {
   if (configuredApis.length > 1) { conflicts.push({ kind: 'configured-api', apis: configuredApis, sources: configured.map(row => row.source) }); reason = 'configured-conflict'; }
   else if (configuredApi) { inputApi = configuredApi; decisive = configured[0]; reason = 'configured'; }
   else if (rdr2State.matched) reason = 'game-settings-unavailable';
+  else if (multiBackendEngine) reason = 'multi-backend-engine-unconfirmed';
   else if (engineApis.length === 1) { inputApi = engineApis[0]; decisive = engineRows[0]; reason = 'linked-engine'; }
   else if (staticApis.length === 1) { inputApi = staticApis[0]; decisive = staticRows.find(row => row.api === inputApi); reason = 'single-capability'; }
   else if (staticApis.length > 1 || capabilities.length > 1) reason = 'multiple-capabilities';

@@ -52,6 +52,14 @@ async function toExternal(f) {
   const plan = await f.service.preview(f.game, { mode: 'external' });
   return f.service.apply(plan.planId);
 }
+
+function historicalEqualsProfile(f) {
+  const saved = JSON.parse(fs.readFileSync(f.receipt)), config = f.service.getLayout(f.game).activeConfigPath;
+  assert.equal(saved.panelDefaultAdded, true); assert.equal(saved.panelDefaultKey, 36);
+  delete saved.panelDefaultKey;
+  fs.writeFileSync(config, fs.readFileSync(config, 'utf8').replace('KeyOverlay=36,0,0,0', 'KeyOverlay=187,0,0,0'));
+  fs.writeFileSync(f.receipt, JSON.stringify(saved)); return config;
+}
 function nextPayload(f, version = '2.0') {
   const folder = path.join(f.root, 'payload-' + version); fs.mkdirSync(folder, { recursive: true });
   const payload = { version, versionInfo: { compatibility: 'dx11' } };
@@ -97,6 +105,45 @@ for (const api of ['dx11', 'dx12']) test(api + ' ordinary to external to upgrade
   assert.notDeepEqual(fs.readFileSync(manifestPath(f.gameRoot)), before);
   assert.equal(fs.readFileSync(path.join(f.dir, 'unknown.dll.bak'), 'utf8'), 'unproven backup must stay');
   assert.equal(fs.existsSync(f.pending), false);
+});
+
+test('historical external equals defaults restore exact original bytes with or without an intervening update', async t => {
+  for (const upgrade of [false, true]) {
+    const f = fixture(t); await toExternal(f); const config = historicalEqualsProfile(f);
+    assert.equal((await f.service.inspect(f.game)).ready, true);
+    if (upgrade) {
+      const plan = await f.service.preview(f.game, { mode: 'external', payload: nextPayload(f) }); await f.service.apply(plan.planId);
+      assert.equal(JSON.parse(fs.readFileSync(f.receipt)).panelDefaultKey, 187);
+    }
+    assert.match(fs.readFileSync(config, 'utf8'), /KeyOverlay=187,0,0,0/);
+    await f.service.restore(f.game);
+    assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), f.originalIni);
+  }
+});
+
+test('an interrupted move from a historical equals profile restores its old record and remains recoverable', async t => {
+  let interrupt = false;
+  const f = fixture(t, 'dx12', { afterWrite: ({ row, target }) => {
+    if (interrupt && row.role === 'reshade-config' && row.file === path.join(target.dir, 'ReShade.ini'))
+      throw Object.assign(new Error('old equals migration interrupted'), { preservePending: true });
+  } });
+  await toExternal(f); const config = historicalEqualsProfile(f), oldConfig = fs.readFileSync(config), oldReceipt = fs.readFileSync(f.receipt);
+  interrupt = true; await assert.rejects(f.service.restore(f.game), /old equals migration interrupted/);
+  const restarted = createExternalRuntime({ ...f.options, afterWrite: undefined });
+  assert.equal((await restarted.recover(f.game)).recovered, true);
+  assert.deepEqual(fs.readFileSync(config), oldConfig); assert.deepEqual(fs.readFileSync(f.receipt), oldReceipt);
+  assert.equal((await restarted.inspect(f.game)).ready, true);
+  await restarted.restore(f.game); assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), f.originalIni);
+});
+
+test('new Home profiles preserve explicit custom and disabled keys exactly through a round trip', async t => {
+  for (const binding of ['187,0,0,0', '120,1,0,1', '0,0,0,0']) {
+    const f = fixture(t), file = path.join(f.dir, 'ReShade.ini'), original = f.originalIni + '[INPUT]\r\nKeyOverlay=' + binding + '\r\n';
+    fs.writeFileSync(file, original); const { layout } = await toExternal(f);
+    const saved = JSON.parse(fs.readFileSync(f.receipt)); assert.equal(saved.panelDefaultAdded, false); assert.equal(saved.panelDefaultKey, 36);
+    assert.match(fs.readFileSync(layout.activeConfigPath, 'utf8'), new RegExp('KeyOverlay=' + binding));
+    await f.service.restore(f.game); assert.equal(fs.readFileSync(file, 'utf8'), original);
+  }
 });
 
 test('external mutable settings follow the active profile back without discarding unrelated values', async t => {

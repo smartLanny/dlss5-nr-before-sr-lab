@@ -15,6 +15,7 @@ const state = {
   hardware: null,
   addons: [],
   games: [],
+  hoyoGameIds: new Set(),
   activeView: 'games',
   expanded: null,
   expandedLoadToken: 0,
@@ -34,7 +35,7 @@ const state = {
   installing: new Set()
 };
 const inlineGameDetails = new Map();
-let repairController = null, repairControllerId = null;
+let repairController = null, repairControllerId = null, hoyoController = null;
 function mountRepairActions(game) {
   const host = $('repairMaintenance');
   if (!host || !window.GamePageUi || !window.manager.assessGame) return;
@@ -82,7 +83,7 @@ function mountInlineDetail(card, game) {
   entry = { host: placeholder, controller, exe };
   inlineGameDetails.set(game.id, entry);
   const seed = { game, hardware: state.hardware, coreVersions: state.addons,
-    defaults: { version: catalogReplacement(state.payload?.selectedVersion) || state.payload?.selectedVersion,
+    defaults: { version: game.installed ? game.addonVersion : state.payload?.selectedVersion,
       deployment: game.installed ? 'local' : 'external', loadingMode: 'proxy' } };
   void controller.open(game.id, 'overview', seed);
 }
@@ -282,7 +283,7 @@ function renderVersionSelector() {
 
 function coreVersionLabel(id, item) {
   if (id === '0.3.3-dev-r4') return '0.3.3.4 · 稳定兼容';
-  if (/^(?:beta)?0\.4\.7(?:-?beta)?$/i.test(id)) return 'beta0.4.7';
+  if (/^(?:beta)?0\.4\.7(?:-?beta)?$/i.test(id)) return '0.4.7beta';
   const raw = String(item && item.label || id);
   const version = raw.match(/^(0\.\d+\.\d+(?:\.\d+)?(?:-hotfix\.\d+)?)([-\s]?beta(?:\.\d+)?)?/i);
   if (version) {
@@ -335,7 +336,7 @@ function versionOptionsMarkup(selected = state.payload && state.payload.selected
   const imported = includeImported ? (state.addons || []).filter(item => item.addonOnly).map(item => [item.id, item]) : [];
   const all = [...versions, ...imported];
   if (!all.length) return '<option value="">当前组件</option>';
-  const missingInstalled = includeImported && selected && !all.some(([id])=>id===selected) && !catalogReplacement(selected);
+  const missingInstalled = includeImported && selected && !all.some(([id])=>id===selected);
   const option = (id, item, active = false) => {
     return `<option value="${escapeHtml(id)}"${active ? ' selected' : ''}>${escapeHtml(coreVersionLabel(id,item))}${item.addonOnly ? '（导入）' : ''}</option>`;
   };
@@ -367,6 +368,7 @@ function visibleGames() {
   const query = $('searchInput').value.trim().toLowerCase();
   const filter = $('gameFilter').value;
   return state.games.filter(game => {
+    if (game.hoyoManaged || state.hoyoGameIds.has(game.id)) return false;
     const matchesQuery = !query || `${game.name} ${game.launcher}`.toLowerCase().includes(query);
     const matchesFilter = filter === 'all' ||
       (filter === 'installed' && game.installed) ||
@@ -411,9 +413,8 @@ function nativeRouteVersion(game) {
   const versions = state.payload?.versions || {};
   const current = game?.installed && !game.vulkan?.installed ? game.addonVersion : null;
   const latest = Object.keys(versions).find(id => /^(?:beta)?0\.4\.7(?:-?beta)?$/i.test(id));
-  // Replace the retired native 0.4.6 default with 0.4.7. Existing stable or
-  // imported selections remain visible, including an unavailable source.
-  if (current && !/^0\.4\.6(?:\b|[-.])/i.test(current)) return catalogReplacement(current) || current;
+  // A new-install recommendation must never become an implicit upgrade.
+  if (current) return current;
   return latest || catalogReplacement(current) || game?.recommendedAddonVersion || state.payload?.selectedVersion || '';
 }
 function routeDraft(game) {
@@ -481,8 +482,8 @@ function routeApplyRow(game) {
 }
 function routeControlsMarkup(game) {
   const selected = routeSelection(game);
-  if (selected.resolvedApi === 'dx12' && game.nativeDlssAvailable === false) return `${apiControls(game)}<div class="config-block core-selection"><h4>无原生 DLSS · Feeder 试验路线</h4><p class="config-note">${escapeHtml(game.feeder?.coreVersion || '0.4.7-beta')} 固定配套 · RTX50 / 64 位 DX12 / 已确认 sRGB 的 RGBA8 画面。</p><p class="config-note">提供成品帧 NR 后处理；当前不支持 HDR，实际处理状态需进游戏确认。</p><p class="config-note feeder-entry-note">加载入口：DXGI。此固定配套暂不提供 DXGI → D3D12 切换；它不能作为反作弊报错的通用修复。</p></div>${routeApplyRow(game)}`;
-  return `${apiControls(game)}${selected.resolvedApi === 'vulkan' ? vulkanRouteMarkup(game) : `<div class="config-block core-selection"><h4>Addon 核心版本</h4>${addonVersionRow(game)}<p class="config-note">API 与核心版本选好后，一次应用。beta0.4.7 为当前默认；稳定兼容版仍可选择。</p></div>`}${routeApplyRow(game)}`;
+  if (selected.resolvedApi === 'dx12' && game.nativeDlssAvailable === false) return `${apiControls(game)}<div class="config-block core-selection"><h4>无原生 DLSS · Feeder 试验路线</h4><p class="config-note">${escapeHtml(game.feeder?.coreVersion || '0.4.7beta')} 固定配套 · RTX50 / 64 位 DX12 / 已确认 sRGB 的 RGBA8 画面。</p><p class="config-note">提供成品帧 NR 后处理；当前不支持 HDR，实际处理状态需进游戏确认。</p><p class="config-note feeder-entry-note">加载入口：DXGI。此固定配套暂不提供 DXGI → D3D12 切换；它不能作为反作弊报错的通用修复。</p></div>${routeApplyRow(game)}`;
+  return `${apiControls(game)}${selected.resolvedApi === 'vulkan' ? vulkanRouteMarkup(game) : `<div class="config-block core-selection"><h4>Addon 核心版本</h4>${addonVersionRow(game)}<p class="config-note">API 与核心版本选好后，一次应用。0.4.7beta 为新安装默认；已有安装保留当前版本。</p></div>`}${routeApplyRow(game)}`;
 }
 
 function refreshRouteControls(card, game, focusSelector = null) {
@@ -716,7 +717,7 @@ function gameDetail(game) {
       <div class="config-actions"><button class="button subtle default-btn">恢复 NR 默认</button></div>
     </div>
     <aside class="enhancement-sidebar">${installationStatus}<div class="config-block enhancement-guide"><h4>快捷操作</h4><p class="config-note">用 F6 对比增强前后的画面，实际效果以游戏内表现为准。</p>
-      <div class="shortcut-block"><div class="shortcut-row"><label>NR 效果切换</label><button class="button subtle nr-hotkey-btn" disabled>F6 开关</button></div><div class="shortcut-row"><label>ReShade 菜单</label><button class="button subtle reshade-hotkey-btn">=</button></div><p class="config-note">新安装默认按 = 打开菜单；保留已有自定义键，修改后下次启动游戏生效。</p></div>
+      <div class="shortcut-block"><div class="shortcut-row"><label>NR 效果切换</label><button class="button subtle nr-hotkey-btn" disabled>F6 开关</button></div><div class="shortcut-row"><label>ReShade 菜单</label><button class="button subtle reshade-hotkey-btn">Home</button></div><p class="config-note">新安装默认按 Home 打开菜单；保留已有自定义键，修改后下次启动游戏生效。</p></div>
       ${launchJump}
     </div></aside>
   </div>` : `<div class="config-block detail-empty"><h4>${title}</h4><p class="config-note">${escapeHtml(installDetail)}</p><p class="config-note">安装完成后，可在这里调整风格和增强强度。</p>${game.chosen ? maintenance : ''}${preinstallCompatibility}</div>`;
@@ -835,7 +836,8 @@ function mergeGameVisuals(previous, next) {
 }
 
 function updateGameListMeta(rows = visibleGames()) {
-  $('gameSummary').textContent = `已找到 ${state.games.length} 个游戏 · 支持 ${state.games.filter(routeSupported).length} 个`;
+  const ordinary = state.games.filter(game => !game.hoyoManaged && !state.hoyoGameIds.has(game.id));
+  $('gameSummary').textContent = `已找到 ${ordinary.length} 个游戏 · 支持 ${ordinary.filter(routeSupported).length} 个`;
   const hasFilter = $('searchInput').value.trim() || $('gameFilter').value !== 'all';
   $('emptyState').querySelector('h3').textContent = hasFilter ? '没有匹配的游戏' : '还没有找到游戏';
   $('emptyState').querySelector('p').textContent = hasFilter ? '换个关键词或筛选条件试试。' : '先自动扫描 Steam、Epic、GOG；也可以选择游戏文件夹或实际运行 EXE。';
@@ -1444,11 +1446,13 @@ function closeModal(result = false) {
 }
 
 function switchView(view) {
+  if (view !== 'hoyo') hoyoController?.deactivate();
   state.activeView = view;
   document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === `view-${view}`));
   document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.view === view));
   const titles = {
     games: ['我的游戏', '选择游戏，确认兼容性后安装'],
+    hoyo: ['米哈游游戏', '绑定正式客户端，按当前步骤准备独立画面增强'],
     repair: ['问题修复', '检查组件完整性，并安全恢复缺失文件'],
     settings: ['设置', '只保留真正会影响使用的选项'],
     addons: ['组件管理', '准备安装来源，按游戏应用与回退核心']
@@ -1460,6 +1464,13 @@ function switchView(view) {
   $('refreshBtn').classList.toggle('hidden', view !== 'games');
   if (view === 'repair') loadRepairDiagnostic();
   if (view === 'addons') renderAddonVersions();
+  if (view === 'hoyo') {
+    if (!hoyoController) hoyoController = window.HoYoPageUi.mount($('hoyoWorkspace'), window.manager, {
+      onChanged: flow => { if (flow.gameId) state.hoyoGameIds.add(flow.gameId); }
+    });
+    void hoyoController.activate();
+  }
+  if (view === 'games') renderGames({ preserveExpanded: true });
 }
 
 async function boot() {

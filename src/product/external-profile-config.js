@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const { TextDecoder } = require('node:util');
 const { addonValues } = require('./reshade-layout');
-const { ensureDefaultReShadeHotkey } = require('./hotkeys');
+const { ensureDefaultReShadeHotkey, PREVIOUS_RESHADE_DEFAULT_KEY } = require('./hotkeys');
 
 // Exact path-key contract shipped in 0.4.8-beta.1. This is used only to
 // validate an inactive profile against its already committed restore snapshot.
@@ -74,11 +74,12 @@ function externalConfig(original, oldBase, environment = process.env, options = 
   }
   return result;
 }
-function localConfig(current, original, oldBase, environment = process.env, { panelDefaultAdded = false } = {}) {
+function localConfig(current, original, oldBase, environment = process.env,
+  { panelDefaultAdded = false, panelDefaultKey = PREVIOUS_RESHADE_DEFAULT_KEY } = {}) {
   // Restore the original spelling only for path fields the user did not edit.
   // Other settings and comments from the active external INI survive migration.
   const prepared = externalConfig(original, oldBase, environment);
-  if (panelDefaultAdded && current === ensureDefaultReShadeHotkey(prepared)) return original;
+  if (panelDefaultAdded && current === ensureDefaultReShadeHotkey(prepared, panelDefaultKey)) return original;
   const expected = entries(prepared);
   const before = new Map(entries(original).filter(row => row.key).map(row => [row.identity + ':' + row.occurrence, row]));
   const rebased = new Map(expected.filter(row => row.key).map(row => [row.identity + ':' + row.occurrence, row]));

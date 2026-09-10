@@ -57,6 +57,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   let payloadDir = store.read().payloadSourcePath || bundledPayloadDir;
   const addonVersionsDir = path.join(userData, 'addon-versions');
   let games = [];
+  const hoyoManaged = new Set();
   let latestScanWarnings = [];
   let collectionFresh = false;
   let activeRefresh = null, refreshGeneration = 0, scanEpoch = 0;
@@ -118,7 +119,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
   function gameLayout(game) {
     if (hasExternalRecord(game)) {
       const layout = externalDeployment.getLayout(game);
-      if (layout.hoyoProfile) {
+      if (layout.mode === 'external' && layout.hoyoProfile) {
         const profile = hoyo.profile(game);
         if (profile.installed && feederOwned(game)) {
           const input = feeder.profile?.(game), nrDir = feeder.configDir(game, 'nr');
@@ -735,9 +736,11 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     let deployment = null;
     if (hasExternalRecord(game)) try { deployment = externalDeployment.getLayout(game); }
     catch (error) { deployment = { mode: 'external', verified: false, needsRecovery: true, blockers: [error.message] }; }
-    return { ...safe, vulkan: vk, feeder: feed, deployment,
-      hoyo: { profileOptions: hoyo.supportedProfileOptions(game), installed: Boolean(deployment?.hoyoProfile), selected: deployment?.hoyoProfile || null },
-      ...(deployment?.mode === 'external' ? { installed: true, addonVersion: deployment.version || safe.addonVersion } : {}),
+    return { ...safe, hoyoManaged: hoyoManaged.has(game.id) || hoyo.supportedProfileOptions(game).length > 0,
+      vulkan: vk, feeder: feed, deployment,
+      hoyo: { profileOptions: hoyo.supportedProfileOptions(game), installed: deployment?.mode === 'external' && deployment.verified === true && !deployment.needsRecovery && Boolean(deployment.hoyoProfile),
+        selected: deployment?.hoyoProfile || null },
+      ...(deployment?.mode === 'external' ? { installed: deployment.verified === true && !deployment.needsRecovery, addonVersion: deployment.version || safe.addonVersion } : {}),
       enhancementRoute: feed.installed ? 'feeder-dx12' : vk.installed ? 'vulkan' : safe.installed ? 'native-dlss' : null,
       hasNativeDlss: enhancements.nativeDlssAvailable,
       nativeFgAvailable: enhancements.nativeFgAvailable,
@@ -1524,6 +1527,7 @@ function createAppService({ userData, resourcesPath, appDir, documentsDir, versi
     listGames: () => collectionFresh ? games.map(publicGame) : refresh(),
     dispose: () => library.dispose?.(),
     gameDirectory: id => findGame(id).dir,
+    markHoYoGame: id => { findGame(id); hoyoManaged.add(id); },
     assessmentSeed: id => { const game = findGame(id); return structuredClone({ ...publicGame(game), scan: game.scan }); },
     installationDefaults,
     resolveInputRoute,

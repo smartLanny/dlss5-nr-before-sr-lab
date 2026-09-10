@@ -25,6 +25,7 @@ let environment = null;
 let operationPlans = null;
 let operationElevation = null;
 let hoyoLaunchPlans = null;
+let hoyoWorkflow = null;
 let launchSessions = null;
 let runtimeVerification = null;
 let gameAssessment = null;
@@ -264,6 +265,7 @@ function registerIpc() {
     'game-environment-prepare-clean', 'game-environment-preview-clean', 'game-environment-apply', 'game-environment-restore',
     'game-operation-preview', 'game-operation-apply', 'game-operation-apply-elevated', 'game-operation-recover', 'game-feature-confirm']);
   for (const name of ['addon-import', 'addon-remove', 'pick-addon', 'pick-scan-folder']) serializedActions.add(name);
+  for (const name of ['hoyo-discover', 'hoyo-pick-game', 'hoyo-pick-launcher', 'hoyo-bind', 'hoyo-preview', 'hoyo-apply', 'hoyo-recover']) serializedActions.add(name);
   const call = (name, fn) => ipcMain.handle(name, async (_event, ...args) => withPermissionRecovery(await service.withError(
     () => {
       const work = async () => {
@@ -289,6 +291,22 @@ function registerIpc() {
   call('games-refresh', () => service.refresh());
   call('games-list', () => service.listGames());
   call('game-assessment', (id, options) => gameAssessment.assess(id, options));
+  call('hoyo-discover', () => hoyoWorkflow.discover());
+  call('hoyo-inspect', (id, options) => hoyoWorkflow.inspect(id, { retry: options?.retry === true }));
+  call('hoyo-pick-game', async () => {
+    const result = await dialog.showOpenDialog(win, { properties: ['openFile'], title: '选择正式米哈游游戏程序', filters: [{ name: '游戏程序', extensions: ['exe'] }] });
+    return hoyoWorkflow.pickGame(result.canceled ? null : result.filePaths[0]);
+  });
+  call('hoyo-pick-launcher', async id => {
+    const result = await dialog.showOpenDialog(win, { properties: ['openFile'], title: '选择这个客户端的 HoYoPlay 或 Starward 启动器', filters: [{ name: '启动器', extensions: ['exe'] }] });
+    return hoyoWorkflow.pickLauncher(id, result.canceled ? null : result.filePaths[0]);
+  });
+  call('hoyo-bind', (id, input) => hoyoWorkflow.bind(id, input));
+  call('hoyo-preview', (id, action) => hoyoWorkflow.preview(id, action));
+  call('hoyo-apply', (id, planId, consent) => hoyoWorkflow.apply(id, planId, consent));
+  call('hoyo-recover', id => hoyoWorkflow.recover(id));
+  call('hoyo-start', async id => { await operationElevation.assertAvailable(); return hoyoWorkflow.start(id); });
+  call('hoyo-cancel', id => hoyoWorkflow.cancel(id));
   call('game-visual-record', (id, input) => verificationRecords.record(id, input));
   call('game-operation-preview', (id, request) => operationPlans.preview(id, request));
   call('game-operation-apply', async (id, planId, consent) => {
@@ -655,6 +673,26 @@ async function initializeServices({ worker = false, hoyoWorker = false, workerCo
       hardware: () => currentHardware, helper: loadingHelper, records: verificationRecords, components: componentAssessment });
     if (!worker) operationElevation = createOperationElevation({ userData, plans: operationPlans, processInfo: process, appPath: __dirname,
       packaged: app.isPackaged, runPowerShell, log: startup.log });
+    if (!worker) hoyoWorkflow = require('./src/product/hoyo-workflow').createHoYoWorkflow({ userData, service,
+      operations: operationPlans, launches: launchSessions, verification: runtimeVerification,
+      launch: id => launchCoordinator.serialize(() => launchCoordinator.launch(id)),
+      elevatedApply: (id, planId, consent) => operationElevation.apply(id, planId, consent),
+      beforeMutation: id => installGuards.assertGameClosed(service.gameDirectory(id), service.gameExecutable(id)),
+      requiresElevation: async plan => {
+        if (await isAdministrator()) return false;
+        const protectedRoots = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.SystemRoot].filter(Boolean)
+          .map(root => path.resolve(root).toLowerCase());
+        for (const row of plan.changes || []) {
+          const file = row.path || row.file;
+          if (!path.isAbsolute(file || '')) continue;
+          const key = path.resolve(file).toLowerCase();
+          if (protectedRoots.some(root => key === root || key.startsWith(root + path.sep))) return true;
+          let parent = path.dirname(file);
+          while (!fs.existsSync(parent) && parent !== path.dirname(parent)) parent = path.dirname(parent);
+          try { await fs.promises.access(parent, fs.constants.W_OK); } catch { return true; }
+        }
+        return false;
+      } });
 }
 
 async function startApplication() {

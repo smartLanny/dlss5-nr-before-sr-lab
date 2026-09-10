@@ -30,6 +30,19 @@ test('static DX12 evidence resolves DX12 and preserves existing fields', () => {
   assert.match(out.chosen.apiResolution.evidence[0], /d3d12/);
 });
 
+test('a linked Unity OpenGL import is a backend capability, not the active renderer', () => {
+  const exe = 'C:/games/demo/game.exe', unity = 'C:/games/demo/UnityPlayer.dll';
+  const context = { pe: fakePe({ [exe]: { imports: ['UnityPlayer.dll'] }, [unity]: { imports: ['opengl32.dll'] } }),
+    engineModules: [{ path: unity, linked: true }] };
+  const result = annotateApi(scan('opengl'), 'C:/games/demo', context).chosen;
+  assert.equal(result.apiResolution.api, 'unknown');
+  assert.equal(result.apiAssessment.resolutionReason, 'multi-backend-engine-unconfirmed');
+  assert.ok(result.apiAssessment.capabilities.includes('opengl'));
+  assert.equal(result.apiAssessment.observedApi, null);
+  assert.equal(annotateApi(scan('opengl'), 'C:/games/demo', { ...context, apiOverride: 'dx11' }).chosen.apiResolution.api, 'dx11');
+  assert.equal(annotateApi(scan('opengl'), 'C:/games/demo', { ...context, ...runtimeFor(exe, 'dx12') }).chosen.apiResolution.api, 'dx12');
+});
+
 test('single DX11 defaults automatically while its bridge remains unverified', () => {
   const out = annotateApi(scan(), 'C:/games/demo', { pe: fakePe({ 'C:/games/demo/game.exe': { imports: ['d3d11.dll'] } }) });
   assert.equal(out.chosen.apiResolution.api, 'dx11');

@@ -7,7 +7,11 @@ const OFFICIAL_GAMES = Object.freeze([
   Object.freeze({ id: 'cyberpunk-2077', steamAppId: '1091500', exe: 'Cyberpunk2077.exe', api: 'dx12',
     fg: Object.freeze({ multipliers: Object.freeze([2, 3, 4, 5, 6]), dynamic: true }),
     source: 'https://www.nvidia.com/en-us/geforce/news/nvidia-rtx-games-engines-apps/',
-    checkedAt: '2026-09-10', evidence: 'NVIDIA DLSS Multi Frame Generation entry: NV, 6X' })
+    checkedAt: '2026-09-10', evidence: 'NVIDIA DLSS Multi Frame Generation entry: NV, 6X' }),
+  Object.freeze({ id: '007-first-light', steamAppId: '3768760', exe: '007FirstLight.exe', api: 'dx12',
+    fg: Object.freeze({ multipliers: Object.freeze([2, 3, 4, 5, 6]), dynamic: true }),
+    source: 'https://www.nvidia.com/en-au/geforce/news/007-first-light-dlss-4-5-dynamic-multi-frame-gen-6x-super-res/',
+    checkedAt: '2026-09-10', evidence: 'NVIDIA confirms native DLSS 4.5 Dynamic Multi Frame Generation and 6X Mode, including RTX 50 Laptop GPUs.' })
 ]);
 
 // A mod must have an explicit reviewed integration contract before it can

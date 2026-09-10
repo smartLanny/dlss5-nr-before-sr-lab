@@ -8,24 +8,30 @@ const path = require('path');
 const vm = require('node:vm');
 const { DEFAULT_RESHADE_KEY, DEFAULT_RESHADE_BINDING, ensureDefaultReShadeHotkey, parseKeyOverlay, updateKeyOverlay, writeReShadeHotkey, readReShadeHotkey } = require('../src/product/hotkeys');
 
-test('missing panel binding defaults to the unmodified physical equals key and generated INI reads it back', () => {
-  assert.equal(DEFAULT_RESHADE_KEY, 187);
-  assert.deepEqual(DEFAULT_RESHADE_BINDING, { key: 187, ctrl: false, shift: false, alt: false });
+test('missing panel binding defaults to unmodified Home and generated INI reads it back', () => {
+  assert.equal(DEFAULT_RESHADE_KEY, 36);
+  assert.deepEqual(DEFAULT_RESHADE_BINDING, { key: 36, ctrl: false, shift: false, alt: false });
   for (const original of ['', '\ufeff; 原配置\r\n[GENERAL]\r\nPresetPath=User.ini\r\n', '[INPUT]\nKeyEffects=145,0,0,0\n']) {
     assert.deepEqual(parseKeyOverlay(original), { ...DEFAULT_RESHADE_BINDING, present: false });
     const generated = ensureDefaultReShadeHotkey(original);
-    assert.match(generated, /KeyOverlay=187,0,0,0/);
+    assert.match(generated, /KeyOverlay=36,0,0,0/);
     assert.deepEqual(parseKeyOverlay(generated), { ...DEFAULT_RESHADE_BINDING, present: true });
     assert.equal(ensureDefaultReShadeHotkey(generated), generated, 'default preparation is idempotent');
     assert.ok(generated.includes(original.trimEnd()), 'existing text is retained');
   }
 });
 
-test('default preparation preserves explicit custom, Home and disabled panel bindings byte for byte', () => {
-  for (const binding of ['36,0,0,0', '120,1,0,1', '187,1,1,0', '0,0,0,0', '36']) {
+test('default preparation preserves explicit custom, equals, Home and disabled panel bindings byte for byte', () => {
+  for (const binding of ['36,0,0,0', '187,0,0,0', '120,1,0,1', '187,1,1,0', '0,0,0,0', '36']) {
     const original = `\ufeff; user\r\n[input]\r\n  keyoverlay = ${binding}\r\nKeyEffects=145,0,0,0\r\n`;
     assert.equal(ensureDefaultReShadeHotkey(original), original);
   }
+});
+
+test('historical default generation can reproduce equals without changing the new Home default', () => {
+  const original = '; original\r\n[GENERAL]\r\nPresetPath=User.ini\r\n';
+  assert.match(ensureDefaultReShadeHotkey(original, 187), /KeyOverlay=187,0,0,0/);
+  assert.match(ensureDefaultReShadeHotkey(original), /KeyOverlay=36,0,0,0/);
 });
 
 test('reads ReShade Home shortcut and modifier order', () => {

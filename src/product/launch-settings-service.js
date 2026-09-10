@@ -10,7 +10,7 @@ const { fail, inside, noLinks, digestFile, atomicJson } = require('./launch-safe
 const { detectGpuAsync: detectGpu } = require('./gpu');
 const { createInstallGuards } = require('../core/install-guards');
 const pe = require('../core/pe');
-const { assessEnhancementState } = require('./game-enhancement-capabilities');
+const { assessEnhancementState, NVIDIA_FG_DRIVER } = require('./game-enhancement-capabilities');
 const { createNativeEnhancementProbe } = require('./native-enhancement-probe');
 const mfgConfig = require('./mfgunlock-config');
 
@@ -68,7 +68,7 @@ function createLaunchSettingsService(options = {}) {
       // 595.97 is the verified March 2026 baseline for the current 4.5 choices.
       if (preset === 12 || preset === 13) minimumDriverVersion = 59597;
     }
-    if (domain === 'fg' && (request.mode === 'dynamic' || request.multiplier > 4)) minimumDriverVersion = 59597;
+    if (domain === 'fg' && (request.mode === 'dynamic' || request.multiplier > 4)) minimumDriverVersion = NVIDIA_FG_DRIVER.advanced;
     const context = { domain, request: { ...request, requiredSettingIds, minimumDriverVersion },
       game: { ...evidence, exe: t.exe }, hardware, driver: evidence.driver };
     const result = assessEnhancementState(context);

@@ -68,7 +68,7 @@ async function compileNativeAddonPolicy({ game, payloadDir, payload, manifest, a
     afterSha256: ['isolate', 'retire-core', 'owner-retirement'].includes(row.action) ? null : row.sha256,
     description: row.reason, phase: row.phase || 'compatibility' }));
   if (configEdit) changes.push({ path: configEdit.path, name: 'ReShade.ini', role: 'addon-load-config', action: 'update-addon-references',
-    beforeSha256: configEdit.beforeSha256, afterSha256: configEdit.afterSha256, description: '移除本次隔离插件的显式加载项；未设置面板快捷键时默认为 =，保留已有键位。' });
+    beforeSha256: configEdit.beforeSha256, afterSha256: configEdit.afterSha256, description: '移除本次隔离插件的显式加载项；未设置面板快捷键时默认为 Home，保留已有键位。' });
   return { snapshot, plan, configEdit, changes, manifestHash: await digestFile(manifestPath(game.dir)) };
 }
 async function assertNativeAddonPolicy(gameDir, policy) {

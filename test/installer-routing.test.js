@@ -262,7 +262,7 @@ test('ReShade case-sensitive keys stay untouched and the fixed carrier registrat
   fs.writeFileSync(reshadeIni, ineffective);
   const installed = await f.installer.install({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   assert.equal(installed.complete, true, 'lowercase section/key do not disable an add-on in ReShade');
-  assert.equal(fs.readFileSync(reshadeIni, 'utf8'), ineffective + '\n[INPUT]\nKeyOverlay=187,0,0,0\n');
+  assert.equal(fs.readFileSync(reshadeIni, 'utf8'), ineffective + '\n[INPUT]\nKeyOverlay=36,0,0,0\n');
 
   const nameOnly = '[ADDON]\nDisabledAddons=DLSS 5 Bridge 1.4.12\n';
   fs.writeFileSync(reshadeIni, nameOnly);
@@ -271,7 +271,7 @@ test('ReShade case-sensitive keys stay untouched and the fixed carrier registrat
   assert.match(diagnosed.components.find(row => row.key === 'carrier').detail, /注册名.*手动启用/);
   const repaired = await f.installer.repair({ gameDir: f.gameDir, payload: f.payload, scan: f.scan });
   assert.equal(repaired.complete, false, 'Manager must not claim repair removed a name-only user entry');
-  assert.equal(fs.readFileSync(reshadeIni, 'utf8'), nameOnly + '\n[INPUT]\nKeyOverlay=187,0,0,0\n');
+  assert.equal(fs.readFileSync(reshadeIni, 'utf8'), nameOnly + '\n[INPUT]\nKeyOverlay=36,0,0,0\n');
   if (process.env.MANAGER_INTEROP_EVIDENCE_DIR) {
     const evidenceDir = path.resolve(process.env.MANAGER_INTEROP_EVIDENCE_DIR);
     fs.mkdirSync(evidenceDir, { recursive: true });

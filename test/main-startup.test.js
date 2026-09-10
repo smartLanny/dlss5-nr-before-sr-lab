@@ -77,6 +77,7 @@ function harness(options = {}) {
     './src/product/native-enhancement-probe': { createNativeEnhancementProbe: () => ({ inspect: async (_id, domain) => ({
       support: { status: (domain === 'sr' ? options.noNativeDlss : options.noNativeFg) ? 'unknown' : 'supported' } }) }) },
     './src/product/hoyo-launcher': { createHoYoLauncher: () => ({}) },
+    './src/product/hoyo-workflow': { createHoYoWorkflow: () => ({ ...options.hoyoWorkflow }) },
     './src/product/hoyo-launch-elevation': { createHoYoLaunchPlans: () => ({}),
       createHoYoElevatedSessions: ({ normal }) => ({ ...normal, assess: async () => null }) },
     './src/product/runtime-verification': { createRuntimeVerification: () => ({}), emptyVerification: require('../src/product/runtime-verification').emptyVerification },
@@ -574,6 +575,53 @@ test('component assessment construction does not eagerly read a game or module o
   await settle();
   try { assert.ok(h.window); assert.equal(saw(h, 'startup-failure'), false); assert.deepEqual(reads, []); }
   finally { h.window?.emit('closed'); }
+});
+
+test('HoYo IPC serializes workflow actions, rejects foreign senders and forwards only an explicit inspect retry', async () => {
+  const calls = [], results = new Map(), failure = Object.assign(new Error('fixture HoYo preview failure'), { code: 'HOYO_FIXTURE' });
+  let serialized = false;
+  const methods = ['discover', 'bind', 'preview', 'apply', 'recover'];
+  const workflow = Object.fromEntries(methods.map(name => {
+    const result = { method: name }; results.set(name, result);
+    return [name, async (...args) => {
+      assert.equal(serialized, true, name + ' must run inside the coordinator queue');
+      calls.push({ name, args });
+      if (name === 'preview' && args[1] === 'fail') throw failure;
+      return result;
+    }];
+  }));
+  workflow.inspect = async (id, options) => {
+    assert.equal(serialized, false); assert.equal(Object.keys(options).join(','), 'retry');
+    calls.push({ name: 'inspect', args: [id, options.retry] }); return options.retry;
+  };
+  const h = harness({ hoyoWorkflow: workflow, serialize: async work => {
+    assert.equal(serialized, false); serialized = true;
+    try { return await work(); } finally { serialized = false; }
+  } });
+  await settle();
+  try {
+    assert.equal(saw(h, 'startup-failure'), false);
+    const binding = { channel: 'official', launcher: 'fixture-launcher' }, consent = { fingerprint: 'bound-plan' };
+    const args = { discover: [], bind: ['game', binding], preview: ['game', 'install'], apply: ['game', 'plan', consent], recover: ['game'] };
+    for (const name of methods) {
+      const invoke = h.handles.get('hoyo-' + name); assert.equal(typeof invoke, 'function');
+      const before = calls.length;
+      await assert.rejects(invoke({ sender: new EventEmitter() }, ...args[name]), { code: 'IPC_SENDER' });
+      assert.equal(calls.length, before, 'foreign sender must never reach ' + name);
+      assert.equal(await invoke({}, ...args[name]), results.get(name));
+      assert.deepEqual(calls.at(-1), { name, args: args[name] }); assert.equal(serialized, false);
+    }
+    await assert.rejects(h.handles.get('hoyo-preview')({}, 'game', 'fail'), error => error === failure);
+    assert.equal(serialized, false, 'an owner failure must release the coordinator queue');
+    const inspect = h.handles.get('hoyo-inspect'), before = calls.length;
+    await assert.rejects(inspect({ sender: new EventEmitter() }, 'game', { retry: true }), { code: 'IPC_SENDER' });
+    assert.equal(calls.length, before);
+    for (const options of [undefined, { retry: true, ignored: 'value' }, { retry: false }, { retry: 'true' }]) {
+      const expected = options?.retry === true;
+      assert.equal(await inspect({}, 'game', options), expected);
+      assert.deepEqual(calls.at(-1), { name: 'inspect', args: ['game', expected] });
+    }
+  } finally { h.window?.emit('closed'); }
 });
 
 test('preload separates library-only removal and pure cleanup preview from restoration IPC', async () => {

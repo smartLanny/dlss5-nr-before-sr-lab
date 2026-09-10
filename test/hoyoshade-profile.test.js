@@ -51,8 +51,8 @@ test('first HoYo installation uses helper directly, stable preview layout and or
   assert.equal(fs.existsSync(path.join(f.dir, 'dxgi.dll')), false); assert.equal(fs.existsSync(path.join(f.dir, 'd3d11.dll')), false);
   assert.equal(hash(fs.readFileSync(layout.loaderPath)), HOYO_RECIPE.loaderSha256);
   const config = fs.readFileSync(layout.activeConfigPath, 'utf8'); assert.match(config, /HdrOverlayBrightness=190/);
-  assert.equal(addonValues(config, 'INPUT').get('KeyOverlay')[0], '187');
-  assert.match(config, /KeyOverlay=187,0,0,0/);
+  assert.equal(addonValues(config, 'INPUT').get('KeyOverlay')[0], '36');
+  assert.match(config, /KeyOverlay=36,0,0,0/);
   assert.equal(addonValues(config, 'GENERAL').get('PresetPath')[0], path.join(f.dir, 'PersonalPreset.ini'));
   assert.equal((await f.service.inspect(f.game)).ready, true);
   const saved = JSON.parse(fs.readFileSync(path.join(f.gameRoot, RECEIPT))); assert.equal(saved.origin, 'direct_hoyo'); assert.equal(saved.proxy, null);
@@ -97,6 +97,20 @@ test('HoYo first installation preserves an explicit custom panel key in the acti
   fs.writeFileSync(path.join(f.dir, 'ReShade.ini'), original);
   const plan = await f.service.preview(f.game, f.request); await f.service.apply(plan.planId);
   const config = fs.readFileSync(f.service.profile(f.game).activeConfigPath, 'utf8');
-  assert.match(config, /KeyOverlay=121,1,0,1/); assert.doesNotMatch(config, /KeyOverlay=187/);
+  assert.match(config, /KeyOverlay=121,1,0,1/); assert.doesNotMatch(config, /KeyOverlay=36/);
   await f.service.restore(f.game); assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), original);
+});
+
+test('Windows userData casing preserves the first transaction INI identity through inspect and restore', { skip: process.platform !== 'win32' }, async t => {
+  const f = fixture(t), plan = await f.service.preview(f.game, f.request);
+  await f.service.apply(plan.planId);
+  const before = f.service.profile(f.game), external = createExternalRuntime({ ...f.options, userData: f.userData.toUpperCase() });
+  const service = createHoYoProfileService({ externalRuntime: external, userData: f.userData.toUpperCase(), appDir: path.resolve(__dirname, '..') });
+  const state = await service.inspect(f.game);
+  assert.equal(state.ready, true); assert.equal(state.runtimeDir, before.runtimeDir);
+  const again = await service.preview(f.game, f.request); await service.apply(again.planId);
+  assert.equal((await service.inspect(f.game)).ready, true);
+  await service.restore(f.game);
+  assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), f.original);
+  assert.equal(service.profile(f.game).installed, false);
 });

@@ -22,7 +22,7 @@ function installMock(features, options = {}) {
           { id: 'mfgunlock-0.6.1', label: 'MFG Unlock 0.6.1 · 回退', ready: true }] } },
     nr: { Enabled: 1, Intensity: 1, LocalToneStrength: 1, LocalStructureStrength: 1, WorkMode: 0, CustomWorkScale: 1, Style: 0, AutoMask: 0, ColorStrength: .75, SkinStructureStrength: -1, TransferStrength: 1, PostTransferStrength: 1,
       capabilities: { Intensity: true, LocalToneStrength: true, LocalStructureStrength: true, AutoMask: true, WorkMode: true, Style: true, CustomWorkScale: true, ColorStrength: true, SkinStructureStrength: true, TransferStrength: true, PostTransferStrength: true } },
-    hotkeys: { nr: { label: 'F6 开关' }, reshade: { key: 187, ctrl: false, shift: false, alt: false } },
+    hotkeys: { nr: { label: 'F6 开关' }, reshade: { key: 36, ctrl: false, shift: false, alt: false } },
     operation: { pending: false }, launch: { selected: 'auto', effective: 'steam', steamAvailable: true, session: null },
     verification: { helper: { status: 'not-applicable', detail: '当前代理路线无需加载助手。' }, reshade: { status: 'unverified', detail: '等待本次游戏进程确认固定 ReShade。' }, core: { status: 'unverified', detail: '等待本次游戏进程确认指定 Core。' },
       nr: { status: 'unverified', detail: '等待成功与提交计数持续增长。' }, visual: { status: 'unverified', detail: '需同场景开关对照与 F8 记录。' } },
@@ -161,7 +161,7 @@ async function smoke() {
   const host = () => document.querySelector('.game-card.expanded .game-detail.gp-inline');
   const state = () => host()?.__gpController.getState();
   const field = (group, key) => host()?.querySelector(`[data-gp-group="${group}"][data-gp-field="${key}"]`);
-  const button = action => host()?.querySelector(`[data-gp-action="${action}"]`);
+  const button = action => host()?.querySelector(`[data-gp-action="${action}"]`) || (action === 'launch' ? host()?.closest('.game-card').querySelector('.unified-launch-btn') : null);
   const count = kind => mock.calls.filter(row => row[0] === kind).length;
   const click = action => { const item = button(action); assert(item && !item.disabled, 'action unavailable: ' + action);
     const closed = []; for (let parent = item.parentElement; parent && parent !== host(); parent = parent.parentElement) if (parent.tagName === 'DETAILS' && !parent.open) closed.push(parent);
@@ -240,7 +240,16 @@ async function smoke() {
   assert(count('apply') === passiveWrites && count('preview') === passivePreviews && count('legacy-mount') === 0, 'control changes never mount the old writer or auto-apply');
   assert(field('fg', 'mode').querySelector('option[value="dynamic"]').disabled, 'RTX40 Dynamic stays disabled');
   assert(field('fg', 'multiplier').querySelector('option[value="6"]').disabled, 'unverified multiplier stays disabled');
-  assert(button('launch').disabled, 'dirty draft blocks launch'); await preview();
+  assert(button('launch').disabled, 'dirty draft blocks launch');
+  const dirtyBar = host().querySelector('.gp-apply-bar'), gameCard = host().closest('.game-card'), view = host().closest('.view');
+  assert(host().firstElementChild === dirtyBar && dirtyBar.classList.contains('is-dirty'), 'dirty actions are immediately below the card header and before all tabs');
+  assert(!host().querySelector('[data-gp-action="launch"]') && gameCard.querySelectorAll('.button.primary').length === 1 && button('preview').classList.contains('primary'), 'a dirty card has one prominent operation and no duplicate launch button');
+  const originalScroll = view.scrollTop;
+  view.scrollTop += dirtyBar.getBoundingClientRect().top - view.getBoundingClientRect().top + 120; await delay(40);
+  const pinnedBar = dirtyBar.getBoundingClientRect(), viewport = view.getBoundingClientRect();
+  assert(pinnedBar.top >= viewport.top - 1 && pinnedBar.bottom <= viewport.bottom && button('preview').getBoundingClientRect().right <= viewport.right, 'dirty preview and discard stay in the visible top area while scrolling');
+  view.scrollTop = originalScroll;
+  await preview();
   assert(mock.plan.request.nr.Intensity === .65 && mock.plan.request.nr.WorkMode === 5 && mock.plan.request.sr.preset === 'M' && mock.plan.request.sr.quality === 'performance' && mock.plan.request.fg.multiplier === 3, 'one preview includes numeric NR, explicit SR and FG');
   click('modal-apply'); await settled(); assert(!button('launch').disabled && count('elevated') === 0, 'successful ordinary Apply clears draft without elevation');
 
@@ -334,17 +343,17 @@ async function smoke() {
   await scenario('快捷键暂存 · UI fixture'); await tab('maintenance');
   const beforeHotkeyApply = count('apply'); click('capture-hotkey');
   document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Insert', code: 'Insert', keyCode: 45, bubbles: true, cancelable: true })); await delay(100);
-  assert(mock.assessment.hotkeys.reshade.key === 187 && count('direct-hotkey-write') === 0 && count('apply') === beforeHotkeyApply, 'shortcut only changes the draft');
+  assert(mock.assessment.hotkeys.reshade.key === 36 && count('direct-hotkey-write') === 0 && count('apply') === beforeHotkeyApply, 'shortcut only changes the draft');
   await preview(); assert(JSON.stringify(mock.plan.request) === JSON.stringify({ hotkeys: { reshade: { key: 45, ctrl: false, shift: false, alt: false } } }), 'Insert binding travels through unified preview');
-  click('modal-cancel'); assert(mock.assessment.hotkeys.reshade.key === 187, 'cancel retains equals'); await preview(); click('modal-apply'); await settled();
+  click('modal-cancel'); assert(mock.assessment.hotkeys.reshade.key === 36, 'cancel retains Home'); await preview(); click('modal-apply'); await settled();
   assert(mock.assessment.hotkeys.reshade.key === 45, 'unified Apply owns shortcut mutation');
   await tab('maintenance');
-  assert(button('panel-default').textContent === '恢复默认 =' && !button('panel-home'), 'default action clearly uses equals');
+  assert(button('panel-default').textContent === '恢复默认 Home' && !button('panel-home'), 'default action clearly uses Home');
   click('panel-default');
-  assert(mock.assessment.hotkeys.reshade.key === 45, 'reset to equals is a draft until unified Apply');
-  await preview(); assert(JSON.stringify(mock.plan.request) === JSON.stringify({ hotkeys: { reshade: { key: 187, ctrl: false, shift: false, alt: false } } }), 'restore default submits OEM_PLUS with no modifiers');
+  assert(mock.assessment.hotkeys.reshade.key === 45, 'reset to Home is a draft until unified Apply');
+  await preview(); assert(JSON.stringify(mock.plan.request) === JSON.stringify({ hotkeys: { reshade: { key: 36, ctrl: false, shift: false, alt: false } } }), 'restore default submits Home with no modifiers');
   click('modal-apply'); await settled();
-  assert(mock.assessment.hotkeys.reshade.key === 187, 'restoring the default persists equals after explicit Apply');
+  assert(mock.assessment.hotkeys.reshade.key === 36, 'restoring the default persists Home after explicit Apply');
 
   await scenario('反作弊游戏 · 卸载后清理', value => { value.game.installed = false; value.antiCheat.detected = true; }); await maintenance();
   const cleanupOperations = count('apply'); click('clean-environment'); await until(() => host().querySelector('[data-gp-clean]'), 'cleanup preview');
@@ -546,7 +555,7 @@ async function smoke() {
     assertions: 'inline seed, 5s lazy sections, reverse cross-game responses, controller reuse, drafts, production automatic support and SR compiler, unified Apply, recovery, visual provenance, custom hotkeys, three NR sliders and AutoMask, actual MFG INI, independent bridge/MFG versions, proxy/API separation, DX9 x86 static unsupported Feeder, API package selection, formal HoYo launcher binding, production addon keep repreview/stale/CAS, fixed routes and metadata removal' };
 }
 
-async function captureBaseline({ tab = 'overview', diagnostics = false } = {}) {
+async function captureBaseline({ tab = 'overview', diagnostics = false, dirty = false } = {}) {
   const mock = window.__gpMock, delay = ms => new Promise(resolve => setTimeout(resolve, ms));
   let assertionCount = 0;
   const assert = (value, message) => { assertionCount++; if (!value) throw Error(message); };
@@ -598,7 +607,7 @@ async function captureBaseline({ tab = 'overview', diagnostics = false } = {}) {
   host().querySelector(`[data-gp-tab="${tab}"]`).click();
   if (tab === 'maintenance') {
     await until(() => state().loaded.includes('diagnostics'), 'short diagnostic load');
-    assert(button('panel-default')?.textContent === '恢复默认 =' && host().textContent.includes('ReShade：='), 'capture displays equals as the active and reset-default panel key');
+    assert(button('panel-default')?.textContent === '恢复默认 Home' && host().textContent.includes('ReShade：Home'), 'capture displays Home as the active and reset-default panel key');
     if (!diagnostics) button('panel-default').closest('.gp-section').scrollIntoView({ block: 'center' });
   }
   if (diagnostics) {
@@ -608,6 +617,17 @@ async function captureBaseline({ tab = 'overview', diagnostics = false } = {}) {
     assert(JSON.stringify([...detail.querySelectorAll('.gp-verification article h4')].map(row => row.textContent)) === JSON.stringify(['加载助手就绪', 'ReShade 已加载', '本 Core 已加载', 'NR 完成并回填', '同场景画面变化']), 'expanded diagnostic card labels retain the frozen contracts');
     detail.querySelector('.gp-verification').scrollIntoView({ block: 'center' });
   }
+  if (dirty) {
+    const input = tab === 'enhance' ? field('sr', 'preset') : field('nr', 'Intensity');
+    assert(input && !input.disabled, 'dirty capture has an editable setting'); input.value = tab === 'enhance' ? 'K' : '1.45';
+    input.dispatchEvent(new Event(input.type === 'range' ? 'input' : 'change', { bubbles: true }));
+    const view = document.getElementById('view-games'), bar = host().querySelector('.gp-apply-bar');
+    view.scrollTop += card().getBoundingClientRect().top - view.getBoundingClientRect().top;
+    assert(host().firstElementChild === bar && button('preview') && button('discard'), 'dirty action row appears directly below the card header');
+    assert(card().querySelectorAll('.button.primary').length === 1 && !host().querySelector('[data-gp-action="launch"]'), 'dirty capture highlights one operation without repeated launch');
+    await delay(40); const box = bar.getBoundingClientRect(), viewport = view.getBoundingClientRect();
+    assert(box.top >= viewport.top && box.bottom < viewport.bottom, 'both dirty actions are visible without scrolling to the card bottom');
+  }
   await delay(40);
   assert(!toast.classList.contains('error'), 'no unrecognized error toast is hidden');
   if (toast.classList.contains('show')) { assert(toast.textContent === '扫描完成', 'only the known refresh success notification is cleared'); toast.classList.remove('show'); }
@@ -615,7 +635,7 @@ async function captureBaseline({ tab = 'overview', diagnostics = false } = {}) {
   const widths = nodes.filter(node => node.getClientRects().length).map(node => ({ node: node.id || node.className || node.tagName, clientWidth: node.clientWidth, scrollWidth: node.scrollWidth }));
   assert(widths.every(row => row.scrollWidth <= row.clientWidth + 1), 'narrow baseline has no horizontal overflow: ' + JSON.stringify(widths));
   assert(!mock.calls.some(row => row[0] === 'startup-failed' || row[0] === 'legacy-mount' || row[0].startsWith('direct-')), 'short baseline invokes no legacy or direct writers');
-  return { scope: 'capture-only', assertionCount, tab, diagnostics, viewport: { width: innerWidth, height: innerHeight }, horizontalOverflow: false,
+  return { scope: 'capture-only', assertionCount, tab, diagnostics, dirty, viewport: { width: innerWidth, height: innerHeight }, horizontalOverflow: false,
     writes: mock.calls.filter(row => row[0] === 'apply').length, previews: mock.calls.filter(row => row[0] === 'preview').length,
     assertions: 'global refresh success notification, preserved installed Core repair, explicit version selection, local layout, lazy tab focus, explicit SR baseline and narrow overflow', widths };
 }

@@ -80,7 +80,7 @@ test('local legacy owner previews without writes, installs full matching recipe,
   const preview = await f.service.previewInstall(f.game); assert.equal(exists(f.receipt), false); assert.equal(exists(f.pending), false);
   assert.equal(preview.changes.find(row => row.path === config).action, 'keep');
   await f.service.install(f.game, { expectedPlanId: preview.planId }); assert.equal((await f.service.inspect(f.game)).ready, true);
-  assert.equal(getIni(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), 'INPUT', 'KeyOverlay'), '187,0,0,0');
+  assert.equal(getIni(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), 'INPUT', 'KeyOverlay'), '36,0,0,0');
   const provider = path.join(f.layout.addonDirectory, 'dlss5-feed.addon64'); fs.unlinkSync(provider);
   const repair = await f.service.previewInstall(f.game); await f.service.install(f.game, { expectedPlanId: repair.planId });
   assert.equal(exists(provider), true); assert.deepEqual(fs.readFileSync(config), originalConfig);
@@ -243,7 +243,7 @@ test('x86 and DX10 recipes expose only target-process modules; host configuratio
   const row = f.service.receipt(f.game); assert.equal(row.recipe.hostRequired, true);
   const modules = await f.service.ownedModuleManifest(f.game); assert.deepEqual(modules.map(value => value.role).sort(), ['provider', 'reshade']);
   assert.equal(f.service.profile(f.game).nrConfigDir, path.join(f.layout.addonDirectory, 'host64/addons'));
-  assert.equal(fs.readFileSync(path.join(f.layout.addonDirectory, 'host64/ReShade.ini'), 'utf8'), '[ADDON]\r\nAddonPath=.\\addons\r\n\r\n[INPUT]\r\nKeyOverlay=187,0,0,0\r\n');
+  assert.equal(fs.readFileSync(path.join(f.layout.addonDirectory, 'host64/ReShade.ini'), 'utf8'), '[ADDON]\r\nAddonPath=.\\addons\r\n\r\n[INPUT]\r\nKeyOverlay=36,0,0,0\r\n');
   const result = await f.service.launch(f.game); assert.equal(result.pid, 4018); assert.equal(f.service.receipt(f.game).lastLaunch.pid, 4018);
 });
 
@@ -347,8 +347,9 @@ test('DX9 local recipe publishes only its system wrapper and game provider, give
   assert.equal(preview.changes.find(row => row.role === 'game-loader').path, path.join(f.layout.runtimeDir, 'ReShade64.dll'));
   await f.service.install(f.game, { expectedPlanId: preview.planId });
   assert.equal(getIni(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), 'GENERAL', 'NoReloadOnInit'), '1');
-  assert.equal(getIni(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), 'INPUT', 'KeyOverlay'), '187,0,0,0');
-  assert.equal(getIni(fs.readFileSync(path.join(f.layout.addonDirectory, 'host64/ReShade.ini'), 'utf8'), 'INPUT', 'KeyOverlay'), '187,0,0,0');
+  assert.equal(getIni(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), 'INPUT', 'KeyOverlay'), '36,0,0,0');
+  assert.equal(getIni(fs.readFileSync(path.join(f.layout.addonDirectory, 'host64/ReShade.ini'), 'utf8'), 'INPUT', 'KeyOverlay'), '36,0,0,0');
+  assert.equal(f.service.receipt(f.game).config.panelDefault, 36);
   assert.equal(fs.readFileSync(path.join(f.layout.addonDirectory, 'host64/NRGuides.ini'), 'utf8'), DEFAULTS.hostGuides);
   assert.deepEqual((await f.service.ownedModuleManifest(f.game)).map(row => row.role).sort(), ['api-wrapper', 'provider', 'reshade']);
   assert.equal((await f.service.inspect(f.game)).ready, true); await f.service.restore(f.game);
@@ -385,6 +386,60 @@ test('pre-equals legacy receipts keep their original configuration and host byte
   assert.equal(fs.readFileSync(host.path, 'utf8'), originalHost);
   await f.service.restore(f.game);
   assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), f.original);
+});
+
+function historicalEqualsReceipt(f) {
+  const row = JSON.parse(fs.readFileSync(f.receipt));
+  const config = configure(row.config.beforeText, row.layout, row.recipe, row.config.seedText, { panelDefault: 187 });
+  row.config = { ...row.config, ...config }; fs.writeFileSync(row.config.path, config.text);
+  const host = row.files.find(file => file.role === 'host-config');
+  if (host) {
+    const originalHost = '[ADDON]\r\nAddonPath=.\\addons\r\n\r\n[INPUT]\r\nKeyOverlay=187,0,0,0\r\n';
+    fs.writeFileSync(host.path, originalHost); host.sha256 = host.installedHash = hash(originalHost);
+  }
+  fs.writeFileSync(f.receipt, JSON.stringify(row)); return row;
+}
+
+test('historical equals receipts preserve their main and host defaults through inspect, repair and exact restore', async t => {
+  for (const api of ['dx9', 'dx10']) {
+    const f = fixture(t, { api }); await f.service.install(f.game);
+    const row = historicalEqualsReceipt(f), host = row.files.find(file => file.role === 'host-config');
+    assert.equal((await f.service.inspect(f.game)).ready, true);
+    fs.unlinkSync(host.path);
+    const repair = await f.service.previewInstall(f.game); await f.service.install(f.game, { expectedPlanId: repair.planId });
+    assert.equal(f.service.receipt(f.game).config.panelDefault, 187);
+    assert.match(fs.readFileSync(host.path, 'utf8'), /KeyOverlay=187,0,0,0/);
+    assert.equal(fs.readFileSync(row.config.path, 'utf8'), row.config.text);
+    await f.service.restore(f.game);
+    assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), f.original);
+  }
+});
+
+test('interrupted repair of a historical equals receipt recovers using its original host specification', async t => {
+  let interrupt = false;
+  const f = fixture(t, { api: 'dx10', options: { afterWrite: ({ row }) => {
+    if (interrupt && row.role === 'host-config') throw Object.assign(new Error('old host repair interrupted'), { preservePending: true });
+  } } });
+  await f.service.install(f.game); const row = historicalEqualsReceipt(f), host = row.files.find(file => file.role === 'host-config');
+  const receipt = fs.readFileSync(f.receipt); fs.unlinkSync(host.path); interrupt = true;
+  await assert.rejects(f.service.install(f.game), /old host repair interrupted/);
+  assert.equal(JSON.parse(fs.readFileSync(f.pending)).receipt.config.panelDefault, 187);
+  const restarted = createLegacyService({ ...f.options, afterWrite: undefined });
+  assert.equal((await restarted.recover(f.game)).recovered, true);
+  assert.deepEqual(fs.readFileSync(f.receipt), receipt); assert.equal(exists(host.path), false);
+  await restarted.install(f.game); assert.equal((await restarted.inspect(f.game)).ready, true);
+  assert.match(fs.readFileSync(host.path, 'utf8'), /KeyOverlay=187,0,0,0/);
+  await restarted.restore(f.game); assert.equal(fs.readFileSync(path.join(f.dir, 'ReShade.ini'), 'utf8'), f.original);
+});
+
+test('Home default preparation preserves explicit equals and disabled panel keys through exact legacy restore', async t => {
+  for (const binding of ['187,0,0,0', '0,0,0,0']) {
+    const f = fixture(t), file = path.join(f.dir, 'ReShade.ini'), original = f.original + '[INPUT]\r\nKeyOverlay=' + binding + '\r\n';
+    fs.writeFileSync(file, original); await f.service.install(f.game);
+    assert.equal(f.service.receipt(f.game).config.panelDefault, 36);
+    assert.equal(getIni(fs.readFileSync(file, 'utf8'), 'INPUT', 'KeyOverlay'), binding);
+    await f.service.restore(f.game); assert.equal(fs.readFileSync(file, 'utf8'), original);
+  }
 });
 
 test('runtime-saved host INIs retain receipt identities, stay repairable and archive exact saved bytes on restore', async t => {

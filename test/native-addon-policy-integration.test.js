@@ -176,12 +176,12 @@ test('native restore preserves later user INI edits and the original INI backup 
   assert.deepEqual(fs.readFileSync(plugin), pluginBytes); assertNoPending(f);
 });
 
-for (const exists of [false, true]) test(`native install records and restores a ${exists ? 'missing-key existing' : 'new'} ReShade INI with the equals default`, async t => {
+for (const exists of [false, true]) test(`native install records and restores a ${exists ? 'missing-key existing' : 'new'} ReShade INI with the Home default`, async t => {
   const f = fixture(t), original = '[STYLE]\r\nFont=User font\r\n';
   if (exists) fs.writeFileSync(f.ini, original); else fs.unlinkSync(f.ini);
   const p = await f.policy();
   assert.equal(p.configEdit.beforeSha256, exists ? sha256(f.ini) : null);
-  assert.match(p.configEdit.afterText, /KeyOverlay=187,0,0,0/);
+  assert.match(p.configEdit.afterText, /KeyOverlay=36,0,0,0/);
   assert.equal(fs.existsSync(f.ini), exists, 'preview never creates the default config');
   await f.install(p); assert.equal(sha256(f.ini), p.configEdit.afterSha256);
   assert.equal(readManifest(f.gameDir).addonConfigOriginal.existed === false, !exists);
@@ -191,7 +191,7 @@ for (const exists of [false, true]) test(`native install records and restores a 
 
 test('native defaults retain subsequent personal edits to a newly created ReShade INI on restore', async t => {
   const f = fixture(t); fs.unlinkSync(f.ini); await f.install(await f.policy());
-  const personal = fs.readFileSync(f.ini, 'utf8').replace('187,0,0,0', '121,1,0,1') + '[STYLE]\nFont=Personal\n';
+  const personal = fs.readFileSync(f.ini, 'utf8').replace('36,0,0,0', '121,1,0,1') + '[STYLE]\nFont=Personal\n';
   fs.writeFileSync(f.ini, personal);
   const result = await f.restore(); assert.ok(result.warnings.some(row => row.code === 'CONFIG_EDITED_RETAINED'));
   assert.equal(fs.readFileSync(f.ini, 'utf8'), personal);

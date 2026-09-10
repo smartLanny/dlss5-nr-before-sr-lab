@@ -53,7 +53,7 @@ test('prepare atomically publishes an EXE/package-bound external profile and mut
   assert.equal(path.dirname(path.dirname(prepared.basePath)), f.service.runtimeRoot);
   assert.equal(fs.existsSync(path.join(prepared.basePath, 'ReShade64.dll')), true);
   assert.equal(fs.existsSync(path.join(f.game, 'ReShade64.dll')), false);
-  assert.match(fs.readFileSync(path.join(prepared.basePath, 'ReShade.ini'), 'utf8'), /KeyOverlay=187,0,0,0/);
+  assert.match(fs.readFileSync(path.join(prepared.basePath, 'ReShade.ini'), 'utf8'), /KeyOverlay=36,0,0,0/);
   assert.equal(fs.readFileSync(path.join(f.packageRoot, 'ReShade.ini'), 'utf8'), f.contents['ReShade.ini'], 'the pinned source template stays unchanged');
 
   fs.writeFileSync(path.join(prepared.basePath, 'ReShade.ini'), '[INSTALL]\nBasePath=user-choice\n');
@@ -66,7 +66,7 @@ test('prepare atomically publishes an EXE/package-bound external profile and mut
   assert.match(fs.readFileSync(path.join(prepared.basePath, 'ReShade.ini'), 'utf8'), /user-choice/);
 });
 
-test('Vulkan first-install preview hashes the equals default and respects an explicit source key or existing user key', async t => {
+test('Vulkan first-install preview hashes the Home default and respects an explicit source key or existing user key', async t => {
   for (const custom of [false, true]) {
     const f = fixture(t);
     if (custom) {
@@ -80,7 +80,7 @@ test('Vulkan first-install preview hashes the equals default and respects an exp
     const installed = await f.service.prepare({ exe: f.exe, packageRoot: f.packageRoot, recipe: f.recipe });
     const ini = path.join(installed.basePath, 'ReShade.ini'), bytes = fs.readFileSync(ini);
     assert.equal(hash(bytes), proposed.afterSha256);
-    assert.match(bytes.toString(), custom ? /KeyOverlay=120,1,0,1/ : /KeyOverlay=187,0,0,0/);
+    assert.match(bytes.toString(), custom ? /KeyOverlay=120,1,0,1/ : /KeyOverlay=36,0,0,0/);
     const personal = '[INPUT]\nKeyOverlay=36,0,1,0\n'; fs.writeFileSync(ini, personal);
     const reused = await f.service.previewPrepare({ exe: f.exe, packageRoot: f.packageRoot, recipe: f.recipe });
     assert.equal(reused.changes.find(row => row.name === 'ReShade.ini').afterSha256, hash(personal));

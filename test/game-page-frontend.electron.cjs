@@ -8,6 +8,7 @@ const policy = require('../src/product/launch-settings-policy');
 const { installMock, smoke, captureBaseline } = require('./helpers/game-page-beta3-fixture.cjs');
 const { createPolicyFixture } = require('./helpers/game-page-policy-fixture.cjs');
 const { supportedProfileOptions } = require('../src/product/hoyoshade-profiles');
+const { installHoYoMock, smokeHoYo } = require('./helpers/hoyo-page-fixture.cjs');
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'game-page-ui-'));
 const addonPolicyFixture = createPolicyFixture(path.join(temporary, 'native-policy'));
 app.setPath('userData', path.join(temporary, 'profile')); app.disableHardwareAcceleration();
@@ -29,7 +30,8 @@ const features = { on40: { sr: featureFixture('RTX40', 'sr'), fg: featureFixture
   activationOffSr: featureFixture('RTX40', 'sr', 'off'), noMfgContract: featureFixture('RTX40', 'fg', 'on', true, false),
   hoyoProfiles: supportedProfileOptions({ exe: path.join(temporary, 'hoyo', 'StarRail.exe') }) };
 const captureOnly = process.env.GAME_UI_CAPTURE_ONLY === '1';
-const preload = path.join(temporary, 'preload.cjs'); fs.writeFileSync(preload, `(${installMock.toString()})(${JSON.stringify(features)},${JSON.stringify({ captureOnly, paths: addonPolicyFixture.paths })});`);
+const hoyoMode = process.env.GAME_UI_HOYO === '1';
+const preload = path.join(temporary, 'preload.cjs'); fs.writeFileSync(preload, `(${installMock.toString()})(${JSON.stringify(features)},${JSON.stringify({ captureOnly: captureOnly || hoyoMode, paths: addonPolicyFixture.paths })});${hoyoMode ? `(${installHoYoMock.toString()})();` : ''}`);
 let win;
 ipcMain.handle('game-page-fixture-sr-plan', (event, request, hardware) => {
   if (event.sender !== win?.webContents) throw Error('unexpected fixture renderer');
@@ -54,7 +56,7 @@ app.whenReady().then(async () => {
     await win.loadFile(path.resolve(__dirname, '../src/renderer/index.html'));
     const selectedTab = process.env.GAME_UI_TAB || 'overview';
     if (!['overview', 'enhance', 'maintenance'].includes(selectedTab)) throw Error('Unknown screenshot tab');
-    const result = await win.webContents.executeJavaScript(`(${(captureOnly ? captureBaseline : smoke).toString()})(${JSON.stringify({ tab: selectedTab, diagnostics: process.env.GAME_UI_DIAGNOSTICS === '1' })})`);
+    const result = await win.webContents.executeJavaScript(`(${(hoyoMode ? smokeHoYo : captureOnly ? captureBaseline : smoke).toString()})(${JSON.stringify({ tab: selectedTab, diagnostics: process.env.GAME_UI_DIAGNOSTICS === '1', dirty: process.env.GAME_UI_DIRTY === '1' })})`);
     if (!captureOnly && process.env.GAME_UI_TAB) {
       const selected = process.env.GAME_UI_TAB; if (!['overview', 'enhance', 'maintenance'].includes(selected)) throw Error('Unknown screenshot tab');
       await win.webContents.executeJavaScript(`document.querySelector('.game-card.expanded [data-gp-tab="${selected}"]').click()`);

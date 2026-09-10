@@ -50,8 +50,10 @@ function createGameAssessment({ service, coordinator, environment, operations, l
         optional('componentChoices', () => service.componentChoices?.(id), null)
       ]);
       const nativeIntegration = inspectNativeEnhancementCapabilities(scan);
-      const owned = Boolean(game.installed || currentLayout?.source === 'xiaofeng-external-runtime' ||
-        ['feeder', 'vulkan'].includes(currentLayout?.source));
+      const layoutFailed = !currentLayout || currentLayout.needsRecovery === true || Boolean(currentLayout.blockers?.length) ||
+        failures.some(row => row.section === 'layout');
+      const owned = !layoutFailed && Boolean(game.installed || currentLayout?.source === 'xiaofeng-external-runtime' ||
+        ['feeder', 'vulkan', 'hoyoshade-profile'].includes(currentLayout?.source));
       const publicGame = { ...game, installed: owned, addonVersion: currentLayout?.version || game.addonVersion || null,
         nativeDlssAvailable: game.nativeDlssAvailable ?? nativeIntegration.nativeDlssAvailable,
         nativeFgAvailable: game.nativeFgAvailable ?? nativeIntegration.nativeFgAvailable };
@@ -60,7 +62,8 @@ function createGameAssessment({ service, coordinator, environment, operations, l
         deployment: owned ? currentLayout?.mode || 'local' : 'local', loadingMode: owned ? currentLayout?.loadingMode || 'proxy' : 'proxy',
         ...defaults, effectiveApi: selection.effectiveApi, requiresApiSelection: selection.requiresManualSelection };
       const deployment = { ...currentLayout, installed: owned, version: publicGame.addonVersion,
-        pending: Boolean(currentLayout?.needsRecovery), inspection: 'summary', layoutVerified: currentLayout?.verified === true,
+        pending: layoutFailed || Boolean(currentLayout?.needsRecovery), needsRecovery: layoutFailed || currentLayout?.needsRecovery === true,
+        inspection: 'summary', layoutVerified: currentLayout?.verified === true,
         verified: false, filesVerified: false, runtimeVerified: false };
       Object.assign(value, { game: publicGame, api, hardware: hardware(), nativeIntegration, layout: currentLayout,
         deployment, defaults: resolvedDefaults, coreVersions, componentChoices, nr, hotkeys, operation, launch: { ...launch, session: currentSession },

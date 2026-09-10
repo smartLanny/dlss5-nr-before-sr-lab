@@ -56,6 +56,8 @@ test('first external deployment handles Palworld missing directories without act
   assert.equal(fs.readFileSync(path.join(f.dir, 'renodx-ue-extended.addon64'), 'utf8'), 'inactive root HDR');
   assert.equal(fs.readFileSync(path.join(f.dir, INSTALLED_NAMES.runtime), 'utf8'), 'payload:runtime');
   const active = fs.readFileSync(layout.activeConfigPath, 'utf8');
+  assert.match(active, /KeyOverlay=36,0,0,0/);
+  assert.equal(JSON.parse(fs.readFileSync(f.receipt)).panelDefaultKey, 36);
   assert.equal(addonValues(active).get('AddonPath')[0], '.');
   assert.equal(addonValues(active, 'GENERAL').get('PresetPath')[0], path.join(f.dir, 'ReShadePreset.ini'));
   assert.match(active, /DisabledAddons=Generic Depth,User HDR@hdr.addon64/); assert.match(active, /HdrOverlayBrightness=203/);
@@ -161,7 +163,7 @@ test('direct clean archives a replaced proxy while restore restores it; an ident
   }
 });
 
-test('direct standard layout converts to an owned ordinary install and its ordinary restore remains valid', async t => {
+for (const historicalEquals of [false, true]) test(`direct standard layout (${historicalEquals ? 'historical equals' : 'new Home'}) converts to an owned ordinary install and its ordinary restore remains valid`, async t => {
   const f = fixture(t), localIni = f.original.replace('AddonPath=.\\addon', 'AddonPath=.');
   fs.writeFileSync(path.join(f.dir, 'ReShade.ini'), localIni);
   fs.unlinkSync(path.join(f.dir, INSTALLED_NAMES.runtime));
@@ -170,6 +172,12 @@ test('direct standard layout converts to an owned ordinary install and its ordin
     path: row.path, sha256: row.sha256, configFingerprint: initial.compatibility.configFingerprint })) });
   await f.service.apply(first.planId);
   const external = f.service.getLayout(f.game);
+  if (historicalEquals) {
+    const saved = JSON.parse(fs.readFileSync(f.receipt)); delete saved.panelDefaultKey;
+    fs.writeFileSync(external.activeConfigPath, fs.readFileSync(external.activeConfigPath, 'utf8').replace('KeyOverlay=36,0,0,0', 'KeyOverlay=187,0,0,0'));
+    fs.writeFileSync(f.receipt, JSON.stringify(saved));
+    assert.equal((await f.service.inspect(f.game)).ready, true);
+  }
   fs.writeFileSync(path.join(external.runtimeDir, INSTALLED_NAMES.config), '[NRBeforeSR]\nIntensity=1.7\n');
   const local = await f.service.preview(f.game, { mode: 'local' });
   assert.ok(local.changes.some(row => row.role === 'manifest'));

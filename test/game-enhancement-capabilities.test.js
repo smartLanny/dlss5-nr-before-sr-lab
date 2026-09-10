@@ -48,6 +48,8 @@ test('unreadable activation is advisory and user statements cannot create suppor
   assert.equal(confirmed.state, 'configurable'); assert.equal(confirmed.canConfirm, false);
   assert.deepEqual(confirmed.actual, { state: 'unknown', source: null });
   assert.equal(confirmed.evidence.confirmation, null); assert.equal(confirmed.activation.state, 'unknown');
+  assert.equal(confirmed.warnings.some(row => row.message === confirmed.activation.message), false);
+  assert.doesNotMatch(confirmed.activation.message, /先正常运行|首次运行/);
   value.game.support = { status: 'unknown' };
   assert.equal(assessEnhancementState(value).eligible, false);
 });
@@ -71,4 +73,32 @@ test('GPU and driver read failures remain missing evidence without masquerading 
   const result = assessEnhancementState(value);
   assert.equal(result.eligible, false); assert.equal(result.canConfirm, false);
   assert.equal(result.blockers.some(row => row.code === 'SETTINGS_GAME_UNSUPPORTED'), false);
+});
+
+test('official game modes are intersected with driver capability before they appear as selectable', () => {
+  const value = input(); value.driver = { ...value.driver, version: 58000 };
+  const older = assessEnhancementState(value);
+  assert.equal(older.eligible, true); assert.deepEqual(older.availableMultipliers, [2, 3, 4]);
+  assert.equal(older.availableModes.includes('dynamic'), false);
+  assert.equal(older.capabilityOptions.multipliers.find(row => row.value === 6).code, 'SETTINGS_DRIVER_VERSION_UNCONFIRMED');
+  value.request = { backend: 'nvidia', mode: 'fixed', multiplier: 6 };
+  assert.ok(assessEnhancementState(value).blockers.some(row => row.code === 'SETTINGS_DRIVER_VERSION_UNCONFIRMED'));
+  value.driver.version = 59579;
+  const current = assessEnhancementState(value);
+  assert.equal(current.eligible, true); assert.deepEqual(current.availableMultipliers, [2, 3, 4, 5, 6]);
+  assert.equal(current.availableModes.includes('dynamic'), true); assert.equal(current.runtimeVerified, false);
+  value.request.requiredSettingIds = [1234];
+  const missing = assessEnhancementState(value);
+  assert.deepEqual(missing.availableMultipliers, []);
+  assert.ok(missing.capabilityOptions.modes.every(row => row.code === 'SETTINGS_DRIVER_SETTINGS_UNKNOWN'));
+});
+
+test('missing game capability remains distinct from an old driver or an unread game switch', () => {
+  const value = input(); value.game.support = { status: 'supported', source: 'native-integration', capabilities: { multipliers: [2], dynamic: false } };
+  value.game.gameSetting = { state: 'on', source: 'game-config' };
+  const result = assessEnhancementState(value);
+  assert.deepEqual(result.availableMultipliers, [2]);
+  assert.equal(result.capabilityOptions.multipliers.find(row => row.value === 4).code, 'SETTINGS_MULTIPLIER_UNCONFIRMED');
+  assert.equal(result.capabilityOptions.modes.find(row => row.value === 'dynamic').code, 'SETTINGS_MODE_UNSUPPORTED');
+  assert.equal(result.activation.state, 'on'); assert.equal(result.runtimeVerified, false);
 });

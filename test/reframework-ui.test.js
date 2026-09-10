@@ -119,8 +119,8 @@ test('0.4.7 beta labels retain the beta marker', () => {
   const context = {};
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('function coreVersionLabel('), source.indexOf('function catalogReplacement(')), context);
-  assert.equal(vm.runInContext("coreVersionLabel('0.4.7beta')", context), 'beta0.4.7');
-  assert.equal(vm.runInContext("coreVersionLabel('0.4.7-beta')", context), 'beta0.4.7');
+  assert.equal(vm.runInContext("coreVersionLabel('0.4.7beta')", context), '0.4.7beta');
+  assert.equal(vm.runInContext("coreVersionLabel('0.4.7-beta')", context), '0.4.7beta');
   assert.equal(vm.runInContext("coreVersionLabel('0.4.6-hotfix.1')", context), '0.4.6-hotfix.1 · Beta');
   assert.equal(vm.runInContext("coreVersionLabel('0.2.0-beta.2')", context), '0.2.0');
 });
@@ -134,10 +134,10 @@ test('beta0.4.7 is selectable for both DX11 and DX12 with its matching companion
   vm.runInContext(source.slice(source.indexOf('function coreVersionLabel('), source.indexOf('function poster(')), context);
   context.game = { chosen: { apiResolution: { api: 'dx11' } } };
   const dx11 = vm.runInContext("versionOptionsMarkup('0.4.6-hotfix.1', false, game)", context);
-  assert.match(dx11, /value="0\.4\.7beta">beta0\.4\.7/);
+  assert.match(dx11, /value="0\.4\.7beta">0\.4\.7beta/);
   assert.doesNotMatch(dx11, /仅原生 DX12|0\.4\.7beta"[^>]*disabled/);
   context.game.chosen.apiResolution.api = 'dx12';
   const dx12 = vm.runInContext("versionOptionsMarkup('0.4.7beta', false, game)", context);
-  assert.match(dx12, /value="0\.4\.7beta" selected>beta0\.4\.7/);
+  assert.match(dx12, /value="0\.4\.7beta" selected>0\.4\.7beta/);
   assert.doesNotMatch(dx12, /0\.4\.7beta"[^>]*disabled/);
 });

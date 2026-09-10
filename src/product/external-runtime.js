@@ -1,6 +1,6 @@
 'use strict';
 const fs = require('node:fs');
-const { ensureDefaultReShadeHotkey, hasKeyOverlay } = require('./hotkeys');
+const { DEFAULT_RESHADE_KEY, PREVIOUS_RESHADE_DEFAULT_KEY, MANAGED_RESHADE_DEFAULT_KEYS, ensureDefaultReShadeHotkey, hasKeyOverlay } = require('./hotkeys');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -87,9 +87,15 @@ function createExternalRuntime(options) {
     const binding = recovering && interrupted ? interrupted : previous;
     const profileId = binding?.exe && key(binding.exe) === key(exe) ? binding.profileId : undefined;
     if (profileId !== undefined && !UUID.test(profileId)) fail('RECORD', '外置运行目录代次无效。');
+    const expectedRuntime = path.join(ownerRoot, profileId ? 'active-' + profileId : 'active');
+    // Windows path identity ignores case, while the INI byte hash does not.
+    // Keep the validated receipt spelling so a worker cannot rewrite the
+    // original loader configuration merely by normalizing userData casing.
+    const runtimeDir = typeof binding?.runtimeDir === 'string' && path.isAbsolute(binding.runtimeDir) &&
+      key(binding.runtimeDir) === key(expectedRuntime) ? binding.runtimeDir : expectedRuntime;
     return { id, gameId: game.id, gameRoot, exe, dir: path.dirname(exe), ownerRoot,
       profileId, sourceBinding: binding?.sourceBinding,
-      runtimeDir: path.join(ownerRoot, profileId ? 'active-' + profileId : 'active'), receipt: path.join(gameRoot, RECEIPT), pending: path.join(gameRoot, PENDING) };
+      runtimeDir, receipt: path.join(gameRoot, RECEIPT), pending: path.join(gameRoot, PENDING) };
   }
   function allowed(t, file, role) {
     const absolute = path.resolve(file);
@@ -128,6 +134,7 @@ function createExternalRuntime(options) {
     if (value.proxyBaseline && (!/^(?:dxgi|d3d12)\.dll$/.test(value.proxyBaseline.name || '') || !HASH.test(value.proxyBaseline.sha256 || '')))
       fail('RECORD', '原加载入口记录无效。');
     if (value.panelDefaultAdded !== undefined && typeof value.panelDefaultAdded !== 'boolean') fail('RECORD', '外置面板默认键记录无效。');
+    if (value.panelDefaultKey !== undefined && !MANAGED_RESHADE_DEFAULT_KEYS.includes(value.panelDefaultKey)) fail('RECORD', '外置面板默认键版本无效。');
     if (value.origin !== undefined && !['direct', 'direct_hoyo'].includes(value.origin)) fail('RECORD', '外置来源记录无效。');
     if (value.hoyoProfile && (!validHoYoProfile(value.hoyoProfile, t.exe) || !HASH.test(value.profileGeneration || '') ||
         value.mode === 'external' && value.loadingMode !== 'helper')) fail('RECORD', '米哈游客户端绑定与部署记录不一致。');
@@ -139,7 +146,8 @@ function createExternalRuntime(options) {
       const initial = readJson(path.join(t.ownerRoot, 'history', value.initialOperation, 'operation.json'));
       const config = initial?.files?.find(row => row.role === 'reshade-config' && key(row.file) === key(path.join(t.dir, 'ReShade.ini')));
       const loader = initial?.files?.find(row => row.role === 'profile-loader' && key(row.file) === key(path.join(t.runtimeDir, 'ReShade64.dll')));
-      if (!initial || initial.product !== PRODUCT || initial.id !== t.id || key(initial.exe || '.') !== key(t.exe) ||
+      if (!initial || initial.product !== PRODUCT || initial.operation !== value.initialOperation || initial.id !== t.id || key(initial.exe || '.') !== key(t.exe) ||
+          key(initial.gameRoot || '.') !== key(t.gameRoot) ||
           (initial.profileId || null) !== (value.profileId || null) || !config || !loader || loader.after !== HOYO_RECIPE.loaderSha256 ||
           config.before !== (value.originalConfigExisted ? hash(Buffer.from(value.originalReShadeConfig)) : null) ||
           config.after !== hash(Buffer.from(loaderConfig(value.originalReShadeConfig, t.runtimeDir))) ||
@@ -628,9 +636,22 @@ function createExternalRuntime(options) {
         fail('PROFILE_EXISTS', '旧停用运行文件身份发生变化，未接管或移动。', { file: row.file });
     }
     const logs = new Set(['nr-before-sr.log', 'nr-before-sr.previous.log', 'reshade.log']);
+    async function emptyShaderTree(directory, budget = { remaining: 128 }, depth = 0) {
+      if (depth > 8 || --budget.remaining < 0) return false;
+      noLinksSync(directory);
+      for (const entry of await fsp.readdir(directory, { withFileTypes: true })) {
+        const child = path.join(directory, entry.name); noLinksSync(child);
+        if (!entry.isDirectory() || !await emptyShaderTree(child, budget, depth + 1)) return false;
+      }
+      return true;
+    }
     for (const entry of await fsp.readdir(t.runtimeDir, { withFileTypes: true })) {
       const file = path.join(t.runtimeDir, entry.name); noLinksSync(file);
       if (entry.name === '_DLSS5_Backup' && entry.isDirectory()) continue;
+      // Feeder restores its owned shader files but deliberately leaves empty
+      // parent directories. They stay in the inactive profile; the next
+      // installation uses a new generation and never adopts their contents.
+      if (entry.name.toLowerCase() === 'reshade-shaders' && entry.isDirectory() && await emptyShaderTree(file)) continue;
       if (entry.isFile() && (expected.has(entry.name.toLowerCase()) || logs.has(entry.name.toLowerCase()))) continue;
       fail('PROFILE_EXISTS', '旧外置目录含未归属的额外文件，已保留现状。', { file });
     }
@@ -743,6 +764,7 @@ function createExternalRuntime(options) {
         profileGeneration: hash(Buffer.from(JSON.stringify({ owner: t.id, profileId: t.profileId || null, binding: request.hoyoProfile.bindingId, source: source.snapshot.fingerprint }))) } : {}),
       sourceBinding: source.binding, isolatedAddons, compatibility: source.compatibility,
       panelDefaultAdded: !hasKeyOverlay(profile.config),
+      panelDefaultKey: DEFAULT_RESHADE_KEY,
       ...(!hoyo ? { initialProxy: { name: proxy.name, before: proxyBefore, after: proxy.sha256, owned: proxyBefore !== proxy.sha256, snapshot: `before/${proxyIndex}.bin` } } : {}),
       ...(retiredProxy ? { retiredProxy } : {}),
       localManifest: manifest, currentManifest: structuredClone(manifest), sourceLayout: profile.configured,
@@ -815,7 +837,8 @@ function createExternalRuntime(options) {
       manifest.files.push(entry); manifest.reshadeRoute = path.basename(proxyFile, '.dll');
     }
     const currentConfig = await fsp.readFile(path.join(t.runtimeDir, 'ReShade.ini'), 'utf8');
-    const restoredConfig = localConfig(currentConfig, saved.originalReShadeConfig, t.dir, options.environment || process.env, { panelDefaultAdded: saved.panelDefaultAdded === true });
+    const restoredConfig = localConfig(currentConfig, saved.originalReShadeConfig, t.dir, options.environment || process.env,
+      { panelDefaultAdded: saved.panelDefaultAdded === true, panelDefaultKey: saved.panelDefaultKey ?? PREVIOUS_RESHADE_DEFAULT_KEY });
     await change(path.join(t.dir, 'ReShade.ini'), 'reshade-config', null, restoredConfig || saved.originalConfigExisted ? restoredConfig : undefined, null);
     await change(manifestPath(t.gameRoot), 'manifest', null, jsonBytes(manifest));
     for (const row of saved.files) await change(path.join(t.runtimeDir, row.name), row.role, null, undefined, null);
@@ -962,7 +985,8 @@ function createExternalRuntime(options) {
         after: value !== undefined ? hash(value) : after });
     }
     const toExternal = request.mode === 'external', activeConfig = toExternal ? external ? currentConfig : ensureDefaultReShadeHotkey(externalConfig(originalConfig, t.dir))
-      : localConfig(currentConfig, originalConfig, t.dir, options.environment || process.env, { panelDefaultAdded: saved?.panelDefaultAdded === true });
+      : localConfig(currentConfig, originalConfig, t.dir, options.environment || process.env,
+        { panelDefaultAdded: saved?.panelDefaultAdded === true, panelDefaultKey: saved?.panelDefaultKey ?? PREVIOUS_RESHADE_DEFAULT_KEY });
     if (toExternal) {
       for (const row of rows) await change(path.join(t.runtimeDir, row.name), row.role, row.source, undefined, row.sha256);
       await change(path.join(t.runtimeDir, 'ReShade.ini'), 'reshade-config', null, activeConfig);
@@ -1003,6 +1027,7 @@ function createExternalRuntime(options) {
       profileId: t.profileId,
       generation: operation, mode: request.mode, loadingMode, proxy, proxyBaseline, api, payloadVersion, updatedAt: new Date().toISOString(),
       panelDefaultAdded: external ? saved.panelDefaultAdded === true : toExternal && !hasKeyOverlay(originalConfig),
+      panelDefaultKey: external ? saved.panelDefaultKey ?? PREVIOUS_RESHADE_DEFAULT_KEY : DEFAULT_RESHADE_KEY,
       localManifest: saved?.mode === 'external' ? saved.localManifest : manifest, currentManifest,
       sourceLayout: saved?.mode === 'external' && saved.sourceLayout || { loaderDir: t.dir, baseDir: t.dir, addonDir: t.dir, activeConfigPath: path.join(t.dir, 'ReShade.ini') },
       originalReShadeConfig: originalConfig, originalConfigExisted, loaderConfigHash: hash(Buffer.from(rootConfig)),

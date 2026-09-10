@@ -50,6 +50,15 @@ test('installation uses the cached seed and metadata catalog without reading dia
   assert.equal(result.coreVersions[1].comparisonOnly, true); assert.deepEqual(result.coreVersions[1].compatibilityEvidence, f.catalog[1].compatibilityEvidence);
 });
 
+test('an unreadable deployment cannot promote stale inventory into installed or ready', async () => {
+  const f = fixture(); f.game.installed = true; f.game.addonVersion = '0.4.7beta';
+  f.service.getLayout = () => { throw Object.assign(new Error('original transaction mismatch'), { code: 'DEPLOYMENT_RECORD' }); };
+  const result = await f.assessment.assess('game', { sections: ['installation'] });
+  assert.equal(result.game.installed, false); assert.equal(result.deployment.installed, false);
+  assert.equal(result.deployment.needsRecovery, true); assert.equal(result.deployment.layoutVerified, false);
+  assert.ok(result.failures.some(row => row.code === 'DEPLOYMENT_RECORD'));
+});
+
 test('slow diagnostic verification does not delay a separate installation request', { timeout: 2000 }, async () => {
   const f = fixture(); let release;
   const gate = new Promise(resolve => { release = resolve; });

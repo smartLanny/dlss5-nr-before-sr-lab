@@ -18,7 +18,7 @@ const { snapshotAddonLoadingLayout } = require('./addon-loading-layout');
 const { planAddonCompatibility } = require('./addon-compatibility');
 const { isProtectedName } = require('./conflicts');
 const ini = require('./launch-ini');
-const { DEFAULT_RESHADE_KEY, ensureDefaultReShadeHotkey, hasKeyOverlay } = require('./hotkeys');
+const { DEFAULT_RESHADE_KEY, MANAGED_RESHADE_DEFAULT_KEYS, ensureDefaultReShadeHotkey, hasKeyOverlay } = require('./hotkeys');
 
 const PRODUCT = 'xiaofeng-feeder-0151';
 const PENDING = '_DLSS5_Backup/xiaofeng-feeder-v2-pending.json';
@@ -93,7 +93,10 @@ function sameConfigValue(row, actual, expected, record) {
   const base = path.dirname(record.path);
   return same(path.resolve(base, actual), path.resolve(base, expected));
 }
-function configure(text, layout, recipe, seedText = text, { legacyDefaults = false } = {}) {
+function panelOptions(config) {
+  return { legacyDefaults: Boolean(config && config.panelDefault === undefined), panelDefault: config?.panelDefault ?? DEFAULT_RESHADE_KEY };
+}
+function configure(text, layout, recipe, seedText = text, { legacyDefaults = false, panelDefault = DEFAULT_RESHADE_KEY } = {}) {
   let result = seedText; const deltas = [];
   const settings = [
     ['ADDON', 'AddonPath', layout.addonDirectory, false],
@@ -101,7 +104,7 @@ function configure(text, layout, recipe, seedText = text, { legacyDefaults = fal
     ['GENERAL', 'TextureSearchPaths', path.join(layout.runtimeDir, 'reshade-shaders', 'Textures') + path.sep + '**', true],
     ['GENERAL', 'PresetPath', path.join(layout.runtimeDir, 'ReShadePreset.ini'), false],
     ['GENERAL', 'PreprocessorDefinitions', recipe.defaults.definitions, true],
-    ...(!legacyDefaults && !hasKeyOverlay(seedText) ? [['INPUT', 'KeyOverlay', `${DEFAULT_RESHADE_KEY},0,0,0`, false]] : []),
+    ...(!legacyDefaults && !hasKeyOverlay(seedText) ? [['INPUT', 'KeyOverlay', `${panelDefault},0,0,0`, false]] : []),
     ...(recipe.gameApi === 'dx9' ? [['GENERAL', 'NoReloadOnInit', '1', false]] : [])
   ];
   for (const [section, name, desired, list] of settings) {
@@ -128,7 +131,7 @@ function configure(text, layout, recipe, seedText = text, { legacyDefaults = fal
     deltas.push({ section, name, before, after, list, removed: a.filter(value => !b.includes(value)), added: b.filter(value => !a.includes(value)) });
   }
   return { text: result, deltas, seedText, beforeText: text, beforeHash: sha(Buffer.from(text)), afterHash: sha(Buffer.from(result)),
-    ...(!legacyDefaults ? { panelDefault: DEFAULT_RESHADE_KEY } : {}) };
+    ...(!legacyDefaults ? { panelDefault } : {}) };
 }
 function restoreConfiguration(current, record) {
   if (sha(Buffer.from(current)) === record.afterHash) return { text: record.beforeText, warnings: [] };
@@ -198,11 +201,11 @@ function createLegacyService(options = {}) {
       seed = externalConfig(binding.config, binding.configured.baseDir, binding.environment, { directLoads: directNames });
     }
     if (row.config.seedText !== undefined && row.config.seedText !== seed) fail('RECEIPT', 'ReShade 原路径重映射与源配置不一致。');
-    if (row.config.panelDefault !== undefined && row.config.panelDefault !== DEFAULT_RESHADE_KEY) fail('RECEIPT', 'ReShade 默认键配置版本无效。');
-    const legacyDefaults = row.config.panelDefault === undefined;
-    const expected = configure(row.config.beforeText, row.layout, row.recipe, seed, { legacyDefaults });
+    if (row.config.panelDefault !== undefined && !MANAGED_RESHADE_DEFAULT_KEYS.includes(row.config.panelDefault)) fail('RECEIPT', 'ReShade 默认键配置版本无效。');
+    const specOptions = panelOptions(row.config);
+    const expected = configure(row.config.beforeText, row.layout, row.recipe, seed, specOptions);
     if (expected.afterHash !== row.config.afterHash || fingerprint(expected.deltas) !== fingerprint(row.config.deltas)) fail('RECEIPT', '共享配置恢复范围未匹配固定配置。');
-    const specs = specifications(row.recipe, { legacyDefaults }), seen = new Set();
+    const specs = specifications(row.recipe, specOptions), seen = new Set();
     if (specs.length !== row.files.length) fail('RECEIPT', 'Feeder 收据的组件数量不匹配。');
     for (const item of row.files) {
       const spec = specs.find(value => value.base === item.base && value.target === item.target), file = spec && pathFor(t, row.layout, spec);
@@ -242,13 +245,13 @@ function createLegacyService(options = {}) {
     return row;
   }
   function readReceipt(game) { return validateReceipt(game, regularJson(selected(game).receipt, 1024 * 1024)); }
-  function specifications(recipe, { legacyDefaults = false } = {}) {
+  function specifications(recipe, { legacyDefaults = false, panelDefault = DEFAULT_RESHADE_KEY } = {}) {
     const files = recipe.files.map(row => ({ ...row }));
     const cfg = Buffer.from(recipe.defaults.feeder);
     files.push({ base: 'addon', target: 'dlss5-feed.cfg', role: 'provider-config', mutable: true, sha256: sha(cfg), bytes: cfg.length, content: cfg });
     if (recipe.hostRequired) {
       const original = '[ADDON]\r\nAddonPath=.\\addons\r\n';
-      const data = Buffer.from(legacyDefaults ? original : ensureDefaultReShadeHotkey(original));
+      const data = Buffer.from(legacyDefaults ? original : ensureDefaultReShadeHotkey(original, panelDefault));
       files.push({ base: 'addon', target: 'host64/ReShade.ini', role: 'host-config', mutable: false, sha256: sha(data), bytes: data.length, content: data });
     }
     if (recipe.gameApi === 'dx9') {
@@ -334,7 +337,7 @@ function createLegacyService(options = {}) {
       return planned ? planned.sha256 : currentHash(file);
     };
     const observedConfig = await bytesAt(layout.activeConfigPath);
-    const specOptions = { legacyDefaults: Boolean(old && old.config.panelDefault === undefined) };
+    const specOptions = panelOptions(old?.config);
     const materialized = layout.source === 'local' || observedConfig !== null;
     let migration = null;
     if (materialized) {
@@ -460,7 +463,7 @@ function createLegacyService(options = {}) {
       if (fingerprint(layoutIdentity(layout)) !== fingerprint(layoutIdentity(row.layout))) fail('LAYOUT_CHANGED', '共享加载布局已改变。'); }
     catch (error) { blockers.push(error.message); }
     const components = [];
-    const specs = specifications(row.recipe, { legacyDefaults: row.config.panelDefault === undefined });
+    const specs = specifications(row.recipe, panelOptions(row.config));
     for (const file of [...row.files, ...(row.sourceCopies || [])]) {
       let actual = null; try { actual = await currentHash(file.path); } catch (error) { blockers.push(error.message); }
       let valid = actual !== null && (file.mutable ? (await fsp.stat(file.path)).size <= 256 * 1024 : actual === file.sha256);
@@ -534,7 +537,7 @@ function createLegacyService(options = {}) {
     validateReceipt(game, state.receipt);
     const layout = await layoutFor(game, { layout: state.receipt.layout }, state.receipt.recipe, state.receipt.layout.source !== 'local');
     if (fingerprint(layoutIdentity(layout)) !== fingerprint(layoutIdentity(state.receipt.layout))) fail('RECOVERY', '恢复记录的共享布局不匹配。');
-    const specs = new Map(specifications(state.receipt.recipe, { legacyDefaults: state.receipt.config.panelDefault === undefined }).map(spec => [key(pathFor(t, layout, spec)), spec]));
+    const specs = new Map(specifications(state.receipt.recipe, panelOptions(state.receipt.config)).map(spec => [key(pathFor(t, layout, spec)), spec]));
     const allowed = new Set(specs.keys());
     for (const row of [...(state.receipt.sourceCopies || []), ...(state.receipt.isolatedAddons || [])]) allowed.add(key(row.path));
     allowed.add(key(t.receipt)); allowed.add(key(layout.activeConfigPath)); const seen = new Set();
@@ -686,7 +689,7 @@ function createLegacyService(options = {}) {
     const layout = await layoutFor(game, { layout: row.layout }, row.recipe, row.layout.source !== 'local');
     if (fingerprint(layoutIdentity(layout)) !== fingerprint(layoutIdentity(row.layout))) fail('LAYOUT_CHANGED', 'Feeder 恢复布局与原记录不同。');
     await assertNoOtherOwner(t, layout); const changes = [], warnings = [];
-    const specs = specifications(row.recipe, { legacyDefaults: row.config.panelDefault === undefined });
+    const specs = specifications(row.recipe, panelOptions(row.config));
     for (const item of [...row.files].reverse()) {
       const before = await currentHash(item.path), spec = specs.find(value => value.base === item.base && value.target === item.target);
       const hostSaved = Boolean(before && before !== item.sha256 && isHostConfiguration(spec) && savedHostConfiguration(spec, await hostConfigurationBytes(item.path)));
