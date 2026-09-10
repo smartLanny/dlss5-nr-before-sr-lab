@@ -77,7 +77,7 @@ INTEGRATION_CORE_PINS = {
     'src/nr_compatibility_verdict_feedback.inl': 'e2d233a67c8a7aa6e3aefc99cce596e57e730da3',
     'src/nr_diagnostic_bundle.inl': '3eea8e899aef4f54ab0da40ac758c2afe0a0c10b',
     'src/nr_exposure_semantic_evidence.inl': '405c6e41036bfcc9ac088541cbc9e61831ad7a13',
-    'src/nr_feedback_limits.h': '001a8c371fe16dd459368b75d23c2650d98dbf64',
+    'src/nr_feedback_limits.h': 'e22b258f4c26532c41ce090771b2d5e94a80a487',
     'src/nr_feedback_report.inl': '07ac914f64d1361cda0d1b4301077247d05bccfa',
     'src/nr_native_format.h': '6e2ed15171f527c0c8a0c5aeb0e696d0a4aa7d5d',
     'src/nr_native_format_hooks.inl': 'd46fda45d79373fca914e38e211edbeaaa524f87',
