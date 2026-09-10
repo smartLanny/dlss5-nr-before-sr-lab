@@ -413,7 +413,40 @@ function createMfgUnlockComponents(options = {}) {
       return { restored: true, retained: row.mode === 'adopted' ? [row.rel] : [], originalsRestored: row.mode === 'replaced' ? [row.rel] : [], runtimeVerified: false };
     });
   }
+  async function noOwnershipInUnverifiedLayout(id) {
+    if (typeof options.getLayout !== 'function') return false;
+    function scopes() {
+      const original = target(id, true), layout = options.getLayout(id);
+      if (layout?.verified !== false || layout.needsRecovery || ['vulkan', 'feeder'].includes(layout.source)) return null;
+      if (!same(layout.exe, original.exe) || !['local', 'external'].includes(layout.mode) ||
+          typeof layout.addonDirectory !== 'string' || !path.isAbsolute(layout.addonDirectory) ||
+          typeof layout.activeConfigPath !== 'string' || !path.isAbsolute(layout.activeConfigPath) ||
+          layout.runtimeDir !== undefined && (typeof layout.runtimeDir !== 'string' || !path.isAbsolute(layout.runtimeDir)))
+        fail('SETTINGS_FG_LAYOUT_UNVERIFIED', '尚未确认此游戏实际使用的 ReShade Add-on 与配置目录。');
+      const roots = [...new Map([original.sourceGame, original.exeDir, layout.runtimeDir, layout.addonDirectory, path.dirname(layout.activeConfigPath)]
+        .filter(Boolean).map(root => [path.resolve(root).toLowerCase(), path.resolve(root)])).values()];
+      return { roots, identity: JSON.stringify([original.sourceGame.toLowerCase(), original.exe.toLowerCase(), layout.source, layout.mode,
+        ...roots.map(root => root.toLowerCase()), path.resolve(layout.activeConfigPath).toLowerCase()]) };
+    }
+    const before = scopes(); if (!before) return false;
+    // This proves only that this read-only query has no component owner to
+    // report. An unverified layout never becomes an MFG write/recovery target.
+    // Inspect fixed metadata names in at most five independently known scopes;
+    // neither directory contents nor receipt fields can add search roots.
+    for (const game of before.roots) {
+      for (const file of [receiptFile({ game }), migrations.recordFile({ game }), journal.pendingPath(game)]) {
+        await noLinks(file);
+        try { await fsp.lstat(file); return false; }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+    }
+    const after = scopes();
+    if (!after || after.identity !== before.identity)
+      fail('SETTINGS_FG_LAYOUT_UNVERIFIED', 'ReShade 目录在 FG 归属检查期间改变，请重新检查。');
+    return true;
+  }
   async function ownedModuleManifest(id) {
+    if (await noOwnershipInUnverifiedLayout(id)) return [];
     const context = await recoveryContext(id), t = context.t;
     if (context.special && !context.applicable) return [];
     if (context.special) fail('SETTINGS_FG_UNSUPPORTED', '专属运行路线的旧 FG 记录仅供恢复，不能用作当前加载允许清单。');
