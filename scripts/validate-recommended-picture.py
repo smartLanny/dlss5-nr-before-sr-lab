@@ -36,6 +36,9 @@ FIELDS = {
  'light_reflection':'LightReflection', 'light_structure':'LightStructure', 'light_glow':'LightGlow',
  'light_style_version':'LightStyleVersion','light_preset':'LightPreset','light_preset_color':'LightPresetColor',
  'light_preview':None, 'light_control_mode':'LightControlMode',
+ 'region_version':'RegionCompositionVersion','region_enabled':'RegionComposition','region_preview':None,
+ 'face_protection_version':'FaceProtectionVersion','face_protection':'FaceProtection',
+ 'face_extra_cap':'FaceExtraCap','face_original_luma':'FaceOriginalLuma','face_original_color':'FaceOriginalColor','face_preview':None,
 }
 LIGHT_FIELDS={k for k in FIELDS if k.startswith('light_')}
 PRESERVED={'enabled','depth_mode','r8_output_encoding','jitter_mode','perf_epoch'}
@@ -103,7 +106,13 @@ def main():
   expected=f'static_cast<decltype(c.{field})>({recommended})'
   dirty.append(f'c.{field}=static_cast<decltype(c.{field})>(({number})==0?1:0);')
   checks.append(f'check(c.{field}=={expected},"INI default {key}");')
+ assert re.search(r'float\s+region_gains\[11\]',struct)
+ for index in range(11):
+  assert values[f'RegionGain{index}']=='1.0'
+  dirty.append(f'c.region_gains[{index}]=3.f;')
+  checks.append(f'check(c.region_gains[{index}]==1.f,"neutral region gain {index}");')
  code=r'''#include <cstdio>
+#include <algorithm>
 #include <initializer_list>
 #include "nr_light_style.h"
 enum class NrJitterMode {Legacy=0,GameInputPixel=1};
