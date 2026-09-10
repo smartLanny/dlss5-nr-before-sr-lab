@@ -266,13 +266,30 @@ void NativeClearRequests() {
     Check(exact && !exact.clear_source,"existing typed-resource resolution does not acquire a Clear dependency");
     const auto prepared=resolved.clear_request;
     nr_native_clear::Invocation fresh;
-    NrCallNativeWithFormatObservation(clear,&native_list,&handle,&params.base,nullptr,800,&fresh);
+    NrCallNativeWithFormatObservation(clear,&native_list,&handle,&params.base,nullptr,800,&fresh,&prepared);
+    const auto pending_gate=SnapshotNrNativeClearGate();
+    Check(pending_gate.required && !pending_gate.evaluated && !pending_gate.accepted && pending_gate.current_scope &&
+        !std::strcmp(pending_gate.reason,"native-returned-gate-not-run"),
+        "candidate preparation and native return do not claim the fresh gate already accepted");
     auto gate=[&](const nr_native_clear::Invocation& invocation) {
         return NrNativeClearMayFinish(&native_list,&resource,800,28,prepared,invocation);
     };
     Check(gate(fresh),"exact next native call with the prepared format passes the production gate");
+    const auto accepted_gate=SnapshotNrNativeClearGate();
+    Check(accepted_gate.required && accepted_gate.evaluated && accepted_gate.accepted && accepted_gate.current_scope &&
+        accepted_gate.same_key && accepted_gate.prepared_call==prepared.call && accepted_gate.current_call==fresh.call &&
+        accepted_gate.request_call==fresh.request.call && !std::strcmp(accepted_gate.reason,"accepted"),
+        "actual accepted guard publishes the exact preparation and current invocation identities");
+    auto gate_report=std::make_unique<FeedbackSession>();FeedbackAppendNativeClearGate(*gate_report,"cpu");
+    Check(std::strstr(gate_report->report,"required:1,evaluated:1,accepted:1,currentScope:1,sameKey:1") &&
+        std::strstr(gate_report->report,"reason:accepted") && SnapshotNrNativeClearGate().current_call==accepted_gate.current_call,
+        "real F8 serializer reports accepted current scope without mutating gate evidence");
     g_config_generation.fetch_add(1);
     Check(!gate(fresh),"production gate rereads the current config after native return");
+    *gate_report={};FeedbackAppendNativeClearGate(*gate_report,"cpu");
+    Check(std::strstr(gate_report->report,"required:1,evaluated:1,accepted:0,currentScope:0") &&
+        std::strstr(gate_report->report,"reason:scope-mismatch"),
+        "real F8 serializer distinguishes a prepared candidate from a rejected fresh config scope");
     g_config_generation.fetch_sub(1);
     auto bad=fresh;bad.call++;Check(!gate(bad),"outer call ID must match the returned Clear declaration");
     bad=fresh;bad.request.key.feature++;Check(!gate(bad),"another Feature generation cannot authorize post work");
@@ -313,6 +330,10 @@ void NativeClearRequests() {
     const auto empty=[](ID3D12GraphicsCommandList*,const NgxHandle*,const NgxParams*,void*){return kNgxSuccess;};
     nr_native_clear::Invocation none;
     NrCallNativeWithFormatObservation(empty,&native_list,&handle,&params.base,nullptr,800,&none);
+    const auto ungated=SnapshotNrNativeClearGate();
+    Check(!ungated.required && !ungated.evaluated && !ungated.accepted && ungated.current_scope &&
+        ungated.current_call==none.call && !std::strcmp(ungated.reason,"not-required"),
+        "a following ordinary native call resets historical gate acceptance to not-required");
     Check(!none.request && !gate(none),"successful native call without Clear cannot reuse an earlier request");
     Check(!NrNativeClearCandidate(prepared.key,prepared.config),"latest missing Clear invalidates the cached preparation candidate");
     nr_native_clear::Invocation nested,outer;

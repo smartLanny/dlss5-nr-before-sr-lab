@@ -101,15 +101,19 @@ template <class NativeEvaluate>
 NgxResult NrCallNativeWithFormatObservation(NativeEvaluate original,
         ID3D12GraphicsCommandList* list, const NgxHandle* handle,
         const NgxParams* params, void* callback, unsigned long long generation,
-        nr_native_clear::Invocation* clear_invocation = nullptr) {
+        nr_native_clear::Invocation* clear_invocation = nullptr,
+        const nr_native_clear::Receipt* prepared_clear = nullptr) {
     if(clear_invocation)*clear_invocation={};
+#if !defined(NR_HAS_DESCRIPTOR_PROVENANCE)
+    (void)prepared_clear;
+#endif
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     NrPostBoundaryAliasScope list_alias(list);
 #endif
     NrNativeFormatScope scope(list, params, generation);
 #if defined(NR_HAS_DESCRIPTOR_PROVENANCE)
     NrDescriptorNativeUseScope descriptor_use(scope,list,generation);
-    NrNativeClearScope clear_scope(scope,list);
+    NrNativeClearScope clear_scope(scope,list,prepared_clear);
 #endif
 #if defined(NR_HAS_TIMING)
     NrTimingScope native_timing(nr_timing::Stage::NativeEvaluate);
