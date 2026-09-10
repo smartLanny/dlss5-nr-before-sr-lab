@@ -6,6 +6,8 @@ ID3D12RootSignature* root=nullptr;
 ID3D12PipelineState *snapshot=nullptr,*build=nullptr;
 ID3D12Device* owner=nullptr;
 std::atomic<unsigned> status{0}; // 0 off/unavailable, 1 image, 2 depth, 3 reflection.
+std::atomic<unsigned> config_generation{0},guide_flags{0};
+std::atomic<nr_binding::Refusal> binding_reason{nr_binding::Refusal::None};
 bool Ensure(ID3D12Device* device) {
  if(root&&snapshot&&build)return owner==device;
  if(owner&&owner!=device)return false;
@@ -51,6 +53,8 @@ bool Prepare(ID3D12Device* device,NrSlot& slot,const NgxParams* params,
  slot.region_binding=nullptr;slot.compose_binding=nullptr;
  slot.dual_binding=nullptr;slot.dual_selected=nullptr;slot.dual_reduced=false;
  slot.region_recorded=false;slot.region_ready=false;status.store(0);
+ config_generation.store(g_config_generation.load(std::memory_order_relaxed));
+ binding_reason.store(nr_binding::Refusal::None);guide_flags.store(0);
  if(g_config.generic_residual || g_config.region_version!=1 || !g_config.region_enabled)return false;
  status.store(4); // Requested, but resources/input contract are not available yet.
  if(!Ensure(device))return false;
@@ -90,14 +94,16 @@ bool Prepare(ID3D12Device* device,NrSlot& slot,const NgxParams* params,
   ReleaseCom(slot.region_inputs[i]);slot.region_inputs[i]=r;
 
  }
- slot.region_ready=true;return true;
+ guide_flags.store(c[6]);slot.region_ready=true;return true;
 }
 bool Seal(ID3D12Device* device,ID3D12GraphicsCommandList* list,NrContext& context,NrSlot& slot) {
  if(!slot.region_ready)return true;
  nr_binding::Plan plan{};plan.primary_owner=&slot;
  WriteDescriptors(device,slot,nullptr,slot.neural,nullptr,&plan.heaps[nr_binding::Region]);
  WriteCodecDescriptorSet(device,slot,nullptr,&plan.heaps[nr_binding::Consumer]);
- auto* packet=AcquireBindingPacket(device,list,context,plan);
+ nr_binding::Refusal refusal=nr_binding::Refusal::None;
+ auto* packet=AcquireBindingPacket(device,list,context,plan,&refusal);
+ binding_reason.store(refusal);
  if(!packet){slot.region_ready=false;status.store(4);return false;}
  slot.region_binding=slot.compose_binding=packet;return true;
 }

@@ -46,6 +46,8 @@ struct SecondaryIdentity {
     std::uint32_t config_generation = 0;
     std::uint32_t evaluation = 0;
     std::uint32_t since_reset = 0;
+    bool reset_requested = false;
+    std::uint32_t reset_reasons = 0;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     bool warmed_up = false;
@@ -116,6 +118,8 @@ void CaptureSecondaryIdentity(const NrContext &context) noexcept {
     snapshot.config_generation = context.config_generation;
     snapshot.evaluation = context.evaluations;
     snapshot.since_reset = context.successful_evaluations_since_reset;
+    snapshot.reset_requested = context.diagnostic_reset_requested;
+    snapshot.reset_reasons = context.diagnostic_reset_reasons;
     snapshot.width = context.width;
     snapshot.height = context.height;
     snapshot.warmed_up = context.successful_evaluations_since_reset >
@@ -136,6 +140,54 @@ SecondaryIdentity SnapshotSecondaryIdentityAlreadyLocked() noexcept {
     return snapshot;
 }
 
+// Binding diagnostics are copied while g_chain_cs is held, alongside the
+// observation and secondary identity.  A generation mismatch is useful
+// evidence that the refusal belongs to an older requested configuration.
+struct BindingSnapshot {
+    nr_binding::Refusal reason{};
+    std::uint32_t generation = 0;
+    std::uint64_t context = 0;
+    std::uint32_t config_generation = 0;
+    std::uint32_t guide_flags = 0;
+    std::uint32_t status = 0;
+    bool generation_matches_config = false;
+};
+
+struct BindingSnapshotPair {
+    BindingSnapshot dual{};
+    BindingSnapshot region{};
+};
+
+BindingSnapshotPair SnapshotBindingAlreadyLocked() noexcept {
+    const auto config_generation =
+        g_config_generation.load(std::memory_order_relaxed);
+    BindingSnapshotPair snapshot{};
+    snapshot.dual.reason = nr_dual_runtime::binding_reason.load(
+        std::memory_order_acquire);
+    snapshot.dual.generation = nr_dual_runtime::binding_generation.load(
+        std::memory_order_acquire);
+    snapshot.dual.context = nr_dual_runtime::binding_context.load(
+        std::memory_order_acquire);
+    snapshot.dual.config_generation = config_generation;
+    snapshot.dual.status = static_cast<std::uint32_t>(
+        nr_dual_runtime::status.load(std::memory_order_acquire));
+    snapshot.dual.generation_matches_config =
+        snapshot.dual.generation == config_generation;
+
+    snapshot.region.reason = nr_regions::binding_reason.load(
+        std::memory_order_acquire);
+    snapshot.region.generation = nr_regions::config_generation.load(
+        std::memory_order_acquire);
+    snapshot.region.config_generation = config_generation;
+    snapshot.region.guide_flags = nr_regions::guide_flags.load(
+        std::memory_order_acquire);
+    snapshot.region.status = nr_regions::status.load(
+        std::memory_order_acquire);
+    snapshot.region.generation_matches_config =
+        snapshot.region.generation == config_generation;
+    return snapshot;
+}
+
 SecondaryIdentity SnapshotSecondaryIdentity() noexcept {
     EnterCriticalSection(&g_chain_cs);
     const auto snapshot = SnapshotSecondaryIdentityAlreadyLocked();
@@ -148,10 +200,12 @@ UiSnapshot SnapshotUiAlreadyLocked() noexcept;
 struct SnapshotPair {
     UiSnapshot ui{};
     SecondaryIdentity secondary{};
+    BindingSnapshotPair binding{};
 };
 
 SnapshotPair SnapshotUiAndSecondaryAlreadyLocked() noexcept {
-    return {SnapshotUiAlreadyLocked(), SnapshotSecondaryIdentityAlreadyLocked()};
+    return {SnapshotUiAlreadyLocked(), SnapshotSecondaryIdentityAlreadyLocked(),
+            SnapshotBindingAlreadyLocked()};
 }
 
 SnapshotPair SnapshotUiAndSecondary() noexcept {

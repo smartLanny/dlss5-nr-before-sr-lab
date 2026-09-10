@@ -5,6 +5,9 @@ enum class Status : unsigned { Off, PrimaryWarming, Preparing, CreatePending, Ac
     UnsupportedGuides, ResourceBudget, QueuePending, SlotPending, Failed,
     DeviceIdentity, PipelineUnavailable, ResourceContract };
 std::atomic<Status> status{Status::Off};
+std::atomic<nr_binding::Refusal> binding_reason{nr_binding::Refusal::None};
+std::atomic<unsigned> binding_generation{0};
+std::atomic<unsigned long long> binding_context{0};
 std::atomic<unsigned> primary_width{0},primary_height{0},second_width{0},second_height{0};
 std::atomic<unsigned long long> second_evaluations{0},second_creates{0},second_completed{0};
 std::atomic<unsigned long long> last_primary_instance{0},last_second_instance{0},last_parent_evaluation{0};
@@ -60,6 +63,9 @@ Prepared Prepare(ID3D12Device* device,ID3D12GraphicsCommandList* list,
     unsigned render_width,unsigned render_height,ID3D12Resource* original,
     unsigned x,unsigned y,CodecColorMode color_mode) {
     ClearSelection(main);
+    binding_reason.store(nr_binding::Refusal::None);
+    binding_generation.store(g_config_generation.load(std::memory_order_relaxed));
+    binding_context.store(0);
     if(CanMutateSlotLocked(main)){CollectTiming(main);main.dual_time_active=false;}
     if(g_config.nr_passes!=2){
         for(auto& child:g_contexts)if(child.layer_index==1&&child.parent_instance_id==primary.instance_id)child.retired=true;
@@ -168,8 +174,19 @@ void Seal(ID3D12GraphicsCommandList* list,NrSlot& main,Prepared& prepared) {
         bindings.heaps[nr_binding::Depth].Srv(0,prepared.guides.depth,static_cast<DXGI_FORMAT>(prepared.guides.signature.depth_format));
         bindings.heaps[nr_binding::Depth].Uav(1,slot.rr_depth,DXGI_FORMAT_R32_FLOAT);
     }
-    auto* packet=AcquireBindingPacket(g_codec.device,list,aux,bindings);
-    if(!packet){prepared={};SetStatus(Status::SlotPending);return;}
+    nr_binding::Refusal refusal=nr_binding::Refusal::None;
+    binding_context.store(aux.instance_id);
+    auto* packet=AcquireBindingPacket(g_codec.device,list,aux,bindings,&refusal);
+    binding_reason.store(refusal);
+    if(!packet){
+        prepared={};
+        using R=nr_binding::Refusal;
+        SetStatus(refusal==R::DeviceIdentity?Status::DeviceIdentity:
+            refusal==R::InvalidPlan?Status::ResourceContract:
+            refusal==R::PoolAllocation||refusal==R::HeapAllocation?Status::ResourceBudget:
+            refusal==R::Queue||refusal==R::Recording?Status::QueuePending:Status::SlotPending);
+        return;
+    }
     main.dual_binding=packet;slot.compose_binding=packet;
 }
 

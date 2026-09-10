@@ -62,14 +62,19 @@ bool BindingQueueAdmitted(ID3D12GraphicsCommandList* list,const NrContext& conte
         packet.lease.last_submission_queue->identity==marker.identity;
 }
 NrBindingPacket* AcquireBindingPacket(ID3D12Device* device,ID3D12GraphicsCommandList* list,
-    NrContext& context,const nr_binding::Plan& plan) {
-    if(!device||!plan.Valid()||!IsSameRrDepthDevice(device,g_codec.device)||
-        !CanBeginContextUseLocked(list,context,false))return nullptr;
+    NrContext& context,const nr_binding::Plan& plan,nr_binding::Refusal* result=nullptr) {
+    if(result)*result=nr_binding::Refusal::None;
+    const auto reject=[&](nr_binding::Refusal reason)->NrBindingPacket*{
+        if(result)*result=reason;return nullptr;
+    };
+    if(!device||!plan.Valid())return reject(nr_binding::Refusal::InvalidPlan);
+    if(!IsSameRrDepthDevice(device,g_codec.device))return reject(nr_binding::Refusal::DeviceIdentity);
+    if(!CanBeginContextUseLocked(list,context,false))return reject(nr_binding::Refusal::Queue);
     if(!context.binding_pool)context.binding_pool=new(std::nothrow)NrBindingPool;
-    if(!context.binding_pool)return nullptr;
+    if(!context.binding_pool)return reject(nr_binding::Refusal::PoolAllocation);
     auto& pool=*context.binding_pool;
     for(auto& packet:pool.packets)if(packet.valid&&packet.plan==plan&&BindingQueueAdmitted(list,context,packet)) {
-        if(!RecordNrUseLocked(list,context,packet.lease))return nullptr;
+        if(!RecordNrUseLocked(list,context,packet.lease))return reject(nr_binding::Refusal::Recording);
         packet.last_used=++pool.serial;return &packet;
     }
     // Verify every newly admitted resource against the actual execution
@@ -83,26 +88,26 @@ NrBindingPacket* AcquireBindingPacket(ID3D12Device* device,ID3D12GraphicsCommand
         ID3D12Device* owner=nullptr;
         const auto hr=ID3D12Resource_GetDevice(resource,IID_ID3D12Device,reinterpret_cast<void**>(&owner));
         const bool same=SUCCEEDED(hr)&&IsSameRrDepthDevice(device,owner);ReleaseCom(owner);
-        if(!same)return nullptr;
+        if(!same)return reject(nr_binding::Refusal::DeviceIdentity);
         checked[checked_count++]=resource;
     }
     for(auto* resource:plan.retained)if(resource) {
         ID3D12Device* owner=nullptr;
         const auto hr=ID3D12Resource_GetDevice(resource,IID_ID3D12Device,reinterpret_cast<void**>(&owner));
         const bool same=SUCCEEDED(hr)&&IsSameRrDepthDevice(device,owner);ReleaseCom(owner);
-        if(!same)return nullptr;
+        if(!same)return reject(nr_binding::Refusal::DeviceIdentity);
     }
     NrBindingPacket* free=nullptr;
     for(auto& packet:pool.packets)if(CanMutateSlotLocked(packet.lease)&&
         (!free||(!packet.valid&&free->valid)||packet.last_used<free->last_used))free=&packet;
-    if(!free)return nullptr;
+    if(!free)return reject(nr_binding::Refusal::InFlightCapacity);
     DropBindingPacket(*free);
     // Construct privately. A failed heap allocation has no recorded users.
     for(unsigned i=0;i<nr_binding::kHeaps;++i)if(plan.heaps[i].count) {
         D3D12_DESCRIPTOR_HEAP_DESC d{};d.Type=D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         d.NumDescriptors=plan.heaps[i].count;d.Flags=D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         if(FAILED(ID3D12Device_CreateDescriptorHeap(device,&d,IID_ID3D12DescriptorHeap,
-            reinterpret_cast<void**>(&free->heaps[i])))){DropBindingPacket(*free);return nullptr;}
+            reinterpret_cast<void**>(&free->heaps[i])))){DropBindingPacket(*free);return reject(nr_binding::Refusal::HeapAllocation);}
     }
     free->plan=plan;
     for(auto* resource:free->plan.retained)if(resource)ID3D12Resource_AddRef(resource);
@@ -110,6 +115,6 @@ NrBindingPacket* AcquireBindingPacket(ID3D12Device* device,ID3D12GraphicsCommand
         if(set.views[i].resource)ID3D12Resource_AddRef(set.views[i].resource);
     for(unsigned i=0;i<nr_binding::kHeaps;++i)if(free->heaps[i])WriteDescriptorPlan(device,free->heaps[i],free->plan.heaps[i]);
     free->valid=true;
-    if(!RecordNrUseLocked(list,context,free->lease)){DropBindingPacket(*free);return nullptr;}
+    if(!RecordNrUseLocked(list,context,free->lease)){DropBindingPacket(*free);return reject(nr_binding::Refusal::Recording);}
     free->last_used=++pool.serial;return free;
 }

@@ -12,12 +12,10 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
     bool &changed,bool &apply_discrete_edit) {
     const bool zh=UseChineseUi();
     const auto ui=[zh](const char *en,const char *cn) { return zh?cn:en; };
-    if (!before_sr)
-        SettingsNote(ui("Light controls work after SR, including automatic post processing with supported RR. If NR cannot run, saved requests do not change the picture.",
-            "后置光影控制也适用于已支持的 RR 自动后置。NR 无法运行时，设置仍会保留，但不会改变画面。"));
-    else
-        SettingsNote(ui("This candidate supports pre-SR light controls. If NR is bypassed, requests are retained without applying the effect. 100% retains the original contribution; these are not material or face masks.",
-            "本候选已接入前置光影控制。NR 被旁路时，请求保留但效果不应用。100% 保留原有对应成分；这不是材质或人脸识别。"));
+    (void)before_sr;
+    SettingsNote(ui("Adjust the AI's added light and dark changes; 100% keeps their original amount.",
+        "调节 AI 新增的明暗变化；100% 为原量。"));
+    SettingsField(ui("Scope of brightening and darkening", "增亮、压暗的作用范围"));
 
     const unsigned modes[]={nr_light_style::WholeLightDark,nr_light_style::DetailLayers};
     const char *mode_labels[]={ui("All light/dark changes###light-mode-option","全部亮暗变化###light-mode-option"),
@@ -34,25 +32,25 @@ void DrawLightStyleControls(ChainConfig &next,bool before_sr,unsigned generation
         if (clicked && !selected) {
             next.light_control_mode=modes[option]; changed=true; apply_discrete_edit=true;
         }
+        SettingsTooltip(option==0
+            ? ui("The two strength controls below adjust both broad lighting and small changes introduced by AI.",
+                "下面的增亮、压暗强度同时调节 AI 新增的大片光照和细小变化。")
+            : ui("The two strength controls below adjust only small changes introduced by AI. Broad glow reduction remains a separate control.",
+                "下面的增亮、压暗强度只调节 AI 新增的细小变化。大片提亮仍可用辉光抑制单独减少。"));
         ImGui::PopID();
     }
     ImGui::PopID();
     const bool whole_light=next.light_control_mode==nr_light_style::WholeLightDark;
-    SettingsNote(whole_light
-        ? ui("All light/dark changes covers both broad and fine model edits in each direction. It can include glow or reflections; it does not identify materials or faces.",
-            "全部亮暗变化同时覆盖大范围和细小的模型改动，可能包含辉光或反光；它不识别材质或人脸。")
-        : ui("Fine changes only keeps the previous detail mode: reflection and dark structure affect only fine model edits, while broad changes remain separate.",
-            "仅细小变化保留原有细节模式：反射和暗部结构只影响细小模型改动，大范围改动仍单独保留。"));
     bool manual=false;
-    manual|=LightStylePercent(whole_light ? ui("Bright enhancement","亮部增强（含反射）")
-        : ui("Reflection enhancement","反射增强"),
+    manual|=LightStylePercent(whole_light ? ui("Brightening strength","增亮强度")
+        : ui("Fine brightening strength","细小增亮强度"),
         "##nr-light-reflection",next.light_reflection,2.f);
     SettingsTooltip(whole_light
         ? ui("Scales both broad and fine model brightening, including possible reflections and glow. It does not identify materials. Glow suppression still removes broad brightening at 100%.",
             "同时控制模型新增的大范围和细小提亮，可能包含反射与辉光，不识别材质。辉光抑制为 100% 时，大范围提亮仍会被去掉。")
         : ui("Weights small bright changes, including possible reflections, highlights and other fine bright regions. It does not identify reflective materials. If the model adds little fine bright detail, raising this may have little visible effect.",
             "控制细小亮部变化，可能包含反光、高光或其他细亮区域，不代表识别了反射材质。模型没有新增细亮变化时，调高也可能不明显。"));
-    manual|=LightStylePercent(whole_light ? ui("Dark enhancement","暗部增强") : ui("Dark structure","暗部结构"),
+    manual|=LightStylePercent(whole_light ? ui("Darkening strength","压暗强度") : ui("Fine darkening strength","细小压暗强度"),
         "##nr-light-structure",next.light_structure,2.f);
     if (whole_light)
         SettingsTooltip(ui("Scales all model darkening. Below 100% reduces it; 0% removes that model contribution while retaining the game's original shadows.",

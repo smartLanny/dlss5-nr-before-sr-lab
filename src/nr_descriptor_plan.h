@@ -7,6 +7,21 @@
 namespace nr_binding {
 constexpr unsigned kDescriptors = 24, kHeaps = 4, kPackets = 8;
 enum Heap : unsigned { Codec, Consumer, Region, Depth };
+enum class Refusal : unsigned { None, InvalidPlan, DeviceIdentity, Queue,
+    PoolAllocation, InFlightCapacity, HeapAllocation, Recording };
+inline const char* RefusalName(Refusal value) noexcept {
+    switch(value) {
+    case Refusal::None:return "none";
+    case Refusal::InvalidPlan:return "invalid-descriptor-plan";
+    case Refusal::DeviceIdentity:return "different-or-unverified-device";
+    case Refusal::Queue:return "queue-or-recording-not-admitted";
+    case Refusal::PoolAllocation:return "packet-pool-allocation";
+    case Refusal::InFlightCapacity:return "all-binding-packets-in-use";
+    case Refusal::HeapAllocation:return "descriptor-heap-allocation";
+    case Refusal::Recording:return "lifetime-recording-declined";
+    }
+    return "unknown";
+}
 enum class ViewKind : unsigned { Empty, Srv2D, Uav2D, RawUav };
 struct View {
     ID3D12Resource* resource = nullptr;

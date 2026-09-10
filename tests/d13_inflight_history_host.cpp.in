@@ -1,0 +1,143 @@
+// D13 controlled history regression.  The two injected blocks are copied from
+// the production AuxHistory and nr_dual_runtime::Run source at validation time.
+// This host supplies only a guide signature, slot, status and successful/failed
+// second-attempt result; it does not model NGX, a game, or GPU completion.
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include "nr_dual_pass.hpp"
+
+using NgxResult = std::uint32_t;
+
+enum class Status : unsigned { QueuePending = 1, Preparing = 2, Active = 3 };
+std::atomic<Status> status{Status::QueuePending};
+void SetStatus(Status value) { status.store(value, std::memory_order_relaxed); }
+
+struct GuideSignature { unsigned tag = 0; };
+struct GuideHistory {
+    void CommitOnEvaluate(const GuideSignature &, bool) noexcept {}
+};
+struct NrSlot {
+    NrSlot *dual_selected = nullptr;
+    bool dual_reduced = false;
+};
+struct NrContext {
+    std::uint64_t instance_id = 0;
+    std::uint64_t history_generation = 1;
+    std::uint64_t evaluations = 0;
+    unsigned successful_evaluations_since_reset = 0;
+    bool diagnostic_reset_requested = false;
+    bool reset_retry_pending = false;
+    std::uint64_t width = 640, height = 360;
+    GuideHistory guide_history{};
+    nr_dual::AuxHistory dual_history{};
+};
+struct Prepared {
+    NrContext *context = nullptr;
+    NrSlot *slot = nullptr;
+    nr_dual::Plan plan{};
+    struct { GuideSignature signature{}; } guides;
+    std::uint64_t queue_identity = 7001;
+};
+struct Config { unsigned warmup_after_create = 2; } g_config;
+std::atomic<unsigned long long> second_evaluations{0};
+std::atomic<unsigned long long> last_primary_instance{0};
+std::atomic<unsigned long long> last_second_instance{0};
+std::atomic<unsigned long long> last_parent_evaluation{0};
+bool g_last_reset = false;
+
+bool g_last_observation_evaluated = false;
+bool g_last_observation_warmup = false;
+struct Observation {
+    bool evaluated = false, warmup = false;
+    ~Observation() {
+        g_last_observation_evaluated = evaluated;
+        g_last_observation_warmup = warmup;
+    }
+};
+
+// This is the fixture's narrow equivalent of BindNrParameters.  The reset
+// decision itself is computed by the injected production AuxHistory line; the
+// adapter only exposes that decision to the injected Run success segment.
+bool BindFixtureGuides(NrContext &aux, bool reset) noexcept {
+    g_last_reset = reset;
+    aux.diagnostic_reset_requested = reset;
+    return true;
+}
+
+NgxResult RunHistoryStep(NrContext &primary, NrSlot &main, Prepared &prepared,
+                         std::uint64_t parent_evaluation, bool second_success,
+                         std::uint64_t queue_identity = 7001) {
+    auto &aux = *prepared.context;
+    auto &slot = *prepared.slot;
+    main.dual_selected = nullptr;
+    main.dual_reduced = false;
+    primary.evaluations = parent_evaluation;
+    primary.diagnostic_reset_requested = false;
+    const nr_dual::Attempt attempt = second_success &&
+        prepared.queue_identity == queue_identity
+        ? nr_dual::Attempt{nr_dual::Selection::DirectSecond, true, 1u}
+        : nr_dual::Attempt{nr_dual::Selection::Primary, false, 0u};
+    Observation observation{};
+    // @CORE_AUX_HISTORY_RESET@
+    if (!BindFixtureGuides(aux, reset)) return 0;
+    // @CORE_RUN_SUCCESS_SEGMENT@
+    // @CORE_RUN_ACTIVE_STATUS@
+    return 0;
+}
+
+struct Counters { unsigned resets = 0, warmup = 0, adopted = 0, evaluated = 0; };
+Counters RunSchedule(NrContext &primary, NrSlot &main,
+                     Prepared &prepared, bool alternating) {
+    Counters result{};
+    for (std::uint64_t frame = 1; frame <= 32; ++frame) {
+        const bool success = alternating ? (frame % 2 == 1) : true;
+        RunHistoryStep(primary, main, prepared, frame, success, 7001);
+        if (g_last_reset) ++result.resets;
+        if (g_last_observation_evaluated) ++result.evaluated;
+        if (main.dual_selected != nullptr) ++result.adopted;
+        if (g_last_observation_warmup) ++result.warmup;
+    }
+    return result;
+}
+
+int main() {
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    NrContext primary{}; primary.instance_id = 100; primary.width = 1280; primary.height = 720;
+    NrContext aux{}; aux.instance_id = 7; aux.width = 640; aux.height = 360;
+    NrSlot main{}, slot{};
+    Prepared prepared{}; prepared.context = &aux; prepared.slot = &slot;
+    prepared.plan.error = nr_dual::PlanError::None;
+    prepared.plan.path = nr_dual::Path::DirectSecond;
+    prepared.plan.secondary = {640, 360};
+    prepared.guides.signature.tag = 24;
+
+    std::printf("D13 production AuxHistory/Run history host; CPU guide+slot+status; NGX=none; GPU=none; game=0\n");
+    const auto old = RunSchedule(primary, main, prepared, true);
+    std::printf("OLD SCHEDULE: frames=32 successes=16 resets=%u warmup_discards=%u final_selected=%u since_reset=%u\n",
+                old.resets, old.warmup, old.adopted, aux.successful_evaluations_since_reset);
+    if (old.resets != 16 || old.adopted != 0 || old.warmup != 16 ||
+        aux.successful_evaluations_since_reset != 1) return 1;
+
+    primary = {}; primary.instance_id = 100; primary.width = 1280; primary.height = 720;
+    aux = {}; aux.instance_id = 7; aux.width = 640; aux.height = 360;
+    main = {};
+    const auto continuous = RunSchedule(primary, main, prepared, false);
+    std::printf("CONTINUOUS: queue=7001 frames=32 successes=32 resets=%u warmup_discards=%u adopted=%u since_reset=%u\n",
+                continuous.resets, continuous.warmup, continuous.adopted,
+                aux.successful_evaluations_since_reset);
+    if (continuous.resets != 1 || continuous.warmup != 2 || continuous.adopted != 30 ||
+        aux.successful_evaluations_since_reset != 32) return 1;
+
+    const auto before = aux.successful_evaluations_since_reset;
+    RunHistoryStep(primary, main, prepared, 34, true, 7001); // frame 33 was genuinely absent
+    const bool missed_reset = g_last_reset && aux.successful_evaluations_since_reset == 1 &&
+                              main.dual_selected == nullptr &&
+                              aux.successful_evaluations_since_reset != before;
+    std::printf("MISSED FRAME: parent_eval=34 after=32 reset=%u since_reset=%u selected=%u\n",
+                g_last_reset ? 1u : 0u, aux.successful_evaluations_since_reset,
+                main.dual_selected ? 1u : 0u);
+    if (!missed_reset) return 1;
+    std::printf("PASS D13 production AuxHistory/Run history regression; old intermittent gate resets 16/16 with zero P2, continuous warmup=2 then adopted=30, missed parent frame resets again; controlled CPU history only\n");
+    return 0;
+}

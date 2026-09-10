@@ -102,6 +102,23 @@ std::atomic<bool> g_generic_renodx_conflict{false},g_preflight_core_loaded{true}
 enum class BypassReason{Unknown};enum class ModuleObserverFault{None};
 const char *BypassReasonName(BypassReason){return "command-state-unverified";}
 const char *ModuleObserverFaultName(ModuleObserverFault){return "none";}
+namespace nr_binding {
+enum class Refusal : unsigned { None, InvalidPlan, DeviceIdentity, Queue,
+    PoolAllocation, InFlightCapacity, HeapAllocation, Recording };
+const char *RefusalName(Refusal value) {
+    switch (value) {
+    case Refusal::None: return "none";
+    case Refusal::InvalidPlan: return "invalid-descriptor-plan";
+    case Refusal::DeviceIdentity: return "different-or-unverified-device";
+    case Refusal::Queue: return "queue-or-recording-not-admitted";
+    case Refusal::PoolAllocation: return "packet-pool-allocation";
+    case Refusal::InFlightCapacity: return "all-binding-packets-in-use";
+    case Refusal::HeapAllocation: return "descriptor-heap-allocation";
+    case Refusal::Recording: return "lifetime-recording-declined";
+    }
+    return "unknown";
+}
+}
 // Serialization seams: no secondary GPU/NGX successes are fabricated.
 namespace nr_dual_runtime {
 std::atomic<unsigned> status{0},primary_width{0},primary_height{0},second_width{0},second_height{0},fatal_result{0},time_samples{0},time_config{0};
@@ -117,13 +134,27 @@ struct SecondaryIdentity {
     nr_dual_observation::Route route{};
     unsigned long long instance_id = 0, feature_generation = 0;
     unsigned config_generation = 0, evaluation = 0, since_reset = 0;
+    bool reset_requested = false;
+    unsigned reset_reasons = 0;
     unsigned width = 0, height = 0;
     bool warmed_up = false;
     NrTuningSignature tuning{};
 };
+struct BindingSnapshot {
+    nr_binding::Refusal reason{};
+    unsigned generation = 0;
+    unsigned long long context = 0;
+    unsigned config_generation = 0, guide_flags = 0, status = 0;
+    bool generation_matches_config = false;
+};
+struct BindingSnapshotPair {
+    BindingSnapshot dual{};
+    BindingSnapshot region{};
+};
 struct SnapshotPair {
     nr_dual_observation::Snapshot ui{};
     SecondaryIdentity secondary{};
+    BindingSnapshotPair binding{};
 };
 SnapshotPair g_dual_snapshot{};
 SnapshotPair SnapshotUiAndSecondary() { return g_dual_snapshot; }
@@ -439,11 +470,21 @@ int main(int argc,char **argv) {
     secondary_snapshot.instance_id=300;secondary_snapshot.feature_generation=55;
     secondary_snapshot.config_generation=7;secondary_snapshot.evaluation=8;
     secondary_snapshot.since_reset=5;secondary_snapshot.width=960;secondary_snapshot.height=540;
+    secondary_snapshot.reset_requested=true;secondary_snapshot.reset_reasons=42;
     secondary_snapshot.warmed_up=true;secondary_snapshot.tuning.intensity=1.7f;
     secondary_snapshot.tuning.local_tone=.8f;secondary_snapshot.tuning.local_structure=.72f;
     secondary_snapshot.tuning.skin_structure=.65f;secondary_snapshot.tuning.auto_mask=true;
     secondary_snapshot.tuning.style=2;secondary_snapshot.tuning.ui_correction=true;
     secondary_snapshot.tuning.jitter_mode=NrJitterMode::Legacy;secondary_snapshot.tuning.input_filter=1;
+    auto &binding_snapshot=nr_dual_status_runtime::g_dual_snapshot.binding;
+    binding_snapshot.dual.reason=nr_binding::Refusal::Queue;
+    binding_snapshot.dual.generation=7;binding_snapshot.dual.context=300;
+    binding_snapshot.dual.config_generation=7;binding_snapshot.dual.status=7;
+    binding_snapshot.dual.generation_matches_config=true;
+    binding_snapshot.region.reason=nr_binding::Refusal::InvalidPlan;
+    binding_snapshot.region.generation=7;binding_snapshot.region.config_generation=7;
+    binding_snapshot.region.guide_flags=0x13;binding_snapshot.region.status=2;
+    binding_snapshot.region.generation_matches_config=true;
     check(nr_f8::RequestCore(),"core request accepted after completed images");
     check(!nr_f8::g_last_zip[0] && nr_f8::g_status==nr_f8::Status::Idle,"new core clears old image path and completion status");
     unsigned char requested_before[sizeof(g_config)];std::memcpy(requested_before,&g_config,sizeof(g_config));
@@ -480,8 +521,15 @@ int main(int argc,char **argv) {
         "end.dual.snapshot.routeId=4660\n","end.dual.snapshot.routeValid=1\n",
         "end.dual.secondaryIdentity.instance=300\n","end.dual.secondaryIdentity.config=7\n",
         "end.dual.secondaryIdentity.evaluation=8\n","end.dual.secondaryIdentity.sinceReset=5\n",
+        "end.dual.secondaryIdentity.resetRequested=1\n","end.dual.secondaryIdentity.resetReasons=0x2A\n",
+        "end.dual.secondaryIdentity.resetReasonLegend=1:caller,2:game,4:history,8:color-contract,16:guide,32:pending\n",
         "end.dual.secondaryIdentity.extent=960x540\n","end.dual.secondaryIdentity.warmedUp=1\n",
-        "end.dual.secondaryIdentity.tuning.autoMask=1\n","end.dual.secondaryIdentity.tuning.style=2\n"})
+        "end.dual.secondaryIdentity.tuning.autoMask=1\n","end.dual.secondaryIdentity.tuning.style=2\n",
+        "end.dual.binding.reason=queue-or-recording-not-admitted\n","end.dual.binding.generation=7\n",
+        "end.dual.binding.context=300\n","end.dual.binding.generationMatchesConfig=1\n",
+        "end.dual.regionBinding.reason=invalid-descriptor-plan\n","end.dual.regionBinding.generation=7\n",
+        "end.dual.regionBinding.generationMatchesConfig=1\n","end.dual.regionBinding.guideFlags=0x13\n",
+        "end.dual.regionBinding.guideFlagLegend=1:depth,2:normal,4:albedo,8:hit-distance,16:linear-depth\n"})
         check(fresh_report.find(line)!=std::string::npos,"F8 exports the current paired dual snapshot and secondary identity");
     check(fresh_report.find("model tuning only, not D light composition or measured output")!=std::string::npos,
         "applied contract cannot claim actual D composition or visual quality");

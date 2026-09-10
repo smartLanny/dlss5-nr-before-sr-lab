@@ -395,8 +395,9 @@ int main() {
     auto foreign = MakeRecording(native); SetStableMarker(foreign.list, 8002);
     const auto serial_before_queue = context.binding_pool
         ? context.binding_pool->serial : 0;
-    auto *queue_rejected = AcquireBindingPacket(native, foreign.list, context, plan_a);
-    Check(queue_rejected == nullptr,
+    nr_binding::Refusal refusal=nr_binding::Refusal::None;
+    auto *queue_rejected = AcquireBindingPacket(native, foreign.list, context, plan_a,&refusal);
+    Check(queue_rejected == nullptr && refusal==nr_binding::Refusal::Queue,
           "different queue is rejected by production queue admission");
     Check((context.binding_pool ? context.binding_pool->serial : 0) ==
               serial_before_queue,
@@ -452,8 +453,8 @@ int main() {
     SetStableMarker(overflow_recording.list, 7001);
     const auto serial_before_overflow = context.binding_pool->serial;
     auto *overflow_packet = AcquireBindingPacket(
-        native, overflow_recording.list, context, overflow_plan);
-    Check(overflow_packet == nullptr && context.binding_pool->serial ==
+        native, overflow_recording.list, context, overflow_plan,&refusal);
+    Check(overflow_packet == nullptr && refusal==nr_binding::Refusal::InFlightCapacity && context.binding_pool->serial ==
               serial_before_overflow,
           "ninth in-flight fingerprint is rejected without heap allocation");
     HR(overflow_recording.list->Close(), "overflow close");

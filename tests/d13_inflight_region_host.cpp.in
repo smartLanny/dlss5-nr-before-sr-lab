@@ -245,6 +245,7 @@ bool IsSameRrDepthDeviceForRegion(ID3D12Device *a, ID3D12Device *b) {
 
 struct RegionConfig { unsigned region_version = 1; bool region_enabled = false; bool generic_residual = false; };
 RegionConfig g_config{};
+std::atomic<unsigned> g_config_generation{1};
 
 void Transition(ID3D12GraphicsCommandList *list, ID3D12Resource *resource,
                 D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after) {

@@ -55,6 +55,15 @@ def extract_function(source: str, marker: str) -> str:
     raise ValueError(f"unterminated production function: {marker}")
 
 
+def extract_line_block(source: str, start_marker: str, end_marker: str) -> str:
+    """Extract complete source lines, preserving the production text verbatim."""
+    start = source.index(start_marker)
+    start = source.rfind("\n", 0, start) + 1
+    end = source.index(end_marker, start)
+    end = source.find("\n", end)
+    return source[start:] if end < 0 else source[start : end + 1]
+
+
 def identity_definition(source: str) -> str:
     begin = source.index("constexpr GUID kRrDepthUnwrappedObject")
     end = source.index("\nbool ResolveRrLinearDepth(", begin)
@@ -102,6 +111,11 @@ def main() -> int:
     parser.add_argument("--compiler", required=True, type=Path)
     parser.add_argument("--reshade-dll", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--history-only",
+        action="store_true",
+        help="run only the controlled AuxHistory/Run history regression",
+    )
     args = parser.parse_args()
 
     compiler = args.compiler.resolve(strict=True)
@@ -176,10 +190,117 @@ def main() -> int:
     (output / "d13_inflight_region_host.cpp").write_text(
         region_generated, encoding="utf-8"
     )
+    dual_runtime_source = (ROOT / "src/nr_dual_runtime.inl").read_text(
+        encoding="utf-8-sig"
+    )
+    history_template = (ROOT / "tests/d13_inflight_history_host.cpp.in").read_text(
+        encoding="utf-8-sig"
+    )
+    history_generated = history_template.replace(
+        "// @CORE_AUX_HISTORY_RESET@",
+        extract_line_block(
+            dual_runtime_source,
+            "const nr_dual::LayerKey key{",
+            "const bool reset=",
+        ),
+    )
+    history_generated = history_generated.replace(
+        "// @CORE_RUN_SUCCESS_SEGMENT@",
+        extract_line_block(
+            dual_runtime_source,
+            "if(!attempt.HasSecond()){",
+            "main.dual_reduced=attempt.selection==nr_dual::Selection::FusedResidual;",
+        ),
+    )
+    history_generated = history_generated.replace(
+        "// @CORE_RUN_ACTIVE_STATUS@",
+        extract_line_block(dual_runtime_source, "SetStatus(Status::Active);", "SetStatus(Status::Active);"),
+    )
+    (output / "d13_inflight_history_host.cpp").write_text(
+        history_generated, encoding="utf-8"
+    )
     shutil.copyfile(reshade, output / "dxgi.dll")
     (output / "ReShade.ini").write_text(
         "[GENERAL]\nNoEffectCache=1\n", encoding="utf-8"
     )
+
+    history_binary = output / "d13_inflight_history_host.exe"
+    history_compile_log = output / "history-compile.log"
+    history_command = [
+        str(compiler),
+        "-std=c++20",
+        "-O2",
+        "-static",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-I",
+        str(ROOT / "src"),
+        str(output / "d13_inflight_history_host.cpp"),
+        "-o",
+        str(history_binary),
+    ]
+    run(history_command, cwd=output, output=history_compile_log, timeout=120)
+    history_run_log = output / "d13_inflight_history_host.log"
+    run([str(history_binary)], cwd=output, output=history_run_log, timeout=30)
+    history_text = history_run_log.read_text(encoding="utf-8", errors="replace")
+    history_required = [
+        "D13 production AuxHistory/Run history host",
+        "OLD SCHEDULE: frames=32 successes=16 resets=16 warmup_discards=16 final_selected=0",
+        "CONTINUOUS: queue=7001 frames=32 successes=32 resets=1 warmup_discards=2 adopted=30",
+        "MISSED FRAME: parent_eval=34 after=32 reset=1 since_reset=1 selected=0",
+        "PASS D13 production AuxHistory/Run history regression",
+    ]
+    history_missing = [line for line in history_required if line not in history_text]
+    if history_missing:
+        raise RuntimeError(
+            "D13 history host output did not contain required evidence: "
+            + ", ".join(history_missing)
+        )
+    history_receipt = {
+        "source_segment_extracted_verbatim": True,
+        "history_host_log_sha256": sha256(history_run_log),
+        "history_compile_log_sha256": sha256(history_compile_log),
+        "checks": {
+            "old_intermittent_schedule_16_resets_zero_p2": True,
+            "continuous_schedule_warmup_two_then_30_p2": True,
+            "missed_parent_evaluation_resets_history": True,
+        },
+        "limitations": [
+            "The host supplies CPU guide/slot/status interfaces and a controlled second-attempt result.",
+            "It does not perform NGX inference, GPU submission, game execution, or image/performance validation.",
+        ],
+    }
+    if args.history_only:
+        receipt = {
+            "schema": "nr-d13-aux-history-run-v1",
+            "success": True,
+            "source_commit": subprocess.check_output(
+                ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True
+            ).strip(),
+            "source_worktree_dirty": bool(
+                subprocess.check_output(
+                    ["git", "-C", str(ROOT), "status", "--short"], text=True
+                ).strip()
+            ),
+            "inputs": {
+                "src/nr_dual_pass.hpp": sha256(ROOT / "src/nr_dual_pass.hpp"),
+                "src/nr_dual_runtime.inl": sha256(ROOT / "src/nr_dual_runtime.inl"),
+                "tests/d13_inflight_history_host.cpp.in": sha256(
+                    ROOT / "tests/d13_inflight_history_host.cpp.in"
+                ),
+            },
+            "compiler": str(compiler),
+            "compiler_sha256": sha256(compiler),
+            "production_aux_history_run_segment_exercised": True,
+            **history_receipt,
+        }
+        (output / "validation.json").write_text(
+            json.dumps(receipt, indent=2) + "\n", encoding="utf-8"
+        )
+        print(history_text, end="")
+        print(json.dumps(receipt, indent=2))
+        return 0
 
     binary = output / "d13_inflight_host.exe"
     binding_binary = output / "d13_inflight_binding_host.exe"
@@ -309,9 +430,11 @@ def main() -> int:
         "src/nr_rr_depth_adapter.inl",
         "src/nr_before_sr.cpp",
         "src/nr_dual_pass.hpp",
+        "src/nr_dual_runtime.inl",
         "src/nr_dual_spatial_d3d12.hpp",
         "src/nr_dual_spatial_d3d12.cpp",
         "tests/d13_inflight_host.cpp.in",
+        "tests/d13_inflight_history_host.cpp.in",
         "src/nr_descriptor_plan.h",
         "src/nr_binding_types.inl",
         "src/nr_binding_runtime.inl",
@@ -342,6 +465,8 @@ def main() -> int:
         "binding_compile_log_sha256": sha256(binding_compile_log),
         "region_host_log_sha256": sha256(region_run_log),
         "region_compile_log_sha256": sha256(region_compile_log),
+        "history_host_log_sha256": history_receipt["history_host_log_sha256"],
+        "history_compile_log_sha256": history_receipt["history_compile_log_sha256"],
         "reshade_log_sha256": sha256(output / "ReShade.log")
         if (output / "ReShade.log").exists()
         else None,
@@ -353,6 +478,7 @@ def main() -> int:
         "core_lifecycle_admission_extracted_verbatim": True,
         "production_binding_functions_exercised": True,
         "production_region_prepare_seal_dispatch_exercised": True,
+        "production_aux_history_run_segment_exercised": True,
         "ngx_provider": "stub-success-only",
         "nvidia_inference": False,
         "game_verified": False,
@@ -373,6 +499,9 @@ def main() -> int:
             "region_changed_input_new_packet": True,
             "region_x24_depth_view_and_readback": True,
             "region_missing_guide_degradation": True,
+            "old_intermittent_schedule_16_resets_zero_p2": True,
+            "continuous_schedule_warmup_two_then_30_p2": True,
+            "missed_parent_evaluation_resets_history": True,
         },
         "limitations": [
             "The NGX callback is a stub and does not perform NVIDIA inference.",
@@ -386,6 +515,7 @@ def main() -> int:
     print(text, end="")
     print(binding_text, end="")
     print(region_text, end="")
+    print(history_text, end="")
     print(json.dumps(receipt, indent=2))
     return 0
 

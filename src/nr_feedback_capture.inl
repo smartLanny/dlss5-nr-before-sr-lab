@@ -146,6 +146,9 @@ void FeedbackAppendDualSnapshot(FeedbackSession &s, const char *prefix) {
         "%s.dual.secondaryIdentity.config=%u\n"
         "%s.dual.secondaryIdentity.evaluation=%u\n"
         "%s.dual.secondaryIdentity.sinceReset=%u\n"
+        "%s.dual.secondaryIdentity.resetRequested=%d\n"
+        "%s.dual.secondaryIdentity.resetReasons=0x%X\n"
+        "%s.dual.secondaryIdentity.resetReasonLegend=1:caller,2:game,4:history,8:color-contract,16:guide,32:pending\n"
         "%s.dual.secondaryIdentity.extent=%ux%u\n"
         "%s.dual.secondaryIdentity.warmedUp=%d\n"
         "%s.dual.secondaryIdentity.tuning.intensity=%.9g\n"
@@ -165,6 +168,9 @@ void FeedbackAppendDualSnapshot(FeedbackSession &s, const char *prefix) {
         prefix, secondary_identity.config_generation,
         prefix, secondary_identity.evaluation,
         prefix, secondary_identity.since_reset,
+        prefix, secondary_identity.reset_requested ? 1 : 0,
+        prefix, secondary_identity.reset_reasons,
+        prefix,
         prefix, secondary_identity.width, secondary_identity.height,
         prefix, secondary_identity.warmed_up ? 1 : 0,
         prefix, static_cast<double>(secondary_identity.tuning.intensity),
@@ -176,6 +182,38 @@ void FeedbackAppendDualSnapshot(FeedbackSession &s, const char *prefix) {
         prefix, secondary_identity.tuning.ui_correction ? 1 : 0,
         prefix, static_cast<unsigned>(secondary_identity.tuning.jitter_mode),
         prefix, secondary_identity.tuning.input_filter);
+    const auto &binding = dual_snapshot.binding;
+    FeedbackAppend(s,
+        "%s.dual.binding.reason=%s\n"
+        "%s.dual.binding.reasonCode=%u\n"
+        "%s.dual.binding.generation=%u\n"
+        "%s.dual.binding.context=%llu\n"
+        "%s.dual.binding.config=%u\n"
+        "%s.dual.binding.generationMatchesConfig=%d\n"
+        "%s.dual.binding.status=%u\n"
+        "%s.dual.regionBinding.reason=%s\n"
+        "%s.dual.regionBinding.reasonCode=%u\n"
+        "%s.dual.regionBinding.generation=%u\n"
+        "%s.dual.regionBinding.config=%u\n"
+        "%s.dual.regionBinding.generationMatchesConfig=%d\n"
+        "%s.dual.regionBinding.guideFlags=0x%X\n"
+        "%s.dual.regionBinding.guideFlagLegend=1:depth,2:normal,4:albedo,8:hit-distance,16:linear-depth\n"
+        "%s.dual.regionBinding.status=%u\n",
+        prefix, nr_binding::RefusalName(binding.dual.reason),
+        prefix, static_cast<unsigned>(binding.dual.reason),
+        prefix, binding.dual.generation,
+        prefix, static_cast<unsigned long long>(binding.dual.context),
+        prefix, binding.dual.config_generation,
+        prefix, binding.dual.generation_matches_config ? 1 : 0,
+        prefix, binding.dual.status,
+        prefix, nr_binding::RefusalName(binding.region.reason),
+        prefix, static_cast<unsigned>(binding.region.reason),
+        prefix, binding.region.generation,
+        prefix, binding.region.config_generation,
+        prefix, binding.region.generation_matches_config ? 1 : 0,
+        prefix, binding.region.guide_flags,
+        prefix,
+        prefix, binding.region.status);
 }
 
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {

@@ -141,9 +141,14 @@ class PictureIntegration(unittest.TestCase):
             'scripts/patch-exposure-access.py',
             'src/nr_dual_capture.inl',
             'src/nr_dual_lifetime.hpp',
+            'src/nr_descriptor_plan.h',
+            'src/nr_binding_types.inl',
+            'src/nr_binding_runtime.inl',
+            'src/nr_dual_observation.hpp',
+            'src/nr_dual_status_runtime.inl',
         })
-        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '75405fc098ba9ea3c84596add311f376aaa998c5')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_settings_ui.inl'], '2f99494872033bfd4b776f2064e3623bb3c51fa1')
         self.assertEqual(m.INTEGRATION_CORE_PINS['src/nr_command_state.inl'], m.STATE_CURRENT)
-        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], '5ba47e56fdc1df28c6c1e6e75458d956c22a815f')
+        self.assertEqual(m.INTEGRATION_CORE_PINS['scripts/build.ps1'], 'b226402f3e23f343af46b24c8db404e094e8c555')
 
 if __name__ == '__main__': unittest.main()

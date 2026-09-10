@@ -373,6 +373,8 @@ struct NrContext {
     int mode = 0;
     unsigned layer_index = 0;
     bool tuning_signature_initialized = false;
+    bool diagnostic_reset_requested = false;
+    unsigned diagnostic_reset_reasons = 0;
     NrTuningSignature tuning_signature{};
 };
 ChainConfig g_config{};
@@ -383,7 +385,20 @@ unsigned long long test_tick = 0;
 void EnterCriticalSection(CriticalSection *) {}
 void LeaveCriticalSection(CriticalSection *) {}
 unsigned long long GetTickCount64() { return test_tick; }
-namespace nr_dual_runtime { std::atomic<unsigned> fatal_result{0}; }
+namespace nr_binding {
+enum class Refusal : unsigned { None, InvalidPlan, DeviceIdentity, Queue,
+    PoolAllocation, InFlightCapacity, HeapAllocation, Recording };
+}
+namespace nr_dual_runtime {
+std::atomic<unsigned> fatal_result{0}, status{0};
+std::atomic<nr_binding::Refusal> binding_reason{nr_binding::Refusal::None};
+std::atomic<unsigned> binding_generation{0};
+std::atomic<unsigned long long> binding_context{0};
+}
+namespace nr_regions {
+std::atomic<nr_binding::Refusal> binding_reason{nr_binding::Refusal::None};
+std::atomic<unsigned> config_generation{0}, guide_flags{0}, status{0};
+}
 #include "nr_dual_status_runtime.inl"
 
 using namespace nr_dual_observation;
@@ -449,18 +464,45 @@ int main() {
     aux.evaluations = 8; aux.successful_evaluations_since_reset = 5;
     aux.width = 960; aux.height = 540; aux.tuning_signature.auto_mask = true;
     aux.tuning_signature.skin_structure = .65f;
+    aux.diagnostic_reset_requested = true; aux.diagnostic_reset_reasons = 42;
     aux.tuning_signature_initialized = true;
     CaptureSecondaryIdentity(aux);
     const auto identity = SnapshotSecondaryIdentity();
     Check(identity.valid && identity.instance_id == 300 &&
               identity.feature_generation == 44 && identity.config_generation == 3 &&
               identity.evaluation == 8 && identity.since_reset == 5 &&
+              identity.reset_requested && identity.reset_reasons == 42 &&
               identity.warmed_up && identity.tuning.auto_mask &&
               identity.tuning.skin_structure == .65f,
           "secondary identity captures actual context receipt");
+    nr_dual_runtime::binding_reason.store(nr_binding::Refusal::Queue);
+    nr_dual_runtime::binding_generation.store(3);
+    nr_dual_runtime::binding_context.store(300);
+    nr_dual_runtime::status.store(7);
+    nr_regions::binding_reason.store(nr_binding::Refusal::InvalidPlan);
+    nr_regions::config_generation.store(3);
+    nr_regions::guide_flags.store(0x13);
+    nr_regions::status.store(2);
+    const auto pair = SnapshotUiAndSecondary();
+    Check(pair.binding.dual.reason == nr_binding::Refusal::Queue &&
+              pair.binding.dual.generation == 3 &&
+              pair.binding.dual.context == 300 &&
+              pair.binding.dual.config_generation == 3 &&
+              pair.binding.dual.generation_matches_config &&
+              pair.binding.dual.status == 7 &&
+              pair.binding.region.reason == nr_binding::Refusal::InvalidPlan &&
+              pair.binding.region.generation == 3 &&
+              pair.binding.region.config_generation == 3 &&
+              pair.binding.region.generation_matches_config &&
+              pair.binding.region.guide_flags == 0x13 &&
+              pair.binding.region.status == 2,
+          "paired binding evidence records reasons, contexts, generations, and guide flags");
     g_config_generation.store(4);
     Check(!SnapshotSecondaryIdentity().valid,
           "secondary identity is hidden after config generation change");
+    Check(!SnapshotUiAndSecondary().binding.dual.generation_matches_config &&
+              !SnapshotUiAndSecondary().binding.region.generation_matches_config,
+          "paired binding evidence marks stale generations against current config");
     std::printf("Runtime adapter: %u checks, 0 failures\n", checks);
     return 0;
 }
@@ -483,19 +525,50 @@ struct NrTuningSignature {
     NrJitterMode jitter_mode = NrJitterMode::Legacy;
     unsigned int input_filter = 0;
 };
+namespace nr_binding {
+enum class Refusal : unsigned { None, InvalidPlan, DeviceIdentity, Queue,
+    PoolAllocation, InFlightCapacity, HeapAllocation, Recording };
+const char *RefusalName(Refusal value) {
+    switch (value) {
+    case Refusal::None: return "none";
+    case Refusal::InvalidPlan: return "invalid-descriptor-plan";
+    case Refusal::DeviceIdentity: return "different-or-unverified-device";
+    case Refusal::Queue: return "queue-or-recording-not-admitted";
+    case Refusal::PoolAllocation: return "packet-pool-allocation";
+    case Refusal::InFlightCapacity: return "all-binding-packets-in-use";
+    case Refusal::HeapAllocation: return "descriptor-heap-allocation";
+    case Refusal::Recording: return "lifetime-recording-declined";
+    }
+    return "unknown";
+}
+}
 namespace nr_dual_status_runtime {
 struct SecondaryIdentity {
     bool valid = false;
     nr_dual_observation::Route route{};
     unsigned long long instance_id = 0, feature_generation = 0;
     unsigned config_generation = 0, evaluation = 0, since_reset = 0;
+    bool reset_requested = false;
+    unsigned reset_reasons = 0;
     unsigned width = 0, height = 0;
     bool warmed_up = false;
     NrTuningSignature tuning{};
 };
+struct BindingSnapshot {
+    nr_binding::Refusal reason{};
+    unsigned generation = 0;
+    unsigned long long context = 0;
+    unsigned config_generation = 0, guide_flags = 0, status = 0;
+    bool generation_matches_config = false;
+};
+struct BindingSnapshotPair {
+    BindingSnapshot dual{};
+    BindingSnapshot region{};
+};
 struct SnapshotPair {
     nr_dual_observation::Snapshot ui{};
     SecondaryIdentity secondary{};
+    BindingSnapshotPair binding{};
 };
 SnapshotPair pair{};
 SnapshotPair SnapshotUiAndSecondary() { return pair; }
@@ -529,10 +602,20 @@ int main() {
     pair.secondary.instance_id = 300; pair.secondary.feature_generation = 55;
     pair.secondary.config_generation = 44; pair.secondary.evaluation = 8;
     pair.secondary.since_reset = 5; pair.secondary.width = 960; pair.secondary.height = 540;
+    pair.secondary.reset_requested = true; pair.secondary.reset_reasons = 42;
     pair.secondary.warmed_up = true; pair.secondary.tuning.intensity = 1.7f;
     pair.secondary.tuning.local_tone = .8f; pair.secondary.tuning.local_structure = .72f;
     pair.secondary.tuning.skin_structure = .65f; pair.secondary.tuning.auto_mask = true;
     pair.secondary.tuning.style = 2; pair.secondary.tuning.ui_correction = true;
+    pair.binding.dual.reason = nr_binding::Refusal::Queue;
+    pair.binding.dual.generation = 44; pair.binding.dual.context = 300;
+    pair.binding.dual.config_generation = 44;
+    pair.binding.dual.generation_matches_config = true;
+    pair.binding.dual.status = 7;
+    pair.binding.region.reason = nr_binding::Refusal::InvalidPlan;
+    pair.binding.region.generation = 44; pair.binding.region.config_generation = 44;
+    pair.binding.region.generation_matches_config = true;
+    pair.binding.region.guide_flags = 0x13; pair.binding.region.status = 2;
     FeedbackSession session; Run(&session);
     Check(session.text.find("dual.snapshot.state=active\n") != std::string::npos,
           "serialized state name");
@@ -552,17 +635,36 @@ int main() {
               session.text.find("dual.secondaryIdentity.sinceReset=5\n") != std::string::npos &&
               session.text.find("dual.secondaryIdentity.extent=960x540\n") != std::string::npos,
           "serialized secondary identity");
+    Check(session.text.find("dual.secondaryIdentity.resetRequested=1\n") != std::string::npos &&
+              session.text.find("dual.secondaryIdentity.resetReasons=0x2A\n") != std::string::npos &&
+              session.text.find("dual.secondaryIdentity.resetReasonLegend=1:caller,2:game,4:history,8:color-contract,16:guide,32:pending\n") != std::string::npos,
+          "serialized reset receipt mask and legend");
     Check(session.text.find("dual.secondaryIdentity.tuning.skinStructure=0.649999976\n") != std::string::npos &&
               session.text.find("dual.secondaryIdentity.tuning.autoMask=1\n") != std::string::npos &&
               session.text.find("dual.secondaryIdentity.tuning.style=2\n") != std::string::npos,
           "serialized actual tuning fields");
-    std::printf("F8 dual serialization: 5 checks, 0 failures\n");
+    Check(session.text.find("dual.binding.reason=queue-or-recording-not-admitted\n") != std::string::npos &&
+              session.text.find("dual.binding.reasonCode=3\n") != std::string::npos &&
+              session.text.find("dual.binding.generation=44\n") != std::string::npos &&
+              session.text.find("dual.binding.context=300\n") != std::string::npos &&
+              session.text.find("dual.binding.generationMatchesConfig=1\n") != std::string::npos &&
+              session.text.find("dual.binding.status=7\n") != std::string::npos &&
+              session.text.find("dual.regionBinding.reason=invalid-descriptor-plan\n") != std::string::npos &&
+              session.text.find("dual.regionBinding.reasonCode=1\n") != std::string::npos &&
+              session.text.find("dual.regionBinding.generation=44\n") != std::string::npos &&
+              session.text.find("dual.regionBinding.generationMatchesConfig=1\n") != std::string::npos &&
+              session.text.find("dual.regionBinding.guideFlags=0x13\n") != std::string::npos &&
+              session.text.find("dual.regionBinding.guideFlagLegend=1:depth,2:normal,4:albedo,8:hit-distance,16:linear-depth\n") != std::string::npos &&
+              session.text.find("dual.regionBinding.status=2\n") != std::string::npos,
+          "serialized dual and region binding evidence");
+    std::printf("F8 dual serialization: 7 checks, 0 failures\n");
     return 0;
 }
 '''
 
 
-def source_checks(core: str, dual_runtime: str, dual_pass: str) -> None:
+def source_checks(core: str, dual_runtime: str, dual_pass: str,
+                  dual_status_runtime: str) -> None:
     find_create = definition(core, "NrContext *FindOrCreateContext(")
     bind = definition(core, "bool BindNrParameters(")
     create = definition(core, "NgxResult CreateSignedNrFeature(")
@@ -585,6 +687,28 @@ def source_checks(core: str, dual_runtime: str, dual_pass: str) -> None:
         assert f"tuning.{field}" in create, f"CreateSignedNrFeature lost {field} receipt"
     assert 'const NrTuningSignature &tuning = context.tuning_signature;' in bind
     assert 'const NrTuningSignature &tuning = context.tuning_signature;' in create
+    assert 'unsigned diagnostic_reset_reasons = 0;' in core
+    for bit in (
+        '(reset ? 1u : 0u)',
+        '(game_reset != 0 ? 2u : 0u)',
+        '(history_changed ? 4u : 0u)',
+        '(color_contract_reset ? 8u : 0u)',
+        '(guide_reset ? 16u : 0u)',
+        '(context.reset_retry_pending ? 32u : 0u)',
+    ):
+        assert bit in bind, f'reset receipt lost {bit}'
+    assert 'context.diagnostic_reset_reasons = diagnostic_reset_reasons;' in bind
+    assert 'snapshot.reset_requested = context.diagnostic_reset_requested;' in dual_status_runtime
+    assert 'snapshot.reset_reasons = context.diagnostic_reset_reasons;' in dual_status_runtime
+    for line in (
+        'nr_dual_runtime::binding_reason.load',
+        'nr_dual_runtime::binding_generation.load',
+        'nr_dual_runtime::binding_context.load',
+        'nr_regions::binding_reason.load',
+        'nr_regions::config_generation.load',
+        'nr_regions::guide_flags.load',
+    ):
+        assert line in dual_status_runtime, f'paired F8 snapshot lost {line}'
 
     # The dual route supplies distinct handles/parameter blocks to the real
     # admission contract.  These checks are against the production route code,
@@ -639,6 +763,7 @@ def main() -> None:
     default_checks()
     core = (ROOT / "src/nr_before_sr.cpp").read_text(encoding="utf-8-sig")
     dual_runtime = (ROOT / "src/nr_dual_runtime.inl").read_text(encoding="utf-8")
+    dual_status_runtime = (ROOT / "src/nr_dual_status_runtime.inl").read_text(encoding="utf-8")
     dual_pass = (ROOT / "src/nr_dual_pass.hpp").read_text(encoding="utf-8")
     feedback = (ROOT / "src/nr_feedback_capture.inl").read_text(encoding="utf-8")
     assert "%s.dual.status=%u" in feedback
@@ -649,10 +774,12 @@ def main() -> None:
     assert "dual.snapshot.finalAdopted=%llu" in feedback
     assert "dual.snapshot.processingAgeMs=%llu" in feedback
     assert "dual.snapshot.noAdoptionAgeMs=%llu" in feedback
+    assert "dual.binding.generationMatchesConfig=%d" in feedback
+    assert "dual.regionBinding.guideFlagLegend=1:depth,2:normal,4:albedo,8:hit-distance,16:linear-depth" in feedback
     assert "dual.secondaryIdentity.tuning.skinStructure=%.9g" in feedback
     serialization_helper = definition(
         feedback, "void FeedbackAppendDualSnapshot(FeedbackSession &s,")
-    source_checks(core, dual_runtime, dual_pass)
+    source_checks(core, dual_runtime, dual_pass, dual_status_runtime)
 
     tuning_type = definition(core, "struct NrTuningSignature", True)
     tuning_function = definition(core, "NrTuningSignature CurrentNrTuningSignature(")

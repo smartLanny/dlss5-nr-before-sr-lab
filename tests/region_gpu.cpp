@@ -34,6 +34,7 @@ struct NrContext {
 };
 NrContext g_contexts[16]={};
 struct {unsigned region_version=1;bool region_enabled=false,generic_residual=false;}g_config;
+std::atomic<unsigned> g_config_generation{1};
 struct {ID3D12Device *device=nullptr;UINT descriptor_size=0;}g_codec;
 constexpr UINT64 kExtraSlotBudget=64ull<<20;
 UINT64 g_extra_allocated_bytes=0;

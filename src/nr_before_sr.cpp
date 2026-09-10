@@ -4858,6 +4858,7 @@ struct NrContext {
     unsigned int successful_evaluations_since_reset = 0;
     bool diagnostic_first_sample_logged = false;
     bool diagnostic_reset_requested = false;
+    unsigned diagnostic_reset_reasons = 0;
     bool reset_retry_pending = false;
     int last_input_filter = -1;
     unsigned int input_filter_source_width = 0, input_filter_source_height = 0;
@@ -8828,11 +8829,19 @@ bool BindNrParameters(NrContext &context, NrSlot &slot,
     slot.capture_params.depth_height = guide_height;
     slot.capture_params.mv_width = motion_width;
     slot.capture_params.mv_height = motion_height;
+    const unsigned diagnostic_reset_reasons =
+        (reset ? 1u : 0u) |
+        (game_reset != 0 ? 2u : 0u) |
+        (history_changed ? 4u : 0u) |
+        (color_contract_reset ? 8u : 0u) |
+        (guide_reset ? 16u : 0u) |
+        (context.reset_retry_pending ? 32u : 0u);
     const bool reset_requested = reset || game_reset != 0 || history_changed ||
         color_contract_reset || guide_reset || context.reset_retry_pending;
     slot.suppress_transfer_this_frame =
         g_config.suppress_reset_frame && reset_requested;
     context.diagnostic_reset_requested = reset_requested;
+    context.diagnostic_reset_reasons = diagnostic_reset_reasons;
     slot.capture_params.reset = reset_requested;
     // Binding may consume config/color transitions before Evaluate fails.
     // Only a successful Evaluate is allowed to consume a requested Reset.
