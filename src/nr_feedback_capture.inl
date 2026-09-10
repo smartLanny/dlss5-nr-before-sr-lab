@@ -482,9 +482,11 @@ void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
          static_cast<unsigned>(stored.probe_policy.mode),stored.recovery_target.subresource}};
     const auto boundary_selection=SelectPostBoundary(boundary_scope,boundary_store);
     const auto &boundary=boundary_selection.window;
-    FeedbackAppend(s,"%s.post.boundary.callLink=attempt:%llu,recoveryCarrier:%llu,recoveryOrdinal:%llu,nativeUseCall:%llu; frozen same-recording identities; carrier domains are distinct; not a latest-call or GPU proof\n",
-        prefix,boundary.recovery.attempt,boundary.recovery.carrier,boundary.recovery.ordinal,
-        boundary.native.use_call);
+    FeedbackAppend(s,"%s.post.boundary.recoveryAttempt=%llu\n%s.post.boundary.recoveryCarrier=%llu\n"
+        "%s.post.boundary.recoveryOrdinal=%llu\n%s.post.boundary.nativeUseCall=%llu\n"
+        "%s.post.boundary.callLinkMeaning=frozen same-recording identities; carrier domains are distinct; not a latest-call or GPU proof\n",
+        prefix,boundary.recovery.attempt,prefix,boundary.recovery.carrier,prefix,boundary.recovery.ordinal,
+        prefix,boundary.native.use_call,prefix);
     FeedbackAppend(s,"%s.post.boundary.selection=%s\n%s.post.boundary.provenance=%s\n"
         "%s.post.boundary.probePhase=%llu\n%s.post.boundary.probeMode=%s\n"
         "%s.post.boundary.phaseCurrent=%d\n%s.post.boundary.scopeCurrent=%d\n"

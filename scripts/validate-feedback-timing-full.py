@@ -32,7 +32,7 @@ def main():
     parser.add_argument('--source-manifest', type=Path,
                         help='Defaults to source-root/../source-manifest.json; all compiled Core inputs must match it.')
     parser.add_argument('--output-dir', type=Path, required=True)
-    parser.add_argument('--negative-control', choices=('omit-end-timing', 'old-probe-current', 'old-tail-reserve', 'old-metadata-limit',
+    parser.add_argument('--negative-control', choices=('omit-end-timing', 'old-probe-current', 'old-tail-reserve', 'old-metadata-limit', 'old-text-limit',
                         'redact-timing-numbers', 'bypass-timing-privacy', 'untyped-decimal-exemption',
                         'omit-end-ui-receipt', 'redact-ui-decimals',
                         'redact-boundary-numbers', 'bypass-boundary-privacy', 'borrow-historical-boundary'))
@@ -77,11 +77,14 @@ def main():
                     'available && sample.probe_policy.phase==probe_policy.phase &&\n                sample.probe_policy.mode==probe_policy.mode',
                     'available', 'FULL_CORE_F8_OLD_PROBE_PHASE')
     elif args.negative_control == 'old-tail-reserve':
-        mutation = ('src/nr_feedback_limits.h', 'kMandatoryTailBytes = 96u * 1024u',
+        mutation = ('src/nr_feedback_limits.h', 'kMandatoryTailBytes = 112u * 1024u',
                     'kMandatoryTailBytes = 80u * 1024u', 'FULL_CORE_F8_CAPACITY')
     elif args.negative_control == 'old-metadata-limit':
-        mutation = ('src/nr_feedback_limits.h', 'kMetadataBytes = 160u * 1024u',
+        mutation = ('src/nr_feedback_limits.h', 'kMetadataBytes = 192u * 1024u',
                     'kMetadataBytes = 128u * 1024u', 'FULL_CORE_F8_CAPACITY')
+    elif args.negative_control == 'old-text-limit':
+        mutation = ('src/nr_feedback_single_text.h', 'kTextLimit = 384u * 1024u',
+                    'kTextLimit = 192u * 1024u', 'FULL_CORE_F8_ALL_SOURCES_CAPACITY')
     elif args.negative_control == 'redact-timing-numbers':
         mutation = ('src/nr_feedback_text.h', 'line = RedactSensitiveLine(std::move(line), true);',
                     'line = RedactSensitiveLine(std::move(line), false);', 'FULL_CORE_F8_TYPED_METADATA_PRIVACY')

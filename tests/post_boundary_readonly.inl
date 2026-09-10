@@ -119,7 +119,10 @@ void Run() {
     auto &receipt=g_nr_recovery_snapshot;receipt={};receipt.key=metadata.recovery_token.key;
     receipt.input.current={true,9,3,1,1};
     auto feedback=std::make_unique<FeedbackSession>();FeedbackAppendActivity(*feedback,"end");
-    Check(std::strstr(feedback->report,"end.post.boundary.callLink=attempt:22,recoveryCarrier:82,recoveryOrdinal:32,nativeUseCall:0"),
+    Check(std::strstr(feedback->report,"end.post.boundary.recoveryAttempt=22\n") &&
+          std::strstr(feedback->report,"end.post.boundary.recoveryCarrier=82\n") &&
+          std::strstr(feedback->report,"end.post.boundary.recoveryOrdinal=32\n") &&
+          std::strstr(feedback->report,"end.post.boundary.nativeUseCall=0\n"),
           "F8 serializes the selected window link and does not borrow the latest native-use snapshot");
     Check(std::strstr(feedback->report,"end.post.boundary.selection=current-read-only-recording") &&
           std::strstr(feedback->report,"end.post.boundary.pairedWithProbe=0") &&

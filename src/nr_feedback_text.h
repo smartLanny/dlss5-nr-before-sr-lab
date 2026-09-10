@@ -67,7 +67,8 @@ inline bool BoundaryMetadataNumber(std::string_view line,std::size_t begin,std::
     else if(key.substr(0,18)=="end.post.boundary.")key.remove_prefix(18);
     else return false;
     for(const auto scalar:{"frame","config","featureGeneration","ageMs","trace","probePhase","device","target",
-        "subresource","storeTrace","storeFrame","storeProbePhase","nativeEventEntries","nativeMatches",
+        "subresource","storeTrace","storeFrame","storeProbePhase","recoveryAttempt","recoveryCarrier",
+        "recoveryOrdinal","nativeUseCall","nativeEventEntries","nativeMatches",
         "nativeOtherListMatches","followingBarriers","readBarriers","writeBarriers","copyReads","copyWrites",
         "renderTargetBinds","nativeExactMatches","nativeExactOtherLists","nativeGlobals","nativeUnknownOperations",
         "exactFollowing","unknownOperations","nativeDropped","followingDropped"})

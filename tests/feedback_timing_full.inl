@@ -496,6 +496,8 @@ void CheckReadonlyBoundaryThroughCollector(const std::filesystem::path &director
     auto current=old;current.trace=new_trace;current.frame=new_frame;current.observation.phase=policy.phase;
     current.observation.probe_mode=static_cast<unsigned>(policy.mode);
     current.provenance=nr_post_boundary::Provenance::ReadOnlyRecording;
+    current.recovery={123456789012351,123456789012352,123456789012353};
+    current.native.use_call=123456789012354;
     current.native.count=nr_post_boundary::kNativeEvents;current.count=nr_post_boundary::kFollowingEvents;
     g_post_boundary_current={};g_post_boundary_history[0]=old;g_post_boundary_history[1]=current;
     g_post_boundary_history_next=2;
@@ -517,7 +519,8 @@ void CheckReadonlyBoundaryThroughCollector(const std::filesystem::path &director
     };
     for(const auto secret:{"Authorization: fixture","password=fixture","access_token=fixture","github_pat_fixture","ghp_fixture","private key fixture"})
         privacy.emplace_back("end.post.boundary.trace="+digits+" | "+secret,"[sensitive log line omitted]");
-    for(unsigned width=12;width<=16;++width)for(const auto key:{"frame","trace","probePhase","storeFrame","storeTrace","storeProbePhase","device","target","featureGeneration"}) {
+    for(unsigned width=12;width<=16;++width)for(const auto key:{"frame","trace","probePhase","storeFrame","storeTrace","storeProbePhase","device","target","featureGeneration",
+            "recoveryAttempt","recoveryCarrier","recoveryOrdinal","nativeUseCall"}) {
         const auto line=std::string("end.post.boundary.")+key+"="+std::string(width,'7');privacy.emplace_back(line,line);
     }
     for(unsigned i=0;i<privacy.size();++i)FeedbackAppend(session->activity,"fixture.boundaryPrivacy.%u=begin\n%s\n",i,privacy[i].first.c_str());
@@ -525,6 +528,11 @@ void CheckReadonlyBoundaryThroughCollector(const std::filesystem::path &director
     Check(result.text && result.complete && result.error==ERROR_SUCCESS,"FULL_CORE_F8_READONLY_TEXT_CREATED");
     if(!result.text)return;
     const auto disk=Read(result.path);Check(disk==*result.text,"FULL_CORE_F8_READONLY_ATOMIC_BYTES");
+    Check(Value(disk,"end.post.boundary.recoveryAttempt")=="123456789012351" &&
+          Value(disk,"end.post.boundary.recoveryCarrier")=="123456789012352" &&
+          Value(disk,"end.post.boundary.recoveryOrdinal")=="123456789012353" &&
+          Value(disk,"end.post.boundary.nativeUseCall")=="123456789012354",
+          "FULL_CORE_F8_CALL_LINK_IDENTITY_PRESERVED");
     Check(Value(disk,"end.post.boundary.selection")=="current-read-only-recording" &&
           Value(disk,"end.post.boundary.trace")==U(new_trace) && Value(disk,"end.post.boundary.frame")==U(new_frame) &&
           Value(disk,"end.post.boundary.storeTrace")==U(old_trace) && Value(disk,"end.post.boundary.storeFrame")==U(old_frame) &&
@@ -659,6 +667,42 @@ void CheckUiActivityEvidence(const std::string& text,const char* prefix,const st
           "FULL_CORE_F8_UI_OBSERVATION_BOUNDARY");
 }
 
+void CheckAllSourcesCapacity(const std::filesystem::path &directory) {
+    // Use the real summary reader and single-TXT collector with six distinct
+    // bounded log sources. Near-full metadata must not consume their budget.
+    const auto folder=directory/L"all-sources";
+    for(const auto leaf:{L"addon",L"game",L"module",L"carrier"})
+        std::filesystem::create_directories(folder/leaf);
+    std::string log;
+    for(unsigned i=0;i<90;++i)
+        log+="error distinct_contract_"+U(i)+"="+std::string(900,static_cast<char>('g'+i%16))+"\n";
+    const auto old_log=std::wstring(g_log_path);
+    wcscpy_s(g_log_path,(folder/L"addon"/L"nr-before-sr.log").c_str());
+    const std::filesystem::path paths[]={g_log_path,folder/L"addon"/L"nr-before-sr.previous.log",
+        folder/L"addon"/L"ReShade.log",folder/L"game"/L"ReShade.log",folder/L"module"/L"ReShade.log",
+        folder/L"carrier"/L"carrier.log"};
+    for(const auto &path:paths)Write(path,log);
+    auto session=std::make_unique<nr_core_feedback::CoreSession>();
+    session->snapshot_ok=true;session->serial=4;
+    wcscpy_s(session->directory,folder.c_str());wcscpy_s(session->exe,(folder/L"game"/L"fixture.exe").c_str());
+    wcscpy_s(session->reshade_module,(folder/L"module"/L"ReShade64.dll").c_str());
+    session->carrier_log=paths[5].wstring();GetLocalTime(&session->local_time);GetSystemTime(&session->utc_time);
+    const auto metadata=BudgetLines("fixture.fullMetadata=1\n",sizeof(session->activity.report)-512,"fixture.fullMetadata");
+    FeedbackAppend(session->activity,"%s",metadata.c_str());
+    Check(!session->activity.report_truncated,"FULL_CORE_F8_ALL_SOURCES_METADATA");
+    const auto output=nr_core_feedback::CollectSingleText(*session,true);
+    wcscpy_s(g_log_path,old_log.c_str());
+    Check(output.text && output.complete && output.error==ERROR_SUCCESS,
+          "FULL_CORE_F8_ALL_SOURCES_CAPACITY");
+    if(!output.text)return;
+    const auto disk=Read(output.path);
+    Check(disk==*output.text && disk.size()>192u*1024u && disk.size()<nr_feedback_single::kTextLimit &&
+          disk.ends_with("text.complete=1\nEND DLSS5 FEEDBACK TEXT\n"),"FULL_CORE_F8_ALL_SOURCES_ATOMIC_TEXT");
+    for(const auto name:{"nr-current","nr-previous","reshade-addon","reshade-game","reshade-module","carrier"})
+        Check(disk.find(std::string("===== ")+name+" /")!=std::string::npos,"FULL_CORE_F8_ALL_SOURCES_PRESENT");
+    std::printf("FULL_CORE_F8_ALL_SOURCES bytes=%zu capacity=%zu\n",disk.size(),nr_feedback_single::kTextLimit);
+}
+
 int Run(const std::filesystem::path &directory, bool missing_clock) {
     std::filesystem::create_directories(directory);
     InitializeCriticalSection(&g_chain_cs);
@@ -788,6 +832,7 @@ int Run(const std::filesystem::path &directory, bool missing_clock) {
     }
     CheckReadonlyBoundaryThroughCollector(directory);
     CheckPrivacyThroughCollector(directory);
+    CheckAllSourcesCapacity(directory);
     Check(NrUiActivityThread().calls==ui_calls&&!g_nr_ui_activity_window.Inspect().initialized,
           "FULL_CORE_F8_UI_NO_OBSERVE");
     std::printf("FULL_CORE_F8_TIMING checks=%u failures=%u metadataBytes=%zu metadataCapacity=%zu textBytes=%zu missingClock=%d\n",
