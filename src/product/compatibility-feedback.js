@@ -97,7 +97,8 @@ function createCompatibilityFeedback({ assessment, sessions, modules = async () 
     };
     const [data, sessionResult, moduleResult] = await Promise.all([
       assessment.assess(id, { sections: ['installation', 'enhancements'] }),
-      optional(() => sessions.inspect(id), 'SESSION_RECORD_UNAVAILABLE', null),
+      optional(() => sessions.inspect(id), 'SESSION_RECORD_UNAVAILABLE', null,
+        value => value === null || value?.status !== 'record-unavailable'),
       optional(() => modules(id), 'COMPONENT_INVENTORY_UNAVAILABLE', [], Array.isArray)
     ]);
     if (data.gameId !== id) fail('检查结果属于另一游戏', 'COMPATIBILITY_TARGET');

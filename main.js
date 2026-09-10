@@ -697,7 +697,20 @@ async function initializeServices({ worker = false, hoyoWorker = false, workerCo
           if (error.code === 'EEXIST') throw Object.assign(new Error('保存位置已有同名文件，请选择新的文件名。'), { code: 'COMPATIBILITY_FILE_EXISTS' });
           throw error;
         });
-        try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
+        let created, writeError;
+        try { created = await handle.stat(); await handle.writeFile(bytes); await handle.sync(); }
+        catch (error) { writeError = error; }
+        try { await handle.close(); } catch (error) { writeError ||= error; }
+        if (writeError) {
+          // Only remove the file created by this attempt. A replaced path is
+          // external, even when the failed write used the same selected name.
+          try {
+            const current = await fs.promises.lstat(selected.filePath);
+            if (created?.ino > 0 && !current.isSymbolicLink() && current.dev === created.dev && current.ino === created.ino)
+              await fs.promises.unlink(selected.filePath);
+          } catch {}
+          throw writeError;
+        }
         try { shell.showItemInFolder(selected.filePath); } catch {}
         return { saved: true };
       }

@@ -59,6 +59,16 @@ function harness(options = {}) {
   const launchSettings = { assertReady: async () => {}, pending: async () => [], restore: async () => {}, hasOwnedState: async () => false, inspect: async () => ({ requests: {}, applied: {} }),
     assessEligibility: async (_id, domain) => { const missing = domain === 'sr' ? options.noNativeDlss : options.noNativeFg; return { eligible: !missing, blockers: missing ? [{ code: domain === 'sr' ? 'ERR_NO_DLSS' : 'SETTINGS_NO_NATIVE_FG', message: 'fixture native integration missing' }] : [] }; }, ...options.launchService };
   const fgComponents = options.fgComponents || { inspect: async () => ({ route: 'native', ready: true }) };
+  const feedbackCalls = options.compatibilityFeedbackCalls || [], defaultFeedback = {
+    open: async id => { feedbackCalls.push({ name: 'open', args: [id] }); return { token: 'fixture-feedback-token', contextKey: id }; },
+    preview: async (token, request) => { feedbackCalls.push({ name: 'preview', args: [token, request] }); return { previewId: 'fixture-feedback-preview', summary: 'fixture feedback preview' }; },
+    save: async (token, request) => { feedbackCalls.push({ name: 'save', args: [token, request] }); return { saved: true }; },
+    discard: async (token, previewId) => { feedbackCalls.push({ name: 'discard', args: [token, previewId] }); return true; },
+    close: async token => { feedbackCalls.push({ name: 'close', args: [token] }); return true; },
+    dispose: () => { feedbackCalls.push({ name: 'dispose', args: [] }); }
+  };
+  const compatibilityFeedback = { ...defaultFeedback,
+    ...(typeof options.compatibilityFeedback === 'function' ? options.compatibilityFeedback() : options.compatibilityFeedback || {}) };
   const business = {
     './src/product/app-service': { createAppService: () => service }, './src/product/sr-model-service': { createSrModelService: () => ({ read() {}, migrationInfo: async () => ({ baselineCaptured: false }), ...options.srService }) },
     './src/product/launch-settings-service': { createLaunchSettingsService: () => launchSettings },
@@ -92,7 +102,8 @@ function harness(options = {}) {
     }) },
     './src/product/component-assessment': require('../src/product/component-assessment'),
     './src/product/game-assessment': { createGameAssessment: () => ({ assess: async () => options.assessment || {} }) },
-    './src/product/feedback': require('../src/product/feedback')
+    './src/product/feedback': require('../src/product/feedback'),
+    './src/product/compatibility-feedback': { createCompatibilityFeedback: () => compatibilityFeedback }
   };
   const fakeProcess = new EventEmitter(); Object.assign(fakeProcess, { argv: options.argv || ['electron', mainFile], env: { SystemRoot: 'C:\\Windows', ...(options.env || {}) }, platform: 'win32',
     execPath: 'C:\\Program Files\\Manager\\manager.exe', resourcesPath: 'C:\\resources', pid: 1234,
@@ -124,7 +135,8 @@ function harness(options = {}) {
   const context = vm.createContext({ require: customRequire, module: { exports: {} }, exports: {}, __filename: mainFile, __dirname: path.dirname(mainFile), process: fakeProcess,
     console, Buffer, URL, setTimeout, clearTimeout, setImmediate });
   new vm.Script(source, { filename: mainFile }).runInContext(context);
-  return { app, logs, dialogs, errors, handles, execCalls, process: fakeProcess, launchSettings, fgComponents, get window() { return latestWindow; } };
+  return { app, logs, dialogs, errors, handles, execCalls, process: fakeProcess, launchSettings, fgComponents, feedbackCalls, compatibilityFeedback,
+    get window() { return latestWindow; } };
 }
 
 function saw(h, stage) { return h.logs.some(row => row.stage === stage); }
@@ -621,6 +633,40 @@ test('HoYo IPC serializes workflow actions, rejects foreign senders and forwards
       assert.equal(await inspect({}, 'game', options), expected);
       assert.deepEqual(calls.at(-1), { name: 'inspect', args: ['game', expected] });
     }
+  } finally { h.window?.emit('closed'); }
+});
+
+test('compatibility feedback IPC registers the current-window gate and forwards context parameters', async () => {
+  const calls = [], opened = { token: 'fixture-token', contextKey: 'fixture-context' }, previewed = { previewId: 'fixture-preview', summary: 'fixture preview' }, saved = { saved: true };
+  const feedback = {
+    open: async id => { calls.push({ name: 'open', args: [id] }); return opened; },
+    preview: async (token, request) => { calls.push({ name: 'preview', args: [token, request] }); return previewed; },
+    save: async (token, request) => { calls.push({ name: 'save', args: [token, request] }); return saved; },
+    discard: async (token, previewId) => { calls.push({ name: 'discard', args: [token, previewId] }); return true; },
+    close: async token => { calls.push({ name: 'close', args: [token] }); return true; },
+    dispose() {}
+  };
+  const h = harness({ compatibilityFeedback: feedback }); await settle();
+  const args = { open: ['game'], preview: ['fixture-token', { ratings: { playability: 'normal' }, includeLogs: false }],
+    save: ['fixture-token', { previewId: 'fixture-preview', confirmed: true }], discard: ['fixture-token', 'fixture-preview'], close: ['fixture-token'] };
+  try {
+    for (const name of Object.keys(args)) {
+      const invoke = h.handles.get('compatibility-' + name); assert.equal(typeof invoke, 'function');
+      await assert.rejects(invoke({ sender: new EventEmitter() }, ...args[name]), { code: 'IPC_SENDER' });
+    }
+    assert.deepEqual(calls, [], 'foreign renderer never reaches the compatibility feedback owner');
+    const context = await h.handles.get('compatibility-open')({}, 'game'); assert.equal(context, opened);
+    const request = { ratings: { playability: 'normal', image: 'improved', fluidity: 'smooth' }, includeLogs: false };
+    assert.equal(await h.handles.get('compatibility-preview')({}, context.token, request), previewed);
+    const saveRequest = { previewId: previewed.previewId, confirmed: true };
+    assert.equal(await h.handles.get('compatibility-save')({}, context.token, saveRequest), saved);
+    await h.handles.get('compatibility-discard')({}, context.token, previewed.previewId);
+    await h.handles.get('compatibility-close')({}, context.token);
+    assert.deepEqual(calls, [
+      { name: 'open', args: ['game'] }, { name: 'preview', args: [context.token, request] },
+      { name: 'save', args: [context.token, saveRequest] }, { name: 'discard', args: [context.token, previewed.previewId] },
+      { name: 'close', args: [context.token] }
+    ]);
   } finally { h.window?.emit('closed'); }
 });
 

@@ -1,5 +1,6 @@
 'use strict';
 const fs=require('node:fs/promises');const path=require('node:path');
+const {randomUUID}=require('node:crypto');
 const {readPackage}=require('./feedback-service.cjs');
 const {validateReport,exactGroup,digest,stable,fail}=require('./model.cjs');
 async function noLinks(p){let current=path.resolve(p);for(;;){const s=await fs.lstat(current).catch(e=>{if(e.code==='ENOENT')return null;throw e;});if(s?.isSymbolicLink())fail('目录含链接，拒绝写入','UNSAFE_PATH');const next=path.dirname(current);if(next===current)break;current=next;}}
@@ -7,10 +8,24 @@ async function importPackage(bytes,directory){
   const {report}=readPackage(bytes),root=path.resolve(directory);await noLinks(root);await fs.mkdir(root,{recursive:true});await noLinks(root);
   // Immutable records only. Rebuilding summaries does not edit original facts; there is no auto recommendation.
   const filename=path.join(root,report.reportId+'.json'),data=JSON.stringify(report,null,2)+'\n';
-  try{await fs.writeFile(filename,data,{flag:'wx',mode:0o600});return {status:'imported',reportId:report.reportId};}
-  catch(e){if(e.code!=='EEXIST')throw e;await noLinks(filename);const st=await fs.stat(filename);if(st.size>256*1024)fail('已有报告异常');
-    const previous=JSON.parse(await fs.readFile(filename,'utf8'));if(stable(previous)!==stable(report))fail('同一报告编号有不同内容，未覆盖','REPORT_ID_CONFLICT');
-    return {status:'duplicate',reportId:report.reportId};}
+  let temporary=null;
+  try{
+    const candidate=path.join(root,'.'+report.reportId+'.'+randomUUID()+'.tmp');
+    const handle=await fs.open(candidate,'wx',0o600);temporary=candidate;
+    try{await handle.writeFile(data);await handle.sync();}finally{await handle.close();}
+    try{await fs.link(temporary,filename);}
+    catch(e){
+      if(e.code!=='EEXIST'){
+        if(['EPERM','EXDEV','ENOSYS','EOPNOTSUPP','ENOTSUP'].includes(e.code))
+          throw Object.assign(new Error('当前目录不支持原子硬链接发布，未导入；请换用支持硬链接的私有目录后重试。'),{code:'ATOMIC_PUBLISH_UNSUPPORTED',cause:e});
+        throw e;
+      }
+      await noLinks(filename);const st=await fs.stat(filename);if(st.size>256*1024)fail('已有报告异常');
+      const previous=JSON.parse(await fs.readFile(filename,'utf8'));if(stable(previous)!==stable(report))fail('同一报告编号有不同内容，未覆盖','REPORT_ID_CONFLICT');
+      return {status:'duplicate',reportId:report.reportId};
+    }
+    return {status:'imported',reportId:report.reportId};
+  }finally{if(temporary)await fs.rm(temporary,{force:true}).catch(()=>{});}
 }
 function aggregate(reports){
   if(!Array.isArray(reports)||reports.length>10000)fail('批次报告过多');

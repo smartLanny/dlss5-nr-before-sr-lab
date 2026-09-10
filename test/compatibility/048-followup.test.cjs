@@ -49,7 +49,7 @@ for (const [name, change] of [
 
 const SESSION = '33333333-1111-4111-8111-111111111111';
 function fixture() {
-  const flags = { modulesFail: false, sessionFail: false, diagnosticsFail: false, diagnosticsWrong: false };
+  const flags = { modulesFail: false, sessionFail: false, sessionRecordUnavailable: false, diagnosticsFail: false, diagnosticsWrong: false };
   let written = 0;
   const session = { sessionId: SESSION, requestedAt: '2026-09-11T01:00:00Z', targetExe: '/test/game.exe',
     process: { exe: '/test/game.exe', pid: 12 }, historical: false };
@@ -64,7 +64,11 @@ function fixture() {
       }
       return structuredClone(data);
     } },
-    sessions: { inspect: async () => { if (flags.sessionFail) throw new Error('unreadable receipt'); return structuredClone(session); } },
+    sessions: { inspect: async () => {
+      if (flags.sessionFail) throw new Error('unreadable receipt');
+      if (flags.sessionRecordUnavailable) return { status: 'record-unavailable', gameId: 'sample' };
+      return structuredClone(session);
+    } },
     modules: async () => { if (flags.modulesFail) throw new Error('invalid manifest'); return [{ role: 'core', sha256: 'a'.repeat(64), version: '0.4.7beta' }]; },
     drivers: async () => ({ gpus: [], os: { platform: 'fixture' } }),
     writePackage: async () => { written++; return { saved: true }; },
@@ -84,6 +88,13 @@ test('broken component manifest no longer prevents failure feedback', async () =
 });
 test('unreadable launch receipt still allows a clearly manual report', async () => {
   const f = fixture(); f.flags.sessionFail = true;
+  const c = await f.service.open('sample'); const p = await f.service.preview(c.token, request);
+  assert.equal(p.report.session.contextSource, 'manual-snapshot');
+  assert(p.report.warnings.includes('SESSION_RECORD_UNAVAILABLE'));
+  assert.equal(p.report.outcome.stages.nr.state, 'unknown');
+});
+test('record-unavailable launch receipt status is reported as missing metadata', async () => {
+  const f = fixture(); f.flags.sessionRecordUnavailable = true;
   const c = await f.service.open('sample'); const p = await f.service.preview(c.token, request);
   assert.equal(p.report.session.contextSource, 'manual-snapshot');
   assert(p.report.warnings.includes('SESSION_RECORD_UNAVAILABLE'));

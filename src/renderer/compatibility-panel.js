@@ -78,7 +78,7 @@
     }
     function openSurvey(source){
       if(!current?.contextKey||current?.feedbackDisabled===true||surveyBusy)return;
-      opener=source;generation++;dropPreview();renderSurvey();dialog.showModal();dialog.querySelector('h2')?.focus();
+      opener=source;generation++;notice.textContent='';dropPreview();renderSurvey();dialog.showModal();dialog.querySelector('h2')?.focus();
     }
     function renderSurvey(draft={}){
       dialogBody.replaceChildren();
