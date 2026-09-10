@@ -76,6 +76,11 @@ def main():
          'proof.window_last_frame_id <= value_.frame && proof.proof_frame_id <= value_.frame;\n        if (proof.correlated_window) value_.post_verified = true;', 'STORAGE_ORACLE'),
         ('coarse-format-is-not-definitive', 'src/nr_compatibility_verdict.h',
          'if (current_rejection && !resource.definitive)', 'if (false)', 'ZZ_UNKNOWN_ORACLE'),
+        ('ignore-current-lifetime-retirement', 'src/nr_route_compatibility_runtime.inl',
+         'g_nr_route.Invalidate("resource-retired");', '(void)identity;', 'LIFETIME_ORACLE'),
+        ('ignore-lifetime-receipts', 'src/nr_route_compatibility.h',
+         'value_.current && value_.scope.lifetime_known && value_.scope.requested',
+         'value_.current && value_.scope.requested', 'LIFETIME_COVERAGE_ORACLE'),
     )
     for label, target, anchor, replacement, marker in controls:
         folder = output / label
@@ -117,7 +122,8 @@ def main():
         row.update(exit=run.returncode, output=run.stdout + run.stderr, binary_sha256=sha(binary.read_bytes()))
         (folder / 'run.log').write_text(row['output'], encoding='utf-8')
         row['expected_result'] = run.returncode == (41 if target else 0) and marker in row['output']
-        print(label + ': ' + row['output'].strip())
+        print(label + ': ' + ('expected inverse assertion caught: ' + marker
+              if target and row['expected_result'] else row['output'].strip()))
     result['status'] = 'pass' if len(result['runs']) == len(controls) and all(
         item.get('expected_result') for item in result['runs']) else 'failed'
     (output / 'result.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')

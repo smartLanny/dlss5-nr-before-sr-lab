@@ -500,6 +500,8 @@ void NrObserveCompatibilityBypass(BypassReason reason);
 void NrRouteBypass(BypassReason);
 void NrRouteInvalidate(const char*);
 void NrRouteRetireFeature(unsigned long long);
+void NrRouteRetireResource(std::uint64_t);
+void NrRouteRetireDevice(std::uint64_t);
 void NrRouteRefreshProof(const nr_resource_recovery::Token&);
 void NrRouteRecoveryStage(const nr_resource_recovery::Token&, nr_resource_recovery::Stage, bool);
 void NrRouteSemanticObserved(const nr_resource_semantics::Decision&, bool);
