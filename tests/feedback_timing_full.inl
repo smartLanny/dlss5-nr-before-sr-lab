@@ -507,6 +507,12 @@ void CheckReadonlyBoundaryThroughCollector(const std::filesystem::path &director
     auto session=std::make_unique<nr_core_feedback::CoreSession>();session->snapshot_ok=true;session->serial=3;
     wcscpy_s(session->directory,output.c_str());wcscpy_s(session->exe,(output/L"readonly-fixture.exe").c_str());
     GetLocalTime(&session->local_time);GetSystemTime(&session->utc_time);
+    auto& gate=g_nr_native_clear_gate;gate={};
+    gate.key={device,target,feature,nr_native_format::Role::Output};gate.config=9;
+    gate.prepared_call=123456789012355;gate.current_call=123456789012356;gate.request_call=gate.current_call;
+    gate.required=gate.evaluated=gate.accepted=gate.same_key=gate.current_scope=true;gate.reason="accepted";
+    g_nr_native_clear_current_key=gate.key;g_nr_native_clear_current_config=gate.config;
+    g_nr_native_clear_current_call=gate.current_call;
     FeedbackAppendActivity(session->activity,"start");FeedbackAppendActivity(session->activity,"end");
     const std::string digits="123456789012345";
     std::vector<std::pair<std::string,std::string>> privacy{
@@ -525,11 +531,26 @@ void CheckReadonlyBoundaryThroughCollector(const std::filesystem::path &director
             "recoveryAttempt","recoveryCarrier","recoveryOrdinal","nativeUseCall"}) {
         const auto line=std::string("end.post.boundary.")+key+"="+std::string(width,'7');privacy.emplace_back(line,line);
     }
+    for(const auto prefix:{"start","end"})for(unsigned width=12;width<=16;++width)
+        for(const auto key:{"config","feature","deviceId","resourceId","preparedCall","currentCall","requestCall"}) {
+            const auto line=std::string(prefix)+".format.output.freshGate."+key+"="+std::string(width,'7');
+            privacy.emplace_back(line,line);
+        }
+    for(const auto suffix:{"preparedCall.extra","note"})
+        privacy.emplace_back(std::string("end.format.output.freshGate.")+suffix+"="+digits,
+            std::string("end.format.output.freshGate.")+suffix+"=[address]");
+    privacy.emplace_back("fake.end.format.output.freshGate.currentCall="+digits,"fake.end.format.output.freshGate.currentCall=[address]");
+    privacy.emplace_back("end.format.output.freshGate.currentCall="+digits+",extra:"+digits,"end.format.output.freshGate.currentCall=[address],extra:[address]");
     for(unsigned i=0;i<privacy.size();++i)FeedbackAppend(session->activity,"fixture.boundaryPrivacy.%u=begin\n%s\n",i,privacy[i].first.c_str());
     const auto result=nr_core_feedback::CollectSingleText(*session,true);
     Check(result.text && result.complete && result.error==ERROR_SUCCESS,"FULL_CORE_F8_READONLY_TEXT_CREATED");
     if(!result.text)return;
     const auto disk=Read(result.path);Check(disk==*result.text,"FULL_CORE_F8_READONLY_ATOMIC_BYTES");
+    Check(Value(disk,"end.format.output.freshGate.preparedCall")=="123456789012355" &&
+          Value(disk,"end.format.output.freshGate.currentCall")=="123456789012356" &&
+          Value(disk,"end.format.output.freshGate.requestCall")=="123456789012356" &&
+          Value(disk,"end.format.output.freshGate.resourceId")==U(target),
+          "FULL_CORE_F8_FRESH_GATE_IDENTITY_PRESERVED");
     Check(Value(disk,"end.post.boundary.recoveryAttempt")=="123456789012351" &&
           Value(disk,"end.post.boundary.recoveryCarrier")=="123456789012352" &&
           Value(disk,"end.post.boundary.recoveryOrdinal")=="123456789012353" &&
@@ -548,6 +569,8 @@ void CheckReadonlyBoundaryThroughCollector(const std::filesystem::path &director
         "FULL_CORE_F8_BOUNDARY_TYPED_PRIVACY");
     Check(nr_feedback_text::Sanitize("end.post.boundary.trace="+digits)=="end.post.boundary.trace=[address]",
           "FULL_CORE_F8_BOUNDARY_RAW_LOG_PRIVACY");
+    Check(nr_feedback_text::Sanitize("end.format.output.freshGate.currentCall="+digits)=="end.format.output.freshGate.currentCall=[address]",
+          "FULL_CORE_F8_FRESH_GATE_RAW_LOG_PRIVACY");
 }
 
 void FillTimeline(FeedbackSession &session) {

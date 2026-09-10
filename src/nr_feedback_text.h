@@ -63,6 +63,13 @@ inline bool BoundaryMetadataNumber(std::string_view line,std::size_t begin,std::
     if(equal==std::string_view::npos || begin!=equal+1 || end!=line.size() ||
        !CanonicalUnsigned(line.substr(begin,end-begin)))return false;
     auto key=line.substr(0,equal);
+    for(const auto prefix:{std::string_view("start.format.output.freshGate."),std::string_view("end.format.output.freshGate.")}) {
+        if(key.substr(0,prefix.size())!=prefix)continue;
+        const auto suffix=key.substr(prefix.size());
+        for(const auto scalar:{"config","feature","deviceId","resourceId","preparedCall","currentCall","requestCall"})
+            if(suffix==scalar)return true;
+        return false;
+    }
     if(key.substr(0,20)=="start.post.boundary.")key.remove_prefix(20);
     else if(key.substr(0,18)=="end.post.boundary.")key.remove_prefix(18);
     else return false;

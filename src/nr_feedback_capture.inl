@@ -145,11 +145,14 @@ void FeedbackAppendNgxLifecycle(FeedbackSession &s) {
 #if defined(NR_HAS_NATIVE_CLEAR_REQUEST)
 void FeedbackAppendNativeClearGate(FeedbackSession &s,const char* prefix) {
     const auto gate=SnapshotNrNativeClearGate();
-    FeedbackAppend(s,"%s.format.output.freshGate=required:%d,evaluated:%d,accepted:%d,currentScope:%d,sameKey:%d,"
-        "config:%llu,feature:%llu,deviceId:%llu,resourceId:%llu,preparedCall:%llu,currentCall:%llu,requestCall:%llu,reason:%s\n",
-        prefix,gate.required,gate.evaluated,gate.accepted,gate.current_scope,gate.same_key,
-        gate.config,gate.key.feature,gate.key.device,gate.key.resource,
-        gate.prepared_call,gate.current_call,gate.request_call,gate.reason);
+    FeedbackAppend(s,"%s.format.output.freshGate=required:%d,evaluated:%d,accepted:%d,currentScope:%d,sameKey:%d,reason:%s\n",
+        prefix,gate.required,gate.evaluated,gate.accepted,gate.current_scope,gate.same_key,gate.reason);
+    FeedbackAppend(s,"%s.format.output.freshGate.config=%llu\n%s.format.output.freshGate.feature=%llu\n"
+        "%s.format.output.freshGate.deviceId=%llu\n%s.format.output.freshGate.resourceId=%llu\n"
+        "%s.format.output.freshGate.preparedCall=%llu\n%s.format.output.freshGate.currentCall=%llu\n"
+        "%s.format.output.freshGate.requestCall=%llu\n",
+        prefix,gate.config,prefix,gate.key.feature,prefix,gate.key.device,prefix,gate.key.resource,
+        prefix,gate.prepared_call,prefix,gate.current_call,prefix,gate.request_call);
 }
 #endif
 void FeedbackAppendActivity(FeedbackSession &s, const char *prefix) {
